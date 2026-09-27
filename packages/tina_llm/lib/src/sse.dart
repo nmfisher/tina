@@ -20,8 +20,8 @@ final class SseParser {
   final void Function(Map<String, dynamic> data) onFrame;
 
   /// Called for a frame whose data is not valid JSON or not an object.
-  /// Return the message to surface; null to ignore the frame.
-  final String? Function(String problem)? onBadFrame;
+  /// The parser keeps going either way; the callback decides what to do.
+  final void Function(String problem)? onBadFrame;
 
   String _buffer = '';
 
@@ -95,12 +95,50 @@ final class ResponseBuilder {
   String? signature;
   bool reasoningObserved = false;
 
+  /// Tool arguments arrive as partial JSON across `input_json_delta`
+  /// frames; keyed by the tool call's index in the stream.
+  final Map<int, StringBuffer> toolJson = {};
+  final Map<int, ({String id, String name})> toolMeta = {};
+
   /// From `message_delta`.
   String? stopReason;
   TokenUsage? usage;
 
+  /// A malformed or failed frame's first complaint, to carry as a stream
+  /// error if the body never completes.
+  String? badFrame;
+
+  /// True once an error frame was seen: the response ended in the
+  /// provider's eyes, and no completion may be fabricated after it.
+  bool errored = false;
+
   /// The completion, once `message_stop` (or end of stream) arrives.
   MessageComplete? build() {
+    // Tool inputs: parse the accumulated argument JSON. Unparseable
+    // arguments become an empty input with the parse error recorded —
+    // the same shape the core uses for that case.
+    for (final entry in toolJson.entries) {
+      final meta = toolMeta[entry.key];
+      if (meta == null) continue;
+      Map<String, dynamic> input = {};
+      String? parseError;
+      try {
+        final decoded = jsonDecode(entry.value.toString());
+        if (decoded is Map<String, dynamic>) {
+          input = decoded;
+        } else {
+          parseError = 'tool arguments were ${decoded.runtimeType}';
+        }
+      } on FormatException catch (e) {
+        parseError = e.message;
+      }
+      content.add(ToolUseBlock(
+        id: meta.id,
+        name: meta.name,
+        input: input,
+        argumentsParseError: parseError,
+      ));
+    }
     final blocks = <ContentBlock>[
       if (text.isNotEmpty) TextBlock(text.toString()),
       ...content,
@@ -130,11 +168,18 @@ bool applyFrame(Map<String, dynamic> frame, ResponseBuilder builder,
 
     case 'content_block_start':
       final block = frame['content_block'] as Map<String, dynamic>?;
+      final index = (frame['index'] as num?)?.toInt() ?? 0;
       switch (block?['type'] as String?) {
         case 'tool_use':
-          events.add(ToolCallStart(
+          final meta = (
             id: block!['id'] as String,
             name: block['name'] as String,
+          );
+          builder.toolMeta[index] = meta;
+          builder.toolJson[index] = StringBuffer();
+          events.add(ToolCallStart(
+            id: meta.id,
+            name: meta.name,
           ));
         case 'thinking':
           builder.reasoningObserved = true;
@@ -143,13 +188,15 @@ bool applyFrame(Map<String, dynamic> frame, ResponseBuilder builder,
 
     case 'content_block_delta':
       final delta = frame['delta'] as Map<String, dynamic>?;
+      final index = (frame['index'] as num?)?.toInt() ?? 0;
       switch (delta?['type'] as String?) {
         case 'text_delta':
           final t = delta!['text'] as String;
           builder.text.write(t);
           events.add(TextDelta(t));
         case 'thinking_delta':
-          final t = delta!['text'] as String;
+          // The wire keys thinking text as `thinking`.
+          final t = delta!['thinking'] as String;
           builder.thinking.write(t);
           events.add(ReasoningDelta(t));
         case 'signature_delta':
@@ -158,9 +205,8 @@ bool applyFrame(Map<String, dynamic> frame, ResponseBuilder builder,
           builder.signature = delta!['signature'] as String;
           events.add(ReasoningEnd(signature: builder.signature));
         case 'input_json_delta':
-          // Tool arguments arrive as partial JSON. The completion carries
-          // the parsed input; parse at close, in the provider.
-          break;
+          // Tool arguments arrive as partial JSON; parse at close.
+          builder.toolJson[index]?.write(delta!['partial_json'] as String? ?? '');
       }
 
     case 'message_delta':
@@ -187,6 +233,9 @@ bool applyFrame(Map<String, dynamic> frame, ResponseBuilder builder,
         err?['message'] as String? ?? 'provider sent an error frame',
         providerCode: err?['type'] as String?,
       ));
+      // The response is over: no completion is fabricated after an error.
+      builder.errored = true;
+      return true;
   }
   return false;
 }
