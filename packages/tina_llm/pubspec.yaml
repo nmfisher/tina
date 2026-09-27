@@ -1,0 +1,14 @@
+name: tina_llm
+description: >-
+  One real LLM provider over tina_core's streaming LlmProvider interface:
+  the Anthropic-wire implementation with injectable HTTP, SSE parsing, and
+  a stall timeout. No retries, no metering, no registry.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../tina_core
+dev_dependencies:
+  test: ^1.25.0
