@@ -19,6 +19,7 @@ final class HostPlugin extends AgentPlugin {
     this.id = 'host',
     this.order = 0,
     required this.workingDirectory,
+    required this.tools,
     required PermissionMode Function() modeOf,
   }) : _modeOf = modeOf;
 
@@ -31,6 +32,12 @@ final class HostPlugin extends AgentPlugin {
 
   /// The directory the session works in.
   final String workingDirectory;
+
+  /// The session's tool schemas — the loop pins and advertises these.
+  /// The list is fixed for the session's life (one ToolSet per host), as
+  /// the loop's pinning invariant expects.
+  @override
+  final List<ToolSchema> tools;
 
   final PermissionMode Function() _modeOf;
 

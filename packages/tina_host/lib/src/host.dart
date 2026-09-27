@@ -64,6 +64,9 @@ final class Host {
     final sandbox = toolSet.sandbox;
     final plugin = HostPlugin(
       workingDirectory: config.workingDirectory,
+      tools: [
+        for (final t in toolSet.tools) t.schema,
+      ],
       modeOf: () => sandbox.mode,
     );
     final loop = AgentLoop(provider: provider, plugins: [plugin]);
