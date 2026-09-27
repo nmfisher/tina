@@ -200,14 +200,16 @@ final class SandboxedProcessRunner implements ProcessRunner {
     }
   }
 
-  /// The inner runner may itself refuse (a host-enforced seam); surface that
-  /// as a refusal rather than masking it as a completed run.
+  /// The inner runner may refuse (a host-enforced seam) or report an
+  /// OS-sandbox denial ([CommandBlocked]); neither may be masked as an
+  /// ordinary completed run. A completed run gains the decision's note.
   static RunOutcome _completed(RunOutcome inner, String note) =>
       switch (inner) {
         CommandCompleted(:final exitCode, :final stdout, :final stderr) =>
           CommandCompleted(
               exitCode: exitCode, stdout: stdout, stderr: stderr, note: note),
         CommandRefused() => inner,
+        CommandBlocked() => inner,
       };
 
   /// The approver is the filesystem's type: a [FileOperation]. The command's

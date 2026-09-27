@@ -14,7 +14,8 @@
 ///   not an exception**: the caller cannot guess whether a throw meant "the
 ///   permission boundary said no" or "the program crashed", and the two need
 ///   completely different treatment (a refusal is the model's answer; a
-///   non-zero exit is just a result).
+///   non-zero exit is just a result). A third outcome, [CommandBlocked],
+///   reports an OS-sandbox denial: the gate said yes, the kernel said stop.
 ///
 /// Enforcement itself lives in `sandboxed_process_runner.dart`, which wraps
 /// a [ProcessRunner] the way `SandboxedFileSystem` wraps a [FileSystem].
@@ -40,9 +41,10 @@ typedef ProcessRequest = ({
   Duration? timeout,
 });
 
-/// What happened: the command ran to completion ([CommandCompleted]) or the
+/// What happened: the command ran to completion ([CommandCompleted]), the
 /// permission boundary refused it before a process existed
-/// ([CommandRefused]).
+/// ([CommandRefused]), or the OS sandbox stopped it mid-run
+/// ([CommandBlocked]).
 sealed class RunOutcome {
   const RunOutcome();
 }
@@ -73,6 +75,19 @@ class CommandCompleted extends RunOutcome {
 class CommandRefused extends RunOutcome {
   final String reason;
   const CommandRefused(this.reason);
+}
+
+/// The permission gate approved the command, **the operating system's
+/// sandbox then stopped it**. Distinct from [CommandCompleted] (a bare
+/// non-zero exit the model would read as "the tool failed, try again" —
+/// but no retry inside the same jail can ever work) and from
+/// [CommandRefused] (our gate's word, set before any process existed).
+///
+/// [reason] says what the kernel refused and names the sandbox as the
+/// stopper, in the model's words.
+class CommandBlocked extends RunOutcome {
+  final String reason;
+  const CommandBlocked(this.reason);
 }
 
 /// Runs a command and returns its outcome. This is the seam; wrap it with
