@@ -5,8 +5,12 @@
 // Run: dart test
 library;
 
+import 'dart:io';
+
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_tools/tina_tools.dart'
+    show stringExecutor, Tool, WriteTool;
 import '../example/example_plugins.dart';
 
 ToolSchema _tool(String name) => ToolSchema(
@@ -55,8 +59,8 @@ void main() {
       ]);
       final loop = AgentLoop(
           provider: provider, plugins: [const ToolProviderPlugin()]);
-      loop.registerExecutor(
-          'echo', (args) async => args['text']?.toString() ?? '');
+      loop.registerExecutor('echo', (args) async =>
+          ToolResult(args['text']?.toString() ?? ''));
 
       final outcome = await loop.runTurn(const Input('hello', id: 'i1'));
 
@@ -94,8 +98,8 @@ void main() {
         _plugin('b', tools: [_tool('t2')]),
       ]);
       loop
-        ..registerExecutor('t1', (_) async => 'one')
-        ..registerExecutor('t2', (_) async => 'two');
+        ..registerExecutor('t1', (_) async => ToolResult('one'))
+        ..registerExecutor('t2', (_) async => ToolResult('two'));
 
       final outcome = await loop.runTurn(const Input('go', id: 'i2'));
 
@@ -159,7 +163,7 @@ void main() {
           ]);
       loop.registerExecutor('rm_rf', (_) async {
         ran.add('ran!');
-        return '';
+        return ToolResult('');
       });
 
       final outcome = await loop.runTurn(const Input('do it', id: 'i4'));
@@ -186,7 +190,7 @@ void main() {
       ]);
       loop.registerExecutor('t', (_) async {
         ran.add('ran!');
-        return '';
+        return ToolResult('');
       });
 
       final outcome = await loop.runTurn(const Input('x', id: 'i4b'));
@@ -209,7 +213,7 @@ void main() {
         _Throw('bad.section', throwIn: 'systemSection'),
         _plugin('owner', tools: [_tool('t')]),
       ]);
-      loop.registerExecutor('t', (_) async => 'ran');
+      loop.registerExecutor('t', (_) async => ToolResult('ran'));
 
       final outcome = await loop.runTurn(const Input('x', id: 'i5'));
 
@@ -259,7 +263,7 @@ void main() {
         _CancelFromTool('canceller'),
         _plugin('owner', tools: [_tool('t')]),
       ]);
-      loop.registerExecutor('t', (_) async => 'ran');
+      loop.registerExecutor('t', (_) async => ToolResult('ran'));
 
       final outcome = await loop.runTurn(const Input('x', id: 'i6b'));
 
@@ -278,7 +282,7 @@ void main() {
       final loop = AgentLoop(provider: provider, plugins: [
         _plugin('vanishing', tools: [_tool('t')]),
       ]);
-      loop.registerExecutor('t', (_) async => 'ran');
+      loop.registerExecutor('t', (_) async => ToolResult('ran'));
       // Remove from a hook, mid-turn — the brief's liveness rule is about a
       // plugin leaving while its pending call is in flight. The remover has
       // order 1, so it removes before the vanishing tool runs.
@@ -320,7 +324,7 @@ void main() {
         const GuardPlugin('denied-tool'),
         _plugin('owner', tools: [_tool('denied-tool'), _tool('good')]),
       ]);
-      loop.registerExecutor('good', (_) async => 'ran');
+      loop.registerExecutor('good', (_) async => ToolResult('ran'));
 
       final outcome = await loop.runTurn(const Input('x', id: 'i8b'));
 
@@ -346,7 +350,7 @@ void main() {
         shifter,
         _plugin('owner', tools: [_tool('t')]),
       ]);
-      loop.registerExecutor('t', (_) async => 'ran');
+      loop.registerExecutor('t', (_) async => ToolResult('ran'));
       // Shift from inside a hook, mid-turn: the pinning invariant is about
       // the set changing while the turn is running.
       loop.addPlugin(_ShiftOnCall('shifter-trigger', shifter));
@@ -379,7 +383,7 @@ void main() {
       ]);
       loop.registerExecutor('t', (_) async {
         ran.add('ran!');
-        return 'ran';
+        return ToolResult('ran');
       });
 
       final outcome = await loop.runTurn(const Input('x', id: 'i9a'));
@@ -415,7 +419,7 @@ void main() {
       ]);
       loop.registerExecutor('t', (args) async {
         seen.add(args);
-        return 'ran';
+        return ToolResult('ran');
       });
 
       final outcome = await loop.runTurn(const Input('x', id: 'i9b'));
@@ -491,6 +495,42 @@ void main() {
         loop.runTurn(const Input('x', id: 'i9e')),
         throwsA(same(throwing)),
       );
+    });
+  });
+
+  group('10. a tina_tools tool mounted on the loop', () {
+    test('WriteTool schema is advertised; execute runs as the executor; '
+        'the file lands', () async {
+      final dir = await Directory.systemTemp.createTemp('tina_e2_tools_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final write = WriteTool(workspaceRoot: dir.path);
+      final provider = ScriptedProvider([
+        scriptedReply('', calls: [
+          ToolUseBlock(
+              id: 'c1',
+              name: 'write',
+              input: {'filePath': 'note.txt', 'content': 'from the model'}),
+        ]),
+        scriptedReply('done'),
+      ]);
+      final loop = AgentLoop(
+          provider: provider, plugins: [_ToolsPlugin([write])]);
+      loop.registerExecutor('write', write.execute);
+
+      final outcome = await loop.runTurn(const Input('save', id: 'i10'));
+
+      expect(outcome.stopReason, StopReason.complete);
+      expect(provider.callCount, 2);
+      // The tool's schema reached the provider's tools list.
+      expect(provider.requests.first.tools.map((t) => t.name), ['write']);
+      // The executor ran the real tool: the file landed under the root.
+      expect(File('${dir.path}/note.txt').readAsStringSync(),
+          'from the model');
+      // The transcript carries the tool's own success content.
+      final result = _result(outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isFalse);
+      expect(result.content, contains('created'));
+      expect(result.content, contains('note.txt'));
     });
   });
 }
@@ -627,4 +667,15 @@ final class _T extends AgentPlugin {
       systemPrompt: request.systemPrompt + mark,
       messages: request.messages,
       tools: request.tools);
+}
+
+/// Mounts a real tina_tools tool onto the loop: schema from [tools]'s
+/// members, executor from `execute`. This is the adapter a host writes.
+final class _ToolsPlugin extends AgentPlugin {
+  _ToolsPlugin(this.tools_);
+  @override
+  String get id => 'tools';
+  @override
+  List<ToolSchema> get tools => [for (final t in tools_) t.schema];
+  final List<Tool> tools_;
 }

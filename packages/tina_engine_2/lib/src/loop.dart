@@ -68,12 +68,17 @@ final class AgentLoop {
   /// Remove a plugin. Dispatch re-checks liveness.
   void removePlugin(String id) => _byId.remove(id);
 
-  /// Give a tool its executor. Executors are not part of [ToolSchema].
+  /// Give a tool its executor. Executors are not part of [ToolSchema]: they
+  /// run in-process and return the full [ToolResult] — content plus flags —
+  /// and `afterTool` can replace what they returned. An existing
+  /// string-returning function wraps with [stringExecutor].
   void registerExecutor(
-          String tool, Future<String> Function(Map<String, Object?>) exec) =>
-      _executors[tool] = exec;
-  final Map<String, Future<String> Function(Map<String, Object?>)> _executors =
-      {};
+      String tool, Future<ToolResult> Function(Map<String, Object?>) exec) {
+    _executors[tool] = exec;
+  }
+
+  final Map<String, Future<ToolResult> Function(Map<String, Object?>)>
+      _executors = {};
 
   /// The one cancellation path.
   void cancel(String why) => _cancel.cancel(why);
@@ -275,8 +280,7 @@ final class AgentLoop {
                   isError: true);
             } else {
               try {
-                final content = await exec(call.input);
-                var recorded = ToolResult(content);
+                var recorded = await exec(call.input);
                 for (final p in _inOrder()) {
                   final replacement = _runHook(
                       () => p.afterTool(_snap(), recorded)) as ToolResult?;

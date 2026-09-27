@@ -10,5 +10,7 @@ environment:
 dependencies:
   tina_core:
     path: ../tina_core
+  tina_tools:
+    path: ../tina_tools
 dev_dependencies:
   test: ^1.25.0
