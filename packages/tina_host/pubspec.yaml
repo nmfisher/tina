@@ -7,6 +7,9 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  attractor:
+    path: ../attractor
+  path: ^1.9.0
   sqlite3: ^3.5.2
   tina_core:
     path: ../tina_core

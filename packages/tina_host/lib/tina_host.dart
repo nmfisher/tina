@@ -13,3 +13,4 @@ export 'src/plans.dart';
 export 'src/plugins.dart';
 export 'src/session.dart';
 export 'src/store.dart';
+export 'src/workflows.dart';
