@@ -214,6 +214,17 @@ final class AgentLoop {
         replacedFrom: from, replacedTo: to, summary: summary, at: _now()));
   }
 
+  /// Record one piece of plugin orchestration state in the log — the
+  /// session's plan today, and any later whole-state blob of the same
+  /// shape. The entry **is** the state: the latest one wins in a derive,
+  /// so a resume replays it exactly as the running session saw it. Like
+  /// [compact], this writes an entry the plugin cannot reach otherwise
+  /// (the log's writer is the loop alone) and accepts one mid-turn —
+  /// the tool executor that produced the state runs inside a turn, and
+  /// a state change is not a message splice: nothing about the request
+  /// under construction shifts under it.
+  void recordState(SessionEntry entry) => _append(entry);
+
   /// The end entry appended on a crash path: listener errors on this one
   /// write are suppressed (the original error is what must surface; a
   /// second throw here would hide it), but the write itself happens.
