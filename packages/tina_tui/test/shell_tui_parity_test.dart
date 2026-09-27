@@ -3,16 +3,20 @@
 // dispatch rules. Timestamps are recorded, never derived, so the
 // comparison strips `at` and compares everything else entry by entry.
 //
+// Lives in tina_tui (dev-dependency direction: tina_tui dev-depends on
+// tina_cli — terminal → non-terminal is the allowed direction; the
+// reverse would gate the shell on a front end).
+//
 // Run: dart test
 library;
 
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:tina_cli/tina_cli.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart'
     show ModeControl, PermissionMode;
-import 'package:tina_cli/tina_cli.dart';
 import 'package:tina_tui/tina_tui.dart';
 
 /// One scripted turn: the reply text, nothing else.
