@@ -14,6 +14,7 @@ import 'dart:convert';
 
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_core/tina_core.dart';
+import 'package:tina_tools/tina_tools.dart' show FileOp;
 
 /// One key press, already decoded. A raw-mode host maps its parsed input
 /// events to these; tests feed a list literal.
@@ -55,6 +56,21 @@ class ApprovalOutcome {
   bool get isCancellation => reason == 'cancelled';
 }
 
+/// The ask context a permission dialog renders: what operation on which
+/// resolved path, and why the sandbox is asking. The adapter
+/// (`approval_approver.dart`) builds it from the sandbox's vocabulary.
+class ApprovalAskContext {
+  final FileOp op;
+  final String path;
+  final String reason;
+  const ApprovalAskContext(this.op, this.path, this.reason);
+
+  String get title => switch (op) {
+        FileOp.write => 'Write outside the project',
+        FileOp.read => 'Read outside the project',
+      };
+}
+
 /// Selection state and rendering for one pending tool call.
 ///
 /// The dialog does not own an overlay region: it produces rows for the host
@@ -63,11 +79,20 @@ class ApprovalOutcome {
 /// ↓ moves to `deny`; `allowAlways` is offered first only when the tool's
 /// arguments parse (a mistrusted call is a bad thing to blanket-allow).
 class ApprovalDialog {
-  ToolUse call;
   int _selected = 0;
-  bool get _hasAlways => call.argumentsParseError == null;
 
-  ApprovalDialog(this.call);
+  /// The pending tool call, when the question came from one. A permission
+  /// ask straight from the sandbox has no call — only [ask].
+  ToolUse? call;
+
+  /// When the pending question is a permission ask: the operation, the
+  /// resolved path and the reason, rendered under the header. Null for a
+  /// plain tool-call dialog.
+  ApprovalAskContext? ask;
+
+  bool get _hasAlways => call?.argumentsParseError == null;
+
+  ApprovalDialog(this.call, {this.ask});
 
   List<String> get _choices => [
         if (_hasAlways) 'allow always',
@@ -81,23 +106,39 @@ class ApprovalDialog {
         _ => ApprovalDecision.deny,
       };
 
-  /// Rows for the current selection: the call, its arguments, and the
-  /// choice list with the highlighted option marked `[ ]`/`[x]`.
+  /// Rows for the current selection: the call (or the ask's operation,
+  /// resolved path and reason), and the choice list with the highlighted
+  /// option marked `[ ]`/`[x]`.
   List<RenderLine> rows({int width = 80, Theme theme = const Theme.defaults()}) {
     final chat = theme.chat;
-    final label = switch (call.name) {
-      'bash' || 'exec' => 'Run command',
-      'edit' => 'Edit file',
-      'write' => 'Write file',
-      _ => call.name,
-    };
-    final args = call.argumentsParseError ?? _inlineArgs(call.input);
+    final ask = this.ask;
+    if (call == null && ask == null) {
+      throw StateError('an ApprovalDialog needs a call or an ask context');
+    }
+    final label = ask?.title ??
+        switch (call!.name) {
+          'bash' || 'exec' => 'Run command',
+          'edit' => 'Edit file',
+          'write' => 'Write file',
+          _ => call!.name,
+        };
+    final args = ask == null
+        ? (call!.argumentsParseError ?? _inlineArgs(call!.input))
+        : null;
     return [
       RenderLine(runs: [RenderRun('┌─ $label', theme.dialog.confirm)]),
-      if (args.isNotEmpty)
+      if (args != null && args.isNotEmpty)
         RenderLine(runs: [
           RenderRun('│ ${_clip(args, width - 3)}', chat.dim),
         ]),
+      if (ask != null) ...[
+        RenderLine(runs: [
+          RenderRun('│ path: ${_clip(ask.path, width - 3)}', chat.dim),
+        ]),
+        RenderLine(runs: [
+          RenderRun('│ why: ${_clip(ask.reason, width - 3)}', chat.dim),
+        ]),
+      ],
       for (var i = 0; i < _choices.length; i++)
         RenderLine(runs: [
           RenderRun(
