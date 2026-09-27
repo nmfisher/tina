@@ -10,7 +10,8 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart'
-    show stringExecutor, Tool, WriteTool;
+    show IoFileSystem, PermissionMode, SandboxedFileSystem, stringExecutor,
+    Tool, WriteTool;
 import '../example/example_plugins.dart';
 
 ToolSchema _tool(String name) => ToolSchema(
@@ -558,6 +559,42 @@ void main() {
       expect(result.isError, isFalse);
       expect(result.content, contains('created'));
       expect(result.content, contains('note.txt'));
+    });
+
+    test('a refusing filesystem records the refusal as the tool_result and '
+        'the turn continues', () async {
+      final dir = await Directory.systemTemp.createTemp('tina_e2_refuse_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final tinaDir = await Directory.systemTemp.createTemp('tina_e2_tina_');
+      addTearDown(() => tinaDir.deleteSync(recursive: true));
+      final sandbox = SandboxedFileSystem(const IoFileSystem(),
+          workspaceRoot: dir.path, tinaDir: tinaDir, mode: PermissionMode.readOnly);
+      final write = WriteTool(fs: sandbox, workspaceRoot: dir.path);
+      final provider = ScriptedProvider([
+        scriptedReply('', calls: [
+          ToolUseBlock(
+              id: 'c1',
+              name: 'write',
+              input: {'filePath': 'blocked.txt', 'content': 'x'}),
+        ]),
+        // The turn continues: the model sees the refusal and answers.
+        scriptedReply('understood, staying read-only'),
+      ]);
+      final loop = AgentLoop(
+          provider: provider, plugins: [_ToolsPlugin([write])]);
+      loop.registerExecutor('write', write.execute);
+
+      final outcome = await loop.runTurn(const Input('try to write', id: 'i11'));
+
+      expect(outcome.stopReason, StopReason.complete);
+      expect(provider.callCount, 2,
+          reason: 'the turn continued past the refused call');
+      // The refusal is exactly what the model was told, as the tool_result.
+      final result = _result(outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isTrue);
+      expect(result.content, contains('read-only mode'));
+      // And nothing was written.
+      expect(File('${dir.path}/blocked.txt').existsSync(), isFalse);
     });
   });
 }
