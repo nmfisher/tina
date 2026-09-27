@@ -1,0 +1,432 @@
+import 'dart:io';
+
+import 'package:tina_tools/tina_tools.dart';
+import 'package:test/test.dart';
+import 'package:path/path.dart' as p;
+
+void main() {
+  group('sandboxed file system', () {
+    late Directory tmp;
+    late Directory tina;
+    late FileSystem io;
+    late SandboxedFileSystem sandbox;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tina_tools_sandbox_');
+      tina = Directory('${Directory.systemTemp.path}/tina_tools_tina_home');
+      io = const IoFileSystem();
+      sandbox = SandboxedFileSystem(io, workspaceRoot: tmp.path, tinaDir: tina);
+    });
+
+    tearDown(() {
+      tmp.deleteSync(recursive: true);
+    });
+
+    test('allows a write inside the root (parent made by the caller)',
+        () async {
+      final dir = p.join(tmp.path, 'newdir');
+      await sandbox.createDirectory(dir, recursive: true);
+      final target = p.join(dir, 'file.txt');
+      await sandbox.writeFile(target, 'hello');
+      expect(File(target).readAsStringSync(), 'hello');
+    });
+
+    test('refuses ../ that climbs out of the root', () async {
+      expect(
+        () => sandbox.writeFile(p.join(tmp.path, '..', 'escape.txt'), 'x'),
+        throwsA(isA<SandboxViolation>()),
+      );
+    });
+
+    test('refuses an absolute path outside the root', () async {
+      expect(
+        () => sandbox.readFileString('/etc/passwd'),
+        throwsA(isA<SandboxViolation>()),
+      );
+    });
+
+    test('refuses a symlink that points outside the root', () async {
+      final outside = Directory.systemTemp.createTempSync('tina_tools_out_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      File(p.join(outside.path, 'secret.txt')).writeAsStringSync('s');
+      Link(p.join(tmp.path, 'link')).createSync(outside.path);
+      expect(
+        () => sandbox.readFileString(p.join(tmp.path, 'link', 'secret.txt')),
+        throwsA(isA<SandboxViolation>()),
+      );
+      expect(
+        () => sandbox.writeFile(p.join(tmp.path, 'link', 'new.txt'), 'x'),
+        throwsA(isA<SandboxViolation>()),
+      );
+    });
+
+    test('refuses a write into ~/.tina', () async {
+      expect(
+        () => sandbox.writeFile(p.join(tina.path, 'x.txt'), 'x'),
+        throwsA(isA<SandboxViolation>()),
+      );
+    });
+
+    test('denies ~/.tina before it exists (walk-up resolves home)', () async {
+      expect(tina.existsSync(), isFalse,
+          reason: 'precondition: the data tree was never created');
+      expect(
+        () => sandbox.writeFile(p.join(tina.path, 'x.txt'), 'x'),
+        throwsA(isA<SandboxViolation>()),
+      );
+      expect(tina.existsSync(), isFalse,
+          reason: 'the refused write must not have created the tree');
+    });
+
+    test('delete/rename/createDirectory are confined too', () async {
+      File(p.join(tmp.path, 'f.txt')).writeAsStringSync('x');
+      expect(() => sandbox.delete('/etc/passwd'),
+          throwsA(isA<SandboxViolation>()));
+      expect(
+          () => sandbox.rename(
+              p.join(tmp.path, 'f.txt'), p.join(tmp.path, '..', 'g.txt')),
+          throwsA(isA<SandboxViolation>()));
+      expect(() => sandbox.createDirectory(p.join(tina.path, 'sidecar')),
+          throwsA(isA<SandboxViolation>()));
+      expect(File('/etc/passwd').existsSync(), isTrue);
+      expect(File(p.join(tmp.path, 'g.txt')).existsSync(), isFalse);
+    });
+  });
+
+  group('ls tool', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tina_tools_ls_');
+    });
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('happy path: markers, sizes, directories first, hidden filtering',
+        () async {
+      Directory('${tmp.path}/sub').createSync();
+      File('${tmp.path}/a.txt').writeAsStringSync('hello');
+      File('${tmp.path}/.hidden').writeAsStringSync('x');
+
+      final res = await LsTool(workspaceRoot: tmp.path)
+          .execute({'path': '.'});
+      expect(res.isError, isFalse);
+      expect(res.content, isNot(contains('.hidden')));
+      final subLine =
+          res.content.split('\n').firstWhere((l) => l.endsWith('sub'));
+      expect(subLine, startsWith('d '));
+      final fileLine =
+          res.content.split('\n').firstWhere((l) => l.endsWith('a.txt'));
+      expect(fileLine, startsWith('- '));
+      expect(fileLine, contains('5'));
+      expect(res.content.indexOf('sub'), lessThan(res.content.indexOf('a.txt')));
+
+      final all = await LsTool(workspaceRoot: tmp.path)
+          .execute({'path': '.', 'all': true});
+      expect(all.content, contains('.hidden'));
+    });
+
+    test('(empty) for nothing visible, maxResults truncation, error paths',
+        () async {
+      final none =
+          await LsTool(workspaceRoot: tmp.path).execute({'path': '.'});
+      expect(none.content, equals('(empty)'));
+
+      for (var i = 0; i < 5; i++) {
+        File('${tmp.path}/f$i.txt').writeAsStringSync('x');
+      }
+      final res = await LsTool(workspaceRoot: tmp.path)
+          .execute({'path': '.', 'maxResults': 2});
+      expect(res.content, contains('f0.txt'));
+      expect(res.content, contains('3 more'));
+
+      final missing = await LsTool(workspaceRoot: tmp.path)
+          .execute({'path': 'no/such/dir'});
+      expect(missing.isError, isTrue);
+      expect(missing.content, contains('path does not exist'));
+
+      File('${tmp.path}/plain.txt').writeAsStringSync('x');
+      final notDir = await LsTool(workspaceRoot: tmp.path)
+          .execute({'path': 'plain.txt'});
+      expect(notDir.isError, isTrue);
+      expect(notDir.content, contains('not a directory'));
+    });
+
+    test('sandbox violation becomes a clean error', () async {
+      final outside = Directory.systemTemp.createTempSync('tina_tools_lso_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final sandbox = SandboxedFileSystem(const IoFileSystem(),
+          workspaceRoot: tmp.path,
+          tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
+      final res = await LsTool(workspaceRoot: tmp.path, sandbox: sandbox)
+          .execute({'path': outside.path});
+      expect(res.isError, isTrue);
+      expect(res.content, contains('escapes the project root'));
+    });
+  });
+
+  group('read tool', () {
+    test('happy path against the memory filesystem', () async {
+      final fs = MemoryFileSystem({'notes.md': 'alpha\nbeta\ngamma\n'});
+      final res = await ReadTool(fs: fs).execute({'filePath': 'notes.md'});
+      expect(res.isError, isFalse);
+      expect(res.content, contains('1: alpha'));
+      expect(res.content, contains('3: gamma'));
+
+      final window = await ReadTool(fs: fs)
+          .execute({'filePath': 'notes.md', 'offset': 2, 'limit': 1});
+      expect(window.content, contains('2: beta'));
+      expect(window.content, isNot(contains('alpha')));
+
+      final missing =
+          await ReadTool(fs: fs).execute({'filePath': 'nope.md'});
+      expect(missing.isError, isTrue);
+      expect(missing.content, contains('File not found'));
+
+      final binary = MemoryFileSystem()..addBinaryFile('b.bin', [0, 1, 2]);
+      final bin =
+          await ReadTool(fs: binary).execute({'filePath': 'b.bin'});
+      expect(bin.isError, isTrue);
+      expect(bin.content, contains('binary'));
+
+      final noArg = await ReadTool(fs: MemoryFileSystem()).execute({});
+      expect(noArg.isError, isTrue);
+      expect(noArg.content, contains('filePath is required'));
+    });
+
+    test('sandbox violation becomes a clean error', () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_tools_read_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final sandbox = SandboxedFileSystem(
+        const IoFileSystem(),
+        workspaceRoot: tmp.path,
+        tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'),
+      );
+      final res = await ReadTool(
+              fs: sandbox, workspaceRoot: tmp.path)
+          .execute({'filePath': '../outside.txt'});
+      expect(res.isError, isTrue);
+      expect(res.content, contains('escapes the project root'));
+    });
+  });
+
+  group('write tool', () {
+    test('create and overwrite against the memory filesystem', () async {
+      final fs = MemoryFileSystem();
+      final tool = WriteTool(fs: fs);
+      final created = await tool
+          .execute({'filePath': 'deep/dir/new.txt', 'content': 'v1'});
+      expect(created.isError, isFalse);
+      expect(created.content, startsWith('created'));
+      expect(fs.files['deep/dir/new.txt'], 'v1');
+
+      final overwrote = await tool
+          .execute({'filePath': 'deep/dir/new.txt', 'content': 'v2'});
+      expect(overwrote.content, startsWith('overwrote'));
+      expect(fs.files['deep/dir/new.txt'], 'v2');
+
+      final noContent =
+          await tool.execute({'filePath': 'deep/dir/new.txt'});
+      expect(noContent.isError, isTrue);
+      expect(noContent.content, contains('content is required'));
+    });
+
+    test('sandbox violation becomes a clean error', () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_tools_write_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final sandbox = SandboxedFileSystem(
+        const IoFileSystem(),
+        workspaceRoot: tmp.path,
+        tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'),
+      );
+      final res = await WriteTool(
+              fs: sandbox, workspaceRoot: tmp.path)
+          .execute({'filePath': '../escape.txt', 'content': 'x'});
+      expect(res.isError, isTrue);
+      expect(res.content, contains('escapes the project root'));
+    });
+  });
+
+  group('edit tool', () {
+    test('unique replace, replaceAll, and conflict shapes on memory',
+        () async {
+      final fs = MemoryFileSystem(
+          {'code.txt': 'one two one\nthree one\n'});
+      final tool = EditTool(fs: fs);
+
+      final ambiguous = await tool.execute({
+        'filePath': 'code.txt',
+        'oldString': 'one',
+        'newString': '1',
+      });
+      expect(ambiguous.isError, isTrue);
+      expect(ambiguous.content, contains('edit_conflict'));
+      expect(ambiguous.content, contains('ambiguousMatch'));
+
+      final ok = await tool.execute({
+        'filePath': 'code.txt',
+        'oldString': 'one two',
+        'newString': '1 2',
+      });
+      expect(ok.isError, isFalse);
+      expect(ok.content, contains('1 replacement'));
+      expect(fs.files['code.txt'], '1 2 one\nthree one\n');
+
+      final all = await tool.execute({
+        'filePath': 'code.txt',
+        'oldString': 'one',
+        'newString': 'ONE',
+        'replaceAll': true,
+      });
+      expect(all.content, contains('2 replacements'));
+      expect(fs.files['code.txt'], '1 2 ONE\nthree ONE\n');
+
+      final missing = await tool.execute({
+        'filePath': 'code.txt',
+        'oldString': 'zzz',
+        'newString': 'y',
+      });
+      expect(missing.isError, isTrue);
+      expect(missing.content, contains('missingMatch'));
+
+      final identical = await tool.execute({
+        'filePath': 'code.txt',
+        'oldString': 'x',
+        'newString': 'x',
+      });
+      expect(identical.isError, isTrue);
+      expect(identical.content, contains('identical'));
+    });
+
+    test('sandbox violation becomes a clean error', () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_tools_edit_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final sandbox = SandboxedFileSystem(
+        const IoFileSystem(),
+        workspaceRoot: tmp.path,
+        tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'),
+      );
+      final res = await EditTool(fs: sandbox, workspaceRoot: tmp.path)
+          .execute({
+        'filePath': '../victim.txt',
+        'oldString': 'a',
+        'newString': 'b',
+      });
+      expect(res.isError, isTrue);
+      expect(res.content, contains('escapes the project root'));
+    });
+  });
+
+  group('glob tool', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tina_tools_glob_');
+    });
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('happy path: pattern, ** matching, no-match text', () async {
+      Directory('${tmp.path}/lib/src').createSync(recursive: true);
+      File('${tmp.path}/lib/a.dart').writeAsStringSync('');
+      File('${tmp.path}/lib/src/b.dart').writeAsStringSync('');
+      File('${tmp.path}/README.md').writeAsStringSync('');
+
+      final tool = GlobTool(workspaceRoot: tmp.path);
+
+      final dart = await tool.execute({'pattern': '**/*.dart'});
+      expect(dart.isError, isFalse);
+      expect(dart.content, contains('lib/a.dart'));
+      expect(dart.content, contains('lib/src/b.dart'));
+      expect(dart.content, isNot(contains('README.md')));
+
+      final top = await tool.execute({'pattern': '*.md'});
+      expect(top.content, contains('README.md'));
+
+      final none = await tool.execute({'pattern': '*.rs'});
+      expect(none.content, equals('(no matches)'));
+    });
+
+    test('sandbox violation becomes a clean error', () async {
+      final outside = Directory.systemTemp.createTempSync('tina_tools_glo_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final sandbox = SandboxedFileSystem(const IoFileSystem(),
+          workspaceRoot: tmp.path,
+          tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
+      final res = await GlobTool(workspaceRoot: tmp.path, sandbox: sandbox)
+          .execute({'pattern': '*.dart', 'path': outside.path});
+      expect(res.isError, isTrue);
+      expect(res.content, contains('escapes the project root'));
+    });
+  });
+
+  group('stat tool', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('tina_tools_stat_');
+    });
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('happy path: file, directory, symlink target', () async {
+      Directory('${tmp.path}/sub').createSync();
+      final f = File('${tmp.path}/a.txt')..writeAsStringSync('hello');
+      Link('${tmp.path}/lnk').createSync(f.path);
+
+      final tool = StatTool(workspaceRoot: tmp.path);
+
+      final fileRes = await tool.execute({'path': 'a.txt'});
+      expect(fileRes.isError, isFalse);
+      expect(fileRes.content, contains('type: file'));
+      expect(fileRes.content, contains('size: 5'));
+
+      final dirRes = await tool.execute({'path': 'sub'});
+      expect(dirRes.content, contains('type: directory'));
+
+      final linkRes = await tool.execute({'path': 'lnk'});
+      expect(linkRes.content, contains('type: symlink'));
+      expect(linkRes.content, contains('target: ${f.path}'));
+
+      final missing = await tool.execute({'path': 'nope'});
+      expect(missing.isError, isTrue);
+      expect(missing.content, contains('path does not exist'));
+    });
+
+    test('sandbox violation becomes a clean error', () async {
+      final sandbox = SandboxedFileSystem(const IoFileSystem(),
+          workspaceRoot: tmp.path,
+          tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
+      final res = await StatTool(workspaceRoot: tmp.path, sandbox: sandbox)
+          .execute({'path': '/etc/passwd'});
+      expect(res.isError, isTrue);
+      expect(res.content, contains('escapes the project root'));
+    });
+  });
+
+  group('tool contract', () {
+    test('every tool declares capabilities; file tools stay in the sandbox',
+        () async {
+      final tools = <Tool>[
+        LsTool(),
+        ReadTool(fs: MemoryFileSystem()),
+        WriteTool(fs: MemoryFileSystem()),
+        EditTool(fs: MemoryFileSystem()),
+        GlobTool(),
+        StatTool(),
+      ];
+      for (final t in tools) {
+        expect(t.schema.name, isNotEmpty, reason: '${t.runtimeType} schema');
+        expect(t.capabilities.spawns, SpawnScope.none,
+            reason: '${t.runtimeType} spawns nothing');
+        expect(t.capabilities.network, NetworkScope.none,
+            reason: '${t.runtimeType} reaches no network');
+        expect(t.capabilities.escapesTheSandbox, isFalse,
+            reason: '${t.runtimeType} must stay contained');
+      }
+      expect(WriteTool(fs: MemoryFileSystem()).capabilities.writes,
+          WriteScope.project);
+      expect(EditTool(fs: MemoryFileSystem()).capabilities.writes,
+          WriteScope.project);
+      expect(ToolCapabilities.undeclared.escapesTheSandbox, isTrue,
+          reason: 'undeclared stays the worst case');
+    });
+  });
+}

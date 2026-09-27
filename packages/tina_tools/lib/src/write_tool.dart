@@ -4,6 +4,7 @@ import 'package:tina_core/tina_core.dart';
 import 'atomic_write.dart';
 import 'file_system.dart';
 import 'io_file_system.dart';
+import 'sandboxed_file_system.dart';
 import 'tool.dart';
 import 'tool_capabilities.dart';
 import 'tool_input.dart';
@@ -56,8 +57,17 @@ class WriteTool implements Tool {
     if (content == null) {
       return ToolResult.error('content is required');
     }
-    // The sandbox decorator validates inside writeFile/createDirectory; a bare
-    // FileSystem (memory tests) has no checks, matching the old tools.
+    // Validate against the sandbox BEFORE any existence probe, so an
+    // out-of-project target can't be probed. Sandboxed only; MemoryFileSystem
+    // skips the is-check.
+    final writeFs = fs;
+    if (writeFs is SandboxedFileSystem) {
+      try {
+        await writeFs.validatePath(path);
+      } on SandboxViolation catch (e) {
+        return ToolResult.error(e.message);
+      }
+    }
     final dir = p.dirname(path);
     if (!await fs.directoryExists(dir)) {
       await fs.createDirectory(dir, recursive: true);

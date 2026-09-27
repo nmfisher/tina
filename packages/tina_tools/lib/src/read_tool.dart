@@ -4,6 +4,7 @@ import 'package:tina_core/tina_core.dart';
 
 import 'file_system.dart';
 import 'io_file_system.dart';
+import 'sandboxed_file_system.dart';
 import 'tool.dart';
 import 'tool_capabilities.dart';
 import 'tool_input.dart';
@@ -59,8 +60,17 @@ class ReadTool implements Tool {
       return ToolResult.error('filePath is required');
     }
     final path = resolveToolPath(rawPath, workspaceRoot);
-    // The sandbox decorator validates inside readFileBytes; a bare FileSystem
-    // (memory tests) has no checks, matching the old tools' behaviour.
+    // Validate against the sandbox BEFORE any existence probe, so an
+    // out-of-project target's existence can't be probed. Sandboxed only;
+    // MemoryFileSystem skips the is-check.
+    final readFs = fs;
+    if (readFs is SandboxedFileSystem) {
+      try {
+        await readFs.validatePath(path);
+      } on SandboxViolation catch (e) {
+        return ToolResult.error(e.message);
+      }
+    }
     if (!await fs.fileExists(path)) {
       return ToolResult.error('File not found: $path');
     }

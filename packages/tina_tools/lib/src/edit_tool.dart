@@ -6,6 +6,7 @@ import 'package:tina_core/tina_core.dart';
 import 'atomic_write.dart';
 import 'file_system.dart';
 import 'io_file_system.dart';
+import 'sandboxed_file_system.dart';
 import 'tool.dart';
 import 'tool_capabilities.dart';
 import 'tool_input.dart';
@@ -73,8 +74,16 @@ class EditTool implements Tool {
       return ToolResult.error(e.message);
     }
     try {
-      // The sandbox decorator validates inside readFileString/writeFile; a
-      // bare FileSystem (memory tests) has no checks, matching the old tools.
+      // Confinement precedes existence probes: validate against the sandbox
+      // BEFORE reading. Sandboxed only; MemoryFileSystem skips the is-check.
+      final editFs = fs;
+      if (editFs is SandboxedFileSystem) {
+        try {
+          await editFs.validatePath(request.path);
+        } on SandboxViolation catch (e) {
+          return ToolResult.error(e.message);
+        }
+      }
       if (!await fs.fileExists(request.path)) {
         return ToolResult.error('File not found: ${request.path}');
       }
