@@ -16,3 +16,10 @@ abstract class Tool {
   /// around each call.
   Future<ToolResult> execute(Map<String, dynamic> input);
 }
+
+/// Wrap a string-returning executor so it satisfies a loop whose
+/// `registerExecutor` wants the full [ToolResult]. The content is the
+/// string; no flags are set.
+Future<ToolResult> Function(Map<String, Object?>) stringExecutor(
+        Future<String> Function(Map<String, Object?>) exec) =>
+    (input) async => ToolResult(await exec(input));

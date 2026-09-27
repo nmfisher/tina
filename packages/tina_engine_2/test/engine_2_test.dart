@@ -59,8 +59,10 @@ void main() {
       ]);
       final loop = AgentLoop(
           provider: provider, plugins: [const ToolProviderPlugin()]);
-      loop.registerExecutor('echo', (args) async =>
-          ToolResult(args['text']?.toString() ?? ''));
+      loop.registerExecutor(
+          'echo',
+          stringExecutor(
+              (args) async => args['text']?.toString() ?? ''));
 
       final outcome = await loop.runTurn(const Input('hello', id: 'i1'));
 
