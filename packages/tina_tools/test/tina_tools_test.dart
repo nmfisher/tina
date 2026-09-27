@@ -40,24 +40,88 @@ void main() {
 
     test('refuses an absolute path outside the root', () async {
       expect(
-        () => sandbox.readFileString('/etc/passwd'),
+        () => sandbox.writeFile('/etc/passwd', 'x'),
         throwsA(isA<SandboxViolation>()),
       );
     });
 
-    test('refuses a symlink that points outside the root', () async {
+    test('a read outside the root lands — reads anywhere but the tina tree',
+        () async {
       final outside = Directory.systemTemp.createTempSync('tina_tools_out_');
       addTearDown(() => outside.deleteSync(recursive: true));
       File(p.join(outside.path, 'secret.txt')).writeAsStringSync('s');
-      Link(p.join(tmp.path, 'link')).createSync(outside.path);
-      expect(
-        () => sandbox.readFileString(p.join(tmp.path, 'link', 'secret.txt')),
-        throwsA(isA<SandboxViolation>()),
+      // Reads anywhere the process can reach are allowed in both modes.
+      for (final m in PermissionMode.values) {
+        sandbox.mode = m;
+        expect(await sandbox.readFileString(
+                p.join(outside.path, 'secret.txt')),
+            's',
+            reason: '$m');
+      }
+      sandbox.mode = PermissionMode.normal;
+    });
+
+    test('a read inside the project lands in both modes', () async {
+      File(p.join(tmp.path, 'in.txt')).writeAsStringSync('in');
+      for (final m in PermissionMode.values) {
+        sandbox.mode = m;
+        expect(await sandbox.readFileString(p.join(tmp.path, 'in.txt')), 'in',
+            reason: '$m');
+      }
+      sandbox.mode = PermissionMode.normal;
+    });
+
+    test('a write outside the project asks: no denies, yes runs', () async {
+      final outside = Directory.systemTemp.createTempSync('tina_tools_ask_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final target = p.join(outside.path, 'out.txt');
+
+      var answers = <FileAskAnswer>[FileAskAnswer.no];
+      var asked = 0;
+      final asking = SandboxedFileSystem(io,
+          workspaceRoot: tmp.path,
+          tinaDir: tina,
+          asker: (request, _) async {
+            asked++;
+            expect(request.op, FileOp.write);
+            expect(request.path, target);
+            return answers.removeAt(0);
+          });
+
+      // Asker says no → refused, reason says what was asked.
+      await expectLater(
+        asking.writeFile(target, 'v1'),
+        throwsA(isA<SandboxViolation>().having(
+            (e) => e.message, 'message', contains('allow write outside'))),
       );
-      expect(
-        () => sandbox.writeFile(p.join(tmp.path, 'link', 'new.txt'), 'x'),
-        throwsA(isA<SandboxViolation>()),
-      );
+      expect(asked, 1);
+      expect(File(target).existsSync(), isFalse);
+
+      // Asker says yes → the write runs.
+      answers = [FileAskAnswer.yes];
+      await asking.writeFile(target, 'v2');
+      expect(asked, 2);
+      expect(File(target).readAsStringSync(), 'v2');
+    });
+
+    test('an "always" answer remembers the grant — the second write does not ask',
+        () async {
+      final outside = Directory.systemTemp.createTempSync('tina_tools_gr_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final target = p.join(outside.path, 'out.txt');
+      var asked = 0;
+      final asking = SandboxedFileSystem(io,
+          workspaceRoot: tmp.path,
+          tinaDir: tina,
+          asker: (_, __) async {
+            asked++;
+            return FileAskAnswer.always;
+          });
+
+      await asking.writeFile(target, 'v1');
+      await asking.writeFile(target, 'v2');
+      expect(asked, 1, reason: 'the second identical write skips the asker');
+      expect(File(target).readAsStringSync(), 'v2');
     });
 
     test('refuses a write into ~/.tina', () async {
@@ -80,6 +144,7 @@ void main() {
 
     test('delete/rename/createDirectory are confined too', () async {
       File(p.join(tmp.path, 'f.txt')).writeAsStringSync('x');
+      // Outside-root targets are asked about; nothing wired → refuse.
       expect(() => sandbox.delete('/etc/passwd'),
           throwsA(isA<SandboxViolation>()));
       expect(
@@ -151,16 +216,26 @@ void main() {
       expect(notDir.content, contains('not a directory'));
     });
 
-    test('sandbox violation becomes a clean error', () async {
+    test('reads are allowed anywhere; a refusal names the reason', () async {
       final outside = Directory.systemTemp.createTempSync('tina_tools_lso_');
       addTearDown(() => outside.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
           workspaceRoot: tmp.path,
           tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
+      // Reads anywhere (both modes) — the guard lets it through.
       final res = await LsTool(workspaceRoot: tmp.path, sandbox: sandbox)
           .execute({'path': outside.path});
-      expect(res.isError, isTrue);
-      expect(res.content, contains('escapes the project root'));
+      expect(res.isError, isFalse);
+
+      // Only the Tina data tree is refused, and the refusal is explicit.
+      final tinaDir =
+          Directory('${Directory.systemTemp.path}/tina_tools_tina_home')
+            ..createSync(recursive: true);
+      addTearDown(() => tinaDir.deleteSync(recursive: true));
+      final denied = await LsTool(workspaceRoot: tmp.path, sandbox: sandbox)
+          .execute({'path': tinaDir.path});
+      expect(denied.isError, isTrue);
+      expect(denied.content, contains('Access to the Tina data tree is blocked'));
     });
   });
 
@@ -193,19 +268,23 @@ void main() {
       expect(noArg.content, contains('filePath is required'));
     });
 
-    test('sandbox violation becomes a clean error', () async {
+    test('refusal reaches the tool result and names the reason', () async {
       final tmp = Directory.systemTemp.createTempSync('tina_tools_read_');
       addTearDown(() => tmp.deleteSync(recursive: true));
+      final tinaDir =
+          Directory('${Directory.systemTemp.path}/tina_tools_tina_home')
+            ..createSync(recursive: true);
+      addTearDown(() => tinaDir.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(
         const IoFileSystem(),
         workspaceRoot: tmp.path,
-        tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'),
+        tinaDir: tinaDir,
       );
-      final res = await ReadTool(
-              fs: sandbox, workspaceRoot: tmp.path)
-          .execute({'filePath': '../outside.txt'});
+      // A read the guard refuses (the Tina data tree) → error result.
+      final res = await ReadTool(fs: sandbox, workspaceRoot: tmp.path)
+          .execute({'filePath': p.join(tinaDir.path, 'session.json')});
       expect(res.isError, isTrue);
-      expect(res.content, contains('escapes the project root'));
+      expect(res.content, contains('Access to the Tina data tree is blocked'));
     });
   });
 
@@ -230,19 +309,51 @@ void main() {
       expect(noContent.content, contains('content is required'));
     });
 
-    test('sandbox violation becomes a clean error', () async {
+    test('readOnly denies an in-project write; nothing asks', () async {
       final tmp = Directory.systemTemp.createTempSync('tina_tools_write_');
       addTearDown(() => tmp.deleteSync(recursive: true));
+      var asked = 0;
       final sandbox = SandboxedFileSystem(
         const IoFileSystem(),
         workspaceRoot: tmp.path,
         tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'),
+        mode: PermissionMode.readOnly,
+        asker: (_, __) async {
+          asked++;
+          return FileAskAnswer.yes;
+        },
       );
       final res = await WriteTool(
               fs: sandbox, workspaceRoot: tmp.path)
-          .execute({'filePath': '../escape.txt', 'content': 'x'});
+          .execute({'filePath': 'in-project.txt', 'content': 'x'});
       expect(res.isError, isTrue);
-      expect(res.content, contains('escapes the project root'));
+      expect(res.content, contains('read-only mode'));
+      expect(asked, 0);
+    });
+
+    test('no tool carries a declaration — the same WriteTool in both modes',
+        () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_tools_decl_');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final tinaDir =
+          Directory('${Directory.systemTemp.path}/tina_tools_tina_home');
+
+      // One WriteTool, nothing capability-shaped set on it, is fine.
+      final tool = WriteTool(
+          fs: SandboxedFileSystem(const IoFileSystem(),
+              workspaceRoot: tmp.path, tinaDir: tinaDir),
+          workspaceRoot: tmp.path);
+
+      final normal = await tool.execute({'filePath': 'a.txt', 'content': 'n'});
+      expect(normal.isError, isFalse);
+      expect(File(p.join(tmp.path, 'a.txt')).readAsStringSync(), 'n');
+
+      // The very same instance flips with the filesystem's mode.
+      (tool.fs as SandboxedFileSystem).mode = PermissionMode.readOnly;
+      final readOnly = await tool.execute({'filePath': 'b.txt', 'content': 'r'});
+      expect(readOnly.isError, isTrue);
+      expect(readOnly.content, contains('read-only mode'));
+      expect(File(p.join(tmp.path, 'b.txt')).existsSync(), isFalse);
     });
   });
 
@@ -297,7 +408,8 @@ void main() {
       expect(identical.content, contains('identical'));
     });
 
-    test('sandbox violation becomes a clean error', () async {
+    test('a write outside the project asks; no asker wired → denied',
+        () async {
       final tmp = Directory.systemTemp.createTempSync('tina_tools_edit_');
       addTearDown(() => tmp.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(
@@ -307,12 +419,12 @@ void main() {
       );
       final res = await EditTool(fs: sandbox, workspaceRoot: tmp.path)
           .execute({
-        'filePath': '../victim.txt',
+        'filePath': p.join(Directory.systemTemp.path, 'victim.txt'),
         'oldString': 'a',
         'newString': 'b',
       });
       expect(res.isError, isTrue);
-      expect(res.content, contains('escapes the project root'));
+      expect(res.content, contains('no asker is wired'));
     });
   });
 
@@ -345,16 +457,21 @@ void main() {
       expect(none.content, equals('(no matches)'));
     });
 
-    test('sandbox violation becomes a clean error', () async {
+    test('a read outside the project is allowed in both modes', () async {
       final outside = Directory.systemTemp.createTempSync('tina_tools_glo_');
       addTearDown(() => outside.deleteSync(recursive: true));
+      File('${outside.path}/x.dart').writeAsStringSync('');
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
           workspaceRoot: tmp.path,
           tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
-      final res = await GlobTool(workspaceRoot: tmp.path, sandbox: sandbox)
-          .execute({'pattern': '*.dart', 'path': outside.path});
-      expect(res.isError, isTrue);
-      expect(res.content, contains('escapes the project root'));
+      for (final m in PermissionMode.values) {
+        sandbox.mode = m;
+        final res = await GlobTool(workspaceRoot: tmp.path, sandbox: sandbox)
+            .execute({'pattern': '*.dart', 'path': outside.path});
+        expect(res.isError, isFalse, reason: '$m');
+        expect(res.content, contains('x.dart'));
+      }
+      sandbox.mode = PermissionMode.normal;
     });
   });
 
@@ -390,14 +507,18 @@ void main() {
       expect(missing.content, contains('path does not exist'));
     });
 
-    test('sandbox violation becomes a clean error', () async {
+    test('a refusal names the reason and flags the result as an error',
+        () async {
+      final tinaDir =
+          Directory('${Directory.systemTemp.path}/tina_tools_tina_home')
+            ..createSync(recursive: true);
+      addTearDown(() => tinaDir.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
-          workspaceRoot: tmp.path,
-          tinaDir: Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
+          workspaceRoot: tmp.path, tinaDir: tinaDir);
       final res = await StatTool(workspaceRoot: tmp.path, sandbox: sandbox)
-          .execute({'path': '/etc/passwd'});
+          .execute({'path': p.join(tinaDir.path, 'session.json')});
       expect(res.isError, isTrue);
-      expect(res.content, contains('escapes the project root'));
+      expect(res.content, contains('Access to the Tina data tree is blocked'));
     });
   });
 }

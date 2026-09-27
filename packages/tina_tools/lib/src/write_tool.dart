@@ -5,6 +5,7 @@ import 'atomic_write.dart';
 import 'file_system.dart';
 import 'io_file_system.dart';
 import 'sandboxed_file_system.dart';
+import 'permissions.dart';
 import 'tool.dart';
 import 'tool_input.dart';
 
@@ -52,13 +53,13 @@ class WriteTool implements Tool {
     if (content == null) {
       return ToolResult.error('content is required');
     }
-    // Validate against the sandbox BEFORE any existence probe, so an
-    // out-of-project target can't be probed. Sandboxed only; MemoryFileSystem
+    // The boundary precedes any existence probe: resolve the operation
+    // through the sandbox BEFORE probing. Sandboxed only; MemoryFileSystem
     // skips the is-check.
     final writeFs = fs;
     if (writeFs is SandboxedFileSystem) {
       try {
-        await writeFs.validatePath(path);
+        await writeFs.guard(FileOp.write, path);
       } on SandboxViolation catch (e) {
         return ToolResult.error(e.message);
       }

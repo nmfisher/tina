@@ -62,8 +62,23 @@ enum FileOp {
 typedef FileOperation = ({FileOp op, String path});
 
 /// Who answers an ask: a function from the request (and the reason it is
-/// being asked) to yes or no. A host wires a UI; nothing wired means deny.
-typedef FileAsker = bool Function(FileOperation request, String reason);
+/// being asked) to one of three answers. A host wires a UI; nothing wired
+/// means deny. Async, because the realistic asker shows a dialog and waits.
+typedef FileAsker = Future<FileAskAnswer> Function(
+    FileOperation request, String reason);
+
+/// What an asker may answer.
+enum FileAskAnswer {
+  /// Run it this once; the next identical write asks again.
+  yes,
+
+  /// Run it and remember it for the session: the second identical write
+  /// does not ask again. Remembered as a path glob by the caller.
+  always,
+
+  /// Refuse it.
+  no,
+}
 
 /// The verdict plus the reason it is what it is. The reason is the string
 /// the model eventually reads — a [SandboxViolation] message or a grant
@@ -142,18 +157,27 @@ String operationReason(FileOperation op, PermissionMode mode) {
 final class OpGrants {
   final List<String> _patterns = [];
 
-  /// Remembers [pattern] (a `fileGlobMatch` glob). True if it was new.
-  bool remember(String pattern) {
-    if (_patterns.contains(pattern)) return false;
-    _patterns.add(pattern);
-    return true;
-  }
-
   /// The remembered patterns, oldest first. Unmodifiable view.
   List<String> get patterns => List.unmodifiable(_patterns);
 
   bool get isEmpty => _patterns.isEmpty;
   int get length => _patterns.length;
+
+  /// Remembers [pattern] (a `fileGlobMatch` glob) and a dir-sibling `*`
+  /// alongside it, so a grant on a directory (or on a file created via
+  /// same-dir temp + rename) covers the directory itself and its siblings
+  /// without covering any deeper tree.
+  bool remember(String pattern) {
+    if (_patterns.contains(pattern)) return false;
+    _patterns.add(pattern);
+    final slash = pattern.lastIndexOf('/');
+    final dirGlob =
+        slash < 0 ? '*' : '${pattern.substring(0, slash + 1)}*';
+    if (dirGlob != pattern && !_patterns.contains(dirGlob)) {
+      _patterns.add(dirGlob);
+    }
+    return true;
+  }
 
   /// True when [path] matches any remembered pattern.
   bool allows(String path) => patternFor(path) != null;

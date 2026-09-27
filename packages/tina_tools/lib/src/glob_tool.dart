@@ -4,6 +4,7 @@ import 'package:tina_core/tina_core.dart';
 
 import 'glob.dart';
 import 'sandboxed_file_system.dart';
+import 'permissions.dart';
 import 'tool.dart';
 import 'tool_input.dart';
 
@@ -74,12 +75,12 @@ class GlobTool implements Tool {
     if (!Directory(path).existsSync() && !File(path).existsSync()) {
       return ToolResult.error('path does not exist: $path');
     }
-    // The walk can't be covered by the FS seam, so assert the runtime path
-    // against the sandbox here. Skipped when sandbox is null. Maps
+    // The walk can't be covered by the FS seam, so resolve the read through
+    // the boundary here. Skipped when sandbox is null. Maps
     // SandboxViolation to a clean error.
     if (sandbox != null) {
       try {
-        await sandbox!.validatePath(path);
+        await sandbox!.guard(FileOp.read, path);
       } on SandboxViolation catch (e) {
         return ToolResult.error(e.message);
       }

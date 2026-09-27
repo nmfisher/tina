@@ -150,10 +150,18 @@ void main() {
       expect(grants.remember('/a'), isTrue);
       expect(grants.remember('/a'), isFalse);
       expect(grants.remember('/b'), isTrue);
-      expect(grants.patterns, ['/a', '/b']);
-      expect(grants.length, 2);
-      expect(grants.patternFor('/b'), '/b');
-      expect(grants.patternFor('/c'), isNull);
+      // `remember` also records the dir-sibling glob (`/a/*`) so an atomic
+      // temp+rename inside the same directory never re-asks.
+      expect(grants.patterns, ['/a', '/*', '/b']);
+      expect(grants.length, 3);
+      // `/b` and `/c` are single-segment siblings of `/a`, so the dir-sibling
+      // glob added for `/a` already covers them:
+      expect(grants.patternFor('/b'), '/*');
+      expect(grants.patternFor('/c'), '/*');
+      // A deeper path is not covered by the sibling glob:
+      expect(grants.allows('/a/deeper'), isFalse);
+      // A sibling of the granted directory is:
+      expect(grants.allows('/sibling-of-a'), isTrue);
     });
   });
 

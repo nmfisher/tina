@@ -3,13 +3,15 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'file_system.dart';
+import 'permissions.dart';
 
-/// Thrown by [SandboxedFileSystem] when a path escapes the project root or
-/// lands inside the Tina data tree. Tools catch this and surface it verbatim
-/// via `ToolResult.error`; callers should not need to handle it.
+/// Thrown by [SandboxedFileSystem] when an operation is refused. Tools catch
+/// this and surface it verbatim via `ToolResult.error`; callers should not
+/// need to handle it.
 ///
-/// [message] is safe to show the user — it never includes the resolved real
-/// path of a sensitive tree, only the path the tool passed in.
+/// This is the refusal that reaches the model: [message] is the reason,
+/// safe to show the user — it never includes the resolved real path of a
+/// sensitive tree, only the path the tool passed in.
 class SandboxViolation implements Exception {
   final String message;
   const SandboxViolation(this.message);
@@ -18,25 +20,52 @@ class SandboxViolation implements Exception {
   String toString() => message;
 }
 
-/// A [FileSystem] decorator that confines every read and write to a project
-/// root and denies the Tina data tree (`~/.tina/*`).
+/// A [FileSystem] decorator — the **enforcement boundary**.
 ///
-/// This is the single enforcement point for path safety: because every
-/// reader/writer goes through the [FileSystem] interface, one decorator covers
-/// every file operation. Tools whose walk cannot go through the seam (ls's
-/// listing, glob's enumerate, stat) additionally assert their runtime `path`
-/// param via [validatePath] in their own `execute()`.
+/// No tool declares permissions and no guard sits in the loop: the model is
+/// free to try any tool, and the thing that refuses is the filesystem the
+/// tool was handed, resolved **per call**. Every read and write goes through
+/// here, so one decorator covers every file operation; the refusal comes
+/// back to the model as that call's tool result.
 ///
-/// Canonicalization resolves both the project root and every target to their
-/// real, absolute paths via [resolveCanonical], so `../` *and* symlink escapes
-/// (`project/link→/etc/passwd`) are caught. Non-existent write targets use a
-/// walk-up algorithm so `project/newdir/file` validates against the real
-/// `project` root without throwing on the missing leaf; broken symlinks are
-/// rejected (no resolvable target → can't verify containment).
+/// The decision is the operation × mode table ([decideOperation]):
+///
+/// - `normal`: reads anywhere run; a write inside the project root runs; a
+///   write outside it is put to the [asker].
+/// - `readOnly`: reads run; **every** write is denied — and never put to the
+///   asker.
+///
+/// Asking is fail-closed: no asker wired means deny. An asker's
+/// [FileAskAnswer.always] remembers a pattern in the session [grants], so
+/// the second identical write does not ask again. A session grant
+/// short-circuits the ask without consulting the asker.
+///
+/// Structural checks that need no mode and no table are kept verbatim, and
+/// they apply to reads too: canonicalization resolves the project root and
+/// every target to their real paths (so `../` and symlink escapes are
+/// caught), the Tina data tree (`~/.tina/*`) is denied outright, and a
+/// broken symlink is rejected because containment cannot be verified.
+/// Tools whose walk cannot go through the seam (ls's listing, glob's
+/// enumerate, stat) additionally assert their runtime `path` param via
+/// [validatePath] in their own `execute()`.
 class SandboxedFileSystem implements FileSystem {
-  final FileSystem _inner;
-  final String _projectRoot;
-  final String _tinaDir;
+  FileSystem _inner;
+  String _projectRoot;
+  String _tinaDir;
+
+  /// The session permission mode. Mutable so a host can flip a live session
+  /// (for example to [PermissionMode.readOnly] for a read-only run); each
+  /// call reads whatever is current.
+  PermissionMode mode;
+
+  /// Who answers an out-of-project write. Null means asks deny — fail
+  /// closed. The filesystem never blocks on the asker beyond this call.
+  FileAsker? asker;
+
+  /// The session's remembered "always" answers, as path globs. The asker's
+  /// [FileAskAnswer.always] causes a [remember] here; a host may also
+  /// pre-seed grants to widen a grant deliberately.
+  final OpGrants grants;
 
   Future<String>? _rootFuture;
   Future<String>? _tinaFuture;
@@ -45,8 +74,40 @@ class SandboxedFileSystem implements FileSystem {
     this._inner, {
     required String workspaceRoot,
     required Directory tinaDir,
+    this.mode = PermissionMode.normal,
+    this.asker,
+    OpGrants? grants,
   })  : _projectRoot = workspaceRoot,
-        _tinaDir = tinaDir.path;
+        _tinaDir = tinaDir.path,
+        grants = grants ?? OpGrants();
+
+  /// The project root the boundary was built with. Structural checks
+  /// ([validatePath], [assertWithinProject]) always use it; the session
+  /// table uses it too, and [reRoot] re-points everything at once.
+  String get projectRoot => _projectRoot;
+
+  /// Swap the boundary to a different project root at runtime. Structural
+  /// root caches are dropped so the next check re-resolves the new root.
+  void reRoot(String workspaceRoot) {
+    _projectRoot = workspaceRoot;
+    _rootFuture = null;
+  }
+
+  /// Swap the underlying filesystem at runtime (seam for hosts that resolve
+  /// the inner implementation late).
+  void reinner(FileSystem inner) {
+    _inner = inner;
+  }
+
+  /// The Tina data dir this boundary denies. Structural, so also [reRoot]ed
+  /// only when a host genuinely moves it (rare); see [reTina].
+  String get tinaDirPath => _tinaDir;
+
+  /// Re-point the denied Tina data tree (see [reRoot]).
+  void reTina(Directory tinaDir) {
+    _tinaDir = tinaDir.path;
+    _tinaFuture = null;
+  }
 
   /// Real, symlink-resolved project root. Resolved lazily and cached.
   Future<String> get _realRoot =>
@@ -66,55 +127,102 @@ class SandboxedFileSystem implements FileSystem {
 
   @override
   Future<List<int>> readFileBytes(String path) async {
-    await validatePath(path);
+    await guard(FileOp.read, path);
     return _inner.readFileBytes(path);
   }
 
   @override
   Future<String> readFileString(String path) async {
-    await validatePath(path);
+    await guard(FileOp.read, path);
     return _inner.readFileString(path);
   }
 
   @override
   Future<void> writeFile(String path, String content) async {
-    await validatePath(path);
+    await guard(FileOp.write, path);
     return _inner.writeFile(path, content);
   }
 
   @override
   Future<void> createDirectory(String path, {bool recursive = false}) async {
-    await validatePath(path);
+    await guard(FileOp.write, path);
     return _inner.createDirectory(path, recursive: recursive);
   }
 
   @override
   Future<void> rename(String from, String to) async {
-    await validatePath(from);
-    await validatePath(to);
+    await guard(FileOp.write, from);
+    await guard(FileOp.write, to);
     return _inner.rename(from, to);
   }
 
   @override
   Future<void> delete(String path) async {
-    await validatePath(path);
+    await guard(FileOp.write, path);
     return _inner.delete(path);
   }
 
   @override
   Future<String> createTempFile({required String near}) async {
-    // The temp lives in the same dir as `near`; validate `near` so a temp can't
-    // be staged outside the root / inside tina.
-    await validatePath(near);
+    // The temp lives in the same dir as `near`; guard `near` as a write so a
+    // temp can't be staged outside the root / inside tina.
+    await guard(FileOp.write, near);
     return _inner.createTempFile(near: near);
   }
 
-  /// Both sandbox checks, in order: must be within the project root AND must
-  /// not land in the Tina tree. Either throws [SandboxViolation].
+  /// The one decision point, per call: structural checks first (canonical
+  /// resolution, Tina-tree denial, broken symlinks), then the operation ×
+  /// mode table ([decideOperation]) with the current [mode]. A granted or
+  /// allowed verdict passes; an ask goes to the [asker] — no asker, or a
+  /// refusal, throws [SandboxViolation] whose message is the reason the
+  /// model will read.
+  Future<void> guard(FileOp op, String path) async {
+    final target = await resolveCanonical(path);
+    await assertOutsideTina(target);
+    final request = (op: op, path: target);
+    final decision = decideOperation(
+      request,
+      mode,
+      projectRoot: await _realRoot,
+      grants: grants,
+    );
+    switch (decision.verdict) {
+      case ToolVerdict.allow:
+        return;
+      case ToolVerdict.deny:
+        throw SandboxViolation(decision.reason);
+      case ToolVerdict.ask:
+        final asker = this.asker;
+        if (asker == null) {
+          throw SandboxViolation('${decision.reason} — denied: no asker '
+              'is wired to approve it');
+        }
+        switch (await asker(request, decision.reason)) {
+          case FileAskAnswer.yes:
+            return;
+          case FileAskAnswer.always:
+            // Remember what was approved: the exact canonical path, plus
+            // the dir-level sibling glob [OpGrants.remember] adds so a
+            // same-dir temp+rename pass does not re-ask. Never wider than
+            // the directory that was approved.
+            grants.remember(target);
+            return;
+          case FileAskAnswer.no:
+            throw SandboxViolation(
+                '${decision.reason} — denied by the user');
+        }
+    }
+  }
+
+  /// Both structural checks, in order: must be within the project root AND
+  /// must not land in the Tina tree. Either throws [SandboxViolation].
   ///
-  /// Public so tools whose walk the seam can't cover (ls's listing, glob's
-  /// enumerate, stat) can assert their runtime `path` param directly in
-  /// `Tool.execute`. Pass the same [SandboxedFileSystem] those tools get.
+  /// The containment check for tools whose walk the seam can't cover (ls's
+  /// listing, glob's enumerate, stat): those tools call this in their
+  /// `Tool.execute` with the same [SandboxedFileSystem] they were handed.
+  /// It is the pre-table part of [guard] — mode-free and ask-free by
+  /// design, so a host using it directly keeps the old containment
+  /// semantics exactly.
   Future<void> validatePath(String path) async {
     final target = await resolveCanonical(path);
     await assertWithinProject(target);
