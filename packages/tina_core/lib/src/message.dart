@@ -98,13 +98,25 @@ class ToolResultBlock extends ContentBlock {
 class ReasoningBlock {
   final String text;
   final bool complete;
-  const ReasoningBlock(this.text, {this.complete = true});
 
-  Map<String, dynamic> toJson() => {'text': text, 'complete': complete};
+  /// The provider's signature over this thinking block (Anthropic wire:
+  /// `signature_delta`). A thinking block sent back without its signature
+  /// is rejected by the provider, so it must survive the round trip. Null
+  /// on blocks the provider never signed (older transcripts).
+  final String? signature;
+
+  const ReasoningBlock(this.text, {this.complete = true, this.signature});
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        'complete': complete,
+        if (signature != null) 'signature': signature,
+      };
 
   factory ReasoningBlock.fromJson(Map<String, dynamic> json) =>
       ReasoningBlock(json['text'] as String,
-          complete: json['complete'] as bool? ?? true);
+          complete: json['complete'] as bool? ?? true,
+          signature: json['signature'] as String?);
 }
 
 class Message {
