@@ -19,6 +19,8 @@
 /// - [dispatchLine]/[commandListRows]: the command front end — a pure
 ///   dispatch decision over the shared `Commands` registry, and its
 ///   presentation; no command name appears in this package.
+/// - [TuiSession]: the session wiring — the same host the shell drives,
+///   the same services, the TUI's terminal in the slot.
 library;
 
 export 'src/chat_view.dart';
@@ -29,3 +31,4 @@ export 'src/approval_dialog.dart';
 export 'src/approval_approver.dart';
 export 'src/tui_terminal.dart';
 export 'src/tui_commands.dart';
+export 'src/tui_session.dart';

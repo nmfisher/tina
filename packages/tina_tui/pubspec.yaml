@@ -14,12 +14,12 @@ dependencies:
   tina_console:
     path: ../tina_console
   # The Terminal and Commands contracts a TUI session contributes and
-  # reads. Non-terminal, acyclic.
+  # reads, plus the session wiring: the same host the shell drives,
+  # mounted with the same plugins. All non-terminal, acyclic.
   tina_services:
     path: ../tina_services
-  # The Approver side of the dialog: the sandbox's permission vocabulary
-  # (FileOperation, Approval, SandboxViolation), not the tools. tina_tools
-  # is terminal-blind, so the layering still runs toward the terminal.
+  tina_host:
+    path: ../tina_host
   tina_tools:
     path: ../tina_tools
 dev_dependencies:
