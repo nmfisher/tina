@@ -679,7 +679,10 @@ void main() {
       expect(provider.callCount, 2);
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
-      expect(result.content, contains('outside the writable set'));
+      // The bash shape cannot be certified at all — it asks, and with no
+      // asker wired the sandbox denies fail-closed.
+      expect(result.content, contains('shell command string'));
+      expect(result.content, contains('no asker'));
     });
   });
 }
