@@ -25,6 +25,9 @@ final class HostConfig {
     this.model = 'scripted',
     required this.workingDirectory,
     this.plugins = const [],
+    this.systemPrompt = '',
+    this.storePath,
+    this.sessionTitle,
   });
 
   /// Builds the provider for **one** session. Called once per
@@ -41,4 +44,16 @@ final class HostConfig {
   /// set is just one of them ([ToolsPlugin]); whatever permissions concept
   /// a session needs lives inside its plugin, never here.
   final List<AgentPlugin> plugins;
+
+  /// The session's system prompt: a setting derive consults, restartable.
+  /// Empty by default — the core owns no prompt text.
+  final String systemPrompt;
+
+  /// The session store's file path, when the session persists. The host
+  /// owns the link: opened at start, closed by the owner of the host.
+  /// Null keeps the session in memory.
+  final String? storePath;
+
+  /// A human-facing title recorded with the session, when persisted.
+  final String? sessionTitle;
 }

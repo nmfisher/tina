@@ -9,3 +9,4 @@ export 'src/host.dart';
 export 'src/host_config.dart';
 export 'src/plugins.dart';
 export 'src/session.dart';
+export 'src/store.dart';
