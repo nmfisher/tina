@@ -8,5 +8,6 @@ export 'src/loop.dart';
 export 'src/model.dart';
 export 'src/plugin.dart';
 export 'src/provider.dart';
+export 'src/tee_provider.dart';
 
 export 'package:tina_core/tina_core.dart';
