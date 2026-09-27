@@ -137,6 +137,16 @@ void main() {
       expect(d.messages.length, 2);
       expect((d.messages.first.content.single as TextBlock).text, 'next');
       expect(d.pendingTurnId, 't1');
+      // The loop that *is* the writer derives mid-turn with the open
+      // turn included: all three messages, same pendingTurnId.
+      final mid = deriveSession(log, const SessionSettings(),
+          includePendingTurn: true);
+      expect(mid.messages.length, 3);
+      expect(
+        (mid.messages.first.content.single as TextBlock).text,
+        'half-typed',
+      );
+      expect(mid.pendingTurnId, 't1');
     });
 
     test('mode changes override the setting', () {

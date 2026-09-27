@@ -88,40 +88,58 @@ final class EntryUsage {
 /// One entry in the session log. Sealed: the case set below is the whole
 /// set, and a reader switches over it exhaustively.
 sealed class SessionEntry {
-  const SessionEntry();
+  const SessionEntry({this.seq = 0});
+
+  /// The entry's position in the log. Set by the loop's single write
+  /// path ([withSeq]); zero until then. Because it travels in the
+  /// payload, a decoded row and the log it came from agree — a reader
+  /// checking `seq == index` over a store's rows detects a gap without
+  /// touching the store's own counters.
+  final int seq;
 
   /// This case's JSON discriminator.
   String get kind;
 
-  /// One JSON object — the payload a store row or a JSON Lines line
-  /// holds, verbatim.
-  Map<String, dynamic> toJson() => {'type': kind};
+  /// This entry with its position stamped. The loop's write path calls
+  /// this once per entry; [fromJson] calls it once per decoded row.
+  SessionEntry withSeq(int seq);
 
-  /// The entry a decoded payload named. An unknown `type` throws — a log
-  /// this code cannot read must not be silently skimmed.
+  /// One JSON object — the payload a store row or a JSON Lines line
+  /// holds, verbatim. Carries `seq` when stamped.
+  Map<String, dynamic> toJson() =>
+      {'type': kind, if (seq > 0) 'seq': seq};
+
+  /// The entry a decoded payload named, position stamped from the
+  /// payload's `seq`. An unknown `type` throws — a log this code cannot
+  /// read must not be silently skimmed.
   static SessionEntry fromJson(Map<String, dynamic> j) {
     final type = j['type'] as String?;
     final at = (j['at'] as String?) ?? '';
+    final stamped = (j['seq'] as num?)?.toInt() ?? 0;
     switch (type) {
       case TurnStartedEntry.kindName:
-        return TurnStartedEntry(turnId: j['turn_id'] as String, at: at);
+        return TurnStartedEntry(turnId: j['turn_id'] as String, at: at)
+            .withSeq(stamped);
       case InputRecordedEntry.kindName:
         return InputRecordedEntry(
-            turnId: j['turn_id'] as String, text: j['text'] as String, at: at);
+                turnId: j['turn_id'] as String,
+                text: j['text'] as String,
+                at: at)
+            .withSeq(stamped);
       case InputRewrittenEntry.kindName:
         return InputRewrittenEntry(
           turnId: j['turn_id'] as String,
           pluginId: j['plugin_id'] as String,
           text: j['text'] as String,
           at: at,
-        );
+        ).withSeq(stamped);
       case MessageAppendedEntry.kindName:
         return MessageAppendedEntry(
           turnId: j['turn_id'] as String,
           message: Message.fromJson(
               Map<String, dynamic>.from(j['message'] as Map)),
           at: at,
-        );
+        ).withSeq(stamped);
       case TurnEndedEntry.kindName:
         return TurnEndedEntry(
           turnId: j['turn_id'] as String,
@@ -129,16 +147,17 @@ sealed class SessionEntry {
           usage: EntryUsage.fromJson(
               Map<String, dynamic>.from(j['usage'] as Map? ?? const {})),
           at: at,
-        );
+        ).withSeq(stamped);
       case ModeChangedEntry.kindName:
-        return ModeChangedEntry(mode: j['mode'] as String, at: at);
+        return ModeChangedEntry(mode: j['mode'] as String, at: at)
+            .withSeq(stamped);
       case CompactedEntry.kindName:
         return CompactedEntry(
           replacedFrom: (j['replaced_from'] as num).toInt(),
           replacedTo: (j['replaced_to'] as num).toInt(),
           summary: j['summary'] as String,
           at: at,
-        );
+        ).withSeq(stamped);
       default:
         throw FormatException('Unknown session entry type: $type');
     }
@@ -155,7 +174,11 @@ final class TurnStartedEntry extends SessionEntry {
   /// When the turn started, ISO-8601 UTC. Recorded, never derived from.
   final String at;
 
-  const TurnStartedEntry({required this.turnId, this.at = ''});
+  const TurnStartedEntry({required this.turnId, this.at = '', super.seq = 0});
+
+  @override
+  TurnStartedEntry withSeq(int newSeq) =>
+      TurnStartedEntry(turnId: turnId, at: at, seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -192,7 +215,12 @@ final class InputRecordedEntry extends SessionEntry {
     required this.turnId,
     required this.text,
     this.at = '',
+    super.seq = 0,
   });
+
+  @override
+  InputRecordedEntry withSeq(int newSeq) =>
+      InputRecordedEntry(turnId: turnId, text: text, at: at, seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -241,7 +269,12 @@ final class InputRewrittenEntry extends SessionEntry {
     required this.pluginId,
     required this.text,
     this.at = '',
+    super.seq = 0,
   });
+
+  @override
+  InputRewrittenEntry withSeq(int newSeq) => InputRewrittenEntry(
+      turnId: turnId, pluginId: pluginId, text: text, at: at, seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -290,7 +323,12 @@ final class MessageAppendedEntry extends SessionEntry {
     required this.turnId,
     required this.message,
     this.at = '',
+    super.seq = 0,
   });
+
+  @override
+  MessageAppendedEntry withSeq(int newSeq) => MessageAppendedEntry(
+      turnId: turnId, message: message, at: at, seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -346,7 +384,12 @@ final class TurnEndedEntry extends SessionEntry {
     required this.reason,
     this.usage = const EntryUsage(),
     this.at = '',
+    super.seq = 0,
   });
+
+  @override
+  TurnEndedEntry withSeq(int newSeq) => TurnEndedEntry(
+      turnId: turnId, reason: reason, usage: usage, at: at, seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -388,7 +431,11 @@ final class ModeChangedEntry extends SessionEntry {
 
   final String at;
 
-  const ModeChangedEntry({required this.mode, this.at = ''});
+  const ModeChangedEntry({required this.mode, this.at = '', super.seq = 0});
+
+  @override
+  ModeChangedEntry withSeq(int newSeq) =>
+      ModeChangedEntry(mode: mode, at: at, seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -437,7 +484,16 @@ final class CompactedEntry extends SessionEntry {
     required this.replacedTo,
     required this.summary,
     this.at = '',
+    super.seq = 0,
   });
+
+  @override
+  CompactedEntry withSeq(int newSeq) => CompactedEntry(
+      replacedFrom: replacedFrom,
+      replacedTo: replacedTo,
+      summary: summary,
+      at: at,
+      seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -543,10 +599,17 @@ final class DerivedSession {
 ///
 /// The snap rule: the derived conversation ends at a turn boundary. A
 /// turn that started but never ended — its [TurnEndedEntry] is not in the
-/// log — contributes nothing to [DerivedSession.messages]: its input,
-/// rewrite and messages belong to the unfinished turn, and a resume
-/// replays the turn from its input instead of half-sending it. The
-/// unfinished turn's id comes back as [DerivedSession.pendingTurnId].
+/// log — contributes nothing to [DerivedSession.messages] when
+/// [includePendingTurn] is false (the default): its input, rewrite and
+/// messages belong to the unfinished turn, and a resume replays the turn
+/// from its input instead of half-sending it. The unfinished turn's id
+/// comes back as [DerivedSession.pendingTurnId] either way.
+///
+/// [includePendingTurn] is for the loop that *is* the writer: mid-turn,
+/// the messages of the turn it is writing — the **last** open turn — are
+/// exactly what the next request must carry, so that turn's slots stay
+/// in. Older open turns stay out in both modes: an abandoned turn is
+/// replayed from its recorded input, never half-sent.
 ///
 /// Compaction: each [CompactedEntry] is applied in log order to the
 /// message list as it stands at that point — replace positions
@@ -557,8 +620,9 @@ final class DerivedSession {
 /// turns, and a summary is never asked to stand in for a half turn.
 DerivedSession deriveSession(
   List<SessionEntry> log,
-  SessionSettings settings,
-) {
+  SessionSettings settings, {
+  bool includePendingTurn = false,
+}) {
   // The message slots, in log order. A slot remembers the turn that was
   // in flight when it was appended; the completed-turn set decides what
   // survives the snap.
@@ -594,9 +658,12 @@ DerivedSession deriveSession(
   // turn is the one a resume would continue.
   final pendingTurnId = openTurns.isEmpty ? null : openTurns.last;
 
+  final writingTurnId =
+      openTurns.isEmpty ? null : openTurns.last;
   final messages = [
     for (final s in slots)
-      if (completedTurns.contains(s.turnId)) s.message,
+      if (completedTurns.contains(s.turnId) ||
+          (includePendingTurn && s.turnId == writingTurnId)) s.message,
   ];
 
   return DerivedSession(

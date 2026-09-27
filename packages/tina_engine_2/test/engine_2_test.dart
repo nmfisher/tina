@@ -62,9 +62,12 @@ ToolResultBlock _result(Message m) =>
 String _text(Message m) =>
     [for (final b in m.content.whereType<TextBlock>()) b.text].join();
 
-/// A terse view of the loop's transcript: `role: text` per message.
+/// A terse view of the loop's conversation: `role: text` per message.
+/// The loop owns a log, not a transcript list — this view is what
+/// `deriveSession` yields from it mid-turn (the open turn included), the
+/// same derivation the next request would be built from.
 String _transcriptText(AgentLoop loop) => [
-      for (final m in loop.transcript)
+      for (final m in loop.derive().messages)
         '${m.role == Role.user ? 'user' : 'assistant'}: ${_text(m)}'
     ].join('\n');
 
