@@ -14,6 +14,8 @@
 /// - [DialogApprover]: the same dialog answering the sandbox's `Approver`
 ///   questions — vocabulary adapter, fail-closed both sides; queueing in
 ///   [QueuedDialogAsker].
+/// - [TuiTerminal]: the `Terminal` a TUI session contributes — a text
+///   sink into the conversation and a queued answer for asks.
 library;
 
 export 'src/chat_view.dart';
@@ -22,3 +24,4 @@ export 'src/tool_chip_view.dart';
 export 'src/status_strip.dart';
 export 'src/approval_dialog.dart';
 export 'src/approval_approver.dart';
+export 'src/tui_terminal.dart';
