@@ -71,6 +71,11 @@ final class AgentLoop {
   final LlmProvider _provider;
   final int maxStepsPerTurn;
 
+  /// The session's provider, read-only. Compaction needs it: the summary
+  /// is one extra request on the provider the turn already uses — the
+  /// plugin does not build its own and never closes this one.
+  LlmProvider get provider => _provider;
+
   /// Plugins in registration order. A duplicate id throws here.
   final LinkedHashMap<String, AgentPlugin> _byId = LinkedHashMap();
 

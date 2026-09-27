@@ -5,6 +5,7 @@
 /// enforcement boundary.
 library;
 
+export 'src/compaction.dart';
 export 'src/host.dart';
 export 'src/host_config.dart';
 export 'src/plugins.dart';
