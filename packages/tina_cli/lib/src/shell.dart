@@ -25,7 +25,7 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Directory, Platform, stderr, stdout;
+import 'dart:io' show Directory, File, Platform, stderr, stdout;
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
@@ -71,6 +71,8 @@ final class ShellOptions {
   const ShellOptions({
     this.configPath,
     this.workingDirectory,
+    this.storePath,
+    this.sessionId,
   });
 
   /// Explicit config file, else `~/.tina/config`.
@@ -78,6 +80,42 @@ final class ShellOptions {
 
   /// The session's working directory, else the process's cwd.
   final String? workingDirectory;
+
+  /// The session store's file, when the session persists. Null keeps the
+  /// session in memory — today's behavior, unchanged.
+  final String? storePath;
+
+  /// Resume this session id instead of starting fresh. Requires
+  /// [storePath]: the loop is seeded from the store's slice and new
+  /// entries continue the same log.
+  final String? sessionId;
+}
+
+/// List a store's sessions, one line each: id, entry count, title. The
+/// `--sessions` path — it opens, reads the registry rows, closes, and
+/// never builds a session. A store that cannot be opened throws; the
+/// entry point turns that into the stderr line.
+void listSessions({
+  required ShellWriter writer,
+  required String storePath,
+}) {
+  if (!File(storePath).existsSync()) {
+    throw SessionStoreException('no session store at $storePath');
+  }
+  final store = SessionStore.open(storePath);
+  try {
+    final sessions = store.list();
+    if (sessions.isEmpty) {
+      writer.writeln('no sessions in $storePath');
+      return;
+    }
+    for (final s in sessions) {
+      writer.writeln('${s.id}  ${s.entries} entries'
+          '${s.title == null ? '' : '  ${s.title}'}');
+    }
+  } finally {
+    store.close();
+  }
 }
 
 /// Build the provider for [model] off [descriptor]: the wire picks the
@@ -182,17 +220,19 @@ final class Shell {
       tinaDir: Directory('$workingDirectory/.tina'),
       services: services,
     );
-    final host = Host.start(
-      HostConfig(
-        providerFactory: providerFactory ??
-            (model) => providerForDescriptor(
-                descriptorByIdFor(resolved.providerId ?? '', descriptors),
-                model),
-        model: resolved.model,
-        workingDirectory: workingDirectory,
-        plugins: [tools],
-      ),
+    final hostConfig = HostConfig(
+      providerFactory: providerFactory ??
+          (model) => providerForDescriptor(
+              descriptorByIdFor(resolved.providerId ?? '', descriptors),
+              model),
+      model: resolved.model,
+      workingDirectory: workingDirectory,
+      plugins: [tools],
+      storePath: options.storePath,
     );
+    final host = options.sessionId == null
+        ? Host.start(hostConfig)
+        : Host.resume(hostConfig, options.sessionId!);
     final shell = Shell._(
       host: host,
       services: services,
@@ -217,6 +257,10 @@ final class Shell {
     writer.writeln(
         'tina shell — ${host.config.model}. '
         '${[for (final c in commands.all) '/${c.name} — ${c.description}'].join('; ')}.');
+    final entries = host.session.loop.log.length;
+    if (entries > 0) {
+      writer.writeln('resumed: $entries log entries.');
+    }
   }
 
   /// Run one entered line. Returns false when the loop should stop
