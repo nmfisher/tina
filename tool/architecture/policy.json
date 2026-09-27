@@ -15,7 +15,8 @@
     "tina_engine_2",
     "tina_host",
     "tina_sqlite",
-    "tina_tui"
+    "tina_tui",
+    "tina_cli"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -93,6 +94,11 @@
     "file_tree": [
       "lib",
       "test"
+    ],
+    "tina_cli": [
+      "lib",
+      "test",
+      "bin"
     ]
   },
   "frontendRoots": [

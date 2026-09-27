@@ -504,6 +504,27 @@ jobs:
         working-directory: packages/tina_host
         run: dart test -j 4
 
+  # tina_cli is terminal-free: the headless shell. Its tests run the
+  # scripted provider over the injected factory with a captured writer —
+  # no terminal, no network.
+  tina_cli:
+    name: tina_cli (packages/tina_cli)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_cli)
+        working-directory: packages/tina_cli
+        run: dart pub get
+      - name: analyze (tina_cli)
+        working-directory: packages/tina_cli
+        run: dart analyze
+      - name: test (tina_cli)
+        working-directory: packages/tina_cli
+        run: dart test -j 4
+
   # tina_sqlite is terminal-free; its only external dep is sqlite3, whose
   # native-assets build hook compiles its bundled SQLite on `dart test` —
   # a C toolchain is already present on the ubuntu runner. The `live`
