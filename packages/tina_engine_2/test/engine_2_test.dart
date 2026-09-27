@@ -1,5 +1,6 @@
-// The eight required scenarios, one `group` each. The scripted provider
-// plays back stream events; tests assert on the recorded requests.
+// The eight required scenarios, one `group` each, plus a ninth group
+// pinning the streaming edge paths. The scripted provider plays back
+// stream events; tests assert on the recorded requests.
 //
 // Run: dart test
 library;
@@ -362,6 +363,155 @@ void main() {
       expect(() => loop.addPlugin(_plugin('dup')), throwsArgumentError);
     });
   });
+
+  group('9. streaming edge paths (recorded, not prescribed)', () {
+    test('stream error mid-reply -> StopReason.error, detail recorded, '
+        'no unpaired tool_use in the transcript', () async {
+      final provider = ScriptedProvider([
+        [
+          ToolCallStart(id: 'c1', name: 't'),
+          StreamError('socket blew up'),
+        ],
+      ]);
+      final ran = <String>[];
+      final loop = AgentLoop(provider: provider, plugins: [
+        _plugin('owner', tools: [_tool('t')]),
+      ]);
+      loop.registerExecutor('t', (_) async {
+        ran.add('ran!');
+        return 'ran';
+      });
+
+      final outcome = await loop.runTurn(const Input('x', id: 'i9a'));
+
+      expect(outcome.stopReason, StopReason.error);
+      expect(outcome.detail, contains('provider error'));
+      expect(outcome.detail, contains('socket blew up'));
+      // The reply never landed, so there is no assistant message carrying
+      // an unpaired tool_use: the transcript is the user message, period.
+      expect([for (final m in outcome.messages) m.role], [Role.user]);
+      final started = [
+        for (final m in outcome.messages) m.content.whereType<ToolUseBlock>()
+      ].expand((c) => c).length;
+      final results = [
+        for (final m in outcome.messages)
+          for (final b in m.content.whereType<ToolResultBlock>()) b
+      ].length;
+      expect(started, results); // no unpaired tool_use anywhere
+      expect(ran, isEmpty); // the started call never dispatched
+    });
+
+    test('ToolCallStart then the stream ends with no MessageComplete -> '
+        'the call dispatches with empty input {}', () async {
+      final seen = <Map<String, Object?>>[];
+      final provider = ScriptedProvider([
+        [
+          ToolCallStart(id: 'c1', name: 't'),
+          // ...and that is the whole stream: no MessageComplete, no deltas.
+        ],
+      ]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _plugin('owner', tools: [_tool('t')]),
+      ]);
+      loop.registerExecutor('t', (args) async {
+        seen.add(args);
+        return 'ran';
+      });
+
+      final outcome = await loop.runTurn(const Input('x', id: 'i9b'));
+
+      // Recorded behaviour: the announced call dispatches, its input taken
+      // from the completion that never came — an empty map.
+      expect(seen, [const <String, Object?>{}]);
+      // The reply messages: the first is EMPTY — a ToolCallStart alone
+      // never becomes a ToolUseBlock in the transcript; blocks come from
+      // MessageComplete only.
+      final replies = [
+        for (final m in outcome.messages)
+          if (m.role == Role.assistant) m
+      ];
+      // The turn continued (one more model call, answered by the script-
+      // exhausted fallback) and ended complete. So: an empty assistant
+      // reply, then the fallback completion reply.
+      expect(replies, hasLength(2));
+      expect(replies.first.content, isEmpty);
+      expect(_text(replies.last), '(script exhausted)');
+      // The call still got its result, paired by id, executor ran cleanly.
+      final result = _result(outcome.messages.firstWhere(_isResult));
+      expect(result.toolUseId, 'c1');
+      expect(result.isError, isFalse);
+      expect(provider.callCount, 2);
+      expect(outcome.stopReason, StopReason.complete);
+    });
+
+    test('interleaved TextDelta and ReasoningDelta: transcript text comes '
+        'from MessageComplete, deltas are dropped', () async {
+      final provider = ScriptedProvider([
+        [
+          const TextDelta('DELTA-1 '),
+          const ReasoningDelta('thinking... ', startsBlock: true),
+          const TextDelta('DELTA-2 '),
+          const ReasoningDelta('more thinking'),
+          const TextDelta('DELTA-3'),
+          const MessageComplete(
+              content: [TextBlock('FINAL')], stopReason: 'end_turn'),
+        ],
+      ]);
+      final loop = AgentLoop(provider: provider, plugins: []);
+
+      final outcome = await loop.runTurn(const Input('x', id: 'i9c'));
+
+      expect(outcome.stopReason, StopReason.complete);
+      // The reply's blocks come from MessageComplete alone: one text block
+      // with the completion's text; no delta text, no reasoning blocks.
+      final reply = outcome.messages.last;
+      expect(reply.role, Role.assistant);
+      expect(reply.content.length, 1);
+      expect(_text(reply), 'FINAL');
+      expect(_text(reply), isNot(contains('DELTA')));
+      // The loop's fallback: with no MessageComplete at all, accumulated
+      // delta text becomes the reply.
+      final fallback = ScriptedProvider([
+        [const TextDelta('only deltas '), const TextDelta('here')],
+      ]);
+      final loop2 = AgentLoop(provider: fallback, plugins: []);
+      final outcome2 = await loop2.runTurn(const Input('y', id: 'i9d'));
+      expect(outcome2.stopReason, StopReason.complete);
+      expect(_text(outcome2.messages.last), 'only deltas here');
+    });
+
+    test('provider send() throws instead of yielding -> the exception '
+        'escapes runTurn to the caller, uncaught', () async {
+      final throwing = _ThrowingSendProvider();
+      final loop = AgentLoop(provider: throwing, plugins: []);
+
+      // Recorded behaviour: no try/catch in the loop around the stream —
+      // the throw from send() propagates out of runTurn.
+      await expectLater(
+        loop.runTurn(const Input('x', id: 'i9e')),
+        throwsA(same(throwing)),
+      );
+    });
+  });
+}
+
+/// A `LlmProvider` whose `send` throws when the stream is created — the
+/// provider-died-before-yielding case. [ScriptedProvider] cannot express
+/// that, so this stands in for the seam.
+final class _ThrowingSendProvider implements LlmProvider {
+  @override
+  final String model = 'throwing';
+
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) {
+    throw this;
+  }
+
+  @override
+  void close() {}
 }
 
 /// A guard that asks (no UI in this package).
