@@ -450,6 +450,27 @@ jobs:
         working-directory: packages/tina_llm
         run: dart test -j 4
 
+  # tina_services is terminal-free: the shared contracts (locator,
+  # Terminal seam, command registry) the plugins and the shell meet on.
+  # Copy the tina_llm job shape.
+  tina_services:
+    name: tina_services (packages/tina_services)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_services)
+        working-directory: packages/tina_services
+        run: dart pub get
+      - name: analyze (tina_services)
+        working-directory: packages/tina_services
+        run: dart analyze
+      - name: test (tina_services)
+        working-directory: packages/tina_services
+        run: dart test -j 4
+
   tina_tools:
     name: tina_tools (packages/tina_tools)
     runs-on: ubuntu-latest

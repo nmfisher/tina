@@ -1,0 +1,14 @@
+name: tina_services
+description: >-
+  The shared contracts: a minimal service locator (register/get by type,
+  throw on missing), a Terminal (write a line, ask, get the answer), and
+  the command registry a front end reads. Depends on tina_core only.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../tina_core
+dev_dependencies:
+  test: ^1.25.0

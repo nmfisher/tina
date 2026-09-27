@@ -11,6 +11,7 @@
     "file_tree",
     "tina_core",
     "tina_llm",
+    "tina_services",
     "tina_tools",
     "tina_engine_2",
     "tina_host",
@@ -55,6 +56,10 @@
       "lib"
     ],
     "tina_llm": [
+      "lib",
+      "test"
+    ],
+    "tina_services": [
       "lib",
       "test"
     ],
