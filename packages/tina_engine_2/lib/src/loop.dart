@@ -241,14 +241,29 @@ final class AgentLoop {
         }
         return finish(StopReason.error, 'provider error: $thrown');
       }
+      // A call announced by [ToolCallStart] whose block never arrived via
+      // [MessageComplete] has no [ToolUseBlock] in the transcript: there
+      // is no tool_use to pair a result with, and nothing legitimate to
+      // dispatch. Dispatching it would fabricate an empty-input call and a
+      // successful result for a tool_use that does not exist, and the
+      // assistant reply would be an empty message. So — no dispatch, no
+      // result, no reply message; the turn ends with the reason recorded.
+      // The pairing invariant is untouched: this case creates neither
+      // side of the pair.
+      final orphans = [
+        for (final s in starts) if (!blocksById.containsKey(s.id)) s
+      ];
+      if (orphans.isNotEmpty) {
+        return finish(
+            StopReason.error,
+            'provider stream ended before tool call '
+            '${[for (final s in orphans) s.id].join(', ')} completed');
+      }
       final blocks = completion?.content ??
           [if (deltaText.isNotEmpty) TextBlock(deltaText.toString())];
       final toolCalls = [
         for (final s in starts)
-          ToolUse(
-              id: s.id,
-              name: s.name,
-              input: blocksById[s.id]?.input ?? const {}),
+          ToolUse(id: s.id, name: s.name, input: blocksById[s.id]!.input),
       ];
       final replyText = [
         for (final b in blocks.whereType<TextBlock>()) b.text

@@ -408,7 +408,8 @@ void main() {
     });
 
     test('ToolCallStart then the stream ends with no MessageComplete -> '
-        'the call dispatches with empty input {}', () async {
+        'the call is not dispatched; the turn ends StopReason.error',
+        () async {
       final seen = <Map<String, Object?>>[];
       final provider = ScriptedProvider([
         [
@@ -426,28 +427,27 @@ void main() {
 
       final outcome = await loop.runTurn(const Input('x', id: 'i9b'));
 
-      // Recorded behaviour: the announced call dispatches, its input taken
-      // from the completion that never came — an empty map.
-      expect(seen, [const <String, Object?>{}]);
-      // The reply messages: the first is EMPTY — a ToolCallStart alone
-      // never becomes a ToolUseBlock in the transcript; blocks come from
-      // MessageComplete only.
+      // The call's block comes from MessageComplete; with no completion
+      // there is no ToolUseBlock in the transcript — nothing to pair a
+      // result with, nothing legitimate to dispatch.
+      expect(seen, isEmpty);
+      // No reply message is written: ToolCallStart alone never becomes a
+      // ToolUseBlock, and an empty assistant reply would be fabrication.
       final replies = [
         for (final m in outcome.messages)
           if (m.role == Role.assistant) m
       ];
-      // The turn continued (one more model call, answered by the script-
-      // exhausted fallback) and ended complete. So: an empty assistant
-      // reply, then the fallback completion reply.
-      expect(replies, hasLength(2));
-      expect(replies.first.content, isEmpty);
-      expect(_text(replies.last), '(script exhausted)');
-      // The call still got its result, paired by id, executor ran cleanly.
-      final result = _result(outcome.messages.firstWhere(_isResult));
-      expect(result.toolUseId, 'c1');
-      expect(result.isError, isFalse);
-      expect(provider.callCount, 2);
-      expect(outcome.stopReason, StopReason.complete);
+      expect(replies, isEmpty);
+      // No tool_result was recorded — there is no tool_use to pair with.
+      expect(outcome.messages.where(_isResult), isEmpty);
+      // The turn ended as an error, with the reason recorded.
+      expect(outcome.stopReason, StopReason.error);
+      expect(
+          outcome.detail,
+          'provider stream ended before tool call c1 '
+          'completed');
+      // One model call only: the turn did not continue to a second round.
+      expect(provider.callCount, 1);
     });
 
     test('interleaved TextDelta and ReasoningDelta: transcript text comes '
