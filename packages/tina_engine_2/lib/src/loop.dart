@@ -192,33 +192,54 @@ final class AgentLoop {
       // announces each call the model asks for, the text deltas accumulate
       // the answer, and [MessageComplete] carries the final blocks — the
       // tool-use inputs come from there, keyed by the started ids. A
-      // [StreamError] ends the turn as StopReason.error, recorded.
+      // [StreamError] ends the turn as StopReason.error, recorded. A
+      // provider that throws — at `send` or anywhere in the stream — is
+      // caught here: the turn ends the same way, and whatever deltas had
+      // already accumulated are kept as the reply, not discarded.
       final starts = <ToolCallStart>[];
       final blocksById = <String, ToolUseBlock>{};
       final deltaText = StringBuffer();
       MessageComplete? completion;
       StreamError? failure;
-      await for (final event in _provider.send(
-          system: request.systemPrompt,
-          messages: request.messages,
-          tools: request.tools)) {
-        if (event is ToolCallStart) {
-          starts.add(event);
-        } else if (event is TextDelta) {
-          deltaText.write(event.text);
-        } else if (event is MessageComplete) {
-          completion = event;
-          for (final b in event.content.whereType<ToolUseBlock>()) {
-            blocksById[b.id] = b;
+      Object? thrown;
+      try {
+        await for (final event in _provider.send(
+            system: request.systemPrompt,
+            messages: request.messages,
+            tools: request.tools)) {
+          if (event is ToolCallStart) {
+            starts.add(event);
+          } else if (event is TextDelta) {
+            deltaText.write(event.text);
+          } else if (event is MessageComplete) {
+            completion = event;
+            for (final b in event.content.whereType<ToolUseBlock>()) {
+              blocksById[b.id] = b;
+            }
+          } else if (event is StreamError) {
+            failure = event;
+            break;
           }
-        } else if (event is StreamError) {
-          failure = event;
-          break;
+          // Reasoning deltas and stream notices carry no transcript state.
         }
-        // Reasoning deltas and stream notices carry no transcript state.
+      } catch (e) {
+        thrown = e; // the turn ends below, at the single StreamError exit
       }
       if (failure != null) {
         return finish(StopReason.error, 'provider error: ${failure.error}');
+      }
+      if (thrown != null) {
+        if (deltaText.isNotEmpty) {
+          // Keep the partial text the model managed to stream.
+          final partial = Message(
+              role: Role.assistant,
+              content: [TextBlock(deltaText.toString())]);
+          requests.add(request.snapshot());
+          _transcript.add(partial);
+          appended.add(partial);
+          responses.add(partial);
+        }
+        return finish(StopReason.error, 'provider error: $thrown');
       }
       final blocks = completion?.content ??
           [if (deltaText.isNotEmpty) TextBlock(deltaText.toString())];

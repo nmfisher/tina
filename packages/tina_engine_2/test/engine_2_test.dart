@@ -486,17 +486,42 @@ void main() {
       expect(_text(outcome2.messages.last), 'only deltas here');
     });
 
-    test('provider send() throws instead of yielding -> the exception '
-        'escapes runTurn to the caller, uncaught', () async {
+    test('provider send() throws instead of yielding -> runTurn ends '
+        'StopReason.error with the error recorded', () async {
       final throwing = _ThrowingSendProvider();
       final loop = AgentLoop(provider: throwing, plugins: []);
 
-      // Recorded behaviour: no try/catch in the loop around the stream —
-      // the throw from send() propagates out of runTurn.
-      await expectLater(
-        loop.runTurn(const Input('x', id: 'i9e')),
-        throwsA(same(throwing)),
-      );
+      // The loop catches the throw at the stream seam: the turn ends the
+      // same way a StreamError ends it, with the error in the detail.
+      final outcome = await loop.runTurn(const Input('x', id: 'i9e'));
+
+      expect(outcome.stopReason, StopReason.error);
+      expect(outcome.detail, startsWith('provider error:'));
+      expect(outcome.detail, contains('_ThrowingSendProvider'));
+      // Nothing streamed, so the transcript holds just the user message.
+      expect([for (final m in outcome.messages) m.role], [Role.user]);
+    });
+
+    test('provider throws mid-stream after deltas -> the turn ends '
+        'StopReason.error and the partial text is kept, not discarded',
+        () async {
+      final provider = _ThrowMidStreamProvider([
+        const TextDelta('partial answer '),
+      ]);
+      final loop = AgentLoop(provider: provider, plugins: []);
+
+      final outcome = await loop.runTurn(const Input('x', id: 'i9f'));
+
+      expect(outcome.stopReason, StopReason.error);
+      expect(outcome.detail, startsWith('provider error:'));
+      expect(outcome.detail, contains('mid-stream'));
+      // Whatever had accumulated before the throw is the reply.
+      final replies = [
+        for (final m in outcome.messages)
+          if (m.role == Role.assistant) m
+      ];
+      expect(replies, hasLength(1));
+      expect(_text(replies.single), 'partial answer ');
     });
   });
 
@@ -550,6 +575,36 @@ final class _ThrowingSendProvider implements LlmProvider {
       required List<Message> messages,
       required List<ToolSchema> tools}) {
     throw this;
+  }
+
+  @override
+  void close() {}
+}
+
+/// Yields [events] then throws mid-stream — the deltas-landed-then-died
+/// case. [_Boom] is the exception the seam raises.
+final class _Boom implements Exception {
+  const _Boom();
+  @override
+  String toString() => 'mid-stream detonation';
+}
+
+final class _ThrowMidStreamProvider implements LlmProvider {
+  _ThrowMidStreamProvider(this.events);
+  final List<StreamEvent> events;
+
+  @override
+  final String model = 'throw-mid-stream';
+
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) async* {
+    for (final e in events) {
+      yield e;
+    }
+    throw const _Boom();
   }
 
   @override
