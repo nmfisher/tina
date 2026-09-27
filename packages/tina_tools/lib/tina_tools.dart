@@ -20,6 +20,5 @@ export 'src/read_tool.dart';
 export 'src/sandboxed_file_system.dart';
 export 'src/stat_tool.dart';
 export 'src/tool.dart';
-export 'src/tool_capabilities.dart';
 export 'src/tool_input.dart';
 export 'src/write_tool.dart';

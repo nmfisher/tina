@@ -6,7 +6,6 @@ import 'file_system.dart';
 import 'io_file_system.dart';
 import 'sandboxed_file_system.dart';
 import 'tool.dart';
-import 'tool_capabilities.dart';
 import 'tool_input.dart';
 
 class ReadTool implements Tool {
@@ -22,9 +21,6 @@ class ReadTool implements Tool {
 
   static const int defaultLimit = 2000;
   static const int byteCap = 50 * 1024;
-
-  @override
-  ToolCapabilities get capabilities => const ToolCapabilities();
 
   @override
   ToolSchema get schema => const ToolSchema(

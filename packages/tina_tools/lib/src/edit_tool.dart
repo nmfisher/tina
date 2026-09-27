@@ -8,7 +8,6 @@ import 'file_system.dart';
 import 'io_file_system.dart';
 import 'sandboxed_file_system.dart';
 import 'tool.dart';
-import 'tool_capabilities.dart';
 import 'tool_input.dart';
 
 /// The exact-match replace tool. The whole read-validate-write runs under one
@@ -24,10 +23,6 @@ class EditTool implements Tool {
   final FileSystem fs;
 
   EditTool({FileSystem? fs, this.workspaceRoot}) : fs = fs ?? IoFileSystem();
-
-  @override
-  ToolCapabilities get capabilities =>
-      const ToolCapabilities(writes: WriteScope.project);
 
   @override
   ToolSchema get schema => const ToolSchema(

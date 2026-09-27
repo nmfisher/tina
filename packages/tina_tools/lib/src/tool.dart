@@ -1,16 +1,12 @@
 import 'package:tina_core/tina_core.dart';
 
-import 'tool_capabilities.dart';
-
-/// A tool the model can call. The contract is the advertised [schema], the
-/// declared [capabilities], and one async [execute]. All value types come from
-/// `tina_core`; this package defines none.
+/// A tool the model can call. The contract is the advertised [schema] plus
+/// one async [execute] — nothing else. A tool declares nothing about
+/// permissions: the model is free to try any tool, and the thing that
+/// refuses is the [FileSystem] the tool was handed, per call. All value
+/// types come from `tina_core`; this package defines none.
 abstract class Tool {
   ToolSchema get schema;
-
-  /// What this tool actually does — declared here, not inferred from a name
-  /// table. See [ToolCapabilities].
-  ToolCapabilities get capabilities;
 
   /// Run the tool. Fast tools ignore cancellation; the loop checks its token
   /// around each call.

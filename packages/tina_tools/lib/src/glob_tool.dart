@@ -5,7 +5,6 @@ import 'package:tina_core/tina_core.dart';
 import 'glob.dart';
 import 'sandboxed_file_system.dart';
 import 'tool.dart';
-import 'tool_capabilities.dart';
 import 'tool_input.dart';
 
 /// Maximum number of matches returned per call.
@@ -22,9 +21,6 @@ class GlobTool implements Tool {
   final SandboxedFileSystem? sandbox;
 
   GlobTool({this.workspaceRoot, this.sandbox});
-
-  @override
-  ToolCapabilities get capabilities => const ToolCapabilities();
 
   @override
   ToolSchema get schema => const ToolSchema(

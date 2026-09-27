@@ -4,7 +4,6 @@ import 'package:tina_core/tina_core.dart';
 
 import 'sandboxed_file_system.dart';
 import 'tool.dart';
-import 'tool_capabilities.dart';
 import 'tool_input.dart';
 
 /// Metadata for a single path: type, size, permissions, mtime, and — for a
@@ -20,9 +19,6 @@ class StatTool implements Tool {
   final SandboxedFileSystem? sandbox;
 
   StatTool({this.workspaceRoot, this.sandbox});
-
-  @override
-  ToolCapabilities get capabilities => const ToolCapabilities();
 
   @override
   ToolSchema get schema => const ToolSchema(

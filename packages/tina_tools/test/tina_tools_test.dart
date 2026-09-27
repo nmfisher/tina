@@ -400,33 +400,4 @@ void main() {
       expect(res.content, contains('escapes the project root'));
     });
   });
-
-  group('tool contract', () {
-    test('every tool declares capabilities; file tools stay in the sandbox',
-        () async {
-      final tools = <Tool>[
-        LsTool(),
-        ReadTool(fs: MemoryFileSystem()),
-        WriteTool(fs: MemoryFileSystem()),
-        EditTool(fs: MemoryFileSystem()),
-        GlobTool(),
-        StatTool(),
-      ];
-      for (final t in tools) {
-        expect(t.schema.name, isNotEmpty, reason: '${t.runtimeType} schema');
-        expect(t.capabilities.spawns, SpawnScope.none,
-            reason: '${t.runtimeType} spawns nothing');
-        expect(t.capabilities.network, NetworkScope.none,
-            reason: '${t.runtimeType} reaches no network');
-        expect(t.capabilities.escapesTheSandbox, isFalse,
-            reason: '${t.runtimeType} must stay contained');
-      }
-      expect(WriteTool(fs: MemoryFileSystem()).capabilities.writes,
-          WriteScope.project);
-      expect(EditTool(fs: MemoryFileSystem()).capabilities.writes,
-          WriteScope.project);
-      expect(ToolCapabilities.undeclared.escapesTheSandbox, isTrue,
-          reason: 'undeclared stays the worst case');
-    });
-  });
 }

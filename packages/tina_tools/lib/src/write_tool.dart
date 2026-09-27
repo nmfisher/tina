@@ -6,7 +6,6 @@ import 'file_system.dart';
 import 'io_file_system.dart';
 import 'sandboxed_file_system.dart';
 import 'tool.dart';
-import 'tool_capabilities.dart';
 import 'tool_input.dart';
 
 class WriteTool implements Tool {
@@ -18,10 +17,6 @@ class WriteTool implements Tool {
   final FileSystem fs;
 
   WriteTool({FileSystem? fs, this.workspaceRoot}) : fs = fs ?? IoFileSystem();
-
-  @override
-  ToolCapabilities get capabilities =>
-      const ToolCapabilities(writes: WriteScope.project);
 
   @override
   ToolSchema get schema => const ToolSchema(
