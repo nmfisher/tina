@@ -159,7 +159,7 @@ final class AnthropicProvider extends LlmProvider {
         requiresUserAction: requiresUserAction,
         providerCode:
             response.statusCode == 429 ? 'rate_limited' : null,
-        retryAfter: _retryAfter(response.headers),
+        retryAfter: retryAfter(response.headers),
       );
       return;
     }
@@ -285,7 +285,7 @@ final class _Flag {
 }
 
 /// Parse a `Retry-After` header (seconds form only) if present.
-Duration? _retryAfter(Map<String, String> headers) {
+Duration? retryAfter(Map<String, String> headers) {
   final v = headers['retry-after'];
   if (v == null) return null;
   final seconds = int.tryParse(v.trim());
