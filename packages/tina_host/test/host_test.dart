@@ -10,7 +10,9 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
-import 'package:tina_tools/tina_tools.dart' show PermissionMode;
+import 'package:tina_services/tina_services.dart';
+import 'package:tina_tools/tina_tools.dart'
+    show ModeControl, PermissionMode;
 
 /// A config over a temp workspace: one ScriptedProvider per call — the
 /// factory shape the daemon-readiness rule requires — counting builds so
@@ -180,7 +182,7 @@ void main() {
       expect(File('${ws.path}/first.txt').existsSync(), isTrue);
 
       // The mode's only handle: the plugin that owns the boundary.
-      tools.setMode(PermissionMode.readOnly);
+      tools.mode = PermissionMode.readOnly;
       expect(tools.mode, PermissionMode.readOnly);
 
       await host.send('write the second');
@@ -248,6 +250,92 @@ void main() {
       expect(identical(builds[0], builds[1]), isFalse,
           reason: 'two hosts never share a provider');
       expect(a.session.id, isNot(b.session.id));
+    });
+  });
+
+  group('the mode is a service', () {
+    test('a locator handed to the tools plugin receives the mode control at mount',
+        () {
+      final services = Services();
+      final config = HostConfig(
+        providerFactory: (model) => ScriptedProvider([]),
+        workingDirectory: ws.path,
+        plugins: [
+          ToolsPlugin(
+              workspaceRoot: ws.path, tinaDir: tina, services: services),
+        ],
+      );
+
+      Host.start(config);
+
+      final control = services.get<ModeControl>();
+      expect(control.mode, PermissionMode.normal);
+    });
+
+    test('no locator means no registration, and the plugin still works', () {
+      final config = HostConfig(
+        providerFactory: (model) => ScriptedProvider([]),
+        workingDirectory: ws.path,
+        plugins: [ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina)],
+      );
+
+      final host = Host.start(config);
+
+      expect(host.session.loop, isNotNull);
+    });
+
+    test(
+        'the service reads the live mode: a later plugin flip is visible at use',
+        () {
+      final services = Services();
+      final config = HostConfig(
+        providerFactory: (model) => ScriptedProvider([]),
+        workingDirectory: ws.path,
+        plugins: [
+          ToolsPlugin(
+              workspaceRoot: ws.path, tinaDir: tina, services: services),
+        ],
+      );
+      final host = Host.start(config);
+
+      // The plugin is the authority; the service is a window over it.
+      host.config.plugins.whereType<ToolsPlugin>().single.mode =
+          PermissionMode.readOnly;
+
+      expect(services.get<ModeControl>().mode, PermissionMode.readOnly);
+    });
+
+    test('writing through the service changes what the sandbox does next',
+        () async {
+      final services = Services();
+      final config = HostConfig(
+        providerFactory: (model) => ScriptedProvider([
+          scriptedReply('', calls: [
+            ToolUseBlock(
+                id: 'c1',
+                name: 'write',
+                input: {'filePath': 'blocked.txt', 'content': 'x'}),
+          ]),
+          scriptedReply('understood, staying read-only'),
+        ]),
+        workingDirectory: ws.path,
+        plugins: [
+          ToolsPlugin(
+              workspaceRoot: ws.path, tinaDir: tina, services: services),
+        ],
+      );
+      final host = Host.start(config);
+
+      services.get<ModeControl>().mode = PermissionMode.readOnly;
+
+      await host.send('try to write');
+      final outcome = host.session.turns.single;
+      final toolResult = outcome.messages
+          .whereType<Message>()
+          .expand((m) => m.content.whereType<ToolResultBlock>())
+          .single;
+      expect(toolResult.isError, isTrue);
+      expect(toolResult.content, contains('read-only mode'));
     });
   });
 }

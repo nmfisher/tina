@@ -1,7 +1,8 @@
 name: tina_tools
 description: The basic file tools (ls, read, write, edit, glob, stat) over a
   FileSystem seam, with the sandbox that confines them to a workspace root.
-  Depends on tina_core only; mounting onto a loop is the host's job.
+  Depends on tina_core plus the engine_2 and services contracts; mounting
+  onto a loop is the host's job.
 publish_to: none
 version: 0.1.0
 environment:
@@ -9,6 +10,10 @@ environment:
 dependencies:
   tina_core:
     path: ../tina_core
+  tina_engine_2:
+    path: ../tina_engine_2
+  tina_services:
+    path: ../tina_services
   path: ^1.9.0
   logging: ^1.2.0
 dev_dependencies:

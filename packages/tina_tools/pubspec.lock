@@ -320,6 +320,20 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_engine_2:
+    dependency: "direct main"
+    description:
+      path: "../tina_engine_2"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_services:
+    dependency: "direct main"
+    description:
+      path: "../tina_services"
+      relative: true
+    source: path
+    version: "0.1.0"
   typed_data:
     dependency: transitive
     description:

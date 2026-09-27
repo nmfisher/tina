@@ -13,6 +13,8 @@ dependencies:
     path: ../tina_engine_2
   tina_llm:
     path: ../tina_llm
+  tina_services:
+    path: ../tina_services
   tina_tools:
     path: ../tina_tools
 

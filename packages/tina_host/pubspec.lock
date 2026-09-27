@@ -334,6 +334,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_services:
+    dependency: "direct main"
+    description:
+      path: "../tina_services"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_tools:
     dependency: "direct main"
     description:

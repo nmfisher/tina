@@ -20,6 +20,7 @@ library;
 import 'dart:io';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_services/tina_services.dart';
 import 'package:tina_tools/tina_tools.dart';
 
 /// A plugin that has executors to put on the loop. The host honors this
@@ -31,7 +32,10 @@ abstract interface class MountsTools {
 }
 
 /// The plugin that contributes the session's tools and owns the mode.
-final class ToolsPlugin extends AgentPlugin implements MountsTools {
+/// Under a shared locator it *registers itself* as the session's
+/// [ModeControl] — the brief's wording is literal: the object published
+/// under the mode-service type is the boundary's owner, not a copy.
+final class ToolsPlugin extends AgentPlugin implements MountsTools, ModeControl {
   /// Whether the OS jail layer was requested. The layer itself decides per
   /// host whether a backend exists ([OsSandboxRunner.backend]); this flag
   /// records the host's decision to have the layer at all — `false` is a
@@ -47,6 +51,7 @@ final class ToolsPlugin extends AgentPlugin implements MountsTools {
     this.osSandbox = true,
     UnavailableBehaviour osUnavailable = UnavailableBehaviour.allow,
     bool osIsolateNetwork = true,
+    Services? services,
   })  : osPlan = SandboxPlan(
           workspaceRoot: workspaceRoot,
           tinaDir: tinaDir.path,
@@ -82,6 +87,7 @@ final class ToolsPlugin extends AgentPlugin implements MountsTools {
     ];
     workingDirectory = workspaceRoot;
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode);
+    _services = services;
   }
 
   /// The one configuration behind both the OS layout and the gate's
@@ -103,6 +109,9 @@ final class ToolsPlugin extends AgentPlugin implements MountsTools {
   /// The session's working directory.
   late final String workingDirectory;
 
+  /// The locator this session shares, or null when none was handed in.
+  Services? _services;
+
   /// The session's tools. Their schemas are what the loop pins and
   /// advertises ([toolSchemas]); their executors are registered by
   /// [mountOn].
@@ -113,11 +122,15 @@ final class ToolsPlugin extends AgentPlugin implements MountsTools {
         for (final t in toolList) t.schema,
       ];
 
-  /// Register every tool's executor on [loop].
+  /// Register every tool's executor on [loop]. If the session shares a
+  /// locator, the plugin publishes **itself** as the [ModeControl] — the
+  /// same moment the tools become reachable, so code resolving at use
+  /// (the locator's one rule) always finds it.
   void mountOn(AgentLoop loop) {
     for (final t in toolList) {
       loop.registerExecutor(t.schema.name, t.execute);
     }
+    _services?.put<ModeControl>(this);
   }
 
   late final HostPromptSection prompt;
@@ -128,7 +141,8 @@ final class ToolsPlugin extends AgentPlugin implements MountsTools {
 
   /// Switch the mode. The next tool call obeys it — the file system and
   /// the process runner read the value per call; nothing else changes.
-  void setMode(PermissionMode mode) => sandbox.mode = mode;
+  @override
+  set mode(PermissionMode mode) => sandbox.mode = mode;
 
   @override
   void onPrompt(TurnContext c) => c.promptSections.add(prompt.sectionFor(sandbox.mode));
