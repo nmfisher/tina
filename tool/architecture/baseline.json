@@ -128,5 +128,140 @@
     "key": "relative-package-escape|tool/p8k2_check.dart|tool/p8k2_check.dart|packages/tina_console/test/virtual_terminal.dart",
     "reason": "Pre-existing relative import of another package's test helper; needs a shared public test-fixture story",
     "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_backend.dart|packages/tina_console/lib/src/backend/ansi_input_backend.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_backend.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_backend.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|lib/session_commands/startup_session_picker_overlay.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_fixture.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/session_commands/startup_session_picker_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/model_search_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/prompts.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/settings_panel.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|lib/tui/spawn_overlay.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/helpers/fake_stdio.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/helpers/overlay_fixtures.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/session_commands/startup_picker_overlay_test.dart|packages/tina_console/lib/testing.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "frontend-exclusion|test/session_commands/startup_picker_overlay_test.dart|test/session_commands/startup_picker_overlay_test.dart|packages/tina_console/lib/tina_console.dart",
+    "reason": "session-command picker/fixture reaches terminal UI code; A07-spec exception",
+    "owner": "A07"
+  },
+  {
+    "key": "public-api|lib/session_commands/startup_session_picker_backend.dart|lib/session_commands/startup_session_picker_backend.dart|packages/tina_console/lib/src/backend/ansi_input_backend.dart",
+    "reason": "Diagnostic/probe tool or TUI coordinator reaches console internals; A07-spec exception",
+    "owner": "A07"
   }
 ]

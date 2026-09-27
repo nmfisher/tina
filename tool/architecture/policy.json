@@ -8,14 +8,21 @@
     "attractor",
     "fuzzy_ranker",
     "classifier",
-    "file_tree"
+    "file_tree",
+    "tina_core",
+    "tina_llm",
+    "tina_tools",
+    "tina_engine_2",
+    "tina_host",
+    "tina_tui"
   ],
   "vendoredPackages": [
     "dart_notcurses"
   ],
   "terminalPackages": [
     "tina_console",
-    "dart_notcurses"
+    "dart_notcurses",
+    "tina_tui"
   ],
   "sourceRoots": {
     "tina": [
@@ -39,6 +46,30 @@
       "tool"
     ],
     "tina_index": [
+      "lib",
+      "test"
+    ],
+    "tina_core": [
+      "lib"
+    ],
+    "tina_llm": [
+      "lib",
+      "test"
+    ],
+    "tina_tools": [
+      "lib",
+      "test"
+    ],
+    "tina_engine_2": [
+      "lib",
+      "test",
+      "example"
+    ],
+    "tina_host": [
+      "lib",
+      "test"
+    ],
+    "tina_tui": [
       "lib",
       "test"
     ],

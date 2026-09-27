@@ -410,3 +410,123 @@ jobs:
       - name: test (file_tree)
         working-directory: packages/file_tree
         run: dart test -j 4
+
+  # engine2 provider split (policy update): tina_core, tina_llm, tina_tools,
+  # tina_engine_2 and tina_host are terminal-free (path deps within the
+  # workspace, no submodule, no native linker deps) — plain checkout like
+  # attractor/fuzzy_ranker/file_tree. tina_core has no test/ directory yet,
+  # so its job gates on pub get + analyze only; the CI guard requires a
+  # working-directory step, not a test step, and there is no test to skip.
+  tina_core:
+    name: tina_core (packages/tina_core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_core)
+        working-directory: packages/tina_core
+        run: dart pub get
+      - name: analyze (tina_core)
+        working-directory: packages/tina_core
+        run: dart analyze
+
+  tina_llm:
+    name: tina_llm (packages/tina_llm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_llm)
+        working-directory: packages/tina_llm
+        run: dart pub get
+      - name: analyze (tina_llm)
+        working-directory: packages/tina_llm
+        run: dart analyze
+      - name: test (tina_llm)
+        working-directory: packages/tina_llm
+        run: dart test -j 4
+
+  tina_tools:
+    name: tina_tools (packages/tina_tools)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_tools)
+        working-directory: packages/tina_tools
+        run: dart pub get
+      - name: analyze (tina_tools)
+        working-directory: packages/tina_tools
+        run: dart analyze
+      - name: test (tina_tools)
+        working-directory: packages/tina_tools
+        run: dart test -j 4
+
+  tina_engine_2:
+    name: tina_engine_2 (packages/tina_engine_2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_engine_2)
+        working-directory: packages/tina_engine_2
+        run: dart pub get
+      - name: analyze (tina_engine_2)
+        working-directory: packages/tina_engine_2
+        run: dart analyze
+      - name: test (tina_engine_2)
+        working-directory: packages/tina_engine_2
+        run: dart test -j 4
+
+  tina_host:
+    name: tina_host (packages/tina_host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_host)
+        working-directory: packages/tina_host
+        run: dart pub get
+      - name: analyze (tina_host)
+        working-directory: packages/tina_host
+        run: dart analyze
+      - name: test (tina_host)
+        working-directory: packages/tina_host
+        run: dart test -j 4
+
+  # tina_tui imports tina_console deliberately (it is in terminalPackages),
+  # so like the console job it needs the submodule checkout and the native
+  # linker deps for the dart_notcurses build hook (see header LINKER deps).
+  tina_tui:
+    name: tina_tui (packages/tina_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install native notcurses + link deps (tina_tui job)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+      - name: pub get (tina_tui)
+        working-directory: packages/tina_tui
+        run: dart pub get
+      - name: analyze (tina_tui)
+        working-directory: packages/tina_tui
+        run: dart analyze
+      - name: test (tina_tui)
+        working-directory: packages/tina_tui
+        run: dart test -j 4
