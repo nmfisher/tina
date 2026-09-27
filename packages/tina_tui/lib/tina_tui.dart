@@ -16,6 +16,9 @@
 ///   [QueuedDialogAsker].
 /// - [TuiTerminal]: the `Terminal` a TUI session contributes — a text
 ///   sink into the conversation and a queued answer for asks.
+/// - [dispatchLine]/[commandListRows]: the command front end — a pure
+///   dispatch decision over the shared `Commands` registry, and its
+///   presentation; no command name appears in this package.
 library;
 
 export 'src/chat_view.dart';
@@ -25,3 +28,4 @@ export 'src/status_strip.dart';
 export 'src/approval_dialog.dart';
 export 'src/approval_approver.dart';
 export 'src/tui_terminal.dart';
+export 'src/tui_commands.dart';
