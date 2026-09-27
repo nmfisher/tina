@@ -21,3 +21,7 @@ dependencies:
     path: ../tina_tools
 dev_dependencies:
   test: ^1.25.0
+  # The parity tests: a TUI run and a shell run of the same input must
+  # produce the same log. Dev-only — the shell never imports the TUI.
+  tina_tui:
+    path: ../tina_tui
