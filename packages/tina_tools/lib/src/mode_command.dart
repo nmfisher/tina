@@ -46,9 +46,15 @@ final class ModeCommandPlugin extends AgentPlugin {
         _ => null,
       };
 
+  /// One mode out, one word back — the same vocabulary, both directions,
+  /// so nothing else ever writes 'readOnly' at a user.
+  static String wordFor(PermissionMode mode) =>
+      mode == PermissionMode.readOnly ? 'read-only' : 'normal';
+
   /// The command this plugin owns: parse the word, flip the mode
-  /// control, tell the terminal what happened. An invalid argument
-  /// changes nothing and says so — refusal is a message, never a throw.
+  /// control, tell the terminal what happened. A bare `/mode` prints
+  /// the current mode; an invalid argument changes nothing and says so
+  /// — refusal is a message, never a throw.
   Command get command => Command(
         name: 'mode',
         description:
@@ -57,18 +63,22 @@ final class ModeCommandPlugin extends AgentPlugin {
       );
 
   void _switch(String argument) {
-    final mode = parseMode(argument);
     final terminal = _locator.get<Terminal>();
+    final word = argument.trim();
+    if (word.isEmpty) {
+      // No argument: show the mode, change nothing.
+      terminal.writeln('mode: ${wordFor(_locator.get<ModeControl>().mode)}');
+      return;
+    }
+    final mode = parseMode(word);
     if (mode == null) {
-      terminal.writeln(argument.trim().isEmpty
-          ? 'mode takes an argument: ${modeWords.join(' or ')}'
-          : 'no mode named ${argument.trim()}');
+      terminal.writeln('no mode named $word');
       return;
     }
     // Resolved at use: the boundary may have mounted after this plugin
     // was constructed — that is the locator's whole point.
     _locator.get<ModeControl>().mode = mode;
-    terminal.writeln('mode: ${argument.trim()}');
+    terminal.writeln('mode: $word');
   }
 
   /// Publish the command into the session's registry. Idempotent: the

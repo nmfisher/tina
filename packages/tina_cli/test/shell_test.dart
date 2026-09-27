@@ -1,7 +1,8 @@
 // The shell, driven headless: the scripted provider plays the model, a
 // StringBuffer captures everything the shell says. Covers line handling
-// (empty, /quit, /mode), a full turn with its per-call line, and the
-// mode switch reaching the model as a refusal on the next write call.
+// (empty, /quit, /mode through the registry), a full turn with its
+// per-call line, and the mode switch reaching the model as a refusal on
+// the next write call.
 //
 // Run: dart test
 library;
@@ -13,7 +14,8 @@ import 'package:test/test.dart';
 import 'package:tina_cli/tina_cli.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_tools/tina_tools.dart' show PermissionMode;
+import 'package:tina_tools/tina_tools.dart'
+    show ModeCommandPlugin, ModeControl;
 
 /// A captured writer: every line the shell said, joined.
 final class CapturedWriter implements ShellWriter {
@@ -31,9 +33,8 @@ final class CapturedWriter implements ShellWriter {
 }
 
 /// A shell over a temp workspace whose provider plays [script].
-({Shell shell, CapturedWriter writer, ScriptedProvider provider}) _shell(
-    List<List<StreamEvent>> script,
-    {PermissionMode mode = PermissionMode.normal}) {
+({Shell shell, CapturedWriter writer, ScriptedProvider provider})
+    _shell(List<List<StreamEvent>> script) {
   final ws = Directory.systemTemp.createTempSync('tina_cli_ws_');
   addTearDown(() => ws.deleteSync(recursive: true));
   final writer = CapturedWriter();
@@ -44,7 +45,6 @@ final class CapturedWriter implements ShellWriter {
     options: ShellOptions(
       configPath: '/nonexistent/tina/config',
       workingDirectory: ws.path,
-      mode: mode,
     ),
   );
   return (shell: shell, writer: writer, provider: provider);
@@ -83,18 +83,14 @@ void main() {
       expect(asked, 2, reason: 'the loop stops asking after end of input');
     });
 
-    test('/mode prints the current mode without a turn', () async {
-      final env = _shell([]);
-      await env.shell.handle('/mode');
-      expect(env.writer.lines.last, 'mode: normal');
+    test('an unknown /word is refused by the shell, no turn', () async {
+      final env = _shell([
+        scriptedReply('should not run'),
+      ]);
+      final again = await env.shell.handle('/frobnicate');
+      expect(again, isTrue, reason: 'a refused command is not a crash');
+      expect(env.writer.lines.last, 'unknown command: /frobnicate');
       expect(env.provider.callCount, 0);
-    });
-
-    test('/mode with junk prints usage and keeps the mode', () async {
-      final env = _shell([]);
-      await env.shell.handle('/mode sideways');
-      expect(env.writer.lines.last, contains('usage: /mode'));
-      expect(env.shell.tools.mode, PermissionMode.normal);
     });
   });
 
@@ -197,7 +193,27 @@ void main() {
     });
   });
 
-  group('mode switching via the plugin handle', () {
+  group('/mode through the registry', () {
+    test('/mode prints the current mode without a turn', () async {
+      final env = _shell([]);
+      await env.shell.handle('/mode');
+      expect(env.writer.lines.last, 'mode: normal');
+      expect(env.provider.callCount, 0);
+    });
+
+    test('/mode with junk changes nothing and says so through the terminal',
+        () async {
+      final env = _shell([]);
+      await env.shell.handle('/mode sideways');
+      expect(env.writer.lines.last, 'no mode named sideways');
+      // The mode did not move — the enum stays behind the service; the
+      // vocabulary names it.
+      expect(
+          ModeCommandPlugin.wordFor(
+              env.shell.services.get<ModeControl>().mode),
+          'normal');
+    });
+
     test('/mode read-only: a write is refused and the refusal reaches '
         'the model as that call\'s tool result', () async {
       final env = _shell([
@@ -211,7 +227,10 @@ void main() {
       ]);
       await env.shell.handle('/mode read-only');
       expect(env.writer.lines, contains('mode: read-only'));
-      expect(env.shell.tools.mode, PermissionMode.readOnly);
+      expect(
+          ModeCommandPlugin.wordFor(
+              env.shell.services.get<ModeControl>().mode),
+          'read-only');
 
       await env.shell.handle('write a file');
       final last = env.provider.requests.last;
@@ -246,7 +265,10 @@ void main() {
       ]);
       await env.shell.handle('/mode read-only');
       await env.shell.handle('/mode normal');
-      expect(env.shell.tools.mode, PermissionMode.normal);
+      expect(
+          ModeCommandPlugin.wordFor(
+              env.shell.services.get<ModeControl>().mode),
+          'normal');
       expect(env.writer.lines, contains('mode: normal'));
 
       await env.shell.handle('write it now');
@@ -256,14 +278,15 @@ void main() {
           'now it works');
     });
 
-    test('the host stays mode-blind: the mode lives only on the plugin',
-        () {
+    test('the shell is mode-blind: no mode enum is imported here, the '
+        'dispatch goes by name', () {
       final env = _shell([]);
-      expect(env.shell.host.config.plugins, hasLength(1));
-      // The mode lives on the plugin; HostConfig has no mode field to
-      // read — compile-time by design, asserted here by the seam only
-      // exposing the plugin handle.
-      expect(env.shell.tools.mode, PermissionMode.normal);
+      // The only mode-shaped thing the shell holds is the command
+      // plugin the package owns; the mode itself lives behind the
+      // ModeControl service.
+      expect(env.shell.services.get<ModeControl>(), isNotNull);
+      expect(env.shell.commands['mode'], isNotNull);
+      expect(env.shell.commands['quit'], isNotNull);
     });
   });
 

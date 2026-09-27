@@ -65,9 +65,9 @@ void main() {
           reason: 'an invalid argument changes nothing');
       expect(terminal.lines, ['no mode named wat']);
 
+      // A bare /mode shows the mode; it changes nothing.
       handler('');
-      expect(terminal.lines.last,
-          'mode takes an argument: normal or read-only');
+      expect(terminal.lines.last, 'mode: normal');
       expect(fake.control.mode, PermissionMode.normal);
     });
     test('registration order does not matter: the control is resolved at use',

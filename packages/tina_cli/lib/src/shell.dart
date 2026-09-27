@@ -1,8 +1,9 @@
 /// The shell itself: build the provider from the config's choice, build
-/// the host with the tools plugin (which owns the mode), start one
-/// session, and run the read-line/run-turn/print loop.
+/// the host with the tools plugin (which owns the mode) plus the mode
+/// command plugin (which owns the word), start one session, and run the
+/// read-line/run-turn/dispatch loop.
 ///
-/// Two seams keep the core testable with no terminal:
+/// Three seams keep the core testable with no terminal:
 ///
 /// - **The provider factory is injected.** A test hands the scripted
 ///   provider over the same [ProviderFactory] seam production uses; the
@@ -10,11 +11,17 @@
 /// - **The writer is injected.** Everything the shell says — banner,
 ///   tool-call lines, replies, reasons — goes through one [ShellWriter],
 ///   so a test captures it into a string.
+/// - **Commands are a registry, not a switch.** `/word` lines dispatch
+///   through the session's [Commands]: a plugin's command runs the
+///   plugin's handler, the shell never learns what a mode is. The
+///   shell's own built-in (`/quit`) is registered the same way — the
+///   difference is only that its handler flags the loop to stop.
 ///
-/// The mode path is the design being exercised: `/mode` calls the tools
-/// plugin's [ToolsPlugin.setMode] directly. The host is mode-blind — it
-/// never learns what the mode is — and the file system and process
-/// runner read the value per call, so the next tool call obeys it.
+/// The mode path proves the layering: `/mode` is [ModeCommandPlugin]'s
+/// command, published into the registry; the handler flips the
+/// [ModeControl] the tools plugin published at mount and tells the
+/// [Terminal]. The host is mode-blind; so is this file — no mode enum
+/// is imported here.
 library;
 
 import 'dart:async';
@@ -23,7 +30,8 @@ import 'dart:io' show Directory, Platform, stderr, stdout;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_tools/tina_tools.dart' show PermissionMode;
+import 'package:tina_services/tina_services.dart';
+import 'package:tina_tools/tina_tools.dart' show ModeCommandPlugin;
 
 import 'shell_config.dart';
 
@@ -63,7 +71,6 @@ final class ShellOptions {
   const ShellOptions({
     this.configPath,
     this.workingDirectory,
-    this.mode = PermissionMode.normal,
   });
 
   /// Explicit config file, else `~/.tina/config`.
@@ -71,9 +78,6 @@ final class ShellOptions {
 
   /// The session's working directory, else the process's cwd.
   final String? workingDirectory;
-
-  /// The mode the tools plugin starts in. `/mode` changes it later.
-  final PermissionMode mode;
 }
 
 /// Build the provider for [model] off [descriptor]: the wire picks the
@@ -102,21 +106,59 @@ LlmProvider providerForDescriptor(
   };
 }
 
-/// One shell session: the host, and the tools plugin it was built around.
-/// The plugin handle is kept here because `/mode` is the shell's call to
-/// make — the host stays mode-blind.
+/// The [Terminal] the session's plugins see, over the shell's writer:
+/// the same captured seam tests already hold, so a command's output
+/// lands in the transcript. Asks go through the reader the REPL wires
+/// up when it starts.
+final class ShellTerminal implements Terminal {
+  ShellTerminal(this._writer);
+
+  final ShellWriter _writer;
+  Future<String?> Function()? _read;
+
+  /// Give [ask] its reader — the same line source the REPL reads.
+  void wire(Future<String?> Function() read) => _read = read;
+
+  @override
+  void writeln([String? line]) => _writer.writeln(line);
+
+  @override
+  Future<String> ask(String prompt) async {
+    _writer.writeln(prompt);
+    final line = await (_read?.call() ?? Future<String?>.value(null));
+    return line?.trim() ?? '';
+  }
+}
+
+/// One shell session: the host, the shared services, the registry the
+/// loop dispatches through.
 final class Shell {
-  Shell._({required this.host, required this.tools, required this.writer});
+  Shell._({
+    required this.host,
+    required this.services,
+    required this.terminal,
+    required this.writer,
+  })  : commands = services.get<Commands>(),
+        _modeCommand = ModeCommandPlugin(services);
 
   final Host host;
-  final ToolsPlugin tools;
+  final Services services;
+  final ShellTerminal terminal;
   final ShellWriter writer;
+
+  /// The session's published commands — what the loop dispatches
+  /// through and the greet line lists.
+  final Commands commands;
+
+  final ModeCommandPlugin _modeCommand;
+  var _quit = false;
 
   /// Build a shell from [options]: read the config, build the provider
   /// from the descriptor that matches, build the host with the tools
-  /// plugin as its one plugin, start the one session. [providerFactory]
-  /// overrides the config-driven factory — the seam a test drives with
-  /// the scripted provider.
+  /// plugin (the boundary, publishing itself as the mode service) and
+  /// the mode command plugin (the word), start the one session.
+  /// [providerFactory] overrides the config-driven factory — the seam a
+  /// test drives with the scripted provider.
   static Shell start({
     required ShellWriter writer,
     ProviderFactory? providerFactory,
@@ -130,10 +172,15 @@ final class Shell {
     final resolved = config.config;
     final workingDirectory =
         options.workingDirectory ?? Directory.current.path;
+    final services = Services();
+    final terminal = ShellTerminal(writer);
+    services
+      ..put<Terminal>(terminal)
+      ..put<Commands>(Commands());
     final tools = ToolsPlugin(
       workspaceRoot: workingDirectory,
       tinaDir: Directory('$workingDirectory/.tina'),
-      mode: options.mode,
+      services: services,
     );
     final host = Host.start(
       HostConfig(
@@ -146,45 +193,56 @@ final class Shell {
         plugins: [tools],
       ),
     );
-    return Shell._(host: host, tools: tools, writer: writer);
+    final shell = Shell._(
+      host: host,
+      services: services,
+      terminal: terminal,
+      writer: writer,
+    );
+    // Built-ins are the shell's, registered by the shell — the same
+    // registry, the same dispatch.
+    services.get<Commands>().publish(Command(
+          name: 'quit',
+          description: 'leave the shell',
+          handler: (_) => shell._quit = true,
+        ));
+    // The mode's word, owned by the plugin that carries it.
+    shell._modeCommand.register();
+    return shell;
   }
 
-  /// The banner: who the shell is, which model it is pointed at, and the
-  /// two commands.
+  /// The banner: who the shell is, which model it is pointed at, and
+  /// the published commands.
   void greet() {
-    writer.writeln('tina shell — ${host.config.model}. '
-        '/mode [normal|read-only] switches the permission mode; '
-        '/quit leaves.');
+    writer.writeln(
+        'tina shell — ${host.config.model}. '
+        '${[for (final c in commands.all) '/${c.name} — ${c.description}'].join('; ')}.');
   }
 
   /// Run one entered line. Returns false when the loop should stop
   /// (`/quit`, or end of input). An empty line is ignored — no turn.
   ///
-  /// A turn that ends in error or cancellation prints the reason the
-  /// outcome carries and keeps going; nothing throws out of here.
+  /// A `/word` line dispatches through the registry: a published
+  /// command runs its handler (which reports through the terminal);
+  /// an unpublished word is refused by the shell. A turn that ends in
+  /// error or cancellation prints the reason the outcome carries and
+  /// keeps going; nothing throws out of here.
   Future<bool> handle(String? line) async {
     final trimmed = line?.trim() ?? '';
     if (trimmed.isEmpty) return true;
-    if (trimmed == '/quit') return false;
-    if (trimmed == '/mode') {
-      _printMode();
-      return true;
-    }
-    if (trimmed == '/mode normal' || trimmed == '/mode read-only') {
-      final mode = trimmed.endsWith('read-only')
-          ? PermissionMode.readOnly
-          : PermissionMode.normal;
-      // The whole point: the shell holds the plugin it built, so it
-      // calls the handle directly. The host never learns what the mode
-      // is; the next tool call simply obeys.
-      tools.setMode(mode);
-      writer.writeln('mode: ${mode == PermissionMode.readOnly
-          ? 'read-only' : 'normal'}');
-      return true;
-    }
-    if (trimmed.startsWith('/mode')) {
-      writer.writeln("usage: /mode [normal|read-only] — now: ${_modeName()}");
-      return true;
+    if (trimmed.startsWith('/')) {
+      final rest = trimmed.substring(1);
+      final split = RegExp(r'\s').firstMatch(rest);
+      final word = split == null ? rest : rest.substring(0, split.start);
+      final argument =
+          split == null ? '' : rest.substring(split.end).trim();
+      final command = commands[word];
+      if (command == null) {
+        writer.writeln('unknown command: /$word');
+        return true;
+      }
+      command.handler(argument);
+      return !_quit;
     }
     await runTurn(trimmed);
     return true;
@@ -253,12 +311,6 @@ final class Shell {
     return paired;
   }
 
-  void _printMode() => writer.writeln('mode: ${_modeName()}');
-
-  String _modeName() => tools.mode == PermissionMode.readOnly
-      ? 'read-only'
-      : 'normal';
-
   /// A tool result on one line: first line only, hard-capped, so the
   /// per-call line stays a line. The cap is generous enough to see a
   /// refusal or an exit code, short enough not to be a transcript.
@@ -269,14 +321,14 @@ final class Shell {
   }
 }
 
-/// The REPL: greet, then read lines until `/quit` or end of input.
-/// [readLine] supplies the next line — stdin in production, a fixed
-/// script in tests.
+/// The REPL: greet, wire the terminal's asks to the same line source,
+/// then read lines until `/quit` or end of input.
 Future<void> runShell({
   required Shell shell,
   required Future<String?> Function() readLine,
 }) async {
   shell.greet();
+  shell.terminal.wire(readLine);
   while (true) {
     final line = await readLine();
     if (line == null) return; // end of input: exit cleanly
