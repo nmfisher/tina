@@ -8,10 +8,13 @@
 ///    no tools
 ///
 /// The core owns truth: this file is the only writer of the transcript.
-/// Plugins own decisions, returned through hooks. Registration, snapshots,
-/// the prompt join, pinning, dispatch and turn bookkeeping all live here —
-/// each is a few lines, and pulling any of them out would make a reader
-/// jump between files to follow one turn.
+/// Plugins own decisions, made by writing to the [TurnContext] they are
+/// handed — the loop copies the context before every plugin call, hands
+/// the copy over, and keeps the copy the call wrote, so a plugin that
+/// throws has its writes dropped and the turn continues. Registration,
+/// snapshots, the prompt join, pinning, dispatch and turn bookkeeping all
+/// live here — each is a few lines, and pulling any of them out would make
+/// a reader jump between files to follow one turn.
 ///
 /// Value types (Message, ToolSchema, ToolUse, ToolResult, stream events)
 /// come from `tina_core`; the model boundary is its streaming
@@ -70,7 +73,7 @@ final class AgentLoop {
 
   /// Give a tool its executor. Executors are not part of [ToolSchema]: they
   /// run in-process and return the full [ToolResult] — content plus flags —
-  /// and `afterTool` can replace what they returned. An existing
+  /// and `afterToolResult` can replace what they returned. An existing
   /// string-returning function wraps with [stringExecutor].
   void registerExecutor(
       String tool, Future<ToolResult> Function(Map<String, Object?>) exec) {
@@ -83,41 +86,53 @@ final class AgentLoop {
   /// The one cancellation path.
   void cancel(String why) => _cancel.cancel(why);
 
-  /// What a hook run hands the plugin: the shared cancel path.
-  Context _snap() => Context(_cancel);
+  /// The transcript so far — the loop's truth. Read-only view.
+  Iterable<Message> get transcript => List.unmodifiable(_transcript);
 
-  /// One plugin hook, isolated: a plugin that throws has its contribution
-  /// treated as absent and the turn continues.
-  static T? _runHook<T>(T? Function() hook) {
-    try {
-      return hook();
-    } catch (_) {
-      return null;
-    }
-  }
+  /// The fresh context a turn starts from: the input as it arrived, the
+  /// transcript so far, no sections yet, the pinned tools.
+  TurnContext _start(Input raw, List<ToolSchema> pinned) => TurnContext(
+        _cancel,
+        input: raw,
+        messages: List.of(_transcript),
+        promptSections: const [],
+        pinnedTools: List.of(pinned),
+      );
 
-  /// The system prompt: the core's header, then one section per plugin in
-  /// order, joined by a blank line. A plugin returns a section, never a
-  /// whole prompt; a throwing plugin's section is absent.
-  String _prompt(List<ToolSchema> pinned,
-      {String header = 'You are tina, a terminal coding agent.'}) {
-    final sections = <String>[header];
+  /// One plugin phase. The copy rule lives here, in one place: each plugin
+  /// is handed a copy of the *current* state, and the copy it wrote is
+  /// kept. A plugin that throws has its copy dropped — its writes never
+  /// arrive, and the next plugin still runs. The loop holds the before and
+  /// the after of every call (here, `ctx` and `copy`), which is what a
+  /// later slice records; nothing records it yet.
+  TurnContext _phase(
+      TurnContext ctx, void Function(AgentPlugin p, TurnContext c) body) {
     for (final p in _inOrder()) {
+      final copy = ctx.copy();
       try {
-        final section = p.systemSection(_snap());
-        if (section != null && section.isNotEmpty) sections.add(section);
+        body(p, copy);
       } catch (_) {
-        // one bad plugin must not break every prompt
+        continue; // one bad plugin must not break the turn
       }
+      ctx = copy;
     }
-    return sections.join('\n\n');
+    return ctx;
   }
+
+  /// The system prompt: the context's sections joined by a blank line, in
+  /// the order they were added. A plugin adds one section, never a whole
+  /// prompt; an empty section contributes nothing. With no sections the
+  /// prompt is an empty string — the core owns no prompt text.
+  static String _joinSections(List<String> sections) => [
+        for (final s in sections)
+          if (s.isNotEmpty) s,
+      ].join('\n\n');
 
   /// The five steps of one turn, in order, in one pass.
   Future<Outcome> runTurn(Input raw) async {
     // ------------------------------------------------------------------
-    // Step 1: take the input. Plugins may rewrite it, in order; the last
-    // rewrite is the one the outcome records.
+    // Step 1: take the input. The pinned tool set is snapshotted once,
+    // from the plugins' `tools` getters, before anything runs.
     // ------------------------------------------------------------------
     final pinnedMap = {
       for (final p in _inOrder())
@@ -133,8 +148,11 @@ final class AgentLoop {
     final responses = <Message>[];
     String? changedBy;
 
+    var ctx = _start(raw, pinned);
+
     // The single exit: build the outcome, fan out onTurnEnd, return.
-    // A throwing listener is isolated; the others still get the event.
+    // A throwing plugin is isolated by the phase helper; the others still
+    // get the outcome.
     Outcome finish(StopReason reason, String detail) {
       final outcome = Outcome(
           stopReason: reason,
@@ -144,26 +162,35 @@ final class AgentLoop {
           usage: responses.length,
           detail: detail,
           changedBy: changedBy);
-      for (final p in _inOrder()) {
-        try {
-          p.onTurnEnd(_snap(), outcome);
-        } catch (_) {
-          // one bad plugin must not break the turn end
-        }
-      }
+      _phase(ctx, (p, c) {
+        c.outcome = outcome;
+        p.onTurnEnd(c);
+      });
       return outcome;
     }
 
-    var input = raw;
+    // Prompt-section phase, once per turn. The sections the plugins add
+    // here are the base; `beforeModelCall` may adjust them per call.
+    ctx = _phase(ctx, (p, c) => p.onPrompt(c));
+    final baseSections = List.of(ctx.promptSections);
+
+    // Input phase. A rewrite is an assignment to `c.input`; the last
+    // rewrite is the one the outcome records.
     for (final p in _inOrder()) {
-      final replacement =
-          _runHook(() => p.beforeInvocation(_snap(), input));
-      if (replacement != null) {
-        input = replacement;
-        changedBy = p.id; // the last rewrite is recorded
+      final before = ctx.input;
+      final copy = ctx.copy();
+      try {
+        p.onInput(copy);
+      } catch (_) {
+        continue; // one bad plugin must not break the turn
+      }
+      ctx = copy;
+      if (ctx.input.text != before.text || ctx.input.id != before.id) {
+        changedBy = p.id;
       }
     }
-    final user = Message(role: Role.user, content: [TextBlock(input.text)]);
+    final user = Message(
+        role: Role.user, content: [TextBlock(ctx.input.text)]);
     _transcript.add(user);
     appended.add(user);
 
@@ -176,17 +203,22 @@ final class AgentLoop {
         return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
       }
 
-      // Step 2: build the request — system prompt, transcript snapshot,
-      // the pinned tools — then let plugins transform it, in order.
+      // Step 2: build the request. The context is refreshed from the
+      // loop's own truth — the transcript and the turn's base sections —
+      // then the per-call phase runs, and the request is built from what
+      // the context holds afterwards. A plugin that prunes or redacts
+      // prunes this request, never the transcript.
+      ctx
+        ..messages = List.of(_transcript)
+        ..promptSections = List.of(baseSections)
+        ..call = null
+        ..toolResult = null
+        ..decision = const Decision.allow();
+      ctx = _phase(ctx, (p, c) => p.beforeModelCall(c));
       var request = Request(
-          systemPrompt: _prompt(pinned),
-          messages: List.of(_transcript),
-          tools: List.of(pinned));
-      for (final p in _inOrder()) {
-        final replacement = _runHook(
-            () => p.beforeRequest(_snap(), request.snapshot()));
-        if (replacement != null) request = replacement;
-      }
+          systemPrompt: _joinSections(ctx.promptSections),
+          messages: List.of(ctx.messages),
+          tools: List.of(ctx.pinnedTools));
 
       // Step 3: call the model. The provider streams: [ToolCallStart]
       // announces each call the model asks for, the text deltas accumulate
@@ -278,11 +310,13 @@ final class AgentLoop {
       }
 
       // Step 4: run the tool calls. Liveness first: a plugin that left
-      // mid-turn has its call skipped, not crashed on. Then guards, in
-      // order — all must pass; `ask` with no UI resolves to deny. Then
-      // the executor; then `afterTool`, in order, which may replace the
-      // result the core records. Attribution (who denied, why) travels in
-      // the result's content: the model reads exactly this string.
+      // mid-turn has its call skipped, not crashed on. Then the guard
+      // phase, in order — the first non-allow decision stops the phase and
+      // the call is not dispatched (`ask` with no UI resolves to deny).
+      // Then the executor; then the result phase, in order, which may
+      // replace the result the core records. Attribution (who denied, why)
+      // travels in the result's content: the model reads exactly this
+      // string.
       for (final call in toolCalls) {
         ToolResult result;
         if (_cancel.cancelled) {
@@ -293,35 +327,41 @@ final class AgentLoop {
             result =
                 ToolResult('skipped: plugin $owner left', isError: true);
           } else {
-            ToolResult? denied;
+            ctx
+              ..call = call
+              ..decision = const Decision.allow();
+            String? deniedBy;
             for (final p in _inOrder()) {
-              final decision =
-                      _runHook(() => p.beforeTool(_snap(), call)) ??
-                  const Decision.allow();
-              if (decision.kind != DecisionKind.allow) {
-                denied = decision.replacement ??
-                    ToolResult(
-                        'denied by ${p.id}'
-                        '${decision.kind == DecisionKind.ask ? ' (ask-unresolved)' : ''}'
-                        ': ${decision.reason}',
-                        isError: true);
-                break;
+              final copy = ctx.copy();
+              try {
+                p.beforeToolCall(copy);
+              } catch (_) {
+                continue; // a throwing guard allows, like any absent one
+              }
+              ctx = copy;
+              if (ctx.decision.kind != DecisionKind.allow) {
+                deniedBy = p.id; // first non-allow decides; later guards
+                break; // do not run
               }
             }
+            final decision = ctx.decision;
             final exec = _executors[call.name];
-            if (denied != null) {
-              result = denied;
+            if (deniedBy != null) {
+              result = decision.replacement ??
+                  ToolResult(
+                      'denied by $deniedBy'
+                      '${decision.kind == DecisionKind.ask ? ' (ask-unresolved)' : ''}'
+                      ': ${decision.reason}',
+                      isError: true);
             } else if (exec == null) {
               result = ToolResult('no executor for ${call.name}',
                   isError: true);
             } else {
               try {
                 var recorded = await exec(call.input);
-                for (final p in _inOrder()) {
-                  final replacement = _runHook(
-                      () => p.afterTool(_snap(), recorded)) as ToolResult?;
-                  if (replacement != null) recorded = replacement;
-                }
+                ctx.toolResult = recorded;
+                ctx = _phase(ctx, (p, c) => p.afterToolResult(c));
+                recorded = ctx.toolResult ?? recorded;
                 result = recorded;
               } catch (e) {
                 result = ToolResult('tool threw: $e', isError: true);

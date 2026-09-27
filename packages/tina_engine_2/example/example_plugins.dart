@@ -6,8 +6,8 @@ library;
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 
-/// Adds a prompt section. Shows the core owns the join: the plugin returns
-/// one section, never a whole prompt.
+/// Adds a prompt section, once per turn. Shows the core owns the join: the
+/// plugin assigns one section, never a whole prompt.
 final class SystemSectionPlugin extends AgentPlugin {
   const SystemSectionPlugin(this._section);
 
@@ -20,7 +20,7 @@ final class SystemSectionPlugin extends AgentPlugin {
   int get order => 200;
 
   @override
-  String? systemSection(Context c) => _section;
+  void onPrompt(TurnContext c) => c.promptSections.add(_section);
 }
 
 /// A guard. Denies every call to one tool name; all guards must pass, so a
@@ -38,8 +38,9 @@ final class GuardPlugin extends AgentPlugin {
   int get order => 50;
 
   @override
-  Decision beforeTool(Context c, ToolUse call) =>
-      call.name == toolName ? Decision.deny(reason) : const Decision.allow();
+  void beforeToolCall(TurnContext c) {
+    if (c.call?.name == toolName) c.decision = Decision.deny(reason);
+  }
 }
 
 /// Contributes a tool and its executor wiring is left to the host: the tool
@@ -63,8 +64,9 @@ final class ToolProviderPlugin extends AgentPlugin {
       ];
 }
 
-/// Rewrites every request. The seam a pruning or redaction plugin uses:
-/// the request is a snapshot, so history itself is never touched.
+/// Adjusts every request, per call. The seam a pruning or redaction plugin
+/// uses: it rewrites `c.messages` on the context it is handed, so history
+/// itself is never touched.
 final class RequestTransformerPlugin extends AgentPlugin {
   const RequestTransformerPlugin({this.suffix = ''});
 
@@ -77,8 +79,7 @@ final class RequestTransformerPlugin extends AgentPlugin {
   int get order => 300;
 
   @override
-  Request? beforeRequest(Context c, Request request) => Request(
-      systemPrompt: request.systemPrompt + suffix,
-      messages: request.messages,
-      tools: request.tools);
+  void beforeModelCall(TurnContext c) {
+    if (suffix.isNotEmpty) c.promptSections.add(suffix);
+  }
 }

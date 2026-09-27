@@ -31,7 +31,7 @@ ToolSchema _tool(String name) => ToolSchema(
 AgentPlugin _plugin(String id,
         {int order = 100,
         List<ToolSchema> tools = const [],
-        String? Function(Context)? section}) =>
+        String? section}) =>
     _P(id, order, tools, section);
 
 final class _P extends AgentPlugin {
@@ -42,9 +42,12 @@ final class _P extends AgentPlugin {
   final int order;
   @override
   final List<ToolSchema> tools;
-  final String? Function(Context)? section;
+  final String? section;
   @override
-  String? systemSection(Context c) => section?.call(c);
+  void onPrompt(TurnContext c) {
+    final s = section;
+    if (s != null) c.promptSections.add(s);
+  }
 }
 
 /// A user-role message whose content is all tool results.
@@ -57,6 +60,12 @@ ToolResultBlock _result(Message m) => m.content.whereType<ToolResultBlock>().sin
 
 String _text(Message m) =>
     [for (final b in m.content.whereType<TextBlock>()) b.text].join();
+
+/// A terse view of the loop's transcript: `role: text` per message.
+String _transcriptText(AgentLoop loop) => [
+      for (final m in loop.transcript)
+        '${m.role == Role.user ? 'user' : 'assistant'}: ${_text(m)}'
+    ].join('\n');
 
 void main() {
   group('1. single input -> tool call -> result -> completion', () {
@@ -132,19 +141,14 @@ void main() {
         () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('b.late', section: (_) => 'LATE'),
-        _plugin('a.early', section: (_) => 'EARLY'),
-        _plugin('m.mid', order: 10, section: (_) => 'MID'),
+        _plugin('b.late', section: 'LATE'),
+        _plugin('a.early', section: 'EARLY'),
+        _plugin('m.mid', order: 10, section: 'MID'),
       ]);
       await loop.runTurn(const Input('x', id: 'i3'));
 
       final prompt = provider.requests.first.systemPrompt;
-      expect(
-          prompt,
-          'You are tina, a terminal coding agent.\n\n'
-          'MID\n\n'
-          'EARLY\n\n'
-          'LATE');
+      expect(prompt, 'MID\n\nEARLY\n\nLATE');
     });
 
     test('request transforms run in order and compose', () async {
@@ -156,7 +160,9 @@ void main() {
       await loop.runTurn(const Input('x', id: 'i3b'));
 
       // order 1 runs before order 300, so |1st lands before |2nd.
-      expect(provider.requests.first.systemPrompt, endsWith('|1st|2nd'));
+      expect(
+          provider.requests.first.systemPrompt.endsWith('|1st\n\n|2nd'),
+          isTrue);
     });
   });
 
@@ -236,12 +242,11 @@ void main() {
       expect(provider.requests.first.systemPrompt, isNot(contains('BOOM')));
     });
 
-    test('throwing beforeInvocation / beforeRequest / onTurnEnd isolated',
-        () async {
+    test('throwing onInput / beforeModelCall / onTurnEnd isolated', () async {
       final provider = ScriptedProvider([scriptedReply('done')]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _Throw('bad.invocation', throwIn: 'beforeInvocation'),
-        _Throw('bad.request', throwIn: 'beforeRequest'),
+        _Throw('bad.invocation', throwIn: 'onInput'),
+        _Throw('bad.request', throwIn: 'beforeModelCall'),
         _Throw('bad.end', throwIn: 'onTurnEnd'),
       ]);
       final outcome = await loop.runTurn(const Input('original', id: 'i5b'));
@@ -312,15 +317,15 @@ void main() {
   });
 
   group('8. invariants: snapshots, pairing, pinning, duplicate ids', () {
-    test('plugin mutation of a snapshot does not touch the transcript',
+    test('plugin mutation of a context does not touch the transcript',
         () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [_Mutate('mutator')]);
       await loop.runTurn(const Input('keep me', id: 'i8a'));
 
       final seen = provider.requests.first.messages;
-      expect(_text(seen.first), 'keep me');
-      expect(seen.first.role, Role.user);
+      expect(seen, isEmpty); // the mutator cleared its copy, not the truth
+      expect(_transcriptText(loop), contains('user: keep me'));
     });
 
     test('every tool_use gets a matching tool_result, denied included',
@@ -370,7 +375,7 @@ void main() {
       final outcome = await loop.runTurn(const Input('x', id: 'i8c'));
 
       expect(outcome.stopReason, StopReason.error);
-      expect(outcome.detail, 'tools-changed mid-turn');
+      expect(outcome.detail, contains('tools-changed'));
     });
 
     test('duplicate plugin id throws at registration', () {
@@ -607,7 +612,51 @@ void main() {
     });
   });
 
-  group('11. bash behind the loop, read-only', () {
+  group('11. the copy rule: a context is copied per plugin call', () {
+    test('a thrower leaves the turn intact; its writes are absent; '
+        'the next plugin runs', () async {
+      final provider = ScriptedProvider([scriptedReply('ok')]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _Writer('writer', section: 'KEPT'),
+        _Throw('bad', throwIn: 'beforeModelCall'),
+        _plugin('late', section: 'LATE'),
+      ]);
+      await loop.runTurn(const Input('x', id: 'i12a'));
+
+      final prompt = provider.requests.single.systemPrompt;
+      expect(prompt, contains('KEPT')); // writer's write arrived
+      expect(prompt, contains('LATE')); // the next plugin still ran
+    });
+
+    test('the next plugin sees the prior plugin\'s writes', () async {
+      final provider = ScriptedProvider([scriptedReply('ok')]);
+      final seen = <List<String>>[];
+      final loop = AgentLoop(provider: provider, plugins: [
+        _plugin('a.writer', section: 'FROM-WRITER'),
+        _Reader('z.reader', seen: seen),
+      ]);
+      await loop.runTurn(const Input('x', id: 'i12b'));
+      expect(seen.single, ['FROM-WRITER']);
+    });
+
+    test('a plugin adds a prompt section for one call without replacing '
+        'the rest of the request', () async {
+      final provider = ScriptedProvider([scriptedReply('ok')]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _plugin('base', section: 'BASE-SECTION'),
+        _T('adder', order: 300, mark: 'ONE-CALL'),
+      ]);
+      await loop.runTurn(const Input('x', id: 'i12c'));
+
+      final prompt = provider.requests.single.systemPrompt;
+      expect(prompt, contains('BASE-SECTION'));
+      expect(prompt, contains('ONE-CALL'));
+      final request = provider.requests.single;
+      expect(_text(request.messages.single), 'x'); // messages untouched
+    });
+  });
+
+  group('12. bash behind the loop, read-only', () {
     test('a command call is refused as a tool_result and the turn continues; '
         'nothing ran', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_proc_');
@@ -742,10 +791,10 @@ final class _Ask extends AgentPlugin {
   @override
   final String id;
   @override
-  Decision beforeTool(Context c, ToolUse call) => Decision.ask('unsure');
+  void beforeToolCall(TurnContext c) => c.decision = Decision.ask('unsure');
 }
 
-/// Throws in one chosen hook.
+/// Throws in one chosen phase.
 final class _Throw extends AgentPlugin {
   _Throw(this.id, {required this.throwIn});
   @override
@@ -753,27 +802,41 @@ final class _Throw extends AgentPlugin {
   final String throwIn;
   Never boom() => throw StateError('BOOM');
   @override
-  Input? beforeInvocation(Context c, Input input) =>
-      throwIn == 'beforeInvocation' ? boom() : null;
+  void onInput(TurnContext c) {
+    if (throwIn == 'onInput') boom();
+  }
+
   @override
-  String? systemSection(Context c) =>
-      throwIn == 'systemSection' ? boom() : null;
+  void onPrompt(TurnContext c) {
+    if (throwIn == 'onPrompt') boom();
+  }
+
   @override
-  Request? beforeRequest(Context c, Request request) =>
-      throwIn == 'beforeRequest' ? boom() : null;
+  void beforeModelCall(TurnContext c) {
+    if (throwIn == 'beforeModelCall') boom();
+  }
+
   @override
-  Decision beforeTool(Context c, ToolUse call) =>
-      throwIn == 'beforeTool' ? boom() : const Decision.allow();
+  void beforeToolCall(TurnContext c) {
+    if (throwIn == 'beforeToolCall') boom();
+  }
+
   @override
-  void onTurnEnd(Context c, Outcome outcome) {
+  void afterToolResult(TurnContext c) {
+    if (throwIn == 'afterToolResult') boom();
+  }
+
+  @override
+  void onTurnEnd(TurnContext c) {
     if (throwIn == 'onTurnEnd') boom();
   }
 }
 
-/// Removes another plugin from `beforeRequest`: the model has asked for the
-/// target's tool, but by dispatch time the owner is gone.
+/// Removes another plugin from `beforeModelCall`: the model has asked for
+/// the target's tool, but by dispatch time the owner is gone.
 final class _Remover extends AgentPlugin {
-  _Remover(this.id, {required this.order, required this.loop, required this.target});
+  _Remover(this.id,
+      {required this.order, required this.loop, required this.target});
   @override
   final String id;
   @override
@@ -781,62 +844,70 @@ final class _Remover extends AgentPlugin {
   final AgentLoop loop;
   final String target;
   @override
-  Request? beforeRequest(Context c, Request request) {
-    loop.removePlugin(target);
-    return null;
-  }
+  void beforeModelCall(TurnContext c) => loop.removePlugin(target);
 }
 
-/// Cancels from `afterTool`.
+/// Cancels from `afterToolResult`.
 final class _CancelFromTool extends AgentPlugin {
   _CancelFromTool(this.id);
   @override
   final String id;
   @override
-  Object? afterTool(Context c, ToolResult result) {
-    c.cancel('plugin-cancelled');
-    return null;
-  }
+  void afterToolResult(TurnContext c) => c.cancel('plugin-cancelled');
 }
 
-/// Mutates whatever snapshot it is handed.
+/// Mutates whatever context it is handed.
 final class _Mutate extends AgentPlugin {
   _Mutate(this.id);
   @override
   final String id;
   @override
-  Request? beforeRequest(Context c, Request request) {
-    request.messages.clear(); // must not touch the transcript
-    return null;
+  void beforeModelCall(TurnContext c) {
+    c.messages.clear(); // must not touch the transcript
   }
 }
 
+/// Writes a section, for the copy-rule tests.
+final class _Writer extends AgentPlugin {
+  _Writer(this.id, {required this.section});
+  @override
+  final String id;
+  final String section;
+  @override
+  void beforeModelCall(TurnContext c) => c.promptSections.add(section);
+}
+
+/// Records the sections it sees, for the copy-rule tests.
+final class _Reader extends AgentPlugin {
+  _Reader(this.id, {required this.seen});
+  @override
+  final String id;
+  final List<List<String>> seen;
+  @override
+  void beforeModelCall(TurnContext c) => seen.add(List.of(c.promptSections));
+}
+
 /// Adds a tool when [shiftFromHook] is set.
-final class _Shift extends AgentPlugin {
-  _Shift(this.id);
+final class _Shift extends AgentPlugin {  _Shift(this.id);
   @override
   final String id;
   bool shiftFromHook = false;
   @override
-  List<ToolSchema> get tools => shiftFromHook
-      ? [_tool('t'), _tool('late-tool')]
-      : [_tool('t')];
+  List<ToolSchema> get tools =>
+      shiftFromHook ? [_tool('t'), _tool('late-tool')] : [_tool('t')];
 }
 
-/// Flips the shifter from `beforeTool`, mid-turn.
+/// Flips the shifter from `beforeToolCall`, mid-turn.
 final class _ShiftOnCall extends AgentPlugin {
   _ShiftOnCall(this.id, this.shifter);
   @override
   final String id;
   final _Shift shifter;
   @override
-  Decision beforeTool(Context c, ToolUse call) {
-    shifter.shiftFromHook = true;
-    return const Decision.allow();
-  }
+  void beforeToolCall(TurnContext c) => shifter.shiftFromHook = true;
 }
 
-/// A request transformer with its own order.
+/// Adds a mark to every request, with its own order.
 final class _T extends AgentPlugin {
   _T(this.id, {required this.order, required this.mark});
   @override
@@ -845,10 +916,7 @@ final class _T extends AgentPlugin {
   final int order;
   final String mark;
   @override
-  Request? beforeRequest(Context c, Request request) => Request(
-      systemPrompt: request.systemPrompt + mark,
-      messages: request.messages,
-      tools: request.tools);
+  void beforeModelCall(TurnContext c) => c.promptSections.add(mark);
 }
 
 /// Mounts a real tina_tools tool onto the loop: schema from [tools]'s

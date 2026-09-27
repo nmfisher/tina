@@ -18,10 +18,10 @@ lib/tina_engine_2.dart     barrel export
 lib/src/loop.dart          the loop. One file. Five steps, top to bottom.
 lib/src/model.dart         the value types (immutable)
 lib/src/plugin.dart        AgentPlugin: one interface, every hook optional
-lib/src/context.dart       the per-turn snapshot plugins receive + the cancel token
+lib/src/context.dart       the per-turn context plugins receive + the cancel token
 lib/src/provider.dart      the provider interface + the scripted provider
 example/example_plugins.dart  four small plugins, hooks in use
-test/engine_2_test.dart    the eight required scenarios
+test/engine_2_test.dart    the required scenarios, streaming edges, the copy rule
 ```
 
 ## The two rules
@@ -29,7 +29,8 @@ test/engine_2_test.dart    the eight required scenarios
 **The core owns truth. The plugins own decisions.**
 
 - The core owns the transcript. It is the only writer. A plugin never edits
-  history; it sees snapshots and returns decisions.
+  history; it writes to the context copy it is handed and the loop acts on
+  what arrives.
 - A plugin decides, the core acts. Deny a tool, rewrite a request, add a
   prompt section — the plugin says what, the core does it and records it.
 
@@ -39,7 +40,7 @@ Everything else in this file follows from those two lines.
 
 ```
 1. take one input (from the caller, or a queue the caller supplies)
-2. build the request (system prompt + history snapshot + pinned tools)
+2. build the request (joined prompt sections + history + pinned tools)
 3. call the provider
 4. run the tool calls it asked for
 5. append results, go to 3 until the model asks for no tools
@@ -52,8 +53,9 @@ deliberately not in it. See "Left out on purpose".
 
 ## The model
 
-Value types come from `tina_core` and are immutable. Snapshots are copies,
-never live views.
+Value types come from `tina_core` and are immutable. `Request` snapshots
+are copies, never live views; the one mutable thing is `TurnContext`, and
+the loop copies it per plugin call (see the copy rule below).
 
 | Type | What it is |
 | --- | --- |
@@ -64,7 +66,7 @@ never live views.
 | `Input` | one user input: text + an id. Enters the loop once. |
 | `Request` | one model request: system prompt, messages, tools. Immutable. |
 | `Outcome` | what a turn produced: messages appended, stop reason, usage. |
-| `Context` | what a plugin sees: transcript snapshot + read-only registries. |
+| `TurnContext` | what a plugin sees and writes: input, messages, prompt sections, pinned tools, the call, the result, the decision, the outcome. |
 
 `Input`, `Request`, `Outcome`, `StopReason`, `Decision` and `DecisionKind`
 are loop-only types, defined in `lib/src/model.dart`. They are not shared
@@ -77,17 +79,30 @@ implements only what it needs.
 
 ```dart
 abstract class AgentPlugin {
-  String get id;                                  // required, unique
-  int get order => 100;                           // ordering, one integer
-  List<ToolSchema> get tools => const [];         // tools contributed
-  String? systemSection(Context c) => null;       // a prompt section
-  Input? beforeInvocation(Context c, Input i) => null;  // rewrite input
-  Request? beforeRequest(Context c, Request r) => null; // rewrite request
-  Decision beforeTool(Context c, ToolUse call) => Decision.allow;
-  Object? afterTool(Context c, ToolResult r) => null;   // observe/transform
-  void onTurnEnd(Context c, Outcome o) {}         // the turn ended
+  String get id;                              // required, unique
+  int get order => 100;                       // ordering, one integer
+  List<ToolSchema> get tools => const [];     // tools contributed
+  void onPrompt(TurnContext c) {}             // add a prompt section
+  void onInput(TurnContext c) {}              // rewrite the input
+  void beforeModelCall(TurnContext c) {}      // shape the per-call request
+  void beforeToolCall(TurnContext c) {}       // the guard: set c.decision
+  void afterToolResult(TurnContext c) {}      // observe/replace the result
+  void onTurnEnd(TurnContext c) {}            // the turn ended
 }
 ```
+
+Every phase is a `TurnContext` in, nothing out: the plugin reads what it
+needs and assigns what it wants to change. The loop copies the context
+before each call and keeps the copy the plugin wrote.
+
+### The copy rule
+
+Before every plugin call the loop copies the context — `copy()` makes new
+lists with the same elements — and hands the copy over. The plugin writes
+to its copy; the loop keeps the copy it wrote and hands the *next* plugin
+a copy of that, so later plugins see earlier writes. A plugin that throws
+has its copy dropped: its writes never arrive, and the next plugin still
+runs. The turn is never broken by one bad plugin.
 
 ### Hooks, one paragraph each
 
@@ -100,52 +115,59 @@ snapshot of the full tool set at the turn boundary and pins it for the whole
 turn. A plugin that changes its `tools` list mid-turn is rejected (see
 invariants below).
 
-**`systemSection`** — a **method**, not a property, so it can return live
-text. The core calls it once per turn when the prompt is assembled, in
-ascending `order`. It returns one section. The core owns the join: it puts
-the newlines between sections, so no plugin can hand back a whole prompt.
-Stable sections first, volatile ones last — by convention the core's own
-header is first, so anything with a high `order` lands at the end.
+**`onPrompt`** — runs once per turn, before the input phase, in ascending
+`order`. The plugin adds one section to `c.promptSections` — or adds
+nothing. The core owns the join: it puts the newlines between sections and
+drops empty ones, so no plugin can hand over a whole prompt. With no
+sections the prompt is an empty string: the core owns no prompt text, so
+the persona lives in a plugin (in tina_host), not here.
 
-**`beforeInvocation`** — first hook of a turn. Gets the user `Input` and a
-context snapshot. Returns a new `Input` (rewritten text, new id) or null to
-leave it alone. Runs in `order`. Because it returns a new immutable value,
-the caller's original is untouched; the core records which plugin, if any,
-changed it.
+**`onInput`** — first hook of a turn, right after the prompt phase. The
+input is `c.input`; a rewrite is an assignment. Runs in `order`. The
+caller's original is untouched — the loop copies the context — and the
+outcome records which plugin, if any, changed it.
 
-**`beforeRequest`** — runs before every model call, not once per turn, so a
-plugin can transform each request as the conversation grows. Gets a full
-`Request` snapshot; returns a new `Request` or null. Runs in `order`. This
-is where a pruning or redaction plugin would live — the loop itself never
-rewrites what the model is about to see.
+**`beforeModelCall`** — runs before every model call, not once per turn, so
+a plugin can shape each request as the conversation grows. `c.messages`,
+`c.promptSections` and `c.pinnedTools` are the request about to be built;
+edit them by assignment. Runs in `order`. This is where a pruning or
+redaction plugin would live — the loop itself never rewrites what the
+model is about to see, and the transcript is untouched: a plugin edits
+its copy of the message list, never the truth.
 
-**`beforeTool`** — the guard. Called before each tool executes, in `order`.
-Returns `Decision.allow`, `Decision.deny`, or `Decision.ask`. All guards
-must pass; `order` only decides which one reports first. In this package
-`ask` has no UI to route to, so it resolves to deny — recorded as
-`denied:ask-unresolved`, an explicit and visible fallback, not a silent one.
+**`beforeToolCall`** — the guard. Called before each tool executes, in
+`order`. The call is `c.call`; set `c.decision` to `Decision.deny` or
+`Decision.ask` — or leave the allow that is already there. All guards
+must pass; `order` only decides which one reports first, and the first
+non-allow decision stops the guard phase. In this package `ask` has no UI
+to route to, so it resolves to deny — recorded as `ask-unresolved` in the
+result content, an explicit and visible fallback, not a silent one.
 
-**`afterTool`** — called after a tool result exists, in `order`. May return
-a replacement result that the core records instead, or null to observe only.
-The loop enforces pairing either way: whatever is recorded, the core writes
-it, and a `tool_use` always ends with a `tool_result`.
+**`afterToolResult`** — called after a tool result exists, in `order`. The
+result is `c.toolResult`; assign to it to replace what the core records,
+or leave it to observe only. The loop enforces pairing either way:
+whatever is recorded, the core writes it, and a `tool_use` always ends
+with a `tool_result`.
 
-**`onTurnEnd`** — the turn is over. The core hands the plugin the `Outcome`
-(final answer, stop reason, message count) and a snapshot. Return value is
-ignored. A place for metrics or logging, not for mutation.
+**`onTurnEnd`** — the turn is over. The outcome is `c.outcome` (final
+answer, stop reason, message count). A place for metrics or logging, not
+for mutation.
 
 ## The invariants
 
-1. **One writer.** The loop owns the transcript. Plugins get snapshots and
-   return decisions. A plugin can never mutate history — and a plugin that
-   tries is rejected.
+1. **One writer.** The loop owns the transcript. Plugins get a copy of the
+   context, write to it, and the loop keeps what they wrote — but history
+   is never rewritten from a plugin: the loop refreshes the context from
+   its own truth each step. A plugin edits its copy of the message list,
+   never the transcript.
 2. **Pairing.** Every `tool_use` gets a matching `tool_result`. The loop
    enforces it, always. A denied tool still produces a result that says so.
    No orphans, ever.
-3. **Cancellation.** One cancellation path: the `cancelled` field on
-   `Context`. Set it once. The loop checks it at the same points every time
-   — before the model call, before each tool — stops promptly, and records
-   why. There is no second mechanism.
+3. **Cancellation.** One cancellation path: the `CancelToken` the context
+   holds (`cancel()`, `cancelled`, `cancelReason`). Set it once. The loop
+   checks it at the same points every time — before the model call, before
+   each tool — stops promptly, and records why. There is no second
+   mechanism.
 4. **Pinned tools.** The tool set is read once at the turn boundary and does
    not change during the turn. If the plugin list reports a different tool
    set mid-turn, the loop rejects the turn with `error:tools-changed`.
@@ -155,9 +177,10 @@ ignored. A place for metrics or logging, not for mutation.
    plugin left, and the turn continues. No crash. The check is at dispatch:
    a removal inside the guard loop for the same call does not undo it (see
    open question 8).
-6. **Isolation.** A plugin that throws in a hook must not break the turn.
-   Its contribution is treated as absent and the turn continues. (Brief
-   ordering rules; enforced for every hook, including lifecycle hooks.)
+6. **Isolation.** A plugin that throws in a phase must not break the turn.
+   Its copy of the context is dropped — its writes never arrive — and the
+   next plugin still runs, seeing every earlier write. Enforced for every
+   phase, including onTurnEnd.
 7. **Unique ids.** A duplicate plugin `id` is a programming error. It throws
    at registration.
 
@@ -165,10 +188,10 @@ ignored. A place for metrics or logging, not for mutation.
 
 - Prompt sections: ascending by `order`. Stable sections first, volatile
   ones last. The join belongs to the core.
-- Request transforms: in `order`.
+- Per-call request shaping: in `order`.
 - Tool guards: all must pass. `order` only decides which one reports first.
-- A throwing plugin is isolated: its contribution is absent, the turn goes
-  on. One bad plugin must never break every prompt or every turn.
+- A throwing plugin is isolated: its copy is dropped, the turn goes on. One
+  bad plugin must never break every prompt or every turn.
 
 `order` is a single integer compared ascending. Ties are broken by plugin id
 so the sequence is the same every run — byte order is reproducible.
@@ -222,16 +245,14 @@ or is out of scope for a review artifact.
 - **Token budgets** — absent. A budget decides when to stop or compact, and
   there is no real tokenizer here (no network, no model). It is also a
   cross-turn policy, while the loop is per-turn. Behind a plugin, it would
-  live in `beforeRequest`.
+  live in `beforeModelCall`.
 - **Compaction** — absent. Compaction rewrites history, and the core owns
   history. Getting it right needs a real summarizer and a real policy about
-  what may be dropped. `beforeRequest` is the seam where it would attach,
+  what may be dropped. `beforeModelCall` is the seam where it would attach,
   once there is something real to compact.
 - **Tool-result pruning** — the same story as compaction, smaller. It is
-  the canonical `beforeRequest` example plugin: rewrite the request
-  snapshot, leave the transcript alone. Shown as an example, not built in.
-  (The example prunes only its own tool's results, by name, and never
-  rewrites history.)
+  the canonical `beforeModelCall` example plugin: edit the request's
+  message list on the context, leave the transcript alone.
 - **Providers** — the interface is here; real HTTP providers are not. No
   network in this package by design. Shipping one would make this package
   depend on http and on key management, which are someone else's problem.
@@ -241,10 +262,10 @@ or is out of scope for a review artifact.
 
 ## Open questions
 
-1. **Should `beforeTool` be able to return a replacement call?** Right now a
-   guard can allow or deny, but not rewrite arguments. A `modify` decision
-   would cover redaction but adds a second path that changes what the model
-   asked for. Left out to keep the decision enum honest.
+1. **Should a guard be able to rewrite the call?** Right now a guard can
+   allow or deny, but not edit `c.call`. A modify path would cover
+   redaction but adds a second way to change what the model asked for.
+   Left out to keep the decision enum honest.
 2. **Is `ask` resolving to deny right?** With no UI it is the only safe
    fallback, but a host may prefer fail-closed-to-allow with an audit note.
    The recording makes either auditable; the default is a judgement call.
@@ -253,17 +274,17 @@ or is out of scope for a review artifact.
    prompt-assembly plugin is not settled; core keeps the join deterministic
    and out of plugin hands, which matches "a plugin returns a section,
    never a whole prompt".
-4. **`afterTool` replacement scope.** Today a plugin can replace a result
-   the core records, but not what the model already saw in the *current*
-   request. Replacing after the fact is useful for audit but may mislead
-   the model in the same turn. Needs a real use to decide.
+4. **`afterToolResult` replacement scope.** Today a plugin can replace a
+   result the core records, but not what the model already saw in the
+   *current* request. Replacing after the fact is useful for audit but may
+   mislead the model in the same turn. Needs a real use to decide.
 5. **Turn-boundary tool pinning vs. plugin liveness.** Pinning the schema
    set at the boundary while allowing plugins to leave mid-turn means a
    pinned tool can become undispatchable. The loop writes an explanatory
    result. An alternative is to re-pin at each request; that breaks the
    pinning invariant. Both costs are real; the brief's invariants were kept
    as written.
-6. **No async plugins.** Hooks are sync on purpose: the loop stays
+6. **No async plugins.** Phases are sync on purpose: the loop stays
    sequential and easy to reason about. If a hook ever needs I/O, either
    the hook goes async or the plugin precomputes. Not decided here.
 7. **Error taxonomy.** Stop reasons are a small enum plus a free-form

@@ -12,7 +12,7 @@ final class Input {
   final String text;
   final String id;
 
-  /// A copy, so `beforeInvocation` can return a new input.
+  /// A copy, so the input phase can hand the turn a rewritten input.
   Input withText(String newText, {String? newId}) =>
       Input(newText, id: newId ?? id);
 
@@ -72,7 +72,7 @@ final class Outcome {
   /// Extra detail: the final answer, a cancellation point, an error string.
   final String detail;
 
-  /// The plugin id whose `beforeInvocation` recorded a change, if any.
+  /// The plugin id whose input-phase write recorded a change, if any.
   final String? changedBy;
 
   /// A copy.
