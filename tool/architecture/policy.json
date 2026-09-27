@@ -53,7 +53,8 @@
       "test"
     ],
     "tina_core": [
-      "lib"
+      "lib",
+      "test"
     ],
     "tina_llm": [
       "lib",

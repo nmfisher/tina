@@ -414,9 +414,9 @@ jobs:
   # engine2 provider split (policy update): tina_core, tina_llm, tina_tools,
   # tina_engine_2 and tina_host are terminal-free (path deps within the
   # workspace, no submodule, no native linker deps) — plain checkout like
-  # attractor/fuzzy_ranker/file_tree. tina_core has no test/ directory yet,
-  # so its job gates on pub get + analyze only; the CI guard requires a
-  # working-directory step, not a test step, and there is no test to skip.
+  # attractor/fuzzy_ranker/file_tree. tina_core has a test/ directory now
+  # (session-log entry types + derive), so its job gates on pub get +
+  # analyze + test like every other owned package.
   tina_core:
     name: tina_core (packages/tina_core)
     runs-on: ubuntu-latest
@@ -431,6 +431,9 @@ jobs:
       - name: analyze (tina_core)
         working-directory: packages/tina_core
         run: dart analyze
+      - name: test (tina_core)
+        working-directory: packages/tina_core
+        run: dart test -j 4
 
   tina_llm:
     name: tina_llm (packages/tina_llm)
