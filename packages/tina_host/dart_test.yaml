@@ -1,0 +1,10 @@
+# The live smoke test (test/live_smoke_test.dart) is tagged `live`: it
+# needs a real endpoint token (TINA_LLM_TOKEN / ANTHROPIC_API_KEY) and is
+# skipped by default so plain `dart test` never opens a socket. Run it
+# explicitly:
+#
+#     dart test --tags live --run-skipped
+#
+tags:
+  live:
+    skip: "live smoke test: needs TINA_LLM_TOKEN in the environment; run with --tags live --run-skipped"
