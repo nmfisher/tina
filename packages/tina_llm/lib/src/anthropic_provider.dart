@@ -42,8 +42,9 @@ String? _env(String name) {
 final class AnthropicProvider extends LlmProvider {
   /// Build from the environment. [tokenFrom] exists so tests can inject a
   /// fake token value without touching the process environment; the
-  /// default reads `TINA_LLM_TOKEN`, then `ANTHROPIC_API_KEY`. Null means
-  /// every call fails closed with a clear stream error.
+  /// default reads `TINA_LLM_TOKEN`, then `ANTHROPIC_AUTH_TOKEN` (both
+  /// bearer), then `ANTHROPIC_API_KEY` (x-api-key). Null means every call
+  /// fails closed with a clear stream error.
   AnthropicProvider({
     required String model,
     HttpEndpoint? endpoint,
@@ -52,9 +53,14 @@ final class AnthropicProvider extends LlmProvider {
     String? endpointUrl,
   })  : _endpointOverride = endpoint,
         _endpointUrl = endpointUrl,
-        _tokenFrom = tokenFrom ??
-            (() => _env('TINA_LLM_TOKEN') ?? _env('ANTHROPIC_API_KEY')),
+        _tokenFrom = tokenFrom ?? _defaultTokenFrom,
         super(model);
+
+  /// The default token source. A static tear-off so [_auth] can tell "the
+  /// environment is the source" from "a test injected this closure" — the
+  /// environment knows which header its token rides, an injected one
+  /// defaults to bearer.
+  static String? _defaultTokenFrom() => _envToken().$1;
 
   /// The messages path on the endpoint.
   static const messagesPath = '/v1/messages';
@@ -62,6 +68,33 @@ final class AnthropicProvider extends LlmProvider {
   final HttpEndpoint? _endpointOverride;
   final String? _endpointUrl;
   final String? Function() _tokenFrom;
+
+  /// The default token source: name and value resolved together, so the
+  /// header shape can never drift from the value. `TINA_LLM_TOKEN` and
+  /// `ANTHROPIC_AUTH_TOKEN` are bearer tokens (z.ai's gateway issues
+  /// these); `ANTHROPIC_API_KEY` rides `x-api-key`.
+  static (String?, bool) _envToken() {
+    final t = _env('TINA_LLM_TOKEN');
+    if (t != null && t.isNotEmpty) return (t, true);
+    final b = _env('ANTHROPIC_AUTH_TOKEN');
+    if (b != null && b.isNotEmpty) return (b, true);
+    final k = _env('ANTHROPIC_API_KEY');
+    if (k != null && k.isNotEmpty) return (k, false);
+    return (null, true);
+  }
+
+  /// The resolved credential for one send: the token (null means "none
+  /// found — fail closed") and whether it rides `authorization` (bearer)
+  /// or `x-api-key`. A test-injected token (via `tokenFrom`) rides
+  /// bearer — the shape every recorded fixture uses.
+  ({String? token, bool bearer}) _auth() {
+    if (identical(_tokenFrom, _defaultTokenFrom)) {
+      final (t, b) = _envToken();
+      return (token: t, bearer: b);
+    }
+    final t = _tokenFrom();
+    return (token: t, bearer: t != null && t.isNotEmpty);
+  }
 
   /// How long a silent stream is tolerated before it is declared stalled.
   final Duration stallTimeout;
@@ -93,11 +126,11 @@ final class AnthropicProvider extends LlmProvider {
     required List<Message> messages,
     required List<ToolSchema> tools,
   }) async* {
-    final token = _tokenFrom();
+    final (:token, :bearer) = _auth();
     if (token == null || token.isEmpty) {
       yield const StreamError(
-          'no API token: set TINA_LLM_TOKEN or ANTHROPIC_API_KEY in the '
-          'environment',
+          'no API token: set TINA_LLM_TOKEN or ANTHROPIC_AUTH_TOKEN or '
+          'ANTHROPIC_API_KEY in the environment',
           providerCode: 'no_token');
       return;
     }
@@ -116,9 +149,12 @@ final class AnthropicProvider extends LlmProvider {
         headers: {
           'content-type': 'application/json',
           'accept': 'text/event-stream',
-          // The header the wire expects. The value came from the
+          // The header follows the token's shape: a bearer token
+          // (TINA_LLM_TOKEN, ANTHROPIC_AUTH_TOKEN) rides `authorization`,
+          // an api key rides `x-api-key`. The value came from the
           // environment; it is never logged.
-          'x-api-key': token,
+          if (bearer) 'authorization': 'Bearer $token',
+          if (!bearer) 'x-api-key': token,
           'anthropic-version': '2023-06-01',
         },
         body: body,

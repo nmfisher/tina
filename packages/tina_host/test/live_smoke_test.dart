@@ -36,8 +36,15 @@ void main() {
 
   test('one live turn: the model writes a file through the sandbox',
       () async {
+    // The model label: TINA_LLM_MODEL when set, the environment's
+    // ANTHROPIC_MODEL next (the gateway the token belongs to decides the
+    // name), else the provider default the factory used to carry.
+    final model = Platform.environment['TINA_LLM_MODEL'] ??
+        Platform.environment['ANTHROPIC_MODEL'] ??
+        'glm-5.3-flash';
     final host = Host.start(HostConfig(
-      providerFactory: (model) => AnthropicProvider(model: model),
+      providerFactory: (m) => AnthropicProvider(model: m),
+      model: model,
       workingDirectory: ws.path,
       plugins: [
         ToolsPlugin(

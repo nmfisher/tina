@@ -103,8 +103,11 @@ void main() {
       expect(ep.path, '/v1/messages');
       expect(ep.headers!['content-type'], 'application/json');
       // The auth header is present but its value never appears in a
-      // failure message — see the missing-token test below.
-      expect(ep.headers!.containsKey('x-api-key'), isTrue);
+      // failure message — see the missing-token test below. An injected
+      // token rides `authorization` (bearer): the shape the gateway's
+      // AUTH_TOKEN vars use; the env-sourced API_KEY would ride
+      // `x-api-key` instead.
+      expect(ep.headers!['authorization'], 'Bearer test-only-token');
     });
 
     test('a tool call in the transcript: exact JSON', () async {
