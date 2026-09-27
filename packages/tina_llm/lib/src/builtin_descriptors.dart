@@ -308,7 +308,7 @@ const ProviderDescriptor _nim = ProviderDescriptor(
   name: 'NVIDIA NIM',
   wire: ProviderWire.openAiCompatible,
   baseUrl: 'https://integrate.api.nvidia.com/v1',
-  keyEnvVar: 'NIM_API_KEY',
+  keyEnvVar: 'NVIDIA_API_KEY',
   keyStyle: ProviderKeyStyle.bearer,
   models: {},
 );
