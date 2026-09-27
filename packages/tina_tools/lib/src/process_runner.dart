@@ -28,7 +28,7 @@ import 'dart:io';
 /// One command the runner has been asked to run.
 ///
 /// [command] is the program (looked up on `PATH`); [arguments] are passed
-/// literally — no shell interprets them. The record is what the asker is
+/// literally — no shell interprets them. The record is what the approver is
 /// shown and what grants are matched against, so it carries exactly what
 /// will run and nothing else.
 typedef ProcessRequest = ({
@@ -56,7 +56,7 @@ class CommandCompleted extends RunOutcome {
   final String stdout;
   final String stderr;
 
-  /// Why the runner allowed it — `'inside the session's writable set'`, a
+  /// Why the runner allowed it — `'inside the session's writable directories'`, a
   /// grant note, or null. Purely informational; the model never needs it.
   final String? note;
   const CommandCompleted(

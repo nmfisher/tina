@@ -17,7 +17,7 @@ import 'package:tina_tools/tina_tools.dart'
         PermissionMode,
         SandboxedFileSystem,
         SandboxedProcessRunner,
-        WritableSet,
+        WritableDirectories,
         stringExecutor,
         Tool,
         WriteTool;
@@ -56,7 +56,8 @@ bool _isResult(Message m) =>
     m.content.isNotEmpty &&
     m.content.every((b) => b is ToolResultBlock);
 
-ToolResultBlock _result(Message m) => m.content.whereType<ToolResultBlock>().single;
+ToolResultBlock _result(Message m) =>
+    m.content.whereType<ToolResultBlock>().single;
 
 String _text(Message m) =>
     [for (final b in m.content.whereType<TextBlock>()) b.text].join();
@@ -76,12 +77,10 @@ void main() {
         ]),
         scriptedReply('all done'),
       ]);
-      final loop = AgentLoop(
-          provider: provider, plugins: [const ToolProviderPlugin()]);
-      loop.registerExecutor(
-          'echo',
-          stringExecutor(
-              (args) async => args['text']?.toString() ?? ''));
+      final loop =
+          AgentLoop(provider: provider, plugins: [const ToolProviderPlugin()]);
+      loop.registerExecutor('echo',
+          stringExecutor((args) async => args['text']?.toString() ?? ''));
 
       final outcome = await loop.runTurn(const Input('hello', id: 'i1'));
 
@@ -110,8 +109,10 @@ void main() {
   group('2. multi-step: two tool rounds then stop', () {
     test('loops until the model asks for no tools', () async {
       final provider = ScriptedProvider([
-        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't1', input: {})]),
-        scriptedReply('', calls: [ToolUseBlock(id: 'c2', name: 't2', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c1', name: 't1', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c2', name: 't2', input: {})]),
         scriptedReply('finished'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
@@ -131,8 +132,13 @@ void main() {
           for (final b in m.content.whereType<ToolUseBlock>()) b.name
       ];
       expect(executed, ['t1', 't2']);
-      expect([for (final m in outcome.messages) if (_isResult(m)) _result(m).toolUseId],
-          ['c1', 'c2']);
+      expect([
+        for (final m in outcome.messages)
+          if (_isResult(m)) _result(m).toolUseId
+      ], [
+        'c1',
+        'c2'
+      ]);
     });
   });
 
@@ -154,14 +160,15 @@ void main() {
     test('request transforms run in order and compose', () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
-        const RequestTransformerPlugin(suffix: '|2nd', /* order 300 */),
+        const RequestTransformerPlugin(
+          suffix: '|2nd', /* order 300 */
+        ),
         _T('z.first-transform', order: 1, mark: '|1st'),
       ]);
       await loop.runTurn(const Input('x', id: 'i3b'));
 
       // order 1 runs before order 300, so |1st lands before |2nd.
-      expect(
-          provider.requests.first.systemPrompt.endsWith('|1st\n\n|2nd'),
+      expect(provider.requests.first.systemPrompt.endsWith('|1st\n\n|2nd'),
           isTrue);
     });
   });
@@ -169,16 +176,15 @@ void main() {
   group('4. guard: deny blocks execution, result recorded', () {
     test('denied call never runs; pairing kept; reason recorded', () async {
       final provider = ScriptedProvider([
-        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 'rm_rf', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c1', name: 'rm_rf', input: {})]),
         scriptedReply('fine'),
       ]);
       final ran = <String>[];
-      final loop = AgentLoop(
-          provider: provider,
-          plugins: [
-            const GuardPlugin('rm_rf', reason: 'too dangerous'),
-            _plugin('owner', tools: [_tool('rm_rf')]),
-          ]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        const GuardPlugin('rm_rf', reason: 'too dangerous'),
+        _plugin('owner', tools: [_tool('rm_rf')]),
+      ]);
       loop.registerExecutor('rm_rf', (_) async {
         ran.add('ran!');
         return ToolResult('');
@@ -188,8 +194,7 @@ void main() {
 
       expect(ran, isEmpty);
       expect(outcome.stopReason, StopReason.complete);
-      final result = _result(
-          outcome.messages.firstWhere(_isResult));
+      final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
       expect(result.content, contains('denied'));
       expect(result.content, contains('example.guard'));
@@ -198,12 +203,13 @@ void main() {
     test('ask with no UI resolves to deny, recorded as ask-unresolved',
         () async {
       final provider = ScriptedProvider([
-        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
         scriptedReply('ok'),
       ]);
       final ran = <String>[];
       final loop = AgentLoop(provider: provider, plugins: [
-        _Ask('asker'),
+        _Ask('approver'),
         _plugin('owner', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (_) async {
@@ -214,8 +220,7 @@ void main() {
       final outcome = await loop.runTurn(const Input('x', id: 'i4b'));
 
       expect(ran, isEmpty);
-      final result =
-          _result(outcome.messages.firstWhere(_isResult));
+      final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.content, contains('ask-unresolved'));
     });
   });
@@ -223,7 +228,8 @@ void main() {
   group('5. plugin throws: turn continues, contribution absent', () {
     test('throwing guard is ignored; tool runs; section omitted', () async {
       final provider = ScriptedProvider([
-        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
         scriptedReply('done'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
@@ -236,8 +242,7 @@ void main() {
       final outcome = await loop.runTurn(const Input('x', id: 'i5'));
 
       expect(outcome.stopReason, StopReason.complete);
-      final result =
-          _result(outcome.messages.firstWhere(_isResult));
+      final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isFalse);
       expect(provider.requests.first.systemPrompt, isNot(contains('BOOM')));
     });
@@ -273,7 +278,8 @@ void main() {
     test('cancel from a plugin mid-turn -> stops before next model call',
         () async {
       final provider = ScriptedProvider([
-        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
         scriptedReply('never reached'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
@@ -293,7 +299,8 @@ void main() {
   group('7. plugin removal: pending call skipped, turn continues', () {
     test('removed plugin tool -> skipped result, then completion', () async {
       final provider = ScriptedProvider([
-        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
         scriptedReply('done'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
@@ -309,8 +316,7 @@ void main() {
       final outcome = await loop.runTurn(const Input('x', id: 'i7'));
 
       expect(outcome.stopReason, StopReason.complete);
-      final result =
-          _result(outcome.messages.firstWhere(_isResult));
+      final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
       expect(result.content, contains('plugin vanishing left'));
     });
@@ -346,7 +352,8 @@ void main() {
       final outcome = await loop.runTurn(const Input('x', id: 'i8b'));
 
       final advertised = provider.requests.first.tools;
-      expect([for (final t in advertised) t.name], containsAll(['denied-tool']));
+      expect(
+          [for (final t in advertised) t.name], containsAll(['denied-tool']));
       final results = [
         for (final m in outcome.messages)
           if (_isResult(m)) _result(m)
@@ -359,7 +366,8 @@ void main() {
     test('pinned tools stay stable; mid-turn change rejects the turn',
         () async {
       final provider = ScriptedProvider([
-        scriptedReply('', calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
+        scriptedReply('',
+            calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
         scriptedReply('done'),
       ]);
       final shifter = _Shift('shifter');
@@ -379,14 +387,15 @@ void main() {
     });
 
     test('duplicate plugin id throws at registration', () {
-      final loop = AgentLoop(
-          provider: ScriptedProvider([]), plugins: [_plugin('dup')]);
+      final loop =
+          AgentLoop(provider: ScriptedProvider([]), plugins: [_plugin('dup')]);
       expect(() => loop.addPlugin(_plugin('dup')), throwsArgumentError);
     });
   });
 
   group('9. streaming edge paths (recorded, not prescribed)', () {
-    test('stream error mid-reply -> StopReason.error, detail recorded, '
+    test(
+        'stream error mid-reply -> StopReason.error, detail recorded, '
         'no unpaired tool_use in the transcript', () async {
       final provider = ScriptedProvider([
         [
@@ -422,9 +431,9 @@ void main() {
       expect(ran, isEmpty); // the started call never dispatched
     });
 
-    test('ToolCallStart then the stream ends with no MessageComplete -> '
-        'the call is not dispatched; the turn ends StopReason.error',
-        () async {
+    test(
+        'ToolCallStart then the stream ends with no MessageComplete -> '
+        'the call is not dispatched; the turn ends StopReason.error', () async {
       final seen = <Map<String, Object?>>[];
       final provider = ScriptedProvider([
         [
@@ -465,7 +474,8 @@ void main() {
       expect(provider.callCount, 1);
     });
 
-    test('interleaved TextDelta and ReasoningDelta: transcript text comes '
+    test(
+        'interleaved TextDelta and ReasoningDelta: transcript text comes '
         'from MessageComplete, deltas are dropped', () async {
       final provider = ScriptedProvider([
         [
@@ -501,7 +511,8 @@ void main() {
       expect(_text(outcome2.messages.last), 'only deltas here');
     });
 
-    test('provider send() throws instead of yielding -> runTurn ends '
+    test(
+        'provider send() throws instead of yielding -> runTurn ends '
         'StopReason.error with the error recorded', () async {
       final throwing = _ThrowingSendProvider();
       final loop = AgentLoop(provider: throwing, plugins: []);
@@ -517,7 +528,8 @@ void main() {
       expect([for (final m in outcome.messages) m.role], [Role.user]);
     });
 
-    test('provider throws mid-stream after deltas -> the turn ends '
+    test(
+        'provider throws mid-stream after deltas -> the turn ends '
         'StopReason.error and the partial text is kept, not discarded',
         () async {
       final provider = _ThrowMidStreamProvider([
@@ -541,7 +553,8 @@ void main() {
   });
 
   group('10. a tina_tools tool mounted on the loop', () {
-    test('WriteTool schema is advertised; execute runs as the executor; '
+    test(
+        'WriteTool schema is advertised; execute runs as the executor; '
         'the file lands', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_tools_');
       addTearDown(() => dir.deleteSync(recursive: true));
@@ -555,8 +568,9 @@ void main() {
         ]),
         scriptedReply('done'),
       ]);
-      final loop = AgentLoop(
-          provider: provider, plugins: [_ToolsPlugin([write])]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _ToolsPlugin([write])
+      ]);
       loop.registerExecutor('write', write.execute);
 
       final outcome = await loop.runTurn(const Input('save', id: 'i10'));
@@ -566,8 +580,7 @@ void main() {
       // The tool's schema reached the provider's tools list.
       expect(provider.requests.first.tools.map((t) => t.name), ['write']);
       // The executor ran the real tool: the file landed under the root.
-      expect(File('${dir.path}/note.txt').readAsStringSync(),
-          'from the model');
+      expect(File('${dir.path}/note.txt').readAsStringSync(), 'from the model');
       // The transcript carries the tool's own success content.
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isFalse);
@@ -575,14 +588,17 @@ void main() {
       expect(result.content, contains('note.txt'));
     });
 
-    test('a refusing filesystem records the refusal as the tool_result and '
+    test(
+        'a refusing filesystem records the refusal as the tool_result and '
         'the turn continues', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_refuse_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final tinaDir = await Directory.systemTemp.createTemp('tina_e2_tina_');
       addTearDown(() => tinaDir.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
-          workspaceRoot: dir.path, tinaDir: tinaDir, mode: PermissionMode.readOnly);
+          workspaceRoot: dir.path,
+          tinaDir: tinaDir,
+          mode: PermissionMode.readOnly);
       final write = WriteTool(fs: sandbox, workspaceRoot: dir.path);
       final provider = ScriptedProvider([
         scriptedReply('', calls: [
@@ -594,11 +610,13 @@ void main() {
         // The turn continues: the model sees the refusal and answers.
         scriptedReply('understood, staying read-only'),
       ]);
-      final loop = AgentLoop(
-          provider: provider, plugins: [_ToolsPlugin([write])]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _ToolsPlugin([write])
+      ]);
       loop.registerExecutor('write', write.execute);
 
-      final outcome = await loop.runTurn(const Input('try to write', id: 'i11'));
+      final outcome =
+          await loop.runTurn(const Input('try to write', id: 'i11'));
 
       expect(outcome.stopReason, StopReason.complete);
       expect(provider.callCount, 2,
@@ -613,7 +631,8 @@ void main() {
   });
 
   group('11. the copy rule: a context is copied per plugin call', () {
-    test('a thrower leaves the turn intact; its writes are absent; '
+    test(
+        'a thrower leaves the turn intact; its writes are absent; '
         'the next plugin runs', () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
@@ -639,7 +658,8 @@ void main() {
       expect(seen.single, ['FROM-WRITER']);
     });
 
-    test('a plugin adds a prompt section for one call without replacing '
+    test(
+        'a plugin adds a prompt section for one call without replacing '
         'the rest of the request', () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
@@ -657,14 +677,15 @@ void main() {
   });
 
   group('12. bash behind the loop, read-only', () {
-    test('a command call is refused as a tool_result and the turn continues; '
+    test(
+        'a command call is refused as a tool_result and the turn continues; '
         'nothing ran', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_proc_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final bash = BashTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
-          writableSet: WritableSet()..add(dir.path),
+          writableDirectories: WritableDirectories()..add(dir.path),
           mode: PermissionMode.readOnly,
         ),
         workingDirectory: dir.path,
@@ -676,11 +697,13 @@ void main() {
         // The turn continues: the model sees the refusal and answers.
         scriptedReply('understood, read-only'),
       ]);
-      final loop =
-          AgentLoop(provider: provider, plugins: [_ToolsPlugin([bash])]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _ToolsPlugin([bash])
+      ]);
       loop.registerExecutor('bash', bash.execute);
 
-      final outcome = await loop.runTurn(const Input('run something', id: 'i12'));
+      final outcome =
+          await loop.runTurn(const Input('run something', id: 'i12'));
 
       expect(outcome.stopReason, StopReason.complete);
       expect(provider.callCount, 2,
@@ -698,15 +721,16 @@ void main() {
           reason: 'echo never executed, so no side effect landed');
     });
 
-    test('outside the writable set with no asker: denied fail-closed, '
+    test(
+        'outside the writable directories with no approver: denied fail-closed, '
         'turn continues', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_proc2_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final bash = BashTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
-          writableSet: WritableSet()..add(dir.path),
-          // No asker: anything needing a question is denied.
+          writableDirectories: WritableDirectories()..add(dir.path),
+          // No approver: anything needing a question is denied.
         ),
         workingDirectory: dir.path,
       );
@@ -717,21 +741,21 @@ void main() {
         ]),
         scriptedReply('noted'),
       ]);
-      final loop =
-          AgentLoop(provider: provider, plugins: [_ToolsPlugin([bash])]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _ToolsPlugin([bash])
+      ]);
       loop.registerExecutor('bash', bash.execute);
 
-      final outcome =
-          await loop.runTurn(const Input('read a file', id: 'i13'));
+      final outcome = await loop.runTurn(const Input('read a file', id: 'i13'));
 
       expect(outcome.stopReason, StopReason.complete);
       expect(provider.callCount, 2);
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
       // The bash shape cannot be certified at all — it asks, and with no
-      // asker wired the sandbox denies fail-closed.
+      // approver wired the sandbox denies fail-closed.
       expect(result.content, contains('shell command string'));
-      expect(result.content, contains('no asker'));
+      expect(result.content, contains('no approver'));
     });
   });
 }
@@ -888,7 +912,8 @@ final class _Reader extends AgentPlugin {
 }
 
 /// Adds a tool when [shiftFromHook] is set.
-final class _Shift extends AgentPlugin {  _Shift(this.id);
+final class _Shift extends AgentPlugin {
+  _Shift(this.id);
   @override
   final String id;
   bool shiftFromHook = false;

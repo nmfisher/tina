@@ -66,7 +66,7 @@ class ExecTool extends ProcessToolBase {
               'items': {'type': 'string'},
               'description':
                   'Literal argument values. Passed as data after the `--` '
-                  'fence — never read as options, whatever they look like.',
+                      'fence — never read as options, whatever they look like.',
             },
             'timeout': {
               'type': 'integer',
@@ -99,8 +99,7 @@ class ExecTool extends ProcessToolBase {
 
     // The fence: every model value goes after `--`. There is no code path
     // that emits a model value before it.
-    final argv = FencedArguments()
-      ..forValues(modelArgs);
+    final argv = FencedArguments()..forValues(modelArgs);
 
     return runRequest((
       command: program,

@@ -13,7 +13,7 @@
 ///
 /// The rule that outlived the declarations: **read-only never asks** — a
 /// write in [PermissionMode.readOnly] is denied outright, never put to the
-/// user. And **asking is fail-closed**: no asker wired means deny.
+/// user. And **asking is fail-closed**: no approver wired means deny.
 library;
 
 import 'glob.dart' show fileGlobMatch;
@@ -21,7 +21,7 @@ import 'glob.dart' show fileGlobMatch;
 /// What was decided about one operation.
 ///
 /// A [ToolVerdict.ask] is *not* an answer: whoever resolves it — the
-/// filesystem's asker — decides, and no asker wired means deny.
+/// filesystem's approver — decides, and no approver wired means deny.
 enum ToolVerdict {
   /// Perform the operation.
   allow,
@@ -29,7 +29,7 @@ enum ToolVerdict {
   /// Refuse it; the reason reaches the model as the tool result.
   deny,
 
-  /// The asker decides. With no asker, this resolves to deny — fail closed.
+  /// The approver decides. With no approver, this resolves to deny — fail closed.
   ask,
 }
 
@@ -63,12 +63,12 @@ typedef FileOperation = ({FileOp op, String path});
 
 /// Who answers an ask: a function from the request (and the reason it is
 /// being asked) to one of three answers. A host wires a UI; nothing wired
-/// means deny. Async, because the realistic asker shows a dialog and waits.
-typedef FileAsker = Future<FileAskAnswer> Function(
+/// means deny. Async, because the realistic approver shows a dialog and waits.
+typedef Approver = Future<Approval> Function(
     FileOperation request, String reason);
 
-/// What an asker may answer.
-enum FileAskAnswer {
+/// What an approver may answer.
+enum Approval {
   /// Run it this once; the next identical write asks again.
   yes,
 
@@ -91,16 +91,16 @@ typedef FileDecision = ({ToolVerdict verdict, String reason});
 /// |-------|----------|-----------------|--------------------------|
 /// | read  | normal   | allow           | allow                    |
 /// | read  | readOnly | allow           | allow                    |
-/// | write | normal   | allow           | ask (deny if refused / no asker) |
+/// | write | normal   | allow           | ask (deny if refused / no approver) |
 /// | write | readOnly | deny, never asked | deny, never asked      |
 ///
 /// A session grant checked first short-circuits an ask: a path remembered
-/// by an [OpGrants] pattern runs in `normal` without asking again.
+/// by an [FileGrants] pattern runs in `normal` without asking again.
 FileDecision decideOperation(
   FileOperation op,
   PermissionMode mode, {
   required String projectRoot,
-  OpGrants? grants,
+  FileGrants? grants,
 }) {
   if (op.op == FileOp.read) {
     return (
@@ -146,7 +146,7 @@ String operationReason(FileOperation op, PermissionMode mode) {
 
 /// Session-scoped "always" answers, remembered as path globs.
 ///
-/// An asker that says "always" causes the caller to [remember] a pattern;
+/// An approver that says "always" causes the caller to [remember] a pattern;
 /// the second identical write then matches and does not ask again. The
 /// pattern the filesystem remembers is the canonical path itself — exact,
 /// no wider than what was approved — but a host may [remember] any glob
@@ -154,7 +154,7 @@ String operationReason(FileOperation op, PermissionMode mode) {
 ///
 /// Sessions are in-memory by design: grants die with the object, so nothing
 /// outlives the run that approved it.
-final class OpGrants {
+final class FileGrants {
   final List<String> _patterns = [];
 
   /// The remembered patterns, oldest first. Unmodifiable view.
@@ -171,8 +171,7 @@ final class OpGrants {
     if (_patterns.contains(pattern)) return false;
     _patterns.add(pattern);
     final slash = pattern.lastIndexOf('/');
-    final dirGlob =
-        slash < 0 ? '*' : '${pattern.substring(0, slash + 1)}*';
+    final dirGlob = slash < 0 ? '*' : '${pattern.substring(0, slash + 1)}*';
     if (dirGlob != pattern && !_patterns.contains(dirGlob)) {
       _patterns.add(dirGlob);
     }
@@ -194,8 +193,7 @@ final class OpGrants {
 /// True when [child] is [parent] or lies under it, using normalized paths
 /// with a trailing separator so `/foo` is not falsely "under" `/fo`.
 bool _isUnder(String child, String parent) {
-  String trail(String path) =>
-      path.endsWith('/') ? path : '$path/';
+  String trail(String path) => path.endsWith('/') ? path : '$path/';
   final c = trail(child == '' ? '/' : child);
   final par = trail(parent == '' ? '/' : parent);
   return c == par || c.startsWith(par);

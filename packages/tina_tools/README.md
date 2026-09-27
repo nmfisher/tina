@@ -18,17 +18,17 @@ loop is the host's job; this package depends on no engine.
 | `ProcessRunner`  | `IoProcessRunner`   | `SandboxedProcessRunner`   | `CommandRefused`   |
 
 Both wrappers take the same session mode (`normal` / `readOnly`), the same
-asker type (`FileAsker`), and fail closed: **no asker wired means deny**.
+approver type (`Approver`), and fail closed: **no approver wired means deny**.
 An "always" answer is remembered per session — a path glob for the
 filesystem, an exact command line for processes — so the same operation
 never asks twice.
 
 ### Process enforcement: the command × mode table
 
-| mode     | inside writable set, no network | outside set / needs network       |
-|----------|---------------------------------|-----------------------------------|
-| readOnly | deny, never asked               | deny, never asked                 |
-| normal   | allow                           | ask (deny if refused / no asker)  |
+| mode     | inside the writable directories, no network | outside them / needs network |
+|----------|---------------------------------------------|------------------------------|
+| readOnly | deny, never asked                           | deny, never asked            |
+| normal   | allow                                       | ask (deny if refused / no approver)  |
 
 One shape is exempted from the quiet path regardless of its arguments: a
 request whose argv collapses a shell command into a single string
@@ -41,10 +41,18 @@ above.
 There is **no classifier** and no "statically read-only command" route: a
 command string is not statically decidable, so `readOnly` refuses every
 command outright and nobody is asked. In `normal`, a command runs without
-asking only when its argv *provably* stays inside the session's writable
-set (`WritableSet`) and it does not appear to need network while
-`networkOff` — the heuristic errs toward asking, never toward silently
-allowing. `bash` cannot prove anything (the shell reads the string whole),
+asking only when its argv *provably* reads, or creates/edits/moves/deletes,
+nothing outside the session's writable directories (`WritableDirectories`)
+and it does not appear to need network while `networkOff` — the heuristic
+errs toward asking, never toward silently allowing. What "provably" means
+is narrow: `WritableDirectories.covers` checks the working directory and
+the arguments that are path-shaped — starting with `/`, `./` or `../`, or
+exactly `.` or `..`. A bare relative token like `etc/passwd` and an
+option-embedded path like `--out=../../x` are not path-shaped and
+therefore not judged; and the check says nothing about what the program
+does once it runs — this is a gate on arguments, not a boundary on
+behaviour (no `bwrap`, no `sandbox-exec` behind it).
+`bash` cannot prove anything (the shell reads the string whole),
 so in practice every `bash` call in `normal` asks unless a session grant
 already covers it; `exec`'s argv *can* be judged, which is one more reason
 the two tools exist as separate shapes.
@@ -84,7 +92,8 @@ real kernel-level fence.
 
 **There is none today.** Neither binary is installed in this container and
 nothing here builds on one: `IoProcessRunner` is a plain `Process.run`
-wrapper, and the writable-set check is argv inspection, not confinement.
+wrapper, and the writable-directories check is argv inspection, not
+confinement.
 Treat the current boundary as a permission *decision* layer, not a
 security sandbox; the seam exists so the real fence can be added without
 touching the tools, the table, or the tests.

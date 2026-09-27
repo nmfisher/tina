@@ -5,17 +5,19 @@
 ///
 /// The command × mode table, as built:
 ///
-/// | mode     | in writable set, network ok | outside set / needs network |
-/// |----------|-----------------------------|-----------------------------|
-/// | readOnly | deny, never asked           | deny, never asked           |
-/// | normal   | allow                       | ask (deny if refused / no asker) |
+/// | mode     | in the writable directories, network off ok | outside them / needs network |
+/// |----------|---------------------------------------------|------------------------------|
+/// | readOnly | deny, never asked                           | deny, never asked            |
+/// | normal   | allow                                       | ask (deny if refused / no approver) |
 ///
 /// There is no classifier and no "statically read-only command" route: a
 /// command string is not statically decidable, so in `readOnly` **every**
 /// command is refused outright and nobody is asked. In `normal` a command
-/// runs when it demonstrably stays inside the session's writable set and
-/// does not need network while network is off; anything else asks the same
-/// asker the filesystem takes. **No asker wired means deny** — fail closed.
+/// runs when every place its argv names — the working directory and each
+/// path-shaped argument — sits inside the session's writable directories,
+/// and it shows no sign of needing to reach the network while network is
+/// off; anything else asks the same approver the filesystem takes.
+/// **No approver wired means deny** — fail closed.
 library;
 
 import 'dart:io' show Platform;
@@ -34,21 +36,24 @@ enum CommandRule {
   /// `readOnly`: every command is refused outright — no classifier, no ask.
   readOnly,
 
-  /// The command provably touches nothing outside the session's writable
-  /// set and does not need network while network is off.
+  /// The command provably reads, or creates/edits/moves/deletes, nothing
+  /// outside the session's writable directories, and shows no sign of
+  /// needing to reach the network while network is off.
   insideWritableSet,
 
   /// A session grant (`CommandGrants`) remembered for this exact command
   /// covers it.
   sessionGrant,
 
-  /// The command might touch something outside the writable set, or needs
-  /// network while network is off — the asker decides.
+  /// The command might create, edit or delete something outside the
+  /// writable directories, or needs to reach the network while network is
+  /// off — the approver decides.
   outsideSession,
 
   /// A single collapsed shell string (`/bin/sh -c <string>`, the bash-tool
-  /// shape). What the string does cannot be proven from argv, so it never
-  /// rides the writable set — it asks, always.
+  /// shape). What the string does cannot be proven from argv — it may read,
+  /// write, or reach the network anywhere — so it never rides the writable
+  /// directories; it asks, always.
   shellString,
 }
 
@@ -61,19 +66,20 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
         'denied: commands are not permitted in read-only mode '
             '(${request.command})',
       CommandRule.insideWritableSet =>
-        'command stays inside the session\'s writable set (${request.command})',
+        'command stays inside the session\'s writable directories '
+            '(${request.command})',
       CommandRule.sessionGrant =>
         'allowed by session grant (${request.command})',
       CommandRule.outsideSession =>
-        'allow command outside the session\'s writable set '
+        'allow command outside the session\'s writable directories '
             '(${request.command})?',
       CommandRule.shellString =>
         'allow a shell command string? what it runs cannot be checked '
-            'against the writable set (${request.arguments.join(' ')})',
+            'against the writable directories (${request.arguments.join(' ')})',
     };
 
 /// Session-scoped "always" answers for commands, remembered as exact command
-/// lines — the twin of `OpGrants`, but there is no sibling-glob trick here:
+/// lines — the twin of `FileGrants`, but there is no sibling-glob trick here:
 /// a command line has no directory to widen into, and widening `"git
 /// status"` to `"git *"` would silently approve a tree of unrelated
 /// commands. A host may remember a prefix glob deliberately (see
@@ -96,7 +102,7 @@ final class CommandGrants {
       [request.command, ...request.arguments].join(' ');
 
   /// Remembers one exact command line. Returns false if it was already
-  /// present (idempotent, mirroring `OpGrants.remember`).
+  /// present (idempotent, mirroring `FileGrants.remember`).
   bool remember(String commandLine) {
     if (_patterns.contains(commandLine)) return false;
     _patterns.add(commandLine);
@@ -139,18 +145,18 @@ final class SandboxedProcessRunner implements ProcessRunner {
   /// tool flips behavior when the host flips the mode.
   PermissionMode mode;
 
-  /// The session's writable set — paths a command may create or modify. A
-  /// command that stays inside it (and needs no network) runs without
-  /// asking; anything else asks.
-  final WritableSet writableSet;
+  /// The session's writable directories — paths a command may create or
+  /// modify. A command that stays inside them (and needs no network) runs
+  /// without asking; anything else asks.
+  final WritableDirectories writableDirectories;
 
   /// Whether the session lets commands reach the network. Off by default:
   /// a command that appears to need network asks.
   final bool networkOff;
 
-  /// The asker — the same object the filesystem takes. Nothing wired means
+  /// The approver — the same object the filesystem takes. Nothing wired means
   /// deny: fail closed.
-  final FileAsker? asker;
+  final Approver? approver;
 
   /// Session grants remembered from "always" answers.
   final CommandGrants grants;
@@ -158,17 +164,17 @@ final class SandboxedProcessRunner implements ProcessRunner {
   SandboxedProcessRunner({
     required this.inner,
     this.mode = PermissionMode.normal,
-    WritableSet? writableSet,
+    WritableDirectories? writableDirectories,
     this.networkOff = true,
-    this.asker,
+    this.approver,
     CommandGrants? grants,
-  })  : writableSet = writableSet ?? WritableSet(),
+  })  : writableDirectories = writableDirectories ?? WritableDirectories(),
         grants = grants ?? CommandGrants();
 
   @override
   Future<RunOutcome> run(ProcessRequest request) async {
     final decision = decideCommand(request, mode,
-        writableSet: writableSet,
+        writableDirectories: writableDirectories,
         networkOff: networkOff,
         grants: grants);
     switch (decision.verdict) {
@@ -177,18 +183,18 @@ final class SandboxedProcessRunner implements ProcessRunner {
       case ToolVerdict.deny:
         return CommandRefused(decision.reason);
       case ToolVerdict.ask:
-        final asker = this.asker;
-        if (asker == null) {
-          return CommandRefused('${decision.reason} — denied: no asker is '
+        final approver = this.approver;
+        if (approver == null) {
+          return CommandRefused('${decision.reason} — denied: no approver is '
               'wired to approve it');
         }
-        switch (await asker(_asFileOperation(request), decision.reason)) {
-          case FileAskAnswer.yes:
+        switch (await approver(_asFileOperation(request), decision.reason)) {
+          case Approval.yes:
             return _completed(await inner.run(request), decision.reason);
-          case FileAskAnswer.always:
+          case Approval.always:
             grants.remember(CommandGrants.lineOf(request));
             return _completed(await inner.run(request), decision.reason);
-          case FileAskAnswer.no:
+          case Approval.no:
             return CommandRefused('${decision.reason} — denied by the user');
         }
     }
@@ -204,7 +210,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         CommandRefused() => inner,
       };
 
-  /// The asker is the filesystem's type: a [FileOperation]. The command's
+  /// The approver is the filesystem's type: a [FileOperation]. The command's
   /// cwd — or the first path-like argument, when there is no cwd — is the
   /// path the ask dialog can show.
   static FileOperation _asFileOperation(ProcessRequest request) => (
@@ -222,15 +228,17 @@ final class SandboxedProcessRunner implements ProcessRunner {
 CommandDecision decideCommand(
   ProcessRequest request,
   PermissionMode mode, {
-  required WritableSet writableSet,
+  required WritableDirectories writableDirectories,
   required bool networkOff,
   CommandGrants? grants,
 }) {
   if (mode == PermissionMode.readOnly) {
     // No classifier, no "statically read-only command" route: every command
     // is refused, and nobody is asked.
-    return (verdict: ToolVerdict.deny, reason: commandReason(
-        CommandRule.readOnly, request));
+    return (
+      verdict: ToolVerdict.deny,
+      reason: commandReason(CommandRule.readOnly, request)
+    );
   }
   final line = CommandGrants.lineOf(request);
   final granted = grants?.patternFor(line);
@@ -242,7 +250,7 @@ CommandDecision decideCommand(
   }
   // A single unbreakable string (`sh -c <string>`, the bash-tool shape) can
   // redirect, read, or reach the network without anything in argv saying so,
-  // so it is never certified by the writable set — it asks, the way every
+  // so it is never certified by the writable directories — it asks, the way every
   // unprovable command does. Literal argv keeps the quiet path.
   if (argumentsCollapsed(request)) {
     return (
@@ -250,7 +258,8 @@ CommandDecision decideCommand(
       reason: commandReason(CommandRule.shellString, request),
     );
   }
-  if (writableSet.covers(request) && !(networkOff && needsNetwork(request))) {
+  if (writableDirectories.covers(request) &&
+      !(networkOff && needsNetwork(request))) {
     return (
       verdict: ToolVerdict.allow,
       reason: commandReason(CommandRule.insideWritableSet, request),
@@ -268,8 +277,8 @@ typedef CommandDecision = ({ToolVerdict verdict, String reason});
 /// True when a request collapses a shell command into one argv element —
 /// the `command: <shell>, arguments: ['-c', <string>]` shape every bash tool
 /// produces. What the string runs cannot be proven from argv: redirects,
-/// backticks, and newlines mean the writable set can say nothing about it.
-/// Such requests never ride the writable set; they ask (or refuse in
+/// backticks, and newlines mean the writable directories can say nothing about it.
+/// Such requests never ride the writable directories; they ask (or refuse in
 /// read-only mode).
 ///
 /// Shape test: the basename of [ProcessRequest.command] is a known shell and
@@ -287,18 +296,24 @@ bool argumentsCollapsed(ProcessRequest request) {
 
 const _shells = {'sh', 'bash', 'dash', 'ash', 'zsh', 'ksh', 'bash5'};
 
-/// The session's writable set, and the one heuristic that keeps the table
-/// honest: which requests provably stay inside it.
+/// The session's writable directories, and the one heuristic that keeps the table
+/// honest: which requests provably stay inside them.
 ///
 /// **Provably is the operative word.** A command string cannot be classified,
 /// so for `bash` there is no proof, and unprovable means ask (or refuse in
 /// `readOnly`). Only argv-shaped requests — what `exec` builds — can be
-/// judged: their absolute file arguments are checked against the set, their
-/// cwd must sit inside it, and anything path-shaped but unresolved asks.
-final class WritableSet {
+/// judged: their absolute file arguments are checked against the
+/// directories, their cwd must sit inside them, and anything path-shaped
+/// but unresolved asks.
+///
+/// This is a gate on arguments, not a boundary on behaviour. There is no
+/// OS-level sandbox behind it — no `bwrap`, no `sandbox-exec` — so a
+/// command that passes may still write anywhere once it starts.
+final class WritableDirectories {
   final List<String> _roots;
 
-  WritableSet([List<String>? roots]) : _roots = List.of(roots ?? const []);
+  WritableDirectories([List<String>? roots])
+      : _roots = List.of(roots ?? const []);
 
   /// The roots, oldest first. Unmodifiable view.
   List<String> get roots => List.unmodifiable(_roots);
@@ -311,24 +326,30 @@ final class WritableSet {
 
   bool contains(String path) => _roots.any((r) => _isUnder(path, r));
 
-  /// True when the request demonstrably stays inside the set.
+  /// Whether this grant covers [request]: checks the working directory, and
+  /// the arguments that are path-shaped — where path-shaped means starting
+  /// with `/`, `./` or `../`, or being exactly `.` or `..`. A bare relative
+  /// token like `etc/passwd` and an option-embedded path like
+  /// `--out=../../x` are not path-shaped and therefore not judged. It says
+  /// nothing about what the program does once it runs.
   bool covers(ProcessRequest request) {
     final cwd = request.workingDirectory;
     if (cwd != null && !contains(cwd)) return false;
-    // No cwd and no path-like argument: nothing here names a place outside
-    // the set. The command itself is still unclassified — this only means
-    // the *arguments* give no reason to ask.
+    // No cwd and no path-shaped argument: nothing here names a place outside
+    // the directories. The command itself is still unclassified — this only
+    // means the *arguments* give no reason to ask.
     for (final a in request.arguments) {
-      if (!_argumentInsideSet(a)) return false;
+      if (!_argumentInsideRoots(a)) return false;
     }
     return true;
   }
 
-  /// One argument is inside the set when it is not path-shaped, or is
-  /// path-shaped and resolves inside. Absolute paths are judged directly;
-  /// relative paths are judged against the cwd (already checked).
-  bool _argumentInsideSet(String argument) {
-    if (!_looksLikePath(argument)) return true;
+  /// One argument is inside the writable directories when it is not
+  /// path-shaped, or is path-shaped and resolves inside. Absolute paths are
+  /// judged directly; relative paths are judged against the cwd (already
+  /// checked).
+  bool _argumentInsideRoots(String argument) {
+    if (!_isPathShaped(argument)) return true;
     if (argument.startsWith('/')) return contains(argument);
     // Relative and path-shaped: relative to the (already-checked) cwd, so
     // it cannot escape without the cwd check failing first. Keep it simple
@@ -336,11 +357,12 @@ final class WritableSet {
     return !argument.startsWith('..');
   }
 
-  /// Cheap shape test — not a claim that the file exists. A token that
-  /// starts with `/`, `./`, `../`, or contains a slash with a dot-suffix is
-  /// treated as a path; flags like `--flag=value-with/slashes` are not,
-  /// unless the whole token starts path-shaped.
-  static bool _looksLikePath(String token) =>
+  /// Cheap shape test — not a claim that the file exists. A token counts as
+  /// path-shaped when it starts with `/`, `./` or `../`, or is exactly `.`
+  /// or `..`. A bare relative token like `etc/passwd` is not path-shaped,
+  /// and neither is an option-embedded path like `--out=../../x` — those
+  /// are not judged here.
+  static bool _isPathShaped(String token) =>
       token.startsWith('/') ||
       token.startsWith('./') ||
       token.startsWith('../') ||
@@ -368,8 +390,19 @@ bool needsNetwork(ProcessRequest request) {
 }
 
 const _networkPrograms = {
-  'curl', 'wget', 'ssh', 'scp', 'rsync', 'ping', 'nc', 'netcat', 'ftp',
-  'dig', 'nslookup', 'host', 'telnet',
+  'curl',
+  'wget',
+  'ssh',
+  'scp',
+  'rsync',
+  'ping',
+  'nc',
+  'netcat',
+  'ftp',
+  'dig',
+  'nslookup',
+  'host',
+  'telnet',
 };
 
 /// True when [child] is [parent] or lies under it — same discipline as the

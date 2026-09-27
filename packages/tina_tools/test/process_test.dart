@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:test/test.dart';
 
-/// The command × mode table, the asker, and the grants — headless: the
+/// The command × mode table, the approver, and the grants — headless: the
 /// runner is scripted except where a test says `real:`, and nothing here
 /// opens a terminal or needs an OS sandbox.
 void main() {
@@ -80,118 +80,99 @@ void main() {
     test('readOnly refuses every command, with the reason saying so', () {
       for (final line in ['git status', 'ls', 'echo hi', 'rm -rf /']) {
         final d = decideCommand(req(line), PermissionMode.readOnly,
-            writableSet: WritableSet()..add('/'),
+            writableDirectories: WritableDirectories()..add('/'),
             networkOff: false);
         expect(d.verdict, ToolVerdict.deny, reason: line);
         expect(d.reason, contains('read-only mode'), reason: line);
       }
     });
 
-    test('normal allows what stays inside the writable set', () {
-      final ws = WritableSet()..add('/tmp/ws');
-      final d = decideCommand(
-          (
-            command: 'cat',
-            arguments: ['/tmp/ws/notes.txt'],
-            workingDirectory: '/tmp/ws',
-            environment: null,
-            stdin: null,
-            timeout: null,
-          ),
-          PermissionMode.normal,
-          writableSet: ws,
-          networkOff: true);
+    test('normal allows what stays inside the writable directories', () {
+      final ws = WritableDirectories()..add('/tmp/ws');
+      final d = decideCommand((
+        command: 'cat',
+        arguments: ['/tmp/ws/notes.txt'],
+        workingDirectory: '/tmp/ws',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.allow);
-      expect(d.reason, contains('writable set'));
+      expect(d.reason, contains('writable directories'));
     });
 
-    test('normal asks when a path argument lands outside the set', () {
-      final ws = WritableSet()..add('/tmp/ws');
-      final d = decideCommand(
-          (
-            command: 'cat',
-            arguments: ['/etc/passwd'],
-            workingDirectory: '/tmp/ws',
-            environment: null,
-            stdin: null,
-            timeout: null,
-          ),
-          PermissionMode.normal,
-          writableSet: ws,
-          networkOff: true);
+    test('normal asks when a path argument lands outside the directories', () {
+      final ws = WritableDirectories()..add('/tmp/ws');
+      final d = decideCommand((
+        command: 'cat',
+        arguments: ['/etc/passwd'],
+        workingDirectory: '/tmp/ws',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('outside the session'));
     });
 
     test('`..` in a path argument is never certified — it asks', () {
-      final ws = WritableSet()..add('/tmp/ws');
-      final d = decideCommand(
-          (
-            command: 'cat',
-            arguments: ['../escape.txt'],
-            workingDirectory: '/tmp/ws',
-            environment: null,
-            stdin: null,
-            timeout: null,
-          ),
-          PermissionMode.normal,
-          writableSet: ws,
-          networkOff: true);
+      final ws = WritableDirectories()..add('/tmp/ws');
+      final d = decideCommand((
+        command: 'cat',
+        arguments: ['../escape.txt'],
+        workingDirectory: '/tmp/ws',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
     });
 
     test('a fetch-shaped command asks while network is off', () {
-      final ws = WritableSet()..add('/');
+      final ws = WritableDirectories()..add('/');
       for (final line in ['curl https://x.example', 'git push']) {
         final d = decideCommand(req(line), PermissionMode.normal,
-            writableSet: ws, networkOff: true);
+            writableDirectories: ws, networkOff: true);
         expect(d.verdict, ToolVerdict.ask, reason: line);
       }
       // And with network on, the same commands are ordinary.
       for (final line in ['curl https://x.example', 'git push']) {
         final d = decideCommand(req(line), PermissionMode.normal,
-            writableSet: ws, networkOff: false);
+            writableDirectories: ws, networkOff: false);
         expect(d.verdict, ToolVerdict.allow, reason: line);
       }
     });
 
-    test('a shell-string request never rides the writable set — it asks',
-        () {
-      final ws = WritableSet()..add('/');
-      final d = decideCommand(
-          (
-            command: '/bin/sh',
-            arguments: ['-c', 'curl https://x.example > /tmp/x'],
-            workingDirectory: '/tmp/ws',
-            environment: null,
-            stdin: null,
-            timeout: null,
-          ),
-          PermissionMode.normal,
-          writableSet: ws,
-          networkOff: true);
+    test('a shell-string request never rides the writable directories — it asks', () {
+      final ws = WritableDirectories()..add('/');
+      final d = decideCommand((
+        command: '/bin/sh',
+        arguments: ['-c', 'curl https://x.example > /tmp/x'],
+        workingDirectory: '/tmp/ws',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('cannot be checked'));
       // A literal-argv request with the same payload does not hit the rule.
-      final argvD = decideCommand(
-          (
-            command: 'curl',
-            arguments: ['https://x.example'],
-            workingDirectory: '/tmp/ws',
-            environment: null,
-            stdin: null,
-            timeout: null,
-          ),
-          PermissionMode.normal,
-          writableSet: ws,
-          networkOff: false);
+      final argvD = decideCommand((
+        command: 'curl',
+        arguments: ['https://x.example'],
+        workingDirectory: '/tmp/ws',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), PermissionMode.normal, writableDirectories: ws, networkOff: false);
       expect(argvD.verdict, ToolVerdict.allow);
     });
 
     test('a session grant short-circuits the ask', () {
       final grants = CommandGrants()..remember('git status');
       final d = decideCommand(req('git status'), PermissionMode.normal,
-          writableSet: WritableSet(), networkOff: true, grants: grants);
+          writableDirectories: WritableDirectories(),
+          networkOff: true,
+          grants: grants);
       expect(d.verdict, ToolVerdict.allow);
       expect(d.reason, contains('session grant'));
     });
@@ -202,7 +183,7 @@ void main() {
       final inner = _ScriptedRunner([_done(0, 'ok', '')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
-        writableSet: WritableSet()..add('/tmp/ws'),
+        writableDirectories: WritableDirectories()..add('/tmp/ws'),
       );
       final outcome = await runner.run(_req('cat /tmp/ws/f.txt'));
       expect(outcome, isA<CommandCompleted>());
@@ -210,17 +191,17 @@ void main() {
       expect((outcome as CommandCompleted).note, isNotNull);
     });
 
-    test('readOnly refuses; the asker is never called; nothing runs',
+    test('readOnly refuses; the approver is never called; nothing runs',
         () async {
       var asked = 0;
       final inner = _ScriptedRunner(const []);
       final runner = SandboxedProcessRunner(
         inner: inner,
         mode: PermissionMode.readOnly,
-        writableSet: WritableSet()..add('/'),
-        asker: (_, __) async {
+        writableDirectories: WritableDirectories()..add('/'),
+        approver: (_, __) async {
           asked++;
-          return FileAskAnswer.yes;
+          return Approval.yes;
         },
       );
       final outcome = await runner.run(_req('git status'));
@@ -230,14 +211,14 @@ void main() {
       expect(inner.requests, isEmpty, reason: 'nothing ran');
     });
 
-    test('normal: outside the set asks — no denies, yes runs', () async {
-      var answers = [FileAskAnswer.no, FileAskAnswer.yes];
+    test('normal: outside the directories asks — no denies, yes runs', () async {
+      var answers = [Approval.no, Approval.yes];
       var asked = 0;
       final inner = _ScriptedRunner([_done(0, 'ran', '')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
-        writableSet: WritableSet()..add('/tmp/ws'),
-        asker: (request, reason) async {
+        writableDirectories: WritableDirectories()..add('/tmp/ws'),
+        approver: (request, reason) async {
           asked++;
           expect(reason, contains('outside the session'));
           expect(request.path, '/tmp/ws');
@@ -246,7 +227,8 @@ void main() {
       );
       final refused = await runner.run(_req('cat /etc/hosts'));
       expect(refused, isA<CommandRefused>());
-      expect((refused as CommandRefused).reason, contains('denied by the user'));
+      expect(
+          (refused as CommandRefused).reason, contains('denied by the user'));
       expect(asked, 1);
 
       final allowed = await runner.run(_req('cat /etc/hosts'));
@@ -254,15 +236,15 @@ void main() {
       expect(asked, 2);
     });
 
-    test('no asker wired → deny, fail closed', () async {
+    test('no approver wired → deny, fail closed', () async {
       final inner = _ScriptedRunner(const []);
       final runner = SandboxedProcessRunner(
         inner: inner,
-        writableSet: WritableSet()..add('/tmp/ws'),
+        writableDirectories: WritableDirectories()..add('/tmp/ws'),
       );
       final outcome = await runner.run(_req('cat /etc/hosts'));
       expect(outcome, isA<CommandRefused>());
-      expect((outcome as CommandRefused).reason, contains('no asker'));
+      expect((outcome as CommandRefused).reason, contains('no approver'));
       expect(inner.requests, isEmpty);
     });
 
@@ -273,15 +255,16 @@ void main() {
           [_done(0, 'v1', ''), _done(0, 'v2', ''), _done(0, 'v3', '')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
-        writableSet: WritableSet()..add('/tmp/ws'),
-        asker: (_, __) async {
+        writableDirectories: WritableDirectories()..add('/tmp/ws'),
+        approver: (_, __) async {
           asked++;
-          return FileAskAnswer.always;
+          return Approval.always;
         },
       );
       await runner.run(_req('cat /etc/hosts'));
       await runner.run(_req('cat /etc/hosts'));
-      expect(asked, 1, reason: 'the second identical command skips the asker');
+      expect(asked, 1,
+          reason: 'the second identical command skips the approver');
       // The grant was recorded as the exact command line.
       expect(runner.grants.patterns, ['cat /etc/hosts']);
       // But a different command still asks.
@@ -294,7 +277,7 @@ void main() {
       final inner = _ScriptedRunner([_refused('host-level fence said no')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
-        writableSet: WritableSet()..add('/'),
+        writableDirectories: WritableDirectories()..add('/'),
       );
       final outcome = await runner.run(_req('ls /'));
       expect(outcome, isA<CommandRefused>());

@@ -15,7 +15,7 @@ import 'tool_input.dart';
 /// a normal result, not a refusal, and the two must not be confused.
 abstract class ProcessToolBase implements Tool {
   /// The runner this tool starts processes through. Enforcement (mode,
-  /// writable set, asker, grants) lives on the runner; the tool has none.
+  /// writable directories, approver, grants) lives on the runner; the tool has none.
   ProcessRunner get runner;
 
   Duration get defaultTimeout => const Duration(minutes: 10);

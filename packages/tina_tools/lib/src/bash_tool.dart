@@ -12,7 +12,7 @@ import 'tool_input.dart';
 /// does not pretend to try — the *runner* it is handed decides per call
 /// whether the command runs at all (in `readOnly` everything is refused;
 /// in `normal` anything not provably inside the session runs through the
-/// asker). That is also why this is not `exec` with a string mode bolted
+/// approver). That is also why this is not `exec` with a string mode bolted
 /// on: the two shapes are kept apart, here and in [ExecTool].
 class BashTool extends ProcessToolBase {
   /// The runner this tool starts processes through. Enforcement lives on
@@ -63,8 +63,7 @@ class BashTool extends ProcessToolBase {
             },
             'timeout': {
               'type': 'integer',
-              'description':
-                  'Seconds to wait before the command is killed. '
+              'description': 'Seconds to wait before the command is killed. '
                   'Default 600.',
             },
           },

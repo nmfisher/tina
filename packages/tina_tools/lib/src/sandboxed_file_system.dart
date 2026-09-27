@@ -31,14 +31,14 @@ class SandboxViolation implements Exception {
 /// The decision is the operation × mode table ([decideOperation]):
 ///
 /// - `normal`: reads anywhere run; a write inside the project root runs; a
-///   write outside it is put to the [asker].
+///   write outside it is put to the [approver].
 /// - `readOnly`: reads run; **every** write is denied — and never put to the
-///   asker.
+///   approver.
 ///
-/// Asking is fail-closed: no asker wired means deny. An asker's
-/// [FileAskAnswer.always] remembers a pattern in the session [grants], so
+/// Asking is fail-closed: no approver wired means deny. An approver's
+/// [Approval.always] remembers a pattern in the session [grants], so
 /// the second identical write does not ask again. A session grant
-/// short-circuits the ask without consulting the asker.
+/// short-circuits the ask without consulting the approver.
 ///
 /// Structural checks that need no mode and no table are kept verbatim, and
 /// they apply to reads too: canonicalization resolves the project root and
@@ -59,13 +59,13 @@ class SandboxedFileSystem implements FileSystem {
   PermissionMode mode;
 
   /// Who answers an out-of-project write. Null means asks deny — fail
-  /// closed. The filesystem never blocks on the asker beyond this call.
-  FileAsker? asker;
+  /// closed. The filesystem never blocks on the approver beyond this call.
+  Approver? approver;
 
-  /// The session's remembered "always" answers, as path globs. The asker's
-  /// [FileAskAnswer.always] causes a [remember] here; a host may also
+  /// The session's remembered "always" answers, as path globs. The approver's
+  /// [Approval.always] causes a [remember] here; a host may also
   /// pre-seed grants to widen a grant deliberately.
-  final OpGrants grants;
+  final FileGrants grants;
 
   Future<String>? _rootFuture;
   Future<String>? _tinaFuture;
@@ -75,11 +75,11 @@ class SandboxedFileSystem implements FileSystem {
     required String workspaceRoot,
     required Directory tinaDir,
     this.mode = PermissionMode.normal,
-    this.asker,
-    OpGrants? grants,
+    this.approver,
+    FileGrants? grants,
   })  : _projectRoot = workspaceRoot,
         _tinaDir = tinaDir.path,
-        grants = grants ?? OpGrants();
+        grants = grants ?? FileGrants();
 
   /// The project root the boundary was built with. Structural checks
   /// ([validatePath], [assertWithinProject]) always use it; the session
@@ -173,7 +173,7 @@ class SandboxedFileSystem implements FileSystem {
   /// The one decision point, per call: structural checks first (canonical
   /// resolution, Tina-tree denial, broken symlinks), then the operation ×
   /// mode table ([decideOperation]) with the current [mode]. A granted or
-  /// allowed verdict passes; an ask goes to the [asker] — no asker, or a
+  /// allowed verdict passes; an ask goes to the [approver] — no approver, or a
   /// refusal, throws [SandboxViolation] whose message is the reason the
   /// model will read.
   Future<void> guard(FileOp op, String path) async {
@@ -192,24 +192,23 @@ class SandboxedFileSystem implements FileSystem {
       case ToolVerdict.deny:
         throw SandboxViolation(decision.reason);
       case ToolVerdict.ask:
-        final asker = this.asker;
-        if (asker == null) {
-          throw SandboxViolation('${decision.reason} — denied: no asker '
+        final approver = this.approver;
+        if (approver == null) {
+          throw SandboxViolation('${decision.reason} — denied: no approver '
               'is wired to approve it');
         }
-        switch (await asker(request, decision.reason)) {
-          case FileAskAnswer.yes:
+        switch (await approver(request, decision.reason)) {
+          case Approval.yes:
             return;
-          case FileAskAnswer.always:
+          case Approval.always:
             // Remember what was approved: the exact canonical path, plus
-            // the dir-level sibling glob [OpGrants.remember] adds so a
+            // the dir-level sibling glob [FileGrants.remember] adds so a
             // same-dir temp+rename pass does not re-ask. Never wider than
             // the directory that was approved.
             grants.remember(target);
             return;
-          case FileAskAnswer.no:
-            throw SandboxViolation(
-                '${decision.reason} — denied by the user');
+          case Approval.no:
+            throw SandboxViolation('${decision.reason} — denied by the user');
         }
     }
   }

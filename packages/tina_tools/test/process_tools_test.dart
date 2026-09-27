@@ -21,7 +21,7 @@ void main() {
         runner: SandboxedProcessRunner(
           inner: _RecordingRunner(_done(0, '', '')),
           mode: PermissionMode.readOnly,
-          writableSet: WritableSet()..add('/'),
+          writableDirectories: WritableDirectories()..add('/'),
         ),
       );
       final res = await tool.execute({'command': 'echo hi'});
@@ -29,20 +29,21 @@ void main() {
       expect(res.content, contains('read-only mode'));
     });
 
-    test('a shell string is never certified silently: it asks, and an '
+    test(
+        'a shell string is never certified silently: it asks, and an '
         'approval runs it', () async {
-      final asker = _ApprovingAsker();
+      final approver = _Approving();
       final inner = _RecordingRunner(_done(0, 'ran', ''));
       final tool = BashTool(
         runner: SandboxedProcessRunner(
           inner: inner,
-          writableSet: WritableSet()..add('/'),
-          asker: asker.call,
+          writableDirectories: WritableDirectories()..add('/'),
+          approver: approver.call,
         ),
       );
       final res = await tool.execute({'command': 'echo hi > /tmp/ws/out'});
       expect(res.isError, isFalse);
-      expect(asker.asked, 1, reason: 'the string itself triggered the ask');
+      expect(approver.asked, 1, reason: 'the string itself triggered the ask');
       expect(inner.command, '/bin/sh');
     });
 
@@ -54,12 +55,12 @@ void main() {
     });
 
     test('a non-zero exit is a normal result, not an error', () async {
-      final asker = _ApprovingAsker();
+      final approver = _Approving();
       final tool = BashTool(
         runner: SandboxedProcessRunner(
           inner: _RecordingRunner(_done(2, '', 'boom')),
-          writableSet: WritableSet()..add('/'),
-          asker: asker.call,
+          writableDirectories: WritableDirectories()..add('/'),
+          approver: approver.call,
         ),
       );
       final res = await tool.execute({'command': 'false'});
@@ -69,12 +70,12 @@ void main() {
     });
 
     test('end-to-end on the real runner: stdout captured', () async {
-      final asker = _ApprovingAsker();
+      final approver = _Approving();
       final tool = BashTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
-          writableSet: WritableSet()..add('/'),
-          asker: asker.call,
+          writableDirectories: WritableDirectories()..add('/'),
+          approver: approver.call,
         ),
       );
       final res = await tool.execute({'command': 'echo roundtrip'});
@@ -112,12 +113,13 @@ void main() {
             ..option('--glob', '*.dart') // tool-derived, one token
             ..value('--pre=rm -rf /')) // model value
           .build();
-      expect(argv,
-          ['--no-heading', '--glob=*.dart', '--', '--pre=rm -rf /']);
+      expect(argv, ['--no-heading', '--glob=*.dart', '--', '--pre=rm -rf /']);
       // The runner receives exactly this shape:
       inner.play(_done(0, '', ''));
-      await ExecTool(runner: inner)
-          .execute({'program': 'rg', 'args': ['--pre=rm -rf /']});
+      await ExecTool(runner: inner).execute({
+        'program': 'rg',
+        'args': ['--pre=rm -rf /']
+      });
       final argv2 = List.of(inner.arguments ?? const <String>[]);
       expect(argv2.last, '--pre=rm -rf /');
       expect(argv2.indexOf('--'), lessThan(argv2.indexOf('--pre=rm -rf /')));
@@ -152,24 +154,24 @@ void main() {
       final tool = ExecTool(
         runner: SandboxedProcessRunner(
           inner: _RecordingRunner(_done(0, '', '')),
-          writableSet: WritableSet()..add('/tmp/ws'),
+          writableDirectories: WritableDirectories()..add('/tmp/ws'),
         ),
       );
       final res = await tool.execute({
         'program': 'cat',
         'args': ['/etc/hostname'],
       });
-      // /etc/hostname is path-shaped and outside the writable set → ask →
-      // no asker wired → deny.
+      // /etc/hostname is path-shaped and outside the writable directories → ask →
+      // no approver wired → deny.
       expect(res.isError, isTrue);
-      expect(res.content, contains('no asker'));
+      expect(res.content, contains('no approver'));
     });
 
     test('end-to-end on the real runner: the fence holds for real', () async {
       final tool = ExecTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
-          writableSet: WritableSet()..add('/'),
+          writableDirectories: WritableDirectories()..add('/'),
         ),
       );
       // `echo` with a hostile "option": it must arrive as data and be
@@ -187,37 +189,43 @@ void main() {
     test('the same BashTool and ExecTool flip with the runner\'s mode',
         () async {
       final inner = _RecordingRunner(_done(0, '', ''));
-      final asker = _ApprovingAsker();
+      final approver = _Approving();
       final sandbox = SandboxedProcessRunner(
         inner: inner,
-        writableSet: WritableSet()..add('/'),
-        asker: asker.call,
+        writableDirectories: WritableDirectories()..add('/'),
+        approver: approver.call,
       );
       final bash = BashTool(runner: sandbox);
       final exec = ExecTool(runner: sandbox);
 
       expect((await bash.execute({'command': 'echo a'})).isError, isFalse);
       expect(
-          (await exec.execute({'program': 'echo', 'args': ['b']})).isError,
+          (await exec.execute({
+            'program': 'echo',
+            'args': ['b']
+          }))
+              .isError,
           isFalse);
 
       sandbox.mode = PermissionMode.readOnly;
       final bashRefused = await bash.execute({'command': 'echo c'});
       expect(bashRefused.isError, isTrue);
       expect(bashRefused.content, contains('read-only mode'));
-      final execRefused =
-          await exec.execute({'program': 'echo', 'args': ['d']});
+      final execRefused = await exec.execute({
+        'program': 'echo',
+        'args': ['d']
+      });
       expect(execRefused.isError, isTrue);
       expect(execRefused.content, contains('read-only mode'));
     });
   });
 }
 
-final class _ApprovingAsker {
+final class _Approving {
   int asked = 0;
-  Future<FileAskAnswer> call(FileOperation op, String reason) async {
+  Future<Approval> call(FileOperation op, String reason) async {
     asked++;
-    return FileAskAnswer.yes;
+    return Approval.yes;
   }
 }
 

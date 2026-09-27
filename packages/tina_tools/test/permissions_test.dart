@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 /// |-------|----------|-----------------|--------------------------|
 /// | read  | normal   | allow           | allow                    |
 /// | read  | readOnly | allow           | allow                    |
-/// | write | normal   | allow           | ask (deny if refused / no asker) |
+/// | write | normal   | allow           | ask (deny if refused / no approver) |
 /// | write | readOnly | deny, never asked | deny, never asked      |
 void main() {
   const root = '/work/project';
@@ -107,7 +107,7 @@ void main() {
 
   group('session grants (the "always" answer)', () {
     test('an exact remembered path allows that write without asking', () {
-      final grants = OpGrants()..remember('/etc/hosts');
+      final grants = FileGrants()..remember('/etc/hosts');
       final d = decideOperation(
         (op: FileOp.write, path: '/etc/hosts'),
         PermissionMode.normal,
@@ -119,7 +119,7 @@ void main() {
     });
 
     test('a remembered glob allows everything it matches, nothing wider', () {
-      final grants = OpGrants()..remember('/tmp/shared/**');
+      final grants = FileGrants()..remember('/tmp/shared/**');
       bool allows(String path) =>
           decideOperation(
             (op: FileOp.write, path: path),
@@ -134,7 +134,7 @@ void main() {
     });
 
     test('a grant does not rescue readOnly — the mode decides first', () {
-      final grants = OpGrants()..remember('/etc/hosts');
+      final grants = FileGrants()..remember('/etc/hosts');
       final d = decideOperation(
         (op: FileOp.write, path: '/etc/hosts'),
         PermissionMode.readOnly,
@@ -145,7 +145,7 @@ void main() {
     });
 
     test('remembering twice is idempotent; patterns list oldest first', () {
-      final grants = OpGrants();
+      final grants = FileGrants();
       expect(grants.isEmpty, isTrue);
       expect(grants.remember('/a'), isTrue);
       expect(grants.remember('/a'), isFalse);
