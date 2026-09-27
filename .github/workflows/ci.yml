@@ -504,6 +504,29 @@ jobs:
         working-directory: packages/tina_host
         run: dart test -j 4
 
+  # tina_sqlite is terminal-free; its only external dep is sqlite3, whose
+  # native-assets build hook compiles its bundled SQLite on `dart test` —
+  # a C toolchain is already present on the ubuntu runner. The `live`
+  # smoke test is skipped by default (dart_test.yaml), so the CI job
+  # never touches the network.
+  tina_sqlite:
+    name: tina_sqlite (packages/tina_sqlite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_sqlite)
+        working-directory: packages/tina_sqlite
+        run: dart pub get
+      - name: analyze (tina_sqlite)
+        working-directory: packages/tina_sqlite
+        run: dart analyze
+      - name: test (tina_sqlite)
+        working-directory: packages/tina_sqlite
+        run: dart test -j 4
+
   # tina_tui imports tina_console deliberately (it is in terminalPackages),
   # so like the console job it needs the submodule checkout and the native
   # linker deps for the dart_notcurses build hook (see header LINKER deps).
