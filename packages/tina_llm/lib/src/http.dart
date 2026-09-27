@@ -35,6 +35,13 @@ abstract class HttpEndpoint {
     required Map<String, String> headers,
     required List<int> body,
   });
+
+  /// GET [path] on the endpoint — the catalogue's fetch, and anything
+  /// else that only reads.
+  Future<HttpResponse> get(
+    String path, {
+    Map<String, String> headers = const {},
+  });
 }
 
 /// The real client over `dart:io`'s [HttpClient]. One instance per
@@ -62,6 +69,24 @@ final class IoHttpEndpoint implements HttpEndpoint {
     headers.forEach(request.headers.set);
     request.contentLength = body.length;
     request.add(body);
+    final response = await request.close();
+    return HttpResponse(
+      statusCode: response.statusCode,
+      headers: {
+        'content-type': response.headers.contentType?.toString() ?? '',
+      },
+      body: response,
+    );
+  }
+
+  @override
+  Future<HttpResponse> get(
+    String path, {
+    Map<String, String> headers = const {},
+  }) async {
+    final uri = Uri.parse(endpoint).resolve(path);
+    final request = await _client.getUrl(uri);
+    headers.forEach(request.headers.set);
     final response = await request.close();
     return HttpResponse(
       statusCode: response.statusCode,

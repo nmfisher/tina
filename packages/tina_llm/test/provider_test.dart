@@ -43,6 +43,16 @@ final class _ReplayEndpoint implements HttpEndpoint {
         jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
     return response;
   }
+
+  @override
+  Future<HttpResponse> get(
+    String path, {
+    Map<String, String> headers = const {},
+  }) async {
+    this.path = path;
+    this.headers = headers;
+    return response;
+  }
 }
 
 AnthropicProvider _provider(HttpEndpoint endpoint) => AnthropicProvider(
