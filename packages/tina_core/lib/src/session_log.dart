@@ -300,9 +300,8 @@ final class PlanChangedEntry extends SessionEntry {
         throw const FormatException('plan item children must be an array');
       }
       for (final rawChild in rawChildren) {
-        children.add(
-            _itemFromJson(rawChild as Map<String, dynamic>,
-                allowChildren: false));
+        children.add(_itemFromJson(rawChild as Map<String, dynamic>,
+            allowChildren: false));
       }
     }
     return PlanEntryItem(text,
@@ -407,8 +406,7 @@ sealed class SessionEntry {
 
   /// One JSON object — the payload a store row or a JSON Lines line
   /// holds, verbatim. Carries `seq` when stamped.
-  Map<String, dynamic> toJson() =>
-      {'type': kind, if (seq > 0) 'seq': seq};
+  Map<String, dynamic> toJson() => {'type': kind, if (seq > 0) 'seq': seq};
 
   /// The entry a decoded payload named, position stamped from the
   /// payload's `seq`. An unknown `type` throws — a log this code cannot
@@ -437,8 +435,8 @@ sealed class SessionEntry {
       case MessageAppendedEntry.kindName:
         return MessageAppendedEntry(
           turnId: j['turn_id'] as String,
-          message: Message.fromJson(
-              Map<String, dynamic>.from(j['message'] as Map)),
+          message:
+              Message.fromJson(Map<String, dynamic>.from(j['message'] as Map)),
           at: at,
         ).withSeq(stamped);
       case TurnEndedEntry.kindName:
@@ -449,6 +447,16 @@ sealed class SessionEntry {
               Map<String, dynamic>.from(j['usage'] as Map? ?? const {})),
           at: at,
         ).withSeq(stamped);
+      case UsageRecordedEntry.kindName:
+        return UsageRecordedEntry(
+          turnId: j['turn_id'] as String,
+          usage:
+              EntryUsage.fromJson(Map<String, dynamic>.from(j['usage'] as Map)),
+          estimatedTokens: (j['estimated_tokens'] as num?)?.toInt() ?? 0,
+          child: j['child'] == true,
+          at: at,
+          seq: stamped,
+        );
       case ModeChangedEntry.kindName:
         return ModeChangedEntry(mode: j['mode'] as String, at: at)
             .withSeq(stamped);
@@ -725,6 +733,55 @@ final class TurnEndedEntry extends SessionEntry {
   String toString() => 'TurnEnded($turnId, ${reason.name})';
 }
 
+/// One settled provider attempt. Accounting is separate from the transcript:
+/// retries, cancellations and children may spend tokens without a reply.
+/// Provider plugins record these through the loop's single writer.
+final class UsageRecordedEntry extends SessionEntry {
+  static const kindName = 'usage_recorded';
+  const UsageRecordedEntry(
+      {required this.turnId,
+      this.usage = const EntryUsage(),
+      this.estimatedTokens = 0,
+      this.child = false,
+      this.at = '',
+      super.seq});
+  final String turnId;
+  final EntryUsage usage;
+  final int estimatedTokens;
+  final bool child;
+  final String at;
+  @override
+  String get kind => kindName;
+  @override
+  UsageRecordedEntry withSeq(int seq) => UsageRecordedEntry(
+      turnId: turnId,
+      usage: usage,
+      estimatedTokens: estimatedTokens,
+      child: child,
+      at: at,
+      seq: seq);
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        'turn_id': turnId,
+        'usage': usage.toJson(),
+        'estimated_tokens': estimatedTokens,
+        'child': child,
+        if (at.isNotEmpty) 'at': at
+      };
+  @override
+  bool operator ==(Object other) =>
+      other is UsageRecordedEntry &&
+      turnId == other.turnId &&
+      usage == other.usage &&
+      estimatedTokens == other.estimatedTokens &&
+      child == other.child &&
+      at == other.at;
+  @override
+  int get hashCode =>
+      Object.hash(kindName, turnId, usage, estimatedTokens, child, at);
+}
+
 /// The plan as a derivation reports it: the entry's items and approval
 /// plus the derived answers (which item is in progress, the counts) the
 /// prompt section and a strip both want. Value type; [PlanChangedEntry]
@@ -758,8 +815,7 @@ final class SessionPlan {
           if (i.state == 'in_progress') i.text,
       ];
 
-  int get doneCount =>
-      allItems.where((i) => i.state == 'done').length;
+  int get doneCount => allItems.where((i) => i.state == 'done').length;
 
   @override
   bool operator ==(Object other) =>
@@ -771,8 +827,7 @@ final class SessionPlan {
   int get hashCode => Object.hash(Object.hashAll(items), approval);
 
   @override
-  String toString() =>
-      'SessionPlan(${items.length} items, ${doneCount} done, '
+  String toString() => 'SessionPlan(${items.length} items, ${doneCount} done, '
       'approval ${approval.name})';
 }
 
@@ -807,8 +862,7 @@ final class SessionGoal {
   int get hashCode => Object.hash(text, verdict, evidence);
 
   @override
-  String toString() =>
-      'SessionGoal(${text.length} chars, ${verdict.name})';
+  String toString() => 'SessionGoal(${text.length} chars, ${verdict.name})';
 }
 
 /// The permission mode moved. It moves outside the loop — a slash
@@ -952,7 +1006,8 @@ final class SessionWorkflowRun {
       _stringListEquals(nodes, other.nodes);
 
   @override
-  int get hashCode => Object.hash(workflow, status, detail, Object.hashAll(nodes));
+  int get hashCode =>
+      Object.hash(workflow, status, detail, Object.hashAll(nodes));
 
   @override
   String toString() =>
@@ -1104,8 +1159,7 @@ final class WorkflowRunEntry extends SessionEntry {
       Object.hash(workflow, status, detail, Object.hashAll(nodes), at);
 
   @override
-  String toString() =>
-      'WorkflowRun($workflow, $status, ${nodes.length} nodes)';
+  String toString() => 'WorkflowRun($workflow, $status, ${nodes.length} nodes)';
 }
 
 /// The per-session settings derive consults. Plain strings — the core
@@ -1249,7 +1303,9 @@ DerivedSession deriveSession(
         mode = newMode;
       case TurnStartedEntry(:final turnId):
         openTurns.add(turnId);
-      case InputRecordedEntry() || InputRewrittenEntry():
+      case InputRecordedEntry() ||
+            InputRewrittenEntry() ||
+            UsageRecordedEntry():
         break; // audit trail; the message entries carry the transcript
       case MessageAppendedEntry():
         slots.add(_Slot(e.message, e.turnId));
@@ -1263,19 +1319,11 @@ DerivedSession deriveSession(
         ):
         _compact(slots, replacedFrom, replacedTo, summary);
       case PlanChangedEntry(items: final items, approval: final approval):
-        plan = SessionPlan(
-            items: List.unmodifiable(items), approval: approval);
-      case GoalChangedEntry(
-          :final text,
-          :final verdict,
-          :final evidence
-        ):
+        plan = SessionPlan(items: List.unmodifiable(items), approval: approval);
+      case GoalChangedEntry(:final text, :final verdict, :final evidence):
         goal = text.isEmpty
             ? null
-            : SessionGoal(
-                text: text,
-                verdict: verdict,
-                evidence: evidence);
+            : SessionGoal(text: text, verdict: verdict, evidence: evidence);
       case WorkflowRunEntry(
           :final workflow,
           :final status,
@@ -1291,12 +1339,12 @@ DerivedSession deriveSession(
   // turn is the one a resume would continue.
   final pendingTurnId = openTurns.isEmpty ? null : openTurns.last;
 
-  final writingTurnId =
-      openTurns.isEmpty ? null : openTurns.last;
+  final writingTurnId = openTurns.isEmpty ? null : openTurns.last;
   final messages = [
     for (final s in slots)
       if (completedTurns.contains(s.turnId) ||
-          (includePendingTurn && s.turnId == writingTurnId)) s.message,
+          (includePendingTurn && s.turnId == writingTurnId))
+        s.message,
   ];
 
   return DerivedSession(

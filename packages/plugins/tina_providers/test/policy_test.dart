@@ -34,6 +34,161 @@ ProviderTarget target(String id, Stub p, {int concurrency = 4}) =>
     ProviderTarget(id: id, create: () => p, maxConcurrent: concurrency);
 
 void main() {
+  test('usage recording failure ends the request and releases its slot',
+      () async {
+    final stub = Stub(() => Stream.value(answer));
+    final policy = ProviderPolicyPlugin(
+        targets: (_) => [target('a', stub, concurrency: 1)]);
+    addTearDown(policy.closeSession);
+    final provider = policy.mainProvider('x');
+    final loop = AgentLoop(provider: provider, plugins: [policy]);
+    loop.mountPlugin(policy);
+    final listener = loop.subscribe((entry, _) {
+      if (entry is UsageRecordedEntry) throw StateError('store write failed');
+    });
+    final events =
+        await request(provider).toList().timeout(const Duration(seconds: 1));
+    expect(events.whereType<StreamError>().single.requiresUserAction, true);
+    loop.unsubscribe(listener);
+    expect(await request(provider).toList().timeout(const Duration(seconds: 1)),
+        [answer]);
+  });
+  for (final (limits, child, reason) in [
+    (const RequestLimits(globalTokens: 1), true, 'global'),
+    (const RequestLimits(childTokens: 1), true, 'subagent'),
+    (const RequestLimits(turnTokens: 1), false, 'turn'),
+  ]) {
+    test('estimated usage counts toward $reason ceiling', () async {
+      final stub = Stub(() => Stream.value(const StreamError('failed')));
+      final policy = ProviderPolicyPlugin(
+          limits: limits, targets: (_) => [target('a', stub)]);
+      addTearDown(policy.closeSession);
+      final provider =
+          child ? policy.childProvider('x') : policy.mainProvider('x');
+      await request(provider).drain<void>();
+      final error =
+          (await request(provider).toList()).whereType<StreamError>().single;
+      expect(error.error, contains(reason));
+      expect(stub.calls, 1);
+    });
+  }
+  test('unknown failed spend is estimated once and prevents budgeted failover',
+      () async {
+    final bad =
+        Stub(() => Stream.value(const StreamError('outage', transient: true)));
+    final good = Stub(() => Stream.value(answer));
+    final policy = ProviderPolicyPlugin(
+        limits: const RequestLimits(sessionTokens: 1),
+        targets: (_) => [target('bad', bad), target('good', good)]);
+    addTearDown(policy.closeSession);
+    final events = await request(policy.mainProvider('x')).toList();
+    expect(policy.sessionTokens, 0);
+    expect(policy.sessionEstimatedTokens, greaterThan(0));
+    expect(policy.globalEstimatedTokens, policy.sessionEstimatedTokens);
+    expect(events.whereType<StreamError>().single.error,
+        contains('session token'));
+    expect(good.calls, 0);
+  });
+  test('reported failed usage wins over estimates, including zero usage',
+      () async {
+    for (final usage in [
+      TokenUsage.zero,
+      const TokenUsage(inputTokens: 7, outputTokens: 2)
+    ]) {
+      final bad = Stub(() =>
+          Stream.value(StreamError('outage', transient: true, usage: usage)));
+      final good = Stub(() => Stream.value(answer));
+      final policy = ProviderPolicyPlugin(
+          targets: (_) => [target('bad', bad), target('good', good)]);
+      addTearDown(policy.closeSession);
+      await request(policy.mainProvider('x')).drain<void>();
+      expect(policy.sessionTokens, 5 + usage.inputTokens + usage.outputTokens);
+      expect(policy.sessionEstimatedTokens, 0);
+    }
+  });
+  test('abrupt EOF, synchronous throws and cancellation each book one estimate',
+      () async {
+    final source = StreamController<StreamEvent>();
+    for (final reply in <Stream<StreamEvent> Function()>[
+      () => const Stream.empty(),
+      () => throw StateError('transport'),
+      () => Stream.error(StateError('transport')),
+      () => source.stream,
+    ]) {
+      final policy =
+          ProviderPolicyPlugin(targets: (_) => [target('a', Stub(reply))]);
+      addTearDown(policy.closeSession);
+      final subscription = request(policy.mainProvider('x')).listen((_) {});
+      await tick();
+      await subscription.cancel();
+      final estimate = policy.sessionEstimatedTokens;
+      expect(estimate, greaterThan(0));
+      await tick();
+      expect(policy.sessionEstimatedTokens, estimate);
+      expect(policy.sessionTokens, 0);
+    }
+    await source.close();
+  });
+  test('preflight refusal and queued cancellation spend nothing', () async {
+    final source = StreamController<StreamEvent>();
+    final stub = Stub(() => source.stream);
+    final policy = ProviderPolicyPlugin(
+        targets: (_) => [target('a', stub, concurrency: 1)]);
+    addTearDown(policy.closeSession);
+    final active = request(policy.mainProvider('x')).listen((_) {});
+    await tick();
+    final queued = request(policy.childProvider('x')).listen((_) {});
+    await tick();
+    await queued.cancel();
+    expect(policy.globalEstimatedTokens, 0);
+    await active.cancel();
+    expect(policy.globalEstimatedTokens, policy.sessionEstimatedTokens);
+    await source.close();
+    final limited = ProviderPolicyPlugin(
+        limits: const RequestLimits(requestTokens: 1),
+        targets: (_) => [target('a', stub)]);
+    addTearDown(limited.closeSession);
+    await request(limited.mainProvider('x')).drain<void>();
+    expect(limited.sessionEstimatedTokens, 0);
+  });
+  test(
+      'journal resumes measured and estimated spend without double counting turn usage',
+      () async {
+    final bad =
+        Stub(() => Stream.value(const StreamError('outage', transient: true)));
+    final good = Stub(() => Stream.value(answer));
+    final policy = ProviderPolicyPlugin(
+        targets: (_) => [target('bad', bad), target('good', good)]);
+    addTearDown(policy.closeSession);
+    final loop =
+        AgentLoop(provider: policy.mainProvider('x'), plugins: [policy]);
+    loop.mountPlugin(policy);
+    await loop.runTurn(const Input('one', id: '1'));
+    await request(policy.childProvider('x')).drain<void>();
+    expect(policy.sessionTokens, 5);
+    expect(policy.sessionEstimatedTokens, greaterThan(0));
+    final restored =
+        ProviderPolicyPlugin(targets: (_) => [target('good', good)]);
+    addTearDown(restored.closeSession);
+    final seed = [
+      const TurnEndedEntry(
+          turnId: 'old',
+          reason: TurnStopReason.complete,
+          usage: EntryUsage(inputTokens: 11)),
+      ...loop.log.map((e) => SessionEntry.fromJson(e.toJson())),
+    ];
+    final resumed = AgentLoop(
+        provider: restored.mainProvider('x'),
+        plugins: [restored],
+        seedLog: seed);
+    resumed.mountPlugin(restored);
+    expect(restored.sessionTokens, policy.sessionTokens + 11);
+    expect(restored.globalTokens, policy.globalTokens + 11);
+    expect(restored.sessionEstimatedTokens, policy.sessionEstimatedTokens);
+    expect(restored.globalEstimatedTokens, policy.globalEstimatedTokens);
+    expect(resumed.derive().messages.map((m) => m.toJson()),
+        loop.derive().messages.map((m) => m.toJson()));
+  });
   test('pool rotates, fails over transient errors, and closes members',
       () async {
     final bad = Stub(

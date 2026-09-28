@@ -39,6 +39,11 @@ final class ProviderPolicyPlugin extends AgentPlugin {
 
   /// Reported provider spend, including calls in the current turn.
   int get sessionTokens => _main.total;
+  int get sessionEstimatedTokens => _main.estimated;
+  int get globalTokens => _global.total;
+  int get globalEstimatedTokens => _global.estimated;
+  AgentLoop? _loop;
+  String _turnId = '';
 
   int _rotation = 0;
   bool _closed = false;
@@ -49,19 +54,22 @@ final class ProviderPolicyPlugin extends AgentPlugin {
   @override
   void onInput(TurnContext c) {
     _main.turn = 0;
+    _turnId = c.input.id;
   }
 
   @override
   void mountOn(AgentLoop loop) {
+    _loop = loop;
+    final recordedTurns = <String>{};
+    for (final entry in loop.log.whereType<UsageRecordedEntry>()) {
+      if (!entry.child) recordedTurns.add(entry.turnId);
+      _add(entry.child ? _Spend() : _main, _tokens(entry.usage),
+          entry.estimatedTokens);
+    }
     for (final entry in loop.log.whereType<TurnEndedEntry>()) {
-      final u = entry.usage;
-      _book(
-          _main,
-          TokenUsage(
-              inputTokens: u.inputTokens,
-              outputTokens: u.outputTokens,
-              cacheCreationInputTokens: u.cacheCreationInputTokens,
-              cacheReadInputTokens: u.cacheReadInputTokens));
+      if (!recordedTurns.contains(entry.turnId)) {
+        _add(_main, _tokens(entry.usage), 0);
+      }
     }
   }
 
@@ -79,9 +87,9 @@ final class ProviderPolicyPlugin extends AgentPlugin {
 
   String? _refusal(_Spend spend, bool child, int inputEstimate) {
     final cap = child ? limits.childTokens : limits.sessionTokens;
-    if (limits.globalTokens > 0 && _global.total >= limits.globalTokens)
+    if (limits.globalTokens > 0 && _global.combined >= limits.globalTokens)
       return 'global token budget exhausted';
-    if (cap > 0 && spend.total >= cap)
+    if (cap > 0 && spend.combined >= cap)
       return '${child ? 'subagent' : 'session'} token budget exhausted';
     if (!child && limits.turnTokens > 0 && spend.turn >= limits.turnTokens)
       return 'turn token budget exhausted';
@@ -90,15 +98,31 @@ final class ProviderPolicyPlugin extends AgentPlugin {
     return null;
   }
 
-  void _book(_Spend spend, TokenUsage? usage) {
-    if (usage == null) return;
-    final tokens = usage.inputTokens +
-        usage.outputTokens +
-        usage.cacheCreationInputTokens +
-        usage.cacheReadInputTokens;
-    spend.total += tokens;
-    spend.turn += tokens;
-    _global.total += tokens;
+  static int _tokens(EntryUsage u) =>
+      u.inputTokens +
+      u.outputTokens +
+      u.cacheCreationInputTokens +
+      u.cacheReadInputTokens;
+
+  void _add(_Spend spend, int measured, int estimated) {
+    spend.total += measured;
+    spend.estimated += estimated;
+    spend.turn += measured + estimated;
+    _global.total += measured;
+    _global.estimated += estimated;
+  }
+
+  void _book(_Spend spend, bool child, String turnId, TokenUsage usage) {
+    final value = EntryUsage.fromTokens(usage);
+    final estimated = usage.estimated ? _tokens(value) : 0;
+    final measured = usage.estimated ? const EntryUsage() : value;
+    _add(spend, _tokens(measured), estimated);
+    _loop?.recordState(UsageRecordedEntry(
+        turnId: turnId,
+        usage: measured,
+        estimatedTokens: estimated,
+        child: child,
+        at: DateTime.now().toUtc().toIso8601String()));
   }
 
   @override
@@ -117,6 +141,8 @@ final class ProviderPolicyPlugin extends AgentPlugin {
 
 final class _Spend {
   int total = 0;
+  int estimated = 0;
+  int get combined => total + estimated;
   int turn = 0;
 }
 
@@ -151,13 +177,19 @@ final class _PolicyProvider extends LlmProvider {
     StreamSubscription<StreamEvent>? upstream;
     void Function()? release;
     var live = true;
+    void Function()? settleActive;
+    final turnId = policy._turnId;
     void cancel() {
       if (!live) return;
       live = false;
-      cancelled.complete();
-      release?.call();
-      release = null;
-      unawaited(upstream?.cancel().catchError((Object _) {}));
+      try {
+        settleActive?.call();
+      } finally {
+        cancelled.complete();
+        release?.call();
+        release = null;
+        unawaited(upstream?.cancel().catchError((Object _) {}));
+      }
     }
 
     late StreamController<StreamEvent> output;
@@ -200,23 +232,46 @@ final class _PolicyProvider extends LlmProvider {
           var published = false;
           var complete = false;
           StreamError? failure;
+          var booked = false;
+          void settle([TokenUsage? usage]) {
+            if (booked) return;
+            booked = true;
+            policy._book(
+                spend,
+                child,
+                turnId,
+                usage ??
+                    TokenUsage(
+                        inputTokens: estimate,
+                        outputTokens: 0,
+                        estimated: true));
+          }
+
+          settleActive = settle;
           upstream = provider
               .send(system: system, messages: messages, tools: tools)
               .listen((event) {
-            if (!live) return;
-            if (event is StreamError) {
-              policy._book(spend, event.usage);
-              failure = event;
-            } else {
-              if (event is MessageComplete) {
-                complete = true;
-                policy._book(spend, event.usage);
+            if (!live || done.isCompleted) return;
+            try {
+              if (event is StreamError) {
+                settle(event.usage);
+                failure = event;
+              } else {
+                if (event is MessageComplete) {
+                  complete = true;
+                  settle(event.usage ?? TokenUsage.zero);
+                }
+                if (event is TextDelta ||
+                    event is ToolCallStart ||
+                    event is MessageComplete ||
+                    event is ReasoningEvent) published = true;
+                output.add(event);
               }
-              if (event is TextDelta ||
-                  event is ToolCallStart ||
-                  event is MessageComplete ||
-                  event is ReasoningEvent) published = true;
-              output.add(event);
+            } catch (error) {
+              failure = StreamError('usage recording failed: $error',
+                  requiresUserAction: true);
+              if (!done.isCompleted) done.complete();
+              unawaited(upstream?.cancel().catchError((Object _) {}));
             }
           }, onDone: () {
             if (!done.isCompleted) done.complete();
@@ -226,6 +281,8 @@ final class _PolicyProvider extends LlmProvider {
             if (!done.isCompleted) done.complete();
           }, cancelOnError: true);
           await Future.any([done.future, cancelled.future]);
+          settle();
+          settleActive = null;
           release?.call();
           release = null;
           if (!live) return;
@@ -254,6 +311,13 @@ final class _PolicyProvider extends LlmProvider {
       } catch (error) {
         if (live) output.add(StreamError('provider policy failed: $error'));
       } finally {
+        try {
+          settleActive?.call();
+        } catch (error) {
+          if (live)
+            output.add(StreamError('usage recording failed: $error',
+                requiresUserAction: true));
+        }
         release?.call();
         release = null;
         _cancellations.remove(cancel);

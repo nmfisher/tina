@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:test/test.dart';
 
@@ -30,7 +31,40 @@ class _Recorder {
   void onEvent(WatchEvent e) => seen.add(e);
 }
 
+class _StalledProvider extends LlmProvider {
+  _StalledProvider(this.stream) : super('stalled');
+  final Stream<StreamEvent> stream;
+  @override
+  Stream<StreamEvent> send(
+          {required String system,
+          required List<Message> messages,
+          required List<ToolSchema> tools}) =>
+      stream;
+}
+
 void main() {
+  test(
+      'cancellation reaches an idle upstream without waiting for another event',
+      () async {
+    final cancelled = Completer<void>();
+    final source = StreamController<StreamEvent>(onCancel: cancelled.complete);
+    final observations = <WatchEvent>[];
+    final first = Completer<void>();
+    final subscription =
+        TeeProvider(_StalledProvider(source.stream), sink: observations.add)
+            .send(
+                system: '',
+                messages: [],
+                tools: []).listen((_) => first.complete());
+    source.add(const TextDelta('partial'));
+    await first.future;
+    await Future<void>.delayed(Duration.zero);
+    await subscription.cancel().timeout(const Duration(seconds: 1));
+    expect(cancelled.isCompleted, true);
+    source.add(const TextDelta('late'));
+    await source.close();
+    expect(observations, [const SawText('partial')]);
+  });
   final completion = MessageComplete(
     content: [
       TextBlock('done'),
@@ -61,10 +95,12 @@ void main() {
 
   test('forwards the stream unchanged: identical events, order, instances',
       () async {
-    final tee = TeeProvider(_EchoProvider(script),
-        sink: (_){},);
-    final forwarded = await collect(tee.send(
-        system: 'sys', messages: const [], tools: const []));
+    final tee = TeeProvider(
+      _EchoProvider(script),
+      sink: (_) {},
+    );
+    final forwarded = await collect(
+        tee.send(system: 'sys', messages: const [], tools: const []));
     expect(forwarded.length, script.length);
     for (var i = 0; i < script.length; i++) {
       expect(identical(forwarded[i], script[i]), isTrue,
@@ -76,8 +112,7 @@ void main() {
   test('emits what it saw, in arrival order, to the sink', () async {
     final rec = _Recorder();
     final tee = TeeProvider(_EchoProvider(script), sink: rec.onEvent);
-    await collect(tee.send(
-        system: 'sys', messages: const [], tools: const []));
+    await collect(tee.send(system: 'sys', messages: const [], tools: const []));
     expect(rec.seen, [
       const SawText('hel'),
       const SawText('lo'),
@@ -101,13 +136,14 @@ void main() {
       stopReason: 'tool_use',
     );
     final rec = _Recorder();
-    final tee = TeeProvider(_EchoProvider([
-      const ToolCallStart(id: 'a', name: 'ls'),
-      const ToolCallStart(id: 'b', name: 'read'),
-      two,
-    ]), sink: rec.onEvent);
-    await collect(tee.send(
-        system: '', messages: const [], tools: const []));
+    final tee = TeeProvider(
+        _EchoProvider([
+          const ToolCallStart(id: 'a', name: 'ls'),
+          const ToolCallStart(id: 'b', name: 'read'),
+          two,
+        ]),
+        sink: rec.onEvent);
+    await collect(tee.send(system: '', messages: const [], tools: const []));
     expect(
       rec.seen.whereType<SawToolEnd>().map((e) => e.id),
       ['a', 'b'],
@@ -119,8 +155,7 @@ void main() {
     final rec = _Recorder();
     final tee = TeeProvider(_EchoProvider([const TextDelta('half')]),
         sink: rec.onEvent);
-    await collect(tee.send(
-        system: '', messages: const [], tools: const []));
+    await collect(tee.send(system: '', messages: const [], tools: const []));
     expect(rec.seen, [const SawText('half'), const SawCompletion(null)]);
   });
 
@@ -129,15 +164,14 @@ void main() {
     final tee = TeeProvider(
         _EchoProvider([const TextDelta('x'), StreamError('boom')]),
         sink: rec.onEvent);
-    await collect(tee.send(
-        system: '', messages: const [], tools: const []));
+    await collect(tee.send(system: '', messages: const [], tools: const []));
     expect(rec.seen, [const SawText('x'), const SawCompletion(null)]);
   });
 
   test('with no sink it is a pass-through: stream still identical', () async {
     final tee = TeeProvider(_EchoProvider(script));
-    final forwarded = await collect(tee.send(
-        system: 'sys', messages: const [], tools: const []));
+    final forwarded = await collect(
+        tee.send(system: 'sys', messages: const [], tools: const []));
     expect(forwarded, equals(script));
   });
 
@@ -147,8 +181,8 @@ void main() {
       calls++;
       throw StateError('viewer broke');
     });
-    final forwarded = await collect(tee.send(
-        system: '', messages: const [], tools: const []));
+    final forwarded = await collect(
+        tee.send(system: '', messages: const [], tools: const []));
     expect(forwarded.length, 1);
     expect(forwarded.single, const TextDelta('a'));
     expect(calls, 2); // text sighting + completion sighting, both attempted.

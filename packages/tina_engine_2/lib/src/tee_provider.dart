@@ -18,6 +18,7 @@
 /// and tool-start sightings, always in arrival order.
 library;
 
+import 'dart:async';
 import 'package:tina_core/tina_core.dart';
 
 /// What the decorator saw, in the order it saw it. The watch copy — the
@@ -143,20 +144,28 @@ final class TeeProvider implements LlmProvider {
     required String system,
     required List<Message> messages,
     required List<ToolSchema> tools,
-  }) async* {
+  }) {
     String? stop;
-    await for (final event in _inner.send(
-      system: system,
-      messages: messages,
-      tools: tools,
-    )) {
-      _emit(_sightingsFor(event));
-      if (event is MessageComplete) stop = event.stopReason;
-      // Yield after the sighting so the watcher is never behind what the
-      // loop is about to consume, and never ahead of it either.
-      yield event;
-    }
-    _emit([SawCompletion(stop)]);
+    // A transform forwards cancellation immediately. An async* / await-for
+    // wrapper can wait for the next upstream event before propagating cancel,
+    // leaving a stalled request (and its spend accounting) alive after Escape.
+    return _inner
+        .send(
+          system: system,
+          messages: messages,
+          tools: tools,
+        )
+        .transform(StreamTransformer<StreamEvent, StreamEvent>.fromHandlers(
+          handleData: (event, output) {
+            _emit(_sightingsFor(event));
+            if (event is MessageComplete) stop = event.stopReason;
+            output.add(event);
+          },
+          handleDone: (output) {
+            _emit([SawCompletion(stop)]);
+            output.close();
+          },
+        ));
   }
 
   /// The sightings one stream event produces. A completion ends every tool
