@@ -257,7 +257,10 @@ final class SubagentsPlugin extends AgentPlugin
         budget.add(used);
         parent.details.tokensSpent += used;
       }
-      final answer = child.session.lastReply ?? '';
+      final answer = [
+        for (final m in outcome.modelResponses)
+          for (final b in m.content.whereType<TextBlock>()) b.text,
+      ].join();
       final capped = answer.length > config.resultCap
           ? '${answer.substring(0, config.resultCap)}… (truncated at '
               '${config.resultCap} characters)'
