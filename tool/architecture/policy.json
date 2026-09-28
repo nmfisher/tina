@@ -342,6 +342,8 @@
     "tina_chat_tui": [
       "tina_console",
       "tina_engine_2",
+      "tina_host",
+      "tina_self_update",
       "tina_tools",
       "markdown"
     ]

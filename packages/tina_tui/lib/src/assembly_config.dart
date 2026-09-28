@@ -28,6 +28,7 @@ const defaultPluginIds = <String>[
   'tina/auto-compact',
   'tina/subagents',
   'tina/update',
+  'tina/update-tui',
 ];
 
 /// Where tina's config lives today.

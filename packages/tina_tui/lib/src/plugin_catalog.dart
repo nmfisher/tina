@@ -60,6 +60,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         'tina/file-resources'
       },
       definitions: [
+        updateTuiDefinition<TuiPluginContext>(),
         updateDefinition<TuiPluginContext>(
             version: (c) => c.version, terminal: (c) => c.terminal),
         approvalsDefinition<TuiPluginContext>(),
@@ -76,7 +77,10 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             showSessionId: c.openStore != null,
             sessionTokens: c.providerPolicy == null
                 ? null
-                : () => c.providerPolicy!.sessionTokens),
+                : () => c.providerPolicy!.sessionTokens,
+            sessionEstimatedTokens: c.providerPolicy == null
+                ? null
+                : () => c.providerPolicy!.sessionEstimatedTokens),
         'tina/mode-tui': (c) => ModeTuiPlugin(mode: c.tools),
         'tina/activity-tui': (c) =>
             ActivityTuiPlugin(terminal: c.terminal, printTranscript: false),

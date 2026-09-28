@@ -17,8 +17,20 @@ with `/plugins` at session, workspace or global scope.
   Page Up/Down and the mouse wheel scroll the transcript without editing input.
   F4's activity browser remains available for full result details and edit diffs.
 - The status strip carries the mode, plan, goal, session ID and reported token
-  spend, including the configured session cap. Under width pressure it drops
+  spend, including the configured session cap. Unknown failed/cancelled request
+  spend appears separately as `+~N est`; measured plus estimated spend controls
+  the percentage, warning colors and `SPEND LIMIT TRIPPED`. Under width pressure it drops
   optional left-side information before the token counter.
+
+`tina/update-tui` is also enabled by default. It consumes the channel-independent
+status capability from `tina/update`, starts one cache-aware background check,
+and contributes a persistent `update ⬆ vX.Y.Z · /update` line. Checking, failed,
+and deferred checks are visible; up-to-date is quiet. The update indicator has
+priority over optional plan/goal/session text, while the token counter retains
+the right-hand slot. `ConsoleContext.bindStatus` gives each plugin ownership of
+its own lines, so unloading one does not erase the others. `/plugins disable
+tina/update-tui` removes the view live. `COCOON_UPDATE_CHECK=0` suppresses automatic
+checks; explicit `/update` checks still work and update the same status.
 
 The plugin subscribes to the loop's log and tool activity. Provider adapters send
 transient `WatchObserver` events; final log entries reconcile streamed drafts.
@@ -35,8 +47,8 @@ submitting input, cancelling a turn, or adding chat rows. It affects subsequent
 tool checks; it does not retroactively stop an already running tool. This change
 does not introduce the legacy four-mode permission policy.
 
-If an existing config explicitly lists enabled plugins, add `tina/chat-tui` and
-`tina/mode-tui` to that list to enable these views. Disabling chat presentation
+If an existing config explicitly lists enabled plugins, add `tina/chat-tui`,
+`tina/mode-tui`, `tina/update` and `tina/update-tui` to enable these views. Disabling chat presentation
 removes its transcript and prompt contribution; it does not change execution or
 persistence. Headless replies continue to use the ordinary terminal sink.
 

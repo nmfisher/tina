@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'release_checker.dart';
 import 'updater.dart';
+import 'update_status.dart';
 
 PluginDefinition<C> updateDefinition<C>({
   required String Function(C) version,
@@ -11,21 +13,25 @@ PluginDefinition<C> updateDefinition<C>({
 }) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/update',
         dependency: approvalRequester,
+        provides: [updateStatusSource],
         create: (context, approvals) => UpdatePlugin(
             currentVersion: version(context),
             terminal: terminal(context),
             approvals: approvals));
 
 /// All delivery channels use the same prepared update and approval contract.
-final class UpdatePlugin extends AgentPlugin {
+final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {
   UpdatePlugin(
       {required this.currentVersion,
       required this.terminal,
       required this.approvals,
       ReleaseChecker? checker,
+      bool? backgroundEnabled,
       Future<UpdatePrepareOutcome> Function(ReleaseInfo, void Function(String))?
           prepare})
-      : checker = checker ??
+      : backgroundEnabled = backgroundEnabled ??
+            Platform.environment['COCOON_UPDATE_CHECK'] != '0',
+        checker = checker ??
             ReleaseChecker(
                 env: Platform.environment, currentVersion: currentVersion),
         _prepare = prepare ??
@@ -34,6 +40,54 @@ final class UpdatePlugin extends AgentPlugin {
   final Terminal terminal;
   final ApprovalRequester approvals;
   final ReleaseChecker checker;
+  final bool backgroundEnabled;
+  final _changes = StreamController<void>.broadcast();
+  @override
+  Stream<void> get changes => _changes.stream;
+  @override
+  UpdateStatus get status => _status;
+  UpdateStatus _status = const UpdateStatus(UpdatePhase.current);
+  Future<void>? _background;
+
+  void _setStatus(UpdateStatus value) {
+    if (_closed) return;
+    _status = value;
+    _changes.add(null);
+  }
+
+  @override
+  Future<void> checkInBackground() {
+    if (_closed || !backgroundEnabled) return Future.value();
+    return _background ??= _checkBackground();
+  }
+
+  Future<void> _checkBackground() async {
+    // Explicit checks own the checker while their command is running.
+    if (_busy) return;
+    _setStatus(const UpdateStatus(UpdatePhase.checking));
+    try {
+      _accept(await checker.checkWithRevalidate(), background: true);
+    } catch (error) {
+      _setStatus(UpdateStatus(UpdatePhase.failed, reason: '$error'));
+    }
+  }
+
+  void _accept(ReleaseInfo? release, {bool background = false}) {
+    if (release != null && isNewer(release.tag, current: currentVersion)) {
+      _setStatus(UpdateStatus(UpdatePhase.available, tag: release.tag));
+    } else if (checker.lastMiss case final miss?) {
+      _setStatus(UpdateStatus(UpdatePhase.failed,
+          reason: miss.detail, tag: release?.tag));
+    } else if (background && checker.deferUntil != null) {
+      _setStatus(UpdateStatus(UpdatePhase.deferred,
+          until: checker.deferUntil, tag: release?.tag));
+    } else {
+      _setStatus(UpdateStatus(
+          release == null ? UpdatePhase.failed : UpdatePhase.current,
+          reason: release == null ? 'no release information' : null));
+    }
+  }
+
   final Future<UpdatePrepareOutcome> Function(
       ReleaseInfo, void Function(String)) _prepare;
   bool _busy = false;
@@ -65,9 +119,13 @@ final class UpdatePlugin extends AgentPlugin {
     }
     _busy = true;
     try {
+      await _background;
+      if (_closed) return;
+      _setStatus(const UpdateStatus(UpdatePhase.checking));
       terminal.writeln('Checking for updates (installed: $currentVersion)…');
       final release = await checker.fetchLatest();
       if (_closed) return;
+      _accept(release);
       if (release == null) {
         terminal.writeln(
             'Update check failed: ${checker.lastMiss?.detail ?? 'no release information'}.');
@@ -108,6 +166,9 @@ final class UpdatePlugin extends AgentPlugin {
           terminal
               .writeln('Update preparation failed; installation unchanged.');
       }
+    } catch (error) {
+      _setStatus(UpdateStatus(UpdatePhase.failed, reason: '$error'));
+      rethrow;
     } finally {
       _busy = false;
     }
@@ -117,5 +178,6 @@ final class UpdatePlugin extends AgentPlugin {
   void closeSession() {
     _closed = true;
     checker.close();
+    unawaited(_changes.close());
   }
 }

@@ -2,6 +2,7 @@ import 'input_event.dart';
 import 'line_editor.dart';
 import 'screen.dart';
 import 'modal_surface.dart';
+import 'renderer.dart';
 
 /// A frontend contribution mounted by the application without feature knowledge.
 abstract interface class ConsoleContribution {
@@ -33,6 +34,28 @@ final class ConsoleContext {
   }
 
   void refreshInput() => _editor.refresh();
+
+  final _status =
+      <Object, ({int priority, List<RenderLine> Function() read})>{};
+
+  /// Each contribution owns only its own lines. Lower priorities appear first
+  /// and survive width pressure longer; right-aligned lines retain their slot.
+  void Function() bindStatus(List<RenderLine> Function() read,
+      {int priority = 100}) {
+    final owner = Object();
+    _status[owner] = (priority: priority, read: read);
+    refreshStatus();
+    return () {
+      _status.remove(owner);
+      refreshStatus();
+    };
+  }
+
+  void refreshStatus() {
+    final sources = _status.values.toList()
+      ..sort((a, b) => a.priority.compareTo(b.priority));
+    screen.setStatusLines([for (final source in sources) ...source.read()]);
+  }
 
   final LineEditor _editor;
   bool get isReadingKey => _editor.isReadingKey;

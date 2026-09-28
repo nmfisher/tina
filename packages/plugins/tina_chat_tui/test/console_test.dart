@@ -4,6 +4,19 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
+import 'package:tina_self_update/tina_self_update.dart';
+import 'package:tina_console/testing.dart';
+
+class Updates implements UpdateStatusSource {
+  final notifications = StreamController<void>.broadcast();
+  @override
+  UpdateStatus status =
+      const UpdateStatus(UpdatePhase.available, tag: 'v0.9.1');
+  @override
+  Stream<void> get changes => notifications.stream;
+  @override
+  Future<void> checkInBackground() async {}
+}
 
 class Io implements Stdio {
   final input = StreamController<List<int>>(sync: true);
@@ -57,6 +70,69 @@ void main() {
     unawaited(io.input.close());
   });
   String transcript() => screen.chat.snapshotLines().join('\n');
+  String visible() {
+    final vt = VirtualTerminal(width: 80, height: 24)
+      ..feed(io.output.toString());
+    return List.generate(24, vt.rowText).join('\n');
+  }
+
+  test('estimated spend shares the strip with update status and trips the cap',
+      () async {
+    chat.closeSession();
+    var estimated = 15;
+    chat = ChatTuiPlugin(
+        model: 'test',
+        tokenCap: 100,
+        sessionTokens: () => 60,
+        sessionEstimatedTokens: () => estimated);
+    chat.attachConsole(context);
+    final source = Updates();
+    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    addTearDown(() {
+      update.closeSession();
+      unawaited(source.notifications.close());
+    });
+    await tick();
+    expect(visible(), contains('update ⬆ v0.9.1 · /update'));
+    expect(visible(), contains('Σ 60 +~15 est / 100 · 75%'));
+    chat.repaintConsole();
+    expect(visible(), contains('update ⬆ v0.9.1'));
+    estimated = 40;
+    chat.repaintConsole();
+    expect(visible(), contains('SPEND LIMIT TRIPPED'));
+    expect(visible(), contains('update ⬆ v0.9.1'));
+    update.detachConsole();
+    expect(visible(), isNot(contains('update ⬆')));
+    expect(visible(), contains('SPEND LIMIT TRIPPED'));
+    update.attachConsole(context);
+    chat.detachConsole();
+    expect(visible(), contains('update ⬆ v0.9.1'));
+    expect(visible(), isNot(contains('SPEND LIMIT TRIPPED')));
+  });
+  test(
+      'update state changes repaint without a turn and detach removes the subscription',
+      () async {
+    final source = Updates();
+    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    addTearDown(() {
+      update.closeSession();
+      unawaited(source.notifications.close());
+    });
+    source.status = const UpdateStatus(UpdatePhase.failed, reason: 'HTTP 429');
+    source.notifications.add(null);
+    await tick();
+    expect(visible(), contains('update check failed — HTTP 429'));
+    expect(visible(), contains('Σ 0'));
+    source.status = const UpdateStatus(UpdatePhase.current);
+    source.notifications.add(null);
+    await tick();
+    expect(visible(), isNot(contains('update check')));
+    update.detachConsole();
+    source.status = const UpdateStatus(UpdatePhase.available, tag: 'v9.0.0');
+    source.notifications.add(null);
+    await tick();
+    expect(visible(), isNot(contains('v9.0.0')));
+  });
   test(
       'Shift-Tab cycles the command authority without submitting or losing a draft',
       () async {

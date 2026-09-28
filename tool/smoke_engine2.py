@@ -177,6 +177,11 @@ def smoke(launcher, endpoint, columns, rows):
     with tempfile.TemporaryDirectory(prefix="tina-engine2-smoke-") as directory:
         root = Path(directory)
         config = root / "config"
+        # Exercise the real background status without contacting GitHub.
+        release_cache = root / '.tina' / 'cache' / 'latest_release.json'
+        release_cache.parent.mkdir(parents=True)
+        release_cache.write_text(json.dumps({
+            'tag': 'v999.0.0', 'release_url': 'https://example.test/release', 'assets': {}}))
         config.write_text('version = 1\n[default]\nprovider = "local-smoke"\nmodel = "smoke"\n'
                           '[providers.local-smoke]\nwire = "anthropic"\n'
                           f'base_url = "{endpoint}"\napi_key = "config-smoke-key"\n'
@@ -199,6 +204,7 @@ def smoke(launcher, endpoint, columns, rows):
         try:
             terminal.expect("smoke > ")
             terminal.expect("mode: normal")
+            terminal.expect("update ⬆ v999.0.0 · /update")
             start = terminal.send("\x1b[Z")
             terminal.expect("mode: read-only", start)
             start = terminal.send("\x1b[Z")
@@ -235,6 +241,7 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send("cancel this\r")
             terminal.expect("cancel pending", start)
             start = terminal.send("\x1b")
+            terminal.expect(' est', start)
             terminal.expect("cancelled: escape", start)
             # A later turn must work even while the cancelled server is stalled.
             time.sleep(0.1)
@@ -356,6 +363,11 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('tina/goals | enabled | yes | built-in | live', start)
             start = terminal.send('/plugins disable tina/activity-tui\r')
             terminal.expect('tina/activity-tui | disabled | no | session | live', start)
+            start = terminal.send('/plugins disable tina/update-tui\r')
+            terminal.expect('tina/update-tui | disabled | no | session | live', start)
+            start = terminal.send('/plugins reset tina/update-tui\r')
+            terminal.expect('tina/update-tui | enabled | yes | built-in | live', start)
+            terminal.expect('update ⬆ v999.0.0', start)
             start = terminal.send('/activity\r')
             terminal.expect('unknown command', start)
             start = terminal.send('/plugins reset tina/activity-tui\r')

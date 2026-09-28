@@ -16,6 +16,7 @@ final class ChatTuiPlugin extends AgentPlugin
       {required this.model,
       this.tokenCap = 0,
       this.sessionTokens,
+      this.sessionEstimatedTokens,
       this.showSessionId = true,
       DateTime Function()? now})
       : _now = now ?? DateTime.now,
@@ -23,6 +24,7 @@ final class ChatTuiPlugin extends AgentPlugin
   final String model;
   final int tokenCap;
   final int Function()? sessionTokens;
+  final int Function()? sessionEstimatedTokens;
   final bool showSessionId;
   String? _sessionId;
   int _tokens = 0;
@@ -52,6 +54,7 @@ final class ChatTuiPlugin extends AgentPlugin
   StreamSubscription<ToolActivity>? _activity;
   ConsoleContext? _console;
   void Function()? _unbindPrompt, _unbindKey, _unbindModal;
+  void Function()? _unbindStatus;
   Timer? _ticker;
   int _frame = 0, _width = -1;
   bool _busy = false, _hinted = false;
@@ -77,6 +80,7 @@ final class ChatTuiPlugin extends AgentPlugin
     detachConsole();
     _console = context;
     context.screen.setStatusLayout(const PriorityStatusLayout());
+    _unbindStatus = context.bindStatus(_statusLines);
     for (final block in _blocks) {
       final source = _sources[block];
       if (source != null) block.body = renderMarkdown(_clean(source), _style);
@@ -271,6 +275,8 @@ final class ChatTuiPlugin extends AgentPlugin
     } else if (entry is GoalChangedEntry) {
       _goal = entry;
       _paintUsage();
+    } else if (entry is UsageRecordedEntry) {
+      _paintUsage();
     } else if (entry is TurnEndedEntry) {
       _tokens += entry.usage.inputTokens +
           entry.usage.outputTokens +
@@ -430,19 +436,24 @@ final class ChatTuiPlugin extends AgentPlugin
   }
 
   void _paintUsage() {
+    _console?.refreshStatus();
+  }
+
+  List<RenderLine> _statusLines() {
     final console = _console;
-    if (console == null) return;
+    if (console == null) return const [];
     final tokens = sessionTokens?.call() ?? _tokens;
+    final estimated = sessionEstimatedTokens?.call() ?? 0;
     String number(int n) =>
         '$n'.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
     final theme = console.screen.theme.chat;
-    final fraction = tokenCap > 0 ? tokens / tokenCap : 0.0;
+    final fraction = tokenCap > 0 ? (tokens + estimated) / tokenCap : 0.0;
     final plan = _plan;
     final items = plan?.items ?? const <PlanEntryItem>[];
     final active =
         items.where((i) => i.state == 'in_progress').firstOrNull?.text;
     final goal = _goal;
-    console.screen.setStatusLines([
+    return [
       if (items.isNotEmpty)
         RenderLine(runs: [
           RenderRun('plan: ', theme.dim),
@@ -478,6 +489,8 @@ final class ChatTuiPlugin extends AgentPlugin
           RenderRun('SPEND LIMIT TRIPPED', theme.red)
         else ...[
           RenderRun('Σ ${number(tokens)}', theme.dim),
+          if (estimated > 0)
+            RenderRun(' +~${number(estimated)} est', theme.yellow),
           if (tokenCap > 0)
             RenderRun(
                 ' / ${number(tokenCap)} · ${(fraction * 100).round()}%',
@@ -488,7 +501,7 @@ final class ChatTuiPlugin extends AgentPlugin
                         : theme.dim),
         ],
       ]),
-    ]);
+    ];
   }
 
   List<int> get _foldable => [
@@ -543,7 +556,8 @@ final class ChatTuiPlugin extends AgentPlugin
     _unbindKey = null;
     _unbindModal = null;
     _selected = null;
-    _console?.screen.setStatusLines(const []);
+    _unbindStatus?.call();
+    _unbindStatus = null;
     _console?.screen.setStatusLayout(null);
     _console = null;
     _width = -1;

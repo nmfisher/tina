@@ -12,5 +12,9 @@ dependencies:
     path: ../../tina_engine_2
   tina_tools:
     path: ../tina_tools
+  tina_host:
+    path: ../../tina_host
+  tina_self_update:
+    path: ../tina_self_update
 dev_dependencies:
   test: ^1.25.0
