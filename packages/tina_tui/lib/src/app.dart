@@ -220,9 +220,18 @@ String? _entryLine(SessionEntry e) {
 }
 
 /// The real screen: size off the process's stdout, ANSI backend, no
-/// menu bar — one chat panel, one status row, one input row.
-Screen _newScreen() => Screen(
-      io: const LiveStdio(),
-      layout: ScreenLayout.fromSize(
-          stdout.terminalColumns, stdout.terminalLines),
-    );
+/// menu bar — one chat panel, one status row, one input row. Without a
+/// terminal there is no size to ask for (`terminalColumns` throws on a
+/// pipe), so debug and CI runs fall back to a conventional 80×24.
+Screen _newScreen() {
+  var columns = 80;
+  var lines = 24;
+  if (stdout.hasTerminal) {
+    columns = stdout.terminalColumns;
+    lines = stdout.terminalLines;
+  }
+  return Screen(
+    io: const LiveStdio(),
+    layout: ScreenLayout.fromSize(columns, lines),
+  );
+}
