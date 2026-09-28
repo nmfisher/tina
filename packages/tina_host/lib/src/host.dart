@@ -21,6 +21,7 @@
 library;
 
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_tools/tina_tools.dart' show PermissionMode;
 
 import 'host_config.dart';
 import 'plugins.dart';
@@ -50,6 +51,49 @@ final class Host {
   /// The store's registry row for this session, when persisted; null for
   /// an in-memory session.
   final int? registryKey;
+
+  /// Spawn a **child** session: assembly, nothing else. Given the depth
+  /// it sits at, the plugin set to mount, the working directory, and the
+  /// permission mode, it returns a new [Host] whose session carries
+  /// those facts in its details. The child's provider is built from the
+  /// same factory as any other host's — one call, one instance — so two
+  /// children never share a provider, and a child never shares its
+  /// parent's. The plugin list arrives **already restricted** by the
+  /// caller: this method decides nothing about what a child may do. The
+  /// mode is an argument, not a lookup: whoever assembles the child
+  /// passes the parent's mode through (or not), and the plugin that owns
+  /// the boundary builds itself with it — a child that receives a
+  /// read-only boundary cannot escalate, because nothing in its assembly
+  /// knows how.
+  ///
+  /// [storePath] persists the child as its own session in its own right
+  /// — same store file, its own registry row, resumable on its own.
+  /// Null keeps the child in memory. Either way the child's log is its
+  /// own and the parent's holds only what the parent records.
+  ///
+  /// The host still makes no decisions: this is [start] with the shape
+  /// of a child spelled out. Policy — depth caps, concurrency, budgets —
+  /// is the spawn site's business.
+  static Host child({
+    required int depth,
+    required List<AgentPlugin> plugins,
+    required String workingDirectory,
+    required PermissionMode mode,
+    required ProviderFactory providerFactory,
+    String model = 'scripted',
+    String? storePath,
+    String? sessionId,
+  }) {
+    final id = sessionId ?? 's-${DateTime.now().microsecondsSinceEpoch}-child';
+    return start(HostConfig(
+      providerFactory: providerFactory,
+      model: model,
+      workingDirectory: workingDirectory,
+      plugins: plugins,
+      storePath: storePath,
+      details: SessionDetails(depth: depth),
+    ), sessionId: id);
+  }
 
   /// Start a session from [config]: build the provider via the config's
   /// factory (once, for this host alone), then register the config's
