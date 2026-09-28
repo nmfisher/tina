@@ -28,7 +28,8 @@
     "tina_approvals_tui",
     "tina_self_update",
     "tina_providers",
-    "tina_activity_tui"
+    "tina_activity_tui",
+    "tina_chat_tui"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -38,7 +39,8 @@
     "dart_notcurses",
     "tina_tui",
     "tina_approvals_tui",
-    "tina_activity_tui"
+    "tina_activity_tui",
+    "tina_chat_tui"
   ],
   "sourceRoots": {
     "tina": [
@@ -162,6 +164,10 @@
       "test"
     ],
     "tina_activity_tui": [
+      "lib",
+      "test"
+    ],
+    "tina_chat_tui": [
       "lib",
       "test"
     ]
@@ -303,7 +309,8 @@
     "tina_approvals_tui": "packages/plugins/tina_approvals_tui",
     "tina_self_update": "packages/plugins/tina_self_update",
     "tina_providers": "packages/plugins/tina_providers",
-    "tina_activity_tui": "packages/plugins/tina_activity_tui"
+    "tina_activity_tui": "packages/plugins/tina_activity_tui",
+    "tina_chat_tui": "packages/plugins/tina_chat_tui"
   },
   "runtimeDependencies": {
     "tina_engine_2": [
@@ -331,6 +338,12 @@
       "tina_core",
       "tina_engine_2",
       "tina_console"
+    ],
+    "tina_chat_tui": [
+      "tina_console",
+      "tina_engine_2",
+      "tina_tools",
+      "markdown"
     ]
   },
   "pluginFreePackages": [

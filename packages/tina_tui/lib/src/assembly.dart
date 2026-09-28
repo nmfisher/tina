@@ -250,6 +250,10 @@ final class TuiAssembly {
         return (event) {
           if (identical(observation, current.turnObservation)) {
             current.onWatch?.call(event);
+            for (final observer
+                in current.host.plugins.whereType<WatchObserver>()) {
+              observer.watch(event);
+            }
           }
         };
       }),

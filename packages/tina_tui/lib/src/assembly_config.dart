@@ -19,6 +19,8 @@ const int kTinaConfigVersion = 1;
 const defaultApprovalChannel = 'tina/approvals-tui';
 
 const defaultPluginIds = <String>[
+  'tina/chat-tui',
+  'tina/mode-tui',
   'tina/activity-tui',
   'tina/persistence',
   'tina/plans',

@@ -10,7 +10,8 @@ export 'src/activity_model.dart';
 /// neither the host nor the application needs to recognize an activity panel.
 final class ActivityTuiPlugin extends AgentPlugin
     implements ConsoleContribution {
-  ActivityTuiPlugin({required this.terminal});
+  ActivityTuiPlugin({required this.terminal, this.printTranscript = true});
+  final bool printTranscript;
   final Terminal terminal;
   final model = ActivityModel();
   @override
@@ -60,24 +61,25 @@ final class ActivityTuiPlugin extends AgentPlugin
     final wasTruncated = previous.truncated;
     model.event(event);
     final row = model.record(event.call);
-    switch (event) {
-      case ToolStarted():
-        _line(
-            'tool: ${plainText(event.call.name)} — running${row.target.isEmpty ? '' : ' · ${bounded(row.target, 100)}'}');
-      case ToolProgress():
-        _line(row.progress);
-      case ToolOutput():
-        final clean = row.output.substring(outputStart);
-        final console = _console;
-        if (console != null) {
-          console.screen.frame(() => console.screen.chat.write(clean));
-          if (clean.isNotEmpty) _liveLine = !clean.endsWith('\n');
-        }
-        if (row.truncated && !wasTruncated)
-          _line('[further live output hidden]');
-      case ToolFinished():
-        _completion(row);
-    }
+    if (printTranscript)
+      switch (event) {
+        case ToolStarted():
+          _line(
+              'tool: ${plainText(event.call.name)} — running${row.target.isEmpty ? '' : ' · ${bounded(row.target, 100)}'}');
+        case ToolProgress():
+          _line(row.progress);
+        case ToolOutput():
+          final clean = row.output.substring(outputStart);
+          final console = _console;
+          if (console != null) {
+            console.screen.frame(() => console.screen.chat.write(clean));
+            if (clean.isNotEmpty) _liveLine = !clean.endsWith('\n');
+          }
+          if (row.truncated && !wasTruncated)
+            _line('[further live output hidden]');
+        case ToolFinished():
+          _completion(row);
+      }
     repaintConsole();
   }
 
@@ -90,6 +92,7 @@ final class ActivityTuiPlugin extends AgentPlugin
   }
 
   void _completion(ActivityRecord row) {
+    if (!printTranscript) return;
     _line(
         'tool: ${plainText(row.call.name)} — ${row.state}${row.duration.isEmpty ? '' : ' · ${row.duration}'}');
     final preview = bounded(row.summary, 400);

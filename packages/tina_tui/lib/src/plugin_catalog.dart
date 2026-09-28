@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_self_update/tina_self_update.dart';
@@ -50,6 +51,8 @@ List<AgentPlugin> basePlugins(TuiPluginContext context) => [
 /// the returned registry rejects the reserved namespace.
 PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
       liveFirstParty: {
+        'tina/chat-tui',
+        'tina/mode-tui',
         'tina/activity-tui',
         'tina/plans',
         'tina/goals',
@@ -67,7 +70,16 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         toolsDefinition<TuiPluginContext>((c) => c.tools),
       ],
       firstParty: {
-        'tina/activity-tui': (c) => ActivityTuiPlugin(terminal: c.terminal),
+        'tina/chat-tui': (c) => ChatTuiPlugin(
+            model: c.model,
+            tokenCap: c.limits.sessionTokens,
+            showSessionId: c.openStore != null,
+            sessionTokens: c.providerPolicy == null
+                ? null
+                : () => c.providerPolicy!.sessionTokens),
+        'tina/mode-tui': (c) => ModeTuiPlugin(mode: c.tools),
+        'tina/activity-tui': (c) =>
+            ActivityTuiPlugin(terminal: c.terminal, printTranscript: false),
         'tina/persistence': (c) => PersistencePlugin(openStore: c.openStore!),
         'tina/plans': (c) => PlansPlugin(
               terminal: c.terminal,

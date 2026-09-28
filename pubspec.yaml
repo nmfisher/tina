@@ -18,6 +18,8 @@ dependencies:
 # Legacy sources and tests remain available during the cutover. None of these
 # packages are imported by the executable; retire them after migration review.
 dev_dependencies:
+  tina_chat_tui:
+    path: packages/plugins/tina_chat_tui
   tina_self_update:
     path: packages/plugins/tina_self_update
   args: ^2.5.0

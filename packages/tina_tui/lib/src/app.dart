@@ -11,7 +11,6 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'settings_panel.dart';
 import 'completion_sources.dart';
 import 'tui_session.dart';
-import 'turn_renderer.dart';
 
 /// Run the app on [session] until the user quits or stdin ends.
 ///
@@ -31,14 +30,8 @@ Future<int> runApp(
     throw ArgumentError('runApp requires a TuiTerminal');
   }
   final s = screen ?? _newScreen(theme: resolveTheme(session.assembly.theme));
-  // Every line the session's plugins tell is painted into the chat
-  // region inside its own frame — the only screen writes outside the
-  // loop below.
-  final renderer = TurnRenderer(s);
-  terminal.onLine = renderer.line;
-  session.assembly.onWatch = renderer.watch;
-  final logSubscription = session.host.session.loop.subscribe(renderer.entry);
-  var busy = false;
+  // UI plugins own presentation. The app only routes generic notices and
+  // mounts console capabilities; headless output still uses TuiTerminal.
   final queued = Queue<String>();
   StreamSubscription<ScreenLayout>? resizeSubscription;
 
@@ -79,6 +72,14 @@ Future<int> runApp(
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
   final attached = <ConsoleContribution>[];
+  terminal.onLine = (text) {
+    final transcripts = attached.whereType<ConsoleTranscript>();
+    if (transcripts.isEmpty) {
+      s.frame(() => s.chat.writeln(text));
+    } else {
+      transcripts.first.writeNotice(text);
+    }
+  };
   void repaintContributions() {
     for (final contribution in attached) {
       contribution.repaintConsole();
@@ -139,13 +140,10 @@ Future<int> runApp(
     s.frame(() {
       s.redrawFrame();
       final note = session.assembly.configNote;
-      if (note != null) s.chat.writeln(note);
-      for (final e in session.host.session.loop.log) {
-        final line = _entryLine(e);
-        if (line != null) s.chat.writeln(line);
-      }
-      _paintStatus(s, session, busy: false);
-      s.input.render(prompt: '› ', buffer: '', cursor: 0);
+      if (note != null) terminal.writeln(note);
+      repaintContributions();
+      s.input.render(
+          prompt: editor.promptBuilder?.call() ?? '› ', buffer: '', cursor: 0);
     });
 
     resizeSubscription = (resizes ??
@@ -157,7 +155,6 @@ Future<int> runApp(
                 : const Stream<ScreenLayout>.empty()))
         .listen((layout) {
       s.resize(layout);
-      _paintStatus(s, session, busy: busy);
       editor.handleResize();
       repaintContributions();
       settings.repaint();
@@ -170,14 +167,11 @@ Future<int> runApp(
 
     while (true) {
       if (session.assembly.quitRequested) break;
-      _paintStatus(s, session, busy: false);
       repaintContributions();
       final line =
           queued.isEmpty ? await editor.readLine('› ') : queued.removeFirst();
       if (line == null) break; // stdin closed
       if (line.isEmpty) continue;
-      busy = true;
-      _paintStatus(s, session, busy: true);
       editor.beginCancelMonitor(() {
         if (session.assembly.watchingTurn)
           session.host.session.loop.cancel('escape');
@@ -185,9 +179,7 @@ Future<int> runApp(
       try {
         await session.runLine(line, renderReply: false);
       } finally {
-        busy = false;
         editor.endInputCaptureWindow();
-        renderer.finishLine();
       }
       // Refresh frontend contributions before returning to the editor.
       repaintContributions();
@@ -195,8 +187,6 @@ Future<int> runApp(
     return 0;
   } finally {
     await resizeSubscription?.cancel();
-    session.host.session.loop.unsubscribe(logSubscription);
-    session.assembly.onWatch = null;
     session.assembly.openSettings = null;
     session.assembly.pluginManager.onLoaded = null;
     session.assembly.pluginManager.onUnloading = null;
@@ -219,27 +209,6 @@ Future<int> runApp(
     editor.reportInputLatency();
     session.close();
   }
-}
-
-/// The status strip: the mode word the tools plugin carries, then
-/// the busy marker while a turn runs.
-void _paintStatus(Screen s, TuiSession session, {required bool busy}) {
-  final label = 'mode: ${session.modeWord}${busy ? '  ·  thinking…' : ''}';
-  s.setModeLabel(label);
-}
-
-/// The one line a resumed log entry renders as — or null when the entry
-/// is bookkeeping a restart need not replay (tool traffic, turn ends).
-String? _entryLine(SessionEntry e) {
-  if (e is InputRecordedEntry) return 'you: ${e.text}';
-  if (e is MessageAppendedEntry && e.message.role == Role.assistant) {
-    final text = [
-      for (final b in e.message.content)
-        if (b is TextBlock) b.text,
-    ].join();
-    return text.isEmpty ? null : 'tina: $text';
-  }
-  return null;
 }
 
 /// The real screen: size off the process's stdout, ANSI backend, no

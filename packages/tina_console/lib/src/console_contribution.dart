@@ -20,6 +20,20 @@ final class ConsoleContext {
         readKey = readKey ??
             ((cancelled) =>
                 editor.readKey(globalKeys: true, cancelSignal: cancelled));
+
+  /// Install a live prompt and release only the binding this caller owns.
+  void Function() bindPrompt(String Function() builder) {
+    final previous = _editor.promptBuilder;
+    _editor.promptBuilder = builder;
+    return () {
+      if (identical(_editor.promptBuilder, builder)) {
+        _editor.promptBuilder = previous;
+      }
+    };
+  }
+
+  void refreshInput() => _editor.refresh();
+
   final LineEditor _editor;
   bool get isReadingKey => _editor.isReadingKey;
   void Function() bindShortcut(bool Function(InputEvent) handler) =>
@@ -31,4 +45,10 @@ final class ConsoleContext {
 
   final Screen screen;
   final Future<InputEvent?> Function(Future<void> cancelled) readKey;
+}
+
+/// An optional owner of transcript presentation. The frontend routes plugin
+/// notices here without knowing the renderer's block types or engine events.
+abstract interface class ConsoleTranscript {
+  void writeNotice(String text);
 }

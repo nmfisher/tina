@@ -36,6 +36,10 @@ final class ProviderPolicyPlugin extends AgentPlugin {
   final _main = _Spend();
   final _global = _Spend();
   final _providers = <_PolicyProvider>{};
+
+  /// Reported provider spend, including calls in the current turn.
+  int get sessionTokens => _main.total;
+
   int _rotation = 0;
   bool _closed = false;
   @override

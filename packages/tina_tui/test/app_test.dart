@@ -215,7 +215,7 @@ void main() {
       // The first-paint replay goes straight into the chat region —
       // it is the app's render of the log, not a plugin tell — so the
       // evidence is in what the screen emitted.
-      expect(io2.written.toString(), contains('you: persist this'),
+      expect(io2.written.toString(), contains('persist this'),
           reason: 'the resumed input was painted by the first frame');
     });
   });

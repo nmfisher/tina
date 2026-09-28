@@ -496,6 +496,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_chat_tui:
+    dependency: "direct dev"
+    description:
+      path: "packages/plugins/tina_chat_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_compaction:
     dependency: transitive
     description:

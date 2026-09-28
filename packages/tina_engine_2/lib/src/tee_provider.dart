@@ -31,12 +31,10 @@ final class SawText extends WatchEvent {
   final String text;
   const SawText(this.text);
   @override
-  bool operator ==(Object other) =>
-      other is SawText && other.text == text;
+  bool operator ==(Object other) => other is SawText && other.text == text;
 
   @override
   int get hashCode => text.hashCode;
-
 }
 
 /// A thinking delta arrived. [startsBlock] mirrors the reasoning event's.
@@ -46,11 +44,12 @@ final class SawThinking extends WatchEvent {
   const SawThinking(this.text, {this.startsBlock = false});
   @override
   bool operator ==(Object other) =>
-      other is SawThinking && other.text == text && other.startsBlock == startsBlock;
+      other is SawThinking &&
+      other.text == text &&
+      other.startsBlock == startsBlock;
 
   @override
   int get hashCode => Object.hash(text, startsBlock);
-
 }
 
 /// A policy-layer notice arrived (retry ladder, failover). The view should
@@ -59,12 +58,10 @@ final class SawNotice extends WatchEvent {
   final String text;
   const SawNotice(this.text);
   @override
-  bool operator ==(Object other) =>
-      other is SawNotice && other.text == text;
+  bool operator ==(Object other) => other is SawNotice && other.text == text;
 
   @override
   int get hashCode => text.hashCode;
-
 }
 
 /// A tool call started.
@@ -78,7 +75,6 @@ final class SawToolStart extends WatchEvent {
 
   @override
   int get hashCode => Object.hash(id, name);
-
 }
 
 /// A tool call ended: its block appeared in a completion. Carries the same
@@ -93,7 +89,6 @@ final class SawToolEnd extends WatchEvent {
 
   @override
   int get hashCode => Object.hash(id, name);
-
 }
 
 /// The stream completed. [stopReason] is the last completion's, or null
@@ -107,7 +102,6 @@ final class SawCompletion extends WatchEvent {
 
   @override
   int get hashCode => stopReason.hashCode;
-
 }
 
 /// The sink a watcher supplies: one call per sighting, in arrival order.
@@ -158,10 +152,13 @@ final class TeeProvider implements LlmProvider {
   /// call it carries — the stream itself only says "started".
   List<WatchEvent> _sightingsFor(StreamEvent event) => switch (event) {
         TextDelta(:final text) => [SawText(text)],
-        ReasoningDelta(:final text, :final startsBlock) =>
-          [SawThinking(text, startsBlock: startsBlock)],
+        ReasoningDelta(:final text, :final startsBlock) => [
+            SawThinking(text, startsBlock: startsBlock)
+          ],
         StreamNotice(:final text) => [SawNotice(text)],
-        ToolCallStart(:final id, :final name) => [SawToolStart(id: id, name: name)],
+        ToolCallStart(:final id, :final name) => [
+            SawToolStart(id: id, name: name)
+          ],
         MessageComplete(:final content) => [
             for (final block in content)
               if (block is ToolUseBlock)
@@ -187,4 +184,11 @@ final class TeeProvider implements LlmProvider {
 
   @override
   void close() => _inner.close();
+}
+
+/// Optional transient observations supplied by a provider adapter. These are
+/// presentation hints; the session log remains authoritative. The loop does
+/// not depend on observers, channels, or any UI.
+abstract interface class WatchObserver {
+  void watch(WatchEvent event);
 }
