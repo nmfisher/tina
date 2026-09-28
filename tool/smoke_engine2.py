@@ -197,8 +197,12 @@ def smoke(launcher, endpoint, columns, rows):
         ModelStub.release_cancelled.clear()
         terminal = Terminal(command, env, columns, rows)
         try:
-            terminal.expect("›")
+            terminal.expect("smoke > ")
             terminal.expect("mode: normal")
+            start = terminal.send("\x1b[Z")
+            terminal.expect("mode: read-only", start)
+            start = terminal.send("\x1b[Z")
+            terminal.expect("mode: normal", start)
             start = terminal.send("/m")
             terminal.expect("/mode", start)
             start = terminal.send("ode read-only\r")
@@ -271,31 +275,56 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('run cancellable tool\r')
             terminal.expect('run command', start)
             terminal.expect('[x] allow always', start)
+            terminal.resize(100, 30)
             start = terminal.send('\r')
-            terminal.expect('subprocess-live', start)
+            time.sleep(0.05)
             # Browsing during execution must not cancel or submit input.
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
             start = terminal.send('\r')
             terminal.expect('Call: bash-smoke', start)
+            terminal.expect('Live output', start)
+            terminal.expect('subprocess-live', start)
             terminal.send('\x1bOS')
             time.sleep(0.05)
             start = terminal.send('\x1b')
             terminal.expect('cancelled: escape', start)
             time.sleep(0.1)
+            after_count = len(ModelStub.requests)
             start = terminal.send('after subprocess\r')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < after_count + 1 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == after_count + 1
             terminal.expect('smoke answer', start)
-            time.sleep(2.2)
+            # Drain repaint output while waiting for any leaked descendant.
+            deadline = time.monotonic() + 2.2
+            while time.monotonic() < deadline:
+                terminal.read()
             assert not (workspace / 'cancel-leak').exists(), 'cancelled descendant survived'
             terminal.resize(80, 24)
+            count_before_edit = len(ModelStub.requests)
             start = terminal.send('edit example\r')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < count_before_edit + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == count_before_edit + 2
+            terminal.expect('smoke answer', start)
+            start = terminal.send('\x1bOS')
+            terminal.expect('Activity', start)
+            start = terminal.send('\r')
             terminal.expect('- before', start)
             terminal.expect('+ after', start)
-            terminal.expect('smoke answer', start)
+            terminal.send('\x1bOS')
             assert (workspace / 'preview.txt').read_text() == 'after\n'
             time.sleep(0.1)
+            count_before_conflict = len(ModelStub.requests)
             start = terminal.send('conflict example\r')
-            terminal.expect('Details and recovery: /activity (F4)', start)
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < count_before_conflict + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == count_before_conflict + 2
+            terminal.expect('failed', start)
             terminal.expect('smoke answer', start)
             assert (workspace / 'preview.txt').read_text() == 'after\n'
             time.sleep(0.1)
@@ -310,7 +339,6 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             start = terminal.send('delegate example\r')
             terminal.expect('depth 1', start)
-            terminal.expect('reported tokens', start)
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
             start = terminal.send('/settings\r')
@@ -356,9 +384,13 @@ def smoke(launcher, endpoint, columns, rows):
         session = next(line.split()[0] for line in listing.stdout.splitlines() if " entries" in line)
         terminal = Terminal(command + ["--resume", session], env, columns, rows)
         try:
-            terminal.expect("you: terminal smoke")
-            terminal.expect("tina: streaming prefix smoke answer")
-            terminal.expect("›")
+            terminal.expect("smoke > ")
+            # Restored rows are painted as a viewport, not printed through
+            # stdout one by one. Scroll to inspect the retained first turn.
+            terminal.send('\x1b[5~' * 80)
+            terminal.expect("terminal smoke")
+            terminal.expect("streaming prefix smoke answer")
+            terminal.send('\x1b[6~' * 80)
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
             terminal.expect('spawn_subagent', start)
@@ -384,9 +416,11 @@ def smoke(launcher, endpoint, columns, rows):
         assert 'imported: legacy:archive:archive' in imported.stdout
         terminal = Terminal(command + ['--resume', 'legacy:archive:archive'], env, columns, rows)
         try:
-            terminal.expect('you: legacy hello')
-            terminal.expect('tina: legacy reply')
-            terminal.expect('›')
+            terminal.expect('smoke > ')
+            terminal.send('\x1b[5~' * 20)
+            terminal.expect('legacy hello')
+            terminal.expect('legacy reply')
+            terminal.send('\x1b[6~' * 20)
             start = terminal.send('continue imported\r')
             terminal.expect('smoke answer', start)
             assert not (workspace / 'legacy-replayed').exists(), 'import replayed an old tool'

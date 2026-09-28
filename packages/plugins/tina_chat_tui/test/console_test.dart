@@ -229,6 +229,30 @@ void main() {
     expect(chat.blocks.where((b) => b.kind == ChatBlockKind.toolCall),
         hasLength(2));
   });
+  test(
+      'page keys and wheel reach resumed scrollback without changing the draft',
+      () async {
+    for (var i = 0; i < 40; i++) {
+      chat.writeNotice('history row $i');
+    }
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('draft');
+    await tick();
+    expect(screen.chat.isTailPinned, true);
+    io.output.clear();
+    io.feed('\x1b[5~' * 40);
+    await tick();
+    expect(screen.chat.isTailPinned, false);
+    expect(io.output.toString(), contains('history row 0'));
+    io.feed('\x1b[6~' * 40);
+    await tick();
+    expect(screen.chat.isTailPinned, true);
+    expect(io.output.toString(), contains('history row 39'));
+    io.feed(' intact\r');
+    expect(await line, 'draft intact');
+  });
+
   test('tool output is bounded and terminal controls cannot escape into rows',
       () {
     chat.observe(const ToolStarted(call));

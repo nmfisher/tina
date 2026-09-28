@@ -28,14 +28,13 @@ Map<String, dynamic> _messageJson(Message m) => {
       'role': m.role.name,
       'content': [
         for (final r in m.reasoning)
-          {
-            'type': 'thinking',
-            'thinking': r.text,
-            // The provider verifies this; absent means rejected. Kept
-            // even when the block came from an old transcript without
-            // one — the field is simply omitted there, as it arrived.
-            if (r.signature != null) 'signature': r.signature,
-          },
+          if (r.complete && r.signature != null)
+            {
+              'type': 'thinking',
+              'thinking': r.text,
+              // Partial/unsigned thoughts remain local transcript metadata.
+              'signature': r.signature,
+            },
         for (final b in m.content) _blockJson(b),
       ],
     };
@@ -53,7 +52,10 @@ Map<String, dynamic> requestBody({
       'max_tokens': maxOutputTokens,
       'stream': true,
       if (system.isNotEmpty) 'system': system,
-      'messages': [for (final m in messages) _messageJson(m)],
+      'messages': [
+        for (final m in messages)
+          if (!m.isReasoningOnly) _messageJson(m)
+      ],
       if (tools.isNotEmpty) 'tools': [for (final t in tools) _toolJson(t)],
     };
 

@@ -14,6 +14,7 @@ with `/plugins` at session, workspace or global scope.
   Tools show `→ name · arguments`, followed by `ok`/`failed` and measured timing.
 - Reasoning and tool output start collapsed. Ctrl-B selects foldable blocks;
   arrows select, Enter/space folds, Escape/Ctrl-B leaves. Drafts stay intact.
+  Page Up/Down and the mouse wheel scroll the transcript without editing input.
   F4's activity browser remains available for full result details and edit diffs.
 - The status strip carries the mode, plan, goal, session ID and reported token
   spend, including the configured session cap. Under width pressure it drops
@@ -21,6 +22,8 @@ with `/plugins` at session, workspace or global scope.
 
 The plugin subscribes to the loop's log and tool activity. Provider adapters send
 transient `WatchObserver` events; final log entries reconcile streamed drafts.
+Reasoning, completion state and provider signatures are retained by the loop;
+partial or unsigned thoughts stay local instead of entering Anthropic requests.
 The host does not import this package. The frontend mounts generic
 `ConsoleContribution`s and routes text notices through `ConsoleTranscript`.
 `ConsoleContext` supplies scoped shortcuts and a live prompt binding. Approval

@@ -495,6 +495,15 @@ final class AgentLoop {
         final starts = <ToolCallStart>[];
         final blocksById = <String, ToolUseBlock>{};
         final deltaText = StringBuffer();
+        final reasoning = <ReasoningBlock>[];
+        final thinking = StringBuffer();
+        void closeThinking({required bool complete, String? signature}) {
+          if (thinking.isEmpty) return;
+          reasoning.add(ReasoningBlock(thinking.toString(),
+              complete: complete, signature: signature));
+          thinking.clear();
+        }
+
         MessageComplete? completion;
         StreamError? failure;
         Object? thrown;
@@ -536,6 +545,12 @@ final class AgentLoop {
               starts.add(event);
             } else if (event is TextDelta) {
               deltaText.write(event.text);
+            } else if (event is ReasoningDelta) {
+              if (event.startsBlock) closeThinking(complete: false);
+              thinking.write(event.text);
+            } else if (event is ReasoningEnd) {
+              closeThinking(
+                  complete: event.complete, signature: event.signature);
             } else if (event is MessageComplete) {
               completion = event;
               final u = event.usage;
@@ -547,7 +562,7 @@ final class AgentLoop {
               failure = event;
               break;
             }
-            // Reasoning deltas and stream notices carry no transcript state.
+            // Stream notices are transient; reasoning is retained as metadata.
           }
         } catch (e) {
           thrown = e; // the turn ends below, at the single StreamError exit
@@ -560,11 +575,16 @@ final class AgentLoop {
         // controller; a [cancel] between calls stops by flag alone.
         _modelCall = null;
         void recordPartialText() {
-          if (deltaText.isEmpty) return;
+          closeThinking(complete: false);
+          if (deltaText.isEmpty && reasoning.isEmpty) return;
           // Only completed text deltas are retained, never unfinished tool
           // calls. What was shown before interruption survives session resume.
           final partial = Message(
-              role: Role.assistant, content: [TextBlock(deltaText.toString())]);
+              role: Role.assistant,
+              content: [
+                if (deltaText.isNotEmpty) TextBlock(deltaText.toString())
+              ],
+              reasoning: reasoning);
           requests.add(request.snapshot());
           _append(MessageAppendedEntry(
               turnId: turnId, message: partial, at: _now()));
@@ -616,7 +636,9 @@ final class AgentLoop {
         final replyText =
             [for (final b in blocks.whereType<TextBlock>()) b.text].join();
         requests.add(request.snapshot());
-        final reply = Message(role: Role.assistant, content: blocks);
+        closeThinking(complete: completion != null);
+        final reply = Message(
+            role: Role.assistant, content: blocks, reasoning: reasoning);
         _append(
             MessageAppendedEntry(turnId: turnId, message: reply, at: _now()));
         appended.add(reply);

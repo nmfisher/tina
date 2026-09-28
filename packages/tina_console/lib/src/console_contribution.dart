@@ -36,6 +36,7 @@ final class ConsoleContext {
 
   final LineEditor _editor;
   bool get isReadingKey => _editor.isReadingKey;
+  bool get isCompleting => _editor.isCompleting;
   void Function() bindShortcut(bool Function(InputEvent) handler) =>
       _editor.registerShortcut(handler);
   void Function() addModal(ModalSurface modal) {

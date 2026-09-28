@@ -374,6 +374,9 @@ class LineEditor {
   /// True while a [readKey] is awaiting a keystroke.
   bool get isReadingKey => _keyCompleter != null;
 
+  /// Completion owns its page keys while a picker is visible.
+  bool get isCompleting => _activePicker != null;
+
   Future<InputEvent> _readKeyOnce(bool globalKeys, bool panelNavigation,
       bool acceptPaste, Future<void>? stop) {
     final c = Completer<InputEvent>();

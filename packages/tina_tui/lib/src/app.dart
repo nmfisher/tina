@@ -114,10 +114,6 @@ Future<int> runApp(
   bool? previousEchoMode;
   bool? previousLineMode;
   try {
-    for (final contribution in contributions) {
-      attached.add(contribution);
-      contribution.attachConsole(console);
-    }
     // Raw mode only when this loop opened the real screen and there is
     // a controlling terminal; tolerantly skipped everywhere else — a
     // test harness drives events by hand and has no tty to change. An
@@ -133,6 +129,10 @@ Future<int> runApp(
       } catch (_) {}
     }
     if (!s.passthrough) s.enterAltScreen();
+    for (final contribution in contributions) {
+      attached.add(contribution);
+      contribution.attachConsole(console);
+    }
 
     // First paint: what the assembly already knows — the config note it
     // read, the resumed log it seeded — then the status strip and the

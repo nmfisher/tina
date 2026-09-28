@@ -92,6 +92,21 @@ final class ChatTuiPlugin extends AgentPlugin
         width: context.screen.input.bounds.width,
         animationFrame: _frame));
     _unbindKey = context.bindShortcut((event) {
+      if (!context.isCompleting) {
+        final rows = switch (event) {
+          ArrowKey(direction: ArrowDirection.pageUp) =>
+            -context.screen.chat.usableHeight,
+          ArrowKey(direction: ArrowDirection.pageDown) =>
+            context.screen.chat.usableHeight,
+          ScrollEvent(:final up) => up ? -3 : 3,
+          _ => 0,
+        };
+        if (rows != 0) {
+          context.screen.chat.scrollBy(rows);
+          context.refreshInput();
+          return true;
+        }
+      }
       if (event is! ControlKey || event.code != ControlCode.ctrlB) return false;
       final indexes = _foldable;
       if (indexes.isEmpty) return true;
@@ -126,6 +141,8 @@ final class ChatTuiPlugin extends AgentPlugin
         _flushMarkdown();
         _thinking += text;
         _sawThinking = true;
+      case SawThinkingEnd(:final complete):
+        _flushThinking(complete: complete);
       case SawNotice(:final text):
         writeNotice(text);
       default:
@@ -134,6 +151,7 @@ final class ChatTuiPlugin extends AgentPlugin
   }
 
   void _pushMarkdown(String text) {
+    if (text.isEmpty) return;
     final splitter = _markdown ??= MarkdownStreamSplitter();
     for (final source in splitter.push(text)) {
       _completeProse(source);
@@ -162,13 +180,15 @@ final class ChatTuiPlugin extends AgentPlugin
   void _completeProse(String text) {
     final preview = _preview;
     _preview = null;
+    final changed =
+        _previewDirty || preview != null && _sources[preview] != text;
     _previewDirty = false;
     if (preview == null) {
       _prose(text);
     } else {
       _sources[preview] = text;
       preview.body = renderMarkdown(_clean(text), _style);
-      _changed(preview);
+      if (changed) _changed(preview);
     }
   }
 
@@ -197,7 +217,9 @@ final class ChatTuiPlugin extends AgentPlugin
     } else if (entry is MessageAppendedEntry) {
       final message = entry.message;
       if (message.role == Role.assistant) {
-        _flushThinking();
+        _flushThinking(
+            complete:
+                message.reasoning.isEmpty || message.reasoning.last.complete);
         if (!_sawThinking) {
           for (final thought in message.reasoning) {
             _add(

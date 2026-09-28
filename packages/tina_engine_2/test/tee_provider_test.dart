@@ -83,6 +83,7 @@ void main() {
       const SawText('lo'),
       const SawThinking('thinking', startsBlock: true),
       const SawThinking(' more'),
+      const SawThinkingEnd(complete: true),
       const SawNotice('retrying'),
       const SawToolStart(id: 'tu_1', name: 'write'),
       const SawToolEnd(id: 'tu_1', name: 'write'),

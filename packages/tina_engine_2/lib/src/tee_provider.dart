@@ -52,6 +52,17 @@ final class SawThinking extends WatchEvent {
   int get hashCode => Object.hash(text, startsBlock);
 }
 
+/// Ends a displayed thought, including a provider-truncated block.
+final class SawThinkingEnd extends WatchEvent {
+  const SawThinkingEnd({required this.complete});
+  final bool complete;
+  @override
+  bool operator ==(Object other) =>
+      other is SawThinkingEnd && other.complete == complete;
+  @override
+  int get hashCode => complete.hashCode;
+}
+
 /// A policy-layer notice arrived (retry ladder, failover). The view should
 /// show why nothing is happening; the loop decides what to do about it.
 final class SawNotice extends WatchEvent {
@@ -155,6 +166,7 @@ final class TeeProvider implements LlmProvider {
         ReasoningDelta(:final text, :final startsBlock) => [
             SawThinking(text, startsBlock: startsBlock)
           ],
+        ReasoningEnd(:final complete) => [SawThinkingEnd(complete: complete)],
         StreamNotice(:final text) => [SawNotice(text)],
         ToolCallStart(:final id, :final name) => [
             SawToolStart(id: id, name: name)
@@ -164,9 +176,7 @@ final class TeeProvider implements LlmProvider {
               if (block is ToolUseBlock)
                 SawToolEnd(id: block.id, name: block.name),
           ],
-        // ReasoningEnd and StreamError carry no viewable content: the view
-        // shows nothing for either (reasoning blocks close silently; errors
-        // are the loop's to surface).
+        // Errors are the loop's to surface.
         _ => const [],
       };
 
