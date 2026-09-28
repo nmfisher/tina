@@ -1,0 +1,11 @@
+name: tina_providers
+description: Provider scheduling, pools and token budgets as an engine2 plugin.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+dev_dependencies:
+  test: ^1.25.0

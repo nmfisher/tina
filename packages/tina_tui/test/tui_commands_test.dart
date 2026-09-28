@@ -6,7 +6,8 @@
 library;
 
 import 'package:test/test.dart';
-import 'package:tina_services/tina_services.dart';
+import 'package:tina_core/tina_core.dart';
+import 'package:tina_host/tina_host.dart';
 import 'package:tina_tui/tina_tui.dart';
 
 void main() {
@@ -84,7 +85,8 @@ void main() {
       ]);
     });
 
-    test('a command registered by a plugin is found without TUI code '
+    test(
+        'a command registered by a plugin is found without TUI code '
         'naming it', () {
       // A registry no TUI source has seen the contents of: publish at
       // runtime, discover at runtime.

@@ -13,7 +13,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 final class _Rewriter extends AgentPlugin {
   const _Rewriter();
   @override
-  String get id => 'rewriter';
+  String get id => 'test/rewriter';
   @override
   int get order => 50;
   @override
@@ -26,7 +26,7 @@ final class _Rewriter extends AgentPlugin {
 final class _Echo extends AgentPlugin {
   const _Echo();
   @override
-  String get id => 'echo';
+  String get id => 'test/echo';
   @override
   int get order => 100;
   @override
@@ -177,7 +177,7 @@ void main() {
     final raw = loop.log.whereType<InputRecordedEntry>().single;
     expect(raw.text, 'as typed');
     final rewrite = loop.log.whereType<InputRewrittenEntry>().single;
-    expect(rewrite.pluginId, 'rewriter');
+    expect(rewrite.pluginId, 'test/rewriter');
     expect(rewrite.text, 'as typed (rewritten)');
     // The provider saw the rewrite; the log kept both.
     final userBlock =

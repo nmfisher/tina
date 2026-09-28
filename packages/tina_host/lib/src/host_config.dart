@@ -9,8 +9,6 @@ library;
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show AgentPlugin;
 
-import 'session.dart' show SessionDetails;
-
 /// Builds one provider. Called **once per session, by that session's
 /// host** — never store a shared instance: a provider owns its connection
 /// and a shared one gets closed twice (the old engine is explicit about
@@ -28,7 +26,6 @@ final class HostConfig {
     required this.workingDirectory,
     this.plugins = const [],
     this.systemPrompt = '',
-    this.storePath,
     this.sessionTitle,
     this.details,
   });
@@ -44,18 +41,13 @@ final class HostConfig {
   final String workingDirectory;
 
   /// The plugins to mount on the loop, in registration order. The tool
-  /// set is just one of them ([ToolsPlugin]); whatever permissions concept
+  /// set is just one of them; whatever permissions concept
   /// a session needs lives inside its plugin, never here.
   final List<AgentPlugin> plugins;
 
   /// The session's system prompt: a setting derive consults, restartable.
   /// Empty by default — the core owns no prompt text.
   final String systemPrompt;
-
-  /// The session store's file path, when the session persists. The host
-  /// owns the link: opened at start, closed by the owner of the host.
-  /// Null keeps the session in memory.
-  final String? storePath;
 
   /// A human-facing title recorded with the session, when persisted.
   final String? sessionTitle;

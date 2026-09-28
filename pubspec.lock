@@ -26,7 +26,7 @@ packages:
     source: hosted
     version: "4.0.9"
   args:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: args
       sha256: d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04
@@ -42,9 +42,9 @@ packages:
     source: hosted
     version: "2.13.0"
   attractor:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
-      path: "packages/attractor"
+      path: "packages/libraries/attractor"
       relative: true
     source: path
     version: "0.1.0"
@@ -65,9 +65,9 @@ packages:
     source: hosted
     version: "1.4.1"
   classifier:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
-      path: "packages/classifier"
+      path: "packages/libraries/classifier"
       relative: true
     source: path
     version: "0.1.0"
@@ -153,7 +153,7 @@ packages:
   file_tree:
     dependency: transitive
     description:
-      path: "packages/file_tree"
+      path: "packages/libraries/file_tree"
       relative: true
     source: path
     version: "0.1.0"
@@ -166,9 +166,9 @@ packages:
     source: hosted
     version: "4.0.0"
   fuzzy_ranker:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
-      path: "packages/fuzzy_ranker"
+      path: "packages/libraries/fuzzy_ranker"
       relative: true
     source: path
     version: "0.1.0"
@@ -189,7 +189,7 @@ packages:
     source: hosted
     version: "1.0.3"
   html:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: html
       sha256: "6d1264f2dffa1b1101c25a91dff0dc2daee4c18e87cd8538729773c073dbf602"
@@ -197,7 +197,7 @@ packages:
     source: hosted
     version: "0.15.6"
   http:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: http
       sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
@@ -221,7 +221,7 @@ packages:
     source: hosted
     version: "4.1.2"
   image:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: image
       sha256: f9881ff4998044947ec38d098bc7c8316ae1186fa786eddffdb867b9bc94dfce
@@ -237,7 +237,7 @@ packages:
     source: hosted
     version: "1.0.5"
   logging:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: logging
       sha256: c8245ada5f1717ed44271ed1c26b8ce85ca3228fd2ffdb75468ab01979309d61
@@ -245,7 +245,7 @@ packages:
     source: hosted
     version: "1.3.0"
   markdown:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: markdown
       sha256: ee85086ad7698b42522c6ad42fe195f1b9898e4d974a1af4576c1a3a176cada9
@@ -301,7 +301,7 @@ packages:
     source: hosted
     version: "2.2.0"
   path:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: path
       sha256: "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
@@ -469,35 +469,161 @@ packages:
     source: hosted
     version: "0.6.18"
   tina_app:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       path: "packages/tina_app"
       relative: true
     source: path
     version: "0.1.0"
+  tina_approvals:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_approvals"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_approvals_tui:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_approvals_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_compaction:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_compaction"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_console:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       path: "packages/tina_console"
       relative: true
     source: path
     version: "0.1.0"
+  tina_core:
+    dependency: transitive
+    description:
+      path: "packages/tina_core"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_engine:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       path: "packages/tina_engine"
       relative: true
     source: path
     version: "0.1.0"
+  tina_engine_2:
+    dependency: transitive
+    description:
+      path: "packages/tina_engine_2"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_file_resources:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_file_resources"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_goals:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_goals"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_host:
+    dependency: transitive
+    description:
+      path: "packages/tina_host"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_index:
+    dependency: "direct dev"
+    description:
+      path: "packages/plugins/tina_index"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_llm:
+    dependency: transitive
+    description:
+      path: "packages/tina_llm"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_persistence:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_persistence"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_persona:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_persona"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_plans:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_plans"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_providers:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_providers"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_self_update:
+    dependency: "direct dev"
+    description:
+      path: "packages/plugins/tina_self_update"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_sqlite:
+    dependency: transitive
+    description:
+      path: "packages/tina_sqlite"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_subagents:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_subagents"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_tools:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_tools"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_tui:
     dependency: "direct main"
     description:
-      path: "packages/tina_index"
+      path: "packages/tina_tui"
       relative: true
     source: path
     version: "0.1.0"
   toml:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       name: toml
       sha256: d968d149c8bd06dc14e09ea3a140f90a3f2ba71949e7a91df4a46f3107400e71

@@ -15,6 +15,10 @@ class ArchitecturePolicy {
   Map<String, List<String>> get sourceRoots => (data['sourceRoots'] as Map).map(
     (k, v) => MapEntry(k as String, (v as List).cast<String>()),
   );
+  String packagePath(String name) =>
+      (data['packagePaths'] as Map?)?[name] as String? ??
+      (name == 'tina' ? '.' : 'packages/$name');
+
   bool matches(String file, String roots) => values(roots).any(file.startsWith);
 
   List<DependencyViolation> check(DependencyGraph graph) {
@@ -109,6 +113,62 @@ class ArchitecturePolicy {
     }
     for (final package in graph.packages.values.where((p) => p.owned)) {
       final file = graph.label(p.join(package.root, 'pubspec.yaml'));
+      if (values('pluginFreePackages').contains(package.name)) {
+        for (final chain in _paths(
+          packageEdges,
+          package.name,
+          (next) => packagePath(next).startsWith('packages/plugins/'),
+        )) {
+          found.add(
+            DependencyViolation(
+              'runtime-boundary',
+              file,
+              file,
+              chain.last,
+              1,
+              chain,
+            ),
+          );
+        }
+      }
+      final allowed =
+          (data['runtimeDependencies'] as Map?)?[package.name] as List?;
+      if (allowed != null) {
+        for (final target in packageEdges[package.name] ?? <String>{}) {
+          if (!allowed.contains(target)) {
+            found.add(
+              DependencyViolation('runtime-boundary', file, file, target, 1, [
+                package.name,
+                target,
+              ]),
+            );
+          }
+        }
+      }
+      // Retained for future work, but unavailable to the new runtime. Check
+      // transitive manifest and source edges so an adapter cannot hide it.
+      final deferred = data['deferredPackages'] as Map? ?? const {};
+      if (deferred.isNotEmpty) {
+        for (final chain in _paths(
+          packageEdges,
+          package.name,
+          (next) =>
+              deferred.containsKey(next) &&
+              next != package.name &&
+              !(deferred[next] as List).contains(package.name),
+        )) {
+          found.add(
+            DependencyViolation(
+              'deferred-package',
+              file,
+              file,
+              chain.last,
+              1,
+              chain,
+            ),
+          );
+        }
+      }
       if (!terminal.contains(package.name) && package.name != 'tina') {
         for (final chain in _paths(
           runtime,
@@ -165,20 +225,35 @@ class ArchitecturePolicy {
         owned.difference(sourceRoots.keys.toSet()).isNotEmpty) {
       throw StateError('Every owned package must have source roots');
     }
-    for (final dir in Directory(
-      p.join(root, 'packages'),
-    ).listSync().whereType<Directory>()) {
-      final manifest = File(p.join(dir.path, 'pubspec.yaml'));
-      if (manifest.existsSync() &&
-          !owned.contains(p.basename(dir.path)) &&
-          !vendor.contains(p.basename(dir.path))) {
-        throw StateError('Unclassified package ${dir.path}');
+    final paths = data['packagePaths'] as Map?;
+    if (paths != null &&
+        (paths.keys.toSet().difference(owned).isNotEmpty ||
+            owned.difference(paths.keys.toSet()).isNotEmpty ||
+            paths.values.toSet().length != paths.length)) {
+      throw StateError('Every owned package must have one unique package path');
+    }
+    void discover(Directory parent) {
+      for (final dir
+          in parent.listSync(followLinks: false).whereType<Directory>()) {
+        if (p.basename(dir.path).startsWith('.')) continue;
+        final manifest = File(p.join(dir.path, 'pubspec.yaml'));
+        if (manifest.existsSync()) {
+          final name = p.basename(dir.path);
+          if (!vendor.contains(name) &&
+              (!owned.contains(name) ||
+                  p.normalize(p.relative(dir.path, from: root)) !=
+                      p.normalize(packagePath(name)))) {
+            throw StateError('Unclassified package ${dir.path}');
+          }
+        } else {
+          discover(dir);
+        }
       }
     }
+
+    discover(Directory(p.join(root, 'packages')));
     for (final package in owned) {
-      final directory = Directory(
-        package == 'tina' ? root : p.join(root, 'packages', package),
-      );
+      final directory = Directory(p.join(root, packagePath(package)));
       final excluded =
           ((data['excludedRoots'] as Map?)?[package] as List? ?? [])
               .cast<String>();
@@ -285,9 +360,7 @@ WorkspaceCheck checkWorkspace(String root, ArchitecturePolicy policy) {
   final violations = <String, DependencyViolation>{};
   var files = 0;
   for (final entry in policy.sourceRoots.entries) {
-    final context = entry.key == 'tina'
-        ? root
-        : p.join(root, 'packages', entry.key);
+    final context = p.join(root, policy.packagePath(entry.key));
     final graph = DependencyGraph.load(
       root,
       policy.values('ownedPackages'),

@@ -1,28 +1,13 @@
 name: tina_host
-description: >-
-  The piece that assembles a session: provider factory, sandboxed file
-  system, the six tools on a tina_engine_2 loop. No terminal anywhere.
+description: Session lifecycle, plugin mounting and command collection for tina_engine_2.
 publish_to: none
 version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
-  attractor:
-    path: ../attractor
-  path: ^1.9.0
-  sqlite3: ^3.5.2
   tina_core:
     path: ../tina_core
   tina_engine_2:
     path: ../tina_engine_2
-  tina_llm:
-    path: ../tina_llm
-  tina_services:
-    path: ../tina_services
-  tina_sqlite:
-    path: ../tina_sqlite
-  tina_tools:
-    path: ../tina_tools
-
 dev_dependencies:
   test: ^1.25.0

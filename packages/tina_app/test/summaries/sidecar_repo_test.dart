@@ -26,10 +26,10 @@ void main() {
     Directory('${project.path}/test')..createSync();
     File('${project.path}/test/t.dart').writeAsStringSync('// t\n');
     Directory(
-      '${project.path}/packages/tina_index/lib',
+      '${project.path}/packages/plugins/tina_index/lib',
     ).createSync(recursive: true);
     File(
-      '${project.path}/packages/tina_index/lib/i.dart',
+      '${project.path}/packages/plugins/tina_index/lib/i.dart',
     ).writeAsStringSync('// i\n');
     _git(project, ['init']);
     _git(project, ['add', '-A']);
@@ -69,14 +69,34 @@ void main() {
     expect(repo.loadManifest().dirs, isEmpty);
   });
 
-  test('defaultPartition lists top-level dirs + packages/*/lib', () {
+  test('defaultPartition lists top-level dirs and nested plugin libraries', () {
     final partition = repo.defaultPartition();
-    expect(partition, containsAll(['lib', 'test', 'packages/tina_index/lib']));
+    expect(
+      partition,
+      containsAll(['lib', 'test', 'packages/plugins/tina_index/lib']),
+    );
     // Sorted.
     expect(partition, equals(partition..sort()));
     // Hidden dirs skipped.
     Directory('${project.path}/.hidden')..createSync();
     expect(repo.defaultPartition(), isNot(contains('.hidden')));
+  });
+
+  test('defaultPartition includes flat packages, plugins and libraries', () {
+    Directory(
+      '${project.path}/packages/another/lib',
+    ).createSync(recursive: true);
+    Directory(
+      '${project.path}/packages/libraries/file_tree/lib',
+    ).createSync(recursive: true);
+    expect(
+      repo.defaultPartition(),
+      containsAll([
+        'packages/another/lib',
+        'packages/plugins/tina_index/lib',
+        'packages/libraries/file_tree/lib',
+      ]),
+    );
   });
 
   test('staleness: every dir is stale on the first run', () {
@@ -87,7 +107,7 @@ void main() {
     );
     expect(
       stale.toRegenerate,
-      containsAll(['lib', 'test', 'packages/tina_index/lib']),
+      containsAll(['lib', 'test', 'packages/plugins/tina_index/lib']),
     );
     expect(stale.deleted, isEmpty);
   });
@@ -181,18 +201,18 @@ void main() {
     Directory('${project.path}/build').createSync();
     Directory('${project.path}/dist').createSync();
     Directory(
-      '${project.path}/packages/tina_index/build',
+      '${project.path}/packages/plugins/tina_index/build',
     ).createSync(recursive: true);
     final partition = repo.defaultPartition();
     expect(partition, isNot(contains('build')));
     expect(partition, isNot(contains('dist')));
-    expect(partition, isNot(contains('packages/tina_index/build')));
+    expect(partition, isNot(contains('packages/plugins/tina_index/build')));
   });
 
   test('record skips dirs whose summary file was not written (finding C)', () {
     repo.init();
     final partition = repo
-        .defaultPartition(); // lib, test, packages/tina_index/lib
+        .defaultPartition(); // lib, test, packages/plugins/tina_index/lib
     // Only the first dir's summary file actually landed.
     seedSummaries(partition.take(1).toList());
     final recorded = repo.record(

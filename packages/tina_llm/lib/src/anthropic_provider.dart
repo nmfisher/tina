@@ -4,8 +4,8 @@
 /// - The HTTP client is injected ([endpoint]); the default is `dart:io`'s
 ///   own. Tests replay recorded bytes; nothing here opens a socket in a
 ///   test.
-/// - The token comes **from the environment only** (`TINA_LLM_TOKEN` or
-///   `ANTHROPIC_API_KEY`), read at construction. It is never written to a
+/// - The token comes from the environment or an injected credential source.
+///   It is never written to a
 ///   file, a log, an error message, or a report. A missing token is a
 ///   stream error, not a crash.
 /// - A stream that stops sending becomes a stream error after [stallTimeout]
@@ -14,6 +14,7 @@
 ///   [StreamError] in the stream. Nothing throws out of `send`.
 library;
 
+import 'generation_options.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -49,8 +50,10 @@ final class AnthropicProvider extends LlmProvider {
     required String model,
     HttpEndpoint? endpoint,
     this.stallTimeout = const Duration(seconds: 120),
+    this.generation = const GenerationOptions(),
     String? Function()? tokenFrom,
     String? endpointUrl,
+    this.bearerToken,
   })  : _endpointOverride = endpoint,
         _endpointUrl = endpointUrl,
         _tokenFrom = tokenFrom ?? _defaultTokenFrom,
@@ -68,6 +71,10 @@ final class AnthropicProvider extends LlmProvider {
   final HttpEndpoint? _endpointOverride;
   final String? _endpointUrl;
   final String? Function() _tokenFrom;
+
+  /// Explicit header choice for configured credentials. Null preserves the
+  /// environment's auth selection and the injected-token bearer default.
+  final bool? bearerToken;
 
   /// The default token source: name and value resolved together, so the
   /// header shape can never drift from the value. `TINA_LLM_TOKEN` and
@@ -90,14 +97,15 @@ final class AnthropicProvider extends LlmProvider {
   ({String? token, bool bearer}) _auth() {
     if (identical(_tokenFrom, _defaultTokenFrom)) {
       final (t, b) = _envToken();
-      return (token: t, bearer: b);
+      return (token: t, bearer: bearerToken ?? b);
     }
     final t = _tokenFrom();
-    return (token: t, bearer: t != null && t.isNotEmpty);
+    return (token: t, bearer: bearerToken ?? (t != null && t.isNotEmpty));
   }
 
   /// How long a silent stream is tolerated before it is declared stalled.
   final Duration stallTimeout;
+  final GenerationOptions generation;
 
   HttpEndpoint? _builtEndpoint;
 
@@ -135,12 +143,12 @@ final class AnthropicProvider extends LlmProvider {
       return;
     }
 
-    final body = encodeBody(requestBody(
+    final body = encodeBody(generation.anthropic(requestBody(
       model: model,
       system: system,
       messages: messages,
       tools: tools,
-    ));
+    )));
 
     HttpResponse response;
     try {
@@ -187,14 +195,13 @@ final class AnthropicProvider extends LlmProvider {
       } catch (_) {
         // Non-JSON error body: the status line alone is the message.
       }
-      final requiresUserAction = response.statusCode == 401 ||
-          response.statusCode == 403;
+      final requiresUserAction =
+          response.statusCode == 401 || response.statusCode == 403;
       yield StreamError(
         message.length > 500 ? '${message.substring(0, 500)}…' : message,
         statusCode: response.statusCode,
         requiresUserAction: requiresUserAction,
-        providerCode:
-            response.statusCode == 429 ? 'rate_limited' : null,
+        providerCode: response.statusCode == 429 ? 'rate_limited' : null,
         retryAfter: retryAfter(response.headers),
       );
       return;

@@ -1,0 +1,18 @@
+name: tina_persistence
+description: Session persistence plugin with an injectable SQLite store opener.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_sqlite:
+    path: ../../tina_sqlite
+  sqlite3: ^3.5.2
+dev_dependencies:
+  test: ^1.25.0
+  tina_host:
+    path: ../../tina_host

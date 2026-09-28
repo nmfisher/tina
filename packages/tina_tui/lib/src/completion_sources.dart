@@ -13,7 +13,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_services/tina_services.dart';
+import 'package:tina_host/tina_host.dart';
 
 /// The `/` source: exact names from the session's [Commands] registry —
 /// no scanning, no parsing. The picker hands the query *without* the
@@ -29,11 +29,21 @@ final class CommandNameCompletionSource implements CompletionProvider {
   const CommandNameCompletionSource(this.commands);
 
   @override
-  Future<List<String>> complete(String query) {
+  Future<List<String>> complete(String query) async {
+    final space = query.indexOf(' ');
+    if (space >= 0) {
+      final name = query.substring(0, space);
+      final complete = commands[name]?.complete;
+      if (complete == null) return [];
+      final arguments = query.substring(space + 1);
+      return [
+        for (final suggestion in await complete(arguments)) '/$name $suggestion'
+      ];
+    }
     final all = [for (final c in commands.all) '/${c.name}'];
-    if (query.isEmpty) return Future.value(all);
+    if (query.isEmpty) return all;
     final prefix = '/$query';
-    return Future.value(all.where((c) => c.startsWith(prefix)).toList());
+    return all.where((c) => c.startsWith(prefix)).toList();
   }
 }
 

@@ -2,7 +2,7 @@
 /// assembly it drives, and the widgets it renders with.
 ///
 /// The assembly (`src/assembly.dart`) is front-end-free: it wires engine,
-/// host, services and the session loop against an injected provider
+/// host, plugins and the session loop against an injected provider
 /// factory and an [AssemblyWriter], so a daemon or a test can run the
 /// whole app with no renderer initialised. The entry point
 /// (`bin/tina_tui.dart`) is the terminal front end that drives it — the
@@ -30,6 +30,9 @@ export 'src/approval_approver.dart';
 export 'src/approval_dialog.dart';
 export 'src/assembly.dart';
 export 'src/assembly_config.dart';
+export 'src/configured_provider.dart';
+export 'src/config_document.dart';
+export 'src/settings_panel.dart';
 export 'src/chat_view.dart';
 export 'src/completion_sources.dart';
 export 'src/status_strip.dart';
@@ -38,3 +41,10 @@ export 'src/tool_chip_view.dart';
 export 'src/tui_commands.dart';
 export 'src/tui_session.dart';
 export 'src/tui_terminal.dart';
+
+export 'src/plugin_catalog.dart' show TuiPluginContext;
+
+export 'src/plugin_settings.dart';
+
+export 'src/cli.dart';
+export 'src/shell_completion.dart';

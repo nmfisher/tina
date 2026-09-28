@@ -222,7 +222,7 @@ needs anyway.
    decision 2026-08-29).
 2. ~~Node-kind registry now or later~~ — resolved by survey: the registry
    already exists in attractor (`NodeHandlerRegistry`,
-   `packages/attractor/lib/src/node_handler.dart:52`); step 2 hardens and
+   `packages/libraries/attractor/lib/src/node_handler.dart:52`); step 2 hardens and
    uniformly routes tina's handler registrations through it, adding no kinds.
 3. **Panel host scope:** migrate only the run panel (default) or also the
    transcript/chat panels? (Default: run panel only.)

@@ -10,6 +10,7 @@
 /// each yields one [ToolCallStart] with a synthetic id.
 library;
 
+import 'generation_options.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -168,8 +169,8 @@ final class GeminiBuilder with WireBuilderState {
           final fc = p['functionCall'];
           if (fc is Map) {
             final name = (fc['name'] as String?) ?? '';
-            final args =
-                (fc['args'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+            final args = (fc['args'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{};
             final call = _GeminiCall(
               'gemini_call_${calls.length}',
               name,
@@ -226,6 +227,7 @@ final class GeminiProvider extends LlmProvider {
     this.baseUrl = geminiBaseUrl,
     HttpEndpoint? endpoint,
     this.stallTimeout = const Duration(seconds: 120),
+    this.generation = const GenerationOptions(),
   })  : _endpoint = endpoint ?? IoHttpEndpoint(endpoint: baseUrl),
         _tokenFrom = tokenFrom,
         super(model);
@@ -234,6 +236,7 @@ final class GeminiProvider extends LlmProvider {
   final HttpEndpoint _endpoint;
   final String Function() _tokenFrom;
   final Duration stallTimeout;
+  final GenerationOptions generation;
 
   @override
   void close() {
@@ -263,12 +266,12 @@ final class GeminiProvider extends LlmProvider {
           'content-type': 'application/json',
           'x-goog-api-key': key,
         },
-        body: encodeBody(geminiBody(
+        body: encodeBody(generation.gemini(geminiBody(
           system: system,
           messages: messages,
           tools: tools,
           maxOutputTokens: 8192,
-        )),
+        ))),
       );
     } catch (e) {
       yield StreamError('request failed: transport error ($e)');

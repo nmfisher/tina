@@ -59,20 +59,22 @@ void main() {
 
   test('slugs nested dirs percent-encoded, collision-free with __ names',
       () async {
-    Directory('${project.path}/packages/tina_index/lib')
+    Directory('${project.path}/packages/plugins/tina_index/lib')
         .createSync(recursive: true);
-    File('${project.path}/packages/tina_index/lib/x.dart')
+    File('${project.path}/packages/plugins/tina_index/lib/x.dart')
         .writeAsStringSync('// x\n');
     _git(project, ['add', '-A']);
     _git(project, ['commit', '-m', 'add package']);
 
     final res = await tool.execute({
-      'dir': 'packages/tina_index/lib',
+      'dir': 'packages/plugins/tina_index/lib',
       'content': 'package summary',
     });
     expect(res.isError, isFalse, reason: res.content);
 
-    expect(File('${sidecar.path}/packages%2Ftina_index%2Flib.md').existsSync(),
+    expect(
+        File('${sidecar.path}/packages%2Fplugins%2Ftina_index%2Flib.md')
+            .existsSync(),
         isTrue);
     // A directory literally named with `__` can never collide with a path.
     expect(summarySlug('a/b'), isNot(summarySlug('a__b')));

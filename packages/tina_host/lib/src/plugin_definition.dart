@@ -1,0 +1,42 @@
+import 'package:tina_engine_2/tina_engine_2.dart';
+
+/// A capability is a typed constructor dependency, resolved once at load time.
+/// It is not a global registry available to running plugins.
+final class PluginCapability<T extends Object> {
+  const PluginCapability(this.name);
+  final String name;
+  bool accepts(Object value) => value is T;
+}
+
+/// Declarative factory. Dependencies are passed as typed constructor arguments.
+final class PluginDefinition<C> {
+  PluginDefinition(this.id, AgentPlugin Function(C) create,
+      {this.provides = const [], this.live = false})
+      : requires = const [],
+        _create = ((context, _) => create(context));
+
+  PluginDefinition._(
+      this.id, this.requires, this.provides, this._create, this.live);
+
+  static PluginDefinition<C> dependingOn<C, D extends Object>(String id,
+          {required PluginCapability<D> dependency,
+          required AgentPlugin Function(C, D) create,
+          List<PluginCapability<Object>> provides = const [],
+          bool live = false}) =>
+      PluginDefinition._(
+          id,
+          [dependency],
+          provides,
+          (context, dependencies) => create(context, dependencies.single as D),
+          live);
+
+  /// Opt-in: resources and background work support between-turn detach/reload.
+  final bool live;
+  final String id;
+  final List<PluginCapability<Object>> requires;
+  final List<PluginCapability<Object>> provides;
+  final AgentPlugin Function(C, List<Object>) _create;
+
+  AgentPlugin build(C context, List<Object> dependencies) =>
+      _create(context, dependencies);
+}

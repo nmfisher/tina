@@ -15,7 +15,7 @@ import 'dart:io';
 
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_services/tina_services.dart';
+import 'package:tina_host/tina_host.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:test/test.dart';
 
@@ -105,6 +105,21 @@ Directory gitRepoWith(List<String> files) {
 }
 
 void main() {
+  test('argument completion is supplied by the live command registration',
+      () async {
+    final commands = Commands();
+    commands.publish(Command(
+        name: 'example',
+        description: 'example',
+        handler: (_) {},
+        complete: (prefix) => ['alpha', 'beta']
+            .where((word) => word.startsWith(prefix))
+            .toList()));
+    final source = CommandNameCompletionSource(commands);
+    expect(await source.complete('example b'), ['/example beta']);
+    expect(await source.complete('unknown b'), isEmpty);
+  });
+
   late Directory ws;
   setUp(() async {
     ws = await Directory.systemTemp.createTemp('tina_tui_completion_ws_');
@@ -272,6 +287,7 @@ void main() {
       final provider = ScriptedProvider([scriptedReply('ack')]);
       final io = FlushIo();
       final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
         providerFactory: (_) => provider,
         workingDirectory: ws.path,
       );
@@ -281,7 +297,6 @@ void main() {
           io: io,
           layout: ScreenLayout.fromSize(io.columns, io.lines),
         ),
-        keys: _NoKeys.new,
       );
       Future<void> settle([int ms = 120]) =>
           Future<void>.delayed(Duration(milliseconds: ms));
@@ -324,12 +339,4 @@ void main() {
       );
     });
   });
-}
-
-/// A key source with nothing to give — no approval questions here.
-final class _NoKeys implements KeySource {
-  const _NoKeys();
-
-  @override
-  Future<ApprovalKey?> next() async => null;
 }

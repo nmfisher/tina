@@ -1,123 +1,104 @@
 # Tina
 
-> **Tina Is No Agent.** (And *Tina Is No Acronym* — the recursion stops when you want it to.)
+Tina is a terminal coding agent. The root `tina` executable now runs engine2:
+one agent loop, with tools, persistence, plans, goals, compaction, subagents,
+provider policy and updates supplied by plugins.
 
-Tina is a terminal UI for driving multiple LLM coding agents at once — a
-[notcurses](https://github.com/dankamongmen/notcurses)-based TUI for composing,
-spawning, and metering agent sessions side by side, with scrollback, session
-persistence/resume, and live spend metering across a fleet of sub-agents.
-
-<!-- TODO: refine this pitch in your own words. -->
-
-## Install
-
-One-liner (Linux x64/arm64, macOS arm64) — verifies a minisign signature over
-the release checksum manifest before installing anything:
+## Install and run
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/nmfisher/tina/main/install.sh | sh
+tina --configure
+tina --cwd /path/to/project
 ```
 
-Requires `curl` or `wget`, a `sha256` tool, and `minisign` for signature
-verification (`apt install minisign` / `brew install minisign`; without it,
-append `--insecure-checksum-only` for checksum-only verification). Installs the
-bundle in `${XDG_DATA_HOME:-~/.local/share}/tina` and a symlink launcher at
-`~/.local/bin/tina`. Override the launcher directory with `--dir` or
-`TINA_INSTALL_DIR`, and the private bundle with `--bundle-dir` or
-`TINA_BUNDLE_DIR`. You can pin a version with
-`--version v0.6.1`. The script's header documents its trust model: the pinned
-key detects tampered release assets, not a compromised GitHub account.
+The installer downloads the latest **published** release; a checkout's cutover
+changes become available there only after a release is published. It verifies
+the release manifest with minisign (install `minisign`, or explicitly choose
+`--insecure-checksum-only`). Supported bundles: macOS arm64, Linux x64 and arm64.
+The private bundle is `${XDG_DATA_HOME:-~/.local/share}/tina`, with a launcher
+symlink at `~/.local/bin/tina`. `--dir` and `--bundle-dir` override these locations.
 
-`/update` downloads and verifies the new release first, then asks for
-confirmation before swapping anything on disk; restart Tina afterward. For an
-older install with the binary directly in `~/.local/bin` and libraries in
-`~/.local/lib`, re-run the installer above once to migrate. It replaces the Tina
-launcher and leaves shared libraries and other applications untouched.
-Configuration and sessions remain in `~/.tina`.
+The first launch without config opens settings. Choose a provider and model,
+supply credentials in settings or the provider's environment variable, save,
+then launch Tina. `/settings` edits global settings for the next launch.
 
-Prebuilt bundles are also attached to each
-[release](../../releases) to unpack by hand:
+## Configuration and plugins
+
+Global config is TOML at `~/.tina/config`; `--config FILE` overrides that path.
+
+```toml
+version = 1
+[default]
+provider = "anthropic"
+model = "your-model-id"
+max_tokens = 8192
+
+[plugins]
+approval_channel = "tina/approvals-tui"
+enabled = ["tina/persistence", "tina/plans", "tina/goals",
+           "tina/auto-compact", "tina/subagents", "tina/update"]
+```
+
+`/plugins` shows loaded/configured state and scope. For example:
+
+```text
+/plugins disable tina/goals --workspace
+/plugins enable tina/file-resources --global
+/plugins reset tina/goals --workspace
+```
+
+Session overrides take precedence over workspace, then global. Workspace config
+is `<workspace>/.tina/config`, with per-ID `[plugins.overrides]`; provider/model
+settings stay global. Config chooses registered plugins, not downloaded code.
+Names use `publisher/name`, with `tina/` reserved for first-party plugins.
+
+See [configuration reference](docs/engine2-config.md) for pools, rates, token
+limits, reasoning/output controls, themes, credentials and completion.
+
+## Input, commands and sessions
+
+Type during a turn and press Enter to queue another input. Queued inputs run in
+order; unfinished text stays in the editor. Escape clears the draft first;
+Escape with an empty draft cancels the active turn. Tools show status and live
+subprocess output. Approval dialogs use the selected approval-channel plugin.
+
+`/help` lists commands from the loaded plugins. `/` completes command names;
+Tab offers argument completions supplied by each plugin. `@` completes files.
+Settings menus filter as you type, and Tab completes supported text fields.
 
 ```sh
-tar xzf tina-<tag>-<target>.tar.gz
-./bundle/bin/tina
+tina --sessions                     # list this workspace's new sessions
+tina --resume SESSION_ID            # continue a saved session
+tina --store /path/to/sessions.db    # override the SQLite store
+tina --completion zsh               # bash and fish also supported
 ```
 
-## Build from source
+New sessions live in `<workspace>/.tina/sessions.db`. Old session files are left
+intact but cannot be resumed by engine2; there is no importer. The old session
+slash commands have deliberately not been ported.
 
-Requires a Dart SDK ≥ 3.12. Clone with submodules (the `dart_notcurses` native
-binding is required):
+`/update` checks for a release. `/update install` downloads, requires a matching
+SHA-256 checksum, validates the archive, then requests approval through the
+configured channel before replacing a marked private bundle. Restart afterward.
+This is checksum verification over HTTPS; the command does not verify minisign
+signatures. The installer above supports signature verification.
+
+## Build and test
 
 ```sh
 git clone --recurse-submodules https://github.com/nmfisher/tina.git
 cd tina
 dart pub get
-dart build cli -t bin/tina.dart        # bundle lands in build/cli/<os>_<arch>/bundle/
+./tool/build_bundle.sh host
+python3 tool/smoke_engine2.py --binary build/cli/macos_arm64/bundle/bin/tina
 ```
 
-For cross-platform bundles (Linux via Docker, macOS native):
+Requires Dart 3.12 or later. The build script also supports `linux-x64`,
+`linux-arm64`, `macos-arm64` and `all`; Linux builds use Docker. Release CI runs
+terminal smoke tests against each built target before packaging.
 
-```sh
-./tool/build_bundle.sh host            # or: linux-x64 | linux-arm64 | macos-arm64 | all
-```
-
-## Configuration
-
-Tina writes its config, sessions, and caches under `~/.tina/`. Run `tina --setup`
-to configure providers and API keys.
-
-Choose the panel layout at startup with `tina --layout tiled` (the default) or
-`tina --layout sidebar`. With `dart run`, use `dart run bin/tina.dart --layout sidebar`.
-Tiled shows conversation panels side by side and leaves the transcript the full
-width; sidebar additionally reserves a left column holding a nested conversation
-list beside the selected transcript, at the cost of 24 columns. In sidebar mode,
-use Ctrl+G and Left/Right to choose the conversation list, Enter to focus it,
-then Up/Down to select a conversation.
-
-To save the preference in `~/.tina/config`:
-
-```toml
-[tui]
-layout = "sidebar"
-```
-
-The `--layout` option overrides the saved preference.
-
-`read-all` mode blocks shell commands, file edits, workflow launches, and
-full-access delegation without an approval prompt, including previously allowed
-commands. Switch modes to enable execution. Dedicated inspection tools remain
-available. Mode changes also apply to delegated agents and workflow nodes.
-Tool schemas and the system prompt stay unchanged across mode changes; mode notices are appended to the conversation to preserve earlier
-request prefixes for prompt caching.
-
-`/index` classifies languages, frameworks and tooling, merging directory results
-up to the repository root. Language detection defaults to local extension
-matching; `/index jev` uses Typesafe/JEV for languages too. Framework and tooling
-classification uses Typesafe/JEV with selected manifests and configuration files.
-Configure Typesafe in `/settings` or set `TYPESAFE_API_KEY`; without it, language
-indexing still works and the other classifications are reported as unavailable.
-Unchanged results restore from `.tina/classifications`. `/index status` checks
-saved results without model calls; `/index refresh` recomputes them.
-`/index view` opens a paged directory tree from SQLite, with saved labels and
-on-demand evidence and classifier details. It does not scan the repository or
-need model credentials; use `/index status` to check freshness.
-
-## Running inside tmux
-
-Run `tmux new -s tina && tina` and `/detach` (or **Alt+D**) returns to the shell
-with the agent still running; reattach any time with `tmux attach -t tina`.
-`/exit` inside tmux offers Detach / Exit / Cancel. Outside tmux nothing changes
-— see [`docs/features/session_attach_detach.md`](docs/features/session_attach_detach.md).
-
-## Architecture
-
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/`](docs/) for design notes.
-UI plugins can customize transcript blocks through typed
-[`Renderer<T>` contributions](docs/features/renderers.md).
-Execution plugins can register static or lazy skills through the scoped
-[skill registry](docs/features/skills.md).
-
-## License
-
-MIT — see [LICENSE](LICENSE). The bundled terminal rendering comes from
-[dart_notcurses](https://github.com/nmfisher/dart_notcurses) (separate license).
+Classification and indexing will be redesigned. Workflows/Attractor remain
+available as packages for legacy callers, disconnected from engine2. See
+[migration status](docs/engine2-migration.md), [package architecture](ARCHITECTURE.md)
+and the [legacy CLI reference](docs/legacy-cli.md).

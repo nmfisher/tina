@@ -156,7 +156,7 @@ output can never replace the shared plan with a question or fragment, even on
 
 The step from "approved plan" to "executed work" is the engine's parallel
 fan-out, implemented by two handlers (the shapes are mapped in
-`packages/attractor/lib/src/graph.dart` → `shapeToHandlerType`):
+`packages/libraries/attractor/lib/src/graph.dart` → `shapeToHandlerType`):
 
 - **`ParallelHandler`** (`shape=component`, type `parallel`) — fan-out.
 - **`ParallelFanInHandler`** (`shape=tripleoctagon`, type `parallel.fan_in`) — fan-in.
@@ -247,6 +247,6 @@ for now. A dedicated explore node or a first-class read-only `explore` tool
   `delegate` tool.
 - `docs/proposals/node_handoff_design.md` — node vs agent, per-node system
   prompts, and the handoff primitives (`VERDICT` edges, `suggestedNextIds`).
-- `packages/attractor/` — the DOT pipeline engine: `graph.dart` (shape → handler
+- `packages/libraries/attractor/` — the DOT pipeline engine: `graph.dart` (shape → handler
   type), `engine.dart` (edge selection), `handlers/parallel_handler.dart`
   (fan-out / fan-in).

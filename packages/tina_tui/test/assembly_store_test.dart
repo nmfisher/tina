@@ -7,13 +7,13 @@
 // Run: dart test
 library;
 
+import 'package:tina_persistence/tina_persistence.dart';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_host/tina_host.dart';
 
 /// A captured writer: every line the assembly said, joined.
 final class CapturedWriter implements AssemblyWriter {

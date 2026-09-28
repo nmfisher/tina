@@ -15,7 +15,6 @@ import 'dart:io';
 
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_services/tina_services.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:test/test.dart';
@@ -49,7 +48,7 @@ final class FakeIo implements Stdio {
       const Stream<ProcessSignal>.empty();
 }
 
-/// A capture terminal — the services contract, recording lines.
+/// A capture terminal — the Terminal contract, recording lines.
 final class CaptureTerminal implements Terminal {
   final lines = <String>[];
   final prompts = <String>[];
@@ -84,7 +83,8 @@ final class NoKeys implements KeySource {
 /// Feed [line] to [io] once [until] turns true (polled, since the loop
 /// arms its reader asynchronously). Never hangs forever: a watchdog
 /// completes the waiter too.
-Future<void> feedWhen(FakeIo io, String line, Future<bool> Function() until) async {
+Future<void> feedWhen(
+    FakeIo io, String line, Future<bool> Function() until) async {
   var ok = false;
   var waited = 0;
   while (!ok && waited < 5000) {
@@ -107,20 +107,20 @@ void main() {
     ws.deleteSync(recursive: true);
   });
 
-  group('wiring completeness — every service the app reads is registered '
-      'before it reads it', () {
-    test('the loop puts a Terminal in the slot before its first paint', () {
+  group('explicit terminal wiring', () {
+    test('the assembly and session share one buffered terminal', () {
       final assembly = TuiAssembly.start(
         providerFactory: (_) => ScriptedProvider(const []),
-        options: AssemblyOptions(workingDirectory: ws.path),
+        options: AssemblyOptions(
+            configPath: '/nonexistent/tina/config', workingDirectory: ws.path),
       );
-      expect(assembly.services.maybe<Terminal>(), isNull,
-          reason: 'headless: the slot is empty until the loop runs');
+      expect(assembly.terminal, isA<TuiTerminal>(),
+          reason: 'the default terminal buffers output without terminal I/O');
       final session = TuiSession.wrap(assembly);
-      expect(session.services.get<Terminal>(), isA<TuiTerminal>(),
-          reason: 'TuiSession.wrap registers the terminal, once');
-      expect(session.services.get<Terminal>(), same(session.terminal),
-          reason: 'the session and the slot agree on the object');
+      expect(session.terminal, isA<TuiTerminal>(),
+          reason: 'TuiSession.wrap preserves the assembled terminal');
+      expect(session.terminal, same(assembly.terminal),
+          reason: 'the session and assembly use the same output');
     });
 
     test('wrap keeps the terminal an assembly was already given', () {
@@ -128,53 +128,27 @@ void main() {
       final assembly = TuiAssembly.start(
         providerFactory: (_) => ScriptedProvider(const []),
         terminal: handed,
-        options: AssemblyOptions(workingDirectory: ws.path),
+        options: AssemblyOptions(
+            configPath: '/nonexistent/tina/config', workingDirectory: ws.path),
       );
       final session = TuiSession.wrap(assembly);
-      expect(session.services.get<Terminal>(), same(handed),
+      expect(session.terminal, same(handed),
           reason: 'a headless build keeps its own terminal');
     });
 
-    test('the dialog asker is wired as the sandbox Approver: a question, '
-        'not a refusal', () async {
+    test('the selected channel fails closed before its frontend attaches',
+        () async {
       final session = TuiSession.start(
-        providerFactory: (_) => ScriptedProvider(const []),
-        workingDirectory: ws.path,
-      );
-      expect(session.asker, isNull, reason: 'nothing wired yet');
-      session.wireApprovers(QueuedDialogAsker(
-        dialogFor: (ask) => ApprovalDialog(null,
-            ask: ApprovalAskContext(ask.op, ask.path, ask.reason)),
-        keysFor: () => ScriptedKeySource(const [ApprovalKey.confirm]),
-      ));
-      expect(session.asker, isNotNull);
-      // The boundary answers through the dialog now: the keys say
-      // confirm, the decision comes back as Approval.yes — the write
-      // proceeds if the model asked. (No keys at all is a denial:
-      // fail-closed, tested by the cancel case below.)
-      final sandbox = session.assembly.tools.sandbox;
-      final approval = await sandbox.approver!(
-        (op: FileOp.write, path: '/tmp/tina_app_test_probe'),
-        'outside the project root',
-      );
-      expect(approval, isNot(Approval.no),
-          reason: 'the question was answered, not refused outright');
-      expect(approval, Approval.always,
-          reason: 'an ask dialog offers allow-always and defaults to it');
-    });
-
-    test('wiring twice is a bug and throws, not a silent replace', () {
-      final session = TuiSession.start(
-        providerFactory: (_) => ScriptedProvider(const []),
-        workingDirectory: ws.path,
-      );
-      QueuedDialogAsker asker() => QueuedDialogAsker(
-            dialogFor: (ask) => ApprovalDialog(null,
-                ask: ApprovalAskContext(ask.op, ask.path, ask.reason)),
-            keysFor: NoKeys.new,
-          );
-      session.wireApprovers(asker());
-      expect(() => session.wireApprovers(asker()), throwsStateError);
+          configPath: '/nonexistent/tina/config',
+          providerFactory: (_) => ScriptedProvider(const []),
+          workingDirectory: ws.path);
+      addTearDown(session.close);
+      expect(session.host.config.plugins.whereType<ApprovalTuiPlugin>(),
+          hasLength(1));
+      await expectLater(
+          session.assembly.tools.sandbox.approver!(
+              (op: FileOp.write, path: '/tmp/tina_app_test_probe'), 'outside'),
+          throwsA(isA<SandboxViolation>()));
     });
   });
 
@@ -182,6 +156,7 @@ void main() {
     test('a full turn: line in, reply in the chat, /quit out', () async {
       final io = FakeIo();
       final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
         providerFactory: (_) =>
             ScriptedProvider([scriptedReply('the model answered')]),
         workingDirectory: ws.path,
@@ -189,24 +164,26 @@ void main() {
       final done = runApp(
         session,
         screen: fakeScreen(io),
-        keys: NoKeys.new,
+        consoleContextFor: scriptedConsole(NoKeys.new),
       );
       // Let the loop arm its readLine, then speak and quit.
+      expect(io.written.toString(), contains('mode: normal'),
+          reason: 'the mode strip must be visible at 80 columns');
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('hello tina\r'.codeUnits);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('/quit\r'.codeUnits);
       expect(await done, 0);
       expect(session.assembly.quitRequested, isTrue);
-      // The reply reached the terminal — which is the chat region.
-      expect((session.terminal as TuiTerminal).lines.map((l) => l.text),
-          contains('the model answered'));
+      // Model output is painted from deltas/the log; plugin lines use Terminal.
+      expect(io.written.toString(), contains('the model answered'));
     });
 
     test('a resumed log is painted by the first frame', () async {
       // Session one: one turn, persisted.
       final storePath = '${ws.path}/store.db';
       final one = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
         providerFactory: (_) =>
             ScriptedProvider([scriptedReply('remembered answer')]),
         workingDirectory: ws.path,
@@ -221,6 +198,7 @@ void main() {
       final two = TuiAssembly.start(
         providerFactory: (_) => ScriptedProvider([scriptedReply('again')]),
         options: AssemblyOptions(
+          configPath: '/nonexistent/tina/config',
           workingDirectory: ws.path,
           storePath: storePath,
           sessionId: one.host.session.id,
@@ -230,7 +208,7 @@ void main() {
       final done2 = runApp(
         session2,
         screen: fakeScreen(io2),
-        keys: NoKeys.new,
+        consoleContextFor: scriptedConsole(NoKeys.new),
       );
       await feedWhen(io2, '/quit', () => Future<bool>.value(true));
       expect(await done2, 0);
@@ -243,6 +221,41 @@ void main() {
   });
 
   group('the approval question: three answers through the loop', () {
+    test('real editor keys paint the accepted selection and ignore text',
+        () async {
+      final io = FakeIo();
+      final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
+        providerFactory: (_) => ScriptedProvider(const []),
+        workingDirectory: ws.path,
+      );
+      final done = runApp(session, screen: fakeScreen(io));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final approval = session.assembly.tools.sandbox.approver!(
+        (op: FileOp.write, path: '${ws.parent.path}/outside.txt'),
+        'outside the project root',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      io.feedBytes('x'.codeUnits);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(approvalUi(session).asker!.current, isNotNull,
+          reason: 'an unrelated key must not close the approval');
+      io.feedBytes('\x1b[B'.codeUnits);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(approvalUi(session).asker!.currentDialog!.current.decision,
+          ApprovalDecision.allow);
+      final latestPaint = io.written.toString();
+      expect(latestPaint.lastIndexOf('[x] allow'),
+          greaterThan(latestPaint.lastIndexOf('[x] allow always')),
+          reason: 'the painted selection follows the deciding dialog');
+      io.feedBytes('\r'.codeUnits);
+      expect(await approval.timeout(const Duration(seconds: 2)), Approval.yes);
+      expect(approvalUi(session).asker!.currentDialog, isNull);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      io.feedBytes('/quit\r'.codeUnits);
+      expect(await done.timeout(const Duration(seconds: 2)), 0);
+    });
+
     /// The provider script every answer-test runs: one out-of-workspace
     /// write, then the acknowledgement turn.
     ScriptedProvider outsideWrite() => ScriptedProvider([
@@ -265,24 +278,25 @@ void main() {
       } catch (_) {}
     }
 
-    test('yes proceeds: the file exists, the question came first',
-        () async {
+    test('yes proceeds: the file exists, the question came first', () async {
       final io = FakeIo();
       final approvals = <String>[];
       final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
         providerFactory: (_) => outsideWrite(),
         workingDirectory: ws.path,
       );
       final done = runApp(
         session,
         screen: fakeScreen(io),
-        keys: () => ScriptedKeySource(const [ApprovalKey.confirm]),
+        consoleContextFor: scriptedConsole(
+            () => ScriptedKeySource(const [ApprovalKey.confirm])),
       );
       // The loop wired the dialog asker; the observer rides on it.
-      final asker = session.asker!;
+      final asker = approvalUi(session).asker!;
       asker.onChange = () {
         final a = asker.current;
-        if (a != null) approvals.add('${a.op.name}:${a.path}');
+        if (a != null) approvals.add('${a.operation}:${a.target}');
       };
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('do the write\r'.codeUnits);
@@ -303,13 +317,15 @@ void main() {
         () async {
       final io = FakeIo();
       final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
         providerFactory: (_) => outsideWrite(),
         workingDirectory: ws.path,
       );
       final done = runApp(
         session,
         screen: fakeScreen(io),
-        keys: () => ScriptedKeySource(const [ApprovalKey.cancel]),
+        consoleContextFor: scriptedConsole(
+            () => ScriptedKeySource(const [ApprovalKey.cancel])),
       );
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('do the write\r'.codeUnits);
@@ -321,18 +337,17 @@ void main() {
       final request = session.host.session.turns.last;
       final userMessage =
           request.messages.where((m) => m.role == Role.user).last;
-      final block =
-          userMessage.content.whereType<ToolResultBlock>().single;
+      final block = userMessage.content.whereType<ToolResultBlock>().single;
       expect(block.isError, isTrue);
       expect(block.content, contains('denied'));
       expect(File('/tmp/tina_app_outside_probe').existsSync(), isFalse);
       cleanup();
     });
 
-    test('always is answered once and remembered for the second ask',
-        () async {
+    test('always is answered once and remembered for the second ask', () async {
       final io = FakeIo();
       final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
         providerFactory: (_) => ScriptedProvider([
           scriptedReply('', calls: [
             ToolUseBlock(
@@ -359,10 +374,10 @@ void main() {
       final done = runApp(
         session,
         screen: fakeScreen(io),
-        keys: () =>
-            ScriptedKeySource(const [ApprovalKey.up, ApprovalKey.confirm]),
+        consoleContextFor: scriptedConsole(() =>
+            ScriptedKeySource(const [ApprovalKey.up, ApprovalKey.confirm])),
       );
-      final asker = session.asker!;
+      final asker = approvalUi(session).asker!;
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('write both\r'.codeUnits);
       await feedWhen(io, '/quit',
@@ -370,10 +385,37 @@ void main() {
       expect(await done, 0);
       // Up from `allow` selects `allow always`; the sandbox remembers
       // the grant, so the second identical write never asked.
-      expect(asker.current, isNull,
-          reason: 'no question left on the screen');
+      expect(asker.current, isNull, reason: 'no question left on the screen');
       expect(File('/tmp/tina_app_always_probe').readAsStringSync(), 'two',
           reason: 'both writes ran, the second after the first');
     });
   });
 }
+
+ApprovalTuiPlugin approvalUi(TuiSession session) =>
+    session.host.config.plugins.whereType<ApprovalTuiPlugin>().single;
+
+ConsoleContext Function(Screen, LineEditor) scriptedConsole(
+        KeySource Function() keys) =>
+    (screen, editor) {
+      Future<void>? active;
+      KeySource? source;
+      return ConsoleContext(
+          screen: screen,
+          editor: editor,
+          readKey: (cancelled) async {
+            if (!identical(active, cancelled)) {
+              active = cancelled;
+              source = keys();
+            }
+            final key = await source!.next();
+            return switch (key) {
+              ApprovalKey.up => ArrowKey(ArrowDirection.up),
+              ApprovalKey.down => ArrowKey(ArrowDirection.down),
+              ApprovalKey.confirm => ControlKey(ControlCode.enter),
+              ApprovalKey.cancel => EscapeKey(),
+              ApprovalKey.details => ControlKey(ControlCode.tab),
+              null => null,
+            };
+          });
+    };

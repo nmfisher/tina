@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tina-launcher"
           ln -s "$PWD/build/cli/macos_arm64/bundle/bin/tina" "$RUNNER_TEMP/tina-launcher/tina"
-          python3 tool/smoke_interactive.py "$RUNNER_TEMP/tina-launcher/tina"
+          python3 tool/smoke_engine2.py --binary "$RUNNER_TEMP/tina-launcher/tina"
 
   root:
     name: root (tina)
@@ -126,7 +126,7 @@ jobs:
         run: |
           # jq's -r prints raw strings, one per owned package; the root
           # package "tina" maps to "." and is skipped below.
-          directories=$(jq -r '.ownedPackages[] | if . == "tina" then "." else "packages/\(.)" end' tool/architecture/policy.json)
+          directories=$(jq -r '.packagePaths[]' tool/architecture/policy.json)
           for d in $directories; do
             if [ "$d" = "." ]; then continue; fi  # root: pub get ran above
             echo "pub get in $d"
@@ -255,7 +255,7 @@ jobs:
         run: dart test -j 4
 
   index:
-    name: index (packages/tina_index)
+    name: index (packages/plugins/tina_index)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -267,17 +267,17 @@ jobs:
           sdk: stable
 
       - name: pub get (index)
-        working-directory: packages/tina_index
+        working-directory: packages/plugins/tina_index
         run: dart pub get
 
       # Index gates on zero issues (verified baseline: "No issues found!").
       # Pure Dart — no native deps, no apt step needed.
       - name: analyze (index)
-        working-directory: packages/tina_index
+        working-directory: packages/plugins/tina_index
         run: dart analyze
 
       - name: test (index)
-        working-directory: packages/tina_index
+        working-directory: packages/plugins/tina_index
         run: dart test -j 4
 
   # attractor and fuzzy_ranker are terminal-free (attractor: logging + path;
@@ -287,7 +287,7 @@ jobs:
   # absence of native terminal dependencies must stay observable, per the A08
   # spec — these jobs fail loudly if either package ever grows one.
   attractor:
-    name: attractor (packages/attractor)
+    name: attractor (packages/libraries/attractor)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -297,19 +297,19 @@ jobs:
           sdk: stable
 
       - name: pub get (attractor)
-        working-directory: packages/attractor
+        working-directory: packages/libraries/attractor
         run: dart pub get
 
       - name: analyze (attractor)
-        working-directory: packages/attractor
+        working-directory: packages/libraries/attractor
         run: dart analyze
 
       - name: test (attractor)
-        working-directory: packages/attractor
+        working-directory: packages/libraries/attractor
         run: dart test -j 4
 
   fuzzy_ranker:
-    name: fuzzy_ranker (packages/fuzzy_ranker)
+    name: fuzzy_ranker (packages/libraries/fuzzy_ranker)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -319,15 +319,15 @@ jobs:
           sdk: stable
 
       - name: pub get (fuzzy_ranker)
-        working-directory: packages/fuzzy_ranker
+        working-directory: packages/libraries/fuzzy_ranker
         run: dart pub get
 
       - name: analyze (fuzzy_ranker)
-        working-directory: packages/fuzzy_ranker
+        working-directory: packages/libraries/fuzzy_ranker
         run: dart analyze
 
       - name: test (fuzzy_ranker)
-        working-directory: packages/fuzzy_ranker
+        working-directory: packages/libraries/fuzzy_ranker
         run: dart test -j 4
 
   # tina_app (A06): the frontend-independent application layer. Terminal-free
@@ -372,7 +372,7 @@ jobs:
   # attractor/fuzzy_ranker/tina_app. Its judgments half is additionally
   # pinned pure (no dart:io) by the root architecture test's pureFiles rule.
   classifier:
-    name: classifier (packages/classifier)
+    name: classifier (packages/libraries/classifier)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -382,19 +382,19 @@ jobs:
           sdk: stable
 
       - name: pub get (classifier)
-        working-directory: packages/classifier
+        working-directory: packages/libraries/classifier
         run: dart pub get
 
       - name: analyze (classifier)
-        working-directory: packages/classifier
+        working-directory: packages/libraries/classifier
         run: dart analyze
 
       - name: test (classifier)
-        working-directory: packages/classifier
+        working-directory: packages/libraries/classifier
         run: dart test -j 4
 
   file_tree:
-    name: file_tree (packages/file_tree)
+    name: file_tree (packages/libraries/file_tree)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -402,13 +402,13 @@ jobs:
         with:
           sdk: stable
       - name: pub get (file_tree)
-        working-directory: packages/file_tree
+        working-directory: packages/libraries/file_tree
         run: dart pub get
       - name: analyze (file_tree)
-        working-directory: packages/file_tree
+        working-directory: packages/libraries/file_tree
         run: dart analyze
       - name: test (file_tree)
-        working-directory: packages/file_tree
+        working-directory: packages/libraries/file_tree
         run: dart test -j 4
 
   # engine2 provider split (policy update): tina_core, tina_llm, tina_tools,
@@ -453,29 +453,8 @@ jobs:
         working-directory: packages/tina_llm
         run: dart test -j 4
 
-  # tina_services is terminal-free: the shared contracts (locator,
-  # Terminal seam, command registry) the plugins and the shell meet on.
-  # Copy the tina_llm job shape.
-  tina_services:
-    name: tina_services (packages/tina_services)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: stable
-      - name: pub get (tina_services)
-        working-directory: packages/tina_services
-        run: dart pub get
-      - name: analyze (tina_services)
-        working-directory: packages/tina_services
-        run: dart analyze
-      - name: test (tina_services)
-        working-directory: packages/tina_services
-        run: dart test -j 4
-
   tina_tools:
-    name: tina_tools (packages/tina_tools)
+    name: tina_tools (packages/plugins/tina_tools)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -483,13 +462,13 @@ jobs:
         with:
           sdk: stable
       - name: pub get (tina_tools)
-        working-directory: packages/tina_tools
+        working-directory: packages/plugins/tina_tools
         run: dart pub get
       - name: analyze (tina_tools)
-        working-directory: packages/tina_tools
+        working-directory: packages/plugins/tina_tools
         run: dart analyze
       - name: test (tina_tools)
-        working-directory: packages/tina_tools
+        working-directory: packages/plugins/tina_tools
         run: dart test -j 4
 
   tina_engine_2:
@@ -555,7 +534,7 @@ jobs:
   # so like the console job it needs the submodule checkout and the native
   # linker deps for the dart_notcurses build hook (see header LINKER deps).
   tina_subagents:
-    name: tina_subagents (packages/tina_subagents)
+    name: tina_subagents (packages/plugins/tina_subagents)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -563,17 +542,35 @@ jobs:
         with:
           sdk: stable
       - name: pub get (tina_subagents)
-        working-directory: packages/tina_subagents
+        working-directory: packages/plugins/tina_subagents
         run: dart pub get
       - name: analyze (tina_subagents)
-        working-directory: packages/tina_subagents
+        working-directory: packages/plugins/tina_subagents
         run: dart analyze
       - name: test (tina_subagents)
-        working-directory: packages/tina_subagents
+        working-directory: packages/plugins/tina_subagents
+        run: dart test -j 4
+
+  tina_workflows:
+    name: tina_workflows (packages/plugins/tina_workflows)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_workflows)
+        working-directory: packages/plugins/tina_workflows
+        run: dart pub get
+      - name: analyze (tina_workflows)
+        working-directory: packages/plugins/tina_workflows
+        run: dart analyze
+      - name: test (tina_workflows)
+        working-directory: packages/plugins/tina_workflows
         run: dart test -j 4
 
   tina_file_resources:
-    name: tina_file_resources (packages/tina_file_resources)
+    name: tina_file_resources (packages/plugins/tina_file_resources)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -581,13 +578,13 @@ jobs:
         with:
           sdk: stable
       - name: pub get (tina_file_resources)
-        working-directory: packages/tina_file_resources
+        working-directory: packages/plugins/tina_file_resources
         run: dart pub get
       - name: analyze (tina_file_resources)
-        working-directory: packages/tina_file_resources
+        working-directory: packages/plugins/tina_file_resources
         run: dart analyze
       - name: test (tina_file_resources)
-        working-directory: packages/tina_file_resources
+        working-directory: packages/plugins/tina_file_resources
         run: dart test -j 4
 
   tina_tui:
@@ -612,4 +609,177 @@ jobs:
         run: dart analyze
       - name: test (tina_tui)
         working-directory: packages/tina_tui
+        run: dart test -j 4
+      - name: Resolve root executable dependencies for PTY cutover test
+        run: dart pub get
+      - name: PTY startup, HTTP turn and resume (tina_tui)
+        working-directory: packages/tina_tui
+        run: dart test --tags tty --run-skipped test/app_smoke_test.dart
+
+  tina_persona:
+    name: tina_persona (packages/plugins/tina_persona)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_persona)
+        working-directory: packages/plugins/tina_persona
+        run: dart pub get
+      - name: analyze (tina_persona)
+        working-directory: packages/plugins/tina_persona
+        run: dart analyze
+      - name: test (tina_persona)
+        working-directory: packages/plugins/tina_persona
+        run: dart test -j 4
+
+  tina_compaction:
+    name: tina_compaction (packages/plugins/tina_compaction)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_compaction)
+        working-directory: packages/plugins/tina_compaction
+        run: dart pub get
+      - name: analyze (tina_compaction)
+        working-directory: packages/plugins/tina_compaction
+        run: dart analyze
+      - name: test (tina_compaction)
+        working-directory: packages/plugins/tina_compaction
+        run: dart test -j 4
+
+  tina_plans:
+    name: tina_plans (packages/plugins/tina_plans)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_plans)
+        working-directory: packages/plugins/tina_plans
+        run: dart pub get
+      - name: analyze (tina_plans)
+        working-directory: packages/plugins/tina_plans
+        run: dart analyze
+      - name: test (tina_plans)
+        working-directory: packages/plugins/tina_plans
+        run: dart test -j 4
+
+  tina_goals:
+    name: tina_goals (packages/plugins/tina_goals)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_goals)
+        working-directory: packages/plugins/tina_goals
+        run: dart pub get
+      - name: analyze (tina_goals)
+        working-directory: packages/plugins/tina_goals
+        run: dart analyze
+      - name: test (tina_goals)
+        working-directory: packages/plugins/tina_goals
+        run: dart test -j 4
+
+  tina_persistence:
+    name: tina_persistence (packages/plugins/tina_persistence)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_persistence)
+        working-directory: packages/plugins/tina_persistence
+        run: dart pub get
+      - name: analyze (tina_persistence)
+        working-directory: packages/plugins/tina_persistence
+        run: dart analyze
+      - name: test (tina_persistence)
+        working-directory: packages/plugins/tina_persistence
+        run: dart test -j 4
+
+  tina_approvals:
+    name: tina_approvals (packages/plugins/tina_approvals)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_approvals)
+        working-directory: packages/plugins/tina_approvals
+        run: dart pub get
+      - name: analyze (tina_approvals)
+        working-directory: packages/plugins/tina_approvals
+        run: dart analyze
+      - name: test (tina_approvals)
+        working-directory: packages/plugins/tina_approvals
+        run: dart test -j 4
+
+  tina_approvals_tui:
+    name: tina_approvals_tui (packages/plugins/tina_approvals_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install native console dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+      - name: pub get (tina_approvals_tui)
+        working-directory: packages/plugins/tina_approvals_tui
+        run: dart pub get
+      - name: analyze (tina_approvals_tui)
+        working-directory: packages/plugins/tina_approvals_tui
+        run: dart analyze
+      - name: test (tina_approvals_tui)
+        working-directory: packages/plugins/tina_approvals_tui
+        run: dart test -j 4
+
+  tina_self_update:
+    name: tina_self_update (packages/plugins/tina_self_update)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_self_update)
+        working-directory: packages/plugins/tina_self_update
+        run: dart pub get
+      - name: analyze (tina_self_update)
+        working-directory: packages/plugins/tina_self_update
+        run: dart analyze
+      - name: test (tina_self_update)
+        working-directory: packages/plugins/tina_self_update
+        run: dart test -j 4
+
+  tina_providers:
+    name: tina_providers (packages/plugins/tina_providers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_providers)
+        working-directory: packages/plugins/tina_providers
+        run: dart pub get
+      - name: analyze (tina_providers)
+        working-directory: packages/plugins/tina_providers
+        run: dart analyze
+      - name: test (tina_providers)
+        working-directory: packages/plugins/tina_providers
         run: dart test -j 4

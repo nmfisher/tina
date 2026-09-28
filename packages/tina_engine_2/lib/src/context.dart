@@ -1,6 +1,8 @@
 /// The cancellation path and the turn context every plugin phase runs on.
 library;
 
+import 'dart:async';
+
 import 'package:tina_core/tina_core.dart';
 
 import 'model.dart';
@@ -10,12 +12,15 @@ import 'model.dart';
 final class CancelToken {
   bool cancelled = false;
   String reason = '';
+  final _done = Completer<void>();
+  Future<void> get whenCancelled => _done.future;
 
   /// First cancel wins. Later calls change nothing.
   void cancel(String why) {
     if (cancelled) return;
     cancelled = true;
     reason = why;
+    _done.complete();
   }
 }
 
@@ -52,6 +57,9 @@ final class TurnContext {
 
   /// Whether the turn has been cancelled.
   bool get cancelled => _cancel.cancelled;
+
+  /// Completes when this turn is cancelled, so pending plugin work can stop.
+  Future<void> get whenCancelled => _cancel.whenCancelled;
 
   /// Why, when [cancelled].
   String get cancelReason => _cancel.reason;

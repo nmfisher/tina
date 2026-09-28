@@ -75,6 +75,27 @@ LineEditor _editor(FakeStdio io,
 }
 
 void main() {
+  test('chained form reads retain a full burst and its Enter key', () async {
+    final io = FakeStdio();
+    final ed = _editor(io);
+    addTearDown(ed.close);
+    final events = <InputEvent>[];
+    Future<void> consume() async {
+      while (true) {
+        final event = await ed.readKey();
+        events.add(event);
+        if (event is ControlKey && event.code == ControlCode.enter) return;
+      }
+    }
+
+    final done = consume();
+    await _flush();
+    io.feedBytes('fast settings value\r'.codeUnits);
+    await done.timeout(const Duration(seconds: 1));
+    expect(events.whereType<CharInput>().map((e) => e.text).join(),
+        'fast settings value');
+  });
+
   group('LineEditor basics', () {
     late FakeStdio io;
     setUp(() => io = FakeStdio());

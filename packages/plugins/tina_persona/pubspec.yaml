@@ -1,0 +1,11 @@
+name: tina_persona
+description: The persona plugin for tina.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+dev_dependencies:
+  test: ^1.25.0

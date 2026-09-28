@@ -187,7 +187,7 @@ class ListRegionsTool implements Tool {
         'List the region agents of this repository — one per '
         'summarized directory: the dirs you allocated with '
         'allocate_region (if any), otherwise the top-level dirs and '
-        'packages/*/lib. Each entry shows '
+        'packages/*/lib, packages/plugins/*/lib and packages/libraries/*/lib. Each entry shows '
         'the directory, whether its summary is stale, its model, and a '
         'digest of what it covers. Call this first to discover which '
         'region (if any) owns an area; then query_region for details, or '

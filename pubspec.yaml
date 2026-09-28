@@ -12,6 +12,14 @@ executables:
   tina:
 
 dependencies:
+  tina_tui:
+    path: packages/tina_tui
+
+# Legacy sources and tests remain available during the cutover. None of these
+# packages are imported by the executable; retire them after migration review.
+dev_dependencies:
+  tina_self_update:
+    path: packages/plugins/tina_self_update
   args: ^2.5.0
   html: ^0.15.0
   http: ^1.2.0
@@ -21,21 +29,21 @@ dependencies:
   path: ^1.9.0
   toml: ^0.16.0
   attractor:
-    path: packages/attractor
+    path: packages/libraries/attractor
   fuzzy_ranker:
-    path: packages/fuzzy_ranker
+    path: packages/libraries/fuzzy_ranker
   tina_console:
     path: packages/tina_console
   classifier:
-    path: packages/classifier
+    path: packages/libraries/classifier
   tina_engine:
     path: packages/tina_engine
   tina_app:
     path: packages/tina_app
   tina_index:
-    path: packages/tina_index
+    path: packages/plugins/tina_index
 
-dev_dependencies:
+
   analyzer: ^13.0.0
   yaml: ^3.1.3
   test: ^1.25.0

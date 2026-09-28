@@ -12,6 +12,7 @@
 /// call's `index`.
 library;
 
+import 'generation_options.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -259,8 +260,7 @@ Map<String, dynamic> chatCompletionsBody({
     'stream': true,
     'max_tokens': maxOutputTokens,
     'messages': [
-      if (system.isNotEmpty)
-        {'role': 'system', 'content': system},
+      if (system.isNotEmpty) {'role': 'system', 'content': system},
       ...rest,
     ],
     if (tools.isNotEmpty)
@@ -287,6 +287,7 @@ final class OpenAiCompatibleProvider extends LlmProvider {
     required String Function() tokenFrom,
     HttpEndpoint? endpoint,
     this.stallTimeout = const Duration(seconds: 120),
+    this.generation = const GenerationOptions(),
   })  : _endpoint = endpoint ?? IoHttpEndpoint(endpoint: baseUrl),
         _tokenFrom = tokenFrom,
         super(model);
@@ -298,6 +299,7 @@ final class OpenAiCompatibleProvider extends LlmProvider {
   final HttpEndpoint _endpoint;
   final String Function() _tokenFrom;
   final Duration stallTimeout;
+  final GenerationOptions generation;
 
   @override
   void close() {
@@ -328,12 +330,12 @@ final class OpenAiCompatibleProvider extends LlmProvider {
           'accept': 'text/event-stream',
           'authorization': 'Bearer $token',
         },
-        body: encodeBody(chatCompletionsBody(
+        body: encodeBody(generation.openAi(chatCompletionsBody(
           model: model,
           system: system,
           messages: messages,
           tools: tools,
-        )),
+        ))),
       );
     } catch (e) {
       yield StreamError('request failed: transport error ($e)');

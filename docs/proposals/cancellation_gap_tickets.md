@@ -128,7 +128,7 @@ and eventually appends `anomalyGuardrailNote`; bash behavior unchanged.
 
 ## T306 — Workflow cancellation: inventory, then close or document
 
-**Area:** app/engine workflow seam (`packages/attractor`, workflow
+**Area:** app/engine workflow seam (`packages/libraries/attractor`, workflow
 supervisor) · **Priority:** Medium
 **Evidence:** [E] `turn_executor.dart:127` (`injectWorkflowResult` *skips*
 `WorkflowRunStatus.cancelled` — the type exists); [?] no cancel path found

@@ -313,6 +313,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.14"
+  tina_approvals:
+    dependency: transitive
+    description:
+      path: "../plugins/tina_approvals"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_core:
     dependency: "direct main"
     description:
@@ -320,17 +327,17 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_services:
+  tina_host:
     dependency: transitive
     description:
-      path: "../tina_services"
+      path: "../tina_host"
       relative: true
     source: path
     version: "0.1.0"
   tina_tools:
     dependency: "direct dev"
     description:
-      path: "../tina_tools"
+      path: "../plugins/tina_tools"
       relative: true
     source: path
     version: "0.1.0"

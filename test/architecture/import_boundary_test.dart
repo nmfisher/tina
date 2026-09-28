@@ -106,6 +106,37 @@ Future<void> main() async {
     return failures;
   }
 
+  test(
+    'root executable cannot reach legacy app, workflow, index or classifier',
+    () {
+      expect(
+        violations('bin/tina.dart', {
+          'tina_app',
+          'tina_engine',
+          'attractor',
+          'classifier',
+          'tina_index',
+          'tina_workflows',
+        }),
+        isEmpty,
+      );
+      final manifest = File.fromUri(
+        repository.resolve('pubspec.yaml'),
+      ).readAsStringSync();
+      final runtime = manifest
+          .split('\ndependencies:')
+          .last
+          .split('\ndev_dependencies:')
+          .first;
+      expect(
+        RegExp(
+          r'^  [a-z_]+:',
+          multiLine: true,
+        ).allMatches(runtime).map((m) => m.group(0)),
+        ['  tina_tui:'],
+      );
+    },
+  );
   test('persisted configuration has no transitive terminal dependency', () {
     expect(
       violations('lib/config/user_config.dart', {

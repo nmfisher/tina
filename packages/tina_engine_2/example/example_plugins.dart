@@ -14,7 +14,7 @@ final class SystemSectionPlugin extends AgentPlugin {
   final String _section;
 
   @override
-  String get id => 'example.system-section';
+  String get id => 'example/system-section';
 
   @override
   int get order => 200;
@@ -32,7 +32,7 @@ final class GuardPlugin extends AgentPlugin {
   final String reason;
 
   @override
-  String get id => 'example.guard';
+  String get id => 'example/guard';
 
   @override
   int get order => 50;
@@ -49,7 +49,7 @@ final class ToolProviderPlugin extends AgentPlugin {
   const ToolProviderPlugin();
 
   @override
-  String get id => 'example.tool-provider';
+  String get id => 'example/tool-provider';
 
   @override
   List<ToolSchema> get tools => [
@@ -73,7 +73,7 @@ final class RequestTransformerPlugin extends AgentPlugin {
   final String suffix;
 
   @override
-  String get id => 'example.request-transformer';
+  String get id => 'example/request-transformer';
 
   @override
   int get order => 300;

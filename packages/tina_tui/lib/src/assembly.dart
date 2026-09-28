@@ -1,39 +1,18 @@
-/// The session assembly: everything a front end needs to have a session —
-/// the provider built from the config's choice, the host with the tools
-/// plugin (which owns the mode), the shared services, and the session
-/// itself. It owns no input loop and no renderer: it is usable with no
-/// terminal at all (a daemon, a chat bridge), and the app drives it with
-/// the TUI's terminal in the slot.
-///
-/// Three seams keep it testable with no terminal:
-///
-/// - **The provider factory is injected.** A test hands the scripted
-///   provider over the same [ProviderFactory] seam production uses; the
-///   assembly never knows which it got.
-/// - **The writer is injected.** Everything the front end says — the
-///   config note, a session listing — goes through one [AssemblyWriter],
-///   so a test captures it into a string. Nothing here writes to stdout
-///   itself.
-/// - **Commands are a registry, not a switch.** The assembly publishes
-///   the session's one built-in (`/quit`) and registers the mode command
-///   plugin; what `/word` means is decided by whoever published it.
-///
-/// The mode path proves the layering: `/mode` is [ModeCommandPlugin]'s
-/// command, published into the registry; the handler flips the
-/// [ModeControl] the tools plugin published at mount and tells the
-/// [Terminal]. The host is mode-blind; so is this file — no mode enum
-/// is imported here.
 library;
 
-import 'dart:io' show Directory, File, Platform, stdout;
+import 'dart:io' show Directory, File, stdout;
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_services/tina_services.dart';
-import 'package:tina_tools/tina_tools.dart' show ModeCommandPlugin, Approver;
+import 'tui_terminal.dart';
+import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 
 import 'assembly_config.dart';
+import 'configured_provider.dart';
+import 'plugin_catalog.dart';
+import 'plugin_settings.dart';
+import 'package:tina_persistence/tina_persistence.dart';
 
 /// Where an entry point's lines go. One seam for everything the
 /// assembly itself prints; injectable so a test captures it.
@@ -77,6 +56,9 @@ final class AssemblyOptions {
     this.workingDirectory,
     this.storePath,
     this.sessionId,
+    this.plugins,
+    this.approvalChannel,
+    this.version = '0.0.0',
   });
 
   /// Explicit config file, else `~/.tina/config`.
@@ -85,15 +67,26 @@ final class AssemblyOptions {
   /// The session's working directory, else the process's cwd.
   final String? workingDirectory;
 
-  /// The session store's file, when the session persists. Null keeps the
-  /// session in memory.
+  /// Override the persistence plugin's default workspace store location.
+  /// Persistence is enabled or disabled through the selected plugins.
   final String? storePath;
 
-  /// Resume this session id instead of starting fresh. Requires
-  /// [storePath]: the loop is seeded from the store's slice and new
-  /// entries continue the same log.
+  /// Resume this session id instead of starting fresh. Requires persistence;
+  /// [storePath] is optional. New entries continue the restored log.
   final String? sessionId;
+
+  /// Embedding override; otherwise the global config selects feature plugins.
+  final List<String>? plugins;
+
+  /// Selected channel plugin; defaults to the global config.
+  final String? approvalChannel;
+  final String version;
 }
+
+/// Default store stays separate from legacy session files and is scoped to
+/// the workspace. The global config controls whether the plugin is loaded.
+String defaultSessionStorePath(String workingDirectory) =>
+    '$workingDirectory/.tina/sessions.db';
 
 /// List a store's sessions, one line each: id, entry count, title. It
 /// opens, reads the registry rows, closes, and never builds a session.
@@ -133,126 +126,198 @@ LlmProvider providerForDescriptor(
     // TINA_LLM_ENDPOINT / TINA_LLM_TOKEN itself.
     return AnthropicProvider(model: model);
   }
-  return switch (descriptor.wire) {
-    ProviderWire.anthropic => AnthropicProvider(model: model),
-    ProviderWire.openAiCompatible => OpenAiCompatibleProvider(
-        model: model,
-        baseUrl: descriptor.baseUrl,
-        tokenFrom: () => Platform.environment[descriptor.keyEnvVar] ?? '',
-      ),
-    ProviderWire.gemini => GeminiProvider(
-        model: model,
-        baseUrl: descriptor.baseUrl,
-        tokenFrom: () => Platform.environment[descriptor.keyEnvVar] ?? '',
-      ),
-  };
+  return configuredProvider(
+      TinaConfig(
+          providerId: descriptor.id, model: model, descriptors: [descriptor]),
+      model);
 }
 
-/// One assembled session: the host, the shared services, the terminal
-/// the session's plugins talk to, the registry the loop dispatches
-/// through, and the config it started from.
-///
-/// The terminal in the slot is whatever the front end registered — the
-/// assembly builds none. `terminalOrNull` is null for a headless drive
-/// (tests without a view, later a daemon): nothing in the assembly reads
-/// the service, so a session runs, logs, and answers with no renderer
-/// initialised. The one thing a headless session cannot do is ask — a
-/// plugin that asks with no terminal in the slot gets the locator's
-/// error, loudly, instead of a fake answer.
+/// Assembles the host and concrete plugins with explicit dependencies.
+/// The default terminal buffers output without opening a physical terminal.
 final class TuiAssembly {
   TuiAssembly._({
     required this.host,
-    required this.services,
+    required this.terminal,
     required this.writer,
     required this.configNote,
+    required this.theme,
     required this.tools,
-  })  : commands = services.get<Commands>(),
-        _modeCommand = ModeCommandPlugin(services);
+    required this.configPath,
+    required this.descriptors,
+    required this.validatePlugins,
+    required this.pluginSettings,
+    required this.pluginManager,
+  }) : commands = host.commands;
 
   final Host host;
+  final PluginSettings<TuiPluginContext> pluginSettings;
+  final PluginManager<TuiPluginContext> pluginManager;
+  final String configPath;
+  final List<ProviderDescriptor> descriptors;
+  final void Function(Iterable<String>) validatePlugins;
+  Future<void> Function()? openSettings;
 
-  /// The session's tools plugin — the boundary the approver answers to.
-  /// Exposed so a front end can register its [Approver] after a
-  /// headless build (the same write the [TuiAssembly.start] `approver`
-  /// parameter performs at construction).
+  /// Tools expose mode/status to the frontend; approvals are loader-injected.
   final ToolsPlugin tools;
 
-  /// The shared services: [Commands] always; [Terminal] when the front
-  /// end registered one.
-  final Services services;
+  /// Shared output supplied to the command plugins and the frontend.
+  final Terminal terminal;
 
   final AssemblyWriter writer;
 
   /// The config status line read at start (never printed by the
   /// assembly — a front end decides whether a banner shows it).
   final String? configNote;
+  final Map<String, dynamic> theme;
 
   /// The session's published commands.
   final Commands commands;
 
-  final ModeCommandPlugin _modeCommand;
   var _quit = false;
 
-  /// Build the session: read the config, build the provider from the
-  /// descriptor that matches, put the shared services (the [Terminal]
-  /// only when the caller hands one in), build the host with the tools
-  /// plugin (the boundary, publishing itself as the mode service), start
-  /// or resume the one session, publish the built-in command, register
-  /// the mode command plugin.
-  ///
-  /// [providerFactory] overrides the config-driven factory — the seam a
-  /// test drives with the scripted provider.
+  /// Transient model output for the active foreground turn. Background
+  /// requests and child providers do not feed the conversation renderer.
+  WatchSink? onWatch;
+  Object? turnObservation;
+  bool get watchingTurn => turnObservation != null;
+
   static TuiAssembly start({
     AssemblyWriter writer = const _NullWriter(),
     ProviderFactory? providerFactory,
     Terminal? terminal,
-    Approver? approver,
     AssemblyOptions options = const AssemblyOptions(),
     List<ProviderDescriptor> descriptors = builtinDescriptors,
+    void Function(PluginRegistry<TuiPluginContext>)? registerPlugins,
   }) {
     final config =
         loadTinaConfig(path: options.configPath, descriptors: descriptors);
+    // A malformed config must not silently re-enable persistence or other
+    // defaults the user may have explicitly disabled.
+    if (config is TinaConfigProblem) throw FormatException(config.problem);
     final resolved = config.config;
-    final workingDirectory =
-        options.workingDirectory ?? Directory.current.path;
-    final services = Services();
-    if (terminal != null) services.put<Terminal>(terminal);
-    services.put<Commands>(Commands());
+    final workingDirectory = options.workingDirectory ?? Directory.current.path;
+    final output = terminal ?? TuiTerminal();
     final tools = ToolsPlugin(
       workspaceRoot: workingDirectory,
       tinaDir: Directory('$workingDirectory/.tina'),
-      services: services,
     );
-    if (approver != null) tools.sandbox.approver = approver;
+    final policy = configuredPolicy(resolved, override: providerFactory);
+    final factory = policy.mainProvider;
+    final registry = firstPartyPlugins();
+    registerPlugins?.call(registry);
+    final pluginSettings = PluginSettings<TuiPluginContext>(
+      globalPath: options.configPath ?? defaultConfigPath(),
+      workspacePath: '$workingDirectory/.tina/config',
+      registry: registry,
+      descriptors: descriptors,
+      sessionBaseline: options.plugins,
+      channelOverride: options.approvalChannel,
+    );
+    final enabled = pluginSettings.features;
+    final selected = pluginSettings.selected;
+    registry.validate(selected);
+    final persists = enabled.contains('tina/persistence');
+    if (!persists && (options.storePath != null || options.sessionId != null)) {
+      throw ArgumentError('--store and --resume require tina/persistence');
+    }
+    final path = options.storePath ?? defaultSessionStorePath(workingDirectory);
+    SessionStore openStore() {
+      File(path).parent.createSync(recursive: true);
+      return SessionStore.open(path);
+    }
+
+    final context = TuiPluginContext(
+      workingDirectory: workingDirectory,
+      terminal: output,
+      tools: tools,
+      providerFactory: policy.childProvider,
+      providerPolicy: policy,
+      limits: resolved.limits,
+      version: options.version,
+      model: resolved.model,
+      openStore: persists ? openStore : null,
+    );
+    final plugins = registry.build(selected, context);
+    TuiAssembly? assembled;
     final hostConfig = HostConfig(
-      providerFactory: providerFactory ??
-          (model) => providerForDescriptor(
-              descriptorByIdFor(resolved.providerId ?? '', descriptors),
-              model),
+      providerFactory: (model) => _ObservedProvider(factory(model), () {
+        final current = assembled;
+        if (current == null ||
+            !current.watchingTurn ||
+            !current.host.session.loop.inTurn) return null;
+        final observation = current.turnObservation;
+        return (event) {
+          if (identical(observation, current.turnObservation)) {
+            current.onWatch?.call(event);
+          }
+        };
+      }),
       model: resolved.model,
       workingDirectory: workingDirectory,
-      plugins: [tools],
-      storePath: options.storePath,
+      plugins: [
+        ...basePlugins(context),
+        ...plugins,
+      ],
     );
     final host = options.sessionId == null
         ? Host.start(hostConfig)
         : Host.resume(hostConfig, options.sessionId!);
     final assembly = TuiAssembly._(
       host: host,
-      services: services,
+      terminal: output,
       writer: writer,
       configNote: config.note,
+      theme: resolved.theme,
       tools: tools,
+      configPath: options.configPath ?? defaultConfigPath(),
+      descriptors: descriptors,
+      validatePlugins: registry.validate,
+      pluginSettings: pluginSettings,
+      pluginManager:
+          PluginManager(host: host, registry: registry, context: context),
     );
+    assembled = assembly;
+    host.commands.publish(Command(
+      name: 'plugins',
+      complete: (prefix) => completePlugins(prefix, registry.ids),
+      description:
+          'list or enable/disable plugins by session, workspace or global scope',
+      handler: (argument) => pluginSettings.command(
+          argument, assembly.pluginManager, output.writeln),
+    ));
     // Built-ins are the assembly's, registered by the assembly — the
     // same registry, the same dispatch.
-    services.get<Commands>().publish(Command(
-          name: 'quit',
-          description: 'leave the app',
-          handler: (_) => assembly._quit = true,
-        ));
-    // The mode's word, owned by the plugin that carries it.
-    assembly._modeCommand.register();
+    host.commands.publish(Command(
+      name: 'quit',
+      description: 'leave the app',
+      handler: (_) {
+        assembly._quit = true;
+      },
+    ));
+    host.commands.publish(Command(
+      name: 'settings',
+      description: 'edit global configuration',
+      handler: (_) async {
+        final open = assembly.openSettings;
+        if (open != null) {
+          await open();
+        } else {
+          output.writeln(
+              'Settings requires the interactive TUI. Edit ${assembly.configPath}.');
+        }
+      },
+    ));
+    host.commands.publish(Command(
+      name: 'help',
+      description: 'list loaded commands and input keys',
+      handler: (_) {
+        for (final c in host.commands.all) {
+          output.writeln('/${c.name} — ${c.description}');
+        }
+        output.writeln(
+            'Type while busy and Enter to queue. Esc clears the draft; Esc with an empty draft cancels. Tab completes command arguments; @ completes files.');
+      },
+    ));
     return assembly;
   }
 
@@ -265,7 +330,7 @@ final class TuiAssembly {
   /// the slot), an unpublished word is refused. Returns false when the
   /// front end should stop ([quitRequested] after `/quit`). An empty or
   /// non-command line is nothing to this method.
-  bool handleCommand(String line) {
+  Future<bool> handleCommand(String line) async {
     final trimmed = line.trim();
     if (!trimmed.startsWith('/')) return true;
     final rest = trimmed.substring(1);
@@ -277,11 +342,11 @@ final class TuiAssembly {
       writer.writeln('unknown command: /$word');
       return true;
     }
-    command.handler(argument);
+    await command.handler(argument);
     return !_quit;
   }
 
-  /// Close the host. The store link flushes; nothing else is held.
+  /// Close plugin resources and the session's provider through the host.
   void close() => host.close();
 }
 
@@ -292,4 +357,23 @@ final class _NullWriter implements AssemblyWriter {
 
   @override
   void writeln([String? line]) {}
+}
+
+/// Capture an observer per request. Background summaries/judgments stay quiet,
+/// and a cancelled request cannot paint into a later turn.
+final class _ObservedProvider implements LlmProvider {
+  _ObservedProvider(this.inner, this.observer);
+  final LlmProvider inner;
+  final WatchSink? Function() observer;
+  @override
+  String get model => inner.model;
+  @override
+  Stream<StreamEvent> send(
+          {required String system,
+          required List<Message> messages,
+          required List<ToolSchema> tools}) =>
+      TeeProvider(inner, sink: observer())
+          .send(system: system, messages: messages, tools: tools);
+  @override
+  void close() => inner.close();
 }

@@ -11,14 +11,23 @@
     "file_tree",
     "tina_core",
     "tina_llm",
-    "tina_services",
     "tina_tools",
     "tina_engine_2",
     "tina_host",
     "tina_sqlite",
     "tina_subagents",
     "tina_file_resources",
-    "tina_tui"
+    "tina_tui",
+    "tina_workflows",
+    "tina_persona",
+    "tina_compaction",
+    "tina_plans",
+    "tina_goals",
+    "tina_persistence",
+    "tina_approvals",
+    "tina_approvals_tui",
+    "tina_self_update",
+    "tina_providers"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -26,7 +35,8 @@
   "terminalPackages": [
     "tina_console",
     "dart_notcurses",
-    "tina_tui"
+    "tina_tui",
+    "tina_approvals_tui"
   ],
   "sourceRoots": {
     "tina": [
@@ -58,10 +68,6 @@
       "test"
     ],
     "tina_llm": [
-      "lib",
-      "test"
-    ],
-    "tina_services": [
       "lib",
       "test"
     ],
@@ -108,6 +114,46 @@
       "test"
     ],
     "file_tree": [
+      "lib",
+      "test"
+    ],
+    "tina_workflows": [
+      "lib",
+      "test"
+    ],
+    "tina_persona": [
+      "lib",
+      "test"
+    ],
+    "tina_compaction": [
+      "lib",
+      "test"
+    ],
+    "tina_plans": [
+      "lib",
+      "test"
+    ],
+    "tina_goals": [
+      "lib",
+      "test"
+    ],
+    "tina_persistence": [
+      "lib",
+      "test"
+    ],
+    "tina_approvals": [
+      "lib",
+      "test"
+    ],
+    "tina_approvals_tui": [
+      "lib",
+      "test"
+    ],
+    "tina_self_update": [
+      "lib",
+      "test"
+    ],
+    "tina_providers": [
       "lib",
       "test"
     ]
@@ -167,40 +213,40 @@
     "packages/tina_app/lib/src/project/"
   ],
   "pureFiles": [
-    "packages/classifier/lib/src/judgments/models.dart",
-    "packages/classifier/lib/src/judgments/service.dart",
-    "packages/classifier/lib/src/judgments/request_budget.dart",
-    "packages/classifier/lib/src/judgments/request_packer.dart",
-    "packages/classifier/lib/src/judgments/batch_runner.dart",
+    "packages/libraries/classifier/lib/src/judgments/models.dart",
+    "packages/libraries/classifier/lib/src/judgments/service.dart",
+    "packages/libraries/classifier/lib/src/judgments/request_budget.dart",
+    "packages/libraries/classifier/lib/src/judgments/request_packer.dart",
+    "packages/libraries/classifier/lib/src/judgments/batch_runner.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_models.dart",
-    "packages/classifier/lib/src/shared/fingerprint.dart",
-    "packages/classifier/lib/src/shared/range_packer.dart"
+    "packages/libraries/classifier/lib/src/shared/fingerprint.dart",
+    "packages/libraries/classifier/lib/src/shared/range_packer.dart"
   ],
   "noDirectIoFiles": [
-    "packages/classifier/lib/src/exploration/models.dart",
-    "packages/classifier/lib/src/exploration/exploration_cache.dart",
-    "packages/classifier/lib/src/exploration/exploration_snapshot.dart",
-    "packages/classifier/lib/src/exploration/repository_ranker.dart",
-    "packages/classifier/lib/src/exploration/file_chunker.dart",
-    "packages/classifier/lib/src/exploration/exploration_workflow.dart",
+    "packages/libraries/classifier/lib/src/exploration/models.dart",
+    "packages/libraries/classifier/lib/src/exploration/exploration_cache.dart",
+    "packages/libraries/classifier/lib/src/exploration/exploration_snapshot.dart",
+    "packages/libraries/classifier/lib/src/exploration/repository_ranker.dart",
+    "packages/libraries/classifier/lib/src/exploration/file_chunker.dart",
+    "packages/libraries/classifier/lib/src/exploration/exploration_workflow.dart",
     "packages/tina_app/lib/src/exploration/explore_project_tool.dart",
     "packages/tina_app/lib/src/exploration/metered_judgment_service.dart",
     "packages/tina_app/lib/src/summaries/summary_index.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_runner.dart",
-    "packages/classifier/lib/src/classification/judgments.dart",
-    "packages/classifier/lib/src/classification/local.dart",
-    "packages/classifier/lib/src/classification/orchestrator.dart",
-    "packages/classifier/lib/src/classification/models.dart",
-    "packages/classifier/lib/src/classification/definitions.dart",
-    "packages/classifier/lib/src/classification/evidence.dart",
-    "packages/classifier/lib/src/classification/store.dart",
-    "packages/classifier/lib/src/classification/planning.dart",
+    "packages/libraries/classifier/lib/src/classification/judgments.dart",
+    "packages/libraries/classifier/lib/src/classification/local.dart",
+    "packages/libraries/classifier/lib/src/classification/orchestrator.dart",
+    "packages/libraries/classifier/lib/src/classification/models.dart",
+    "packages/libraries/classifier/lib/src/classification/definitions.dart",
+    "packages/libraries/classifier/lib/src/classification/evidence.dart",
+    "packages/libraries/classifier/lib/src/classification/store.dart",
+    "packages/libraries/classifier/lib/src/classification/planning.dart",
     "packages/tina_app/lib/src/classification/project_classifiers.dart",
     "packages/tina_app/lib/src/classification/project_classification_workflow.dart",
     "packages/tina_app/lib/src/classification/repository_text_source.dart",
-    "packages/classifier/lib/src/classification/tree.dart"
+    "packages/libraries/classifier/lib/src/classification/tree.dart"
   ],
   "baseline": "baseline.json",
   "excludedRoots": {
@@ -211,5 +257,70 @@
     "tina_engine": [
       "hook"
     ]
-  }
+  },
+  "deferredPackages": {
+    "attractor": [
+      "tina",
+      "tina_app",
+      "tina_workflows"
+    ],
+    "tina_workflows": []
+  },
+  "packagePaths": {
+    "tina": ".",
+    "tina_app": "packages/tina_app",
+    "tina_engine": "packages/tina_engine",
+    "tina_console": "packages/tina_console",
+    "tina_index": "packages/plugins/tina_index",
+    "attractor": "packages/libraries/attractor",
+    "fuzzy_ranker": "packages/libraries/fuzzy_ranker",
+    "classifier": "packages/libraries/classifier",
+    "file_tree": "packages/libraries/file_tree",
+    "tina_core": "packages/tina_core",
+    "tina_llm": "packages/tina_llm",
+    "tina_tools": "packages/plugins/tina_tools",
+    "tina_engine_2": "packages/tina_engine_2",
+    "tina_host": "packages/tina_host",
+    "tina_sqlite": "packages/tina_sqlite",
+    "tina_subagents": "packages/plugins/tina_subagents",
+    "tina_file_resources": "packages/plugins/tina_file_resources",
+    "tina_tui": "packages/tina_tui",
+    "tina_workflows": "packages/plugins/tina_workflows",
+    "tina_persona": "packages/plugins/tina_persona",
+    "tina_compaction": "packages/plugins/tina_compaction",
+    "tina_plans": "packages/plugins/tina_plans",
+    "tina_goals": "packages/plugins/tina_goals",
+    "tina_persistence": "packages/plugins/tina_persistence",
+    "tina_approvals": "packages/plugins/tina_approvals",
+    "tina_approvals_tui": "packages/plugins/tina_approvals_tui",
+    "tina_self_update": "packages/plugins/tina_self_update",
+    "tina_providers": "packages/plugins/tina_providers"
+  },
+  "runtimeDependencies": {
+    "tina_engine_2": [
+      "tina_core"
+    ],
+    "tina_host": [
+      "tina_core",
+      "tina_engine_2"
+    ],
+    "tina_approvals": [
+      "tina_engine_2",
+      "tina_host"
+    ],
+    "tina_approvals_tui": [
+      "tina_core",
+      "tina_engine_2",
+      "tina_host",
+      "tina_console",
+      "tina_approvals"
+    ],
+    "tina_providers": [
+      "tina_engine_2"
+    ]
+  },
+  "pluginFreePackages": [
+    "tina_host",
+    "tina_engine_2"
+  ]
 }

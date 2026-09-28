@@ -59,3 +59,6 @@ export 'src/theme.dart';
 export 'src/tool_chip.dart';
 export 'src/term_width.dart'
     show runeWidth, runeSizeAt, codePointAt, plainWidth;
+
+export 'src/console_contribution.dart';
+export 'src/dialog_layout.dart';

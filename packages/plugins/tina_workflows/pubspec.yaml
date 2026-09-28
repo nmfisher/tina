@@ -1,0 +1,18 @@
+name: tina_workflows
+description: Optional Attractor-backed workflow plugin, kept separate from the new app.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  attractor:
+    path: ../../libraries/attractor
+  path: ^1.9.0
+  tina_engine_2:
+    path: ../../tina_engine_2
+dev_dependencies:
+  tina_persistence:
+    path: ../tina_persistence
+  tina_host:
+    path: ../../tina_host
+  test: ^1.25.0

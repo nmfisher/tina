@@ -36,7 +36,7 @@ packages:
   attractor:
     dependency: "direct main"
     description:
-      path: "../attractor"
+      path: "../libraries/attractor"
       relative: true
     source: path
     version: "0.1.0"
@@ -51,7 +51,7 @@ packages:
   classifier:
     dependency: "direct main"
     description:
-      path: "../classifier"
+      path: "../libraries/classifier"
       relative: true
     source: path
     version: "0.1.0"
@@ -130,7 +130,7 @@ packages:
   file_tree:
     dependency: "direct main"
     description:
-      path: "../file_tree"
+      path: "../libraries/file_tree"
       relative: true
     source: path
     version: "0.1.0"
@@ -416,7 +416,7 @@ packages:
   tina_index:
     dependency: transitive
     description:
-      path: "../tina_index"
+      path: "../plugins/tina_index"
       relative: true
     source: path
     version: "0.1.0"

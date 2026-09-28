@@ -147,7 +147,7 @@ packages:
   fuzzy_ranker:
     dependency: "direct main"
     description:
-      path: "../fuzzy_ranker"
+      path: "../libraries/fuzzy_ranker"
       relative: true
     source: path
     version: "0.1.0"

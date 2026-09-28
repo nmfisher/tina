@@ -12,3 +12,10 @@ export 'src/provider.dart';
 export 'src/session_log.dart';
 export 'src/stream.dart';
 export 'src/tools.dart';
+
+export 'src/command.dart';
+export 'src/terminal.dart';
+
+export 'src/session_details.dart';
+export 'src/plugin_session.dart';
+export 'src/plugin_id.dart';

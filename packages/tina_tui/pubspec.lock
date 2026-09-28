@@ -33,13 +33,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
-  attractor:
-    dependency: transitive
-    description:
-      path: "../attractor"
-      relative: true
-    source: path
-    version: "0.1.0"
   boolean_selector:
     dependency: transitive
     description:
@@ -138,7 +131,7 @@ packages:
   fuzzy_ranker:
     dependency: transitive
     description:
-      path: "../fuzzy_ranker"
+      path: "../libraries/fuzzy_ranker"
       relative: true
     source: path
     version: "0.1.0"
@@ -158,6 +151,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.3"
+  http:
+    dependency: transitive
+    description:
+      name: http
+      sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.0"
   http_multi_server:
     dependency: transitive
     description:
@@ -246,6 +247,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
+  petitparser:
+    dependency: transitive
+    description:
+      name: petitparser
+      sha256: "07c8f0b1913bcde1ff0d26e57ace2f3012ccbf2b204e070290dad3bb22797646"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.1.0"
   pool:
     dependency: transitive
     description:
@@ -390,6 +399,27 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.20"
+  tina_approvals:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_approvals"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_approvals_tui:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_approvals_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_compaction:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_compaction"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_console:
     dependency: "direct main"
     description:
@@ -411,6 +441,20 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_file_resources:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_file_resources"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_goals:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_goals"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_host:
     dependency: "direct main"
     description:
@@ -425,10 +469,38 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_services:
+  tina_persistence:
     dependency: "direct main"
     description:
-      path: "../tina_services"
+      path: "../plugins/tina_persistence"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_persona:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_persona"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_plans:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_plans"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_providers:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_providers"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_self_update:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_self_update"
       relative: true
     source: path
     version: "0.1.0"
@@ -439,13 +511,28 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_tools:
+  tina_subagents:
     dependency: "direct main"
     description:
-      path: "../tina_tools"
+      path: "../plugins/tina_subagents"
       relative: true
     source: path
     version: "0.1.0"
+  tina_tools:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_tools"
+      relative: true
+    source: path
+    version: "0.1.0"
+  toml:
+    dependency: "direct main"
+    description:
+      name: toml
+      sha256: d968d149c8bd06dc14e09ea3a140f90a3f2ba71949e7a91df4a46f3107400e71
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.16.0"
   typed_data:
     dependency: transitive
     description:
@@ -511,4 +598,4 @@ packages:
     source: hosted
     version: "3.1.4"
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.11.0 <4.0.0"

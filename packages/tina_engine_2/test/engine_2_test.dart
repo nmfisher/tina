@@ -120,8 +120,8 @@ void main() {
         scriptedReply('finished'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('a', tools: [_tool('t1')]),
-        _plugin('b', tools: [_tool('t2')]),
+        _plugin('test/a', tools: [_tool('t1')]),
+        _plugin('test/b', tools: [_tool('t2')]),
       ]);
       loop
         ..registerExecutor('t1', (_) async => ToolResult('one'))
@@ -151,9 +151,9 @@ void main() {
         () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('b.late', section: 'LATE'),
-        _plugin('a.early', section: 'EARLY'),
-        _plugin('m.mid', order: 10, section: 'MID'),
+        _plugin('test/b-late', section: 'LATE'),
+        _plugin('test/a-early', section: 'EARLY'),
+        _plugin('test/m-mid', order: 10, section: 'MID'),
       ]);
       await loop.runTurn(const Input('x', id: 'i3'));
 
@@ -167,7 +167,7 @@ void main() {
         const RequestTransformerPlugin(
           suffix: '|2nd', /* order 300 */
         ),
-        _T('z.first-transform', order: 1, mark: '|1st'),
+        _T('test/z-first-transform', order: 1, mark: '|1st'),
       ]);
       await loop.runTurn(const Input('x', id: 'i3b'));
 
@@ -187,7 +187,7 @@ void main() {
       final ran = <String>[];
       final loop = AgentLoop(provider: provider, plugins: [
         const GuardPlugin('rm_rf', reason: 'too dangerous'),
-        _plugin('owner', tools: [_tool('rm_rf')]),
+        _plugin('test/owner', tools: [_tool('rm_rf')]),
       ]);
       loop.registerExecutor('rm_rf', (_) async {
         ran.add('ran!');
@@ -201,7 +201,7 @@ void main() {
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
       expect(result.content, contains('denied'));
-      expect(result.content, contains('example.guard'));
+      expect(result.content, contains('example/guard'));
     });
 
     test('ask with no UI resolves to deny, recorded as ask-unresolved',
@@ -213,8 +213,8 @@ void main() {
       ]);
       final ran = <String>[];
       final loop = AgentLoop(provider: provider, plugins: [
-        _Ask('approver'),
-        _plugin('owner', tools: [_tool('t')]),
+        _Ask('test/approver'),
+        _plugin('test/owner', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (_) async {
         ran.add('ran!');
@@ -237,9 +237,9 @@ void main() {
         scriptedReply('done'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _Throw('bad.guard', throwIn: 'beforeTool'),
-        _Throw('bad.section', throwIn: 'systemSection'),
-        _plugin('owner', tools: [_tool('t')]),
+        _Throw('test/bad-guard', throwIn: 'beforeTool'),
+        _Throw('test/bad-section', throwIn: 'systemSection'),
+        _plugin('test/owner', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (_) async => ToolResult('ran'));
 
@@ -254,9 +254,9 @@ void main() {
     test('throwing onInput / beforeModelCall / onTurnEnd isolated', () async {
       final provider = ScriptedProvider([scriptedReply('done')]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _Throw('bad.invocation', throwIn: 'onInput'),
-        _Throw('bad.request', throwIn: 'beforeModelCall'),
-        _Throw('bad.end', throwIn: 'onTurnEnd'),
+        _Throw('test/bad-invocation', throwIn: 'onInput'),
+        _Throw('test/bad-request', throwIn: 'beforeModelCall'),
+        _Throw('test/bad-end', throwIn: 'onTurnEnd'),
       ]);
       final outcome = await loop.runTurn(const Input('original', id: 'i5b'));
 
@@ -279,6 +279,49 @@ void main() {
       expect(outcome.detail, contains('user said stop'));
     });
 
+    test('cancellation is scoped to one turn and later turns still run',
+        () async {
+      final provider = ScriptedProvider([scriptedReply('next answer')]);
+      final loop = AgentLoop(provider: provider, plugins: []);
+      loop.cancel('stop');
+      expect((await loop.runTurn(const Input('first', id: 'first'))).stopReason,
+          StopReason.cancelled);
+      final next = await loop.runTurn(const Input('second', id: 'second'));
+      expect(next.stopReason, StopReason.complete);
+      expect(next.detail, 'next answer');
+      expect(provider.callCount, 1);
+    });
+
+    test(
+        'cancelling a stalled request cancels delivery and rejects overlapping turns',
+        () async {
+      var cancelled = false;
+      final events = StreamController<StreamEvent>(onCancel: () {
+        cancelled = true;
+      });
+      final started = Completer<void>();
+      final provider = _ControlledProvider(events.stream, started);
+      final loop = AgentLoop(provider: provider, plugins: []);
+      final pending = loop.runTurn(const Input('first', id: 'first'));
+      await started.future;
+      await expectLater(loop.runTurn(const Input('overlap', id: 'overlap')),
+          throwsStateError);
+      events.add(const TextDelta('partial before escape'));
+      await Future<void>.delayed(Duration.zero);
+      loop.cancel('stop');
+      expect((await pending).stopReason, StopReason.cancelled);
+      expect(cancelled, isTrue);
+      final partial = loop.log.whereType<MessageAppendedEntry>().last.message;
+      expect(partial.role, Role.assistant);
+      expect(
+          (partial.content.single as TextBlock).text, 'partial before escape');
+      await events.close();
+      final next = await loop.runTurn(const Input('next', id: 'next'));
+      expect(next.stopReason, StopReason.complete);
+      expect(next.detail, 'after cancellation');
+      expect(loop.log.whereType<TurnStartedEntry>(), hasLength(2));
+    });
+
     test('cancel from a plugin mid-turn -> stops before next model call',
         () async {
       final provider = ScriptedProvider([
@@ -287,8 +330,8 @@ void main() {
         scriptedReply('never reached'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _CancelFromTool('canceller'),
-        _plugin('owner', tools: [_tool('t')]),
+        _CancelFromTool('test/canceller'),
+        _plugin('test/owner', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (_) async => ToolResult('ran'));
 
@@ -299,7 +342,8 @@ void main() {
       expect(outcome.detail, contains('plugin-cancelled'));
     });
 
-    test('cancel during an in-flight model call ends the stream and the '
+    test(
+        'cancel during an in-flight model call ends the stream and the '
         'turn immediately', () async {
       // Never completes on its own: without an interrupting close this
       // test would hang until the suite timeout.
@@ -328,21 +372,21 @@ void main() {
         scriptedReply('done'),
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('vanishing', tools: [_tool('t')]),
+        _plugin('test/vanishing', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (_) async => ToolResult('ran'));
       // Remove from a hook, mid-turn — the brief's liveness rule is about a
       // plugin leaving while its pending call is in flight. The remover has
       // order 1, so it removes before the vanishing tool runs.
-      loop.addPlugin(
-          _Remover('remover', order: 1, loop: loop, target: 'vanishing'));
+      loop.addPlugin(_Remover('test/remover',
+          order: 1, loop: loop, target: 'test/vanishing'));
 
       final outcome = await loop.runTurn(const Input('x', id: 'i7'));
 
       expect(outcome.stopReason, StopReason.complete);
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
-      expect(result.content, contains('plugin vanishing left'));
+      expect(result.content, contains('plugin test/vanishing left'));
     });
   });
 
@@ -350,7 +394,8 @@ void main() {
     test('plugin mutation of a context does not touch the transcript',
         () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
-      final loop = AgentLoop(provider: provider, plugins: [_Mutate('mutator')]);
+      final loop =
+          AgentLoop(provider: provider, plugins: [_Mutate('test/mutator')]);
       await loop.runTurn(const Input('keep me', id: 'i8a'));
 
       final seen = provider.requests.first.messages;
@@ -369,7 +414,7 @@ void main() {
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
         const GuardPlugin('denied-tool'),
-        _plugin('owner', tools: [_tool('denied-tool'), _tool('good')]),
+        _plugin('test/owner', tools: [_tool('denied-tool'), _tool('good')]),
       ]);
       loop.registerExecutor('good', (_) async => ToolResult('ran'));
 
@@ -394,15 +439,15 @@ void main() {
             calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
         scriptedReply('done'),
       ]);
-      final shifter = _Shift('shifter');
+      final shifter = _Shift('test/shifter');
       final loop = AgentLoop(provider: provider, plugins: [
         shifter,
-        _plugin('owner', tools: [_tool('t')]),
+        _plugin('test/owner', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (_) async => ToolResult('ran'));
       // Shift from inside a hook, mid-turn: the pinning invariant is about
       // the set changing while the turn is running.
-      loop.addPlugin(_ShiftOnCall('shifter-trigger', shifter));
+      loop.addPlugin(_ShiftOnCall('test/shifter-trigger', shifter));
 
       final outcome = await loop.runTurn(const Input('x', id: 'i8c'));
 
@@ -411,9 +456,9 @@ void main() {
     });
 
     test('duplicate plugin id throws at registration', () {
-      final loop =
-          AgentLoop(provider: ScriptedProvider([]), plugins: [_plugin('dup')]);
-      expect(() => loop.addPlugin(_plugin('dup')), throwsArgumentError);
+      final loop = AgentLoop(
+          provider: ScriptedProvider([]), plugins: [_plugin('test/dup')]);
+      expect(() => loop.addPlugin(_plugin('test/dup')), throwsArgumentError);
     });
   });
 
@@ -429,7 +474,7 @@ void main() {
       ]);
       final ran = <String>[];
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('owner', tools: [_tool('t')]),
+        _plugin('test/owner', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (_) async {
         ran.add('ran!');
@@ -466,7 +511,7 @@ void main() {
         ],
       ]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('owner', tools: [_tool('t')]),
+        _plugin('test/owner', tools: [_tool('t')]),
       ]);
       loop.registerExecutor('t', (args) async {
         seen.add(args);
@@ -660,9 +705,9 @@ void main() {
         'the next plugin runs', () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _Writer('writer', section: 'KEPT'),
-        _Throw('bad', throwIn: 'beforeModelCall'),
-        _plugin('late', section: 'LATE'),
+        _Writer('test/writer', section: 'KEPT'),
+        _Throw('test/bad', throwIn: 'beforeModelCall'),
+        _plugin('test/late', section: 'LATE'),
       ]);
       await loop.runTurn(const Input('x', id: 'i12a'));
 
@@ -675,8 +720,8 @@ void main() {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final seen = <List<String>>[];
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('a.writer', section: 'FROM-WRITER'),
-        _Reader('z.reader', seen: seen),
+        _plugin('test/a-writer', section: 'FROM-WRITER'),
+        _Reader('test/z-reader', seen: seen),
       ]);
       await loop.runTurn(const Input('x', id: 'i12b'));
       expect(seen.single, ['FROM-WRITER']);
@@ -687,8 +732,8 @@ void main() {
         'the rest of the request', () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
-        _plugin('base', section: 'BASE-SECTION'),
-        _T('adder', order: 300, mark: 'ONE-CALL'),
+        _plugin('test/base', section: 'BASE-SECTION'),
+        _T('test/adder', order: 300, mark: 'ONE-CALL'),
       ]);
       await loop.runTurn(const Input('x', id: 'i12c'));
 
@@ -973,7 +1018,7 @@ final class _T extends AgentPlugin {
 final class _ToolsPlugin extends AgentPlugin {
   _ToolsPlugin(this.tools_);
   @override
-  String get id => 'tools';
+  String get id => 'test/tools';
   @override
   List<ToolSchema> get tools => [for (final t in tools_) t.schema];
   final List<Tool> tools_;
@@ -991,14 +1036,37 @@ final class _StallingProvider implements LlmProvider {
 
   @override
   Stream<StreamEvent> send(
-          {required String system,
-          required List<Message> messages,
-          required List<ToolSchema> tools}) {
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) {
     callCount++;
     return () async* {
       yield const TextDelta('working…');
       await Completer<void>().future;
     }();
+  }
+
+  @override
+  void close() {}
+}
+
+final class _ControlledProvider implements LlmProvider {
+  _ControlledProvider(this.first, this.started);
+  final Stream<StreamEvent> first;
+  final Completer<void> started;
+  int calls = 0;
+  @override
+  String get model => 'controlled';
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) {
+    if (calls++ == 0) {
+      started.complete();
+      return first;
+    }
+    return Stream.fromIterable(scriptedReply('after cancellation'));
   }
 
   @override

@@ -15,9 +15,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_services/tina_services.dart';
-import 'package:tina_tools/tina_tools.dart'
-    show ModeCommandPlugin, ModeControl;
+import 'package:tina_tools/tina_tools.dart' show ModeCommandPlugin;
 import 'package:tina_tui/tina_tui.dart';
 
 /// A captured writer: every line the assembly said, joined.
@@ -31,8 +29,7 @@ final class CapturedWriter implements AssemblyWriter {
   String get text => buf.toString();
 
   /// The lines written, without their trailing newlines.
-  List<String> get lines =>
-      const LineSplitter().convert(text.trimRight());
+  List<String> get lines => const LineSplitter().convert(text.trimRight());
 }
 
 /// An assembly over a temp workspace whose provider plays [script]. No
@@ -56,13 +53,13 @@ final class CapturedWriter implements AssemblyWriter {
 
 void main() {
   group('headless by construction', () {
-    test('a session assembles with no terminal and runs a full turn',
+    test('a session assembles without a physical terminal and runs a full turn',
         () async {
       final env = _assembly([
         scriptedReply('the model answered'),
       ]);
-      expect(env.assembly.services.maybe<Terminal>(), isNull,
-          reason: 'no front end registered a terminal');
+      expect(env.assembly.terminal, isA<TuiTerminal>(),
+          reason: 'output is buffered without physical terminal I/O');
       await env.assembly.host.send('say something');
       expect(env.provider.callCount, 1);
       expect(env.assembly.host.session.lastReply, 'the model answered');
@@ -87,16 +84,16 @@ void main() {
       final env = _assembly([
         scriptedReply('should not run'),
       ]);
-      final again = env.assembly.handleCommand('/frobnicate');
+      final again = await env.assembly.handleCommand('/frobnicate');
       expect(again, isTrue, reason: 'a refused command is not a crash');
       expect(env.writer.lines.last, 'unknown command: /frobnicate');
       expect(env.provider.callCount, 0);
       env.assembly.close();
     });
 
-    test('/quit flags the loop to stop', () {
+    test('/quit flags the loop to stop', () async {
       final env = _assembly([]);
-      final again = env.assembly.handleCommand('/quit');
+      final again = await env.assembly.handleCommand('/quit');
       expect(again, isFalse);
       expect(env.assembly.quitRequested, isTrue);
       expect(env.writer.text, isEmpty, reason: '/quit says nothing');
@@ -107,7 +104,7 @@ void main() {
       final env = _assembly([
         scriptedReply('should not run'),
       ]);
-      expect(env.assembly.handleCommand('plain words'), isTrue);
+      expect(await env.assembly.handleCommand('plain words'), isTrue);
       expect(env.writer.text, isEmpty);
       expect(env.provider.callCount, 0,
           reason: 'turns are the front end\u2019s call, via host.send');
@@ -116,7 +113,7 @@ void main() {
 
     test('/mode prints the current mode without a turn', () async {
       final env = _assembly([]);
-      env.assembly.handleCommand('/mode');
+      await env.assembly.handleCommand('/mode');
       // Headless: there is no terminal in the slot, so the plugin's
       // tell is dropped — the mode value is the fact a front end would
       // render.
@@ -127,20 +124,18 @@ void main() {
 
     test('/mode with junk changes nothing and says so', () async {
       final env = _assembly([]);
-      env.assembly.handleCommand('/mode sideways');
+      await env.assembly.handleCommand('/mode sideways');
       // The mode did not move — the enum stays behind the service; the
       // vocabulary names it.
-      expect(
-          ModeCommandPlugin.wordFor(
-              env.assembly.services.get<ModeControl>().mode),
-          'normal');
+      expect(ModeCommandPlugin.wordFor(env.assembly.tools.mode), 'normal');
       env.assembly.close();
     });
 
-    test('the assembly is mode-blind: no mode enum is imported here, the '
+    test(
+        'the assembly is mode-blind: no mode enum is imported here, the '
         'dispatch goes by name', () {
       final env = _assembly([]);
-      expect(env.assembly.services.get<ModeControl>(), isNotNull);
+      expect(env.assembly.tools, isNotNull);
       expect(env.assembly.commands['mode'], isNotNull);
       expect(env.assembly.commands['quit'], isNotNull);
       env.assembly.close();
@@ -169,8 +164,7 @@ void main() {
       expect(block.isError, isFalse);
       // The file was actually written into the workspace.
       expect(
-          File(
-              '${env.assembly.host.config.workingDirectory}/hello.txt')
+          File('${env.assembly.host.config.workingDirectory}/hello.txt')
               .readAsStringSync(),
           'from the model');
       env.assembly.close();
@@ -179,16 +173,13 @@ void main() {
     test('a failing command is a normal result, not a refusal', () async {
       final env = _assembly([
         scriptedReply('', calls: [
-          ToolUseBlock(
-              id: 'c1',
-              name: 'exec',
-              input: {
-                'program': 'ls',
-                // A relative name stays inside the session's writable
-                // directories, so the gate lets it run — and it exits
-                // non-zero because nothing by that name exists.
-                'args': ['definitely-not-here'],
-              }),
+          ToolUseBlock(id: 'c1', name: 'exec', input: {
+            'program': 'ls',
+            // A relative name stays inside the session's writable
+            // directories, so the gate lets it run — and it exits
+            // non-zero because nothing by that name exists.
+            'args': ['definitely-not-here'],
+          }),
         ]),
         scriptedReply('the command failed as asked'),
       ]);
@@ -198,11 +189,14 @@ void main() {
       final block = resultMessage.content.whereType<ToolResultBlock>().single;
       expect(block.isError, isFalse,
           reason: 'a failing command is a normal result');
-      expect(block.content, contains('exit code: 2'));
+      // BSD ls returns 1; GNU ls returns 2 for the same missing file.
+      expect(block.content, matches(r'exit code: [1-9][0-9]*'));
+      expect(block.content, contains('definitely-not-here'));
       env.assembly.close();
     });
 
-    test('a write outside the workspace is refused — no approver, fail '
+    test(
+        'a write outside the workspace is refused — unattached channel, fail '
         'closed', () async {
       final env = _assembly([
         scriptedReply('', calls: [
@@ -219,12 +213,13 @@ void main() {
       final block = resultMessage.content.whereType<ToolResultBlock>().single;
       expect(block.isError, isTrue,
           reason: 'the refusal reaches the model as an error result');
-      expect(block.content, contains('no approver is wired'));
+      expect(block.content, contains('approval denied or cancelled'));
       expect(File('/etc/tina-must-not-write').existsSync(), isFalse);
       env.assembly.close();
     });
 
-    test('a model error surfaces as a stopped turn and the session keeps '
+    test(
+        'a model error surfaces as a stopped turn and the session keeps '
         'going', () async {
       final env = _assembly([
         [const StreamError('key rejected', providerCode: 'auth')],
@@ -240,7 +235,8 @@ void main() {
   });
 
   group('/mode read-only: the boundary refuses, then relents', () {
-    test('a write is refused and the refusal reaches the model as that '
+    test(
+        'a write is refused and the refusal reaches the model as that '
         'call\u2019s tool result', () async {
       final env = _assembly([
         scriptedReply('', calls: [
@@ -251,11 +247,8 @@ void main() {
         ]),
         scriptedReply('acknowledged the refusal'),
       ]);
-      env.assembly.handleCommand('/mode read-only');
-      expect(
-          ModeCommandPlugin.wordFor(
-              env.assembly.services.get<ModeControl>().mode),
-          'read-only');
+      await env.assembly.handleCommand('/mode read-only');
+      expect(ModeCommandPlugin.wordFor(env.assembly.tools.mode), 'read-only');
 
       await env.assembly.host.send('write a file');
       final last = env.provider.requests.last;
@@ -265,8 +258,7 @@ void main() {
       expect(block.isError, isTrue);
       expect(block.content, contains('read-only'));
       expect(
-          File(
-              '${env.assembly.host.config.workingDirectory}/blocked.txt')
+          File('${env.assembly.host.config.workingDirectory}/blocked.txt')
               .existsSync(),
           isFalse);
       env.assembly.close();
@@ -282,17 +274,13 @@ void main() {
         ]),
         scriptedReply('done'),
       ]);
-      env.assembly.handleCommand('/mode read-only');
-      env.assembly.handleCommand('/mode normal');
-      expect(
-          ModeCommandPlugin.wordFor(
-              env.assembly.services.get<ModeControl>().mode),
-          'normal');
+      await env.assembly.handleCommand('/mode read-only');
+      await env.assembly.handleCommand('/mode normal');
+      expect(ModeCommandPlugin.wordFor(env.assembly.tools.mode), 'normal');
 
       await env.assembly.host.send('write it now');
       expect(
-          File(
-              '${env.assembly.host.config.workingDirectory}/later.txt')
+          File('${env.assembly.host.config.workingDirectory}/later.txt')
               .readAsStringSync(),
           'now it works');
       env.assembly.close();

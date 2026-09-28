@@ -16,3 +16,5 @@ export 'src/openai_compatible_provider.dart';
 export 'src/request.dart';
 export 'src/sse.dart';
 export 'src/streaming.dart';
+
+export 'src/generation_options.dart';

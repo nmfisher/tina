@@ -1,21 +1,7 @@
-/// The TUI's command front end: the registry the assembly publishes
-/// into, presented the TUI's way.
-///
-/// The split this file exists for: **deciding** what a line means is a
-/// pure function — [dispatchLine], strings and the registry in, a
-/// [CommandDecision] out, tested without a terminal — and **acting** on
-/// the decision is two small impure steps ([RunCommand.run],
-/// [UnknownCommand.report]) that touch only what the decision already
-/// carries. The TUI never hardcodes a command name: whatever a plugin
-/// published into `Commands` is exactly what runs.
-///
-/// Registration is the assembly's job, before anything reads: the locator
-/// receives the [Terminal] and the [Commands] together
-/// (`services..put<Terminal>(t)..put<Commands>(c)…`),
-/// so a plugin resolving at use always finds both.
 library;
 
-import 'package:tina_services/tina_services.dart';
+import 'package:tina_core/tina_core.dart';
+import 'package:tina_host/tina_host.dart';
 
 /// What one entered line means. A pure value — no terminal, no I/O.
 sealed class CommandDecision {
@@ -30,7 +16,7 @@ final class RunCommand extends CommandDecision {
   const RunCommand(this.command, this.argument);
 
   /// The handler runs; it reports through the [Terminal] it resolves.
-  void run() => command.handler(argument);
+  Future<void> run() async => await command.handler(argument);
 }
 
 /// The line was `/word` but no plugin published that word. Reported,

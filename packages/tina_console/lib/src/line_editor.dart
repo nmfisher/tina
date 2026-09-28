@@ -318,8 +318,6 @@ class LineEditor {
     // a later readKey such as an approval prompt, or the approval consumes a
     // leftover paste char (not y/a/d) as a deny. Drop them instead.
     final burstOpen = _burstTimer != null;
-    _burstTimer?.cancel();
-    _burstTimer = null;
     if (burstOpen && _pending.isNotEmpty) {
       if (PasteAudit.enabled) {
         PasteAudit.log(
@@ -327,8 +325,17 @@ class LineEditor {
           '${_pending.length} pending overflow events',
         );
       }
-      return _pending.removeAt(0);
+      // Keep the remaining burst alive while a chained form consumes it.
+      // Cancelling the timer before returning the first overflow character
+      // made the next read drop every remaining character.
+      final event = _pending.removeAt(0);
+      _burstTimer?.cancel();
+      _burstTimer = Timer(
+          Duration(milliseconds: _burstWindowMs), () => _burstTimer = null);
+      return event;
     }
+    _burstTimer?.cancel();
+    _burstTimer = null;
     if (PasteAudit.enabled && _pending.isNotEmpty) {
       PasteAudit.log(
         'readKey: burst window EXPIRED, DROPPING ${_pending.length} '
@@ -412,7 +419,13 @@ class LineEditor {
   }) {
     _cancelHandler = onCancel;
     _onQueueSubmit = onQueueSubmit;
-    _qEdit = const TextLineInput();
+    final draft = _capturedDraft;
+    if (onQueueSubmit != null && draft != null) {
+      _qEdit = TextLineInput(buffer: draft.buffer, cursor: draft.cursor);
+      _capturedDraft = null;
+    } else {
+      _qEdit = const TextLineInput();
+    }
     _qCount = queueCount;
     _queueModeActive = onQueueSubmit != null;
     if (_queueModeActive) _renderQueueDisplay();
@@ -544,6 +557,7 @@ class LineEditor {
   /// CharInput events. Paste bytes arrive within microseconds; normal typing
   /// has 30+ ms between key events.
   static const _burstWindowMs = 10;
+  bool _burstForm = false;
 
   /// Release input and UI resources while the screen is still alive. Hosts
   /// leaving an alternate screen can defer diagnostics until normal stdout
@@ -883,6 +897,7 @@ class LineEditor {
           'readKey ANSWERED by $event (global=$_keyCompleterGlobal)',
         );
       }
+      _burstForm = !_keyCompleterGlobal;
       c.complete(event);
       // After completing a readKey, open a short burst window during which
       // overflow CharInput events (from a paste) are queued rather than
@@ -901,7 +916,11 @@ class LineEditor {
     }
     // Overflow CharInput from a paste burst that arrived before readKey
     // could re-arm _keyCompleter.
-    if (_burstTimer != null && event is CharInput) {
+    if (_burstTimer != null &&
+        (event is CharInput ||
+            (_burstForm &&
+                (event is PasteInput ||
+                    event is ControlKey && event.code == ControlCode.enter)))) {
       _pending.add(event);
       if (PasteAudit.enabled && _pending.length == 1) {
         PasteAudit.log(
@@ -1297,7 +1316,13 @@ class LineEditor {
             _complete(result);
           case ControlCode.tab:
             final tabActive = _activePicker;
-            if (tabActive != null) _acceptPicker(tabActive);
+            if (tabActive != null) {
+              _acceptPicker(tabActive);
+            } else if (commandProvider != null &&
+                _edit.buffer.startsWith('/')) {
+              _commandPicker.open(0);
+              unawaited(_commandPicker.refresh(_edit.buffer, _edit.cursor));
+            }
           case ControlCode.backspace:
             _dialog.dismiss();
             _edit = _edit.backspace();

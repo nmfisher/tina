@@ -1,0 +1,18 @@
+name: tina_self_update
+description: Verified release installation and the tina/update plugin.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_host:
+    path: ../../tina_host
+  tina_approvals:
+    path: ../tina_approvals
+  http: ^1.2.0
+  logging: ^1.3.0
+  path: ^1.9.0
+dev_dependencies:
+  test: ^1.25.0

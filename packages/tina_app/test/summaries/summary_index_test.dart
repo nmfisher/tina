@@ -26,10 +26,10 @@ void main() {
     Directory('${project.path}/test')..createSync();
     File('${project.path}/test/t.dart').writeAsStringSync('// t\n');
     Directory(
-      '${project.path}/packages/tina_index/lib',
+      '${project.path}/packages/plugins/tina_index/lib',
     ).createSync(recursive: true);
     File(
-      '${project.path}/packages/tina_index/lib/i.dart',
+      '${project.path}/packages/plugins/tina_index/lib/i.dart',
     ).writeAsStringSync('// i\n');
     _git(project, ['init']);
     _git(project, ['add', '-A']);
@@ -74,7 +74,7 @@ void main() {
     () async {
       final s = await _index().status();
       expect(s.firstRun, isTrue);
-      // lib, test, packages (top-level), packages/tina_index/lib.
+      // lib, test, packages (top-level), packages/plugins/tina_index/lib.
       expect(s.totalDirs, 4);
       expect(s.staleCount, s.totalDirs); // nothing indexed yet → all stale
       expect(s.allStale, isTrue);
@@ -127,7 +127,10 @@ void main() {
     () async {
       final s = await _index().status();
       expect(s.hasAllocations, isFalse);
-      expect(s.totalDirs, 4); // lib, test, packages, packages/tina_index/lib.
+      expect(
+        s.totalDirs,
+        4,
+      ); // lib, test, packages, packages/plugins/tina_index/lib.
     },
   );
 

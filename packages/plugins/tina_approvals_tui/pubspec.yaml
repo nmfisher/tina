@@ -1,0 +1,19 @@
+name: tina_approvals_tui
+description: Console approval channel plugin, independent of the application.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_host:
+    path: ../../tina_host
+  tina_console:
+    path: ../../tina_console
+  tina_approvals:
+    path: ../tina_approvals
+dev_dependencies:
+  test: ^1.25.0

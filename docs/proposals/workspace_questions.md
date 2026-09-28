@@ -171,7 +171,7 @@ to end; nothing after E0 is speculative.
 Parallelization (two waves):
 
 - **Wave 1, fully disjoint — E0, E2-seam, E3-renderer.** E0 owns
-  `packages/classifier/**`. The E2 seam (turn-completed event) owns
+  `packages/libraries/classifier/**`. The E2 seam (turn-completed event) owns
   `packages/tina_engine/**` and does not need E0 at all — check
   `AgentEventBus` first; if it already publishes turn completion, this track
   is zero code. The E3 status model + renderer can be built against the
@@ -198,7 +198,7 @@ the runner directly.
 
 ### E0 — traversal engine core
 
-`packages/classifier/lib/src/traversal/` — `spec.dart` (types, JSON decode,
+`packages/libraries/classifier/lib/src/traversal/` — `spec.dart` (types, JSON decode,
 `validateSpec`, canonical JSON, fingerprint), `conditions.dart`,
 `runner.dart`; export via the judgments barrel:
 
@@ -213,7 +213,7 @@ the runner directly.
 
 Tests: branch-taken and branch-skipped matrices, depth and node caps,
 malformed condition = false, cancellation mid-tree, empty spec = zero model
-requests, fingerprint stability. These land in `packages/classifier/test`
+requests, fingerprint stability. These land in `packages/libraries/classifier/test`
 alongside the existing judgment-runner tests.
 
 ### E1 — user-message trigger adapter (proves interception)

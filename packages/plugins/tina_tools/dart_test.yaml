@@ -1,0 +1,20 @@
+
+# Two live tags, both skipped by default so plain `dart test` never opens
+# a socket or needs a confinement binary:
+#
+# - `live` (test/live_smoke_test.dart): needs a real endpoint token
+#   (TINA_LLM_TOKEN / ANTHROPIC_API_KEY):
+#
+#       dart test --tags live --run-skipped
+#
+# - `live-os-sandbox` (test/live_os_sandbox_test.dart): needs a real OS
+#   sandbox backend (bwrap or sandbox-exec); skips itself when the host
+#   has none:
+#
+#       dart test --tags live-os-sandbox --run-skipped
+#
+tags:
+  live:
+    skip: "live smoke test: needs TINA_LLM_TOKEN in the environment; run with --tags live --run-skipped"
+  live-os-sandbox:
+    skip: "live OS-sandbox escape test: needs bwrap or sandbox-exec on the host; run with --tags live-os-sandbox --run-skipped"

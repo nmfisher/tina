@@ -52,7 +52,7 @@ class WriteSummaryTool implements Tool {
             'dir': {
               'type': 'string',
               'description': 'The summarized directory, repo-relative '
-                  '(e.g. "lib", "packages/tina_index/lib").',
+                  '(e.g. "lib", "packages/plugins/tina_index/lib").',
             },
             'content': {
               'type': 'string',
@@ -147,7 +147,7 @@ class _GitFailure {
 }
 
 /// Slug a repo-relative dir path into a flat, collision-free filename by
-/// percent-encoding: `lib` → `lib`, `packages/tina_index/lib` →
+/// percent-encoding: `lib` → `lib`, `packages/plugins/tina_index/lib` →
 /// `packages%2Ftina_index%2Flib`. Encoding `%` itself makes the mapping
 /// injective — a directory literally named `a__b` can never collide with
 /// `a/b` (the old `__` separator had exactly that collision).

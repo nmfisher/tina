@@ -116,7 +116,7 @@ packages:
   file_tree:
     dependency: "direct main"
     description:
-      path: "../file_tree"
+      path: "../libraries/file_tree"
       relative: true
     source: path
     version: "0.1.0"
@@ -387,7 +387,7 @@ packages:
   tina_index:
     dependency: "direct main"
     description:
-      path: "../tina_index"
+      path: "../plugins/tina_index"
       relative: true
     source: path
     version: "0.1.0"

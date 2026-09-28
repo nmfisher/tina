@@ -61,7 +61,10 @@ void main() {
         if (step is! Map) continue;
         final dir = step['working-directory'];
         if (dir is! String) continue;
-        final package = RegExp(r'^packages/([^/]+)$').firstMatch(dir)?.group(1);
+        final package = (policy['packagePaths'] as Map).entries
+            .where((entry) => entry.value == dir)
+            .map((entry) => entry.key as String)
+            .firstOrNull;
         if (package != null) {
           coverage.putIfAbsent(package, () => <String>{}).add(jobKey as String);
         } else if (dir == '.') {

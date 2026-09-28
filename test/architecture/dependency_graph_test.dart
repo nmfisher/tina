@@ -69,6 +69,131 @@ void main() {
   setUp(() => f = Fixture());
   tearDown(() => f.close());
 
+  test('runtime dependency allowlists reject concrete plugin dependencies', () {
+    f.package('plugin');
+    f.package('engine', dependencies: ['plugin']);
+    final violations = f
+        .policy({
+          'runtimeDependencies': {'engine': <String>[]},
+        })
+        .check(f.graph())
+        .where((v) => v.rule == 'runtime-boundary');
+    expect(violations.single.path, ['engine', 'plugin']);
+  });
+
+  test('runtime allowlists include imports missing from the manifest', () {
+    f.package('plugin');
+    f.write('packages/plugin/lib/plugin.dart', '');
+    f.write(
+      'packages/engine/lib/engine.dart',
+      "import 'package:plugin/plugin.dart';",
+    );
+    final violations = f
+        .policy({
+          'runtimeDependencies': {'engine': <String>[]},
+        })
+        .check(f.graph())
+        .where((v) => v.rule == 'runtime-boundary');
+    expect(violations.single.path, ['engine', 'plugin']);
+  });
+
+  test('plugin-free packages cannot reach plugins through an adapter', () {
+    f.package('plugin');
+    f.package('adapter', dependencies: ['plugin']);
+    f.package('engine', dependencies: ['adapter']);
+    final violations = f
+        .policy({
+          'pluginFreePackages': ['engine'],
+          'packagePaths': {'plugin': 'packages/plugins/plugin'},
+        })
+        .check(f.graph())
+        .where((v) => v.rule == 'runtime-boundary');
+    expect(violations.single.path, ['engine', 'adapter', 'plugin']);
+  });
+
+  test('nested plugin packages must have classified paths', () {
+    final policy = f.policy({
+      'frontendRoots': [],
+      'assemblyRoots': [],
+      'serviceRoots': [],
+      'finalComposition': [],
+      'packagePaths': {
+        for (final name in f.packages.keys)
+          name: name == 'tina' ? '.' : 'packages/$name',
+      },
+    });
+    f.write('packages/plugins/new_plugin/pubspec.yaml', 'name: new_plugin');
+    expect(() => policy.validateWorkspace(f.root), throwsStateError);
+    policy.data['ownedPackages'].add('new_plugin');
+    policy.data['sourceRoots']['new_plugin'] = ['lib'];
+    policy.data['packagePaths']['new_plugin'] = 'packages/plugins/new_plugin';
+    expect(() => policy.validateWorkspace(f.root), returnsNormally);
+    policy.data['packagePaths']['new_plugin'] = 'packages/new_plugin';
+    expect(() => policy.validateWorkspace(f.root), throwsStateError);
+  });
+
+  test('deferred packages remain standalone and legacy use is explicit', () {
+    f.package('attractor');
+    f.package('tina', dependencies: ['attractor']);
+    final policy = f.policy({
+      'deferredPackages': {
+        'attractor': ['tina'],
+      },
+    });
+    expect(policy.check(f.graph()), isEmpty);
+  });
+
+  test('deferred packages cannot return through a transitive dependency', () {
+    f.package('attractor');
+    f.package('adapter', dependencies: ['attractor']);
+    f.package('engine', dependencies: ['adapter']);
+    final violations = f
+        .policy({
+          'deferredPackages': {
+            'attractor': ['adapter'],
+          },
+        })
+        .check(f.graph())
+        .where((v) => v.rule == 'deferred-package');
+    expect(
+      violations.map((v) => v.path),
+      contains(equals(['engine', 'adapter', 'attractor'])),
+    );
+    expect(
+      violations,
+      hasLength(1),
+      reason: 'the adapter is allowed; its consumers are not',
+    );
+  });
+
+  test('a deferred workflow plugin cannot be mounted by the host', () {
+    f.package('workflows');
+    f.package('engine', dependencies: ['workflows']);
+    final violations = f
+        .policy({
+          'deferredPackages': {'workflows': <String>[]},
+        })
+        .check(f.graph())
+        .where((v) => v.rule == 'deferred-package');
+    expect(violations.single.path, ['engine', 'workflows']);
+  });
+
+  test('deferred package imports are caught even without a manifest edge', () {
+    f.package('attractor');
+    f.write('packages/attractor/lib/attractor.dart', '');
+    f.write(
+      'packages/engine/lib/engine.dart',
+      "import 'package:attractor/attractor.dart';",
+    );
+    final violations = f
+        .policy({
+          'deferredPackages': {'attractor': <String>[]},
+        })
+        .check(f.graph())
+        .where((v) => v.rule == 'deferred-package');
+    expect(violations.single.path, ['engine', 'attractor']);
+  });
+
   test(
     'multiline imports, exports and inactive conditional branches use shortest paths',
     () {
@@ -207,9 +332,9 @@ void main() {
       // but records nothing from it. Gating works as it did for the
       // tina_cli parity test: an owned file reaches the terminal barrel
       // directly, and the traversal continues through foreign files.
-      Directory(p.join(f.root, 'packages/foreign/lib')).createSync(
-        recursive: true,
-      );
+      Directory(
+        p.join(f.root, 'packages/foreign/lib'),
+      ).createSync(recursive: true);
       File(
         p.join(f.root, 'packages/foreign/pubspec.yaml'),
       ).writeAsStringSync('name: foreign\n');

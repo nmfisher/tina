@@ -10,7 +10,7 @@ Language detection defaults to local extension matching. `/index jev` selects
 the model-based language implementation; both methods accept `status` and
 `refresh`. Framework and tooling classifications use Typesafe/JEV in either mode.
 
-The reusable API is documented in [classifier](../../packages/classifier/README.md).
+The reusable API is documented in [classifier](../../packages/libraries/classifier/README.md).
 The project feature is an application recipe built on that API. Paths, repository
 queries, directory discovery, label types and project classifiers live in
 `packages/tina_app/lib/src/classification`. The generic classifier package has no

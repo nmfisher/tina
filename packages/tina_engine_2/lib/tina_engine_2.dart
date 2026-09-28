@@ -11,3 +11,5 @@ export 'src/provider.dart';
 export 'src/tee_provider.dart';
 
 export 'package:tina_core/tina_core.dart';
+
+export 'src/tool_execution.dart';

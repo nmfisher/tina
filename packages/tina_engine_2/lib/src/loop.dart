@@ -28,7 +28,7 @@
 /// `LlmProvider.send`.
 library;
 
-import 'dart:async' show StreamController, unawaited;
+import 'dart:async' show StreamController, StreamSubscription, unawaited;
 import 'dart:collection';
 
 import 'package:tina_core/tina_core.dart';
@@ -36,6 +36,7 @@ import 'package:tina_core/tina_core.dart';
 import 'context.dart';
 import 'model.dart';
 import 'plugin.dart';
+import 'tool_execution.dart';
 
 /// Why an entry reached a listener: [LogEvent.appended] as it landed (in
 /// order, exactly once per entry), [LogEvent.replay] when a listener
@@ -44,7 +45,8 @@ enum LogEvent { appended, replay }
 
 String _now() => DateTime.now().toUtc().toIso8601String();
 
-TurnStopReason _turnReason(StopReason r) => TurnStopReason.values.byName(r.name);
+TurnStopReason _turnReason(StopReason r) =>
+    TurnStopReason.values.byName(r.name);
 
 final class _LogListener {
   _LogListener(this.id, this.onEntry);
@@ -60,8 +62,8 @@ final class AgentLoop {
     this.maxStepsPerTurn = 16,
     SessionSettings settings = const SessionSettings(),
     List<SessionEntry> seedLog = const [],
-  }) : _provider = provider,
-       _settings = settings {
+  })  : _provider = provider,
+        _settings = settings {
     _log.addAll(seedLog);
     _seq = _log.length;
     for (final p in plugins) {
@@ -80,8 +82,9 @@ final class AgentLoop {
   /// Plugins in registration order. A duplicate id throws here.
   final LinkedHashMap<String, AgentPlugin> _byId = LinkedHashMap();
 
-  /// The one cancellation path. Set once; there is no unset.
-  final CancelToken _cancel = CancelToken();
+  /// One token per turn; contexts retain their token after the turn ends.
+  CancelToken _cancel = CancelToken();
+  bool _running = false;
 
   /// The session log — the loop's only conversation state. Append-only;
   /// `_seq` is the next entry's position, so a store that persists by
@@ -100,17 +103,23 @@ final class AgentLoop {
   /// between-turns operation and refuses to run mid-turn.
   bool _inTurn = false;
 
+  /// Whether a foreground turn is constructing or consuming model requests.
+  bool get inTurn => _inTurn;
+  bool get running => _running;
+
   /// Run order: ascending [AgentPlugin.order], ties broken by id, so the
   /// sequence is the same every run.
   List<AgentPlugin> _inOrder() {
     final list = _byId.values.toList()
-      ..sort((a, b) =>
-          a.order != b.order ? a.order.compareTo(b.order) : a.id.compareTo(b.id));
+      ..sort((a, b) => a.order != b.order
+          ? a.order.compareTo(b.order)
+          : a.id.compareTo(b.id));
     return list;
   }
 
   /// Register a plugin. A duplicate id throws.
   void addPlugin(AgentPlugin plugin) {
+    validatePluginId(plugin.id);
     if (_byId.containsKey(plugin.id)) {
       throw ArgumentError('duplicate plugin id: ${plugin.id}');
     }
@@ -118,19 +127,61 @@ final class AgentLoop {
   }
 
   /// Remove a plugin. Dispatch re-checks liveness.
-  void removePlugin(String id) => _byId.remove(id);
+  void removePlugin(String id) {
+    _byId.remove(id);
+    for (final name in _executorOwners.keys
+        .where((name) => _executorOwners[name] == id)
+        .toList()) {
+      _executors.remove(name);
+      _executorOwners.remove(name);
+    }
+    for (final handle in _listenerOwners.keys
+        .where((handle) => _listenerOwners[handle] == id)
+        .toList()) {
+      unsubscribe(handle);
+    }
+  }
+
+  String? _mounting;
+  final _executorOwners = <String, String>{};
+  final _listenerOwners = <int, String>{};
+
+  /// Track registrations made by the plugin, including partial mounts.
+  void mountPlugin(AgentPlugin plugin) {
+    if (_mounting != null) throw StateError('nested plugin mount');
+    _mounting = plugin.id;
+    try {
+      plugin.mountOn(this);
+    } finally {
+      _mounting = null;
+    }
+  }
 
   /// Give a tool its executor. Executors are not part of [ToolSchema]: they
   /// run in-process and return the full [ToolResult] — content plus flags —
   /// and `afterToolResult` can replace what they returned. An existing
   /// string-returning function wraps with [stringExecutor].
-  void registerExecutor(
-      String tool, Future<ToolResult> Function(Map<String, Object?>) exec) {
+  void registerExecutor(String tool,
+          Future<ToolResult> Function(Map<String, Object?>) exec) =>
+      registerContextExecutor(tool, (input, _) => exec(input));
+
+  void registerContextExecutor(String tool, ContextToolExecutor exec) {
+    final owner = _mounting;
+    if (owner != null &&
+        _executors.containsKey(tool) &&
+        _executorOwners[tool] != owner) {
+      throw StateError('executor "$tool" is already registered');
+    }
     _executors[tool] = exec;
+    if (owner != null) _executorOwners[tool] = owner;
   }
 
-  final Map<String, Future<ToolResult> Function(Map<String, Object?>)>
-      _executors = {};
+  final Map<String, ContextToolExecutor> _executors = {};
+
+  final _toolActivity = StreamController<ToolActivity>.broadcast(sync: true);
+
+  /// Live execution observations. Results in the log remain authoritative.
+  Stream<ToolActivity> get toolActivity => _toolActivity.stream;
 
   /// The one cancellation path.
   ///
@@ -168,8 +219,8 @@ final class AgentLoop {
   String get mode => _settings.mode;
 
   set mode(String newMode) {
-    _settings = SessionSettings(
-        systemPrompt: _settings.systemPrompt, mode: newMode);
+    _settings =
+        SessionSettings(systemPrompt: _settings.systemPrompt, mode: newMode);
     _append(ModeChangedEntry(mode: newMode, at: _now()));
   }
 
@@ -180,6 +231,7 @@ final class AgentLoop {
   /// [unsubscribe]. Entry payloads are immutable; listeners may keep them.
   int subscribe(void Function(SessionEntry entry, LogEvent event) onEntry) {
     final id = _nextListenerId++;
+    if (_mounting != null) _listenerOwners[id] = _mounting!;
     _listeners.add(_LogListener(id, onEntry));
     for (final e in _log) {
       onEntry(e, LogEvent.replay);
@@ -187,8 +239,10 @@ final class AgentLoop {
     return id;
   }
 
-  void unsubscribe(int handle) =>
-      _listeners.removeWhere((l) => l.id == handle);
+  void unsubscribe(int handle) {
+    _listeners.removeWhere((l) => l.id == handle);
+    _listenerOwners.remove(handle);
+  }
 
   /// Append to the log and publish to the listeners. The only write path;
   /// `_seq` is the entry's position, so the store's rows and this list
@@ -296,6 +350,18 @@ final class AgentLoop {
 
   /// The five steps of one turn, in order, in one pass.
   Future<Outcome> runTurn(Input raw) async {
+    if (_running) throw StateError('a turn is already running');
+    _running = true;
+    try {
+      return await _runTurn(raw);
+    } finally {
+      _running = false;
+      _inTurn = false;
+      _cancel = CancelToken();
+    }
+  }
+
+  Future<Outcome> _runTurn(Input raw) async {
     _inTurn = true;
     // ------------------------------------------------------------------
     // Step 1: take the input. The pinned tool set is snapshotted once,
@@ -338,7 +404,10 @@ final class AgentLoop {
     // through here, so a started turn always ends in the log.
     Outcome finish(StopReason reason, String detail) {
       _append(TurnEndedEntry(
-          turnId: turnId, reason: _turnReason(reason), usage: usage, at: _now()));
+          turnId: turnId,
+          reason: _turnReason(reason),
+          usage: usage,
+          at: _now()));
       _inTurn = false;
       final outcome = Outcome(
           stopReason: reason,
@@ -382,10 +451,9 @@ final class AgentLoop {
               at: _now()));
         }
       }
-      final user = Message(
-          role: Role.user, content: [TextBlock(ctx.input.text)]);
-      _append(MessageAppendedEntry(
-          turnId: turnId, message: user, at: _now()));
+      final user =
+          Message(role: Role.user, content: [TextBlock(ctx.input.text)]);
+      _append(MessageAppendedEntry(turnId: turnId, message: user, at: _now()));
       appended.add(user);
 
       // ------------------------------------------------------------------
@@ -430,34 +498,37 @@ final class AgentLoop {
         MessageComplete? completion;
         StreamError? failure;
         Object? thrown;
-        // The call is served through a controller the loop owns: the
-        // events are pumped in verbatim, and [cancel] closes the
-        // controller from outside to end the await mid-call. The pump
-        // never awaits the source — a cancelled stream whose events are
-        // dropped is exactly the point.
+        // The loop owns the receiving controller so cancellation ends the
+        // turn promptly, even if provider cleanup itself is slow.
         final call = StreamController<StreamEvent>();
+        StreamSubscription<StreamEvent>? source;
         _modelCall = call;
         if (_cancel.cancelled) {
-          // A cancel that raced the setup closes the stream before the
-          // await sees it; the flag check below ends the turn.
           unawaited(call.close());
         } else {
-          unawaited(() async {
-            try {
-              await for (final event in _provider.send(
-                  system: request.systemPrompt,
-                  messages: request.messages,
-                  tools: request.tools)) {
+          try {
+            source = _provider
+                .send(
+              system: request.systemPrompt,
+              messages: request.messages,
+              tools: request.tools,
+            )
+                .listen(
+              (event) {
                 if (!call.isClosed) call.add(event);
-              }
-              await call.close();
-            } catch (e) {
-              // A cancel racing the pump already closed the controller;
-              // the cancel reason wins, the error has nowhere to go.
-              if (!call.isClosed) call.addError(e);
-              await call.close();
-            }
-          }());
+              },
+              onError: (Object error, StackTrace trace) {
+                if (!call.isClosed) call.addError(error, trace);
+                unawaited(call.close());
+              },
+              onDone: () {
+                unawaited(call.close());
+              },
+            );
+          } catch (error, trace) {
+            call.addError(error, trace);
+            unawaited(call.close());
+          }
         }
         try {
           await for (final event in call.stream) {
@@ -480,32 +551,41 @@ final class AgentLoop {
           }
         } catch (e) {
           thrown = e; // the turn ends below, at the single StreamError exit
+        } finally {
+          // Cancel delivery now; do not block a turn on a stuck transport's
+          // asynchronous cleanup. Late source errors have no consumer.
+          unawaited(source?.cancel().catchError((Object _) {}));
         }
         // The call is over — the next step's call, if any, gets its own
         // controller; a [cancel] between calls stops by flag alone.
         _modelCall = null;
+        void recordPartialText() {
+          if (deltaText.isEmpty) return;
+          // Only completed text deltas are retained, never unfinished tool
+          // calls. What was shown before interruption survives session resume.
+          final partial = Message(
+              role: Role.assistant, content: [TextBlock(deltaText.toString())]);
+          requests.add(request.snapshot());
+          _append(MessageAppendedEntry(
+              turnId: turnId, message: partial, at: _now()));
+          appended.add(partial);
+          responses.add(partial);
+        }
+
         // A cancel that closed the stream mid-call (or raced the setup)
         // ends the turn here: the cancel is the truth, taking precedence
         // over whatever the stream had delivered — never misread as a
         // provider error or as a complete short reply.
         if (_cancel.cancelled) {
+          recordPartialText();
           return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
         }
         if (failure != null) {
+          recordPartialText();
           return finish(StopReason.error, 'provider error: ${failure.error}');
         }
         if (thrown != null) {
-          if (deltaText.isNotEmpty) {
-            // Keep the partial text the model managed to stream.
-            final partial = Message(
-                role: Role.assistant,
-                content: [TextBlock(deltaText.toString())]);
-            requests.add(request.snapshot());
-            _append(MessageAppendedEntry(
-                turnId: turnId, message: partial, at: _now()));
-            appended.add(partial);
-            responses.add(partial);
-          }
+          recordPartialText();
           return finish(StopReason.error, 'provider error: $thrown');
         }
         // A call announced by [ToolCallStart] whose block never arrived via
@@ -518,7 +598,8 @@ final class AgentLoop {
         // The pairing invariant is untouched: this case creates neither
         // side of the pair.
         final orphans = [
-          for (final s in starts) if (!blocksById.containsKey(s.id)) s
+          for (final s in starts)
+            if (!blocksById.containsKey(s.id)) s
         ];
         if (orphans.isNotEmpty) {
           return finish(
@@ -532,13 +613,12 @@ final class AgentLoop {
           for (final s in starts)
             ToolUse(id: s.id, name: s.name, input: blocksById[s.id]!.input),
         ];
-        final replyText = [
-          for (final b in blocks.whereType<TextBlock>()) b.text
-        ].join();
+        final replyText =
+            [for (final b in blocks.whereType<TextBlock>()) b.text].join();
         requests.add(request.snapshot());
         final reply = Message(role: Role.assistant, content: blocks);
-        _append(MessageAppendedEntry(
-            turnId: turnId, message: reply, at: _now()));
+        _append(
+            MessageAppendedEntry(turnId: turnId, message: reply, at: _now()));
         appended.add(reply);
         responses.add(reply);
         if (toolCalls.isEmpty) {
@@ -560,8 +640,7 @@ final class AgentLoop {
           } else {
             final owner = ownerOf[call.name];
             if (owner != null && !_byId.containsKey(owner)) {
-              result =
-                  ToolResult('skipped: plugin $owner left', isError: true);
+              result = ToolResult('skipped: plugin $owner left', isError: true);
             } else {
               ctx
                 ..call = call
@@ -590,32 +669,47 @@ final class AgentLoop {
                         ': ${decision.reason}',
                         isError: true);
               } else if (exec == null) {
-                result = ToolResult('no executor for ${call.name}',
-                    isError: true);
+                result =
+                    ToolResult('no executor for ${call.name}', isError: true);
               } else {
+                final cancel = _cancel;
+                var active = true;
+                _toolActivity.add(ToolStarted(call));
                 try {
-                  var recorded = await exec(call.input);
+                  var recorded = await exec(
+                      call.input,
+                      ToolExecutionContext(
+                        isCancelled: () => cancel.cancelled,
+                        whenCancelled: cancel.whenCancelled,
+                        report: (text, {isError = false}) {
+                          if (active && !cancel.cancelled && text.isNotEmpty) {
+                            _toolActivity
+                                .add(ToolOutput(call, text, isError: isError));
+                          }
+                        },
+                      ));
                   ctx.toolResult = recorded;
                   ctx = _phase(ctx, (p, c) => p.afterToolResult(c));
                   recorded = ctx.toolResult ?? recorded;
                   result = recorded;
                 } catch (e) {
                   result = ToolResult('tool threw: $e', isError: true);
+                } finally {
+                  active = false;
                 }
+                _toolActivity.add(ToolFinished(call, result));
               }
             }
           }
 
           // Step 5: append the result. Pairing holds even for a cancelled,
           // denied or skipped call: the core writes a result that says so.
-          final message = Message(
-              role: Role.user,
-              content: [
-                ToolResultBlock(
-                    toolUseId: call.id,
-                    content: result.content,
-                    isError: result.isError),
-              ]);
+          final message = Message(role: Role.user, content: [
+            ToolResultBlock(
+                toolUseId: call.id,
+                content: result.content,
+                isError: result.isError),
+          ]);
           _append(MessageAppendedEntry(
               turnId: turnId, message: message, at: _now()));
           appended.add(message);

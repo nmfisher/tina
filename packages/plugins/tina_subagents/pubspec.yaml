@@ -1,0 +1,23 @@
+name: tina_subagents
+description: >-
+  Sub-agents as a plugin: one tool that spawns a child session — its own
+  provider, its own log, the parent's working directory and mode — and
+  returns the child's final text. The limits (depth, concurrency, token
+  budget) are enforced here, and every refusal names the limit it hit.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_host:
+    path: ../../tina_host
+  tina_tools:
+    path: ../tina_tools
+dev_dependencies:
+  tina_persistence:
+    path: ../tina_persistence
+  test: ^1.25.0

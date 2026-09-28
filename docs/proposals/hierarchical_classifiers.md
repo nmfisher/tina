@@ -13,7 +13,7 @@ first-class abstraction: **if the answer to classifier A is X, route to
 classifier B** — expressed as data, checkpointed per stage, loadable from the
 workspace.
 
-**Core decision: the control plane already exists — `packages/attractor`.** A
+**Core decision: the control plane already exists — `packages/libraries/attractor`.** A
 classifier program is an attractor graph whose nodes are classifier stages.
 The earlier draft of this doc proposed inventing a `RoutePredicate` AST, a
 program scheduler, and a loop-budget policy; every one of those already exists
@@ -174,7 +174,7 @@ Attractor-as-control-plane keeps the *shared, human-facing* layer (format,
 editor, validator, conditions) in the package that already owns it, and the
 *specialized* layer (typed contracts, content-addressed caching, metering,
 freshness) in the package whose charter says "independent of the agent
-runtime" (`packages/classifier/pubspec.yaml`). Dependency direction stays
+runtime" (`packages/libraries/classifier/pubspec.yaml`). Dependency direction stays
 clean: `classifier` gains **no** dependency on `attractor`; `tina_app` composes
 both — the same seam where `classifyProject` and `workflow_supervisor` live
 today.

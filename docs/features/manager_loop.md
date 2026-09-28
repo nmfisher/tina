@@ -29,7 +29,7 @@ launchable default graph.
 
 This is the **manager loop pattern**. In the attractor vocabulary a `house`-shaped
 node maps to the `stack.manager_loop` handler type
-(`packages/attractor/lib/src/graph.dart:219`): a supervisor that **observes,
+(`packages/libraries/attractor/lib/src/graph.dart:219`): a supervisor that **observes,
 steers, and waits** over a child pipeline. Here the supervisor is the main-agent
 conversation; the child pipeline is a workflow run.
 
@@ -105,7 +105,7 @@ happen.
 
 Cancelling **terminates the traversal**. The engine checks its `cancelSignal`
 at the top of every step and before each retry delay
-(`packages/attractor/lib/src/engine.dart`); once it has completed, the run
+(`packages/libraries/attractor/lib/src/engine.dart`); once it has completed, the run
 finishes immediately with `Outcome.fail('cancelled')` at the current node —
 no `✖` cascade over the downstream nodes, and no post-cancel goal-gate loop.
 Each supervised run owns a private cancel completer;
@@ -173,15 +173,15 @@ the runner, the engine, and the parallel handler are unchanged.
 | `lib/pipeline/pipeline_commands.dart` | `/workflow run`+`stop` removed; `/workflow list\|show\|new\|edit` remain. Hints note workflows are launched by the agent. |
 | `lib/pipeline/workflow_supervisor.dart` | Live tracking: `WorkflowRun.nodeStatus` + `onEvent`/`onFinished` hooks and the `onLaunch` constructor hook; `WorkflowRun.sink` — the run's stream sink, installed by the host in `onLaunch` (launch is reordered so the hook fires before the runner starts). |
 | `lib/pipeline/pipeline_runner.dart` | `run()` gained an optional `onEvent` listener (the sink notices still fire) + `onNodeStart` — wired for TUI hosts only, it writes each node's dim header + full task into the panel transcript. |
-| `packages/attractor/…/engine.dart`, `node_handler.dart`, `handlers/parallel_handler.dart` | The engine threads its progress listener into `NodeHandler.execute`; parallel branches emit `node_*` events (removing the documented limitation). |
-| `packages/attractor/…/render/ascii_render.dart`, `run_status.dart` | `renderGraph` gained a `status` map → border glyphs per run state; new `NodeRunStatus` enum. |
+| `packages/libraries/attractor/…/engine.dart`, `node_handler.dart`, `handlers/parallel_handler.dart` | The engine threads its progress listener into `NodeHandler.execute`; parallel branches emit `node_*` events (removing the documented limitation). |
+| `packages/libraries/attractor/…/render/ascii_render.dart`, `run_status.dart` | `renderGraph` gained a `status` map → border glyphs per run state; new `NodeRunStatus` enum. |
 | `lib/tui/run_panel_content.dart` | **New.** `RunPanelContent` — the live run transcript (wraps the run's chat region; dim `input disabled — read-only` label row). |
 | `lib/tui/conversation_panel_coordinator.dart`, `packages/tina_console/…/conversation_panel.dart` | `bindExtra`/`unbindExtra` for non-conversation panels; `PanelFrame.onPanelKey` key hook. |
 | `lib/tui_coordinator.dart` | `onLaunch` → `_openRunPanel`/`_closeRunPanel` (auto-open transcript panel: `_makeSpawnedHost` + `run.sink`, `s` stop / `x` close, PgUp/PgDn scrollback, comet, no focus steal). |
 | `bin/tina.dart` | Seed message corrected; `--workflow <name>` still launches a workflow explicitly to completion (a separate scripting mode). Node writes prompt per write interactively; headless they auto-deny — pass `--yolo` or `--allow write`/`--allow edit` to let a headless workflow change files. |
 | `lib/pipeline/workflow_permission_asker.dart` | **New.** `WorkflowPermissionAsker` — renders a node agent's write/edit permission prompt (tool + preview) into the run panel and reads `y/n/a/d`. Serialized with human gates through the attention queue. |
 | `lib/tui/attention_queue.dart` | **New.** `AttentionQueue` — one serialized FIFO per TUI for modals (gates, loop-budget confirms, permission asks), so concurrent dialogs never race on `editor.readKey()`; a queued modal posts a dim "waiting for your input" notice to its run's sink. |
-| `packages/attractor/…/engine.dart` | Loop bounds: per-node visit cap (`max_node_visits`, default 8), whole-run step cap (`max_steps`, default 200), and per-gate retry budgets (`max_retries`) — exceeded budgets consult `onLoopBudgetExceeded`; interactive runs pause with a human gate (continue resets the budget / abort), headless fails with a clear reason. Transient backend errors fire `Outcome.retry` so `max_retries` finally runs; a failed node with no unconditional outgoing edge dead-ends the run instead of falling back to any edge. `--yolo` lifts the whole-run step cap (via `PipelineEngine.yolo`); the per-node visit cap stays hard — it is the only defense against cyclic graphs. |
+| `packages/libraries/attractor/…/engine.dart` | Loop bounds: per-node visit cap (`max_node_visits`, default 8), whole-run step cap (`max_steps`, default 200), and per-gate retry budgets (`max_retries`) — exceeded budgets consult `onLoopBudgetExceeded`; interactive runs pause with a human gate (continue resets the budget / abort), headless fails with a clear reason. Transient backend errors fire `Outcome.retry` so `max_retries` finally runs; a failed node with no unconditional outgoing edge dead-ends the run instead of falling back to any edge. `--yolo` lifts the whole-run step cap (via `PipelineEngine.yolo`); the per-node visit cap stays hard — it is the only defense against cyclic graphs. |
 | `lib/tui/run_panel_content.dart` | Label row now reads `s stop · x close · read-only workflow view` (the keys were always wired; the label now documents them). Ctrl+X (the app's panel-close chord) closes the focused run panel too — same `_closeRunPanel` path as `x`. |
 
 **Kept untouched:** the graph model, the codergen handler, the run store, the

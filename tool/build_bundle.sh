@@ -65,6 +65,7 @@ build_macos_arm64() {
   ( cd "$REPO_ROOT" && dart pub get \
     && dart run tool/generate_version.dart "$REPO_ROOT" \
     && dart build cli -t bin/tina.dart )
+  printf 'tina bundle root\n' > "$REPO_ROOT/build/cli/macos_arm64/bundle/.tina-bundle"
   echo "==> staged $REPO_ROOT/build/cli/macos_arm64/bundle"
 }
 

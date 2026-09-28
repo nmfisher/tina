@@ -84,7 +84,7 @@ class SidecarSummaryRepo {
   }
 
   /// The default partition: top-level directories of [workspaceRoot] plus every
-  /// `packages/*/lib` directory. Stable across runs (the manifest's key set is
+  /// `packages/*/lib`, `packages/plugins/*/lib` and `packages/libraries/*/lib` directory. Stable across runs (the manifest's key set is
   /// the pin), so a change in the partition only adds/removes keys here.
   ///
   /// Hidden entries (leading `.`) and non-directories are skipped, matching the
@@ -100,10 +100,14 @@ class SidecarSummaryRepo {
       }
       dirs.add(name);
     }
-    // Every packages/<pkg>/lib, so each package's library surface is
-    // summarized on its own.
-    final packagesDir = Directory(p.join(workspaceRoot.path, 'packages'));
-    if (packagesDir.existsSync()) {
+    // Libraries in both package roots are summarized individually.
+    for (final packageRoot in [
+      'packages',
+      'packages/plugins',
+      'packages/libraries',
+    ]) {
+      final packagesDir = Directory(p.join(workspaceRoot.path, packageRoot));
+      if (!packagesDir.existsSync()) continue;
       for (final pkg in packagesDir.listSync(followLinks: false)) {
         if (pkg is! Directory) continue;
         final pkgName = p.basename(pkg.path);
@@ -113,7 +117,7 @@ class SidecarSummaryRepo {
         }
         final lib = Directory(p.join(pkg.path, 'lib'));
         if (lib.existsSync()) {
-          dirs.add('packages/$pkgName/lib');
+          dirs.add('$packageRoot/$pkgName/lib');
         }
       }
     }

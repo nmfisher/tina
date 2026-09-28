@@ -5,12 +5,16 @@
 /// enforcement boundary.
 library;
 
-export 'src/compaction.dart';
-export 'src/goals.dart';
 export 'src/host.dart';
 export 'src/host_config.dart';
-export 'src/plans.dart';
-export 'src/plugins.dart';
 export 'src/session.dart';
-export 'src/store.dart';
-export 'src/workflows.dart';
+
+export 'src/commands.dart';
+
+export 'package:tina_core/tina_core.dart'
+    show SessionDetails, PluginSession, SessionSeed;
+export 'src/plugin_registry.dart';
+
+export 'src/plugin_definition.dart';
+
+export 'src/plugin_manager.dart';

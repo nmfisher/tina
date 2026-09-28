@@ -23,5 +23,6 @@ RUN dart pub get \
     # Embed the pubspec version (lib/version.g.dart) before building — see
     # tool/generate_version.dart; /update compares against it.
     && dart run tool/generate_version.dart /work \
-    && dart build cli -t bin/tina.dart
+    && dart build cli -t bin/tina.dart \
+    && find build/cli -type d -name bundle -exec touch {}/.tina-bundle \;
 # Bundle now at /work/build/cli/<os>_<arch>/bundle/

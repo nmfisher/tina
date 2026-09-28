@@ -9,7 +9,7 @@ environment:
 dependencies:
   ffi: ^2.1.0
   fuzzy_ranker:
-    path: ../fuzzy_ranker
+    path: ../libraries/fuzzy_ranker
   dart_notcurses:
     path: ../dart_notcurses
   logging: ^1.2.0

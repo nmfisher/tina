@@ -2,8 +2,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:tina/self_update/release_checker.dart';
-import 'package:tina/self_update/updater.dart';
+import 'package:tina_self_update/tina_self_update.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
   final installer = p.absolute('install.sh');
@@ -67,7 +68,11 @@ void main() {
   );
 
   setUp(() {
-    temp = Directory.systemTemp.createTempSync('tina-install-test-');
+    temp = Directory(
+      Directory.systemTemp
+          .createTempSync('tina-install-test-')
+          .resolveSymbolicLinksSync(),
+    );
     launchDir = p.join(temp.path, 'shared prefix', 'bin');
     bundleDir = p.join(temp.path, 'private data', 'tina');
     downloads = p.join(temp.path, 'downloads');
@@ -121,11 +126,19 @@ cp "$TINA_TEST_DOWNLOADS/${url##*/}" "$out"
           assetUrls: {
             'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz':
                 'https://example.test/archive',
+            'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz.sha256':
+                'https://example.test/checksum',
           },
         ),
         notice: (_) {},
         bundleRootOverride: bundleRootForCurrentProcess(
           resolvedExecutable: launcher,
+        ),
+        client: MockClient(
+          (_) async => http.Response(
+            File('${archive.path}.sha256').readAsStringSync(),
+            200,
+          ),
         ),
         archiveSupplier: () async => archive,
         workDirOverride: p.join(temp.path, 'update'),
@@ -245,10 +258,18 @@ cp "$TINA_TEST_DOWNLOADS/${url##*/}" "$out"
           assetUrls: {
             'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz':
                 'https://example.test/archive',
+            'tina-v9.9.9-${targetForCurrentPlatform()}.tar.gz.sha256':
+                'https://example.test/checksum',
           },
         ),
         notice: (_) {},
         bundleRootOverride: bundleDir,
+        client: MockClient(
+          (_) async => http.Response(
+            File('${archive.path}.sha256').readAsStringSync(),
+            200,
+          ),
+        ),
         archiveSupplier: () async => archive,
         workDirOverride: p.join(temp.path, 'update'),
       );

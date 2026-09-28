@@ -146,8 +146,8 @@ jobs:
 
       # Run the actual native UI before uploading any release artifacts.
       # --version cannot catch first-load modal or notcurses lifecycle failures.
-      - name: Smoke-test interactive startup and shutdown
-        run: python3 tool/smoke_interactive.py build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+      - name: Smoke-test engine2 turns, approvals, cancellation and resume
+        run: python3 tool/smoke_engine2.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
 
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''

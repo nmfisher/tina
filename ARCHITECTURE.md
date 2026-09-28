@@ -8,7 +8,72 @@ a raw-mode line editor that ships as its own reusable package.
 
 This doc explains where things live and why they're split the way they are.
 
-## Top-level layout
+## Engine2 package layout
+
+The replacement runtime separates shared contracts, the loop, the host,
+concrete plugins, and the frontend:
+
+```text
+packages/
+  tina_core/          shared data, provider, Command and Terminal contracts
+  tina_engine_2/      loop and AgentPlugin; runtime dependency: tina_core only
+  tina_host/          session lifecycle, plugin mounting and command registry
+  tina_tui/           application assembly, terminal interaction and rendering
+  tina_console/       reusable console and line editor
+  tina_llm/           provider implementations
+  tina_sqlite/        SQLite support
+  libraries/
+    file_tree/        file inventories, hashes and change detection
+    fuzzy_ranker/     fuzzy matching and completion-provider contracts
+    classifier/       structured judgments and classification
+    attractor/        workflow engine; deferred from the new app
+  plugins/
+    tina_providers/   pool routing, scheduling and token budgets
+    tina_self_update/ verified preparation, approval and bundle replacement
+    tina_approvals/   channel-independent approval protocol
+    tina_approvals_tui/ console delivery of approval requests
+    tina_persistence/ session store, append subscription and resume
+    tina_tools/
+    tina_persona/
+    tina_compaction/
+    tina_plans/
+    tina_goals/
+    tina_subagents/
+    tina_file_resources/
+    tina_workflows/   retained with Attractor; deferred from the new app
+    tina_index/       existing index API, relocated
+```
+
+`tina_services` has been removed. Plugins receive explicit dependencies;
+`tina_core` holds the shared contracts and `tina_host` collects commands.
+The host imports no concrete plugin packages. `tool/architecture/policy.json`
+records package paths and enforces the runtime dependency directions; CI
+resolves and checks the nested plugin packages from that inventory.
+
+Plugin IDs use `publisher/name`. The application assembly seeds the first-party
+catalog; extension registration rejects the reserved `tina/` namespace. The
+global `~/.tina/config` selects feature plugins, defaulting to persistence,
+plans, goals, auto-compaction, subagents and self-update. The assembly always supplies
+persona, provider policy, tools and the mode command; workflows remain deferred.
+
+Persistence owns the SQLite session store and its log subscription. The
+assembly injects an opener for the chosen location; the host only calls generic
+plugin lifecycle hooks and accepts restored history. It has no filesystem or
+SQLite dependency. Lifecycle contracts and session metadata live in core.
+
+See [plugin ownership](packages/plugins/README.md),
+[reusable libraries](packages/libraries/README.md) and
+[migration status](docs/engine2-migration.md) for implementation and wiring gaps.
+The root executable now delegates to `tina_tui.runCli` and imports only that
+package and the generated version constant. Root runtime dependencies contain
+only `tina_tui`; legacy dependencies are development-only while their source
+and regression tests await retirement. A closure test rejects legacy app,
+engine, workflow, classification and index imports from `bin/tina.dart`.
+
+The following historical layout documents retained legacy source, not the
+current executable.
+
+## Legacy application layout
 
 ```
 tina/
@@ -38,10 +103,11 @@ tina/
   packages/
     tina_engine/           — agent loop, providers, tools, permissions (own pubspec)
     tina_console/          — reusable raw-mode console toolkit (own pubspec)
-    tina_index/            — AST-derived code dependency graph (own pubspec)
-    classifier/            — structured judgments + repository exploration (own pubspec)
-    fuzzy_ranker/          — fuzzy ranking + CompletionProvider interface (own pubspec)
-    attractor/             — DOT-based multi-agent pipeline runner (own pubspec)
+    plugins/tina_index/    — AST-derived code dependency graph (own pubspec)
+    libraries/classifier/  — structured judgments + repository exploration (own pubspec)
+    libraries/fuzzy_ranker/ — fuzzy ranking + CompletionProvider interface (own pubspec)
+    libraries/attractor/   — DOT-based multi-agent pipeline runner (own pubspec)
+    libraries/file_tree/   — file inventories and change detection (own pubspec)
     dart_notcurses/          — Dart FFI bindings to notcurses (own pubspec)
   examples/                  — example workspace fixture for driving tina
   docs/                      — design docs (agent pipeline, tool strip, graph search …)
@@ -76,7 +142,7 @@ pluggable `TerminalBackend` / `InputBackend` pair that lets the same
 `Screen` render through ANSI escapes or notcurses. It has no agent / LLM
 / tool dependencies and could drop into any other Dart CLI unchanged.
 
-**`tina_index`** (`packages/tina_index/`) is an AST-derived code
+**`tina_index`** (`packages/plugins/tina_index/`) is an AST-derived code
 dependency graph for Dart codebases. It parses `.dart` files into
 `Symbol`s (functions, classes, methods, fields), builds typed `Edge`s
 (extends, implements, imports, contains), persists the graph to disk via
@@ -85,7 +151,7 @@ keyword-based matching (`seedQuery`). The app's `SearchTool` and
 `SummaryGenerator` consume it; the package itself has no agent / LLM
 dependencies.
 
-**`classifier`** (`packages/classifier/`) is structured judgments plus
+**`classifier`** (`packages/libraries/classifier/`) is structured judgments plus
 repository exploration. `judgments.dart` carries the pure question /
 answer / budget / batch models; `typesafe_classifier.dart` adds the
 network-bound Typesafe service; `exploration.dart` layers evidence
@@ -93,12 +159,12 @@ models, ranking, chunking, caching, and the judgment-driven workflow on
 top. The package depends only on `http`, `crypto`, and `path` — no agent
 runtime, no terminal.
 
-**`fuzzy_ranker`** (`packages/fuzzy_ranker/`) is subsequence-fuzzy
+**`fuzzy_ranker`** (`packages/libraries/fuzzy_ranker/`) is subsequence-fuzzy
 matching/ranking plus the pluggable `CompletionProvider` interface — the
 neutral seam shared by the TUI toolkit and the app's completion sources.
 Pure Dart, no terminal or engine dependencies.
 
-**`attractor`** (`packages/attractor/`) is a DOT-based pipeline runner:
+**`attractor`** (`packages/libraries/attractor/`) is a DOT-based pipeline runner:
 directed graphs (Graphviz DOT) that orchestrate multi-stage agent
 workflows. UI- and LLM-agnostic; consumed by the app's pipeline layer.
 
@@ -831,13 +897,13 @@ output path is its `BackendSurface` (which routes through the same backend
 sink as everything else), so "borders can't be eaten" and "writes can't
 leak past the panel" hold for panels exactly as they do for Regions.
 
-## Inside `packages/tina_index/`
+## Inside `packages/plugins/tina_index/`
 
 An AST-derived code dependency graph for Dart codebases. The package
 has no agent / LLM dependencies — it's a pure analysis library.
 
 ```
-packages/tina_index/
+packages/plugins/tina_index/
   lib/
     tina_index.dart    — barrel: exports everything below
     symbol.dart          — Symbol + SymbolKind (function, class, method, field …)
@@ -868,7 +934,7 @@ symbols outward; `seedQuery` matches keywords to entry points.
 The app consumes this via `SearchTool` (graph search) and
 `SummaryGenerator` (LLM-driven summarization of stale symbols).
 
-## Inside `packages/classifier/`
+## Inside `packages/libraries/classifier/`
 
 Structured judgments plus repository exploration. The judgment half is
 the former `packages/tina_engine/lib/src/judgments/`; the exploration
@@ -877,7 +943,7 @@ tool and evidence source that stayed behind in tina_app). Both keep
 their relative-import layout, so intra-package imports were untouched.
 
 ```
-packages/classifier/
+packages/libraries/classifier/
   lib/
     judgments.dart           — barrel: pure judgment models (no dart:io)
     typesafe_classifier.dart — barrel: TypeSafeConfig + TypeSafeJudgmentService (HTTP)
@@ -1020,7 +1086,7 @@ Tests follow the source structure: each layer has its own folder.
   - `panel_test.dart`, `focus_manager_test.dart` — Panel render/show-hide/
     focus and FocusManager ring logic (ANSI backend + `VirtualTerminal`;
     FocusManager is tested with plain fakes).
-- `packages/tina_index/test/` — `extractor_test.dart`, `graph_test.dart`,
+- `packages/plugins/tina_index/test/` — `extractor_test.dart`, `graph_test.dart`,
   `seeding_test.dart`, `store_test.dart`, `symbol_table_test.dart`,
   `traversal_test.dart`, `walker_test.dart`.
 
@@ -1120,3 +1186,34 @@ A few things look like they could be interfaces and aren't:
 
 The general rule: if there's exactly one implementation and no expected
 second, the abstraction is the boundary itself, not an interface.
+
+## Engine2 approval plugin boundary
+
+The engine2 approval path uses plugin capability declarations:
+`tina/tools` requires `ApprovalRequester`, `tina/approvals` provides it and
+requires `ApprovalChannel`, and the configured channel plugin provides that
+interface. `tina_host` resolves these declarations generically and contains no
+approval-package imports. `tina_engine_2` only adds an observable turn
+cancellation signal; it has no approval or terminal dependency.
+
+`tina_approvals_tui` owns approval UI under `packages/plugins/`, depends on the
+channel contract and the console toolkit, and does not import the application
+or tools. It implements the console's generic `ConsoleContribution` lifecycle.
+`tina_tui` attaches/repaints/detaches contributions and never installs approval
+callbacks into the sandbox. The channel can be replaced by a stream/remote
+plugin through configuration. See the [protocol and registration contracts](packages/plugins/tina_approvals/README.md).
+
+## Engine2 live plugin lifecycle
+
+`tina_host.PluginManager` reconciles declared selections against the live host
+between turns. Definitions opt into live changes; others remain configured but
+pending restart. The host owns plugin commands, while the loop tracks executors
+and log subscriptions registered during mounting. Unload removes those
+registrations and closes the plugin; failed mounts clean partial registrations.
+The manager exposes generic activation callbacks for frontend contributions and
+contains no UI, configuration-file or concrete plugin imports.
+
+`tina_tui.PluginSettings` resolves per-ID global/workspace/session overrides and
+implements `/plugins`. Configuration changes are validated before saving or
+applying. Live UI contributions use the same console lifecycle as startup.
+Persistence and subagent session factories are currently restart-only.

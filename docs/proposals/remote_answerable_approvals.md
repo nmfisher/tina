@@ -21,7 +21,7 @@ with no terminal attached. Permission asks — the dangerous kind — all
 go through one function type (`PermissionAsker`), and the core already
 runs unattended. The other ask kinds have their own seams: workflow
 gates use the attractor `Interviewer` (`Question`/`Answer` values,
-`packages/attractor/lib/src/interviewer.dart:31,57`), `ask_user`
+`packages/libraries/attractor/lib/src/interviewer.dart:31,57`), `ask_user`
 takes its own batch callback returning `List<Answer>`
 (`ask_user_tool.dart:15`), and plan
 approvals persist a `requested` flag in `PlanStore`

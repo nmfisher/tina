@@ -107,7 +107,7 @@ the seams do not cover everything a remote front end must build. `ask_user`
 shares the workflow `Question`/`Answer` vocabulary but takes its own batch
 callback — `Future<List<Answer>> Function(List<Question>)?`
 (`packages/tina_app/lib/src/workflows/ask_user_tool.dart:15`) — not the
-attractor `Interviewer` (`packages/attractor/lib/src/interviewer.dart:31,57,90-91`,
+attractor `Interviewer` (`packages/libraries/attractor/lib/src/interviewer.dart:31,57,90-91`,
 which the `wait.human` gates use via `HumanGateHandler`); plan approvals are
 persisted `requested` state in
 `PlanStore` (`packages/tina_app/lib/src/plans/plan_store.dart:169`) whose
@@ -378,7 +378,7 @@ were corrected, each verified in the source before the edit:
    shares the `Question`/`Answer` vocabulary but takes its own batch
    callback returning `List<Answer>`
    (`ask_user_tool.dart:15`) — it does **not** consume the attractor
-   `Interviewer` (`packages/attractor/lib/src/interviewer.dart:31,57,90-91`,
+   `Interviewer` (`packages/libraries/attractor/lib/src/interviewer.dart:31,57,90-91`,
    which the `wait.human` gates use); plan approval is persisted
    `requested` state in `PlanStore` (`plan_store.dart:169`) whose
    waiting is model guidance in the `update_plan` description

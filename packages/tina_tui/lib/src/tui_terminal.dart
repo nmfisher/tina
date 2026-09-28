@@ -11,7 +11,7 @@ library;
 
 import 'dart:async';
 
-import 'package:tina_services/tina_services.dart';
+import 'package:tina_core/tina_core.dart';
 
 /// One conversation row: the text and whether it came from the user.
 final class ConversationLine {

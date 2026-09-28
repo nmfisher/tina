@@ -1,23 +1,25 @@
-/// One plugin interface. Every phase is a `TurnContext` in, nothing out:
-/// the plugin reads what it needs and assigns what it wants to change.
+/// One plugin interface for session lifecycle and turn phases. Turn phases
+/// receive a `TurnContext` and assign what they want to change.
 library;
 
 import 'package:tina_core/tina_core.dart';
 
 import 'context.dart';
+import 'loop.dart';
 
 /// A plugin. The core owns truth; the plugin owns decisions, made by
 /// writing to the [TurnContext] it is handed.
 ///
-/// All hooks are sync and run in ascending [order], breaking ties by [id],
-/// so the sequence is the same every run. The loop copies the context
-/// before every call: a plugin that throws has its copy dropped and the
-/// turn continues — a throwing phase's writes never arrive.
+/// Hooks are synchronous. Opening, mounting and turn phases run in ascending
+/// [order], breaking ties by [id]; closing runs in reverse. The loop copies
+/// the context before each turn phase: a throwing phase's writes are dropped.
+/// Session lifecycle failures propagate to the host for resource cleanup.
 abstract class AgentPlugin {
   /// Const: plugins are value-like config and can be const-constructed.
   const AgentPlugin();
 
-  /// Unique. Registering a duplicate id throws. Tie-breaker for [order].
+  /// Lowercase publisher/name. The application reserves tina/ for first-party
+  /// plugins. Duplicate IDs throw. Also the tie-breaker for [order].
   String get id;
 
   /// Ascending everywhere. Lower runs first.
@@ -25,6 +27,22 @@ abstract class AgentPlugin {
 
   /// Tools contributed to the loop. Snapshotted once per turn.
   List<ToolSchema> get tools => const [];
+
+  /// Prepare session resources before constructing the loop. A plugin may
+  /// return the restored transcript and details when resuming.
+  SessionSeed? openSession(PluginSession session) => null;
+
+  /// Persist or react to changes in the shared session metadata.
+  void sessionChanged(PluginSession session) {}
+
+  /// Release resources, including partially opened resources after a failure.
+  void closeSession() {}
+
+  /// Mount executors and subscribe to this session. Called once by the host.
+  void mountOn(AgentLoop loop) {}
+
+  /// Commands collected by the host; the loop does not dispatch them.
+  List<Command> get commands => const [];
 
   /// Prompt section phase, before the turn: add a section to
   /// `c.promptSections`, or add nothing. The core owns the join; a plugin

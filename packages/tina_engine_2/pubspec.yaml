@@ -16,5 +16,5 @@ dev_dependencies:
   # tina_tools itself depends on these contracts for real, and the
   # architecture guard refuses the reciprocal manifest edge.
   tina_tools:
-    path: ../tina_tools
+    path: ../plugins/tina_tools
   test: ^1.25.0

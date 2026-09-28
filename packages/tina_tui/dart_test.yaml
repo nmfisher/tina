@@ -1,5 +1,5 @@
 tags:
-  # The smoke test drives the real entry point; it only makes sense
-  # attached to a terminal, so it is skipped in default runs.
+  # Creates its own controlling PTY and localhost HTTP stub; no human TTY
+  # or API credentials needed. CI runs this gate explicitly.
   tty:
-    skip: "needs a TTY; run with --tags tty --run-skipped"
+    skip: "PTY integration: run with --tags tty --run-skipped"

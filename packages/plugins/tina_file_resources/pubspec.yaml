@@ -1,0 +1,22 @@
+name: tina_file_resources
+description: >-
+  A plugin that reads a folder of headed markdown files and modifies a
+  prompt: the prompt phase lists names and descriptions, one tool fetches
+  a body by name. The plain local-folder implementation — no registry, no
+  ranks, no remote sources. Skills are this plugin's first use, not a
+  thing of their own.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_tools:
+    path: ../tina_tools
+dev_dependencies:
+  tina_host:
+    path: ../../tina_host
+  test: ^1.25.0

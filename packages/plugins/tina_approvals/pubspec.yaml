@@ -1,0 +1,13 @@
+name: tina_approvals
+description: Channel-independent approval requests, decisions and lifecycle.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_host:
+    path: ../../tina_host
+dev_dependencies:
+  test: ^1.25.0

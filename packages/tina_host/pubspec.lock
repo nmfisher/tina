@@ -33,13 +33,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
-  attractor:
-    dependency: "direct main"
-    description:
-      path: "../attractor"
-      relative: true
-    source: path
-    version: "0.1.0"
   boolean_selector:
     dependency: transitive
     description:
@@ -56,14 +49,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.2.0"
-  code_assets:
-    dependency: transitive
-    description:
-      name: code_assets
-      sha256: "828110d598123b5ea96c00c9f3c72105bf79f8ee36c20a39b26209ade421ec57"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.1.0"
   collection:
     dependency: transitive
     description:
@@ -96,14 +81,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
-  ffi:
-    dependency: transitive
-    description:
-      name: ffi
-      sha256: "6d7fd89431262d8f3125e81b50d3847a091d846eafcd4fdb88dd06f36d705a45"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.2.0"
   file:
     dependency: transitive
     description:
@@ -125,14 +102,6 @@ packages:
     description:
       name: glob
       sha256: "218aeb56050c714f62a3182775320dfa04602b55074873e24e31bbd39bda96fb"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.2.0"
-  hooks:
-    dependency: transitive
-    description:
-      name: hooks
-      sha256: eaac480a35ec0814146c2c48d96aaa829e0e44a7662c88ae84c9edf4bc35651f
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
@@ -192,14 +161,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
-  native_toolchain_c:
-    dependency: transitive
-    description:
-      name: native_toolchain_c
-      sha256: "90eaad8059ebc2004a63810a4696ea9acdb02473e47ed3b6b3bafb100ac77e31"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.19.5"
   node_preamble:
     dependency: transitive
     description:
@@ -217,21 +178,13 @@ packages:
     source: hosted
     version: "3.0.0"
   path:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: path
       sha256: "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
-  platform:
-    dependency: transitive
-    description:
-      name: platform
-      sha256: a36d119c13416516a7b5913fbe8af8531e11633d784c550b2125f76c758524ec
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.2.0"
   pool:
     dependency: transitive
     description:
@@ -240,14 +193,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.3"
-  process:
-    dependency: transitive
-    description:
-      name: process
-      sha256: "4242ba3508d37e01808bdf71ad1d5bb93a8d671bf2e7450e6b1b353fb0808891"
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.0.6"
   pub_semver:
     dependency: transitive
     description:
@@ -256,14 +201,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.1"
-  record_use:
-    dependency: transitive
-    description:
-      name: record_use
-      sha256: "1cb8564af8d43b464294411db9217f5ec04891c6f22ee2c32d73ae05e88a6bd2"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.1.1"
   shelf:
     dependency: transitive
     description:
@@ -320,14 +257,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
-  sqlite3:
-    dependency: "direct main"
-    description:
-      name: sqlite3
-      sha256: fa3fd961e83b2dca8890a7b1014ab1226831d2b5908067c0ab7f385ffb655caf
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.6.0"
   stack_trace:
     dependency: transitive
     description:
@@ -398,34 +327,6 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_llm:
-    dependency: "direct main"
-    description:
-      path: "../tina_llm"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_services:
-    dependency: "direct main"
-    description:
-      path: "../tina_services"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_sqlite:
-    dependency: "direct main"
-    description:
-      path: "../tina_sqlite"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_tools:
-    dependency: "direct main"
-    description:
-      path: "../tina_tools"
-      relative: true
-    source: path
-    version: "0.1.0"
   typed_data:
     dependency: transitive
     description:
@@ -491,4 +392,4 @@ packages:
     source: hosted
     version: "3.1.4"
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.11.0 <4.0.0"
