@@ -17,6 +17,7 @@
     "tina_host",
     "tina_sqlite",
     "tina_subagents",
+    "tina_file_resources",
     "tina_tui"
   ],
   "vendoredPackages": [
@@ -82,6 +83,10 @@
       "test"
     ],
     "tina_subagents": [
+      "lib",
+      "test"
+    ],
+    "tina_file_resources": [
       "lib",
       "test"
     ],

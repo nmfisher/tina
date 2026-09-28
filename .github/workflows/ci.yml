@@ -572,6 +572,24 @@ jobs:
         working-directory: packages/tina_subagents
         run: dart test -j 4
 
+  tina_file_resources:
+    name: tina_file_resources (packages/tina_file_resources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_file_resources)
+        working-directory: packages/tina_file_resources
+        run: dart pub get
+      - name: analyze (tina_file_resources)
+        working-directory: packages/tina_file_resources
+        run: dart analyze
+      - name: test (tina_file_resources)
+        working-directory: packages/tina_file_resources
+        run: dart test -j 4
+
   tina_tui:
     name: tina_tui (packages/tina_tui)
     runs-on: ubuntu-latest
