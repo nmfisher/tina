@@ -6,6 +6,10 @@ edit it, preserving unknown legacy tables. Saving is atomic, uses mode 0600,
 and rejects externally changed files. Settings apply on the next launch;
 `/plugins` can apply supported plugin changes between turns.
 
+See the [config compatibility audit](engine2-config-audit.md) for the exact
+consumed/ignored keys, credential precedence and verification of the existing
+local config. Legacy cached provider definitions are read offline at startup.
+
 ## Activity presentation
 
 `tina/activity-tui` is included in the default plugin set. F4 or `/activity`

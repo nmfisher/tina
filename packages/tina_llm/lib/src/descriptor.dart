@@ -6,8 +6,8 @@
 /// Deliberately left behind from the old engine: the `builder` closure
 /// (construction moves to a top-level factory on [ProviderWires]), the
 /// `AuthScheme` enum (every provider here is either a bearer token or a
-/// header key — [keyStyle] says which), `authSources` as a list (one
-/// source each; a fallback chain is policy, not identity), and the
+/// header key — [keyStyle] says which), runtime `authSources` objects
+/// (descriptors carry variable names only; resolution remains policy), and the
 /// registry service object that held these.
 library;
 
@@ -95,6 +95,9 @@ class ProviderDescriptor {
   /// The environment variable holding the key, read at runtime only.
   final String keyEnvVar;
 
+  /// Additional credential variable names from a cached provider descriptor.
+  final List<String> fallbackKeyEnvVars;
+
   /// How the key travels on the wire.
   final ProviderKeyStyle keyStyle;
 
@@ -108,6 +111,7 @@ class ProviderDescriptor {
     required this.wire,
     required this.baseUrl,
     required this.keyEnvVar,
+    this.fallbackKeyEnvVars = const [],
     required this.keyStyle,
     this.models = const {},
   });

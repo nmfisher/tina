@@ -369,7 +369,34 @@ def smoke(launcher, endpoint, columns, rows):
             raise
         finally:
             terminal.close()
-        print(f"PASS {columns}x{rows}: prompt, completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation, approvals, activity/diffs/errors/subagents, settings, scoped plugins, resume, clean exit")
+        # Legacy conversion runs offline; resumed history must not execute its
+        # unfinished tool call. The first new turn uses the ordinary loop/store.
+        legacy = root / 'archive.jsonl'
+        legacy.write_text('\n'.join(json.dumps(m) for m in [
+            {'role': 'user', 'content': [{'type': 'text', 'text': 'legacy hello'}]},
+            {'role': 'assistant', 'content': [{'type': 'text', 'text': 'legacy reply'}]},
+            {'role': 'assistant', 'content': [{'type': 'tool_use', 'id': 'unfinished',
+                'name': 'bash', 'input': {'command': 'touch legacy-replayed'}}]},
+        ]) + '\n')
+        imported = subprocess.run(command + ['--import-sessions', str(legacy)],
+                                  cwd=PACKAGE.parent.parent, env=env,
+                                  capture_output=True, text=True, check=True, timeout=30)
+        assert 'imported: legacy:archive:archive' in imported.stdout
+        terminal = Terminal(command + ['--resume', 'legacy:archive:archive'], env, columns, rows)
+        try:
+            terminal.expect('you: legacy hello')
+            terminal.expect('tina: legacy reply')
+            terminal.expect('›')
+            start = terminal.send('continue imported\r')
+            terminal.expect('smoke answer', start)
+            assert not (workspace / 'legacy-replayed').exists(), 'import replayed an old tool'
+            terminal.quit()
+        except Exception:
+            print(terminal.output.decode(errors='replace').replace('\x1b', '<ESC>'))
+            raise
+        finally:
+            terminal.close()
+        print(f"PASS {columns}x{rows}: prompt, completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation, approvals, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
 
 
 def smoke_cli(launcher):
@@ -425,8 +452,8 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert len(ModelStub.requests) == 57, (
-            f"expected 57 model requests, got {len(ModelStub.requests)}; "
+        assert len(ModelStub.requests) == 60, (
+            f"expected 60 model requests, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

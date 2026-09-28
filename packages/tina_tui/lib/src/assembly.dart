@@ -186,9 +186,10 @@ final class TuiAssembly {
     ProviderFactory? providerFactory,
     Terminal? terminal,
     AssemblyOptions options = const AssemblyOptions(),
-    List<ProviderDescriptor> descriptors = builtinDescriptors,
+    List<ProviderDescriptor>? descriptors,
     void Function(PluginRegistry<TuiPluginContext>)? registerPlugins,
   }) {
+    descriptors ??= configuredDescriptors();
     final config =
         loadTinaConfig(path: options.configPath, descriptors: descriptors);
     // A malformed config must not silently re-enable persistence or other

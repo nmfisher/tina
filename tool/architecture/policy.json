@@ -101,7 +101,8 @@
     "tina_tui": [
       "bin",
       "lib",
-      "test"
+      "test",
+      "tool"
     ],
     "attractor": [
       "lib",
@@ -141,7 +142,8 @@
     ],
     "tina_persistence": [
       "lib",
-      "test"
+      "test",
+      "tool"
     ],
     "tina_approvals": [
       "lib",

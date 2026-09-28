@@ -122,11 +122,11 @@ final class TinaConfigProblem extends TinaConfigResult {
 }
 
 /// Read and parse the config file at [path] (default `~/.tina/config`),
-/// resolving the model reference against [descriptors]. Pure and offline:
-/// one file read, string work, one list scan.
+/// resolving the model reference against [descriptors]. Offline: absent an
+/// injected descriptor set, reads the legacy provider cache as well.
 TinaConfigResult loadTinaConfig({
   String? path,
-  List<ProviderDescriptor> descriptors = builtinDescriptors,
+  List<ProviderDescriptor>? descriptors,
   Map<String, String> environment = const {},
 }) {
   final file = File(path ?? defaultConfigPath(environment));
@@ -147,7 +147,21 @@ TinaConfigResult loadTinaConfig({
     return TinaConfigProblem('$file is not valid config syntax',
         const TinaConfig(model: kTinaDefaultModel));
   }
-  return parseTinaConfig(parsed, path: file.path, descriptors: descriptors);
+  return parseTinaConfig(parsed,
+      path: file.path,
+      descriptors: descriptors ?? configuredDescriptors(environment));
+}
+
+/// Legacy discovery is a read-only startup input; explicit config still wins.
+List<ProviderDescriptor> configuredDescriptors(
+    [Map<String, String> environment = const {}]) {
+  final env = environment.isEmpty ? Platform.environment : environment;
+  if (env['COCOON_MODELS_DEV'] == '0') return builtinDescriptors;
+  final home = env['HOME'] ?? Platform.environment['HOME'];
+  return home == null
+      ? builtinDescriptors
+      : cachedProviderDescriptors(
+          '$home/.tina/cache/models.dev.providers.json');
 }
 
 /// Parse an already-read document, also used to validate settings before save.

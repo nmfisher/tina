@@ -49,10 +49,10 @@ final class ConfigDocument {
           as Map<String, dynamic>;
 
   TinaConfig validate(
-      {List<ProviderDescriptor> descriptors = builtinDescriptors,
+      {List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins}) {
-    final result =
-        parseTinaConfig(values, path: path, descriptors: descriptors);
+    final result = parseTinaConfig(values,
+        path: path, descriptors: descriptors ?? configuredDescriptors());
     if (result is TinaConfigProblem) throw FormatException(result.problem);
     configuredPolicy(result.config).closeSession();
     validatePlugins?.call([
@@ -65,7 +65,7 @@ final class ConfigDocument {
   }
 
   void save(
-      {List<ProviderDescriptor> descriptors = builtinDescriptors,
+      {List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins}) {
     validate(descriptors: descriptors, validatePlugins: validatePlugins);
     _write();

@@ -143,10 +143,11 @@ final class ProviderSettings {
         wire: protocol,
         baseUrl: baseUrl ?? builtin!.baseUrl,
         keyEnvVar: builtin?.keyEnvVar ?? '${providerEnvPrefix(id)}_API_KEY',
+        fallbackKeyEnvVars: builtin?.fallbackKeyEnvVars ?? const [],
         keyStyle: protocol == ProviderWire.openAiCompatible
             ? ProviderKeyStyle.bearer
             : ProviderKeyStyle.header,
-        models: models ?? builtin?.models ?? const {});
+        models: {...?builtin?.models, ...?models});
   }
 }
 

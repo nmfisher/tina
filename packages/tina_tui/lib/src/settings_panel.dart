@@ -17,9 +17,10 @@ final class SettingsPanel {
 
   Future<bool> run(
       {required String path,
-      List<ProviderDescriptor> descriptors = builtinDescriptors,
+      List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins,
       Iterable<String> pluginIds = const []}) async {
+    descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
     if (document.table('default')['model'] == kTinaDefaultModel) {
       document.table('default')['model'] = '';
@@ -55,9 +56,10 @@ final class SettingsPanel {
             final settings = values is Map<String, dynamic>
                 ? ProviderSettings.parse(id, values)
                 : const ProviderSettings();
-            final models = (settings.models ??
-                    builtin?.models ??
-                    const <String, ModelInfo>{})
+            final models = <String, ModelInfo>{
+              ...?builtin?.models,
+              ...?settings.models,
+            }
                 .values
                 .where((m) => !settings.disabledModels.contains(m.id))
                 .toList();

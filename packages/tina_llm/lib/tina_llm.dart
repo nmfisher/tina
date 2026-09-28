@@ -8,6 +8,7 @@ library;
 
 export 'src/anthropic_provider.dart';
 export 'src/builtin_descriptors.dart';
+export 'src/cached_providers.dart';
 export 'src/descriptor.dart';
 export 'src/gemini_provider.dart';
 export 'src/http.dart';

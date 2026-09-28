@@ -60,8 +60,9 @@ new app. The deferred legacy session slash commands have not been ported.
 Clarifications use the ordinary conversation, with no separate free-text plugin
 question channel.
 
-Old session files are preserved but cannot be loaded by the new SQLite store.
-There is no importer; migration currently starts a new session. Legacy app/engine
+Old session files can be converted with `--import-sessions`; see the
+[import guide](engine2-session-import.md) for dry runs, missing-file handling,
+resume IDs and the metadata that remains archival. Legacy app/engine
 source, tests and their architecture exceptions can be retired in a separate
 cleanup after acceptance. Preserve the existing modified `dart_notcurses`
 submodule; it is not part of that deletion.

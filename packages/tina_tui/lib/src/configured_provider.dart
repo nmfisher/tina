@@ -35,13 +35,17 @@ LlmProvider configuredProvider(
   final genericToken =
       id == 'anthropic' ? nonempty(env['TINA_LLM_TOKEN']) : null;
   final envAuth = nonempty(env['${prefix}_AUTH_TOKEN']);
-  final descriptorKey = nonempty(env[descriptor.keyEnvVar]);
+  final descriptorKey = [descriptor.keyEnvVar, ...descriptor.fallbackKeyEnvVars]
+      .map((key) => nonempty(env[key]))
+      .whereType<String>()
+      .firstOrNull;
   final token = configAuth ??
       configKey ??
       genericToken ??
       envAuth ??
       descriptorKey ??
       nonempty(env['${prefix}_API_KEY']) ??
+      nonempty(env['${id.toUpperCase()}_API_KEY']) ??
       '';
   final bearer = configAuth != null ||
       (configKey == null &&
