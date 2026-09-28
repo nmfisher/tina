@@ -34,14 +34,14 @@ void main() {
       () async {
     await tui.runLine('hello');
     expect(tui.host.session.lastReply, 'echo reply');
-    expect(tui.terminal.lines.map((l) => l.text).join("\n"), contains('echo reply'));
+    expect((tui.terminal as TuiTerminal).lines.map((l) => l.text).join("\n"), contains('echo reply'));
     expect(tui.host.session.loop.log.length, greaterThanOrEqualTo(3),
         reason: 'input, response, stop — the same log a headless run keeps');
   });
 
   test('an unknown /word is refused through the terminal, no turn', () async {
     await tui.runLine('/frobnicate');
-    expect(tui.terminal.lines.map((l) => l.text).join("\n"), contains('unknown command: /frobnicate'));
+    expect((tui.terminal as TuiTerminal).lines.map((l) => l.text).join("\n"), contains('unknown command: /frobnicate'));
     expect(tui.host.session.loop.log, isEmpty,
         reason: 'the refusal is not a turn');
   });
@@ -55,7 +55,7 @@ void main() {
     final before = tui.host.session.loop.log.length;
     await tui.runLine('   ');
     expect(tui.host.session.loop.log.length, before);
-    expect(tui.terminal.lines.map((l) => l.text).join("\n"), isEmpty);
+    expect((tui.terminal as TuiTerminal).lines.map((l) => l.text).join("\n"), isEmpty);
   });
 
   test('/mode flips the assembly\u2019s mode service by word', () async {
@@ -63,7 +63,7 @@ void main() {
     expect(
         ModeCommandPlugin.wordFor(tui.services.get<ModeControl>().mode),
         'read-only');
-    expect(tui.terminal.lines.map((l) => l.text).join("\n"), contains('mode: read-only'));
+    expect((tui.terminal as TuiTerminal).lines.map((l) => l.text).join("\n"), contains('mode: read-only'));
     // And back, by the same word.
     await tui.runLine('/mode normal');
     expect(ModeCommandPlugin.wordFor(tui.services.get<ModeControl>().mode),

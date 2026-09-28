@@ -25,13 +25,13 @@
 /// is imported here.
 library;
 
-import 'dart:io' show Directory, File, Platform;
+import 'dart:io' show Directory, File, Platform, stdout;
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_services/tina_services.dart';
-import 'package:tina_tools/tina_tools.dart' show ModeCommandPlugin;
+import 'package:tina_tools/tina_tools.dart' show ModeCommandPlugin, Approver;
 
 import 'assembly_config.dart';
 
@@ -54,6 +54,18 @@ final class SinkAssemblyWriter implements AssemblyWriter {
 
   @override
   void writeln([String? line]) => out.writeln(line ?? '');
+}
+
+/// The process's stdout and stderr. The one place the app writes a bare
+/// line outside the full-screen loop: the `--sessions` listing, which
+/// runs before any screen exists.
+final class StdoutAssemblyWriter implements AssemblyWriter {
+  const StdoutAssemblyWriter();
+
+  @override
+  void writeln([String? line]) {
+    stdout.writeln(line ?? '');
+  }
 }
 
 /// What the session was asked to run with: everything [TuiAssembly.start]
@@ -153,10 +165,17 @@ final class TuiAssembly {
     required this.services,
     required this.writer,
     required this.configNote,
+    required this.tools,
   })  : commands = services.get<Commands>(),
         _modeCommand = ModeCommandPlugin(services);
 
   final Host host;
+
+  /// The session's tools plugin — the boundary the approver answers to.
+  /// Exposed so a front end can register its [Approver] after a
+  /// headless build (the same write the [TuiAssembly.start] `approver`
+  /// parameter performs at construction).
+  final ToolsPlugin tools;
 
   /// The shared services: [Commands] always; [Terminal] when the front
   /// end registered one.
@@ -187,6 +206,7 @@ final class TuiAssembly {
     AssemblyWriter writer = const _NullWriter(),
     ProviderFactory? providerFactory,
     Terminal? terminal,
+    Approver? approver,
     AssemblyOptions options = const AssemblyOptions(),
     List<ProviderDescriptor> descriptors = builtinDescriptors,
   }) {
@@ -203,6 +223,7 @@ final class TuiAssembly {
       tinaDir: Directory('$workingDirectory/.tina'),
       services: services,
     );
+    if (approver != null) tools.sandbox.approver = approver;
     final hostConfig = HostConfig(
       providerFactory: providerFactory ??
           (model) => providerForDescriptor(
@@ -221,6 +242,7 @@ final class TuiAssembly {
       services: services,
       writer: writer,
       configNote: config.note,
+      tools: tools,
     );
     // Built-ins are the assembly's, registered by the assembly — the
     // same registry, the same dispatch.

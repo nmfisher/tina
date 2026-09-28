@@ -19,9 +19,11 @@
 library;
 
 import 'package:tina_host/tina_host.dart';
-import 'package:tina_llm/tina_llm.dart' show builtinDescriptors;
 import 'package:tina_services/tina_services.dart';
+import 'package:tina_tools/tina_tools.dart'
+    show ModeCommandPlugin, ModeControl;
 
+import 'approval_approver.dart';
 import 'assembly.dart';
 import 'tui_commands.dart';
 import 'tui_terminal.dart';
@@ -50,19 +52,42 @@ final class TuiSession {
   /// resolves at use.
   final Services services;
 
-  /// The TUI's terminal — the text sink plugin lines land in, and the
-  /// queued answers to plugin asks come back through.
-  final TuiTerminal terminal;
+  /// The session's terminal — the text sink plugin lines land in, and
+  /// the queued answers to plugin asks come back through. A [TuiTerminal]
+  /// when this wrapper created it; whatever the assembly was handed when
+  /// it was built with one.
+  final Terminal terminal;
 
   /// The registry the command plugins published into.
   final Commands commands;
 
+  /// The queued asker behind the session's approver, when one is wired
+  /// — the render loop reads [QueuedDialogAsker.current] to paint the
+  /// question and sets [QueuedDialogAsker.onChange] to repaint. Null
+  /// when no approver is wired (fail-closed boundary).
+  QueuedDialogAsker? get asker => _asker;
+  QueuedDialogAsker? _asker;
+
+  /// The session's permission mode as the vocabulary's word — the status
+  /// strip's label. The enum never leaves the tools package.
+  String get modeWord {
+    final control = services.maybe<ModeControl>();
+    return control == null ? '' : ModeCommandPlugin.wordFor(control.mode);
+  }
+
   /// Assemble a session: the assembly does the wiring (services →
-  /// plugins → host → published commands), this wrapper only hands it
-  /// the terminal. No terminal handed in, a fresh one is built — a test
-  /// captures its lines instead of a screen. The model parameter keeps
-  /// the scripted-factory tests honest: the factory is still the seam,
-  /// the model is still the label it receives.
+  /// plugins → host → published commands), this wrapper hands it the
+  /// terminal. The model parameter keeps the scripted-factory tests
+  /// honest: the factory is still the seam, the model is still the
+  /// label it receives.
+  ///
+  /// Assemble a session: the assembly does the wiring (services →
+  /// plugins → host → published commands), this wrapper hands it the
+  /// terminal. The model parameter keeps the scripted-factory tests
+  /// honest: the factory is still the seam, the model is still the
+  /// label it receives. No approver here: [wireApprovers] is the one
+  /// place the dialog answers the sandbox, so the wiring stays legible
+  /// and fail-closed until it runs.
   static TuiSession start({
     required ProviderFactory providerFactory,
     String model = 'scripted',
@@ -80,9 +105,35 @@ final class TuiSession {
         workingDirectory: workingDirectory,
         storePath: storePath,
       ),
-      descriptors: builtinDescriptors,
     );
     return TuiSession._(assembly: assembly, terminal: tui);
+  }
+
+  /// Wrap an assembly that already exists — the path [runApp] takes when
+  /// the entry point built the assembly itself (config read first, then
+  /// the assembly, then the app). The terminal is put in the slot here,
+  /// once, if the assembly has none: from this point the session owns a
+  /// terminal either way.
+  factory TuiSession.wrap(TuiAssembly assembly, {Terminal? terminal}) {
+    final existing = assembly.services.maybe<Terminal>();
+    final t = existing ?? terminal ?? TuiTerminal();
+    if (existing == null) assembly.services.put<Terminal>(t);
+    return TuiSession._(assembly: assembly, terminal: t);
+  }
+
+  /// Wire [asker] as this session's approver and keep it as [asker] for
+  /// the render loop: `DialogApprover(asker).fn` goes to the sandbox
+  /// boundary, so a write outside the workspace now produces a question
+  /// instead of "no approver is wired". Returns the session for
+  /// chaining. Calling it twice is a wiring bug — one asker, one
+  /// question at a time.
+  TuiSession wireApprovers(QueuedDialogAsker asker) {
+    if (this.asker != null) {
+      throw StateError('an approver is already wired for this session');
+    }
+    assembly.tools.sandbox.approver = DialogApprover(asker).fn;
+    _asker = asker;
+    return this;
   }
 
   /// Run one entered line through the pure dispatch: a published command
@@ -107,9 +158,11 @@ final class TuiSession {
   }
 
   /// Close the host. The terminal's pending asks resolve with the empty
-  /// answer — a closing front end never leaves a plugin hanging.
+  /// answer — a closing front end never leaves a plugin hanging. (Only
+  /// a [TuiTerminal] promises that; a foreign terminal is left alone.)
   void close() {
-    terminal.closeInput();
+    final t = terminal;
+    if (t is TuiTerminal) t.closeInput();
     assembly.close();
   }
 }

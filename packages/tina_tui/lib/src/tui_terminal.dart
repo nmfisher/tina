@@ -32,6 +32,13 @@ final class ConversationLine {
 /// The [Terminal] over the TUI: writes append to the conversation;
 /// asks resolve from a queue of answers.
 final class TuiTerminal implements Terminal {
+  TuiTerminal({this.onLine});
+
+  /// When set, every line written through [writeln] is also handed here
+  /// — the full-screen loop paints it into the chat region. A test's
+  /// terminal has no hook: the capture in [lines] is the whole story.
+  void Function(String line)? onLine;
+
   final List<ConversationLine> _lines = [];
 
   /// Every line written through [writeln] and every submitted answer,
@@ -45,7 +52,9 @@ final class TuiTerminal implements Terminal {
 
   @override
   void writeln([String? line]) {
-    _lines.add(ConversationLine(line ?? '', fromUser: false));
+    final text = line ?? '';
+    _lines.add(ConversationLine(text, fromUser: false));
+    onLine?.call(text);
   }
 
   @override

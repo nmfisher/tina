@@ -19,9 +19,11 @@
 ///   the descriptor table and the seam a test factory overrides;
 /// - [listSessions] — the session listing the `--sessions` flag prints;
 /// - the TUI pieces: terminal, command dispatch, approval dialog and
-///   approver, chat/stream/tool-chip/status views.
+///   approver, the render loop ([runApp]), chat/stream/tool-chip/status
+///   views.
 library;
 
+export 'src/app.dart';
 export 'src/approval_approver.dart';
 export 'src/approval_dialog.dart';
 export 'src/assembly.dart';

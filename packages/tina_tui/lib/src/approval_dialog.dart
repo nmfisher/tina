@@ -177,14 +177,17 @@ class ApprovalDialog {
 
   /// Drive the dialog from [keys]: arrows move, Enter confirms, Esc/source
   /// close cancels (a denial with reason `'cancelled'`). Resolves when a
-  /// decision is reached; never throws on an empty source.
-  Future<ApprovalOutcome> awaitDecision(KeySource keys) async {
+  /// decision is reached; never throws on an empty source. [onKey] runs
+  /// after each selection change, so a host can repaint the question.
+  Future<ApprovalOutcome> awaitDecision(KeySource keys,
+      {void Function()? onKey}) async {
     while (true) {
       final key = await keys.next();
       switch (key) {
         case ApprovalKey.up:
         case ApprovalKey.down:
           handleKey(key!);
+          onKey?.call();
         case ApprovalKey.confirm:
           return current;
         case ApprovalKey.cancel:

@@ -63,6 +63,16 @@ class QueuedDialogAsker implements ApprovalAsker {
   /// Ask n+1 waits here until ask n resolves.
   Future<void> _tail = Future.value();
 
+  /// The ask currently being answered, or null. The full-screen loop
+  /// reads this to paint the question and route the dialog's keys; the
+  /// queue guarantees at most one is ever non-null.
+  PendingFileAsk? get current => _current;
+  PendingFileAsk? _current;
+
+  /// Called when [current] changes — an ask opened, or the answer came
+  /// in and the question left the screen. May repaint.
+  void Function()? onChange;
+
   QueuedDialogAsker({required this.dialogFor, required this.keysFor});
 
   @override
@@ -70,8 +80,15 @@ class QueuedDialogAsker implements ApprovalAsker {
     // One decision at a time: chain onto the previous ask. If anything
     // upstream throws, keep the chain alive so later asks still run.
     final run = _tail.then((_) async {
-      final dialog = dialogFor(ask);
-      return dialog.awaitDecision(keysFor());
+      _current = ask;
+      onChange?.call();
+      try {
+        final dialog = dialogFor(ask);
+        return await dialog.awaitDecision(keysFor(), onKey: onChange);
+      } finally {
+        _current = null;
+        onChange?.call();
+      }
     });
     _tail = run.then<void>((_) {}, onError: (_) {});
     return run;
