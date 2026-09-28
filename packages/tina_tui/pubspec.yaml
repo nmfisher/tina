@@ -10,6 +10,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_grok_guard:
+    path: ../plugins/tina_grok_guard
   tina_chat_tui:
     path: ../plugins/tina_chat_tui
   tina_activity_tui:

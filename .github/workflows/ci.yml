@@ -808,6 +808,21 @@ jobs:
         working-directory: packages/plugins/tina_activity_tui
         run: dart test -j 4
 
+  tina_grok_guard:
+    name: tina_grok_guard (packages/plugins/tina_grok_guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+        working-directory: packages/plugins/tina_grok_guard
+      - run: dart analyze
+        working-directory: packages/plugins/tina_grok_guard
+      - run: dart test
+        working-directory: packages/plugins/tina_grok_guard
+
   tina_chat_tui:
     name: tina_chat_tui (packages/plugins/tina_chat_tui)
     runs-on: ubuntu-latest

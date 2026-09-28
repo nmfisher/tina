@@ -1,0 +1,15 @@
+name: tina_grok_guard
+description: An opt-in input confirmation plugin for messages containing grok.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_host:
+    path: ../../tina_host
+  tina_approvals:
+    path: ../tina_approvals
+dev_dependencies:
+  test: ^1.25.0

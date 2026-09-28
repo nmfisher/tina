@@ -552,6 +552,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_grok_guard:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_grok_guard"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_host:
     dependency: transitive
     description:

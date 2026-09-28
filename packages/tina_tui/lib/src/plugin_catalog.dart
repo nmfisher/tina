@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:tina_grok_guard/tina_grok_guard.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
 import 'package:tina_providers/tina_providers.dart';
@@ -60,6 +61,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         'tina/file-resources'
       },
       definitions: [
+        grokGuardDefinition<TuiPluginContext>(),
         updateTuiDefinition<TuiPluginContext>(),
         updateDefinition<TuiPluginContext>(
             version: (c) => c.version, terminal: (c) => c.terminal),

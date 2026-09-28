@@ -380,6 +380,32 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('workspace override updated for tina/file-resources.', start)
             local_config = (workspace / '.tina' / 'config').read_text()
             assert 'tina/file-resources' in local_config and 'false' in local_config
+            start = terminal.send('/plugins enable tina/grok-guard\r')
+            terminal.expect('tina/grok-guard | enabled | yes | session | live', start)
+            before_guard = len(ModelStub.requests)
+            start = terminal.send('GROK declined\r')
+            terminal.expect('Your message contains grok, this is a no-no.', start)
+            terminal.expect('[x] Yes', start)
+            terminal.expect('[ ] No', start)
+            assert len(ModelStub.requests) == before_guard, 'input reached provider before approval'
+            start = terminal.send('\x1b[B\r')
+            terminal.expect('message declined', start)
+            assert len(ModelStub.requests) == before_guard, 'declined input reached provider'
+            # Let the modal's key-burst window finish before typing a new line.
+            time.sleep(0.1)
+            start = terminal.send('grok approved\r')
+            terminal.expect('[x] Yes', start)
+            start = terminal.send('\r')
+            terminal.expect('smoke answer', start)
+            assert len(ModelStub.requests) == before_guard + 1
+            request_text = json.dumps(ModelStub.requests[-1]['messages'])
+            assert 'grok approved' in request_text and 'GROK declined' not in request_text
+            time.sleep(0.1)
+            start = terminal.send('/plugins disable tina/grok-guard\r')
+            terminal.expect('tina/grok-guard | disabled | no | session | live', start)
+            start = terminal.send('grok unguarded\r')
+            terminal.expect('smoke answer', start)
+            assert len(ModelStub.requests) == before_guard + 2
             time.sleep(0.1)
             terminal.quit()
         except Exception:
@@ -498,8 +524,8 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert len(ModelStub.requests) == 60, (
-            f"expected 60 model requests, got {len(ModelStub.requests)}; "
+        assert len(ModelStub.requests) == 66, (
+            f"expected 66 model requests, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)
