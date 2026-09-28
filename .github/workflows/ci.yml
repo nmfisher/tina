@@ -554,6 +554,24 @@ jobs:
   # tina_tui imports tina_console deliberately (it is in terminalPackages),
   # so like the console job it needs the submodule checkout and the native
   # linker deps for the dart_notcurses build hook (see header LINKER deps).
+  tina_subagents:
+    name: tina_subagents (packages/tina_subagents)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_subagents)
+        working-directory: packages/tina_subagents
+        run: dart pub get
+      - name: analyze (tina_subagents)
+        working-directory: packages/tina_subagents
+        run: dart analyze
+      - name: test (tina_subagents)
+        working-directory: packages/tina_subagents
+        run: dart test -j 4
+
   tina_tui:
     name: tina_tui (packages/tina_tui)
     runs-on: ubuntu-latest
