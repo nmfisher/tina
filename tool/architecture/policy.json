@@ -81,6 +81,7 @@
       "test"
     ],
     "tina_tui": [
+      "bin",
       "lib",
       "test"
     ],
