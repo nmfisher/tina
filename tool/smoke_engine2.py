@@ -76,6 +76,18 @@ class ModelStub(BaseHTTPRequestHandler):
                          "delta": {"type": "input_json_delta", "partial_json": json.dumps({
                              "filePath": str(self.approval_target), "content": "approved"})}}
             events[4]['delta']['stop_reason'] = 'tool_use'
+        for trigger, name, arguments in [
+            ('edit example', 'edit', {'filePath': 'preview.txt', 'oldString': 'before', 'newString': 'after'}),
+            ('conflict example', 'edit', {'filePath': 'preview.txt', 'oldString': 'missing text', 'newString': 'never applied'}),
+            ('delegate example', 'spawn_subagent', {'prompt': 'child example'}),
+        ]:
+            if trigger in json.dumps(prompt):
+                events[1] = {"type": "content_block_start", "index": 0,
+                             "content_block": {"type": "tool_use", "id": trigger.replace(' ', '-'),
+                                               "name": name, "input": {}}}
+                events[2] = {"type": "content_block_delta", "index": 0,
+                             "delta": {"type": "input_json_delta", "partial_json": json.dumps(arguments)}}
+                events[4]['delta']['stop_reason'] = 'tool_use'
         def encode(items):
             return "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in items).encode()
         first = events[:2] + ([{"type": "content_block_delta", "index": 0,
@@ -171,6 +183,7 @@ def smoke(launcher, endpoint, columns, rows):
                           'models = ["smoke|Smoke model"]\n')
         workspace = root / 'workspace'
         workspace.mkdir()
+        (workspace / 'preview.txt').write_text('before\n')
         ModelStub.approval_target = root / 'outside-the-workspace' / 'permission-target.txt'
         ModelStub.approval_target.parent.mkdir()
         store = root / "sessions.jsonl"
@@ -260,6 +273,13 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('[x] allow always', start)
             start = terminal.send('\r')
             terminal.expect('subprocess-live', start)
+            # Browsing during execution must not cancel or submit input.
+            start = terminal.send('\x1bOS')
+            terminal.expect('Activity', start)
+            start = terminal.send('\r')
+            terminal.expect('Call: bash-smoke', start)
+            terminal.send('\x1bOS')
+            time.sleep(0.05)
             start = terminal.send('\x1b')
             terminal.expect('cancelled: escape', start)
             time.sleep(0.1)
@@ -267,6 +287,32 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             time.sleep(2.2)
             assert not (workspace / 'cancel-leak').exists(), 'cancelled descendant survived'
+            terminal.resize(80, 24)
+            start = terminal.send('edit example\r')
+            terminal.expect('- before', start)
+            terminal.expect('+ after', start)
+            terminal.expect('smoke answer', start)
+            assert (workspace / 'preview.txt').read_text() == 'after\n'
+            time.sleep(0.1)
+            start = terminal.send('conflict example\r')
+            terminal.expect('Details and recovery: /activity (F4)', start)
+            terminal.expect('smoke answer', start)
+            assert (workspace / 'preview.txt').read_text() == 'after\n'
+            time.sleep(0.1)
+            start = terminal.send('/activity\r')
+            terminal.expect('Activity', start)
+            start = terminal.send('\r')
+            terminal.expect('Recovery:', start)
+            start = terminal.resize(20, 6)
+            terminal.expect('Activity', start)
+            terminal.send('\x1bOS')
+            terminal.resize(80, 24)
+            time.sleep(0.1)
+            start = terminal.send('delegate example\r')
+            terminal.expect('depth 1', start)
+            terminal.expect('reported tokens', start)
+            terminal.expect('smoke answer', start)
+            time.sleep(0.1)
             start = terminal.send('/settings\r')
             terminal.expect('Settings', start)
             start = terminal.resize(80, 10)
@@ -280,6 +326,16 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('/plugins reset tina/goals\r')
             terminal.expect('session override removed for tina/goals.', start)
             terminal.expect('tina/goals | enabled | yes | built-in | live', start)
+            start = terminal.send('/plugins disable tina/activity-tui\r')
+            terminal.expect('tina/activity-tui | disabled | no | session | live', start)
+            start = terminal.send('/activity\r')
+            terminal.expect('unknown command', start)
+            start = terminal.send('/plugins reset tina/activity-tui\r')
+            terminal.expect('tina/activity-tui | enabled | yes | built-in | live', start)
+            start = terminal.send('\x1bOS')
+            terminal.expect('Activity', start)
+            terminal.expect('spawn_subagent', start)
+            terminal.send('\x1bOS')
             start = terminal.send('/plugins disable tina/file-resources --workspace\r')
             terminal.expect('workspace override updated for tina/file-resources.', start)
             local_config = (workspace / '.tina' / 'config').read_text()
@@ -303,13 +359,17 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect("you: terminal smoke")
             terminal.expect("tina: streaming prefix smoke answer")
             terminal.expect("›")
+            start = terminal.send('\x1bOS')
+            terminal.expect('Activity', start)
+            terminal.expect('spawn_subagent', start)
+            terminal.send('\x1bOS')
             terminal.quit()
         except Exception:
             print(terminal.output.decode(errors="replace").replace("\x1b", "<ESC>"))
             raise
         finally:
             terminal.close()
-        print(f"PASS {columns}x{rows}: prompt, completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation, approvals, settings, scoped plugins, resume, clean exit")
+        print(f"PASS {columns}x{rows}: prompt, completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation, approvals, activity/diffs/errors/subagents, settings, scoped plugins, resume, clean exit")
 
 
 def smoke_cli(launcher):
@@ -365,7 +425,9 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert len(ModelStub.requests) == 36, "commands or resume unexpectedly called the model"
+        assert len(ModelStub.requests) == 57, (
+            f"expected 57 model requests, got {len(ModelStub.requests)}; "
+            "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)
     finally:

@@ -193,7 +193,8 @@ final class SubagentsPlugin extends AgentPlugin implements SubagentSpawner {
   /// Spawn one child and return its final text. The one chokepoint for
   /// every limit.
   @override
-  Future<ToolResult> spawn(String prompt, {CancelProbe? cancelled}) async {
+  Future<ToolResult> spawn(String prompt,
+      {CancelProbe? cancelled, void Function(String)? progress}) async {
     // Depth: this plugin's children sit at childDepth. Deeper than the
     // maximum, refuse — naming both numbers.
     if (childDepth > config.maxDepth) {
@@ -223,6 +224,17 @@ final class SubagentsPlugin extends AgentPlugin implements SubagentSpawner {
       parent.notifyChanged();
       rethrow;
     }
+    final watch = Stopwatch()..start();
+    void status(String text) =>
+        progress?.call('depth $childDepth · $text · child ${child.session.id}');
+    status('working');
+    final activity = child.session.loop.toolActivity.listen((event) {
+      if (event is ToolStarted) status('running ${event.call.name}');
+      if (event is ToolFinished)
+        status(
+            '${event.call.name}: ${event.result.isError ? 'error' : 'done'}');
+      if (event is ToolProgress) status(event.status);
+    });
     // Cancellation passthrough: while the child runs, watch the spawn
     // call's turn; if it is cancelled, cancel the child's loop. The
     // poll is 5 ms — short against a model call, long enough to be
@@ -243,12 +255,17 @@ final class SubagentsPlugin extends AgentPlugin implements SubagentSpawner {
       var used = 0;
       for (final e in child.session.loop.log.whereType<TurnEndedEntry>()) {
         final u = e.usage;
-        used += u.inputTokens + u.outputTokens + u.cacheReadInputTokens;
+        used += u.inputTokens +
+            u.outputTokens +
+            u.cacheReadInputTokens +
+            u.cacheCreationInputTokens;
       }
       if (used > 0) {
         budget.add(used);
         parent.details.tokensSpent += used;
       }
+      status(
+          '${outcome.stopReason.name} · ${watch.elapsedMilliseconds} ms · $used reported tokens');
       final answer = [
         for (final m in outcome.modelResponses)
           for (final b in m.content.whereType<TextBlock>()) b.text,
@@ -263,14 +280,18 @@ final class SubagentsPlugin extends AgentPlugin implements SubagentSpawner {
             'cancelled before the sub-agent finished',
             isError: true);
       }
-      return ToolResult(capped.isEmpty
-          ? '[sub-agent ${child.session.id}] finished with no text '
-              '(stop reason: ${outcome.stopReason.name})'
-          : '[sub-agent ${child.session.id}] $capped');
+      return ToolResult(
+          capped.isEmpty
+              ? '[sub-agent ${child.session.id}] finished with no text '
+                  '(stop reason: ${outcome.stopReason.name})'
+              : '[sub-agent ${child.session.id}] $capped',
+          isError: outcome.stopReason == StopReason.error);
     } on Object catch (e) {
+      status('failed after ${watch.elapsedMilliseconds} ms');
       return ToolResult.error('sub-agent ${child.session.id} failed: $e');
     } finally {
       watchdog?.cancel();
+      await activity.cancel();
       try {
         child.close();
       } finally {
@@ -300,7 +321,8 @@ final class SubagentsPlugin extends AgentPlugin implements SubagentSpawner {
   @override
   void mountOn(AgentLoop loop) {
     _tool ??= SpawnTool(this);
-    loop.registerExecutor(SubagentsPlugin.schemaName, _tool!.execute);
+    loop.registerContextExecutor(SubagentsPlugin.schemaName,
+        (input, context) => _tool!.execute(input, progress: context.progress));
   }
 
   /// The tool's schema name.

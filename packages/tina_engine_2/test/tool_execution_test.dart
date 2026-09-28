@@ -26,10 +26,12 @@ void main() {
     loop.registerContextExecutor('example', (input, context) async {
       retained = context;
       context.report('working');
+      context.progress('reading child output');
       started.complete();
       await context.whenCancelled;
       expect(context.isCancelled(), true);
       context.report('late output');
+      context.progress('late progress');
       return const ToolResult('cancelled after cleanup', isError: true);
     });
     final events = <ToolActivity>[];
@@ -37,12 +39,14 @@ void main() {
     addTearDown(subscription.cancel);
     final turn = loop.runTurn(const Input('run', id: 'first'));
     await started.future;
-    expect(events.map((event) => event.runtimeType), [ToolStarted, ToolOutput]);
+    expect(events.map((event) => event.runtimeType),
+        [ToolStarted, ToolOutput, ToolProgress]);
     loop.cancel('escape');
     expect((await turn).stopReason, StopReason.cancelled);
     retained.report('after result');
+    retained.progress('after result');
     expect(events.map((event) => event.runtimeType),
-        [ToolStarted, ToolOutput, ToolFinished]);
+        [ToolStarted, ToolOutput, ToolProgress, ToolFinished]);
     final results = loop.log
         .whereType<MessageAppendedEntry>()
         .expand((entry) => entry.message.content)

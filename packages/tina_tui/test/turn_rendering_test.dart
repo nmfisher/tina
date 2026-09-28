@@ -5,7 +5,6 @@ import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/tina_tui.dart';
-import 'package:tina_tui/src/turn_renderer.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
 
 Future<void> waitFor(bool Function() predicate) async {
@@ -82,34 +81,6 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 20));
     io.feedBytes('/quit\r'.codeUnits);
     expect(await app, 0);
-  });
-
-  test('tool rendering is generic, streams before completion and bounds output',
-      () {
-    final io = FakeIo();
-    final screen = fakeScreen(io);
-    addTearDown(screen.dispose);
-    addTearDown(() {
-      io.closeInput();
-    });
-    final renderer = TurnRenderer(screen);
-    const call = ToolUse(id: 'external', name: 'third_party_tool', input: {});
-    String chat() => screen.chat.snapshotLines().join('\n');
-    renderer.tool(const ToolStarted(call));
-    expect(chat(), contains('third_party_tool — running'));
-    renderer.tool(const ToolOutput(call, '\x1b[2Jlive progress\n'));
-    expect(chat(), contains('live progress'));
-    expect(chat(), isNot(contains('\x1b')));
-    renderer.tool(const ToolFinished(call, ToolResult('result summary')));
-    expect(chat(), contains('third_party_tool — done'));
-    expect(chat(), contains('result summary'));
-    renderer.tool(const ToolOutput(call, 'stale output'));
-    expect(chat(), isNot(contains('stale output')));
-    renderer.tool(const ToolStarted(call));
-    renderer.tool(ToolOutput(call, 'x' * 70000));
-    expect(chat(), contains('[further live output hidden]'));
-    renderer.tool(const ToolOutput(call, 'overflow output'));
-    expect(chat(), isNot(contains('overflow output')));
   });
 
   test(

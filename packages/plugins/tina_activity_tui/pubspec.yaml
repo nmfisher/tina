@@ -1,0 +1,15 @@
+name: tina_activity_tui
+description: Inspectable tool activity, edit previews and progress for the console.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_console:
+    path: ../../tina_console
+dev_dependencies:
+  test: ^1.25.0

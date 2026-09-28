@@ -10,6 +10,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_activity_tui:
+    path: ../plugins/tina_activity_tui
   tina_providers:
     path: ../plugins/tina_providers
   tina_self_update:

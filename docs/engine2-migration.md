@@ -11,6 +11,8 @@ and engine2; concrete packages live under `packages/plugins`.
 ## Replacement coverage
 
 - Daily agent turns, tool status/live output and subprocess cancellation.
+- Optional activity browser with collapsible tool details, edit previews,
+  structured errors/recovery and child progress (`tina/activity-tui`).
 - FIFO queued input while busy, including unfinished-draft preservation.
 - Filesystem/command approvals through a selectable channel plugin; narrow
   terminal layouts and resize preserve modal state.
@@ -38,7 +40,8 @@ The macOS build script produces a marked private bundle. Linux Docker builds
 stamp the same marker. Release CI exercises the actual built executable on a
 controlling PTY before packaging each platform's tarball and checksum. It checks
 real streamed turns against a local model stub, queued input, cancellation,
-approvals, settings, scoped plugins, persistence/resume and terminal restoration.
+approvals, activity browsing/diffs/errors/child progress, settings, scoped
+plugins, persistence/resume and terminal restoration.
 Regular macOS CI also exercises the launcher symlink layout.
 
 Locally validated: source/root CLI and compiled macOS arm64 bundle at 80×10,
@@ -63,9 +66,26 @@ source, tests and their architecture exceptions can be retired in a separate
 cleanup after acceptance. Preserve the existing modified `dart_notcurses`
 submodule; it is not part of that deletion.
 
-“Richer presentation” means optional collapsible tool details, improved diff/error
-views and fuller subagent status displays. Basic status and streaming output
-already work; these presentation enhancements are not part of this cutover.
+## Activity presentation
+
+`packages/plugins/tina_activity_tui` owns tool status, streaming output and the
+activity browser. It is enabled by default and supports live enable/disable.
+F4 or `/activity` opens it, including during a running turn. Enter/Tab folds the
+selected call, arrows select, Page Up/Down or the wheel scroll, and Esc/F4 closes.
+Browsing preserves the input draft and yields to approval/settings key readers.
+
+The browser retains the latest 80 calls. It shows arguments, bounded live output,
+results, elapsed time and child progress. Edit previews compare replacement
+arguments; they are not whole-file diffs. Failed/unconfirmed replacements are
+explicitly labeled. Structured errors expose their message, recovery guidance
+and current context. Replay restores calls/results without executing tools or
+reprinting output; transient progress and timing are not persisted.
+
+The application mounts the same generic `ConsoleContribution` used by other UI
+plugins. The console provides removable key bindings and modal registration;
+it has no activity-specific dispatch. Tools report generic progress through
+their execution context, and the subagent plugin emits child status through
+that channel. Neither the loop nor the host depends on this UI plugin.
 
 ## Approval channels
 
@@ -101,7 +121,8 @@ override instead of copying another scope's current value. Session changes do
 not write a file. Unknown or invalid selections fail before configuration writes
 or live changes.
 
-Plans, goals, compaction and file resources can attach/detach between turns.
+Activity presentation, plans, goals, compaction and file resources can
+attach/detach between turns.
 The host and loop track plugin-owned command, executor and subscription
 registrations; frontend contributions attach and detach through the generic
 console interface. Plans replay from the existing log after re-enable.
@@ -112,12 +133,15 @@ must explicitly opt into live lifecycle support.
 
 ## Tool execution and cancellation
 
-The loop exposes generic transient `ToolStarted`, `ToolOutput`, and
-`ToolFinished` events and a per-call cancellation/output context. Ordinary
-executors remain supported. The TUI consumes these events without importing a
-concrete tools plugin; persisted tool results still come only from the log.
+The loop exposes generic transient `ToolStarted`, `ToolOutput`, `ToolProgress`
+and `ToolFinished` events and a per-call cancellation/output/progress context.
+Ordinary executors remain supported. The activity plugin consumes these events
+without importing a concrete tools plugin; persisted tool results still come
+only from the log.
 Late output after completion/cancellation is ignored. The renderer caps live
-output at 64 Ki characters per call and strips terminal controls.
+output at 64 Ki characters per call and strips terminal controls. Disabling
+`tina/activity-tui` removes tool presentation and its key bindings, while tools
+continue executing and recording results normally.
 
 `tina_tools` forwards execution control through its permission and OS sandbox
 wrappers. `IoProcessRunner` owns a `Process.start` child, feeds stdin, drains

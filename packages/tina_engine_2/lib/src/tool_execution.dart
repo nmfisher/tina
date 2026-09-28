@@ -16,6 +16,14 @@ final class ToolOutput extends ToolActivity {
   final bool isError;
 }
 
+/// A replaceable status, separate from the tool's output text.
+final class ToolProgress extends ToolActivity {
+  const ToolProgress(super.call, this.status);
+  final String status;
+}
+
+void _ignoreProgress(String status) {}
+
 final class ToolFinished extends ToolActivity {
   const ToolFinished(super.call, this.result);
   final ToolResult result;
@@ -28,7 +36,9 @@ final class ToolExecutionContext {
     required this.isCancelled,
     required this.whenCancelled,
     required this.report,
+    this.progress = _ignoreProgress,
   });
+  final void Function(String status) progress;
   final bool Function() isCancelled;
   final Future<void> whenCancelled;
   final void Function(String text, {bool isError}) report;

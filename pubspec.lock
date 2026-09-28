@@ -468,6 +468,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.18"
+  tina_activity_tui:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_activity_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_app:
     dependency: "direct dev"
     description:

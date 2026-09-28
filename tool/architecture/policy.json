@@ -27,7 +27,8 @@
     "tina_approvals",
     "tina_approvals_tui",
     "tina_self_update",
-    "tina_providers"
+    "tina_providers",
+    "tina_activity_tui"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -36,7 +37,8 @@
     "tina_console",
     "dart_notcurses",
     "tina_tui",
-    "tina_approvals_tui"
+    "tina_approvals_tui",
+    "tina_activity_tui"
   ],
   "sourceRoots": {
     "tina": [
@@ -154,6 +156,10 @@
       "test"
     ],
     "tina_providers": [
+      "lib",
+      "test"
+    ],
+    "tina_activity_tui": [
       "lib",
       "test"
     ]
@@ -294,7 +300,8 @@
     "tina_approvals": "packages/plugins/tina_approvals",
     "tina_approvals_tui": "packages/plugins/tina_approvals_tui",
     "tina_self_update": "packages/plugins/tina_self_update",
-    "tina_providers": "packages/plugins/tina_providers"
+    "tina_providers": "packages/plugins/tina_providers",
+    "tina_activity_tui": "packages/plugins/tina_activity_tui"
   },
   "runtimeDependencies": {
     "tina_engine_2": [
@@ -317,6 +324,11 @@
     ],
     "tina_providers": [
       "tina_engine_2"
+    ],
+    "tina_activity_tui": [
+      "tina_core",
+      "tina_engine_2",
+      "tina_console"
     ]
   },
   "pluginFreePackages": [

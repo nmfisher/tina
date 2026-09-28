@@ -126,6 +126,15 @@ class LineEditor {
   /// active. Order matters: surfaces are offered events in registration order.
   void registerModal(ModalSurface surface) => _modals.add(surface);
 
+  final _shortcuts = <bool Function(InputEvent)>[];
+
+  /// Frontend bindings run below modal/key readers and above ordinary editing.
+  /// The disposer removes only this registration.
+  void Function() registerShortcut(bool Function(InputEvent) handler) {
+    _shortcuts.add(handler);
+    return () => _shortcuts.remove(handler);
+  }
+
   /// Remove [surface] from first-claim dispatch. No-op if not registered.
   void unregisterModal(ModalSurface surface) => _modals.remove(surface);
 
@@ -928,6 +937,9 @@ class LineEditor {
         );
       }
       return KeyHandledBy.pasteOverflow;
+    }
+    for (final shortcut in _shortcuts.toList().reversed) {
+      if (shortcut(event)) return KeyHandledBy.appShortcut;
     }
     if (_cancelHandler != null) {
       if (_handleFocusRingKeys(event)) return KeyHandledBy.focusRing;

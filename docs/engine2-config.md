@@ -6,6 +6,19 @@ edit it, preserving unknown legacy tables. Saving is atomic, uses mode 0600,
 and rejects externally changed files. Settings apply on the next launch;
 `/plugins` can apply supported plugin changes between turns.
 
+## Activity presentation
+
+`tina/activity-tui` is included in the default plugin set. F4 or `/activity`
+opens collapsible tool results, replacement previews, errors and child progress.
+Enter/Tab folds, arrows select, Page Up/Down or the wheel scroll, and Esc/F4
+closes. F4 works during execution and preserves unfinished input.
+
+Use `/plugins disable tina/activity-tui` to hide tool presentation for this
+session, or add `--workspace` / `--global` to persist the override. Reset removes
+the override. Re-enabling reconstructs recent calls/results from the transcript.
+An explicit `[plugins].enabled` list replaces the default set; include
+`"tina/activity-tui"` there if you want this presentation.
+
 ## Providers and pools
 
 ```toml

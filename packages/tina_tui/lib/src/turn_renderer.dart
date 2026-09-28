@@ -9,45 +9,6 @@ final class TurnRenderer {
   String _streamed = '';
   bool _lineOpen = false;
 
-  String? _activeTool;
-  int _outputCharacters = 0;
-
-  /// Generic execution observations; no dependency on any concrete tool plugin.
-  void tool(ToolActivity event) {
-    switch (event) {
-      case ToolStarted(:final call):
-        _activeTool = call.id;
-        _outputCharacters = 0;
-        line('tool: ${_plain(call.name)} — running');
-      case ToolOutput(:final call, :final text):
-        if (_activeTool != call.id || _outputCharacters >= 65536) return;
-        final clean = _plain(text);
-        final remaining = 65536 - _outputCharacters;
-        final visible =
-            clean.length > remaining ? clean.substring(0, remaining) : clean;
-        _outputCharacters += visible.length;
-        screen.frame(() => screen.chat.write(visible));
-        _lineOpen = !visible.endsWith('\n');
-        if (_outputCharacters >= 65536) line('[further live output hidden]');
-      case ToolFinished(:final call, :final result):
-        line(
-            'tool: ${_plain(call.name)} — ${result.isError ? 'error' : 'done'}');
-        final preview = _plain(result.content)
-            .split('\n')
-            .take(_outputCharacters == 0 ? 3 : 1)
-            .join('\n');
-        if (preview.isNotEmpty)
-          line(
-              preview.length > 500 ? '${preview.substring(0, 500)}…' : preview);
-        _activeTool = null;
-    }
-  }
-
-  // Subprocesses can emit terminal control sequences. Render them as text.
-  static String _plain(String text) => text
-      .replaceAll(RegExp(r'\x1b\[[0-?]*[ -/]*[@-~]'), '')
-      .replaceAll(RegExp(r'[\x00-\x08\x0b-\x1f\x7f]'), '');
-
   void watch(WatchEvent event) {
     if (event is SawText && event.text.isNotEmpty) {
       screen.frame(() {

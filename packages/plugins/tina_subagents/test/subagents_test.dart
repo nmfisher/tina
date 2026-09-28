@@ -58,6 +58,69 @@ List<StreamEvent> scriptedTurn(String text,
     ];
 
 void main() {
+  test('child provider failure marks the spawn result as an error', () async {
+    final h = harness(scripts: [
+      [
+        scriptedReply('', calls: [
+          const ToolUseBlock(
+              id: 'spawn',
+              name: 'spawn_subagent',
+              input: {'prompt': 'inspect files'})
+        ]),
+        scriptedReply('parent done'),
+      ],
+      [
+        [const StreamError('child provider unavailable')]
+      ],
+    ]);
+    addTearDown(() {
+      h.host.close();
+      h.dir.deleteSync(recursive: true);
+    });
+    final events = <ToolActivity>[];
+    final subscription = h.host.session.loop.toolActivity.listen(events.add);
+    addTearDown(subscription.cancel);
+    await h.host.send('delegate');
+    expect(events.whereType<ToolFinished>().single.result.isError, true);
+    expect(events.whereType<ToolProgress>().last.status, contains('error'));
+    expect(h.plugin.childrenInFlight, 0);
+  });
+
+  test('child execution reports progress through the generic tool channel',
+      () async {
+    final h = harness(scripts: [
+      [
+        scriptedReply('', calls: [
+          const ToolUseBlock(
+              id: 'spawn',
+              name: 'spawn_subagent',
+              input: {'prompt': 'inspect files'})
+        ]),
+        scriptedReply('parent done')
+      ],
+      [
+        scriptedReply('', calls: [
+          const ToolUseBlock(id: 'list', name: 'ls', input: {'path': '.'})
+        ]),
+        scriptedReply('child done')
+      ],
+    ]);
+    addTearDown(() {
+      h.host.close();
+      h.dir.deleteSync(recursive: true);
+    });
+    final events = <ToolActivity>[];
+    final subscription = h.host.session.loop.toolActivity.listen(events.add);
+    addTearDown(subscription.cancel);
+    await h.host.send('delegate');
+    final statuses =
+        events.whereType<ToolProgress>().map((e) => e.status).toList();
+    expect(statuses.first, contains('depth 1 · working'));
+    expect(statuses, contains(contains('running ls')));
+    expect(statuses.last, contains('reported tokens'));
+    expect(events.whereType<ToolFinished>().last.result.isError, false);
+  });
+
   test(
       'a child runs a turn with the scripted provider; its final text '
       'is the tool result', () async {

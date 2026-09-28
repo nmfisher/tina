@@ -38,8 +38,6 @@ Future<int> runApp(
   terminal.onLine = renderer.line;
   session.assembly.onWatch = renderer.watch;
   final logSubscription = session.host.session.loop.subscribe(renderer.entry);
-  final toolSubscription =
-      session.host.session.loop.toolActivity.listen(renderer.tool);
   var busy = false;
   final queued = Queue<String>();
   StreamSubscription<ScreenLayout>? resizeSubscription;
@@ -197,7 +195,6 @@ Future<int> runApp(
     return 0;
   } finally {
     await resizeSubscription?.cancel();
-    await toolSubscription.cancel();
     session.host.session.loop.unsubscribe(logSubscription);
     session.assembly.onWatch = null;
     session.assembly.openSettings = null;

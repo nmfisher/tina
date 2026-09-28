@@ -681,6 +681,13 @@ final class AgentLoop {
                       ToolExecutionContext(
                         isCancelled: () => cancel.cancelled,
                         whenCancelled: cancel.whenCancelled,
+                        progress: (status) {
+                          if (active &&
+                              !cancel.cancelled &&
+                              status.isNotEmpty) {
+                            _toolActivity.add(ToolProgress(call, status));
+                          }
+                        },
                         report: (text, {isError = false}) {
                           if (active && !cancel.cancelled && text.isNotEmpty) {
                             _toolActivity

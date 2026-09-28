@@ -40,12 +40,14 @@ final class SpawnTool extends Tool {
       );
 
   @override
-  Future<ToolResult> execute(Map<String, dynamic> input) {
+  Future<ToolResult> execute(Map<String, dynamic> input,
+      {void Function(String)? progress}) {
     final prompt = input['prompt'];
     if (prompt is! String || prompt.trim().isEmpty) {
       return Future.value(
           ToolResult.error('spawn_subagent needs a non-empty "prompt" string'));
     }
-    return _plugin.spawn(prompt, cancelled: () => _plugin.turnCancelled);
+    return _plugin.spawn(prompt,
+        cancelled: () => _plugin.turnCancelled, progress: progress);
   }
 }

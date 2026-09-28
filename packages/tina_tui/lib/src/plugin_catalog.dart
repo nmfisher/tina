@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:tina_activity_tui/tina_activity_tui.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_approvals/tina_approvals.dart';
@@ -49,6 +50,7 @@ List<AgentPlugin> basePlugins(TuiPluginContext context) => [
 /// the returned registry rejects the reserved namespace.
 PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
       liveFirstParty: {
+        'tina/activity-tui',
         'tina/plans',
         'tina/goals',
         'tina/auto-compact',
@@ -65,6 +67,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         toolsDefinition<TuiPluginContext>((c) => c.tools),
       ],
       firstParty: {
+        'tina/activity-tui': (c) => ActivityTuiPlugin(terminal: c.terminal),
         'tina/persistence': (c) => PersistencePlugin(openStore: c.openStore!),
         'tina/plans': (c) => PlansPlugin(
               terminal: c.terminal,

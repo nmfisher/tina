@@ -783,3 +783,27 @@ jobs:
       - name: test (tina_providers)
         working-directory: packages/plugins/tina_providers
         run: dart test -j 4
+
+  tina_activity_tui:
+    name: tina_activity_tui (packages/plugins/tina_activity_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install native console dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+      - name: pub get (tina_activity_tui)
+        working-directory: packages/plugins/tina_activity_tui
+        run: dart pub get
+      - name: analyze (tina_activity_tui)
+        working-directory: packages/plugins/tina_activity_tui
+        run: dart analyze
+      - name: test (tina_activity_tui)
+        working-directory: packages/plugins/tina_activity_tui
+        run: dart test -j 4
