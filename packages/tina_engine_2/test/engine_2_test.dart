@@ -5,6 +5,7 @@
 // Run: dart test
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -296,6 +297,26 @@ void main() {
       expect(outcome.stopReason, StopReason.cancelled);
       expect(provider.callCount, 1);
       expect(outcome.detail, contains('plugin-cancelled'));
+    });
+
+    test('cancel during an in-flight model call ends the stream and the '
+        'turn immediately', () async {
+      // Never completes on its own: without an interrupting close this
+      // test would hang until the suite timeout.
+      final provider = _StallingProvider();
+      final loop = AgentLoop(provider: provider, plugins: []);
+      final turn = loop.runTurn(const Input('x', id: 'i6c'));
+      // Park the turn inside the provider stream, then cancel.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(provider.callCount, 1);
+      final sw = Stopwatch()..start();
+      loop.cancel('user said stop');
+      final outcome = await turn;
+      sw.stop();
+      expect(outcome.stopReason, StopReason.cancelled);
+      expect(outcome.detail, contains('user said stop'));
+      expect(sw.elapsed, lessThan(const Duration(seconds: 5)),
+          reason: 'the cancel interrupted the in-flight call');
     });
   });
 
@@ -956,4 +977,30 @@ final class _ToolsPlugin extends AgentPlugin {
   @override
   List<ToolSchema> get tools => [for (final t in tools_) t.schema];
   final List<Tool> tools_;
+}
+
+/// Never completes: a stand-in for a model call that hangs until
+/// something closes its stream out from under the loop.
+final class _StallingProvider implements LlmProvider {
+  _StallingProvider();
+
+  int callCount = 0;
+
+  @override
+  final String model = 'stalling';
+
+  @override
+  Stream<StreamEvent> send(
+          {required String system,
+          required List<Message> messages,
+          required List<ToolSchema> tools}) {
+    callCount++;
+    return () async* {
+      yield const TextDelta('working…');
+      await Completer<void>().future;
+    }();
+  }
+
+  @override
+  void close() {}
 }

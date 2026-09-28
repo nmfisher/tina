@@ -28,6 +28,7 @@
 /// `LlmProvider.send`.
 library;
 
+import 'dart:async' show StreamController, unawaited;
 import 'dart:collection';
 
 import 'package:tina_core/tina_core.dart';
@@ -132,7 +133,24 @@ final class AgentLoop {
       _executors = {};
 
   /// The one cancellation path.
-  void cancel(String why) => _cancel.cancel(why);
+  ///
+  /// Setting the token is only half of "stop": a turn parked inside the
+  /// provider's stream (a slow model, a stalled network) would sit there
+  /// until the socket gave up. So [cancel] also closes the stream the
+  /// loop is currently awaiting — if one is in flight. Closing from
+  /// outside ends an `await for` immediately; the loop's await throws,
+  /// the existing catch treats it like any provider error, and the turn
+  /// exits through the one [finish] with the cancel already recorded.
+  /// No-op when no call is in flight: the flag alone stops the turn at
+  /// the next check.
+  void cancel(String why) {
+    _cancel.cancel(why);
+    _modelCall?.close();
+  }
+
+  /// The model call in flight, when one is — [cancel] closes it so the
+  /// turn does not wait on a provider that will not stop on its own.
+  StreamController<StreamEvent>? _modelCall;
 
   /// The log so far — the loop's truth, read-only. `entry` at position
   /// `i` has `seq == i`; a store keyed by position can detect a gap.
@@ -412,11 +430,37 @@ final class AgentLoop {
         MessageComplete? completion;
         StreamError? failure;
         Object? thrown;
+        // The call is served through a controller the loop owns: the
+        // events are pumped in verbatim, and [cancel] closes the
+        // controller from outside to end the await mid-call. The pump
+        // never awaits the source — a cancelled stream whose events are
+        // dropped is exactly the point.
+        final call = StreamController<StreamEvent>();
+        _modelCall = call;
+        if (_cancel.cancelled) {
+          // A cancel that raced the setup closes the stream before the
+          // await sees it; the flag check below ends the turn.
+          unawaited(call.close());
+        } else {
+          unawaited(() async {
+            try {
+              await for (final event in _provider.send(
+                  system: request.systemPrompt,
+                  messages: request.messages,
+                  tools: request.tools)) {
+                if (!call.isClosed) call.add(event);
+              }
+              await call.close();
+            } catch (e) {
+              // A cancel racing the pump already closed the controller;
+              // the cancel reason wins, the error has nowhere to go.
+              if (!call.isClosed) call.addError(e);
+              await call.close();
+            }
+          }());
+        }
         try {
-          await for (final event in _provider.send(
-              system: request.systemPrompt,
-              messages: request.messages,
-              tools: request.tools)) {
+          await for (final event in call.stream) {
             if (event is ToolCallStart) {
               starts.add(event);
             } else if (event is TextDelta) {
@@ -436,6 +480,16 @@ final class AgentLoop {
           }
         } catch (e) {
           thrown = e; // the turn ends below, at the single StreamError exit
+        }
+        // The call is over — the next step's call, if any, gets its own
+        // controller; a [cancel] between calls stops by flag alone.
+        _modelCall = null;
+        // A cancel that closed the stream mid-call (or raced the setup)
+        // ends the turn here: the cancel is the truth, taking precedence
+        // over whatever the stream had delivered — never misread as a
+        // provider error or as a complete short reply.
+        if (_cancel.cancelled) {
+          return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
         }
         if (failure != null) {
           return finish(StopReason.error, 'provider error: ${failure.error}');
