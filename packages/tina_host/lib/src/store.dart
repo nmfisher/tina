@@ -23,6 +23,8 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_sqlite/tina_sqlite.dart';
 
+import 'session.dart' show SessionDetails;
+
 /// The store link failed — at open, at write, or mid-read. The host does
 /// not swallow this: a store that cannot persist must stop the session
 /// loudly, because a session that lies about durability is worse than
@@ -47,6 +49,7 @@ final class StoredSession {
     required this.registryKey,
     required this.entries,
     this.title,
+    this.details,
   });
 
   /// The session id the host started it with.
@@ -62,6 +65,11 @@ final class StoredSession {
 
   /// The title given at creation, when there was one.
   final String? title;
+
+  /// The session's counters (depth, children in flight, tokens spent)
+  /// as the registry row carries them, or null when the row predates
+  /// details.
+  final SessionDetails? details;
 
   @override
   String toString() => 'StoredSession($id, $entries entries'
@@ -126,16 +134,65 @@ final class SessionStore {
       payload['type'] == _markerType;
 
   /// Record a new session: appends the registry row that begins the
-  /// session's slice. Returns the row's id.
-  int createSession(String id, {String? title}) {
+  /// session's slice. Returns the row's id. [details] rides on the same
+  /// row — it is session-level fact, not log content — and comes back
+  /// with [readDetails].
+  int createSession(String id, {String? title, SessionDetails? details}) {
     try {
       return _log.append({
         'type': _markerType,
         'session_id': id,
         if (title != null) 'title': title,
+        if (details != null) 'details': details.toJson(),
       });
     } on Object catch (e) {
       _fail('recording session $id', e);
+    }
+  }
+
+  /// One session's stored details — depth, children in flight, tokens
+  /// spent — as the registry row carries them. Defaults (all zero) when
+  /// the row predates details. Unknown for a session this store has
+  /// never heard of: that throws like every other read of a missing
+  /// session.
+  SessionDetails readDetails(String sessionId) {
+    try {
+      SessionDetails? found;
+      for (final row in _log.readAll()) {
+        final p = row.payload;
+        if (_isMarker(p) && p['session_id'] == sessionId) {
+          final d = p['details'];
+          found = d is Map<String, dynamic>
+              ? SessionDetails.fromJson(Map<String, Object?>.of(d))
+              : SessionDetails();
+        }
+      }
+      // The last marker row naming the session wins: details updates
+      // append fresh marker rows, and the newest reading is the truth.
+      if (found != null) return found;
+      throw SessionStoreException(
+          'session store $file has no session named $sessionId');
+    } on SessionStoreException {
+      rethrow;
+    } on Object catch (e) {
+      _fail('reading details of session $sessionId', e);
+    }
+  }
+
+  /// Persist [details] for [sessionId]: one fresh marker row naming the
+  /// same session (the log is append-only; nothing is updated in
+  /// place). [readDetails] and the hosts' resume take the newest row,
+  /// so this is an update by convention — and the registry stays a
+  /// history, not a mutable cell.
+  void updateDetails(String sessionId, SessionDetails details) {
+    try {
+      _log.append({
+        'type': _markerType,
+        'session_id': sessionId,
+        'details': details.toJson(),
+      });
+    } on Object catch (e) {
+      _fail('updating details of session $sessionId', e);
     }
   }
 
@@ -160,13 +217,19 @@ final class SessionStore {
       int? key;
       String? id;
       String? title;
+      SessionDetails? details;
       var count = 0;
       void flush() {
         if (id == null) return;
         out.add(StoredSession(
-            id: id!, registryKey: key!, entries: count, title: title));
+            id: id!,
+            registryKey: key!,
+            entries: count,
+            title: title,
+            details: details));
         id = null;
         title = null;
+        details = null;
         count = 0;
       }
 
@@ -177,6 +240,10 @@ final class SessionStore {
           key = row.id;
           id = p['session_id'] as String?;
           title = p['title'] as String?;
+          final d = p['details'];
+          details = d is Map<String, dynamic>
+              ? SessionDetails.fromJson(Map<String, Object?>.of(d))
+              : null;
         } else {
           count++;
         }

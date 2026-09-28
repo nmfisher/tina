@@ -75,7 +75,8 @@ final class Host {
     int? registryKey;
     if (config.storePath != null) {
       store = SessionStore.open(config.storePath!);
-      registryKey = store.createSession(id, title: config.sessionTitle);
+      registryKey =
+          store.createSession(id, title: config.sessionTitle, details: config.details);
       // The store is the log's first listener: everything the loop
       // publishes from here on lands in SQLite, in publish order.
       loop.subscribe((entry, event) {
@@ -86,7 +87,7 @@ final class Host {
     }
     final host = Host._(
       config: config,
-      session: Session(id: id, loop: loop),
+      session: Session(id: id, loop: loop, details: config.details),
       store: store,
       registryKey: registryKey,
     );
@@ -127,7 +128,12 @@ final class Host {
     });
     return Host._(
       config: config,
-      session: Session(id: sessionId, loop: loop),
+      session: Session(
+          id: sessionId,
+          loop: loop,
+          // The counters a resume restores: what the registry row
+          // carried when the session last saved them.
+          details: store.readDetails(sessionId)),
       store: store,
     );
   }
@@ -141,6 +147,18 @@ final class Host {
       session.turns.add(o);
       return o;
     });
+  }
+
+  /// Persist the session's details as they read right now. The registry
+  /// row is append-only, so this writes a fresh row naming the same
+  /// session: [readDetails] and [resume] take the **latest** row. Call
+  /// it whenever the counters change and durability matters — a child
+  /// spawned, a child settled, tokens booked — so a crash loses at most
+  /// the delta since the last save. No-op for an in-memory session.
+  void saveDetails() {
+    final store = this.store;
+    if (store == null) return;
+    store.updateDetails(session.id, session.details);
   }
 
   /// Close the store link. The session stays usable in memory; the store
