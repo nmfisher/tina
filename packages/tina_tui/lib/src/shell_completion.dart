@@ -4,11 +4,11 @@ String shellCompletion(String shell) => switch (shell) {
   local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}"
   case "$prev" in
     --cwd) COMPREPLY=(); while IFS= read -r item; do COMPREPLY+=("$item"); done < <(compgen -d -- "$cur"); return;;
-    --config|--store) COMPREPLY=(); while IFS= read -r item; do COMPREPLY+=("$item"); done < <(compgen -f -- "$cur"); return;;
+    --config|--store|--import-sessions) COMPREPLY=(); while IFS= read -r item; do COMPREPLY+=("$item"); done < <(compgen -f -- "$cur"); return;;
     --completion) COMPREPLY=( $(compgen -W 'bash zsh fish' -- "$cur") ); return;;
     --resume) return;;
   esac
-  COMPREPLY=( $(compgen -W '--config --cwd --store --resume --sessions --configure --version --help --completion' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--config --cwd --store --resume --sessions --configure --version --help --completion --import-sessions --dry-run' -- "$cur") )
 }
 complete -F _tina_complete tina''',
       'zsh' => r'''#compdef tina
@@ -16,7 +16,8 @@ _tina() {
   _arguments '--config[Global config file]:file:_files' '--cwd[Workspace]:directory:_files -/' \
     '--store[Session store]:file:_files' '--resume[Resume session]:session ID:' \
     '--sessions[List sessions]' '--configure[Edit settings]' '--version[Print version]' \
-    '--help[Usage]' '--completion[Shell completion]:shell:(bash zsh fish)'
+    '--help[Usage]' '--completion[Shell completion]:shell:(bash zsh fish)' \
+    '--import-sessions[Import legacy sessions]:source:_files' '--dry-run[Preview import without writing]'
 }
 compdef _tina tina''',
       'fish' => r'''complete -c tina -f
@@ -24,6 +25,8 @@ complete -c tina -l config -r -F
 complete -c tina -l cwd -r -a '(__fish_complete_directories)'
 complete -c tina -l store -r -F
 complete -c tina -l resume -r
+complete -c tina -l import-sessions -r -F
+complete -c tina -l dry-run
 complete -c tina -l sessions
 complete -c tina -l configure
 complete -c tina -l version

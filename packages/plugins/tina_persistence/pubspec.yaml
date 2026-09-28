@@ -5,6 +5,7 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  crypto: ^3.0.6
   tina_core:
     path: ../../tina_core
   tina_engine_2:

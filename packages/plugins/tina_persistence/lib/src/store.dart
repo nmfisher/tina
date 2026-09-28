@@ -28,6 +28,7 @@
 /// entries.
 library;
 
+import 'dart:convert';
 import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_sqlite/tina_sqlite.dart';
@@ -159,6 +160,56 @@ final class SessionStore {
     } on Object catch (e) {
       _fail('recording session $id', e);
     }
+  }
+
+  /// Atomically add a converted snapshot. A repeat of the same source is a
+  /// no-op, including after the imported session has accumulated newer turns.
+  /// A different snapshot never overwrites or appends to an existing session.
+  bool importSnapshot(
+    String id, {
+    required String fingerprint,
+    required Map<String, Object?> provenance,
+    required List<SessionEntry> entries,
+    String? title,
+  }) {
+    final payloads = <String>[];
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].seq != i)
+        throw const FormatException('import sequence gap');
+      final entry = SessionEntry.fromJson(entries[i].toJson());
+      payloads.add(jsonEncode({'slice': id, ...entry.toJson()}));
+    }
+    final marker = jsonEncode({
+      'type': _markerType,
+      'session_id': id,
+      if (title != null) 'title': title,
+      'details': SessionDetails().toJson(),
+      'legacy_import': {'fingerprint': fingerprint, ...provenance},
+    });
+    return _log.guardWrite((db) {
+      final prior = db.select(
+          "SELECT payload FROM log_registry WHERE json_extract(payload, '\$.type') = ? "
+          "AND json_extract(payload, '\$.session_id') = ? ORDER BY id LIMIT 1",
+          [_markerType, id]);
+      if (prior.isNotEmpty) {
+        final metadata = jsonDecode(prior.single['payload'] as String) as Map;
+        if ((metadata['legacy_import'] as Map?)?['fingerprint'] == fingerprint)
+          return false;
+        throw FormatException(
+            'destination $id already exists with a different source; use another store');
+      }
+      final insert =
+          db.prepare('INSERT INTO log_registry (at, payload) VALUES (?, ?)');
+      try {
+        final at = DateTime.now().toUtc().toIso8601String();
+        for (final payload in [marker, ...payloads]) {
+          insert.execute([at, payload]);
+        }
+      } finally {
+        insert.close();
+      }
+      return true;
+    });
   }
 
   /// One session's stored details — depth, children in flight, tokens

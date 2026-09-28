@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:tina_persistence/tina_persistence.dart';
 import 'app.dart';
 import 'tui_session.dart';
 import 'shell_completion.dart';
@@ -6,11 +7,14 @@ import 'shell_completion.dart';
 const cliHelp =
     '''usage: tina [--config FILE] [--cwd DIR] [--store FILE] [--resume ID]
             [--sessions] [--configure] [--version] [--completion bash|zsh|fish]
+            [--import-sessions PATH [--dry-run]]
 
 Starts the engine2 terminal app. /help lists loaded commands.
 --configure edits global provider, model, plugin and request settings.
 --sessions lists sessions in the new workspace store; --resume ID reopens one.
-Legacy sessions are preserved but cannot be loaded by this app.
+--import-sessions converts a legacy session root, directory, manifest or JSONL
+file into --store (default: the current workspace store). --dry-run writes nothing.
+Each imported conversation gets its own ID, printed for --resume. Sources stay unchanged.
 ''';
 
 Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
@@ -19,6 +23,8 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
   String? sessionId;
   var listOnly = false;
   var configure = false;
+  String? legacySource;
+  var dryRun = false;
   var workingDirectory = Directory.current.path;
   for (var i = 0; i < args.length; i++) {
     final a = args[i];
@@ -34,6 +40,10 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
       listOnly = true;
     } else if (a == '--configure') {
       configure = true;
+    } else if (a == '--import-sessions' && i + 1 < args.length) {
+      legacySource = args[++i];
+    } else if (a == '--dry-run') {
+      dryRun = true;
     } else if (a == '--version' || a == '-v') {
       stdout.writeln('tina $version (engine2)');
       return 0;
@@ -58,11 +68,47 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
     stderr.writeln('tina: workspace does not exist: $workingDirectory');
     return 66;
   }
-  if ((listOnly && (sessionId != null || configure)) ||
-      (configure && sessionId != null)) {
+  if ([listOnly, sessionId != null, configure, legacySource != null]
+              .where((v) => v)
+              .length >
+          1 ||
+      (dryRun && legacySource == null)) {
     stderr.writeln(
-        'tina: --sessions, --resume and --configure are mutually exclusive');
+        'tina: --sessions, --resume, --configure and --import-sessions are mutually exclusive; --dry-run requires --import-sessions');
     return 64;
+  }
+
+  if (legacySource != null) {
+    SessionStore? store;
+    try {
+      if (!dryRun) {
+        final path = storePath ?? defaultSessionStorePath(workingDirectory);
+        File(path).parent.createSync(recursive: true);
+        store = SessionStore.open(path);
+      }
+      final results =
+          const LegacySessionImporter().importPath(legacySource, store: store);
+      for (final result in results) {
+        stdout.writeln('${result.status.name}: ${result.id ?? result.source}'
+            '${result.active ? ' (legacy active conversation)' : ''}'
+            ' — ${result.messages} source messages');
+        if (result.error != null) stderr.writeln('  ${result.error}');
+        for (final warning in result.warnings) {
+          stdout.writeln('  $warning');
+        }
+      }
+      stdout.writeln('Import ${dryRun ? 'preview' : 'finished'}: '
+          '${results.where((r) => r.status == LegacyImportStatus.imported || r.status == LegacyImportStatus.ready).length} '
+          '${dryRun ? 'ready' : 'imported'}, '
+          '${results.where((r) => r.status == LegacyImportStatus.skipped).length} skipped, '
+          '${results.where((r) => r.status == LegacyImportStatus.failed).length} failed.');
+      return results.any((r) => r.status == LegacyImportStatus.failed) ? 65 : 0;
+    } catch (e) {
+      stderr.writeln('tina: $e');
+      return 65;
+    } finally {
+      store?.close();
+    }
   }
 
   if (listOnly) {
