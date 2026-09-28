@@ -79,10 +79,12 @@ void main() {
     final entries = turnEntries('t1', 'hello', 0);
     store.append('s-1', entries);
 
-    // The twin: same entries, plain file.
+    // The twin: same entries, plain file. The store's rows wrap each
+    // entry with `slice` — the session attribution — so the twin wraps
+    // the same way; the entry bytes themselves still match exactly.
     final twin = TinaJsonLinesFile('${tmp.path}/twin.jsonl');
     for (final e in entries) {
-      twin.append(e.toJson());
+      twin.append({'slice': 's-1', ...e.toJson()});
     }
 
     // The store's rows carry exactly the twin's bytes.
@@ -135,14 +137,64 @@ void main() {
     store.close();
   });
 
+  test('interleaved sessions keep their slices attributed — a parent '
+      'appending after a child registered does not leak into the child',
+      () {
+    final store = SessionStore.open(path);
+    store.createSession('parent');
+    store.append('parent', turnEntries('t1', 'before', 0));
+    store.createSession('child');
+    store.append('child', turnEntries('t1', 'child turn', 0));
+    // The parent keeps writing after the child exists — the spawn-shape
+    // that misfiled under contiguous slices.
+    store.append('parent', [
+      ...turnEntries('t2', 'after', 5),
+    ]);
+    store.append('child', turnEntries('t2', 'child again', 5));
+
+    final parent = store.readEntries('parent');
+    final child = store.readEntries('child');
+    final parentTexts =
+        parent.whereType<InputRecordedEntry>().map((e) => e.text);
+    expect(parentTexts, ['before', 'after'],
+        reason: 'both parent turns, in order, none of the child');
+    final childTexts =
+        child.whereType<InputRecordedEntry>().map((e) => e.text);
+    expect(childTexts, ['child turn', 'child again']);
+    // Both slices stay gap-free even though their rows interleave in the
+    // file: strictly increasing rowids, seq runs 0,1,2,… per slice.
+    expect(store.checkGaps('parent'), isEmpty);
+    expect(store.checkGaps('child'), isEmpty);
+    store.close();
+  });
+
+  test('a hole in the payload seq run is corruption, even when the rowids '
+      'are adjacent', () {
+    final store = SessionStore.open(path);
+    store.createSession('s-1');
+    store.append('s-1', turnEntries('t1', 'hello', 0));
+    // Drop one entry from the middle of the slice by writing raw rows
+    // with a seq hole the log's own API cannot produce.
+    final db = sqlite3OpenForTest(path);
+    db.execute(
+        "DELETE FROM log_registry WHERE payload LIKE '%\"seq\":2%' AND payload LIKE '%\"slice\":\"s-1\"%'");
+    db.close();
+    final gaps = store.checkGaps('s-1');
+    expect(gaps, hasLength(1), reason: 'seq 3 follows seq 1: a middle row '
+        'is gone, and the file itself carries the evidence');
+    store.close();
+  });
+
   test('an unreadable entry payload throws — no silent skimming', () {
     final store = SessionStore.open(path);
     store.createSession('s-1');
     store.append('s-1', turnEntries('t1', 'hello', 0));
-    // Slip an unknown entry type into the slice from outside the API.
+    // Slip an unknown entry type into the slice from outside the API —
+    // attributed like any real row, so the slice cannot dodge the decode
+    // by losing its name.
     final db = sqlite3OpenForTest(path);
     db.execute(
-        "INSERT INTO log_registry (at, payload) VALUES ('x', '{\"type\":\"session_nuked\"}')");
+        "INSERT INTO log_registry (at, payload) VALUES ('x', '{\"slice\":\"s-1\",\"type\":\"session_nuked\"}')");
     db.close();
     // The unknown type surfaces as a store failure naming the session,
     // with the decode error as the cause — loud, never skimmed.

@@ -2,21 +2,30 @@
 ///
 /// One SQLite file, one `openTinaDatabase` (versioned, pragmas, rollback
 /// on throw). One append-only entry-log table (`log_registry`) holds every
-/// session's entries in one rowid order; a session's slice begins at a
-/// registry row (`type: tina.session`, naming the session id) and runs to
-/// the next registry row. The rowid order is the truth — there is no
-/// second counter to disagree with, and the schema exposes no update and
-/// no delete, so deletion is impossible by construction.
+/// session's rows in one rowid order. Each **entry** row's payload names
+/// its session — `slice: <session id>` — so a session's slice is the
+/// registry row (`type: tina.session`, naming the session id) plus every
+/// row that names it, wherever those rows sit in the file. Parent and
+/// child sessions share one store file and interleave freely: a parent's
+/// turn keeps appending after a child registered, and attribution puts
+/// each row where it belongs. (The first cut read a slice as a contiguous
+/// rowid run — "up to the next registry row" — which misfiled the parent's
+/// post-spawn rows into the child's slice.)
+///
+/// The rowid order is the truth — there is no second counter to disagree
+/// with, and the schema exposes no update and no delete, so deletion is
+/// impossible by construction. A slice's rows must be strictly increasing
+/// in rowid and their payload `seq`s must read 0, 1, 2, … in slice order
+/// (`seq` travels inside the payload, so the check needs no store-side
+/// counter); a violated run is corruption.
 ///
 /// The payload is one JSON object per row — the same bytes the loop's
 /// listeners publish and the same bytes a JSON Lines twin would hold
 /// (`swapJsonLinesWithSqlite` pins that property in tina_sqlite's own
-/// tests). `seq` travels inside the payload, so `seq == position in
-/// slice` is checkable off-storage; a violated run is corruption.
-///
-/// Every call goes through the poison-pill guard: the first failure
-/// poisons the link and every later call reports the original cause, so
-/// a broken store fails loudly instead of silently dropping entries.
+/// tests). Every call goes through the poison-pill guard: the first
+/// failure poisons the link and every later call reports the original
+/// cause, so a broken store fails loudly instead of silently dropping
+/// entries.
 library;
 
 import 'package:sqlite3/sqlite3.dart' show Database;
@@ -105,8 +114,11 @@ final class SessionStore {
   static const _markerType = 'tina.session';
 
   /// The store file's schema version. Bump when the layout changes; the
-  /// open step refuses anything newer than this code knows.
-  static const _schemaVersion = 1;
+  /// open step refuses anything newer than this code knows. Version 2:
+  /// entry rows carry `slice`, so a session's slice is by attribution,
+  /// not by contiguity — version 1 files (contiguous slices) are
+  /// refused.
+  static const _schemaVersion = 2;
 
   /// Open (or create) the store at [path]. Never silently degrades: a
   /// file from a newer schema throws before anything is written.
@@ -198,11 +210,15 @@ final class SessionStore {
 
   /// Append entries to a session's slice, in order, one row per entry.
   /// The entries' own `seq` is untouched: it is the loop's position, and
-  /// the store is the cache, not a second truth.
+  /// the store is the cache, not a second truth. Each row names its
+  /// session (`slice`), so interleaved writers — a parent's turn and a
+  /// child's spawn running through one file — stay attributed when
+  /// readers come back.
   void append(String sessionId, List<SessionEntry> entries) {
     try {
       for (final e in entries) {
-        _log.append(_payloadOf(e));
+        final payload = _payloadOf(e);
+        _log.append({'slice': sessionId, ...payload});
       }
     } on Object catch (e) {
       _fail('appending to session $sessionId', e);
@@ -266,18 +282,18 @@ final class SessionStore {
   }
 
   /// The raw rows of one session's slice, oldest first — the registry
-  /// row itself plus every entry row up to the next session's registry
-  /// row. A resume or an auditor starts here.
+  /// row itself plus every entry row that names the session. Rows sit
+  /// wherever interleaved writers put them; attribution, not contiguity,
+  /// assembles the slice. A resume or an auditor starts here.
   List<TinaLogEntry> readLog(String sessionId) {
     try {
       final start = _registryKey(sessionId);
-      final rows = _log.since(start - 1);
-      final out = <TinaLogEntry>[];
-      for (final row in rows) {
-        if (row.id != start && _isMarker(row.payload)) break;
-        out.add(row);
-      }
-      return out;
+      return [
+        for (final row in _log.since(start - 1))
+          if (row.id == start ||
+              (!_isMarker(row.payload) && row.payload['slice'] == sessionId))
+            row,
+      ];
     } on Object catch (e) {
       _fail('reading session $sessionId', e);
     }
@@ -299,16 +315,28 @@ final class SessionStore {
     }
   }
 
-  /// Every non-consecutive run inside one session's slice. Empty means
-  /// intact; the gaps are corruption — WAL truncation on a crash can
-  /// legitimately lose only the tail, never a middle.
+  /// Every broken run inside one session's slice. Empty means intact; a
+  /// gap is corruption — WAL truncation on a crash can legitimately lose
+  /// only the tail, never a middle. Two properties are checked: the
+  /// slice's rowids are strictly increasing (rows of interleaved
+  /// sessions interleave, so consecutive is not required), and the
+  /// payload `seq`s read 0, 1, 2, … in slice order — the position check
+  /// the doc promises, catchable without a store-side counter.
   List<StoreGap> checkGaps(String sessionId) {
-    final rows = readLog(sessionId);
+    // Entry rows only: the registry row carries no seq and is not part
+    // of the run. (Re-registration and details-update markers name the
+    // session but carry no `slice`, so readLog never mixes them in.)
+    final rows =
+        readLog(sessionId).where((r) => !_isMarker(r.payload)).toList();
     final out = <StoreGap>[];
-    for (var i = 1; i < rows.length; i++) {
-      if (rows[i].id != rows[i - 1].id + 1) {
+    var lastSeq = -1;
+    for (var i = 0; i < rows.length; i++) {
+      final seq = (rows[i].payload['seq'] as num?)?.toInt() ?? 0;
+      if (i > 0 &&
+          (rows[i].id <= rows[i - 1].id || seq != lastSeq + 1)) {
         out.add(StoreGap(rows[i - 1].id, rows[i].id));
       }
+      lastSeq = seq;
     }
     return out;
   }
