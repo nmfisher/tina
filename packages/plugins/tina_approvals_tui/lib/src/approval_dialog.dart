@@ -61,7 +61,9 @@ class ApprovalAskContext {
   final String op;
   final String path;
   final String reason;
-  const ApprovalAskContext(this.op, this.path, this.reason);
+  final bool confirmation;
+  const ApprovalAskContext(this.op, this.path, this.reason,
+      {this.confirmation = false});
 
   String get title => switch (op) {
         'write' => 'Write outside the project',
@@ -96,15 +98,17 @@ class ApprovalDialog {
 
   ApprovalDialog(this.call, {this.ask});
 
-  List<String> get _choices => [
-        if (_hasAlways) 'allow always',
-        'allow',
-        'deny',
-      ];
+  List<String> get _choices => ask?.confirmation == true
+      ? ['Yes', 'No']
+      : [
+          if (_hasAlways) 'allow always',
+          'allow',
+          'deny',
+        ];
 
   ApprovalDecision decisionFor(int index) => switch (_choices[index]) {
         'allow always' => ApprovalDecision.allowAlways,
-        'allow' => ApprovalDecision.allow,
+        'allow' || 'Yes' => ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
       };
 
@@ -136,8 +140,8 @@ class ApprovalDialog {
         ]);
     final details = [
       if (args != null && args.isNotEmpty) args,
-      if (ask != null) 'path: ${ask.path}',
-      if (ask != null) 'why: ${ask.reason}',
+      if (ask != null && !ask.confirmation) 'path: ${ask.path}',
+      if (ask != null) ask.confirmation ? ask.reason : 'why: ${ask.reason}',
     ];
     if (_details) {
       final lines = [
@@ -165,10 +169,16 @@ class ApprovalDialog {
     final choiceCount = choices.length.clamp(1, room);
     final start =
         (_selected - choiceCount + 1).clamp(0, choices.length - choiceCount);
-    final detailCount = (room - choiceCount).clamp(0, details.length);
+    final visibleDetails = ask?.confirmation == true
+        ? [
+            for (final detail in details)
+              ...wrapDialogText(detail, (width - 2).clamp(1, width))
+          ]
+        : details;
+    final detailCount = (room - choiceCount).clamp(0, visibleDetails.length);
     return [
       row('┌─ $label', theme.dialog.confirm),
-      for (final detail in details.take(detailCount))
+      for (final detail in visibleDetails.take(detailCount))
         row('│ $detail', chat.dim),
       ...choices.skip(start).take(choiceCount),
       if (height > 2)

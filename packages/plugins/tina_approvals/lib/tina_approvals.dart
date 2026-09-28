@@ -8,23 +8,29 @@ import 'package:tina_host/tina_host.dart';
 /// No channel, UI or filesystem types appear in the request protocol.
 enum ApprovalDecision { allow, allowAlways, deny }
 
+/// A confirmation has only Yes/No; it cannot grant future requests.
+enum ApprovalKind { permission, confirmation }
+
 final class ApprovalRequest {
   const ApprovalRequest(
       {required this.id,
       required this.operation,
       required this.target,
-      required this.reason});
+      required this.reason,
+      this.kind = ApprovalKind.permission});
   final String id;
   final String operation;
   final String target;
   final String reason;
+  final ApprovalKind kind;
 }
 
 abstract interface class ApprovalRequester {
   Future<ApprovalDecision> request(
       {required String operation,
       required String target,
-      required String reason});
+      required String reason,
+      ApprovalKind kind = ApprovalKind.permission});
 }
 
 /// A channel must authenticate remote responders before accepting their answers.
@@ -81,7 +87,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
   Future<ApprovalDecision> request(
       {required String operation,
       required String target,
-      required String reason}) {
+      required String reason,
+      ApprovalKind kind = ApprovalKind.permission}) {
     if (_closed || (_turnCancelled?.call() ?? false)) {
       return Future.value(ApprovalDecision.deny);
     }
@@ -89,7 +96,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
         id: '$_prefix-${++_sequence}',
         operation: operation,
         target: target,
-        reason: reason);
+        reason: reason,
+        kind: kind);
     final result = Completer<ApprovalDecision>();
     Timer? timer;
     late final ApprovalTicket ticket;
@@ -99,7 +107,12 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       ticket._active = false;
       _pending.remove(request.id);
       timer?.cancel();
-      result.complete(invalid ? ApprovalDecision.deny : decision);
+      result.complete(invalid
+          ? ApprovalDecision.deny
+          : request.kind == ApprovalKind.confirmation &&
+                  decision == ApprovalDecision.allowAlways
+              ? ApprovalDecision.allow
+              : decision);
       return !invalid;
     }, result.future);
     _pending[request.id] = ticket;

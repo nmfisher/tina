@@ -2,6 +2,7 @@
 /// receive a `TurnContext` and assign what they want to change.
 library;
 
+import 'dart:async';
 import 'package:tina_core/tina_core.dart';
 
 import 'context.dart';
@@ -10,7 +11,8 @@ import 'loop.dart';
 /// A plugin. The core owns truth; the plugin owns decisions, made by
 /// writing to the [TurnContext] it is handed.
 ///
-/// Hooks are synchronous. Opening, mounting and turn phases run in ascending
+/// Hooks are synchronous except onInput, which may await user interaction.
+/// Opening, mounting and turn phases run in ascending
 /// [order], breaking ties by [id]; closing runs in reverse. The loop copies
 /// the context before each turn phase: a throwing phase's writes are dropped.
 /// Session lifecycle failures propagate to the host for resource cleanup.
@@ -49,8 +51,10 @@ abstract class AgentPlugin {
   /// adds one section, never a whole prompt.
   void onPrompt(TurnContext c) {}
 
-  /// Before the turn: the input is `c.input`; rewrite it by assignment.
-  void onInput(TurnContext c) {}
+  /// Before recording a user message: rewrite `c.input`, or await a check and
+  /// cancel the turn. Cancellation interrupts a pending hook; late writes to
+  /// its copied context are discarded. Guards must cancel on their own errors.
+  FutureOr<void> onInput(TurnContext c) {}
 
   /// Before each model call: `c.messages`, `c.promptSections` and
   /// `c.pinnedTools` are the request about to be built.

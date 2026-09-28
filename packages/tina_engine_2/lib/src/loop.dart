@@ -434,10 +434,15 @@ final class AgentLoop {
       // rewrite is the one the turn takes — and each one lands in the log
       // naming the plugin, because a rewrite cannot be recomputed later.
       for (final p in _inOrder()) {
+        if (_cancel.cancelled)
+          return finish(StopReason.cancelled, _cancel.reason);
         final before = ctx.input;
         final copy = ctx.copy();
         try {
-          p.onInput(copy);
+          await Future.any<void>([
+            Future<void>.sync(() => p.onInput(copy)),
+            copy.whenCancelled,
+          ]);
         } catch (_) {
           continue; // one bad plugin must not break the turn
         }
@@ -451,6 +456,8 @@ final class AgentLoop {
               at: _now()));
         }
       }
+      if (_cancel.cancelled)
+        return finish(StopReason.cancelled, _cancel.reason);
       final user =
           Message(role: Role.user, content: [TextBlock(ctx.input.text)]);
       _append(MessageAppendedEntry(turnId: turnId, message: user, at: _now()));

@@ -21,7 +21,8 @@ class Deny implements ApprovalRequester {
   Future<ApprovalDecision> request(
           {required String operation,
           required String target,
-          required String reason}) async =>
+          required String reason,
+          ApprovalKind kind = ApprovalKind.permission}) async =>
       ApprovalDecision.deny;
 }
 

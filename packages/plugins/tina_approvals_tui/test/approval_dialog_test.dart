@@ -5,6 +5,36 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 
 /// Headless: the dialog driven from scripted keys — no terminal.
 void main() {
+  test('confirmation wraps its question and offers only Yes/No', () async {
+    const question =
+        'Your message contains grok, this is a no-no. Are you sure you want to proceed?';
+    ApprovalDialog dialog() => ApprovalDialog(null,
+        ask: const ApprovalAskContext('Send message?', 'user input', question,
+            confirmation: true));
+    final rows = dialog().rows(width: 80, height: 10);
+    final text = rows.map((r) => r.runs.map((s) => s.text).join()).join('\n');
+    expect(text, contains(question));
+    expect(text, contains('[x] Yes'));
+    expect(text, contains('[ ] No'));
+    expect(text, isNot(contains('always')));
+    expect(
+        (await dialog().awaitDecision(ScriptedKeySource([ApprovalKey.confirm])))
+            .decision,
+        ApprovalDecision.allow);
+    expect(
+        (await dialog().awaitDecision(
+                ScriptedKeySource([ApprovalKey.down, ApprovalKey.confirm])))
+            .decision,
+        ApprovalDecision.deny);
+    expect(
+        (await dialog().awaitDecision(ScriptedKeySource([ApprovalKey.cancel])))
+            .decision,
+        ApprovalDecision.deny);
+    final small = dialog().rows(width: 40, height: 5);
+    expect(small.length, lessThanOrEqualTo(5));
+    expect(small.map((r) => r.runs.map((s) => s.text).join()).join('\n'),
+        contains('[ ] No'));
+  });
   final call = const ToolUse(
     id: 'c1',
     name: 'bash',

@@ -100,7 +100,8 @@ final class QueuedDialogAsker {
       final request = ticket.request;
       final dialog = ApprovalDialog(null,
           ask: ApprovalAskContext(
-              request.operation, request.target, request.reason));
+              request.operation, request.target, request.reason,
+              confirmation: request.kind == ApprovalKind.confirmation));
       current = request;
       currentDialog = dialog;
       try {
