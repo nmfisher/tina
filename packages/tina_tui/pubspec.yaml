@@ -28,7 +28,7 @@ dependencies:
     path: ../tina_llm
   tina_tools:
     path: ../tina_tools
-dev_dependencies:
-  # The approval-approver tests build sandbox temp directories.
+  # The @ completion source's bounded walk (basename/posix joins).
   path: ^1.9.0
+dev_dependencies:
   test: ^1.25.0

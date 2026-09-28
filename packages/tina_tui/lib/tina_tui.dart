@@ -20,7 +20,9 @@
 /// - [listSessions] — the session listing the `--sessions` flag prints;
 /// - the TUI pieces: terminal, command dispatch, approval dialog and
 ///   approver, the render loop ([runApp]), chat/stream/tool-chip/status
-///   views.
+///   views, and the input line's completion sources ([runApp] wires
+///   them; [CommandNameCompletionSource] and [GitFileCompletionSource]
+///   are the two).
 library;
 
 export 'src/app.dart';
@@ -29,6 +31,7 @@ export 'src/approval_dialog.dart';
 export 'src/assembly.dart';
 export 'src/assembly_config.dart';
 export 'src/chat_view.dart';
+export 'src/completion_sources.dart';
 export 'src/status_strip.dart';
 export 'src/stream_view.dart';
 export 'src/tool_chip_view.dart';

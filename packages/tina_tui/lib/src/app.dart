@@ -26,6 +26,7 @@ import 'package:tina_services/tina_services.dart';
 
 import 'approval_approver.dart';
 import 'approval_dialog.dart';
+import 'completion_sources.dart';
 import 'tui_session.dart';
 
 /// Run the app on [session] until the user quits or stdin ends.
@@ -64,6 +65,18 @@ Future<int> runApp(
   // the assignment below runs.
   late final LineEditor editor =
       editorFor != null ? editorFor(s) : LineEditor(screen: s);
+
+  // Completion is a front-end concern: the two sources hang off the
+  // editor's own pickers (`/` — command names from the session's
+  // registry, read at use so later publications still suggest; `@` —
+  // candidate paths from the session's working directory). A test's
+  // injected editor keeps whatever sources it was built with.
+  if (editorFor == null) {
+    editor
+      ..commandProvider = CommandNameCompletionSource(session.services.get())
+      ..completionProvider = GitFileCompletionSource(
+          workingDir: session.assembly.host.config.workingDirectory);
+  }
 
   // The dialog asker — wired once, here, before the editor is built:
   // the sandbox's questions are answered by the dialog through [keys]
@@ -172,8 +185,8 @@ final class _EditorKeys implements KeySource {
 
   @override
   Future<ApprovalKey?> next() async {
-    final event = await _editor.readKey(globalKeys: true,
-        cancelSignal: _cancel ??= _editor.inputCancelled);
+    final event = await _editor.readKey(
+        globalKeys: true, cancelSignal: _cancel ??= _editor.inputCancelled);
     return switch (event) {
       ArrowKey(direction: ArrowDirection.up) => ApprovalKey.up,
       ArrowKey(direction: ArrowDirection.down) => ApprovalKey.down,
