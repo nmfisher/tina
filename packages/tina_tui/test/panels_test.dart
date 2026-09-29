@@ -49,6 +49,8 @@ class AttachCheck extends AgentPlugin implements ConsoleContribution {
   String get id => 'acme/attach-check';
   @override
   void attachConsole(ConsoleContext context) {
+    context.settings.registerSection(
+        id: 'acme/attach-check', title: model, build: () => []);
     if (model == 'bad') throw StateError('fixture attach failure');
   }
 

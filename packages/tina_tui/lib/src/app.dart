@@ -39,11 +39,14 @@ Future<int> runApp(
   // The editor owns the raw bytes; where its keys go is decided below.
   late final LineEditor editor =
       editorFor != null ? editorFor(s) : LineEditor(screen: s);
+  final console = consoleContextFor?.call(s, editor) ??
+      ConsoleContext(screen: s, editor: editor);
   final settings = SettingsPanel(s, editor);
   session.assembly.openSettings = () async {
     try {
       final saved = await settings.run(
           path: session.assembly.configPath,
+          sections: console.settings,
           descriptors: session.assembly.descriptors,
           validatePlugins: session.assembly.validatePlugins,
           pluginIds: session.assembly.pluginSettings.registry.ids);
@@ -70,11 +73,9 @@ Future<int> runApp(
 
   final contributions =
       session.host.plugins.whereType<ConsoleContribution>().toList();
-  final console = consoleContextFor?.call(s, editor) ??
-      ConsoleContext(screen: s, editor: editor);
-  final attached = <ConsoleContribution>[];
+  final attached = <ConsoleContribution, ConsoleAttachment>{};
   terminal.onLine = (text) {
-    final transcripts = attached.whereType<ConsoleTranscript>();
+    final transcripts = attached.keys.whereType<ConsoleTranscript>();
     if (transcripts.isEmpty) {
       s.frame(() => s.chat.writeln(text));
     } else {
@@ -82,7 +83,7 @@ Future<int> runApp(
     }
   };
   void repaintContributions() {
-    for (final contribution in attached) {
+    for (final contribution in attached.keys.toList()) {
       contribution.repaintConsole();
     }
   }
@@ -90,22 +91,13 @@ Future<int> runApp(
   void attachContribution(AgentPlugin plugin) {
     if (plugin is! ConsoleContribution) return;
     final contribution = plugin as ConsoleContribution;
-    try {
-      contribution.attachConsole(console);
-      attached.add(contribution);
-    } catch (_) {
-      try {
-        contribution.detachConsole();
-      } catch (_) {}
-      rethrow;
-    }
+    attached[contribution] = ConsoleAttachment.attach(contribution, console);
   }
 
   void detachContribution(AgentPlugin plugin) {
     if (plugin is! ConsoleContribution) return;
     final contribution = plugin as ConsoleContribution;
-    attached.remove(contribution);
-    contribution.detachConsole();
+    attached.remove(contribution)?.dispose();
   }
 
   session.assembly.pluginManager.onLoaded = attachContribution;
@@ -151,8 +143,7 @@ Future<int> runApp(
               SessionView(TuiSession.wrap(session.assembly.newSession(model))));
     }
     for (final contribution in contributions) {
-      attached.add(contribution);
-      contribution.attachConsole(console);
+      attached[contribution] = ConsoleAttachment.attach(contribution, console);
     }
 
     // First paint: what the assembly already knows — the config note it
@@ -212,8 +203,10 @@ Future<int> runApp(
     session.assembly.pluginManager.onLoaded = null;
     session.assembly.pluginManager.onUnloading = null;
     editor.onDoubleEscape = null;
-    for (final contribution in attached.reversed) {
-      contribution.detachConsole();
+    for (final attachment in attached.values.toList().reversed) {
+      try {
+        attachment.dispose();
+      } catch (_) {/* Restore the terminal regardless. */}
     }
     terminal.onLine = null;
     if (ownsTty) {

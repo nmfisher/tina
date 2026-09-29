@@ -10,7 +10,7 @@ final class SessionView implements ConsoleSessionView {
   SessionView(this.session, {this.showConfig = false});
   final TuiSession session;
   final bool showConfig;
-  final _attached = <ConsoleContribution>[];
+  final _attached = <ConsoleContribution, ConsoleAttachment>{};
   ConsoleContext? _context;
   SettingsPanel? _settings;
   @override
@@ -34,7 +34,8 @@ final class SessionView implements ConsoleSessionView {
   void cancel() => session.host.session.loop.cancel('escape');
   @override
   void notice(String text) {
-    final transcript = _attached.whereType<ConsoleTranscript>().firstOrNull;
+    final transcript =
+        _attached.keys.whereType<ConsoleTranscript>().firstOrNull;
     if (transcript != null) {
       transcript.writeNotice(text);
     } else {
@@ -50,16 +51,14 @@ final class SessionView implements ConsoleSessionView {
     void attach(AgentPlugin plugin) {
       if (plugin is! ConsoleContribution) return;
       final contribution = plugin as ConsoleContribution;
-      _attached.add(contribution);
-      contribution.attachConsole(context);
+      _attached[contribution] = ConsoleAttachment.attach(contribution, context);
     }
 
     session.assembly.pluginManager.onLoaded = attach;
     session.assembly.pluginManager.onUnloading = (plugin) {
       if (plugin is! ConsoleContribution) return;
       final contribution = plugin as ConsoleContribution;
-      _attached.remove(contribution);
-      contribution.detachConsole();
+      _attached.remove(contribution)?.dispose();
     };
     for (final plugin in session.host.plugins) {
       attach(plugin);
@@ -68,6 +67,7 @@ final class SessionView implements ConsoleSessionView {
     session.assembly.openSettings = () => context.interact(() async {
           final saved = await _settings!.run(
               path: session.assembly.configPath,
+              sections: context.settings,
               descriptors: session.assembly.descriptors,
               validatePlugins: session.assembly.validatePlugins,
               pluginIds: session.assembly.pluginSettings.registry.ids);
@@ -84,7 +84,7 @@ final class SessionView implements ConsoleSessionView {
 
   @override
   void repaintConsole() {
-    for (final contribution in _attached.toList()) {
+    for (final contribution in _attached.keys.toList()) {
       contribution.repaintConsole();
     }
     if (_context?.isActive == true) _settings?.repaint();
@@ -95,8 +95,10 @@ final class SessionView implements ConsoleSessionView {
     session.assembly.openSettings = null;
     session.assembly.pluginManager.onLoaded = null;
     session.assembly.pluginManager.onUnloading = null;
-    for (final contribution in _attached.reversed) {
-      contribution.detachConsole();
+    for (final attachment in _attached.values.toList().reversed) {
+      try {
+        attachment.dispose();
+      } catch (_) {/* Continue releasing views. */}
     }
     _attached.clear();
     (session.terminal as TuiTerminal).onLine = null;

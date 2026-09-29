@@ -5,6 +5,7 @@ import 'modal_surface.dart';
 import 'renderer.dart';
 import 'region.dart';
 import 'console_workspace.dart';
+import 'settings_contribution.dart';
 
 /// A frontend contribution mounted by the application without feature knowledge.
 abstract interface class ConsoleContribution {
@@ -24,6 +25,7 @@ final class ConsoleContext {
         _chat = null,
         _active = null,
         _activate = null,
+        _settings = SettingsRegistry(),
         panels = null,
         readKey = readKey ??
             ((cancelled) => editor.readKey(
@@ -32,11 +34,55 @@ final class ConsoleContext {
                 cancelSignal: cancelled));
 
   ConsoleContext._view(ConsoleContext parent, this._chat, this._active,
-      this._activate, this.panels)
+      this._activate, this.panels,
+      {SettingsRegistry? settings})
       : screen = parent.screen,
         _editor = parent._editor,
         _shared = parent._shared,
+        _settings = settings ?? SettingsRegistry(),
         readKey = parent.readKey;
+
+  ConsoleContext _forAttachment() =>
+      ConsoleContext._view(this, _chat, _active, _activate, panels,
+          settings: _settings);
+
+  final _releases = <void Function()>[];
+  bool _disposed = false;
+  final SettingsRegistry _settings;
+  late final SettingsRegistry settings = _settings.scoped(own);
+
+  /// Track another UI resource with this attachment. The returned release is
+  /// idempotent; all remaining releases run even when plugin teardown throws.
+  void Function() own(void Function() release) {
+    if (_disposed) throw StateError('console attachment is disposed');
+    var released = false;
+    late final void Function() dispose;
+    dispose = () {
+      if (released) return;
+      released = true;
+      _releases.remove(dispose);
+      release();
+    };
+    _releases.add(dispose);
+    return dispose;
+  }
+
+  void _dispose() {
+    _disposed = true;
+    Object? failure;
+    for (final release in _releases.toList().reversed) {
+      try {
+        release();
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure != null) throw failure;
+  }
+
+  void _checkOpen() {
+    if (_disposed) throw StateError('console attachment is disposed');
+  }
 
   ConsoleContext forView(
           {required ScrollingTextRegion chat,
@@ -51,7 +97,7 @@ final class ConsoleContext {
   final void Function()? _activate;
   final ConsolePanels? panels;
   ScrollingTextRegion get chat => _chat ?? screen.chat;
-  bool get isActive => _active?.call() ?? true;
+  bool get isActive => !_disposed && (_active?.call() ?? true);
   LineEditor get input => _editor;
 
   /// Serialize complete interactions across views and keep the requesting
@@ -74,14 +120,15 @@ final class ConsoleContext {
 
   /// Install a live prompt and release only the binding this caller owns.
   void Function() bindPrompt(String Function() builder) {
+    _checkOpen();
     final owner = Object();
     _shared.prompts[owner] = () => isActive ? builder() : null;
     _editor.promptBuilder = _shared.prompt;
-    return () {
+    return own(() {
       _shared.prompts.remove(owner);
       if (_shared.prompts.isEmpty)
         _editor.promptBuilder = _shared.originalPrompt;
-    };
+    });
   }
 
   void refreshInput() {
@@ -92,14 +139,16 @@ final class ConsoleContext {
   /// and survive width pressure longer; right-aligned lines retain their slot.
   void Function() bindStatus(List<RenderLine> Function() read,
       {int priority = 100}) {
+    _checkOpen();
     final owner = Object();
     _shared.status[owner] =
         (priority: priority, read: () => isActive ? read() : []);
-    refreshStatus();
-    return () {
+    final release = own(() {
       _shared.status.remove(owner);
       refreshStatus();
-    };
+    });
+    refreshStatus();
+    return release;
   }
 
   void refreshStatus() {
@@ -111,16 +160,53 @@ final class ConsoleContext {
   final LineEditor _editor;
   bool get isReadingKey => _editor.isReadingKey;
   bool get isCompleting => _editor.isCompleting;
-  void Function() bindShortcut(bool Function(InputEvent) handler) =>
-      _editor.registerShortcut((event) => isActive && handler(event));
+  void Function() bindShortcut(bool Function(InputEvent) handler) {
+    _checkOpen();
+    return own(_editor.registerShortcut((event) => isActive && handler(event)));
+  }
+
   void Function() addModal(ModalSurface modal) {
+    _checkOpen();
     final scoped = _ScopedModal(this, modal);
     _editor.registerModal(scoped);
-    return () => _editor.unregisterModal(scoped);
+    return own(() => _editor.unregisterModal(scoped));
   }
 
   final Screen screen;
   final Future<InputEvent?> Function(Future<void> cancelled) readKey;
+}
+
+/// One contribution's attachment lifetime, including failed activation.
+final class ConsoleAttachment {
+  ConsoleAttachment._(this.contribution, this.context);
+  final ConsoleContribution contribution;
+  final ConsoleContext context;
+  bool _closed = false;
+
+  static ConsoleAttachment attach(
+      ConsoleContribution contribution, ConsoleContext parent) {
+    final attachment =
+        ConsoleAttachment._(contribution, parent._forAttachment());
+    try {
+      contribution.attachConsole(attachment.context);
+      return attachment;
+    } catch (_) {
+      try {
+        attachment.dispose();
+      } catch (_) {/* Preserve activation error. */}
+      rethrow;
+    }
+  }
+
+  void dispose() {
+    if (_closed) return;
+    _closed = true;
+    try {
+      contribution.detachConsole();
+    } finally {
+      context._dispose();
+    }
+  }
 }
 
 final class _ConsoleBindings {

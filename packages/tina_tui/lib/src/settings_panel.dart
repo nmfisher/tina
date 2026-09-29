@@ -1,10 +1,11 @@
+import 'dart:async';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
 import 'config_document.dart';
 
-/// Global settings only. Saving affects future launches; the active session's
-/// provider and plugins remain owned by its original application assembly.
+/// Built-in fields edit global settings for future launches. Plugin sections
+/// supply their own controls and callbacks independently of that document.
 final class SettingsPanel {
   SettingsPanel(this.screen, this.editor, {this.readEvent});
   final Screen screen;
@@ -14,11 +15,35 @@ final class SettingsPanel {
   late OverlayRegion _overlay;
   void Function()? _paint;
   void repaint() => _paint?.call();
+  Completer<void> _changed = Completer<void>();
+  Future<InputEvent>? _pendingRead;
+  Future<InputEvent?> _nextEvent() async {
+    _pendingRead ??= _read();
+    final event = await Future.any<InputEvent?>(
+        [_pendingRead!, _changed.future.then((_) => null)]);
+    if (event != null) {
+      _pendingRead = null;
+      // Release the losing change listener after each key, rather than
+      // accumulating one for every keystroke until a plugin changes.
+      final previous = _changed;
+      _changed = Completer<void>();
+      previous.complete();
+    }
+    return event;
+  }
+
+  void _refresh() {
+    final previous = _changed;
+    _changed = Completer<void>();
+    previous.complete();
+    repaint();
+  }
 
   Future<bool> run(
       {required String path,
       List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins,
+      SettingsRegistry? sections,
       Iterable<String> pluginIds = const []}) async {
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
@@ -26,22 +51,40 @@ final class SettingsPanel {
       document.table('default')['model'] = '';
     }
     _read = readEvent ?? editor.captureKeyReader();
+    _pendingRead = null;
+    final unlisten = sections?.listen(_refresh);
     _overlay =
         OverlayRegion(screen, const Rect(row: 0, col: 0, width: 1, height: 1));
     try {
       while (true) {
         final defaults = document.table('default');
-        final selected = await _menu('Settings — next launch', [
-          'Default provider: ${defaults['provider'] ?? 'anthropic'}',
-          'Default model: ${defaults['model'] ?? ''}',
-          'Providers and models',
-          'Plugins',
-          'Save changes',
-          'Request and token limits',
-          'Generation settings',
-          'Theme',
-        ]);
+        SettingsSection? chosenSection;
+        var currentSections = <SettingsSection>[];
+        List<String> items() {
+          currentSections = sections?.sections ?? [];
+          return [
+            'Default provider: ${defaults['provider'] ?? 'anthropic'}',
+            'Default model: ${defaults['model'] ?? ''}',
+            'Providers and models',
+            'Plugins',
+            'Save changes',
+            'Request and token limits',
+            'Generation settings',
+            'Theme',
+            for (final section in currentSections)
+              '${section.title} (${section.id})',
+          ];
+        }
+
+        final selected = await _menu('Settings', items(), itemsNow: items,
+            onSelected: (index) {
+          if (index >= 8) chosenSection = currentSections[index - 8];
+        });
         if (selected == null) return false;
+        if (chosenSection != null) {
+          await _section(sections!, chosenSection!);
+          continue;
+        }
         switch (selected) {
           case 0:
             final providers = document.table('providers');
@@ -164,9 +207,68 @@ final class SettingsPanel {
         }
       }
     } finally {
+      unlisten?.call();
       _paint = null;
       _overlay.hide();
       editor.handleResize();
+    }
+  }
+
+  Future<void> _section(
+      SettingsRegistry registry, SettingsSection section) async {
+    while (registry.contains(section)) {
+      var controls = <SettingControl>[];
+      SettingControl? chosen;
+      List<String> items() {
+        controls = registry.contains(section) ? section.build() : [];
+        if (controls.map((c) => c.id).toSet().length != controls.length) {
+          throw StateError('duplicate control ID in ${section.id}');
+        }
+        return [
+          for (final control in controls)
+            switch (control) {
+              SettingToggle() =>
+                '${control.label}: ${control.read() ? 'On' : 'Off'}',
+              SettingText() =>
+                '${control.label}: ${control.secret ? '••••' : control.read()}',
+              SettingChoice() => '${control.label}: ${control.read()}',
+              SettingAction() => control.label,
+            }
+        ];
+      }
+
+      final selected = await _menu(section.title, items(),
+          itemsNow: items,
+          valid: () => registry.contains(section),
+          keysNow: () => controls.map((c) => c.id).toList(),
+          onSelected: (index) => chosen = controls[index]);
+      if (selected == null || !registry.contains(section)) return;
+      final control = chosen!;
+      // Unloading while an editor is open invalidates its callback.
+      bool available() =>
+          registry.contains(section) &&
+          section.build().any((c) => c.id == control.id);
+      try {
+        switch (control) {
+          case SettingToggle():
+            if (available()) await control.change(!control.read());
+          case SettingText():
+            final value = await _edit(control.label, control.read(),
+                secret: control.secret, valid: available);
+            if (value != null && available()) await control.change(value);
+          case SettingChoice():
+            final index =
+                await _menu(control.label, control.options, valid: available);
+            if (index != null && available())
+              await control.change(control.options[index]);
+          case SettingAction():
+            if (available()) await control.invoke();
+        }
+      } catch (_) {
+        if (registry.contains(section))
+          await _menu('Could not apply setting', ['Back'],
+              valid: () => registry.contains(section));
+      }
     }
   }
 
@@ -325,20 +427,32 @@ final class SettingsPanel {
         bounds: centeredDialog(screen.layout, visible), lines: visible);
   }
 
-  Future<int?> _menu(String title, List<String> items) async {
+  Future<int?> _menu(String title, List<String> items,
+      {List<String> Function()? itemsNow,
+      List<String> Function()? keysNow,
+      void Function(int)? onSelected,
+      bool Function()? valid}) async {
     var selected = 0;
     var query = '';
+    String? selectedKey;
     List<int> matches() => [
           for (var i = 0; i < items.length; i++)
             if (items[i].toLowerCase().contains(query.toLowerCase())) i
         ];
     _paint = () {
+      items = itemsNow?.call() ?? items;
       final filtered = matches();
       if (filtered.isEmpty) {
         _show([title, 'Find: $query', 'No matches · backspace to edit']);
         return;
       }
       selected = selected.clamp(0, filtered.length - 1);
+      final keys = keysNow?.call() ?? items;
+      if (selectedKey != null) {
+        final previous = filtered.indexWhere((i) => keys[i] == selectedKey);
+        if (previous >= 0) selected = previous;
+      }
+      selectedKey = keys[filtered[selected]];
       final room = (dialogArea(screen.layout).height - (query.isEmpty ? 2 : 3))
           .clamp(1, filtered.length);
       final start = (selected - room + 1).clamp(0, filtered.length - room);
@@ -351,28 +465,40 @@ final class SettingsPanel {
       ]);
     };
     while (true) {
+      if (valid?.call() == false) return null;
+      repaint();
+      final event = await _nextEvent();
+      if (valid?.call() == false) return null;
+      if (event == null) continue;
       repaint();
       final filtered = matches();
-      switch (await _read()) {
+      switch (event) {
         case EscapeKey():
           return null;
         case ControlKey(code: ControlCode.ctrlC):
           return null;
         case ControlKey(code: ControlCode.enter):
-          if (filtered.isNotEmpty) return filtered[selected];
+          if (filtered.isNotEmpty) {
+            onSelected?.call(filtered[selected]);
+            return filtered[selected];
+          }
         case CharInput(:final text):
         case PasteInput(:final text):
           query += text.replaceAll(RegExp(r'[\r\n]'), '');
           selected = 0;
+          selectedKey = null;
         case ControlKey(code: ControlCode.backspace):
           if (query.isNotEmpty) query = query.substring(0, query.length - 1);
           selected = 0;
+          selectedKey = null;
         case ArrowKey(direction: ArrowDirection.up):
           selected = (selected - 1)
               .clamp(0, filtered.isEmpty ? 0 : filtered.length - 1);
+          selectedKey = null;
         case ArrowKey(direction: ArrowDirection.down):
           selected = (selected + 1)
               .clamp(0, filtered.isEmpty ? 0 : filtered.length - 1);
+          selectedKey = null;
         default:
           break;
       }
@@ -380,7 +506,9 @@ final class SettingsPanel {
   }
 
   Future<String?> _edit(String label, String initial,
-      {bool secret = false, List<String> suggestions = const []}) async {
+      {bool secret = false,
+      List<String> suggestions = const [],
+      bool Function()? valid}) async {
     var input = TextLineInput(buffer: initial, cursor: initial.length);
     _paint = () {
       final text = secret ? '•' * input.buffer.runes.length : input.buffer;
@@ -402,8 +530,11 @@ final class SettingsPanel {
       ]);
     };
     while (true) {
+      if (valid?.call() == false) return null;
       repaint();
-      switch (await _read()) {
+      final event = await _nextEvent();
+      if (valid?.call() == false) return null;
+      switch (event) {
         case EscapeKey():
           return null;
         case ControlKey(code: ControlCode.ctrlC):
