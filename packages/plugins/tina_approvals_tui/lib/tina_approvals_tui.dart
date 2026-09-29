@@ -52,20 +52,56 @@ final class ApprovalTuiPlugin extends AgentPlugin
     final dialog = _asker?.currentDialog;
     if (context == null) return;
     if (dialog == null) {
-      _overlay?.hide();
+      _hide(context);
       return;
     }
-    final area = dialogArea(context.screen.layout);
-    final rows = dialog.rows(width: area.width, height: area.height);
-    final lines = [for (final row in rows) row.runs.map((r) => r.text).join()];
-    _overlay!.update(
-        bounds: centeredDialog(context.screen.layout, lines), lines: lines);
+    final screen = context.screen;
+    final input = screen.input.bounds;
+    final height =
+        (input.row - screen.layout.chat.row + 1).clamp(0, screen.layout.height);
+    final rows =
+        dialog.rows(width: input.width, height: height, theme: screen.theme);
+    final lines = [
+      for (final row in rows)
+        row.runs
+            .map((r) =>
+                r.code == null ? r.text : screen.colorize(r.code!, r.text))
+            .join()
+    ];
+    final bounds = Rect(
+        row: input.row - lines.length + 1,
+        col: input.col,
+        width: input.width,
+        height: lines.length);
+    screen.frame(() {
+      final previous = _overlay!.bounds;
+      if (_overlay!.isVisible &&
+          (previous.row != bounds.row ||
+              previous.col != bounds.col ||
+              previous.width != bounds.width ||
+              previous.height != bounds.height)) {
+        _overlay!.hide();
+        screen.chat.repaint();
+      }
+      _overlay!.update(bounds: bounds, lines: lines);
+    });
+  }
+
+  void _hide(ConsoleContext context) {
+    if (_overlay?.isVisible != true) return;
+    context.screen.frame(() {
+      _overlay!.hide();
+      context.screen.chat.repaint();
+      context.screen.input.repaint();
+      context.refreshInput();
+    });
   }
 
   @override
   void detachConsole() {
     _asker?.close();
-    _overlay?.hide();
+    if (_context case final context?) _hide(context);
+    _overlay?.dispose();
     _asker = null;
     _overlay = null;
     _context = null;
@@ -153,6 +189,8 @@ final class _ConsoleKeys implements KeySource {
       final key = switch (event) {
         ArrowKey(direction: ArrowDirection.up) => ApprovalKey.up,
         ArrowKey(direction: ArrowDirection.down) => ApprovalKey.down,
+        ArrowKey(direction: ArrowDirection.left) => ApprovalKey.up,
+        ArrowKey(direction: ArrowDirection.right) => ApprovalKey.down,
         ControlKey(code: ControlCode.enter) => ApprovalKey.confirm,
         ControlKey(code: ControlCode.tab) => ApprovalKey.details,
         ControlKey(code: ControlCode.ctrlC) => ApprovalKey.cancel,

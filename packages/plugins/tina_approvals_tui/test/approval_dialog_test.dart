@@ -5,6 +5,7 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 
 /// Headless: the dialog driven from scripted keys — no terminal.
 void main() {
+  String text(RenderLine row) => row.runs.map((run) => run.text).join();
   test('confirmation wraps its question and offers only Yes/No', () async {
     const question =
         'Your message contains grok, this is a no-no. Are you sure you want to proceed?';
@@ -94,32 +95,29 @@ void main() {
 
   test('rows show the call, its args, and one marker per choice', () {
     final rows = ApprovalDialog(call).rows(width: 80);
-    final texts = rows.map((r) => r.runs.single.text).toList();
+    final texts = rows.map(text).toList();
     expect(texts.first, '┌─ Run command');
     expect(texts.any((t) => t.contains('rm -rf build/')), isTrue);
     expect(texts.where((t) => t.contains('[x]')), hasLength(1));
-    expect(texts.where((t) => t.contains('[ ]')), hasLength(2));
+    expect('[ ]'.allMatches(texts.last), hasLength(2));
     expect(texts.any((t) => t.contains('allow always')), isTrue);
-    expect(texts.last, contains('esc deny'));
+    expect(texts[texts.length - 2], contains('esc deny'));
+    expect(texts.last, '[x] allow always   [ ] allow   [ ] deny');
   });
 
   test('selected choice is highlighted with the dialog style', () {
     final dialog = ApprovalDialog(call);
     final rows = dialog.rows();
-    final selected = rows.firstWhere((r) => r.runs.single.text.contains('[x]'));
-    expect(selected.runs.single.code, Theme.defaults().dialog.confirm);
+    final selected = rows.last.runs.firstWhere((r) => r.text.contains('[x]'));
+    expect(selected.code, Theme.defaults().dialog.confirm);
     dialog.handleKey(ApprovalKey.down);
     final moved = dialog.rows();
-    // Exactly one *choice* row is highlighted (the top border may share the
-    // dialog style); after one ↓ it is the plain allow, not allow-always.
     final highlighted =
-        moved.where((r) => r.runs.single.text.contains('[x]')).toList();
+        moved.last.runs.where((r) => r.text.contains('[x]')).toList();
     expect(highlighted, hasLength(1));
-    expect(highlighted.single.runs.single.text, contains('allow'));
-    expect(
-        highlighted.single.runs.single.text, isNot(contains('allow always')));
-    expect(
-        highlighted.single.runs.single.code, Theme.defaults().dialog.confirm);
+    expect(highlighted.single.text, contains('allow'));
+    expect(highlighted.single.text, isNot(contains('allow always')));
+    expect(highlighted.single.code, Theme.defaults().dialog.confirm);
   });
 
   test('long arguments clip to the width', () {
@@ -130,7 +128,7 @@ void main() {
     );
     final rows = ApprovalDialog(wide).rows(width: 40);
     for (final row in rows) {
-      expect(visibleWidth(row.runs.single.text), lessThanOrEqualTo(40));
+      expect(visibleWidth(text(row)), lessThanOrEqualTo(40));
     }
   });
 
@@ -144,20 +142,26 @@ void main() {
       final area = dialogArea(layout);
       for (var i = 0; i < 3; i++) {
         final rows = dialog.rows(width: area.width, height: area.height);
-        final lines = rows.map((row) => row.runs.single.text).toList();
+        final lines = rows.map(text).toList();
         expect(rows.length, lessThanOrEqualTo(area.height));
         expect(lines.where((line) => line.contains('[x]')), hasLength(1));
         for (final line in lines)
           expect(visibleWidth(line), lessThanOrEqualTo(area.width));
-        final box = centeredDialog(layout, lines);
-        expect(box.row, greaterThanOrEqualTo(area.row));
-        expect(box.col, greaterThanOrEqualTo(area.col));
-        expect(box.row + box.height, lessThanOrEqualTo(layout.inputRow + 1));
-        expect(box.col + box.width, lessThanOrEqualTo(area.col + area.width));
+        expect(lines.last, contains('[x]'));
         dialog.handleKey(ApprovalKey.down);
       }
       expect(dialog.current.decision, ApprovalDecision.deny);
     }
+  });
+
+  test('a one-row prompt keeps the selected answer visible', () {
+    final dialog = ApprovalDialog(null,
+        ask: const ApprovalAskContext('Confirm', '', 'Question',
+            confirmation: true));
+    dialog.handleKey(ApprovalKey.down);
+    final rows = dialog.rows(width: 14, height: 1);
+    expect(rows, hasLength(1));
+    expect(text(rows.single), '[x] No (2/2)');
   });
 
   test('details scroll to the complete path; enter returns without approving',

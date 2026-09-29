@@ -19,8 +19,10 @@ final class ConsoleContext {
       Future<InputEvent?> Function(Future<void> cancelled)? readKey})
       : _editor = editor,
         readKey = readKey ??
-            ((cancelled) =>
-                editor.readKey(globalKeys: true, cancelSignal: cancelled));
+            ((cancelled) => editor.readKey(
+                globalKeys: true,
+                panelNavigation: false,
+                cancelSignal: cancelled));
 
   /// Install a live prompt and release only the binding this caller owns.
   void Function() bindPrompt(String Function() builder) {

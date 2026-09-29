@@ -3,8 +3,7 @@
 /// The [KeySource] abstraction is the point: the dialog's decision logic is
 /// fully testable from scripted keys with no terminal, and a raw-mode host
 /// supplies a `KeySource` over its input parser later. Rendering is pure
-/// rows, mirroring `tina_console`'s dialog vocabulary (`theme.dialog.confirm`
-/// highlight, the `┌─┐│└─┘` box).
+/// rows, with the answer selector on the last row (the console's input row).
 ///
 /// The approval channel drives this view; the engine knows no dialog types.
 library;
@@ -112,9 +111,9 @@ class ApprovalDialog {
         _ => ApprovalDecision.deny,
       };
 
-  /// Rows for the current selection: the call (or the ask's operation,
-  /// resolved path and reason), and the choice list with the highlighted
-  /// option marked `[ ]`/`[x]`.
+  /// Input-anchored rows: context and navigation above the answer selector.
+  /// The last row replaces the text input. On narrow screens the selected
+  /// answer remains visible; Tab opens scrollable, unabridged details.
   List<RenderLine> rows(
       {int width = 80,
       int height = 1000,
@@ -159,34 +158,37 @@ class ApprovalDialog {
         if (height > 2) row('↑↓ scroll · tab back · esc deny', chat.dim),
       ].take(height).toList();
     }
-    final choices = [
-      for (var i = 0; i < _choices.length; i++)
-        row('│ ${i == _selected ? '[x]' : '[ ]'} ${_choices[i]}',
-            i == _selected ? theme.dialog.confirm : null)
+    final choices = _choices;
+    final runs = [
+      for (var i = 0; i < choices.length; i++) ...[
+        if (i > 0) const RenderRun('   ', null),
+        RenderRun('${i == _selected ? '[x]' : '[ ]'} ${choices[i]}',
+            i == _selected ? theme.dialog.confirm : null),
+      ],
     ];
-    if (height == 1) return [choices[_selected]];
-    final room = (height - 2).clamp(1, height);
-    final choiceCount = choices.length.clamp(1, room);
-    final start =
-        (_selected - choiceCount + 1).clamp(0, choices.length - choiceCount);
+    final selector = visibleWidth(runs.map((r) => r.text).join()) <= width
+        ? RenderLine(runs: runs)
+        : row('[x] ${choices[_selected]} (${_selected + 1}/${choices.length})',
+            theme.dialog.confirm);
+    if (height == 1) return [selector];
     final visibleDetails = ask?.confirmation == true
         ? [
             for (final detail in details)
               ...wrapDialogText(detail, (width - 2).clamp(1, width))
           ]
         : details;
-    final detailCount = (room - choiceCount).clamp(0, visibleDetails.length);
+    final detailCount = (height - 3).clamp(0, visibleDetails.length);
     return [
       row('┌─ $label', theme.dialog.confirm),
       for (final detail in visibleDetails.take(detailCount))
         row('│ $detail', chat.dim),
-      ...choices.skip(start).take(choiceCount),
       if (height > 2)
         row(
             width >= 56
-                ? '└─ ↑↓ move · enter confirm · tab details · esc deny'
-                : '↑↓ · enter · tab details · esc deny',
+                ? '└─ arrows choose · enter confirm · tab details · esc deny'
+                : 'arrows · enter · tab details · esc deny',
             chat.dim),
+      selector,
     ];
   }
 

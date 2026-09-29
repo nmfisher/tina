@@ -1854,7 +1854,11 @@ class InputRegion extends Region {
   }
 
   @override
-  void handleResize() {
+  void handleResize() => repaint();
+
+  /// Restore the input after an overlay covered it, keeping the saved draft
+  /// and cursor even if the editor's modal key read is still unwinding.
+  void repaint() {
     if (_prompt.isEmpty && _buffer.isEmpty) return;
     _paintedText = null;
     render(prompt: _prompt, buffer: _buffer, cursor: _cursor);
