@@ -2,6 +2,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'completion_sources.dart';
 import 'settings_panel.dart';
+import 'plugin_catalog.dart';
 import 'tui_session.dart';
 
 /// Adapts a session to UI capabilities. The workspace plugin never imports
@@ -71,6 +72,8 @@ final class SessionView implements ConsoleSessionView {
               descriptors: session.assembly.descriptors,
               validatePlugins: session.assembly.validatePlugins,
               pluginIds: session.assembly.pluginSettings.registry.ids,
+              pluginDescriptions:
+                  pluginDescriptions(session.assembly.pluginSettings.registry),
               pluginSettings: session.assembly.pluginSettings,
               pluginManager: session.assembly.pluginManager);
           notice(saved

@@ -28,7 +28,8 @@ approval_channel = "acme/messages"
               configPath: config.path, workingDirectory: workspace.path),
           registerPlugins: (registry) => registry.registerDefinition(
               PluginDefinition<TuiPluginContext>(channel.id, (_) => channel,
-                  provides: [approvalChannel])),
+                  provides: [approvalChannel],
+                  description: 'Test plugin definition.')),
           providerFactory: (_) => ScriptedProvider([
                 scriptedReply('', calls: [
                   ToolUseBlock(id: 'write', name: 'write', input: {

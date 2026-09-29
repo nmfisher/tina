@@ -44,25 +44,37 @@ final class TuiPluginContext {
   final SessionStoreOpener? openStore;
 }
 
-List<AgentPlugin> basePlugins(TuiPluginContext context) => [
-      const PersonaPlugin(),
-      if (context.providerPolicy != null) context.providerPolicy!,
-      ModeCommandPlugin(mode: context.tools, terminal: context.terminal),
+/// Required host plugins also carry metadata, without becoming optional features.
+List<PluginDefinition<TuiPluginContext>> basePluginDefinitions() => [
+      PluginDefinition('tina/persona', (_) => const PersonaPlugin(),
+          description:
+              'Supplies the agent identity and base instructions for conversations.'),
+      PluginDefinition('tina/providers', (c) => c.providerPolicy!,
+          description:
+              'Connects configured models and providers and enforces request and token limits.'),
+      PluginDefinition('tina/mode',
+          (c) => ModeCommandPlugin(mode: c.tools, terminal: c.terminal),
+          description:
+              'Controls whether tools may make changes or operate in read-only mode.'),
     ];
+
+List<AgentPlugin> basePlugins(TuiPluginContext context) => [
+      for (final definition in basePluginDefinitions())
+        if (definition.id != 'tina/providers' || context.providerPolicy != null)
+          definition.build(context, const []),
+    ];
+
+Map<String, String> pluginDescriptions(
+        PluginRegistry<TuiPluginContext> registry) =>
+    {
+      for (final id in registry.ids) id: registry.definition(id).description,
+      for (final definition in basePluginDefinitions())
+        definition.id: definition.description,
+    };
 
 /// This catalog alone grants first-party names. Extension registration on
 /// the returned registry rejects the reserved namespace.
 PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
-      liveFirstParty: {
-        'tina/classification',
-        'tina/chat-tui',
-        'tina/mode-tui',
-        'tina/activity-tui',
-        'tina/plans',
-        'tina/goals',
-        'tina/auto-compact',
-        'tina/file-resources'
-      },
       definitions: [
         grokGuardDefinition<TuiPluginContext>(),
         updateTuiDefinition<TuiPluginContext>(),
@@ -72,57 +84,108 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         approvalTuiDefinition<TuiPluginContext>(),
         PluginDefinition<TuiPluginContext>(
             'tina/approvals-stream', (_) => StreamApprovalChannel(),
-            provides: [approvalChannel]),
+            provides: [approvalChannel],
+            description:
+                'Delivers approval requests through a stream for an external interaction channel.'),
         toolsDefinition<TuiPluginContext>((c) => c.tools),
-      ],
-      firstParty: {
-        'tina/classification': (c) => ClassificationConsolePlugin.configured(
-            terminal: c.terminal, configPath: c.configPath),
-        'tina/panels-tui': (c) => PanelsTuiPlugin(terminal: c.terminal),
-        'tina/chat-tui': (c) => ChatTuiPlugin(
-            model: c.model,
-            tokenCap: c.limits.sessionTokens,
-            showSessionId: c.openStore != null,
-            sessionTokens: c.providerPolicy == null
-                ? null
-                : () => c.providerPolicy!.sessionTokens,
-            sessionEstimatedTokens: c.providerPolicy == null
-                ? null
-                : () => c.providerPolicy!.sessionEstimatedTokens),
-        'tina/mode-tui': (c) => ModeTuiPlugin(mode: c.tools),
-        'tina/activity-tui': (c) =>
-            ActivityTuiPlugin(terminal: c.terminal, printTranscript: false),
-        'tina/persistence': (c) => PersistencePlugin(openStore: c.openStore!),
-        'tina/plans': (c) => PlansPlugin(
-              terminal: c.terminal,
-              // Share the tools plugin's channel-independent approval service.
-              approver: (request, reason) async =>
-                  await c.tools.sandbox.approver?.call(request, reason) ??
-                  Approval.no,
-            ),
-        'tina/goals': (c) => GoalsPlugin(terminal: c.terminal),
-        'tina/auto-compact': (_) => CompactionPlugin(),
-        'tina/subagents': (c) => SubagentsPlugin(
-              config: SubagentsConfig(
-                  maxDepth: c.limits.childDepth,
-                  maxConcurrency: c.limits.childConcurrency,
-                  tokenBudget: 0),
-              sessionFactory: standardChildFactory(
-                parentTools: c.tools,
-                providerFactory: c.providerFactory,
+        PluginDefinition<TuiPluginContext>(
+            'tina/classification',
+            (c) => ClassificationConsolePlugin.configured(
+                terminal: c.terminal, configPath: c.configPath),
+            description:
+                'Identifies project questions, instructions and Git operations. Displays results without changing how the agent responds.',
+            live: true),
+        PluginDefinition<TuiPluginContext>(
+            'tina/panels-tui', (c) => PanelsTuiPlugin(terminal: c.terminal),
+            description:
+                'Opens multiple conversations in terminal panels and lets you switch between them.',
+            live: false),
+        PluginDefinition<TuiPluginContext>(
+            'tina/chat-tui',
+            (c) => ChatTuiPlugin(
                 model: c.model,
-                childPlugins: () => [
-                  const PersonaPlugin(),
-                  if (c.openStore != null)
-                    PersistencePlugin(openStore: c.openStore!),
-                ],
-              ),
-            ),
-        'tina/file-resources': (c) => FileResourcesPlugin(
-              config: FileResourcesConfig(
-                directory: Directory('${c.workingDirectory}/.tina/skills').path,
-                heading: '## Skills',
-              ),
-            ),
-      },
+                tokenCap: c.limits.sessionTokens,
+                showSessionId: c.openStore != null,
+                sessionTokens: c.providerPolicy == null
+                    ? null
+                    : () => c.providerPolicy!.sessionTokens,
+                sessionEstimatedTokens: c.providerPolicy == null
+                    ? null
+                    : () => c.providerPolicy!.sessionEstimatedTokens),
+            description:
+                'Displays conversation history, model responses, tool calls, timestamps and token spend.',
+            live: true),
+        PluginDefinition<TuiPluginContext>(
+            'tina/mode-tui', (c) => ModeTuiPlugin(mode: c.tools),
+            description:
+                'Shows the current mode and lets Shift-Tab switch between normal and read-only.',
+            live: true),
+        PluginDefinition<TuiPluginContext>(
+            'tina/activity-tui',
+            (c) =>
+                ActivityTuiPlugin(terminal: c.terminal, printTranscript: false),
+            description:
+                'Shows tool progress, results, file diffs and subagent activity in the activity browser.',
+            live: true),
+        PluginDefinition<TuiPluginContext>('tina/persistence',
+            (c) => PersistencePlugin(openStore: c.openStore!),
+            description:
+                'Saves conversation history in SQLite so sessions can be listed and resumed.',
+            live: false),
+        PluginDefinition<TuiPluginContext>(
+            'tina/plans',
+            (c) => PlansPlugin(
+                  terminal: c.terminal,
+                  // Share the tools plugin's channel-independent approval service.
+                  approver: (request, reason) async =>
+                      await c.tools.sandbox.approver?.call(request, reason) ??
+                      Approval.no,
+                ),
+            description:
+                'Lets the agent maintain a task plan and track progress through its steps.',
+            live: true),
+        PluginDefinition<TuiPluginContext>(
+            'tina/goals', (c) => GoalsPlugin(terminal: c.terminal),
+            description:
+                'Tracks an active goal and its progress across turns, with optional token budgets.',
+            live: true),
+        PluginDefinition<TuiPluginContext>(
+            'tina/auto-compact', (_) => CompactionPlugin(),
+            description:
+                'Summarizes older conversation history when context grows large to make room for more work.',
+            live: true),
+        PluginDefinition<TuiPluginContext>(
+            'tina/subagents',
+            (c) => SubagentsPlugin(
+                  config: SubagentsConfig(
+                      maxDepth: c.limits.childDepth,
+                      maxConcurrency: c.limits.childConcurrency,
+                      tokenBudget: 0),
+                  sessionFactory: standardChildFactory(
+                    parentTools: c.tools,
+                    providerFactory: c.providerFactory,
+                    model: c.model,
+                    childPlugins: () => [
+                      const PersonaPlugin(),
+                      if (c.openStore != null)
+                        PersistencePlugin(openStore: c.openStore!),
+                    ],
+                  ),
+                ),
+            description:
+                'Lets the agent delegate work to child sessions with bounded depth and concurrency.',
+            live: false),
+        PluginDefinition<TuiPluginContext>(
+            'tina/file-resources',
+            (c) => FileResourcesPlugin(
+                  config: FileResourcesConfig(
+                    directory:
+                        Directory('${c.workingDirectory}/.tina/skills').path,
+                    heading: '## Skills',
+                  ),
+                ),
+            description:
+                'Reads skill folders from the workspace and makes their instructions available to the agent.',
+            live: true),
+      ],
     );

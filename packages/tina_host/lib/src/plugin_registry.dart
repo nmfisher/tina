@@ -6,16 +6,8 @@ typedef PluginFactory<C> = AgentPlugin Function(C context);
 /// Application catalog. Only its constructor may register first-party names.
 /// Dependency graphs are validated before any factory is called.
 final class PluginRegistry<C> {
-  PluginRegistry(
-      {Map<String, PluginFactory<C>> firstParty = const {},
-      List<PluginDefinition<C>> definitions = const [],
-      Set<String> liveFirstParty = const {}}) {
-    for (final definition in [
-      for (final entry in firstParty.entries)
-        PluginDefinition<C>(entry.key, entry.value,
-            live: liveFirstParty.contains(entry.key)),
-      ...definitions,
-    ]) {
+  PluginRegistry({List<PluginDefinition<C>> definitions = const []}) {
+    for (final definition in definitions) {
       if (!definition.id.startsWith('tina/')) {
         throw ArgumentError(
             'first-party plugin must use tina/: ${definition.id}');
@@ -40,8 +32,10 @@ final class PluginRegistry<C> {
   List<String> orderedIds(Iterable<String> ids) =>
       _ordered(ids).map((d) => d.id).toList();
 
-  void register(String id, PluginFactory<C> factory, {bool live = false}) =>
-      registerDefinition(PluginDefinition(id, factory, live: live));
+  void register(String id, PluginFactory<C> factory,
+          {required String description, bool live = false}) =>
+      registerDefinition(
+          PluginDefinition(id, factory, description: description, live: live));
 
   void registerDefinition(PluginDefinition<C> definition) {
     if (definition.id.startsWith('tina/')) {

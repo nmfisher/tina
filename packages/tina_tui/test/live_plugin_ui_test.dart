@@ -60,7 +60,7 @@ void main() {
               final panel = LivePanel();
               instances.add(panel);
               return panel;
-            }, live: true));
+            }, live: true, description: 'Test plugin registration.'));
     final done = runApp(TuiSession.wrap(app),
         screen: fakeScreen(io), resizes: resizes.stream);
     app.pluginSettings
@@ -108,7 +108,7 @@ void main() {
                 final plugin = LivePanel(fail: failAttach);
                 instances.add(plugin);
                 return plugin;
-              }, live: true));
+              }, live: true, description: 'Test plugin registration.'));
       final done = runApp(TuiSession.wrap(assembly), screen: fakeScreen(io));
       await Future<void>.delayed(const Duration(milliseconds: 20));
       assembly.pluginSettings.apply(

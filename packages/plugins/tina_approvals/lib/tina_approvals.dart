@@ -56,11 +56,13 @@ const approvalRequester =
 const approvalChannel =
     PluginCapability<ApprovalChannel>('tina/approval-channel');
 
-PluginDefinition<C> approvalsDefinition<C>() =>
-    PluginDefinition.dependingOn<C, ApprovalChannel>('tina/approvals',
-        dependency: approvalChannel,
-        create: (_, channel) => ApprovalsPlugin(channel: channel),
-        provides: [approvalRequester]);
+PluginDefinition<C> approvalsDefinition<C>() => PluginDefinition.dependingOn<C,
+        ApprovalChannel>('tina/approvals',
+    dependency: approvalChannel,
+    create: (_, channel) => ApprovalsPlugin(channel: channel),
+    provides: [approvalRequester],
+    description:
+        'Coordinates approval requests, responses, cancellation and expiry.');
 
 /// Owns correlation, expiry and cancellation; enforcement stays with the caller.
 final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {

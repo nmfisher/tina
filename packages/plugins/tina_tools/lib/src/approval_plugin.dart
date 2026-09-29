@@ -22,7 +22,9 @@ PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
         };
       };
       return plugin;
-    });
+    },
+        description:
+            'Provides file, search and shell tools, enforcing sandbox permissions and approval decisions.');
 
 Approver requesterApprover(ApprovalRequester approvals) =>
     (operation, reason) async {

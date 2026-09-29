@@ -50,6 +50,8 @@ Future<int> runApp(
           descriptors: session.assembly.descriptors,
           validatePlugins: session.assembly.validatePlugins,
           pluginIds: session.assembly.pluginSettings.registry.ids,
+          pluginDescriptions:
+              pluginDescriptions(session.assembly.pluginSettings.registry),
           pluginSettings: session.assembly.pluginSettings,
           pluginManager: session.assembly.pluginManager);
       terminal.writeln(saved
@@ -297,6 +299,7 @@ Future<bool> runConfigEditor(String path) async {
     return await panel.run(
         path: path,
         pluginIds: registry.ids,
+        pluginDescriptions: pluginDescriptions(registry),
         validatePlugins: registry.validate);
   } finally {
     await resize?.cancel();

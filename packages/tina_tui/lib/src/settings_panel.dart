@@ -48,6 +48,7 @@ final class SettingsPanel {
       SettingsRegistry? sections,
       PluginSettings<dynamic>? pluginSettings,
       PluginManager<dynamic>? pluginManager,
+      Map<String, String> pluginDescriptions = const {},
       Iterable<String> pluginIds = const []}) async {
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
@@ -123,8 +124,8 @@ final class SettingsPanel {
           case 2:
             await _providers(document, descriptors);
           case 3:
-            await _plugins(
-                document, pluginIds.toList(), pluginSettings, pluginManager);
+            await _plugins(document, pluginIds.toList(), pluginSettings,
+                pluginManager, pluginDescriptions);
           case 4:
             try {
               document.save(
@@ -199,7 +200,8 @@ final class SettingsPanel {
       ConfigDocument document,
       List<String> ids,
       PluginSettings<dynamic>? settings,
-      PluginManager<dynamic>? manager) async {
+      PluginManager<dynamic>? manager,
+      Map<String, String> descriptions) async {
     var scope = PluginScope.global;
     var selected = 0;
     var query = '';
@@ -224,8 +226,14 @@ final class SettingsPanel {
           (table['enabled'] as List? ?? defaultPluginIds).contains(id);
     }
 
+    String description(String id) =>
+        descriptions[id] ??
+        (settings?.registry.ids.contains(id) == true
+            ? settings!.registry.definition(id).description
+            : '');
     while (true) {
       var reset = false;
+      var about = false;
       final rows = [
         'Scope: ${scope.name}',
         for (final id in ids)
@@ -242,6 +250,10 @@ final class SettingsPanel {
           onQuery: (value) => query = value,
           checkboxes: true,
           onReset: () => reset = true,
+          onAbout: () => about = true,
+          descriptionFor: (index) => index > 0 && index <= ids.length
+              ? description(ids[index - 1])
+              : '',
           detailFor: (index) {
             if (index == 0) return 'Choose where changes apply';
             if (index > ids.length) return 'Save changes; restart required';
@@ -256,6 +268,15 @@ final class SettingsPanel {
       if (choice == null) return;
       selected = choice;
       try {
+        if (about) {
+          if (choice > 0 && choice <= ids.length) {
+            final id = ids[choice - 1];
+            List<String> lines() => wrapDialogText(
+                description(id), dialogArea(screen.layout).width - 2);
+            await _menu('About $id', lines(), itemsNow: lines);
+          }
+          continue;
+        }
         if (choice == 0) {
           if (settings == null) continue;
           final chosen =
@@ -531,6 +552,8 @@ final class SettingsPanel {
       void Function(String)? onQuery,
       bool checkboxes = false,
       String Function(int)? detailFor,
+      String Function(int)? descriptionFor,
+      void Function()? onAbout,
       void Function()? onReset,
       List<String> Function()? itemsNow,
       List<String> Function()? keysNow,
@@ -559,7 +582,19 @@ final class SettingsPanel {
         if (previous >= 0) selected = previous;
       }
       selectedKey = keys[filtered[selected]];
-      final room = (dialogArea(screen.layout).height -
+      final area = dialogArea(screen.layout);
+      final blurb = descriptionFor?.call(filtered[selected]) ?? '';
+      final description =
+          blurb.isEmpty ? <String>[] : wrapDialogText(blurb, area.width);
+      final descriptionRoom =
+          (area.height - (query.isEmpty ? 4 : 5)).clamp(0, description.length);
+      final descriptionLines = description.take(descriptionRoom).toList();
+      if (descriptionLines.isNotEmpty && descriptionRoom < description.length) {
+        descriptionLines[descriptionLines.length - 1] =
+            clipDialogText('${descriptionLines.last} …', area.width);
+      }
+      final room = (area.height -
+              descriptionLines.length -
               (query.isEmpty ? 2 : 3) -
               (detailFor == null ? 0 : 1))
           .clamp(1, filtered.length);
@@ -569,9 +604,10 @@ final class SettingsPanel {
         if (query.isNotEmpty) 'Find: $query',
         for (var i = start; i < start + room; i++)
           '${selected == i ? '›' : ' '} ${items[filtered[i]]}',
+        ...descriptionLines,
         if (detailFor != null) detailFor(filtered[selected]),
         checkboxes
-            ? 'space/enter toggle · ^R inherit · esc back'
+            ? 'space toggle · ^R inherit · ? about · esc'
             : '↑↓ move · type to find · enter select · esc back'
       ]);
     };
@@ -592,6 +628,12 @@ final class SettingsPanel {
           if (filtered.isNotEmpty) {
             onQuery?.call(query);
             onSelected?.call(filtered[selected]);
+            return filtered[selected];
+          }
+        case CharInput(text: '?') when onAbout != null:
+          if (filtered.isNotEmpty) {
+            onAbout();
+            onQuery?.call(query);
             return filtered[selected];
           }
         case CharInput(text: ' ') when checkboxes:

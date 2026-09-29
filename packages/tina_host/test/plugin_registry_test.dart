@@ -25,6 +25,35 @@ const other = PluginCapability<AgentPlugin>('acme/other');
 
 void main() {
   test(
+      'descriptions are validated before factories run and available while unloaded',
+      () {
+    var builds = 0;
+    AgentPlugin create(void _) {
+      builds++;
+      return const NamedPlugin('acme/example');
+    }
+
+    for (final description in ['', '  \n\t']) {
+      expect(
+          () => PluginDefinition<void>('acme/example', create,
+              description: description),
+          throwsArgumentError);
+      expect(
+          () => PluginDefinition.dependingOn<void, Service>('acme/example',
+              description: description,
+              dependency: service,
+              create: (_, service) => create(null)),
+          throwsArgumentError);
+    }
+    final registry = PluginRegistry<void>()
+      ..register('acme/example', create,
+          description: '  Explains changes in the workspace.  ');
+    expect(registry.definition('acme/example').description,
+        'Explains changes in the workspace.');
+    expect(builds, 0);
+  });
+
+  test(
       'dependency order and typed factory injection do not depend on selection order',
       () {
     final built = <String>[];
@@ -34,11 +63,11 @@ void main() {
         dependency: service, create: (_, dependency) {
       built.add(dependency.value);
       return const NamedPlugin('acme/consumer');
-    }));
+    }, description: 'Test plugin definition.'));
     registry.registerDefinition(PluginDefinition<void>('acme/provider', (_) {
       built.add('provider');
       return ServicePlugin('acme/provider');
-    }, provides: [service]));
+    }, provides: [service], description: 'Test plugin definition.'));
     expect(
         registry
             .build(['acme/consumer', 'acme/provider'], null).map((p) => p.id),
@@ -57,12 +86,12 @@ void main() {
         provides: [other], create: (_, dependency) {
       builds++;
       return const NamedPlugin('acme/consumer');
-    }));
+    }, description: 'Test plugin definition.'));
     for (final id in ['acme/first', 'acme/second']) {
       registry.registerDefinition(PluginDefinition<void>(id, (_) {
         builds++;
         return ServicePlugin(id);
-      }, provides: [service]));
+      }, provides: [service], description: 'Test plugin definition.'));
     }
     registry.registerDefinition(PluginDefinition.dependingOn<void, AgentPlugin>(
         'acme/cycle',
@@ -70,7 +99,7 @@ void main() {
         provides: [service], create: (_, dependency) {
       builds++;
       return ServicePlugin('acme/cycle');
-    }));
+    }, description: 'Test plugin definition.'));
     for (final selection in [
       ['acme/consumer'],
       ['acme/consumer', 'acme/first', 'acme/second'],
@@ -86,19 +115,23 @@ void main() {
     final registry = PluginRegistry<void>();
     registry.registerDefinition(PluginDefinition<void>(
         'acme/liar', (_) => const NamedPlugin('acme/liar'),
-        provides: [service]));
+        provides: [service], description: 'Test plugin definition.'));
     expect(() => registry.build(['acme/liar'], null), throwsStateError);
   });
 
   test('tina is reserved; external publishers can share a local name', () {
-    final registry = PluginRegistry<void>(firstParty: {
-      'tina/plans': (_) => const NamedPlugin('tina/plans'),
-    });
-    registry.register('acme/plans', (_) => const NamedPlugin('acme/plans'));
+    final registry = PluginRegistry<void>(definitions: [
+      PluginDefinition('tina/plans', (_) => const NamedPlugin('tina/plans'),
+          description: 'Test plans.'),
+    ]);
+    registry.register('acme/plans', (_) => const NamedPlugin('acme/plans'),
+        description: 'Test plugin registration.');
     expect(registry.build(['tina/plans', 'acme/plans'], null).map((p) => p.id),
         ['tina/plans', 'acme/plans']);
     for (final id in ['tina/plans', 'tina/new-plugin']) {
-      expect(() => registry.register(id, (_) => NamedPlugin(id)),
+      expect(
+          () => registry.register(id, (_) => NamedPlugin(id),
+              description: 'Test plugin registration.'),
           throwsArgumentError);
     }
   });
@@ -110,7 +143,7 @@ void main() {
     registry.register('acme/review', (_) {
       builds++;
       return const NamedPlugin('acme/review');
-    });
+    }, description: 'Test plugin registration.');
     for (final ids in [
       ['acme/review', 'unknown/plugin'],
       ['acme/review', 'acme/review'],
@@ -123,13 +156,15 @@ void main() {
     expect(builds, 0);
     expect(
         () => registry.register(
-            'acme/review', (_) => const NamedPlugin('acme/review')),
+            'acme/review', (_) => const NamedPlugin('acme/review'),
+            description: 'Test plugin registration.'),
         throwsArgumentError);
   });
 
   test('a factory cannot claim another registered identity', () {
     final registry = PluginRegistry<void>();
-    registry.register('acme/review', (_) => const NamedPlugin('tina/plans'));
+    registry.register('acme/review', (_) => const NamedPlugin('tina/plans'),
+        description: 'Test plugin registration.');
     expect(() => registry.build(['acme/review'], null), throwsStateError);
   });
 

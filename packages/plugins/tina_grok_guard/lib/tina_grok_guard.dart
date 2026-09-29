@@ -2,11 +2,13 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 
-PluginDefinition<C> grokGuardDefinition<C>() =>
-    PluginDefinition.dependingOn<C, ApprovalRequester>('tina/grok-guard',
-        dependency: approvalRequester,
-        live: true,
-        create: (_, approvals) => GrokGuardPlugin(approvals));
+PluginDefinition<C> grokGuardDefinition<C>() => PluginDefinition.dependingOn<C,
+        ApprovalRequester>('tina/grok-guard',
+    dependency: approvalRequester,
+    live: true,
+    create: (_, approvals) => GrokGuardPlugin(approvals),
+    description:
+        'Asks for Yes/No confirmation before sending a message containing grok. No cancels the message.');
 
 /// Policy only: the selected approval channel owns the question's UI.
 final class GrokGuardPlugin extends AgentPlugin {

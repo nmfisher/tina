@@ -44,3 +44,24 @@ factories; it does not download or dynamically import Dart packages.
 `tina_index` keeps serving existing callers; this move does not introduce an
 index plugin adapter. Attractor stays at `packages/libraries/attractor`, available to
 the workflow plugin and legacy app, but absent from the new app's runtime graph.
+
+## Plugin descriptions
+
+Every catalog entry requires a nonempty, user-facing `description` on its
+`PluginDefinition`. Settings → Plugins reads this metadata without constructing
+or enabling the plugin. Highlight a checkbox to see the blurb; press `?` for the
+full description on a small terminal. Required host plugins have descriptions too.
+
+```dart
+registry.register(
+  'acme/review',
+  (context) => ReviewPlugin(context),
+  description: 'Reviews local changes and highlights likely bugs.',
+  live: true,
+);
+```
+
+Both `PluginDefinition(...)` and `PluginDefinition.dependingOn(...)` require
+`description:`. Blank descriptions are rejected. First-party catalogs use the
+same definition objects, including description and lifecycle policy; factory-only
+maps are no longer supported. The engine loop has no dependency on this metadata.

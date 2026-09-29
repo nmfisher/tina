@@ -69,7 +69,7 @@ void main() {
         final probe = Probe('test/probe');
         instances.add(probe);
         return probe;
-      }, live: true);
+      }, live: true, description: 'Test plugin registration.');
     final runtime = host();
     final manager =
         PluginManager(host: runtime, registry: registry, context: null);
@@ -100,7 +100,7 @@ void main() {
         final probe = Probe('test/probe', failMount: fail);
         probes.add(probe);
         return probe;
-      }, live: true);
+      }, live: true, description: 'Test plugin registration.');
     final manager =
         PluginManager(host: runtime, registry: registry, context: null);
     manager.select(['test/probe']);
@@ -124,7 +124,8 @@ void main() {
         Command(name: 'probe', description: 'existing', handler: (_) {}));
     final probe = Probe('test/probe');
     final registry = PluginRegistry<void>()
-      ..register('test/probe', (_) => probe, live: true);
+      ..register('test/probe', (_) => probe,
+          live: true, description: 'Test plugin registration.');
     final manager =
         PluginManager(host: runtime, registry: registry, context: null);
     manager.select(['test/probe']);
@@ -138,7 +139,8 @@ void main() {
     final runtime = host();
     final probe = Probe('test/probe');
     final registry = PluginRegistry<void>()
-      ..register('test/probe', (_) => probe, live: true);
+      ..register('test/probe', (_) => probe,
+          live: true, description: 'Test plugin registration.');
     final manager =
         PluginManager(host: runtime, registry: registry, context: null)
           ..onLoaded = (_) => throw StateError('UI failed');
@@ -152,7 +154,8 @@ void main() {
     final provider = PausedProvider();
     final runtime = host([], provider);
     final registry = PluginRegistry<void>()
-      ..register('test/probe', (_) => Probe('test/probe'), live: true);
+      ..register('test/probe', (_) => Probe('test/probe'),
+          live: true, description: 'Test plugin registration.');
     final manager =
         PluginManager(host: runtime, registry: registry, context: null);
     final turn = runtime.send('hold');
@@ -173,7 +176,7 @@ void main() {
       ..register('test/probe', (_) {
         built = true;
         return Probe('test/probe');
-      });
+      }, description: 'Test plugin registration.');
     final manager =
         PluginManager(host: runtime, registry: registry, context: null);
     manager.select(['test/probe']);
@@ -186,12 +189,12 @@ void main() {
     final registry = PluginRegistry<void>()
       ..registerDefinition(PluginDefinition<void>(
           'test/provider', (_) => Probe('test/provider'),
-          provides: [service]))
+          provides: [service], description: 'Test plugin definition.'))
       ..registerDefinition(PluginDefinition.dependingOn<void, AgentPlugin>(
           'test/consumer',
           dependency: service,
-          create: (_, provider) =>
-              Probe('test/consumer', command: 'consumer')));
+          create: (_, provider) => Probe('test/consumer', command: 'consumer'),
+          description: 'Test plugin definition.'));
     expect(() => registry.validate(['test/consumer']), throwsArgumentError);
   });
 }

@@ -82,7 +82,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
         options: AssemblyOptions(
             configPath: config.path, workingDirectory: dir.path),
         registerPlugins: (registry) => registry.register(
-            'acme/attach-check', (context) => AttachCheck(context.model)),
+            'acme/attach-check', (context) => AttachCheck(context.model),
+            description: 'Test plugin registration.'),
         providerFactory: (model) {
           final p = Provider(model);
           providers.add(p);

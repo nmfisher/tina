@@ -8,9 +8,11 @@ import 'package:tina_host/tina_host.dart';
 import 'src/approval_dialog.dart';
 export 'src/approval_dialog.dart';
 
-PluginDefinition<C> approvalTuiDefinition<C>() =>
-    PluginDefinition<C>('tina/approvals-tui', (_) => ApprovalTuiPlugin(),
-        provides: [approvalChannel]);
+PluginDefinition<C> approvalTuiDefinition<C>() => PluginDefinition<C>(
+    'tina/approvals-tui', (_) => ApprovalTuiPlugin(),
+    provides: [approvalChannel],
+    description:
+        'Shows approval and confirmation choices in the terminal input area.');
 
 /// The channel owns presentation; the application mounts it like any other
 /// console contribution. No application or tools-package import is required.

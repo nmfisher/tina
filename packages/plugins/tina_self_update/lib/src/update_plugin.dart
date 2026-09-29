@@ -17,7 +17,9 @@ PluginDefinition<C> updateDefinition<C>({
         create: (context, approvals) => UpdatePlugin(
             currentVersion: version(context),
             terminal: terminal(context),
-            approvals: approvals));
+            approvals: approvals),
+        description:
+            'Checks for new releases and installs an update after approval.');
 
 /// All delivery channels use the same prepared update and approval contract.
 final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {

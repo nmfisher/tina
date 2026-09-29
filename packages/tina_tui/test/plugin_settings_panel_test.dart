@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/tina_tui.dart';
+import 'package:tina_tui/src/plugin_catalog.dart' show pluginDescriptions;
 import 'app_test.dart' show FakeIo, fakeScreen;
 
 void main() {
@@ -17,7 +18,13 @@ void main() {
     app = TuiAssembly.start(
         options: AssemblyOptions(
             configPath: config.path, workingDirectory: root.path),
-        providerFactory: (_) => ScriptedProvider([]));
+        providerFactory: (_) => ScriptedProvider([]),
+        registerPlugins: (registry) => registry.register(
+            'acme/notes',
+            (_) =>
+                throw StateError('Viewing metadata must not load this plugin'),
+            description:
+                'Summarizes release notes from recent commits and groups changes for the next release.'));
   });
   tearDown(() {
     app.close();
@@ -49,6 +56,7 @@ void main() {
       await panel.run(
           path: config.path,
           pluginIds: app.pluginSettings.registry.ids,
+          pluginDescriptions: pluginDescriptions(app.pluginSettings.registry),
           pluginSettings: app.pluginSettings,
           pluginManager: app.pluginManager);
       expect(index, steps.length);
@@ -59,6 +67,32 @@ void main() {
       io.closeInput();
     }
   }
+
+  test(
+      'disabled plugin descriptions come from registration and open fully on narrow screens',
+      () async {
+    final output = await drive([
+      CharInput('Plugins'),
+      enter,
+      CharInput('acme/notes'),
+      CharInput('?'),
+      down,
+      down,
+      escape,
+      escape,
+      escape,
+    ]);
+    expect(output, contains('Summarizes release notes'));
+    expect(output, contains('About acme/notes'));
+    expect(app.host.plugins.any((p) => p.id == 'acme/notes'), false);
+    final metadata = pluginDescriptions(app.pluginSettings.registry);
+    for (final id in {
+      ...app.pluginSettings.registry.ids,
+      ...app.pluginSettings.requiredIds
+    }) {
+      expect(metadata[id], isNotEmpty, reason: id);
+    }
+  });
 
   test(
       'checkboxes save globally, load live, retain selection and reset inheritance',

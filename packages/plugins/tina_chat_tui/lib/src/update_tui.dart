@@ -4,11 +4,13 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 
-PluginDefinition<C> updateTuiDefinition<C>() =>
-    PluginDefinition.dependingOn<C, UpdateStatusSource>('tina/update-tui',
-        dependency: updateStatusSource,
-        live: true,
-        create: (_, status) => UpdateTuiPlugin(status));
+PluginDefinition<C> updateTuiDefinition<C>() => PluginDefinition.dependingOn<C,
+        UpdateStatusSource>('tina/update-tui',
+    dependency: updateStatusSource,
+    live: true,
+    create: (_, status) => UpdateTuiPlugin(status),
+    description:
+        'Shows update availability and download progress in the status bar.');
 
 /// Presentation subscribes to the updater's state, without coupling it to a
 /// terminal. Other channels can consume the same source.

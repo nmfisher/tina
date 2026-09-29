@@ -9,7 +9,8 @@ Choose Global, Workspace or Session scope. Space/Enter toggles a checkbox;
 Ctrl-R restores inheritance. Toggles save immediately, even if you leave settings
 without saving other fields. The checkbox reflects the chosen scope; each row
 also shows its source, active state and any pending restart. Required plugins
-are locked. `--configure` has no live session, so its checkboxes use Save changes.
+are locked. Highlighting a plugin shows its description from registration
+metadata; `?` opens the full description. `--configure` has no live session, so its checkboxes use Save changes.
 
 See the [config compatibility audit](engine2-config-audit.md) for the exact
 consumed/ignored keys, credential precedence and verification of the existing

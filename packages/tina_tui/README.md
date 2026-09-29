@@ -88,7 +88,8 @@ the same file it is read once as the explicit global file, and Workspace-scope
 writes are refused to avoid silently treating one file as two scopes.
 
 Settings → **Plugins** lists registered plugins with enable/disable checkboxes,
-active state, source scope and pending changes. Choose Global (default), Workspace
+active state, source scope, pending changes and a description of the selected
+plugin. Press `?` to read the full description. Choose Global (default), Workspace
 or Session scope. Space/Enter toggles; Ctrl-R removes that scope's per-ID override
 and restores inheritance. Changes save immediately. Session
 changes stay in memory and are not restored with session history. Global and
@@ -109,7 +110,8 @@ while its consumers remain enabled. Channel changes use the approval-channel
 setting and require restart.
 
 Plugin authors opt into live changes with `PluginDefinition(live: true)` (or
-`registry.register(..., live: true)`). `closeSession` must terminate their resource
+`registry.register(..., description: "...", live: true)`). Every definition
+requires a nonempty `description`, available even while the plugin is disabled. `closeSession` must terminate their resource
 and background-work lifecycle. Registrations made synchronously during `mountOn`
 are automatically owned by the plugin; subscriptions created later must be
 released by its lifecycle. The loader defaults unfamiliar plugins to restart-only.
