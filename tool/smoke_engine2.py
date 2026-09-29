@@ -381,7 +381,11 @@ def smoke(launcher, endpoint, columns, rows):
                     about = terminal.send('?')
                     terminal.expect('About tina/grok-guard', about)
                     terminal.expect('No cancels the message.', about)
-                    terminal.send('\x1b')
+                    back = terminal.send('\x1b')
+                    # Wait for the popup to close before Space. On the ANSI
+                    # backend ESC waits 150ms to distinguish an Alt sequence;
+                    # a fixed 100ms sleep can turn ESC + Space into Alt-Space.
+                    terminal.expect('Plugins (toggles save immediately)', back)
                 time.sleep(0.1)
                 terminal.read()
                 start = terminal.send('\x12' if reset else ' ')
