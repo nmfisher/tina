@@ -52,7 +52,8 @@ final class SettingsPanel {
       Iterable<String> pluginIds = const []}) async {
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
-    if (document.table('default')['model'] == kTinaDefaultModel) {
+    if (!document.existsOnDisk &&
+        document.table('default')['model'] == kTinaDefaultModel) {
       document.table('default')['model'] = '';
     }
     _read = readEvent ?? editor.captureKeyReader();
@@ -81,11 +82,23 @@ final class SettingsPanel {
           ];
         }
 
-        final selected = await _menu('Settings', items(), itemsNow: items,
-            onSelected: (index) {
+        var selected = await _menu(
+            document.hasChanges ? 'Settings · unsaved changes' : 'Settings',
+            items(),
+            itemsNow: items, onSelected: (index) {
           if (index >= 8) chosenSection = currentSections[index - 8];
         });
-        if (selected == null) return false;
+        if (selected == null) {
+          if (!document.hasChanges) return false;
+          final exit = await _menu('Unsaved settings', [
+            'Save changes and close',
+            'Discard changes',
+            'Keep editing',
+          ]);
+          if (exit == 1) return false;
+          if (exit != 0) continue;
+          selected = 4;
+        }
         if (chosenSection != null) {
           await _section(sections!, chosenSection!);
           continue;
@@ -162,10 +175,22 @@ final class SettingsPanel {
               await _field(values, keys[index], keys[index], numeric: true);
           case 6:
             const keys = ['reasoning_effort', 'max_tokens', 'thinking_budget'];
-            final index = await _menu('Generation', [
+            final id = defaults['provider'] as String? ?? 'anthropic';
+            final providerValues = document.table('providers')[id];
+            final settings = providerValues is Map<String, dynamic>
+                ? ProviderSettings.parse(id, providerValues)
+                : const ProviderSettings();
+            final wire =
+                settings.wire ?? descriptorByIdFor(id, descriptors)?.wire;
+            final unsupportedBudget = wire == ProviderWire.openAiCompatible;
+            final index = await _menu('Generation (global defaults)', [
               for (final key in keys)
-                '$key: ${defaults[key] ?? 'provider default'}'
+                '$key: ${defaults[key] ?? (key == 'max_tokens' ? '8192 fallback; provider/model can override' : key == 'thinking_budget' && unsupportedBudget ? 'unsupported; use reasoning_effort' : 'provider default')}'
             ]);
+            if (index == 2 && unsupportedBudget) {
+              await _unsupportedBudget(defaults, id);
+              continue;
+            }
             if (index != null)
               await _field(defaults, keys[index], keys[index],
                   numeric: index != 0,
@@ -470,6 +495,16 @@ final class SettingsPanel {
             }
           }
         } else {
+          final wire = values['wire'] ??
+              switch (builtin?.wire) {
+                ProviderWire.anthropic => 'anthropic',
+                ProviderWire.gemini => 'gemini',
+                _ => 'openai',
+              };
+          if (field == 'thinking_budget' && wire == 'openai') {
+            await _unsupportedBudget(values, id);
+            continue;
+          }
           await _field(values, field, labels[choice],
               secret: field == 'api_key' || field == 'auth_token',
               list: ['models', 'disabled_models', 'members'].contains(field),
@@ -498,6 +533,30 @@ final class SettingsPanel {
                               : const []);
         }
       }
+    }
+  }
+
+  Future<void> _unsupportedBudget(
+      Map<String, dynamic> values, String id) async {
+    final choice = await _menu('thinking_budget is unsupported for $id', [
+      'Use reasoning_effort instead',
+      'Clear thinking_budget',
+      'Back',
+    ]);
+    if (choice == 0) {
+      values.remove('thinking_budget');
+      await _field(values, 'reasoning_effort', 'Reasoning effort',
+          suggestions: [
+            'none',
+            'minimal',
+            'low',
+            'medium',
+            'high',
+            'xhigh',
+            'max'
+          ]);
+    } else if (choice == 1) {
+      values.remove('thinking_budget');
     }
   }
 

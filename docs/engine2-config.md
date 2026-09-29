@@ -3,7 +3,10 @@
 The root CLI and `tina_tui` share the same reader. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
 edit it, preserving unknown legacy tables. Saving is atomic, uses mode 0600,
-and rejects externally changed files. Settings apply on the next launch;
+and rejects externally changed files. Leaving with an unsaved draft offers Save, Discard or Keep editing.
+Unsupported thinking budgets on OpenAI-compatible providers direct you to
+reasoning effort instead; failed validation never partially saves a draft.
+Settings apply on the next launch;
 **Plugins** in `/settings` applies supported plugin changes between turns.
 Choose Global, Workspace or Session scope. Space/Enter toggles a checkbox;
 Ctrl-R restores inheritance. Toggles save immediately, even if you leave settings

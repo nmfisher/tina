@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:toml/toml.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
@@ -11,6 +12,7 @@ final class ConfigDocument {
   final String path;
   final Map<String, dynamic> values;
   String? _original;
+  bool get existsOnDisk => _original != null;
 
   factory ConfigDocument.empty(String path) => ConfigDocument._(path, {}, null);
 
@@ -47,6 +49,27 @@ final class ConfigDocument {
   Map<String, dynamic> table(String name) =>
       values.putIfAbsent(name, () => <String, dynamic>{})
           as Map<String, dynamic>;
+
+  /// Empty tables created while browsing do not constitute an edit.
+  bool get hasChanges {
+    Object? normalize(Object? value) {
+      if (value is Map) {
+        final result = <String, Object?>{};
+        for (final key in value.keys.cast<String>().toList()..sort()) {
+          final child = normalize(value[key]);
+          if (child is Map && child.isEmpty) continue;
+          result[key] = child;
+        }
+        return result;
+      }
+      if (value is List) return value.map(normalize).toList();
+      return value;
+    }
+
+    final original =
+        _original == null ? const {} : TomlDocument.parse(_original!).toMap();
+    return jsonEncode(normalize(values)) != jsonEncode(normalize(original));
+  }
 
   /// Adopt a table saved by a separate settings control while preserving drafts.
   /// Refuse to absorb unrelated external edits into the snapshot's baseline.

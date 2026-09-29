@@ -37,7 +37,8 @@ enabled = []
   final down = ArrowKey(ArrowDirection.down);
   final escape = EscapeKey();
 
-  Future<(bool, String)> drive(List<InputEvent> keys) async {
+  Future<(bool, String)> drive(List<InputEvent> keys,
+      {List<ProviderDescriptor> providerDescriptors = descriptors}) async {
     final io = FakeIo();
     final screen = fakeScreen(io);
     screen.resize(ScreenLayout.fromSize(40, 8, split: false));
@@ -57,7 +58,7 @@ enabled = []
     try {
       final saved = await panel.run(
           path: config.path,
-          descriptors: descriptors,
+          descriptors: providerDescriptors,
           pluginIds: ['tina/plans', 'tina/goals']);
       expect(index, keys.length);
       return (saved, io.written.toString());
@@ -170,9 +171,83 @@ enabled = []
         2048);
   });
 
-  test('Escape discards edits without writing', () async {
+  test('Escape offers saving; generation values survive reopening', () async {
+    const gemini = [
+      ProviderDescriptor(
+          id: 'custom',
+          name: 'Custom',
+          wire: ProviderWire.gemini,
+          baseUrl: 'https://custom.example',
+          keyEnvVar: 'CUSTOM_API_KEY',
+          keyStyle: ProviderKeyStyle.header)
+    ];
+    final (saved, output) = await drive([
+      CharInput('Generation'), enter,
+      CharInput('max_tokens'), enter, CharInput('16384'), enter,
+      CharInput('Generation'), enter,
+      CharInput('thinking_budget'), enter, CharInput('4096'), enter,
+      escape, enter, // Save changes and close
+    ], providerDescriptors: gemini);
+    expect(saved, true);
+    expect(output, contains('Unsaved settings'));
+    final loaded =
+        loadTinaConfig(path: config.path, descriptors: gemini).config;
+    expect(loaded.maxOutputTokens, 16384);
+    expect(loaded.thinkingBudget, 4096);
+    final (_, reopened) = await drive([
+      CharInput('Generation'),
+      enter,
+      CharInput('max_tokens'),
+      escape,
+      CharInput('Generation'),
+      enter,
+      CharInput('thinking_budget'),
+      escape,
+      escape,
+    ], providerDescriptors: gemini);
+    expect(reopened, contains('max_tokens: 16384'));
+    expect(reopened, contains('thinking_budget: 4096'));
+  });
+
+  test('unsupported thinking budget cannot invalidate the output-token save',
+      () async {
+    final (saved, output) = await drive([
+      CharInput('Generation'), enter,
+      CharInput('max_tokens'), enter, CharInput('16384'), enter,
+      CharInput('Generation'), enter,
+      CharInput('thinking_budget'), enter,
+      enter, // Use reasoning_effort instead
+      CharInput('low'), enter,
+      CharInput('Save'), enter,
+    ]);
+    expect(saved, true);
+    expect(output, contains('thinking_budget is unsupported'));
+    final loaded =
+        loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    expect(loaded.maxOutputTokens, 16384);
+    expect(loaded.thinkingBudget, isNull);
+    expect(loaded.reasoningEffort, 'low');
+  });
+
+  test('canceling the exit question preserves the draft', () async {
+    final (saved, _) = await drive([
+      CharInput('Generation'), enter,
+      CharInput('max_tokens'), enter, CharInput('2048'), enter,
+      escape, escape, // keep editing
+      CharInput('Save'), enter,
+    ]);
+    expect(saved, true);
+    expect(
+        loadTinaConfig(path: config.path, descriptors: descriptors)
+            .config
+            .maxOutputTokens,
+        2048);
+  });
+
+  test('Escape requires an explicit discard before dropping edits', () async {
     final before = config.readAsStringSync();
-    final (saved, _) = await drive([down, enter, down, enter, escape]);
+    final (saved, _) =
+        await drive([down, enter, down, enter, escape, down, enter]);
     expect(saved, isFalse);
     expect(config.readAsStringSync(), before);
   });
