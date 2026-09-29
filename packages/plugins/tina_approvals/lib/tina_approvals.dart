@@ -71,10 +71,11 @@ PluginDefinition<C> approvalsDefinition<C>() => PluginDefinition.dependingOn<C,
 
 /// Owns correlation, expiry and cancellation; enforcement stays with the caller.
 final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
-  ApprovalsPlugin(
-      {required this.channel, this.timeout = const Duration(minutes: 5)});
+  ApprovalsPlugin({required this.channel, this.timeout});
   final ApprovalChannel channel;
-  final Duration timeout;
+
+  /// No deadline by default. Embedders may explicitly opt into expiry.
+  final Duration? timeout;
   final _pending = <String, ApprovalTicket>{};
   final _prefix = List.generate(16,
           (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
@@ -125,7 +126,10 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       return !invalid;
     }, result.future);
     _pending[request.id] = ticket;
-    timer = Timer(timeout, () => ticket.respond(ApprovalDecision.deny));
+    final deadline = timeout;
+    if (deadline != null) {
+      timer = Timer(deadline, () => ticket.respond(ApprovalDecision.deny));
+    }
     unawaited(Future.sync(() => channel.deliver(ticket)).catchError((Object _) {
       ticket.respond(ApprovalDecision.deny);
     }));

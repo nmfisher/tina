@@ -29,6 +29,27 @@ TurnContext context(CancelToken token) => TurnContext(token,
     pinnedTools: []);
 
 void main() {
+  test('default approval schedules no expiry and accepts a later answer',
+      () async {
+    final channel = CapturingChannel();
+    final service = ApprovalsPlugin(channel: channel);
+    addTearDown(service.closeSession);
+    var timers = 0;
+    final pending = runZoned(() => ask(service), zoneSpecification:
+        ZoneSpecification(
+            createTimer: (self, parent, zone, duration, callback) {
+      timers++;
+      return parent.createTimer(zone, duration, callback);
+    }));
+    expect(service.timeout, isNull);
+    expect(timers, 0);
+    await Future<void>.delayed(Duration.zero);
+    expect(service.pending, hasLength(1));
+    expect(channel.tickets.single.isActive, isTrue);
+    channel.tickets.single.respond(ApprovalDecision.allow);
+    expect(await pending, ApprovalDecision.allow);
+  });
+
   test('correlates concurrent responses and rejects unknown/duplicate IDs',
       () async {
     final channel = StreamApprovalChannel();

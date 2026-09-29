@@ -13,7 +13,9 @@ returns false after cancellation, expiry, shutdown or an earlier decision.
 UI, cancel a key read, or remove remote correlation state. Delivery exceptions
 deny. A delivery returning normally without an answer leaves the ticket pending.
 
-The default timeout is five minutes, configurable by the plugin constructor.
+There is no timeout by default: human approvals wait for a response or explicit
+cancellation. Embedders can opt into expiry with the plugin constructor's
+`timeout` argument.
 Pending requests are session-local and not restored from persistence. Turn
 cancellation is observed through the generic `TurnContext.whenCancelled`
 contract; no engine code imports approval or UI types.
