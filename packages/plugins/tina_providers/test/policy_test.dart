@@ -34,6 +34,64 @@ ProviderTarget target(String id, Stub p, {int concurrency = 4}) =>
     ProviderTarget(id: id, create: () => p, maxConcurrent: concurrency);
 
 void main() {
+  for (final succeed in [true, false]) {
+    test(
+        'reasoning-only output limit retries once, books both attempts, success=$succeed',
+        () async {
+      late Stub stub;
+      stub = Stub(() => Stream.fromIterable(succeed && stub.calls == 2
+          ? [answer]
+          : [
+              const ReasoningDelta('thinking', startsBlock: true),
+              const StreamError(
+                  'test hit max_output=8192; finish_reason=length',
+                  providerCode: 'output_limit',
+                  usage: TokenUsage(inputTokens: 10, outputTokens: 8192)),
+            ]));
+      final policy =
+          ProviderPolicyPlugin(targets: (_) => [target('only', stub)]);
+      addTearDown(policy.closeSession);
+      final events = await request(policy.mainProvider('x')).toList();
+      expect(stub.calls, 2);
+      expect(events.whereType<StreamNotice>().single.text,
+          contains('Retrying once'));
+      expect(events.whereType<ReasoningEnd>().single.complete, false);
+      expect(policy.sessionTokens, succeed ? 8207 : 16404);
+      expect(
+          events.last, succeed ? isA<MessageComplete>() : isA<StreamError>());
+    });
+  }
+  test('reasoning recovery respects the spend cap before retrying', () async {
+    final stub = Stub(() => Stream.fromIterable([
+          const ReasoningDelta('thinking'),
+          const StreamError('limit',
+              providerCode: 'output_limit',
+              usage: TokenUsage(inputTokens: 0, outputTokens: 10)),
+        ]));
+    final policy = ProviderPolicyPlugin(
+        limits: const RequestLimits(sessionTokens: 10),
+        targets: (_) => [target('only', stub)]);
+    addTearDown(policy.closeSession);
+    final events = await request(policy.mainProvider('x')).toList();
+    expect(stub.calls, 1);
+    expect(events.last, isA<StreamError>());
+    expect(
+        (events.last as StreamError).error, contains('session token budget'));
+  });
+  test('reasoning-only transport failure can fail over without replaying tools',
+      () async {
+    final bad = Stub(() => Stream.fromIterable([
+          const ReasoningDelta('thinking'),
+          const StreamError('connection closed', transient: true),
+        ]));
+    final good = Stub(() => Stream.value(answer));
+    final policy = ProviderPolicyPlugin(
+        targets: (_) => [target('a', bad), target('b', good)]);
+    addTearDown(policy.closeSession);
+    final events = await request(policy.mainProvider('x')).toList();
+    expect(events.last, answer);
+    expect(good.calls, 1);
+  });
   test('usage recording failure ends the request and releases its slot',
       () async {
     final stub = Stub(() => Stream.value(answer));
@@ -208,8 +266,7 @@ void main() {
   });
   for (final first in [
     const TextDelta('partial'),
-    const ToolCallStart(id: 'call', name: 'write'),
-    const ReasoningDelta('thinking')
+    const ToolCallStart(id: 'call', name: 'write')
   ]) {
     test('never replays after ${first.runtimeType} has been published',
         () async {

@@ -206,8 +206,12 @@ final class _PolicyProvider extends LlmProvider {
               4)
           .ceil();
       final start = policy._rotation++ % targets.length;
+      // At most one extra attempt for a response that produced only reasoning.
+      var recovered = false;
+      var recoveryInstruction = '';
+      var attempts = targets.length;
       try {
-        for (var attempt = 0; attempt < targets.length && live; attempt++) {
+        for (var attempt = 0; attempt < attempts && live; attempt++) {
           final target = targets[(start + attempt) % targets.length];
           final gate = policy._gates.putIfAbsent(
               target.gateKey ?? target.id,
@@ -230,6 +234,7 @@ final class _PolicyProvider extends LlmProvider {
           final provider = _members.putIfAbsent(target.id, target.create);
           final done = Completer<void>();
           var published = false;
+          var reasoned = false;
           var complete = false;
           StreamError? failure;
           var booked = false;
@@ -249,7 +254,10 @@ final class _PolicyProvider extends LlmProvider {
 
           settleActive = settle;
           upstream = provider
-              .send(system: system, messages: messages, tools: tools)
+              .send(
+                  system: system + recoveryInstruction,
+                  messages: messages,
+                  tools: tools)
               .listen((event) {
             if (!live || done.isCompleted) return;
             try {
@@ -263,8 +271,8 @@ final class _PolicyProvider extends LlmProvider {
                 }
                 if (event is TextDelta ||
                     event is ToolCallStart ||
-                    event is MessageComplete ||
-                    event is ReasoningEvent) published = true;
+                    event is MessageComplete) published = true;
+                if (event is ReasoningDelta) reasoned = true;
                 output.add(event);
               }
             } catch (error) {
@@ -298,10 +306,27 @@ final class _PolicyProvider extends LlmProvider {
           final retryable = error.transient ||
               error.statusCode == 429 ||
               (error.statusCode ?? 0) >= 500;
+          final recoverable = !published &&
+              !error.requiresUserAction &&
+              (retryable || error.providerCode == 'output_limit');
+          if (recoverable && reasoned && !recovered) {
+            recovered = true;
+            attempts =
+                attempt + 2; // exactly one recovery, regardless of pool size
+            if (error.providerCode == 'output_limit') {
+              recoveryInstruction =
+                  '\nThe previous attempt exhausted its output budget during reasoning. '
+                  'Keep reasoning brief and proceed directly to the next tool call or final answer.';
+            }
+            output.add(const ReasoningEnd(complete: false));
+            output.add(StreamNotice(
+                '${error.error} Retrying once before any answer or tool call.'));
+            continue;
+          }
           if (published ||
               error.requiresUserAction ||
               !retryable ||
-              attempt + 1 == targets.length) {
+              attempt + 1 == attempts) {
             output.add(error);
             return;
           }

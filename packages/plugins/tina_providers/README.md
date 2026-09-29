@@ -17,3 +17,11 @@ do not become model messages. Resume uses them for covered turns and falls back
 to `turn_ended` usage for older/imported turns, without double counting. Unknown
 historical failed spend cannot be recovered. Stores containing the new entries
 require this version or newer to resume; v0.9.0 predates this entry type.
+
+
+Reasoning-only failures can recover once before any answer text or tool call
+starts. Output-limit recovery requests brief reasoning while preserving the
+configured output cap. It obeys the same gates, cancellation and spend limits;
+both attempts are booked. OpenAI-compatible terminal errors preserve the model,
+finish reason, requested output limit and reported usage instead of reporting
+a generic missing completion. No partial tool arguments become executable.

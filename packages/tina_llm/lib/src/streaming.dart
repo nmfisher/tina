@@ -22,6 +22,7 @@ class WireProtocol {
     required this.buildBuilder,
     required this.apply,
     required this.build,
+    this.endError,
   });
 
   /// One builder per response, fresh state.
@@ -30,12 +31,15 @@ class WireProtocol {
   /// Apply one frame, appending mapped events to [out]. Returns true
   /// when the frame ended the response (Anthropic `message_stop`, an
   /// error frame, OpenAI `[DONE]`).
-  final bool Function(Object builder, Map<String, dynamic> frame,
-      List<StreamEvent> out) apply;
+  final bool Function(
+      Object builder, Map<String, dynamic> frame, List<StreamEvent> out) apply;
 
   /// The completion, once the wire is done. Null means no completion:
   /// either the wire never said done, or nothing usable was produced.
   final MessageComplete? Function(Object builder) build;
+
+  /// Wire-specific terminal diagnostics, including clean but unusable replies.
+  final StreamError? Function(Object builder)? endError;
 }
 
 /// State shared between the watchdog and the frame pump: stop pumping,
@@ -92,7 +96,8 @@ Stream<StreamEvent> pumpSse(
       if (flag.value) return;
       flag.value = true;
       flag.stalled = true;
-      queue.add(StreamError('stream stalled: no bytes for $stallTimeout'));
+      queue.add(StreamError('stream stalled: no bytes for $stallTimeout',
+          transient: true));
       queue.close();
       completions.close();
     });
@@ -140,6 +145,11 @@ Stream<StreamEvent> pumpSse(
         return;
       }
       if (flag.sawStop && !b.errored) {
+        final error = protocol.endError?.call(builder);
+        if (error != null) {
+          queue.add(error);
+          return;
+        }
         final completion = protocol.build(builder);
         if (completion != null) completions.add(completion);
         return;
@@ -150,9 +160,10 @@ Stream<StreamEvent> pumpSse(
         return;
       }
       // The transport closed without an end: not a completion.
-      queue.add(StreamError('stream ended before the wire finished'));
+      queue.add(StreamError('stream ended before the wire finished',
+          transient: true));
     } catch (e) {
-      queue.add(StreamError('stream failed: $e'));
+      queue.add(StreamError('stream failed: $e', transient: true));
     } finally {
       watchdog?.cancel();
       await queue.close();

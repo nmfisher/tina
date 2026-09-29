@@ -90,8 +90,7 @@ final class ChatCompletionsBuilder with WireBuilderState {
       return true;
     }
     final choices = frame['choices'];
-    if (choices is! List) return false;
-    for (final raw in choices) {
+    for (final raw in choices is List ? choices : const []) {
       if (raw is! Map<String, dynamic>) continue;
       final index = (raw['index'] as num?)?.toInt() ?? 0;
       if (index != 0) continue; // n>1 is not a tina turn.
@@ -142,6 +141,45 @@ final class ChatCompletionsBuilder with WireBuilderState {
           (usage['completion_tokens'] as num?)?.toInt() ?? completionTokens;
     }
     return false;
+  }
+
+  TokenUsage? get usage => promptTokens != null || completionTokens != null
+      ? TokenUsage(
+          inputTokens: promptTokens ?? 0, outputTokens: completionTokens ?? 0)
+      : null;
+
+  StreamError? endError(String model, int limit) {
+    final empty = text.toString().trim().isEmpty && calls.isEmpty;
+    final limited = finishReason == 'length' || finishReason == 'max_tokens';
+    if (!empty && !limited) return null;
+    final filtered =
+        finishReason == 'content_filter' || finishReason == 'refusal';
+    final cause = limited
+        ? 'output_limit'
+        : filtered
+            ? 'content_filter'
+            : reasoning.isNotEmpty
+                ? 'reasoning_only'
+                : 'empty_completion';
+    final explanation = limited
+        ? 'reached its output limit before finishing'
+        : filtered
+            ? 'filtered the response'
+            : reasoning.isNotEmpty
+                ? 'finished reasoning without an answer or tool call'
+                : 'returned an empty response';
+    return StreamError(
+      '$model $explanation '
+      '(finish_reason=${finishReason ?? 'missing'}, DONE=$sawDone, '
+      'requested max_output=$limit, '
+      'usage input=${promptTokens ?? 'unknown'} output=${completionTokens ?? 'unknown'}, '
+      'reasoning chars=${reasoning.length}).'
+      '${limited ? ' Increase this provider/model max_output or reduce its reasoning effort.' : ''}',
+      providerCode: cause,
+      usage: usage,
+      requiresUserAction: filtered,
+      transient: cause == 'empty_completion' || cause == 'reasoning_only',
+    );
   }
 
   /// The final message, or null when nothing was produced. A tool call
@@ -196,7 +234,7 @@ final class ChatCompletionsBuilder with WireBuilderState {
 List<Map<String, dynamic>> chatCompletionsMessages(List<Message> messages) {
   final out = <Map<String, dynamic>>[];
   for (final m in messages) {
-    if (m.reasoning.isNotEmpty) continue; // reasoning is provider-private
+    // Reasoning is private metadata; retain the message's answer/tool blocks.
     if (m.role == Role.user) {
       // A user turn's tool results ARE the tool's answer on this wire.
       for (final b in m.content) {
@@ -351,6 +389,8 @@ final class OpenAiCompatibleProvider extends LlmProvider {
         buildBuilder: ChatCompletionsBuilder.new,
         apply: (b, frame, out) =>
             (b as ChatCompletionsBuilder).applyFrame(frame, out),
+        endError: (b) => (b as ChatCompletionsBuilder)
+            .endError(model, generation.maxOutputTokens),
         build: (b) {
           final builder = b as ChatCompletionsBuilder;
           // No `[DONE]`, no completion: the wire's own end marker is the
