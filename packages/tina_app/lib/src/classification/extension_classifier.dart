@@ -1,4 +1,4 @@
-import 'package:classifier/classification.dart';
+import 'package:classification/classification.dart';
 
 import 'project_classifiers.dart';
 

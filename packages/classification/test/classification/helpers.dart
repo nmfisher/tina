@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:classifier/classification.dart';
-import 'package:classifier/judgments.dart';
+import 'package:classification/classification.dart';
+import 'package:classification/judgments.dart';
 
 class MemoryStore implements ClassificationStore {
   Map<String, dynamic>? manifest;

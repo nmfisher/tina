@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:classifier/judgments.dart';
-import 'package:classifier/exploration.dart';
+import 'package:classification/judgments.dart';
+import 'package:classification/exploration.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 

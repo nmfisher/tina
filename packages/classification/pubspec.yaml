@@ -1,11 +1,12 @@
-name: classifier
+name: classification
 description: >
   Structured judgments (questions, answers, request budgeting, batch
   execution, the Typesafe HTTP service) and repository exploration
   (evidence models, ranking, chunking, caching, snapshotting, workflow).
   Typed source-driven classification with context planning and restoration.
-  Independent of the agent runtime. Judgment and exploration APIs have
-  no direct I/O; the Typesafe transport is exposed separately.
+  Terminal-independent, with an optional engine2 input-classification plugin.
+  Judgment and exploration APIs have no direct I/O; the Typesafe transport
+  and runtime adapter are exposed separately.
 publish_to: none
 version: 0.1.0
 
@@ -13,6 +14,11 @@ environment:
   sdk: ^3.12.0
 
 dependencies:
+  tina_core:
+    path: ../tina_core
+  tina_engine_2:
+    path: ../tina_engine_2
+  toml: ^0.16.0
   crypto: ^3.0.7
   http: ^1.2.0
 

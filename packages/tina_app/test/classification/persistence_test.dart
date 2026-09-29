@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:classifier/classification.dart';
+import 'package:classification/classification.dart';
 import 'package:tina_app/src/classification/repository_evidence.dart';
 import 'package:test/test.dart';
 import 'package:tina_app/src/classification/file_classification_store.dart';

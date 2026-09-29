@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:classifier/classification.dart';
-import 'package:classifier/judgments.dart';
+import 'package:classification/classification.dart';
+import 'package:classification/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 import '../classification/sqlite_classification_store.dart';

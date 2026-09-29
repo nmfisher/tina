@@ -22,10 +22,10 @@ packages/
   tina_console/       reusable console and line editor
   tina_llm/           provider implementations
   tina_sqlite/        SQLite support
+  classification/     structured judgments and input intent/Git classification
   libraries/
     file_tree/        file inventories, hashes and change detection
     fuzzy_ranker/     fuzzy matching and completion-provider contracts
-    classifier/       structured judgments and classification
     attractor/        workflow engine; deferred from the new app
   plugins/
     tina_providers/   pool routing, scheduling and token budgets
@@ -68,7 +68,7 @@ The root executable now delegates to `tina_tui.runCli` and imports only that
 package and the generated version constant. Root runtime dependencies contain
 only `tina_tui`; legacy dependencies are development-only while their source
 and regression tests await retirement. A closure test rejects legacy app,
-engine, workflow, classification and index imports from `bin/tina.dart`.
+engine, workflow and repository-index imports from `bin/tina.dart`.
 
 The following historical layout documents retained legacy source, not the
 current executable.
@@ -104,7 +104,7 @@ tina/
     tina_engine/           — agent loop, providers, tools, permissions (own pubspec)
     tina_console/          — reusable raw-mode console toolkit (own pubspec)
     plugins/tina_index/    — AST-derived code dependency graph (own pubspec)
-    libraries/classifier/  — structured judgments + repository exploration (own pubspec)
+    classification/  — structured judgments + repository exploration (own pubspec)
     libraries/fuzzy_ranker/ — fuzzy ranking + CompletionProvider interface (own pubspec)
     libraries/attractor/   — DOT-based multi-agent pipeline runner (own pubspec)
     libraries/file_tree/   — file inventories and change detection (own pubspec)
@@ -151,7 +151,7 @@ keyword-based matching (`seedQuery`). The app's `SearchTool` and
 `SummaryGenerator` consume it; the package itself has no agent / LLM
 dependencies.
 
-**`classifier`** (`packages/libraries/classifier/`) is structured judgments plus
+**`classification`** (`packages/classification/`) is structured judgments plus
 repository exploration. `judgments.dart` carries the pure question /
 answer / budget / batch models; `typesafe_classifier.dart` adds the
 network-bound Typesafe service; `exploration.dart` layers evidence
@@ -934,7 +934,7 @@ symbols outward; `seedQuery` matches keywords to entry points.
 The app consumes this via `SearchTool` (graph search) and
 `SummaryGenerator` (LLM-driven summarization of stale symbols).
 
-## Inside `packages/libraries/classifier/`
+## Inside `packages/classification/`
 
 Structured judgments plus repository exploration. The judgment half is
 the former `packages/tina_engine/lib/src/judgments/`; the exploration
@@ -943,7 +943,7 @@ tool and evidence source that stayed behind in tina_app). Both keep
 their relative-import layout, so intra-package imports were untouched.
 
 ```
-packages/libraries/classifier/
+packages/classification/
   lib/
     judgments.dart           — barrel: pure judgment models (no dart:io)
     typesafe_classifier.dart — barrel: TypeSafeConfig + TypeSafeJudgmentService (HTTP)

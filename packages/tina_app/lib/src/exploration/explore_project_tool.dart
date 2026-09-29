@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:classifier/judgments.dart';
-import 'package:classifier/exploration.dart';
+import 'package:classification/judgments.dart';
+import 'package:classification/exploration.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 /// Invocation-scoped dependencies: credentials are resolved when the tool runs,

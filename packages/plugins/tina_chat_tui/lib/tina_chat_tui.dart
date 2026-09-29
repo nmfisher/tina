@@ -1,5 +1,7 @@
 library;
 
+export 'src/classification_tui.dart';
+
 export 'src/chat_tui.dart';
 export 'src/mode_tui.dart';
 export 'src/chat_transcript.dart';

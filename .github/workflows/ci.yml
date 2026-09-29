@@ -366,13 +366,12 @@ jobs:
         working-directory: packages/tina_app
         run: dart test -j 4
 
-  # classifier (classifier-extract): structured judgments + repository
-  # exploration, split out of tina_engine/tina_app. Terminal-free and
-  # native-free (crypto/http/path only) — plain checkout, like
-  # attractor/fuzzy_ranker/tina_app. Its judgments half is additionally
+  # Classification: user intent/Git plugin, structured judgments and retained
+  # repository exploration APIs. Terminal-free and native-free — plain checkout.
+  # Its judgments half is additionally
   # pinned pure (no dart:io) by the root architecture test's pureFiles rule.
-  classifier:
-    name: classifier (packages/libraries/classifier)
+  classification:
+    name: classification (packages/classification)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -381,16 +380,16 @@ jobs:
         with:
           sdk: stable
 
-      - name: pub get (classifier)
-        working-directory: packages/libraries/classifier
+      - name: pub get (classification)
+        working-directory: packages/classification
         run: dart pub get
 
-      - name: analyze (classifier)
-        working-directory: packages/libraries/classifier
+      - name: analyze (classification)
+        working-directory: packages/classification
         run: dart analyze
 
-      - name: test (classifier)
-        working-directory: packages/libraries/classifier
+      - name: test (classification)
+        working-directory: packages/classification
         run: dart test -j 4
 
   file_tree:

@@ -1,6 +1,6 @@
 import 'package:attractor/attractor.dart'
     show PipelineEventListener, StageStatus;
-import 'package:classifier/classification.dart';
+import 'package:classification/classification.dart';
 
 import '../workflows/classify_engine.dart';
 import '../workflows/classify_handler.dart';

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:test/test.dart';
-import 'package:classifier/judgments.dart';
-import 'package:classifier/typesafe_classifier.dart';
+import 'package:classification/judgments.dart';
+import 'package:classification/typesafe_classifier.dart';
 
 final q = NoulQuestion('q', instructions: 'Relevant?');
 JudgmentRequest req([String s = 'hello']) =>

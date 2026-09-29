@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:classifier/exploration.dart';
-import 'package:classifier/judgments.dart';
+import 'package:classification/exploration.dart';
+import 'package:classification/judgments.dart';
 
 class Source implements ProjectEvidenceSource {
   final List<ProjectEvidence> evidence;

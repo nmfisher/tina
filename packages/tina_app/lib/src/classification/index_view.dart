@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:classifier/classification.dart';
+import 'package:classification/classification.dart';
 import 'sqlite_classification_store.dart';
 
 import 'project_classifiers.dart';

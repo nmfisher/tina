@@ -29,9 +29,11 @@ final class TuiPluginContext {
     this.openStore,
     this.version = '0.0.0',
     this.providerPolicy,
+    required this.configPath,
     this.limits = const RequestLimits(),
   });
   final String workingDirectory;
+  final String configPath;
   final String version;
   final ProviderPolicyPlugin? providerPolicy;
   final RequestLimits limits;
@@ -52,6 +54,7 @@ List<AgentPlugin> basePlugins(TuiPluginContext context) => [
 /// the returned registry rejects the reserved namespace.
 PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
       liveFirstParty: {
+        'tina/classification',
         'tina/chat-tui',
         'tina/mode-tui',
         'tina/activity-tui',
@@ -73,6 +76,8 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         toolsDefinition<TuiPluginContext>((c) => c.tools),
       ],
       firstParty: {
+        'tina/classification': (c) => ClassificationConsolePlugin.configured(
+            terminal: c.terminal, configPath: c.configPath),
         'tina/panels-tui': (c) => PanelsTuiPlugin(terminal: c.terminal),
         'tina/chat-tui': (c) => ChatTuiPlugin(
             model: c.model,

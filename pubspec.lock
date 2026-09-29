@@ -64,10 +64,10 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  classifier:
+  classification:
     dependency: "direct dev"
     description:
-      path: "packages/libraries/classifier"
+      path: "packages/classification"
       relative: true
     source: path
     version: "0.1.0"

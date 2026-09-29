@@ -107,14 +107,15 @@ Future<void> main() async {
   }
 
   test(
-    'root executable cannot reach legacy app, workflow, index or classifier',
+    'root executable cannot reach legacy app, workflow or repository indexing',
     () {
       expect(
         violations('bin/tina.dart', {
           'tina_app',
           'tina_engine',
           'attractor',
-          'classifier',
+          'packages/classification/lib/exploration.dart',
+          'packages/classification/lib/src/exploration/exploration_workflow.dart',
           'tina_index',
           'tina_workflows',
         }),

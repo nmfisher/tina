@@ -1,5 +1,5 @@
 /// Project classification adapters and application recipes. The reusable typed
-/// contracts, planner and scheduler live in package:classifier/classification.dart.
+/// contracts, planner and scheduler live in package:classification/classification.dart.
 library;
 
 export 'src/classification/file_classification_store.dart';

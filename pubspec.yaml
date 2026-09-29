@@ -36,8 +36,8 @@ dev_dependencies:
     path: packages/libraries/fuzzy_ranker
   tina_console:
     path: packages/tina_console
-  classifier:
-    path: packages/libraries/classifier
+  classification:
+    path: packages/classification
   tina_engine:
     path: packages/tina_engine
   tina_app:

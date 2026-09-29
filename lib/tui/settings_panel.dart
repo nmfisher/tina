@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:classifier/typesafe_classifier.dart';
+import 'package:classification/typesafe_classifier.dart';
 import 'package:tina/config/provider_selection.dart';
 import 'package:tina/config/user_config.dart';
 import 'package:tina_console/tina_console.dart';

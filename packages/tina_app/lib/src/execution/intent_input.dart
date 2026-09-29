@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:classifier/judgments.dart';
+import 'package:classification/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
 import '../classification/intent_classifier.dart';
 import 'input_routes.dart';

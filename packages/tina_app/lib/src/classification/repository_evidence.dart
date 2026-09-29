@@ -1,4 +1,4 @@
-import 'package:classifier/classification.dart' show canonicalFingerprint;
+import 'package:classification/classification.dart' show canonicalFingerprint;
 
 bool validProjectPath(String path, {bool root = true}) =>
     (root && path == '.') ||

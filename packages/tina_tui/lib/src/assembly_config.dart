@@ -19,6 +19,7 @@ const int kTinaConfigVersion = 1;
 const defaultApprovalChannel = 'tina/approvals-tui';
 
 const defaultPluginIds = <String>[
+  'tina/classification',
   'tina/chat-tui',
   'tina/panels-tui',
   'tina/mode-tui',

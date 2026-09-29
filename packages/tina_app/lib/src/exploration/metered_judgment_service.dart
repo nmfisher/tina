@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:classifier/judgments.dart';
+import 'package:classification/judgments.dart';
 import 'package:tina_engine/tina_engine.dart';
 
 /// Applies the app's shared quota to actual judgment attempts. Cache hits never

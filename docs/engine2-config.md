@@ -150,6 +150,30 @@ Existing nested theme color overrides merge over the selected variant. Values
 are ANSI color-number strings, never arbitrary escape sequences. Settings offers
 the variant picker; custom color tables remain editable in TOML.
 
+## Input classification
+
+`tina/classification` is enabled by default. If `[plugins].enabled` is explicitly
+listed, add that ID or run `/plugins enable tina/classification --global`.
+It reports project question vs instruction, then Git operations for instructions.
+Results appear in the status bar and `/classification`; they never change agent
+routing or permissions. Work runs in the background and stops on cancellation,
+superseding input, timeout or unload.
+
+```toml
+[typesafe]
+api_key = "${TYPESAFE_API_KEY}"
+model = "jev-latest"
+# endpoint = "https://api.typesafe.ai/v1/systemone"
+```
+
+These keys are read by the classification plugin on each input. A nonempty saved
+key wins; otherwise `TYPESAFE_API_KEY` is used. `${VARIABLE}` resolves from the
+environment. No credential means unavailable classification and no HTTP request.
+This uses the Typesafe judgment API independently of the conversation provider.
+Requests have bounded input size and a 30-second total deadline. Their usage is
+not included in conversation token spend/caps yet. Repository indexing and
+Attractor remain disconnected.
+
 ## Completion
 
 `Command.complete` is a UI-independent callback owned by the command's plugin.

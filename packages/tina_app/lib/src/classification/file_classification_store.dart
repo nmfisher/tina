@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:classifier/classification.dart';
+import 'package:classification/classification.dart';
 import 'package:path/path.dart' as p;
 import 'package:tina_engine/tina_engine.dart';
 

@@ -7,7 +7,7 @@
     "tina_index",
     "attractor",
     "fuzzy_ranker",
-    "classifier",
+    "classification",
     "file_tree",
     "tina_core",
     "tina_llm",
@@ -115,7 +115,7 @@
       "lib",
       "test"
     ],
-    "classifier": [
+    "classification": [
       "lib",
       "test"
     ],
@@ -229,40 +229,40 @@
     "packages/tina_app/lib/src/project/"
   ],
   "pureFiles": [
-    "packages/libraries/classifier/lib/src/judgments/models.dart",
-    "packages/libraries/classifier/lib/src/judgments/service.dart",
-    "packages/libraries/classifier/lib/src/judgments/request_budget.dart",
-    "packages/libraries/classifier/lib/src/judgments/request_packer.dart",
-    "packages/libraries/classifier/lib/src/judgments/batch_runner.dart",
+    "packages/classification/lib/src/judgments/models.dart",
+    "packages/classification/lib/src/judgments/service.dart",
+    "packages/classification/lib/src/judgments/request_budget.dart",
+    "packages/classification/lib/src/judgments/request_packer.dart",
+    "packages/classification/lib/src/judgments/batch_runner.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_models.dart",
-    "packages/libraries/classifier/lib/src/shared/fingerprint.dart",
-    "packages/libraries/classifier/lib/src/shared/range_packer.dart"
+    "packages/classification/lib/src/shared/fingerprint.dart",
+    "packages/classification/lib/src/shared/range_packer.dart"
   ],
   "noDirectIoFiles": [
-    "packages/libraries/classifier/lib/src/exploration/models.dart",
-    "packages/libraries/classifier/lib/src/exploration/exploration_cache.dart",
-    "packages/libraries/classifier/lib/src/exploration/exploration_snapshot.dart",
-    "packages/libraries/classifier/lib/src/exploration/repository_ranker.dart",
-    "packages/libraries/classifier/lib/src/exploration/file_chunker.dart",
-    "packages/libraries/classifier/lib/src/exploration/exploration_workflow.dart",
+    "packages/classification/lib/src/exploration/models.dart",
+    "packages/classification/lib/src/exploration/exploration_cache.dart",
+    "packages/classification/lib/src/exploration/exploration_snapshot.dart",
+    "packages/classification/lib/src/exploration/repository_ranker.dart",
+    "packages/classification/lib/src/exploration/file_chunker.dart",
+    "packages/classification/lib/src/exploration/exploration_workflow.dart",
     "packages/tina_app/lib/src/exploration/explore_project_tool.dart",
     "packages/tina_app/lib/src/exploration/metered_judgment_service.dart",
     "packages/tina_app/lib/src/summaries/summary_index.dart",
     "packages/tina_app/lib/src/summaries/summary_repository.dart",
     "packages/tina_app/lib/src/summaries/summary_runner.dart",
-    "packages/libraries/classifier/lib/src/classification/judgments.dart",
-    "packages/libraries/classifier/lib/src/classification/local.dart",
-    "packages/libraries/classifier/lib/src/classification/orchestrator.dart",
-    "packages/libraries/classifier/lib/src/classification/models.dart",
-    "packages/libraries/classifier/lib/src/classification/definitions.dart",
-    "packages/libraries/classifier/lib/src/classification/evidence.dart",
-    "packages/libraries/classifier/lib/src/classification/store.dart",
-    "packages/libraries/classifier/lib/src/classification/planning.dart",
+    "packages/classification/lib/src/classification/judgments.dart",
+    "packages/classification/lib/src/classification/local.dart",
+    "packages/classification/lib/src/classification/orchestrator.dart",
+    "packages/classification/lib/src/classification/models.dart",
+    "packages/classification/lib/src/classification/definitions.dart",
+    "packages/classification/lib/src/classification/evidence.dart",
+    "packages/classification/lib/src/classification/store.dart",
+    "packages/classification/lib/src/classification/planning.dart",
     "packages/tina_app/lib/src/classification/project_classifiers.dart",
     "packages/tina_app/lib/src/classification/project_classification_workflow.dart",
     "packages/tina_app/lib/src/classification/repository_text_source.dart",
-    "packages/libraries/classifier/lib/src/classification/tree.dart"
+    "packages/classification/lib/src/classification/tree.dart"
   ],
   "baseline": "baseline.json",
   "excludedRoots": {
@@ -290,7 +290,7 @@
     "tina_index": "packages/plugins/tina_index",
     "attractor": "packages/libraries/attractor",
     "fuzzy_ranker": "packages/libraries/fuzzy_ranker",
-    "classifier": "packages/libraries/classifier",
+    "classification": "packages/classification",
     "file_tree": "packages/libraries/file_tree",
     "tina_core": "packages/tina_core",
     "tina_llm": "packages/tina_llm",
@@ -349,7 +349,15 @@
       "tina_host",
       "tina_self_update",
       "tina_tools",
-      "markdown"
+      "markdown",
+      "classification"
+    ],
+    "classification": [
+      "crypto",
+      "http",
+      "toml",
+      "tina_core",
+      "tina_engine_2"
     ]
   },
   "pluginFreePackages": [

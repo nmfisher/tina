@@ -1,5 +1,5 @@
-import 'package:classifier/classification.dart';
-import 'package:classifier/judgments.dart' show JudgmentCancellation;
+import 'package:classification/classification.dart';
+import 'package:classification/judgments.dart' show JudgmentCancellation;
 import 'package:tina_engine/tina_engine.dart';
 
 /// Scheduling points, not classifier input formats. Adapters supply the typed

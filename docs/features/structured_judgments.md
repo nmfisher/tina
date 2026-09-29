@@ -1,8 +1,8 @@
 # Structured judgments with TypeSafe
 
 Backend implementation, 2026-09-17. Public entry point:
-`package:classifier/judgments.dart` (the HTTP service lives in
-`package:classifier/typesafe_classifier.dart`).
+`package:classification/judgments.dart` (the HTTP service lives in
+`package:classification/typesafe_classifier.dart`).
 
 ## How it fits
 
@@ -253,7 +253,7 @@ This function can be called by application composition with an explicitly
 resolved credential. It returns data to its caller; it does not spawn a worker.
 
 ```dart
-import 'package:classifier/typesafe_classifier.dart';
+import 'package:classification/typesafe_classifier.dart';
 
 Future<({String worker, double confidence, double blockedProbability})>
     assessTask(String apiKey, Map<String, Object?> task) async {

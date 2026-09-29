@@ -4,8 +4,7 @@ The root executable now runs engine2. `bin/tina.dart` imports `tina_tui` and the
 generated version constant; the root runtime manifest depends only on
 `tina_tui`. Legacy source remains for reference and regression tests, with its
 dependencies moved to `dev_dependencies`. Import-closure checks prevent the
-executable from reaching legacy app/engine, workflows, Attractor, classification
-or indexing. The loop still depends only on `tina_core`, and the host on core
+executable from reaching legacy app/engine, workflows, Attractor or repository indexing. The loop still depends only on `tina_core`, and the host on core
 and engine2; concrete packages live under `packages/plugins`.
 
 ## Replacement coverage
@@ -53,8 +52,10 @@ complete visual usability review.
 
 ## Remaining work and intentional exclusions
 
-Classification and indexing need a new design from scratch. Their packages are
-retained, disconnected from the new runtime. Attractor remains available to the
+User-input classification is wired through `tina/classification` in
+`packages/classification`: intent first, then Git subcommands for instructions.
+It reports predictions without routing or permission changes. Repository
+classification and indexing remain disconnected pending redesign. Attractor remains available to the
 workflow plugin and legacy consumers; the workflow plugin is not loaded by the
 new app. The deferred legacy session slash commands have not been ported.
 Clarifications use the ordinary conversation, with no separate free-text plugin

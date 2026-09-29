@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'package:classifier/exploration.dart';
+import 'package:classification/exploration.dart';
 import 'package:tina_engine/tina_engine.dart' show atomicWriteBytes;
 
 /// One atomic JSON file per content-addressed record. Readers never see partial

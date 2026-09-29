@@ -233,6 +233,7 @@ final class TuiAssembly {
     }
 
     final context = TuiPluginContext(
+      configPath: options.configPath ?? defaultConfigPath(),
       workingDirectory: workingDirectory,
       terminal: output,
       tools: tools,

@@ -71,5 +71,5 @@ attempted stage leave downstream stages running. Edit programs with
 rules and decisions.
 
 See [project classification](project_classification.md) for limits and storage,
-[classifier](../../packages/libraries/classifier/README.md) for the generic tree API, and
+[classification](../../packages/classification/README.md) for the generic tree API, and
 [file_tree](../../packages/libraries/file_tree/README.md) for shared filesystem machinery.

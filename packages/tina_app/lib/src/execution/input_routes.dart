@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:classifier/classification.dart' show freezeJson;
+import 'package:classification/classification.dart' show freezeJson;
 import 'package:tina_engine/tina_engine.dart';
 import 'package:tina_engine/invocation.dart' as engine show Invocation;
 

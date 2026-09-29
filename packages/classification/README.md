@@ -1,7 +1,45 @@
-# classifier
+# Input classification
+
+`tina/classification` classifies the latest user input in the background:
+project question, agent instruction, unclear, or clearly neither. Only detected
+instructions proceed to Git classification: no Git request, unclear, or one or
+more subcommands (push, branch, checkout, commit, etc.).
+
+The plugin is informational: it never executes commands, changes permissions,
+rewrites input, or adds its predictions to the conversation. The status bar and
+`/classification` show the latest result. Each session owns its own state; new
+input supersedes pending work. Cancellation, timeout and unload close the service
+and prevent late results from changing the display. The last result is transient
+and is not restored from session storage.
+
+The app enables it by default; explicit enabled-plugin lists need
+`tina/classification` added. `/plugins enable tina/classification` and disable
+work live. The Typesafe transport reads `[typesafe].api_key`, `model` and optional
+`endpoint` from the global config for each input. A stored key wins over
+`TYPESAFE_API_KEY`; a stored `${VARIABLE}` resolves from the environment. Missing
+credentials show unavailable, without making a network request. Chat generation
+continues independently. Classifier calls use their own bounded request budget
+and 30-second total timeout; their usage is not included in the conversation
+provider token counter/caps in this pass.
+
+Package API:
+
+- `utterance.dart`: the existing intent/Git judgments plus staged classification.
+- `plugin.dart`: the terminal-independent engine2 plugin, result/status stream,
+  and owned classifier service lease.
+- `config.dart`: the existing Typesafe config reader.
+- `typesafe_classifier.dart`: the existing HTTP transport.
+- `classification.dart`, `judgments.dart`, `exploration.dart`: retained library
+  APIs for legacy callers. Repository indexing/exploration is not activated.
+
+The thin status renderer is in the existing `tina_chat_tui` package; it adapts the
+same plugin ID and keeps terminal imports out of classification. Legacy
+`tina_app` intent/Git exports delegate here, with only a message-type adapter.
+
+# Structured judgments and repository classification
 
 The package provides structured judgments, exploration, and a domain-independent
-classification API. Import `package:classifier/classification.dart` for the typed
+classification API. Import `package:classification/classification.dart` for the typed
 source and classification pipeline. It has no filesystem, engine, or UI dependency.
 
 A classification task binds these contracts:

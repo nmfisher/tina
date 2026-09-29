@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:classifier/classification.dart';
-import 'package:classifier/judgments.dart';
+import 'package:classification/classification.dart';
+import 'package:classification/judgments.dart';
 
 import 'repository_classification_source.dart';
 import 'repository_evidence.dart';

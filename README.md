@@ -117,7 +117,8 @@ Requires Dart 3.12 or later. The build script also supports `linux-x64`,
 `linux-arm64`, `macos-arm64` and `all`; Linux builds use Docker. Release CI runs
 terminal smoke tests against each built target before packaging.
 
-Classification and indexing will be redesigned. Workflows/Attractor remain
+Input classification is supplied by `tina/classification` (see the configuration
+reference). Repository classification and indexing remain deferred. Workflows/Attractor remain
 available as packages for legacy callers, disconnected from engine2. See
 [migration status](docs/engine2-migration.md), [package architecture](ARCHITECTURE.md)
 and the [legacy CLI reference](docs/legacy-cli.md).
