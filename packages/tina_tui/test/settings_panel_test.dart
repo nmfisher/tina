@@ -152,96 +152,193 @@ enabled = []
             .plugins,
         ['tina/plans']);
   });
-  test('numeric generation setting saves as an integer', () async {
-    final (saved, _) = await drive([
+
+  test('Enter saves the generation section without a second Save action',
+      () async {
+    final (saved, output) = await drive([
       CharInput('Generation'),
       enter,
-      CharInput('max_tokens'),
+      CharInput('16384'),
       enter,
-      CharInput('2048'),
-      enter,
-      CharInput('Save'),
-      enter,
+      escape,
     ]);
     expect(saved, true);
-    expect(
-        loadTinaConfig(path: config.path, descriptors: descriptors)
-            .config
-            .maxOutputTokens,
-        2048);
-  });
-
-  test('Escape offers saving; generation values survive reopening', () async {
-    const gemini = [
-      ProviderDescriptor(
-          id: 'custom',
-          name: 'Custom',
-          wire: ProviderWire.gemini,
-          baseUrl: 'https://custom.example',
-          keyEnvVar: 'CUSTOM_API_KEY',
-          keyStyle: ProviderKeyStyle.header)
-    ];
-    final (saved, output) = await drive([
-      CharInput('Generation'), enter,
-      CharInput('max_tokens'), enter, CharInput('16384'), enter,
-      CharInput('Generation'), enter,
-      CharInput('thinking_budget'), enter, CharInput('4096'), enter,
-      escape, enter, // Save changes and close
-    ], providerDescriptors: gemini);
-    expect(saved, true);
-    expect(output, contains('Unsaved settings'));
     final loaded =
-        loadTinaConfig(path: config.path, descriptors: gemini).config;
-    expect(loaded.maxOutputTokens, 16384);
-    expect(loaded.thinkingBudget, 4096);
+        loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 16384);
+    expect(output, contains('Output limit:'));
+    expect(output, isNot(contains('thinking_budget')));
     final (_, reopened) = await drive([
       CharInput('Generation'),
       enter,
-      CharInput('max_tokens'),
       escape,
+      escape,
+    ]);
+    expect(reopened, contains('16384'));
+  });
+
+  test('Escape cancels the generation section without touching disk', () async {
+    final original = config.readAsStringSync();
+    final (saved, _) = await drive([
       CharInput('Generation'),
       enter,
-      CharInput('thinking_budget'),
+      CharInput('32768'),
+      down,
+      ArrowKey(ArrowDirection.right),
       escape,
       escape,
-    ], providerDescriptors: gemini);
-    expect(reopened, contains('max_tokens: 16384'));
-    expect(reopened, contains('thinking_budget: 4096'));
+    ]);
+    expect(saved, false);
+    expect(config.readAsStringSync(), original);
   });
 
-  test('unsupported thinking budget cannot invalidate the output-token save',
+  for (final wire in ProviderWire.values) {
+    test('one Thinking choice replaces incompatible old fields for $wire',
+        () async {
+      final providers = [
+        ProviderDescriptor(
+            id: 'custom',
+            name: 'Custom',
+            wire: wire,
+            baseUrl: 'https://custom.example',
+            keyEnvVar: 'CUSTOM_API_KEY',
+            keyStyle: ProviderKeyStyle.bearer)
+      ];
+      config.writeAsStringSync(config.readAsStringSync().replaceFirst(
+          'model = "original"', 'model = "original"\nthinking_budget = 4096'));
+      final (saved, _) = await drive([
+        CharInput('Generation'), enter,
+        CharInput('16384'), down,
+        // OpenAI starts Automatic (legacy numeric budget is unsupported).
+        // Other wires display the existing Custom budget, wrapping to Automatic.
+        if (wire != ProviderWire.openAiCompatible)
+          ArrowKey(ArrowDirection.right),
+        ArrowKey(ArrowDirection.right), // Off
+        ArrowKey(ArrowDirection.right), // Low
+        enter, escape,
+      ], providerDescriptors: providers);
+      expect(saved, true);
+      final loaded =
+          loadTinaConfig(path: config.path, descriptors: providers).config;
+      final options = generationFor(loaded, 'custom', 'original');
+      expect(options.reasoningEffort, 'low');
+      expect(options.thinkingBudget, isNull);
+      expect(options.maxOutputTokens, 16384);
+      // Unrelated global settings remain on disk; this provider overrides them.
+      expect(loaded.thinkingBudget, 4096);
+    });
+  }
+
+  test(
+      'Automatic thinking overrides inherited settings without manual clearing',
       () async {
-    final (saved, output) = await drive([
-      CharInput('Generation'), enter,
-      CharInput('max_tokens'), enter, CharInput('16384'), enter,
-      CharInput('Generation'), enter,
-      CharInput('thinking_budget'), enter,
-      enter, // Use reasoning_effort instead
-      CharInput('low'), enter,
-      CharInput('Save'), enter,
+    config.writeAsStringSync(config.readAsStringSync().replaceFirst(
+        'model = "original"', 'model = "original"\nreasoning_effort = "high"'));
+    final (saved, _) = await drive([
+      CharInput('Generation'), enter, down,
+      ArrowKey(ArrowDirection.right), // High -> Automatic
+      enter, escape,
     ]);
     expect(saved, true);
-    expect(output, contains('thinking_budget is unsupported'));
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
-    expect(loaded.maxOutputTokens, 16384);
-    expect(loaded.thinkingBudget, isNull);
-    expect(loaded.reasoningEffort, 'low');
+    final options = generationFor(loaded, 'custom', 'original');
+    expect(options.reasoningEffort, isNull);
+    expect(options.thinkingBudget, isNull);
   });
 
-  test('canceling the exit question preserves the draft', () async {
+  test('saving generation preserves unrelated unsaved settings', () async {
     final (saved, _) = await drive([
-      CharInput('Generation'), enter,
-      CharInput('max_tokens'), enter, CharInput('2048'), enter,
-      escape, escape, // keep editing
-      CharInput('Save'), enter,
+      CharInput('Default model'), enter, CharInput('Next'), enter,
+      CharInput('Generation'), enter, CharInput('16384'), enter,
+      escape, down, enter, // discard the unrelated model draft
     ]);
     expect(saved, true);
-    expect(
-        loadTinaConfig(path: config.path, descriptors: descriptors)
-            .config
-            .maxOutputTokens,
-        2048);
+    final loaded =
+        loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    expect(loaded.model, 'original');
+    expect(loaded.providers['custom']!.maxOutput, 16384);
+    expect(loaded.providers['custom']!.apiKey, 'original-secret');
+  });
+
+  test('GLM-5.3 shows its actual thinking levels and saves the request value',
+      () async {
+    config.writeAsStringSync(config
+        .readAsStringSync()
+        .replaceFirst('model = "original"', 'model = "glm-5.3-flashx"'));
+    final (saved, output) = await drive([
+      CharInput('Generation'), enter, down,
+      ArrowKey(ArrowDirection.right), // Low, not Off
+      ArrowKey(ArrowDirection.right), // High, not Medium
+      ArrowKey(ArrowDirection.right), // Max
+      enter, escape,
+    ]);
+    expect(saved, true);
+    expect(output, contains('Thinking: Low'));
+    expect(output, contains('Thinking: High'));
+    expect(output, contains('Thinking: Max'));
+    expect(output, isNot(contains('Thinking: Off')));
+    expect(output, isNot(contains('Thinking: Medium')));
+    final configNow =
+        loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    final request =
+        generationFor(configNow, 'custom', configNow.model).openAi({});
+    expect(request['reasoning_effort'], 'max');
+    expect(request.containsKey('thinking_budget'), false);
+  });
+
+  test('an explicit limit wins over model metadata; Automatic restores it',
+      () async {
+    const providers = [
+      ProviderDescriptor(
+          id: 'custom',
+          name: 'Custom',
+          wire: ProviderWire.openAiCompatible,
+          baseUrl: 'https://custom.example',
+          keyEnvVar: 'CUSTOM_API_KEY',
+          keyStyle: ProviderKeyStyle.bearer,
+          models: {
+            'original': ModelInfo(
+                id: 'original',
+                name: 'Original',
+                contextWindow: 1000000,
+                maxOutput: 32768,
+                supportsTools: true)
+          })
+    ];
+    await drive(
+        [CharInput('Generation'), enter, CharInput('16384'), enter, escape],
+        providerDescriptors: providers);
+    var loaded =
+        loadTinaConfig(path: config.path, descriptors: providers).config;
+    expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 16384);
+    await drive([
+      CharInput('Generation'),
+      enter,
+      EditingKey(EditingAction.killToStart),
+      enter,
+      escape
+    ], providerDescriptors: providers);
+    loaded = loadTinaConfig(path: config.path, descriptors: providers).config;
+    expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 32768);
+  });
+
+  test('Automatic output clears the override and uses the resolved default',
+      () async {
+    config.writeAsStringSync(config.readAsStringSync().replaceFirst(
+        '[providers.custom]', '[providers.custom]\nmax_output = 16384'));
+    final (saved, _) = await drive([
+      CharInput('Generation'),
+      enter,
+      EditingKey(EditingAction.killToStart),
+      enter,
+      escape,
+    ]);
+    expect(saved, true);
+    final loaded =
+        loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    expect(loaded.providers['custom']!.maxOutput, isNull);
+    expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 8192);
   });
 
   test('Escape requires an explicit discard before dropping edits', () async {

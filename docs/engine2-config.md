@@ -3,9 +3,18 @@
 The root CLI and `tina_tui` share the same reader. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
 edit it, preserving unknown legacy tables. Saving is atomic, uses mode 0600,
-and rejects externally changed files. Leaving with an unsaved draft offers Save, Discard or Keep editing.
-Unsupported thinking budgets on OpenAI-compatible providers direct you to
-reasoning effort instead; failed validation never partially saves a draft.
+and rejects externally changed files. Generation settings has two controls: **Output limit** (Automatic or a number)
+and **Thinking** (choices for the selected model). GLM-5.3 offers Automatic,
+Low, High and Max; it cannot turn thinking off. Use arrows to select,
+type an output limit, Ctrl-U to restore Automatic output, and left/right to
+choose thinking. **Enter saves this section; Esc cancels its edits.** No second
+Save action is needed. Choices apply to the displayed provider, including
+after restart/resume; unrelated settings drafts are not saved with them.
+Automatic output uses model metadata, then the global fallback. An explicit
+number takes precedence. Automatic thinking uses provider defaults; choosing
+a thinking level replaces the old budget/effort combination automatically.
+Existing custom thinking budgets remain visible and can be replaced using the
+same control. Other unsaved settings still offer Save, Discard or Keep editing.
 Settings apply on the next launch;
 **Plugins** in `/settings` applies supported plugin changes between turns.
 Choose Global, Workspace or Session scope. Space/Enter toggles a checkbox;
@@ -144,6 +153,10 @@ fallback; it does not cap a configured provider or model value.
 - Anthropic: `max_tokens`, `output_config.effort`, adaptive thinking for an
   effort setting, or an explicit thinking budget (0 disables; otherwise at
   least 1024 and less than output tokens).
+A provider-level thinking choice overrides the global thinking choice as a
+whole. `reasoning_effort = "auto"` means use the provider default, even when a
+global thinking setting exists. The settings UI manages these keys for you.
+
 - OpenAI-compatible Chat Completions: `reasoning_effort`, with either
   `max_tokens` or `max_completion_tokens`. The built-in OpenAI descriptor uses
   the latter. Numeric `thinking_budget` is rejected on this wire.

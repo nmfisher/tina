@@ -596,6 +596,41 @@ def smoke_cli(launcher):
             raise
         finally:
             terminal.close()
+        # Generation edits save their own section; restart sees the same values.
+        for reopen in (False, True):
+            terminal = Terminal(launcher + ['--configure', '--config', str(config)], env, 80, 10)
+            try:
+                terminal.expect('Settings')
+                start = terminal.send('Generation\r')
+                terminal.expect('Output limit:', start)
+                if not reopen:
+                    start = terminal.send('16384')
+                    terminal.expect('16384', start)
+                    start = terminal.send('\x1b[B')
+                    terminal.expect('←→ choose', start)
+                    start = terminal.send('\x1b[C')
+                    terminal.expect('Thinking: Off', start)
+                    start = terminal.send('\x1b[C')
+                    terminal.expect('Thinking: Low', start)
+                    start = terminal.send('\r')
+                    terminal.expect('Settings', start)
+                else:
+                    terminal.expect('16384', start)
+                    terminal.expect('Thinking: Low', start)
+                    terminal.send('\x1b')  # Cancel without changing the saved section.
+                    time.sleep(0.2)
+                start = terminal.send('\x1b')
+                terminal.expect('Settings unchanged.' if reopen else 'Settings saved. Run tina to start.', start)
+                assert terminal.process.wait(timeout=5) == 0
+                saved = config.read_text()
+                assert 'max_output = 16384' in saved
+                assert 'reasoning_effort = "low"' in saved or "reasoning_effort = 'low'" in saved
+                assert termios.tcgetattr(terminal.master) == terminal.original_modes
+            except Exception:
+                print(terminal.output[-18000:].decode(errors='replace').replace('\x1b', '<ESC>'), flush=True)
+                raise
+            finally:
+                terminal.close()
         print('PASS CLI: version/help, shell completions, first-run settings/save, terminal restoration')
 
 

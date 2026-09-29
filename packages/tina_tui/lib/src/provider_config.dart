@@ -147,7 +147,21 @@ final class ProviderSettings {
         keyStyle: protocol == ProviderWire.openAiCompatible
             ? ProviderKeyStyle.bearer
             : ProviderKeyStyle.header,
-        models: {...?builtin?.models, ...?models});
+        models: {
+          ...?builtin?.models,
+          for (final model in models?.values ?? const <ModelInfo>[])
+            model.id: ModelInfo(
+                id: model.id,
+                name: model.name,
+                contextWindow: builtin?.models[model.id]?.contextWindow ??
+                    model.contextWindow,
+                maxOutput:
+                    builtin?.models[model.id]?.maxOutput ?? model.maxOutput,
+                supportsTools: builtin?.models[model.id]?.supportsTools ??
+                    model.supportsTools,
+                supportsVision: builtin?.models[model.id]?.supportsVision ??
+                    model.supportsVision),
+        });
   }
 }
 

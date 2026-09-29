@@ -3,6 +3,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
 import 'config_document.dart';
+import 'configured_provider.dart';
 import 'plugin_settings.dart';
 import 'package:tina_host/tina_host.dart';
 
@@ -16,6 +17,7 @@ final class SettingsPanel {
   late Future<InputEvent> Function() _read;
   late OverlayRegion _overlay;
   void Function()? _paint;
+  bool _savedSection = false;
   void repaint() => _paint?.call();
   Completer<void> _changed = Completer<void>();
   Future<InputEvent>? _pendingRead;
@@ -50,6 +52,7 @@ final class SettingsPanel {
       PluginManager<dynamic>? pluginManager,
       Map<String, String> pluginDescriptions = const {},
       Iterable<String> pluginIds = const []}) async {
+    _savedSection = false;
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
     if (!document.existsOnDisk &&
@@ -83,19 +86,23 @@ final class SettingsPanel {
         }
 
         var selected = await _menu(
-            document.hasChanges ? 'Settings · unsaved changes' : 'Settings',
+            document.hasChanges
+                ? 'Settings · unsaved changes'
+                : _savedSection
+                    ? 'Settings · saved'
+                    : 'Settings',
             items(),
             itemsNow: items, onSelected: (index) {
           if (index >= 8) chosenSection = currentSections[index - 8];
         });
         if (selected == null) {
-          if (!document.hasChanges) return false;
+          if (!document.hasChanges) return _savedSection;
           final exit = await _menu('Unsaved settings', [
             'Save changes and close',
             'Discard changes',
             'Keep editing',
           ]);
-          if (exit == 1) return false;
+          if (exit == 1) return _savedSection;
           if (exit != 0) continue;
           selected = 4;
         }
@@ -135,7 +142,7 @@ final class SettingsPanel {
               await _field(defaults, 'model', 'Model ID');
             }
           case 2:
-            await _providers(document, descriptors);
+            await _providers(document, descriptors, validatePlugins);
           case 3:
             await _plugins(document, pluginIds.toList(), pluginSettings,
                 pluginManager, pluginDescriptions);
@@ -174,37 +181,7 @@ final class SettingsPanel {
             if (index != null)
               await _field(values, keys[index], keys[index], numeric: true);
           case 6:
-            const keys = ['reasoning_effort', 'max_tokens', 'thinking_budget'];
-            final id = defaults['provider'] as String? ?? 'anthropic';
-            final providerValues = document.table('providers')[id];
-            final settings = providerValues is Map<String, dynamic>
-                ? ProviderSettings.parse(id, providerValues)
-                : const ProviderSettings();
-            final wire =
-                settings.wire ?? descriptorByIdFor(id, descriptors)?.wire;
-            final unsupportedBudget = wire == ProviderWire.openAiCompatible;
-            final index = await _menu('Generation (global defaults)', [
-              for (final key in keys)
-                '$key: ${defaults[key] ?? (key == 'max_tokens' ? '8192 fallback; provider/model can override' : key == 'thinking_budget' && unsupportedBudget ? 'unsupported; use reasoning_effort' : 'provider default')}'
-            ]);
-            if (index == 2 && unsupportedBudget) {
-              await _unsupportedBudget(defaults, id);
-              continue;
-            }
-            if (index != null)
-              await _field(defaults, keys[index], keys[index],
-                  numeric: index != 0,
-                  suggestions: index == 0
-                      ? [
-                          'none',
-                          'minimal',
-                          'low',
-                          'medium',
-                          'high',
-                          'xhigh',
-                          'max'
-                        ]
-                      : const []);
+            await _generation(document, descriptors, validatePlugins);
           case 7:
             final variants = ['default', 'light', 'dark'];
             final index =
@@ -218,6 +195,175 @@ final class SettingsPanel {
       _paint = null;
       _overlay.hide();
       editor.handleResize();
+    }
+  }
+
+  Future<void> _generation(
+      ConfigDocument document,
+      List<ProviderDescriptor> descriptors,
+      void Function(Iterable<String>)? validatePlugins,
+      {String? provider}) async {
+    final parsed = parseTinaConfig(document.values, descriptors: descriptors);
+    final config = parsed.config;
+    final id = provider ?? config.providerId ?? 'anthropic';
+    final settings = config.providers[id];
+    if (settings?.members.isNotEmpty == true) {
+      final members =
+          settings!.members.map((m) => m.split('/').first).toSet().toList();
+      final choice = await _menu('Generation for pool member', members);
+      if (choice != null) {
+        await _generation(document, descriptors, validatePlugins,
+            provider: members[choice]);
+      }
+      return;
+    }
+    if (!document.existsOnDisk) {
+      await _menu('Choose and save your provider and model first', ['Back']);
+      return;
+    }
+    final descriptor = descriptorByIdFor(id, config.descriptors);
+    if (descriptor == null) return;
+    final wire = descriptor.wire;
+    final model = config.model;
+    final automaticOutput =
+        descriptor.models[model]?.maxOutput ?? config.maxOutputTokens;
+    var output = settings?.maxOutput?.toString() ?? '';
+    var replaceOutput = true;
+    final localEffort = settings?.reasoningEffort;
+    final localBudget = settings?.thinkingBudget;
+    final effort =
+        localEffort ?? (localBudget == null ? config.reasoningEffort : null);
+    final budget =
+        localEffort == null ? localBudget ?? config.thinkingBudget : null;
+    final efforts = thinkingChoicesFor(model).toList();
+    final labels = [
+      for (final value in efforts)
+        switch (value) {
+          'auto' => 'Automatic',
+          'none' => 'Off',
+          _ => value[0].toUpperCase() + value.substring(1),
+        },
+    ];
+    String? effectiveEffort = effort;
+    try {
+      effectiveEffort = generationFor(config, id, model).reasoningEffort;
+    } on FormatException {
+      // An unsupported legacy field is replaced by the single selected choice.
+    }
+    var thinking = efforts.indexOf(effectiveEffort ?? 'auto');
+    if (thinking < 0 &&
+        effectiveEffort != null &&
+        !model.split('/').last.toLowerCase().startsWith('glm-')) {
+      efforts.add(effectiveEffort);
+      labels
+          .add(effectiveEffort[0].toUpperCase() + effectiveEffort.substring(1));
+      thinking = labels.length - 1;
+    }
+    if (thinking < 0) thinking = 0;
+    final customBudget =
+        budget != null && wire != ProviderWire.openAiCompatible;
+    if (customBudget) {
+      if (budget == 0) {
+        thinking = 1;
+      } else {
+        labels.add('Custom ($budget tokens)');
+        efforts.add('budget');
+        thinking = labels.length - 1;
+      }
+    }
+    var selected = 0;
+    String? error;
+    _paint = () => _show([
+          'Generation · $id',
+          '${selected == 0 ? '›' : ' '} Output limit: ${output.isEmpty ? 'Automatic ($automaticOutput)' : output}',
+          '${selected == 1 ? '›' : ' '} Thinking: ${labels[thinking]}',
+          error ??
+              (selected == 0
+                  ? 'Type number · Ctrl-U Automatic'
+                  : '←→ choose · applies to this provider'),
+          '↑↓ select · Enter save · Esc cancel',
+        ]);
+    while (true) {
+      repaint();
+      final event = await _nextEvent();
+      if (event == null) continue;
+      error = null;
+      switch (event) {
+        case EscapeKey():
+        case ControlKey(code: ControlCode.ctrlC):
+          return;
+        case ArrowKey(direction: ArrowDirection.up):
+        case ArrowKey(direction: ArrowDirection.down):
+        case ControlKey(code: ControlCode.tab):
+          selected = 1 - selected;
+          replaceOutput = true;
+        case ArrowKey(direction: ArrowDirection.left):
+          if (selected == 1) thinking = (thinking - 1) % labels.length;
+        case ArrowKey(direction: ArrowDirection.right):
+        case CharInput(text: ' ') when selected == 1:
+          if (selected == 1) thinking = (thinking + 1) % labels.length;
+        case EditingKey(action: EditingAction.killToStart):
+          if (selected == 0) {
+            output = '';
+            replaceOutput = false;
+          }
+        case ControlKey(code: ControlCode.backspace):
+          if (selected == 0 && output.isNotEmpty) {
+            output = output.substring(0, output.length - 1);
+            replaceOutput = false;
+          }
+        case CharInput(:final text):
+        case PasteInput(:final text):
+          if (selected == 0) {
+            if (!RegExp(r'^\d+$').hasMatch(text.trim())) {
+              error = 'Type a number, or Ctrl-U for Automatic.';
+            } else {
+              output = (replaceOutput ? '' : output) + text.trim();
+              replaceOutput = false;
+            }
+          }
+        case ControlKey(code: ControlCode.enter):
+          final number = output.isEmpty ? null : int.tryParse(output);
+          if (output.isNotEmpty && (number == null || number <= 0)) {
+            error = 'Output limit must be a positive number.';
+            continue;
+          }
+          final fields = <String, dynamic>{
+            if (number != null) 'max_output': number,
+            if (efforts[thinking] == 'budget')
+              'thinking_budget': budget
+            else
+              'reasoning_effort': efforts[thinking],
+          };
+          final candidate = document.fork();
+          final values = candidate.table('providers').putIfAbsent(
+              id, () => <String, dynamic>{}) as Map<String, dynamic>;
+          for (final key in [
+            'max_output',
+            'reasoning_effort',
+            'thinking_budget'
+          ]) {
+            values.remove(key);
+          }
+          values.addAll(fields);
+          try {
+            generationFor(
+                parseTinaConfig(candidate.values, descriptors: descriptors)
+                    .config,
+                id,
+                model);
+            document.saveGeneration(id, fields,
+                descriptors: descriptors, validatePlugins: validatePlugins);
+            _savedSection = true;
+            return;
+          } catch (failure) {
+            error = failure is FormatException
+                ? 'These choices are incompatible. Try Automatic thinking.'
+                : 'Could not save; check permissions or reopen Settings.';
+          }
+        default:
+          break;
+      }
     }
   }
 
@@ -417,7 +563,9 @@ final class SettingsPanel {
   }
 
   Future<void> _providers(
-      ConfigDocument document, List<ProviderDescriptor> descriptors) async {
+      ConfigDocument document,
+      List<ProviderDescriptor> descriptors,
+      void Function(Iterable<String>)? validatePlugins) async {
     while (true) {
       final providers = document.table('providers');
       final ids = {...descriptors.map((d) => d.id), ...providers.keys}.toList();
@@ -453,9 +601,7 @@ final class SettingsPanel {
           'members',
           'requests_per_minute',
           'min_request_interval_ms',
-          'max_output',
-          'reasoning_effort',
-          'thinking_budget',
+          'generation',
           'output_token_field'
         ];
         const labels = [
@@ -469,19 +615,22 @@ final class SettingsPanel {
           'Pool members (provider or provider/model)',
           'Requests per minute',
           'Request spacing (ms)',
-          'Output tokens',
-          'Reasoning effort',
-          'Thinking token budget',
+          'Generation settings',
           'Output token field'
         ];
         final choice = await _menu('Provider: $id', [
           for (var i = 0; i < fields.length; i++)
-            '${labels[i]}: ${_preview(fields[i], values[fields[i]])}',
+            fields[i] == 'generation'
+                ? labels[i]
+                : '${labels[i]}: ${_preview(fields[i], values[fields[i]])}',
           'Back',
         ]);
         if (choice == null || choice == fields.length) break;
         final field = fields[choice];
-        if (field == 'wire') {
+        if (field == 'generation') {
+          await _generation(document, descriptors, validatePlugins,
+              provider: id);
+        } else if (field == 'wire') {
           final wires = ['Provider default', 'openai', 'anthropic', 'gemini'];
           final wire = await _menu('Wire protocol', wires);
           if (wire != null) {
@@ -495,68 +644,20 @@ final class SettingsPanel {
             }
           }
         } else {
-          final wire = values['wire'] ??
-              switch (builtin?.wire) {
-                ProviderWire.anthropic => 'anthropic',
-                ProviderWire.gemini => 'gemini',
-                _ => 'openai',
-              };
-          if (field == 'thinking_budget' && wire == 'openai') {
-            await _unsupportedBudget(values, id);
-            continue;
-          }
           await _field(values, field, labels[choice],
               secret: field == 'api_key' || field == 'auth_token',
               list: ['models', 'disabled_models', 'members'].contains(field),
-              numeric: [
-                'requests_per_minute',
-                'min_request_interval_ms',
-                'max_output',
-                'thinking_budget'
-              ].contains(field),
+              numeric: ['requests_per_minute', 'min_request_interval_ms']
+                  .contains(field),
               suggestions: field == 'members'
                   ? ids
-                  : field == 'reasoning_effort'
-                      ? [
-                          'none',
-                          'minimal',
-                          'low',
-                          'medium',
-                          'high',
-                          'xhigh',
-                          'max'
-                        ]
-                      : field == 'output_token_field'
-                          ? ['max_tokens', 'max_completion_tokens']
-                          : ['models', 'disabled_models'].contains(field)
-                              ? (builtin?.models.keys.toList() ?? [])
-                              : const []);
+                  : field == 'output_token_field'
+                      ? ['max_tokens', 'max_completion_tokens']
+                      : ['models', 'disabled_models'].contains(field)
+                          ? (builtin?.models.keys.toList() ?? [])
+                          : const []);
         }
       }
-    }
-  }
-
-  Future<void> _unsupportedBudget(
-      Map<String, dynamic> values, String id) async {
-    final choice = await _menu('thinking_budget is unsupported for $id', [
-      'Use reasoning_effort instead',
-      'Clear thinking_budget',
-      'Back',
-    ]);
-    if (choice == 0) {
-      values.remove('thinking_budget');
-      await _field(values, 'reasoning_effort', 'Reasoning effort',
-          suggestions: [
-            'none',
-            'minimal',
-            'low',
-            'medium',
-            'high',
-            'xhigh',
-            'max'
-          ]);
-    } else if (choice == 1) {
-      values.remove('thinking_budget');
     }
   }
 

@@ -89,6 +89,39 @@ final class ConfigDocument {
     _original = latest._original;
   }
 
+  /// Save only this provider's generation controls. Other settings drafts
+  /// stay in memory; unrelated disk fields and credentials remain untouched.
+  void saveGeneration(String provider, Map<String, dynamic> fields,
+      {required List<ProviderDescriptor> descriptors,
+      void Function(Iterable<String>)? validatePlugins}) {
+    const keys = ['max_output', 'reasoning_effort', 'thinking_budget'];
+    final saved = ConfigDocument._(
+        path,
+        _original == null
+            ? <String, dynamic>{}
+            : TomlDocument.parse(_original!).toMap(),
+        _original);
+    final target = saved.table('providers').putIfAbsent(
+        provider, () => <String, dynamic>{}) as Map<String, dynamic>;
+    void apply(Map<String, dynamic> values) {
+      for (final key in keys) {
+        if (fields.containsKey(key)) {
+          values[key] = fields[key];
+        } else {
+          values.remove(key);
+        }
+      }
+    }
+
+    apply(target);
+    saved.save(descriptors: descriptors, validatePlugins: validatePlugins);
+    final draft =
+        table('providers').putIfAbsent(provider, () => <String, dynamic>{})
+            as Map<String, dynamic>;
+    apply(draft);
+    _original = saved._original;
+  }
+
   TinaConfig validate(
       {List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins}) {

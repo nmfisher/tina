@@ -80,11 +80,53 @@ LlmProvider configuredProvider(
   };
 }
 
+/// Known model restrictions shared by the UI and request construction.
+/// GLM-5.3 family: https://docs.z.ai/guides/capabilities/thinking
+/// Coding-plan aliases accept extra spellings, but those do not represent
+/// additional choices (e.g. "none" still thinks at low effort).
+List<String> thinkingChoicesFor(String model) {
+  final name = model.split('/').last.toLowerCase();
+  if (name.startsWith('glm-5.3')) return const ['auto', 'low', 'high', 'max'];
+  if (name.startsWith('glm-5.2')) return const ['auto', 'none', 'high', 'max'];
+  if (name.startsWith('glm-')) return const ['auto'];
+  return const ['auto', 'none', 'low', 'medium', 'high'];
+}
+
+String? _modelEffort(String model, String? effort) {
+  if (effort == null) return null;
+  final name = model.split('/').last.toLowerCase();
+  if (name.startsWith('glm-5.3')) {
+    return switch (effort) {
+      'none' || 'minimal' || 'low' => 'low',
+      'medium' || 'high' => 'high',
+      'xhigh' || 'max' => 'max',
+      _ => effort,
+    };
+  }
+  if (name.startsWith('glm-5.2')) {
+    return switch (effort) {
+      'low' || 'medium' => 'high',
+      'xhigh' => 'max',
+      _ => effort,
+    };
+  }
+  return effort;
+}
+
 GenerationOptions generationFor(TinaConfig config, String id, String model) {
   final settings = config.providers[id];
   final descriptor = descriptorByIdFor(id, config.descriptors)!;
-  final effort = settings?.reasoningEffort ?? config.reasoningEffort;
-  final budget = settings?.thinkingBudget ?? config.thinkingBudget;
+  // A provider's thinking choice is one override, not two independently
+  // inherited fields. Automatic explicitly requests the provider's defaults.
+  final localEffort = settings?.reasoningEffort;
+  final localBudget = settings?.thinkingBudget;
+  final chosenEffort =
+      localEffort ?? (localBudget != null ? null : config.reasoningEffort);
+  final effort =
+      _modelEffort(model, chosenEffort == 'auto' ? null : chosenEffort);
+  final budget = localEffort != null
+      ? null
+      : localBudget ?? (chosenEffort == 'auto' ? null : config.thinkingBudget);
   // The global value is a fallback, not a ceiling on provider/model settings.
   final maxOutput = settings?.maxOutput ??
       descriptor.models[model]?.maxOutput ??
