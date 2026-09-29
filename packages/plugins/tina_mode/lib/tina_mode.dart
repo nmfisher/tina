@@ -31,6 +31,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   set mode(PermissionMode value) {
     if (_mode == value) return;
     _mode = value;
+    _callApprovals.clear();
     _changed.complete();
     _changed = Completer<void>();
     for (final listener in _listeners) {
@@ -45,6 +46,9 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   PermissionClassifier? classifier;
   TurnContext? _turn;
   ToolUse? _call;
+  // One approval covers one invocation, including atomic temp/rename writes.
+  // It never survives afterToolResult or a mode change.
+  final Map<String, ApprovalDecision> _callApprovals = {};
   bool _closed = false;
 
   static final modeWords = List<String>.unmodifiable(
@@ -93,6 +97,10 @@ class ModePlugin extends AgentPlugin implements ModeControl {
         !identical(turn, _turn) ||
         mode == PermissionMode.readOnly;
     if (invalid()) return ApprovalDecision.deny;
+    final call = _call;
+    if (call != null && _callApprovals.containsKey(operation)) {
+      return _callApprovals[operation]!;
+    }
     if (mode == PermissionMode.auto) {
       final judge = classifier;
       final result = judge == null
@@ -116,6 +124,9 @@ class ModePlugin extends AgentPlugin implements ModeControl {
       if (mode == PermissionMode.auto && result.allow == true) {
         terminal?.writeln('$operation allowed by classifier: $target');
         // Classifier approvals apply once, never become human session grants.
+        if (call != null && identical(call, _call)) {
+          _callApprovals[operation] = ApprovalDecision.allow;
+        }
         return ApprovalDecision.allow;
       }
       terminal?.writeln(
@@ -129,9 +140,21 @@ class ModePlugin extends AgentPlugin implements ModeControl {
           operation: operation,
           target: target,
           reason: reason,
+          details: {
+            ...context,
+            if (_call != null)
+              'tool': {'name': _call!.name, 'input': _call!.input},
+            'mode': mode.name,
+          },
         ) ??
         ApprovalDecision.deny;
-    return invalid() ? ApprovalDecision.deny : decision;
+    if (invalid()) return ApprovalDecision.deny;
+    if (call != null &&
+        identical(call, _call) &&
+        decision == ApprovalDecision.allow) {
+      _callApprovals[operation] = decision;
+    }
+    return decision;
   }
 
   @override
@@ -141,18 +164,21 @@ class ModePlugin extends AgentPlugin implements ModeControl {
 
   @override
   void beforeToolCall(TurnContext context) {
+    _callApprovals.clear();
     _call = context.call;
   }
 
   @override
   void afterToolResult(TurnContext context) {
     _call = null;
+    _callApprovals.clear();
   }
 
   @override
   void onTurnEnd(TurnContext context) {
     _turn = null;
     _call = null;
+    _callApprovals.clear();
   }
 
   @override

@@ -6,6 +6,7 @@ import 'package:tina_mode/tina_mode.dart';
 
 class Human implements ApprovalRequester {
   int calls = 0;
+  Map<String, Object?> lastDetails = {};
   ApprovalDecision answer = ApprovalDecision.allow;
   @override
   Future<ApprovalDecision> request({
@@ -13,8 +14,10 @@ class Human implements ApprovalRequester {
     required String target,
     required String reason,
     ApprovalKind kind = ApprovalKind.permission,
+    Map<String, Object?> details = const {},
   }) async {
     calls++;
+    lastDetails = details;
     return answer;
   }
 }
@@ -40,6 +43,45 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 );
 
 void main() {
+  test(
+    'human receives full tool context and allow once expires with invocation',
+    () async {
+      final human = Human();
+      final mode = ModePlugin(approvals: human);
+      final context = TurnContext(
+        CancelToken(),
+        input: const Input('write', id: 'turn'),
+        messages: [],
+        promptSections: [],
+        pinnedTools: [],
+        call: const ToolUse(
+          id: 'write',
+          name: 'write',
+          input: {'filePath': '/outside/result', 'content': 'hello'},
+        ),
+      );
+      mode.onInput(context);
+      mode.beforeToolCall(context);
+      Future<ApprovalDecision> write(String target) => mode.request(
+        operation: 'write',
+        target: target,
+        reason: 'ask',
+        context: {'workspace': '/project'},
+      );
+      expect(await write('/outside/result'), ApprovalDecision.allow);
+      expect(await write('/outside/.temp'), ApprovalDecision.allow);
+      expect(human.calls, 1);
+      expect((human.lastDetails['tool'] as Map)['input'], context.call!.input);
+      expect(human.lastDetails['workspace'], '/project');
+      mode.afterToolResult(context);
+      mode.beforeToolCall(context);
+      await write('/outside/result');
+      expect(human.calls, 2);
+      mode.mode = PermissionMode.readOnly;
+      expect(await write('/outside/result'), ApprovalDecision.deny);
+      mode.closeSession();
+    },
+  );
   test('all four modes share command vocabulary and cycle order', () async {
     final mode = ModePlugin();
     expect(ModePlugin.modeWords, ['ask', 'read-only', 'allow-edits', 'auto']);

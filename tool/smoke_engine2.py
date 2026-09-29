@@ -77,6 +77,12 @@ class ModelStub(BaseHTTPRequestHandler):
                              "filePath": str(self.approval_target), "content": "approved"})}}
             events[4]['delta']['stop_reason'] = 'tool_use'
         for trigger, name, arguments in [
+            ('start plan example', 'update_plan', {'items': [
+                {'text': 'inspect code', 'state': 'done'},
+                {'text': 'restore panel', 'state': 'in_progress'}]}),
+            ('finish plan example', 'update_plan', {'items': [
+                {'text': 'inspect code', 'state': 'done'},
+                {'text': 'restore panel', 'state': 'done'}]}),
             ('edit example', 'edit', {'filePath': 'preview.txt', 'oldString': 'before', 'newString': 'after'}),
             ('conflict example', 'edit', {'filePath': 'preview.txt', 'oldString': 'missing text', 'newString': 'never applied'}),
             ('delegate example', 'spawn_subagent', {'prompt': 'child example'}),
@@ -266,34 +272,32 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.resize(columns, rows)
             time.sleep(0.1)
             start = terminal.send('approve this\r')
-            terminal.expect('Write outside the project', start)
+            terminal.expect('Write file', start)
             start = terminal.send('\t')
             terminal.expect('Details', start)
             start = terminal.resize(40, 8)
             terminal.expect('Details', start)
             # Enter in details returns to choices; it must not approve.
             start = terminal.send('\r')
-            terminal.expect('[x] allow always', start)
+            terminal.expect('❯ [y] allow once', start)
             assert not ModelStub.approval_target.exists()
-            terminal.send('\x1b[B')
-            time.sleep(0.05)
             start = terminal.send('\x1b[B')
-            terminal.expect('[x] deny', start)
+            terminal.expect('❯ [n] deny once', start)
             start = terminal.send('\r')
             terminal.expect('smoke answer', start)
             assert not ModelStub.approval_target.exists(), 'denied write landed'
             time.sleep(0.1)
             start = terminal.send('approve this\r')
-            terminal.expect('Write outside the project', start)
+            terminal.expect('Write file', start)
             # A remembered grant covers the atomic write's temp/rename steps.
-            terminal.expect('[x] allow always', start)
-            start = terminal.send('\r')
+            terminal.expect('❯ [y] allow once', start)
+            start = terminal.send('a')
             terminal.expect('smoke answer', start)
             assert ModelStub.approval_target.read_text() == 'approved'
             time.sleep(0.1)
             start = terminal.send('run cancellable tool\r')
-            terminal.expect('run command', start)
-            terminal.expect('[x] allow always', start)
+            terminal.expect('Run shell command', start)
+            terminal.expect('❯ [y] allow once', start)
             terminal.resize(100, 30)
             start = terminal.send('\r')
             time.sleep(0.05)
@@ -474,6 +478,18 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             terminal.send('\x18')  # Ctrl+X closes the child and returns home.
             time.sleep(0.1)
+            start = terminal.send('start plan example\r')
+            terminal.expect('plan · 1/2', start)
+            terminal.expect('restore panel', start)
+            terminal.expect('smoke answer', start)
+            time.sleep(0.1)
+            start = terminal.send('finish plan example\r')
+            terminal.expect('plan · 2/2', start)
+            terminal.expect('smoke answer', start)
+            terminal.send('\x10')  # Ctrl+P hides the plan without changing it.
+            time.sleep(0.1)
+            start = terminal.send('\x10')
+            terminal.expect('plan · 2/2', start)
             terminal.quit()
             if rows in (10, 24):
                 assert b'\x1b[0m\x1b[?1049l' in terminal.output, 'theme leaked on exit'
@@ -598,8 +614,8 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert len(ModelStub.requests) == 72, (
-            f"expected 72 model requests, got {len(ModelStub.requests)}; "
+        assert len(ModelStub.requests) == 84, (
+            f"expected 84 model requests, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

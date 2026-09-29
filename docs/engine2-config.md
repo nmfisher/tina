@@ -16,6 +16,22 @@ See the [config compatibility audit](engine2-config-audit.md) for the exact
 consumed/ignored keys, credential precedence and verification of the existing
 local config. Legacy cached provider definitions are read offline at startup.
 
+## Plan and approval presentation
+
+The single `tina/plans` plugin attaches a live plan panel in the terminal: step
+states, child steps, completion counts and approval state. Ctrl-P toggles visibility.
+Use Ctrl-G to focus the panel, arrows to select, Enter to fold child steps or
+approve, Space to toggle a step, and R to reject. Small terminals collapse the
+panel to the active step. Each conversation owns its plan and panel attachment.
+
+`tina/approvals-tui` renders permissions above the input line with command,
+directory or edit previews. Y allows the invocation once, N denies, and A
+remembers the matching permission for the session. Arrows/Enter also work;
+Tab opens scrollable details, and Esc cancels. Generic confirmations retain
+Yes/No. One-call approval includes the tool's atomic temporary-file/rename work,
+and expires after the invocation. Request details are channel-neutral metadata;
+the engine does not depend on terminal rendering.
+
 ## Activity presentation
 
 `tina/activity-tui` is included in the default plugin set. F4 or `/activity`
@@ -70,8 +86,11 @@ bare Anthropic path, and provider-specific `*_BASE_URL`, `*_AUTH_TOKEN` and
 A pool member is `provider` (uses the selected model) or `provider/model`.
 Models may contain slashes. Pools cannot contain pools. Routing rotates the
 starting member; a transient failure can try the remaining members once,
-but never after text, reasoning or a tool call has been published. This avoids
-replaying partially visible answers. Permanent/authentication failures stop.
+but never after answer text or a tool call has been published. A response that
+produced only reasoning can recover once, including with a single provider.
+An output-limit recovery asks for brief reasoning without changing the configured
+token limit. Both attempts count toward spend limits; cancellation stops recovery.
+Permanent/authentication failures stop.
 Settings on each concrete member control its requests; a pool is routing only.
 
 Request slots and start spacing are shared by provider ID across foreground

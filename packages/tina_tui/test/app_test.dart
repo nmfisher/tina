@@ -240,13 +240,12 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(approvalUi(session).asker!.current, isNotNull,
           reason: 'an unrelated key must not close the approval');
-      io.feedBytes('\x1b[B'.codeUnits);
+      io.feedBytes('\x1b[A'.codeUnits);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(approvalUi(session).asker!.currentDialog!.current.decision,
           ApprovalDecision.allow);
       final latestPaint = io.written.toString();
-      expect(latestPaint.lastIndexOf('[x] allow'),
-          greaterThan(latestPaint.lastIndexOf('[x] allow always')),
+      expect(latestPaint, contains('❯ [y] allow once'),
           reason: 'the painted selection follows the deciding dialog');
       io.feedBytes('\r'.codeUnits);
       expect(await approval.timeout(const Duration(seconds: 2)), Approval.yes);
@@ -374,8 +373,8 @@ void main() {
       final done = runApp(
         session,
         screen: fakeScreen(io),
-        consoleContextFor: scriptedConsole(() =>
-            ScriptedKeySource(const [ApprovalKey.up, ApprovalKey.confirm])),
+        consoleContextFor: scriptedConsole(
+            () => ScriptedKeySource(const [ApprovalKey.always])),
       );
       final asker = approvalUi(session).asker!;
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -383,7 +382,7 @@ void main() {
       await feedWhen(io, '/quit',
           () => Future<bool>.value(session.host.session.turns.length >= 2));
       expect(await done, 0);
-      // Up from `allow` selects `allow always`; the sandbox remembers
+      // The explicit always shortcut selects the remembered grant; the sandbox remembers
       // the grant, so the second identical write never asked.
       expect(asker.current, isNull, reason: 'no question left on the screen');
       expect(File('/tmp/tina_app_always_probe').readAsStringSync(), 'two',
@@ -410,6 +409,9 @@ ConsoleContext Function(Screen, LineEditor) scriptedConsole(
             }
             final key = await source!.next();
             return switch (key) {
+              ApprovalKey.allow => CharInput('y'),
+              ApprovalKey.deny => CharInput('n'),
+              ApprovalKey.always => CharInput('a'),
               ApprovalKey.up => ArrowKey(ArrowDirection.up),
               ApprovalKey.down => ArrowKey(ArrowDirection.down),
               ApprovalKey.confirm => ControlKey(ControlCode.enter),

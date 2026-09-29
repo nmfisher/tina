@@ -25,30 +25,31 @@ void main() {
   test('an ask dialog shows the operation, the resolved path and the reason',
       () {
     final lines = text(askDialog().rows(width: 200));
-    expect(lines.first, contains('Write outside the project'));
-    expect(lines.any((l) => l.contains('path: /tmp/elsewhere/out.txt')), isTrue,
+    expect(lines.first, contains('Write file'));
+    expect(lines.any((l) => l.contains('/tmp/elsewhere/out.txt')), isTrue,
         reason: 'the resolved path is shown');
     expect(
-        lines.any((l) => l.contains('why: outside the project root')), isTrue,
+        lines.any((l) => l.contains('Why: outside the project root')), isTrue,
         reason: 'the reason is shown verbatim');
   });
 
   test('the three answers are offered: allow always, allow, deny', () {
     final lines = text(askDialog().rows(width: 200));
-    expect(lines.where((l) => l.contains('allow always')), hasLength(1));
-    expect(lines.where((l) => l.contains('[ ] allow')), hasLength(1));
-    expect(lines.where((l) => l.contains('[ ] deny')), hasLength(1));
+    expect(lines.where((l) => l.contains('[a] allow matching calls')),
+        hasLength(1));
+    expect(lines.where((l) => l.contains('[y] allow once')), hasLength(1));
+    expect(lines.where((l) => l.contains('[n] deny once')), hasLength(1));
   });
 
   test('a read ask is labeled as a read', () {
     final lines = text(askDialog(op: 'read').rows(width: 200));
-    expect(lines.first, contains('Read outside the project'));
+    expect(lines.first, contains('Read file'));
   });
 
-  test('confirm returns the highlighted choice; deny is reachable by ↓↓',
+  test('confirm returns the highlighted choice; deny is reachable by ↓',
       () async {
-    final outcome = await askDialog().awaitDecision(ScriptedKeySource(
-        [ApprovalKey.down, ApprovalKey.down, ApprovalKey.confirm]));
+    final outcome = await askDialog().awaitDecision(
+        ScriptedKeySource([ApprovalKey.down, ApprovalKey.confirm]));
     expect(outcome.decision, ApprovalDecision.deny);
   });
 

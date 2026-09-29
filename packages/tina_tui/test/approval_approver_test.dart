@@ -39,7 +39,7 @@ void main() {
     expect(shown, ['/first']);
     gate.gate.complete(ApprovalKey.cancel);
     expect(await first, ApprovalDecision.deny);
-    expect(await second, ApprovalDecision.allowAlways);
+    expect(await second, ApprovalDecision.allow);
     expect(shown, ['/first', '/second']);
   });
 
@@ -110,7 +110,7 @@ void main() {
       final channel = DialogChannel((_) {
         shown++;
         return ScriptedKeySource(
-            [if (!allow) ApprovalKey.cancel, ApprovalKey.confirm]);
+            [if (!allow) ApprovalKey.cancel, ApprovalKey.always]);
       });
       final service = ApprovalsPlugin(channel: channel);
       addTearDown(service.closeSession);

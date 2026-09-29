@@ -6,6 +6,61 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 /// Headless: the dialog driven from scripted keys — no terminal.
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
+
+  test('permission cards render quoted commands and colored edit previews', () {
+    final command = ApprovalDialog(null,
+        ask: const ApprovalAskContext('run command', 'git', 'ask mode',
+            details: {
+              'cwd': '/project',
+              'tool': {
+                'name': 'exec',
+                'input': {
+                  'program': 'git',
+                  'args': ['commit', '-m', 'two words']
+                }
+              }
+            }));
+    final output = command.rows().map(text).join('\n');
+    expect(output, contains('Run program'));
+    expect(output, contains("git commit -m 'two words'"));
+    expect(output, contains('Directory: /project'));
+    final edit = ApprovalDialog(const ToolUse(id: 'edit', name: 'edit', input: {
+      'filePath': 'a.txt',
+      'oldString': 'before',
+      'newString': 'after'
+    }));
+    final runs = edit.rows().expand((r) => r.runs).toList();
+    expect(runs.singleWhere((r) => r.text.contains('- before')).code,
+        Theme.defaults().chat.red);
+    expect(runs.singleWhere((r) => r.text.contains('+ after')).code,
+        Theme.defaults().chat.green);
+  });
+  test('permission shortcuts and tiny layouts retain a visible selection',
+      () async {
+    for (final entry in {
+      ApprovalKey.allow: ApprovalDecision.allow,
+      ApprovalKey.deny: ApprovalDecision.deny,
+      ApprovalKey.always: ApprovalDecision.allowAlways,
+    }.entries) {
+      final dialog = ApprovalDialog(const ToolUse(
+          id: 'x', name: 'bash', input: {'command': 'echo hello'}));
+      expect(
+          (await dialog.awaitDecision(ScriptedKeySource([entry.key]))).decision,
+          entry.value);
+      for (var height = 1; height <= 12; height++) {
+        final rows = dialog.rows(width: 30, height: height);
+        expect(rows.length, lessThanOrEqualTo(height));
+        expect(rows.map(text).join('\n'), contains('❯ [y]'));
+      }
+    }
+  });
+  test('tool previews escape terminal control sequences', () {
+    final dialog = ApprovalDialog(const ToolUse(
+        id: 'x', name: 'bash', input: {'command': 'echo \x1b[2J'}));
+    final output = dialog.rows().map(text).join('\n');
+    expect(output, isNot(contains('\x1b')));
+    expect(output, contains(r'\x1b[2J'));
+  });
   test('confirmation wraps its question and offers only Yes/No', () async {
     const question =
         'Your message contains grok, this is a no-no. Are you sure you want to proceed?';
@@ -46,14 +101,13 @@ void main() {
       () async {
     final outcome = await ApprovalDialog(call)
         .awaitDecision(ScriptedKeySource([ApprovalKey.confirm]));
-    expect(outcome.decision, ApprovalDecision.allowAlways);
+    expect(outcome.decision, ApprovalDecision.allow);
     expect(outcome.isCancellation, isFalse);
   });
 
-  test('down moves to allow, again to deny; enter confirms deny', () async {
+  test('down selects deny; enter confirms deny', () async {
     final outcome = await ApprovalDialog(call).awaitDecision(
-      ScriptedKeySource(
-          [ApprovalKey.down, ApprovalKey.down, ApprovalKey.confirm]),
+      ScriptedKeySource([ApprovalKey.down, ApprovalKey.confirm]),
     );
     expect(outcome.decision, ApprovalDecision.deny);
   });
@@ -62,7 +116,7 @@ void main() {
     final outcome = await ApprovalDialog(call).awaitDecision(
       ScriptedKeySource([ApprovalKey.up, ApprovalKey.up, ApprovalKey.confirm]),
     );
-    expect(outcome.decision, ApprovalDecision.allowAlways);
+    expect(outcome.decision, ApprovalDecision.allow);
   });
 
   test('escape cancels: a denial, marked cancelled', () async {
@@ -96,27 +150,31 @@ void main() {
   test('rows show the call, its args, and one marker per choice', () {
     final rows = ApprovalDialog(call).rows(width: 80);
     final texts = rows.map(text).toList();
-    expect(texts.first, '┌─ Run command');
+    expect(texts.first, '┌ Run shell command · awaiting approval');
     expect(texts.any((t) => t.contains('rm -rf build/')), isTrue);
-    expect(texts.where((t) => t.contains('[x]')), hasLength(1));
-    expect('[ ]'.allMatches(texts.last), hasLength(2));
-    expect(texts.any((t) => t.contains('allow always')), isTrue);
-    expect(texts[texts.length - 2], contains('esc deny'));
-    expect(texts.last, '[x] allow always   [ ] allow   [ ] deny');
+    expect(texts.where((t) => t.startsWith('❯ [')), hasLength(1));
+    expect(texts.where((t) => t.contains('[n]') || t.contains('[a]')),
+        hasLength(2));
+    expect(texts.any((t) => t.contains('allow matching calls')), isTrue);
+    expect(texts.join(), contains('Esc cancel'));
+    expect(texts.last, '❯ Approve bash?');
   });
 
   test('selected choice is highlighted with the dialog style', () {
     final dialog = ApprovalDialog(call);
     final rows = dialog.rows();
-    final selected = rows.last.runs.firstWhere((r) => r.text.contains('[x]'));
+    final selected =
+        rows.expand((r) => r.runs).firstWhere((r) => r.text.startsWith('❯ ['));
     expect(selected.code, Theme.defaults().dialog.confirm);
     dialog.handleKey(ApprovalKey.down);
     final moved = dialog.rows();
-    final highlighted =
-        moved.last.runs.where((r) => r.text.contains('[x]')).toList();
+    final highlighted = moved
+        .expand((r) => r.runs)
+        .where((r) => r.text.startsWith('❯ ['))
+        .toList();
     expect(highlighted, hasLength(1));
-    expect(highlighted.single.text, contains('allow'));
-    expect(highlighted.single.text, isNot(contains('allow always')));
+    expect(highlighted.single.text, contains('deny once'));
+    expect(highlighted.single.text, isNot(contains('allow matching calls')));
     expect(highlighted.single.code, Theme.defaults().dialog.confirm);
   });
 
@@ -144,13 +202,13 @@ void main() {
         final rows = dialog.rows(width: area.width, height: area.height);
         final lines = rows.map(text).toList();
         expect(rows.length, lessThanOrEqualTo(area.height));
-        expect(lines.where((line) => line.contains('[x]')), hasLength(1));
+        expect(lines.where((line) => line.startsWith('❯ [')), hasLength(1));
         for (final line in lines)
           expect(visibleWidth(line), lessThanOrEqualTo(area.width));
-        expect(lines.last, contains('[x]'));
+        expect(lines.join(), contains('❯ ['));
         dialog.handleKey(ApprovalKey.down);
       }
-      expect(dialog.current.decision, ApprovalDecision.deny);
+      expect(dialog.current.decision, ApprovalDecision.allowAlways);
     }
   });
 
@@ -179,7 +237,7 @@ void main() {
     expect(rendered.join(), contains('END_OF_PATH'));
     final outcome = await dialog.awaitDecision(ScriptedKeySource([
       ApprovalKey.confirm, // leave details
-      ApprovalKey.down, ApprovalKey.down, ApprovalKey.confirm,
+      ApprovalKey.down, ApprovalKey.confirm,
     ]));
     expect(outcome.decision, ApprovalDecision.deny);
   });

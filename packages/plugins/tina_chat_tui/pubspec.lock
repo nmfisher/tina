@@ -448,6 +448,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_plans:
+    dependency: "direct main"
+    description:
+      path: "../tina_plans"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_self_update:
     dependency: "direct main"
     description:

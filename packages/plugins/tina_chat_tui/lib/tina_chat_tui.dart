@@ -11,3 +11,6 @@ export 'src/timestamp_chat.dart';
 export 'src/prompt.dart';
 export 'src/update_tui.dart';
 export 'src/panels_tui.dart';
+
+export 'src/plans_tui.dart';
+export 'src/plan_overlay.dart';

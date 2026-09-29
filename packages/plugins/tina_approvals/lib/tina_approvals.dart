@@ -17,12 +17,16 @@ final class ApprovalRequest {
       required this.operation,
       required this.target,
       required this.reason,
-      this.kind = ApprovalKind.permission});
+      this.kind = ApprovalKind.permission,
+      this.details = const {}});
   final String id;
   final String operation;
   final String target;
   final String reason;
   final ApprovalKind kind;
+
+  /// Channel-neutral tool and execution context for presenting the request.
+  final Map<String, Object?> details;
 }
 
 abstract interface class ApprovalRequester {
@@ -30,7 +34,8 @@ abstract interface class ApprovalRequester {
       {required String operation,
       required String target,
       required String reason,
-      ApprovalKind kind = ApprovalKind.permission});
+      ApprovalKind kind = ApprovalKind.permission,
+      Map<String, Object?> details = const {}});
 }
 
 /// A channel must authenticate remote responders before accepting their answers.
@@ -90,7 +95,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       {required String operation,
       required String target,
       required String reason,
-      ApprovalKind kind = ApprovalKind.permission}) {
+      ApprovalKind kind = ApprovalKind.permission,
+      Map<String, Object?> details = const {}}) {
     if (_closed || (_turnCancelled?.call() ?? false)) {
       return Future.value(ApprovalDecision.deny);
     }
@@ -99,7 +105,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
         operation: operation,
         target: target,
         reason: reason,
-        kind: kind);
+        kind: kind,
+        details: Map.unmodifiable(details));
     final result = Completer<ApprovalDecision>();
     Timer? timer;
     late final ApprovalTicket ticket;

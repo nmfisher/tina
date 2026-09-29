@@ -22,7 +22,7 @@ class Deny implements ApprovalRequester {
           {required String operation,
           required String target,
           required String reason,
-          ApprovalKind kind = ApprovalKind.permission}) async =>
+          ApprovalKind kind = ApprovalKind.permission, Map<String, Object?> details = const {}}) async =>
       ApprovalDecision.deny;
 }
 

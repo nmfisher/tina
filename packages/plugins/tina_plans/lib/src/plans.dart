@@ -243,7 +243,7 @@ String planSection(PlanState plan) {
 
 /// The plugin: owns the tool, the section and the command; mounts the
 /// executor; keeps [store] current by listening to the log.
-final class PlansPlugin extends AgentPlugin {
+class PlansPlugin extends AgentPlugin {
   PlansPlugin({
     this.id = 'tina/plans',
     this.order = 20,

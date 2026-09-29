@@ -12,7 +12,6 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina_persona/tina_persona.dart';
 import 'package:tina_persistence/tina_persistence.dart';
-import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_subagents/tina_subagents.dart';
@@ -135,7 +134,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             live: false),
         PluginDefinition<TuiPluginContext>(
             'tina/plans',
-            (c) => PlansPlugin(
+            (c) => PlansConsolePlugin(
                   terminal: c.terminal,
                   // Plan consent is always human, never a tool-safety judgment.
                   approver: (request, reason) async {

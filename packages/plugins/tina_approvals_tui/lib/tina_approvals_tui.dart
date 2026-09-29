@@ -139,6 +139,7 @@ final class QueuedDialogAsker {
       final dialog = ApprovalDialog(null,
           ask: ApprovalAskContext(
               request.operation, request.target, request.reason,
+              details: request.details,
               confirmation: request.kind == ApprovalKind.confirmation));
       current = request;
       currentDialog = dialog;
@@ -189,6 +190,9 @@ final class _ConsoleKeys implements KeySource {
     while (true) {
       final event = await context.readKey(cancelled);
       final key = switch (event) {
+        CharInput(text: 'y') => ApprovalKey.allow,
+        CharInput(text: 'n') => ApprovalKey.deny,
+        CharInput(text: 'a') => ApprovalKey.always,
         ArrowKey(direction: ArrowDirection.up) => ApprovalKey.up,
         ArrowKey(direction: ArrowDirection.down) => ApprovalKey.down,
         ArrowKey(direction: ArrowDirection.left) => ApprovalKey.up,

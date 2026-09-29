@@ -364,7 +364,8 @@
       "tina_tools",
       "markdown",
       "classification",
-      "tina_mode"
+      "tina_mode",
+      "tina_plans"
     ],
     "classification": [
       "crypto",

@@ -17,7 +17,7 @@ export 'package:tina_approvals/tina_approvals.dart' show ApprovalDecision;
 
 /// One key press, already decoded. A raw-mode host maps its parsed input
 /// events to these; tests feed a list literal.
-enum ApprovalKey { up, down, confirm, cancel, details }
+enum ApprovalKey { up, down, confirm, cancel, details, allow, deny, always }
 
 /// Where keys come from. The dialog [ApprovalDialog.awaitDecision]s until a
 /// key resolves or cancels it.
@@ -61,12 +61,13 @@ class ApprovalAskContext {
   final String path;
   final String reason;
   final bool confirmation;
+  final Map<String, Object?> details;
   const ApprovalAskContext(this.op, this.path, this.reason,
-      {this.confirmation = false});
+      {this.confirmation = false, this.details = const {}});
 
   String get title => switch (op) {
-        'write' => 'Write outside the project',
-        'read' => 'Read outside the project',
+        'write' => 'Write file',
+        'read' => 'Read file',
         _ => op,
       };
 }
@@ -76,7 +77,7 @@ class ApprovalAskContext {
 /// The dialog does not own an overlay region: it produces rows for the host
 /// to paint (same contract as every view in this package) and exposes
 /// [awaitDecision] driven by a [KeySource]. Defaults to `allow` highlighted;
-/// ↓ moves to `deny`; `allowAlways` is offered first only when the tool's
+/// ↓ moves to `deny`; `allowAlways` is offered last only when the tool's
 /// arguments parse (a mistrusted call is a bad thing to blanket-allow).
 class ApprovalDialog {
   int _selected = 0;
@@ -100,9 +101,9 @@ class ApprovalDialog {
   List<String> get _choices => ask?.confirmation == true
       ? ['Yes', 'No']
       : [
-          if (_hasAlways) 'allow always',
           'allow',
           'deny',
+          if (_hasAlways) 'allow always',
         ];
 
   ApprovalDecision decisionFor(int index) => switch (_choices[index]) {
@@ -123,25 +124,60 @@ class ApprovalDialog {
     if (call == null && ask == null) {
       throw StateError('an ApprovalDialog needs a call or an ask context');
     }
-    final label = ask?.title ??
-        switch (call!.name) {
-          'bash' || 'exec' => 'Run command',
-          'edit' => 'Edit file',
-          'write' => 'Write file',
-          _ => call!.name,
-        };
-    final args = ask == null
-        ? (call!.argumentsParseError ?? _inlineArgs(call!.input))
-        : null;
+    final tool = ask?.details['tool'];
+    final toolMap = tool is Map ? tool : const {};
+    final name = call?.name ?? toolMap['name']?.toString() ?? ask?.op ?? '';
+    final rawInput = call?.input ?? toolMap['input'];
+    final input = rawInput is Map ? rawInput : const {};
+    final label = ask?.confirmation == true
+        ? ask!.title
+        : switch (name) {
+            'bash' => 'Run shell command',
+            'exec' => 'Run program',
+            'edit' => 'Edit file',
+            'write' => 'Write file',
+            'read' => 'Read file',
+            _ => ask?.title ?? name,
+          };
     if (width <= 0 || height <= 0) return [];
     RenderLine row(String text, [String? style]) => RenderLine(runs: [
-          RenderRun(clipDialogText(text, width), style),
+          RenderRun(clipDialogText(_safe(text), width), style),
         ]);
-    final details = [
-      if (args != null && args.isNotEmpty) args,
-      if (ask != null && !ask.confirmation) 'path: ${ask.path}',
-      if (ask != null) ask.confirmation ? ask.reason : 'why: ${ask.reason}',
-    ];
+    final details = <String>[
+      if (ask?.confirmation == true)
+        ask!.reason
+      else ...[
+        if (name == 'bash' || name == 'exec') ...[
+          'Directory: ${input['cwd'] ?? ask?.details['cwd'] ?? ask?.details['workspace'] ?? '.'}',
+          if (input['env'] is Map && (input['env'] as Map).isNotEmpty)
+            'Environment: ${(input['env'] as Map).length} override(s)',
+          '',
+          if (name == 'bash')
+            '${input['command'] ?? ask?.path ?? ''}'
+          else
+            _argv(input, ask),
+        ] else ...[
+          if ((input['filePath'] ?? input['path']) != null || ask != null)
+            '${(input['filePath'] ?? input['path']) ?? ask!.path}',
+          if (name == 'write' && input['content'] is String)
+            ..._diff(input['content'] as String, '+'),
+          if (name == 'edit') ...[
+            ..._diff(
+                (input['oldString'] ?? input['old_string'] ?? '').toString(),
+                '-'),
+            ..._diff(
+                (input['newString'] ?? input['new_string'] ?? '').toString(),
+                '+'),
+          ],
+          if (!{'write', 'edit'}.contains(name) && input.isNotEmpty)
+            _inlineArgs(Map<String, dynamic>.from(input)),
+        ],
+        if (call?.argumentsParseError != null) call!.argumentsParseError!,
+        if (ask != null) 'Why: ${ask.reason}',
+      ],
+      if (_details && ask?.details['mode'] != null)
+        'Mode: ${ask!.details['mode']}',
+    ].map(_safe).toList();
     if (_details) {
       final lines = [
         for (final detail in details) ...wrapDialogText(detail, width)
@@ -156,6 +192,45 @@ class ApprovalDialog {
         for (final line in lines.skip(_detailOffset).take(count))
           row(line, chat.dim),
         if (height > 2) row('↑↓ scroll · tab back · esc deny', chat.dim),
+      ].take(height).toList();
+    }
+    if (ask?.confirmation != true) {
+      final choices = [
+        '[y] allow once',
+        '[n] deny once',
+        if (_hasAlways) '[a] allow matching calls for this conversation',
+      ];
+      RenderLine choice(int i, {bool compact = false}) => row(
+          '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
+          i == _selected ? theme.dialog.confirm : null);
+      if (height <= 3) return [choice(_selected, compact: true)];
+      final allChoices = height >= choices.length + 4;
+      final choiceCount = allChoices ? choices.length : 1;
+      final preview = [
+        for (final detail in details)
+          for (final line
+              in wrapDialogText(detail, (width - 2).clamp(1, width)))
+            row(
+                '│ $line',
+                detail.startsWith('+')
+                    ? chat.green
+                    : detail.startsWith('-')
+                        ? chat.red
+                        : chat.dim),
+      ];
+      final budget = (height - choiceCount - 4).clamp(0, preview.length);
+      return [
+        row('┌ $label · awaiting approval', theme.dialog.confirm),
+        ...preview.take(budget),
+        if (allChoices)
+          for (var i = 0; i < choices.length; i++) choice(i)
+        else
+          choice(_selected, compact: true),
+        if (height > 4)
+          row('│ ↑↓ choose · Enter confirm · Tab details · Esc cancel',
+              chat.dim),
+        row('└', chat.dim),
+        row('❯ Approve $name?', theme.dialog.confirm),
       ].take(height).toList();
     }
     final choices = _choices;
@@ -205,6 +280,9 @@ class ApprovalDialog {
       return true;
     }
     switch (key) {
+      case ApprovalKey.allow:
+      case ApprovalKey.deny:
+      case ApprovalKey.always:
       case ApprovalKey.details:
         return false;
       case ApprovalKey.up:
@@ -237,6 +315,14 @@ class ApprovalDialog {
     while (true) {
       final key = await keys.next();
       switch (key) {
+        case ApprovalKey.allow:
+          return const ApprovalOutcome(ApprovalDecision.allow);
+        case ApprovalKey.deny:
+          return const ApprovalOutcome(ApprovalDecision.deny);
+        case ApprovalKey.always:
+          if (ask?.confirmation != true && _hasAlways) {
+            return const ApprovalOutcome(ApprovalDecision.allowAlways);
+          }
         case ApprovalKey.up:
         case ApprovalKey.down:
         case ApprovalKey.details:
@@ -265,4 +351,28 @@ String _inlineArgs(Map<String, dynamic> input) {
   return input.entries
       .map((e) => '${e.key}: ${jsonEncode(e.value)}')
       .join(', ');
+}
+
+// Render controls literally; tool arguments must never execute terminal escapes.
+String _safe(String value) => value.replaceAllMapped(
+    RegExp(r'[\x00-\x09\x0b-\x1f\x7f]'),
+    (m) => '\\x${m[0]!.codeUnitAt(0).toRadixString(16).padLeft(2, '0')}');
+
+Iterable<String> _diff(String text, String prefix) =>
+    text.split('\n').map((line) => '$prefix $line');
+
+String _argv(Map input, ApprovalAskContext? ask) {
+  final executable =
+      input['program'] ?? input['executable'] ?? ask?.details['executable'];
+  final args = input['args'] ?? input['arguments'] ?? ask?.details['arguments'];
+  if (executable == null)
+    return ask?.path ?? _inlineArgs(Map<String, dynamic>.from(input));
+  String quote(Object? v) {
+    final text = _safe(v.toString());
+    return RegExp(r'^[a-zA-Z0-9_./:=+-]+$').hasMatch(text)
+        ? text
+        : "'${text.replaceAll("'", "'\\''")}'";
+  }
+
+  return [executable, if (args is List) ...args].map(quote).join(' ');
 }

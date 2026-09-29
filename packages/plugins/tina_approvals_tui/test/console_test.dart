@@ -50,6 +50,8 @@ void main() {
   VirtualTerminal visible() =>
       VirtualTerminal(width: screen.layout.width, height: screen.layout.height)
         ..feed(io.output.toString());
+  String all() =>
+      List.generate(screen.layout.height, visible().rowText).join('\n');
   String input() => visible().rowText(screen.input.bounds.row);
   Future<ApprovalDecision> ask(
           {ApprovalKind kind = ApprovalKind.confirmation}) =>
@@ -97,25 +99,24 @@ void main() {
       () async {
     final decision = ask(kind: ApprovalKind.permission);
     await tick();
-    expect(input(), contains('[x] allow always   [ ] allow   [ ] deny'));
-    io.feed('\x1b[B');
-    await tick();
+    expect(input(), contains('❯ Approve Send message??'));
+    expect(all(), contains('❯ [y] allow once'));
     io.feed('\x1b[B');
     await tick();
     io.output.clear();
     screen.resize(ScreenLayout.fromSize(20, 6, split: false));
     ui.repaintConsole();
-    expect(input(), contains('[x] deny (3/3)'));
+    expect(all(), contains('❯ [n] deny once'));
     io.feed('\t');
     await tick();
     expect(ui.asker!.current, isNotNull);
     io.feed('\r'); // details back, never approval
     await tick();
-    expect(input(), contains('[x] deny'));
+    expect(all(), contains('❯ [n] deny once'));
     io.output.clear();
     screen.resize(ScreenLayout.fromSize(120, 30, split: true));
     ui.repaintConsole();
-    expect(input(), contains('[x] deny'));
+    expect(all(), contains('❯ [n] deny once'));
     io.feed('\x1b');
     expect(await decision, ApprovalDecision.deny);
     await tick();
@@ -133,7 +134,7 @@ void main() {
     io.feed('\r');
     expect(await first, ApprovalDecision.allow);
     await tick();
-    expect(input(), contains('[x] allow always'));
+    expect(all(), contains('❯ [y] allow once'));
     ui.detachConsole();
     expect(await second, ApprovalDecision.deny);
     await tick();
