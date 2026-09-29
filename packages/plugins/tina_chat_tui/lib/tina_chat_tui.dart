@@ -1,5 +1,7 @@
 library;
 
+export 'src/step_limit_tui.dart';
+
 export 'src/classification_tui.dart';
 
 export 'src/chat_tui.dart';

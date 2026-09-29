@@ -5,6 +5,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_step_limit:
+    path: ../tina_step_limit
   tina_plans:
     path: ../tina_plans
   tina_mode:

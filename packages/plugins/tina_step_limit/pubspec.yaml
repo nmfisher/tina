@@ -1,0 +1,12 @@
+name: tina_step_limit
+description: Optional foreground model-round limit for tina.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  toml: ^0.16.0
+dev_dependencies:
+  test: ^1.25.0

@@ -47,6 +47,88 @@ final class Request {
 /// Why a turn stopped.
 enum StopReason { complete, cancelled, error }
 
+/// A plugin's request to stop the turn: one generic stop, attributed to
+/// the plugin that asked, with an optional free-text detail. `code` is
+/// deliberately not an enum — plugins define their own vocabulary and the
+/// engine must not grow a per-plugin stop reason. The turn ends
+/// [StopReason.cancelled] in the log with this request recorded as the
+/// termination metadata on the `turn_ended` entry.
+final class StopRequest {
+  const StopRequest({
+    required this.pluginId,
+    required this.code,
+    this.detail = '',
+  });
+
+  /// The plugin that asked to stop.
+  final String pluginId;
+
+  /// The plugin's own stop code, e.g. `step_limit`.
+  final String code;
+
+  /// Optional human- and model-readable context, e.g. `16 of 16 steps`.
+  final String detail;
+
+  Map<String, dynamic> toJson() => {
+        'plugin_id': pluginId,
+        'code': code,
+        if (detail.isNotEmpty) 'detail': detail,
+      };
+
+  static StopRequest? fromJson(Map<String, dynamic>? j) => j == null
+      ? null
+      : StopRequest(
+          pluginId: j['plugin_id'] as String,
+          code: j['code'] as String,
+          detail: j['detail'] as String? ?? '',
+        );
+
+  @override
+  String toString() =>
+      detail.isEmpty ? '$pluginId/$code' : '$pluginId/$code: $detail';
+}
+
+/// Why an enforcement hook failed. The phase decides the consequence; the
+/// reason says the failure was a plugin exception, not a decision.
+enum HookFailureReason { threw }
+
+/// The structured diagnostic a phase failure produces: which plugin, in
+/// which phase, and a safe one-line message. Exception contents are not
+/// copied verbatim by default — a host that wants stacks wires an explicit
+/// diagnostic sink and receives the original error object through
+/// [HookFailure.error].
+final class HookFailure {
+  const HookFailure({
+    required this.pluginId,
+    required this.phase,
+    required this.reason,
+    required this.message,
+    this.error,
+  });
+
+  /// The plugin whose hook failed.
+  final String pluginId;
+
+  /// The phase that failed, e.g. `beforeToolCall`.
+  final String phase;
+
+  /// Why the hook did not produce a decision.
+  final HookFailureReason reason;
+
+  /// A safe, single-line summary. The loop builds it from the error's
+  /// runtime type — not its full text, which may carry paths or payload
+  /// fragments that must not reach a model prompt or the terminal by
+  /// default.
+  final String message;
+
+  /// The original error, for an explicit diagnostic sink. Never placed in
+  /// a prompt or a tool result by the loop.
+  final Object? error;
+
+  @override
+  String toString() => 'plugin $pluginId failed in $phase ($reason): $message';
+}
+
 /// What one turn produced: appended messages, requests, replies, stop reason.
 final class Outcome {
   const Outcome({
@@ -57,6 +139,7 @@ final class Outcome {
     this.usage = 0,
     this.detail = '',
     this.changedBy,
+    this.stopRequest,
   });
 
   final StopReason stopReason;
@@ -75,6 +158,11 @@ final class Outcome {
   /// The plugin id whose input-phase write recorded a change, if any.
   final String? changedBy;
 
+  /// The accepted plugin stop request, when a plugin asked the turn to
+  /// stop. Null for user cancels, errors and natural completion. The log's
+  /// `turn_ended` entry carries the same metadata as a JSON map.
+  final StopRequest? stopRequest;
+
   /// A copy.
   Outcome snapshot() => Outcome(
         stopReason: stopReason,
@@ -84,6 +172,7 @@ final class Outcome {
         usage: usage,
         detail: detail,
         changedBy: changedBy,
+        stopRequest: stopRequest,
       );
 
   @override
@@ -100,8 +189,7 @@ final class Decision {
         replacement = null;
   const Decision.deny(this.reason, {this.replacement})
       : kind = DecisionKind.deny;
-  const Decision.ask(this.reason, {this.replacement})
-      : kind = DecisionKind.ask;
+  const Decision.ask(this.reason, {this.replacement}) : kind = DecisionKind.ask;
 
   final DecisionKind kind;
   final String reason;

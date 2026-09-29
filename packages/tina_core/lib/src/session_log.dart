@@ -445,6 +445,9 @@ sealed class SessionEntry {
           reason: TurnStopReason.values.byName(j['reason'] as String),
           usage: EntryUsage.fromJson(
               Map<String, dynamic>.from(j['usage'] as Map? ?? const {})),
+          stop: j['stop'] == null
+              ? null
+              : Map<String, dynamic>.from(j['stop'] as Map),
           at: at,
         ).withSeq(stamped);
       case UsageRecordedEntry.kindName:
@@ -694,17 +697,27 @@ final class TurnEndedEntry extends SessionEntry {
 
   final String at;
 
+  /// Optional plugin termination metadata. Older readers ignore this field;
+  /// the wire reason remains cancelled for backward compatibility.
+  final Map<String, dynamic>? stop;
+
   const TurnEndedEntry({
     required this.turnId,
     required this.reason,
     this.usage = const EntryUsage(),
     this.at = '',
+    this.stop,
     super.seq = 0,
   });
 
   @override
   TurnEndedEntry withSeq(int newSeq) => TurnEndedEntry(
-      turnId: turnId, reason: reason, usage: usage, at: at, seq: newSeq);
+      turnId: turnId,
+      reason: reason,
+      usage: usage,
+      at: at,
+      stop: stop,
+      seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -715,6 +728,7 @@ final class TurnEndedEntry extends SessionEntry {
         'turn_id': turnId,
         'reason': reason.name,
         'usage': usage.toJson(),
+        if (stop != null) 'stop': stop,
         if (at.isNotEmpty) 'at': at,
       };
 
@@ -724,10 +738,12 @@ final class TurnEndedEntry extends SessionEntry {
       turnId == other.turnId &&
       reason == other.reason &&
       usage == other.usage &&
-      at == other.at;
+      at == other.at &&
+      jsonEncode(stop) == jsonEncode(other.stop);
 
   @override
-  int get hashCode => Object.hash(kindName, turnId, reason, usage, at);
+  int get hashCode =>
+      Object.hash(kindName, turnId, reason, usage, at, jsonEncode(stop));
 
   @override
   String toString() => 'TurnEnded($turnId, ${reason.name})';

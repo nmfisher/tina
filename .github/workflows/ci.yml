@@ -846,6 +846,21 @@ jobs:
         working-directory: packages/plugins/tina_chat_tui
         run: dart test -j 4
 
+  tina_step_limit:
+    name: tina_step_limit (packages/plugins/tina_step_limit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+        working-directory: packages/plugins/tina_step_limit
+      - run: dart analyze
+        working-directory: packages/plugins/tina_step_limit
+      - run: dart test -j 4
+        working-directory: packages/plugins/tina_step_limit
+
   tina_mode:
     name: tina_mode (packages/plugins/tina_mode)
     runs-on: ubuntu-latest

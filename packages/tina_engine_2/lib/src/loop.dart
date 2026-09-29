@@ -19,7 +19,7 @@
 /// Plugins own decisions, made by writing to the [TurnContext] they are
 /// handed — the loop copies the context before every plugin call, hands
 /// the copy over, and keeps the copy the call wrote, so a plugin that
-/// throws has its writes dropped and the turn continues. A plugin that
+/// throws has its writes dropped and the phase fails closed. A plugin that
 /// throws has its entries dropped too: entry appends happen on the loop's
 /// side of the phase boundary, after the writes are kept.
 ///
@@ -28,7 +28,8 @@
 /// `LlmProvider.send`.
 library;
 
-import 'dart:async' show StreamController, StreamSubscription, unawaited;
+import 'dart:async'
+    show FutureOr, StreamController, StreamSubscription, unawaited;
 import 'dart:collection';
 
 import 'package:tina_core/tina_core.dart';
@@ -54,12 +55,23 @@ final class _LogListener {
   final void Function(SessionEntry entry, LogEvent event) onEntry;
 }
 
+/// A failed enforcement hook: thrown by [_PhaseFailed]'s phase, caught by
+/// the phase's call site, which applies the phase's contract — end the
+/// turn as an error (onPrompt, onInput, beforeModelCall: the signal
+/// reaches `runTurn`'s single exit and becomes `finish(error, ...)`) or
+/// close the tool batch with error results (beforeToolCall,
+/// afterToolResult: caught locally, the guarded action never runs).
+/// Never escapes to the caller.
+final class _PhaseFailed {
+  _PhaseFailed(this.failure);
+  final HookFailure failure;
+}
+
 /// The agent loop.
 final class AgentLoop {
   AgentLoop({
     required LlmProvider provider,
     required List<AgentPlugin> plugins,
-    this.maxStepsPerTurn = 16,
     SessionSettings settings = const SessionSettings(),
     List<SessionEntry> seedLog = const [],
   })  : _provider = provider,
@@ -72,7 +84,6 @@ final class AgentLoop {
   }
 
   final LlmProvider _provider;
-  final int maxStepsPerTurn;
 
   /// The session's provider, read-only. Compaction needs it: the summary
   /// is one extra request on the provider the turn already uses — the
@@ -321,22 +332,107 @@ final class AgentLoop {
       );
 
   /// One plugin phase. The copy rule lives here, in one place: each plugin
-  /// is handed a copy of the *current* state, and the copy it wrote is
-  /// kept. A plugin that throws has its copy dropped — its writes never
-  /// arrive, and the next plugin still runs. Entry appends are not plugin
-  /// writes: the loop appends from its own side, after a write is kept.
-  TurnContext _phase(
-      TurnContext ctx, void Function(AgentPlugin p, TurnContext c) body) {
+  /// is handed a copy of the *current* state, the copy it wrote is kept.
+  ///
+  /// Hooks are awaited in order, so an async hook finishes before the next
+  /// plugin runs. A pending hook races the turn's cancellation: on
+  /// cancellation the hook is abandoned — its writes are not accepted, its
+  /// late errors are observed and discarded — and the phase stops; the
+  /// loop's next cancellation check ends the turn.
+  ///
+  /// Fail-closed: a hook that throws records the [HookFailure] and throws
+  /// [_PhaseFailed] at the phase's call site, which applies the phase's
+  /// contract — end the turn as an error (onPrompt, onInput,
+  /// beforeModelCall: nobody catches it below `runTurn`'s exit) or close
+  /// the tool batch with error results (beforeToolCall, afterToolResult:
+  /// caught locally, the guarded action never runs).
+  ///
+  /// `observational: true` marks the completion phase (`onTurnEnd`): the
+  /// outcome is already committed, so a failure is recorded, the written
+  /// copy is kept, and the remaining plugins still run.
+  ///
+  /// [keep], when given, runs after a copy is accepted — the input phase
+  /// appends its rewrite entries there, on the loop's side of the boundary.
+  /// [stopWhen], when given, ends the phase after an accepted copy that
+  /// satisfies it (the guard phase stops at the first non-allow decision:
+  /// later guards neither run nor overwrite).
+  Future<TurnContext> _phase(
+    TurnContext ctx,
+    String phaseName,
+    FutureOr<void> Function(AgentPlugin p, TurnContext c) body, {
+    bool observational = false,
+    void Function(AgentPlugin p, TurnContext c)? keep,
+    bool Function(TurnContext c)? stopWhen,
+  }) async {
     for (final p in _inOrder()) {
+      if (!observational && _cancel.cancelled) break;
       final copy = ctx.copy();
+      Object? thrown;
+      final hookFuture = Future<void>.sync(() => body(p, copy));
+      // Observe late errors: if cancellation wins the race below, the
+      // hook's eventual failure must not surface as an unhandled zone
+      // error. Racing still delivers the error synchronously thrown or
+      // completed before cancellation.
+      hookFuture.ignore();
       try {
-        body(p, copy);
-      } catch (_) {
-        continue; // one bad plugin must not break the turn
+        if (observational) {
+          await hookFuture;
+        } else {
+          await Future.any<void>([hookFuture, copy.whenCancelled]);
+        }
+      } catch (e) {
+        thrown = e;
+      }
+      if (thrown != null) {
+        final failure = HookFailure(
+            pluginId: p.id,
+            phase: phaseName,
+            reason: HookFailureReason.threw,
+            message: _safeMessage(thrown),
+            error: thrown);
+        _hookFailures.add(failure);
+        if (!observational) throw _PhaseFailed(failure);
+        ctx = copy; // onTurnEnd: the outcome is committed either way
+        continue;
+      }
+      if (!observational && copy.stopRequest != null) {
+        final stop = copy.stopRequest!;
+        _stopRequest ??=
+            StopRequest(pluginId: p.id, code: stop.code, detail: stop.detail);
+      }
+      if (!observational && _cancel.cancelled) {
+        // The hook was abandoned mid-await, not completed: its writes are
+        // not accepted and its late errors are discarded.
+        break;
       }
       ctx = copy;
+      keep?.call(p, copy);
+      if (stopWhen != null && stopWhen(copy)) break;
     }
     return ctx;
+  }
+
+  /// The accepted plugin stop request for the running turn, if any. Set
+  /// through a kept copy's [TurnContext.requestStop]; read at the loop's
+  /// stop checks and recorded in the turn's end entry. Cleared with the
+  /// cancel token when the turn exits.
+  StopRequest? _stopRequest;
+
+  /// Every phase failure this loop has recorded, oldest first. The
+  /// structured diagnostic channel: plugin id, phase, a safe message, and
+  /// the original error for an explicit sink. Nothing here is placed in a
+  /// prompt or a tool result by the loop.
+  final List<HookFailure> _hookFailures = [];
+  List<HookFailure> get hookFailures => List.unmodifiable(_hookFailures);
+
+  /// A safe one-line summary of a thrown error: the runtime type — plus
+  /// the text only when the thrown object *is* a short string. Anything
+  /// richer (an exception's message can carry paths, arguments, payload
+  /// fragments) stays out of prompts, tool results and outcome details by
+  /// default; an explicit diagnostic sink reads [HookFailure.error].
+  static String _safeMessage(Object error) {
+    if (error is String) return error.length <= 200 ? error : 'String (long)';
+    return error.runtimeType.toString();
   }
 
   /// The system prompt: the context's sections joined by a blank line, in
@@ -363,6 +459,7 @@ final class AgentLoop {
 
   Future<Outcome> _runTurn(Input raw) async {
     _inTurn = true;
+    _stopRequest = null;
     // ------------------------------------------------------------------
     // Step 1: take the input. The pinned tool set is snapshotted once,
     // from the plugins' `tools` getters, before anything runs.
@@ -402,13 +499,15 @@ final class AgentLoop {
     // outcome, fan out onTurnEnd, return. Every exit — complete,
     // cancelled, provider error, even a loop-internal throw — comes
     // through here, so a started turn always ends in the log.
-    Outcome finish(StopReason reason, String detail) {
+    Future<Outcome> finish(StopReason reason, String detail) async {
+      final stop = _stopRequest;
+      if (stop != null && reason == StopReason.cancelled) detail = stop.detail;
       _append(TurnEndedEntry(
           turnId: turnId,
           reason: _turnReason(reason),
           usage: usage,
-          at: _now()));
-      _inTurn = false;
+          at: _now(),
+          stop: stop?.toJson()));
       final outcome = Outcome(
           stopReason: reason,
           messages: List.of(appended),
@@ -416,46 +515,49 @@ final class AgentLoop {
           modelResponses: List.of(responses),
           usage: responses.length,
           detail: detail,
-          changedBy: changedBy);
-      _phase(ctx, (p, c) {
+          changedBy: changedBy,
+          stopRequest: stop);
+      await _phase(ctx, 'onTurnEnd', (p, c) {
         c.outcome = outcome;
-        p.onTurnEnd(c);
-      });
+        return p.onTurnEnd(c);
+      }, observational: true);
+      _inTurn = false;
       return outcome;
     }
 
     try {
       // Prompt-section phase, once per turn. The sections the plugins add
       // here are the base; `beforeModelCall` may adjust them per call.
-      ctx = _phase(ctx, (p, c) => p.onPrompt(c));
+      // A throwing onPrompt is fail-closed: the turn ends as an error
+      // before any model request, so required instructions are never
+      // silently missing from a sent request.
+      ctx = await _phase(ctx, 'onPrompt', (p, c) => p.onPrompt(c));
+      if (_cancel.cancelled)
+        return finish(StopReason.cancelled, _cancel.reason);
       final baseSections = List.of(ctx.promptSections);
 
       // Input phase. A rewrite is an assignment to `c.input`; the last
       // rewrite is the one the turn takes — and each one lands in the log
       // naming the plugin, because a rewrite cannot be recomputed later.
-      for (final p in _inOrder()) {
-        if (_cancel.cancelled)
-          return finish(StopReason.cancelled, _cancel.reason);
-        final before = ctx.input;
-        final copy = ctx.copy();
-        try {
-          await Future.any<void>([
-            Future<void>.sync(() => p.onInput(copy)),
-            copy.whenCancelled,
-          ]);
-        } catch (_) {
-          continue; // one bad plugin must not break the turn
-        }
-        ctx = copy;
-        if (ctx.input.text != before.text || ctx.input.id != before.id) {
-          changedBy = p.id;
-          _append(InputRewrittenEntry(
-              turnId: turnId,
-              pluginId: p.id,
-              text: ctx.input.text,
-              at: _now()));
-        }
-      }
+      // A throwing input guard is fail-closed: the turn stops before the
+      // user message is recorded and before the provider is called; the
+      // raw `input_recorded` entry stays in the log.
+      ctx = await _phase(
+        ctx,
+        'onInput',
+        (p, c) => p.onInput(c),
+        keep: (p, c) {
+          final before = ctx.input;
+          if (c.input.text != before.text || c.input.id != before.id) {
+            changedBy = p.id;
+            _append(InputRewrittenEntry(
+                turnId: turnId,
+                pluginId: p.id,
+                text: c.input.text,
+                at: _now()));
+          }
+        },
+      );
       if (_cancel.cancelled)
         return finish(StopReason.cancelled, _cancel.reason);
       final user =
@@ -465,9 +567,9 @@ final class AgentLoop {
 
       // ------------------------------------------------------------------
       // Steps 2–5. Repeat until the model asks for no tools, the turn is
-      // cancelled, or the step budget runs out.
+      // cancelled, or a plugin requests termination.
       // ------------------------------------------------------------------
-      for (var step = 0; step < maxStepsPerTurn; step++) {
+      while (true) {
         if (_cancel.cancelled) {
           return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
         }
@@ -484,7 +586,12 @@ final class AgentLoop {
           ..call = null
           ..toolResult = null
           ..decision = const Decision.allow();
-        ctx = _phase(ctx, (p, c) => p.beforeModelCall(c));
+        // A throwing request hook is fail-closed: this request is never
+        // sent and the turn ends as an error before the provider call.
+        ctx = await _phase(
+            ctx, 'beforeModelCall', (p, c) => p.beforeModelCall(c));
+        if (_cancel.cancelled)
+          return finish(StopReason.cancelled, _cancel.reason);
         var request = Request(
             systemPrompt: _joinSections(ctx.promptSections),
             messages: List.of(ctx.messages),
@@ -656,15 +763,23 @@ final class AgentLoop {
 
         // Step 4: run the tool calls. Liveness first: a plugin that left
         // mid-turn has its call skipped, not crashed on. Then the guard
-        // phase, in order — the first non-allow decision stops the phase and
-        // the call is not dispatched (`ask` with no UI resolves to deny).
+        // phase, in order — the first non-allow decision stops the phase
+        // and the call is not dispatched. A throwing guard is fail-closed:
+        // that call never executes, an error result is recorded for it,
+        // and the remaining calls in this response are not dispatched.
         // Then the executor; then the result phase, in order, which may
-        // replace the result the core records. Attribution (who denied, why)
-        // travels in the result's content: the model reads exactly this
-        // string.
+        // replace the result the core records. Attribution (who denied,
+        // why) travels in the result's content: the model reads exactly
+        // this string.
+        var dispatchStopped = false;
         for (final call in toolCalls) {
           ToolResult result;
-          if (_cancel.cancelled) {
+          if (dispatchStopped) {
+            result = ToolResult(
+                'not dispatched: an earlier call in this response stopped '
+                'dispatch',
+                isError: true);
+          } else if (_cancel.cancelled) {
             result = ToolResult('cancelled: ${_cancel.reason}', isError: true);
           } else {
             final owner = ownerOf[call.name];
@@ -675,65 +790,101 @@ final class AgentLoop {
                 ..call = call
                 ..decision = const Decision.allow();
               String? deniedBy;
-              for (final p in _inOrder()) {
-                final copy = ctx.copy();
-                try {
-                  p.beforeToolCall(copy);
-                } catch (_) {
-                  continue; // a throwing guard allows, like any absent one
-                }
-                ctx = copy;
-                if (ctx.decision.kind != DecisionKind.allow) {
-                  deniedBy = p.id; // first non-allow decides; later guards
-                  break; // do not run
-                }
+              var guardFailed = false;
+              try {
+                ctx = await _phase(
+                  ctx,
+                  'beforeToolCall',
+                  (p, c) => p.beforeToolCall(c),
+                  keep: (p, c) {
+                    if (c.decision.kind != DecisionKind.allow) {
+                      deniedBy = p.id; // first non-allow decides
+                    }
+                  },
+                  stopWhen: (c) => c.decision.kind != DecisionKind.allow,
+                );
+              } on _PhaseFailed {
+                // Fail closed: the guarded call never executes, the batch
+                // stops here, and the error result below keeps pairing.
+                guardFailed = true;
+                dispatchStopped = true;
               }
-              final decision = ctx.decision;
-              final exec = _executors[call.name];
-              if (deniedBy != null) {
-                result = decision.replacement ??
-                    ToolResult(
-                        'denied by $deniedBy'
-                        '${decision.kind == DecisionKind.ask ? ' (ask-unresolved)' : ''}'
-                        ': ${decision.reason}',
-                        isError: true);
-              } else if (exec == null) {
-                result =
-                    ToolResult('no executor for ${call.name}', isError: true);
+              if (guardFailed) {
+                result = ToolResult(
+                    'tool guard failed: ${call.name} was not executed',
+                    isError: true);
               } else {
-                final cancel = _cancel;
-                var active = true;
-                _toolActivity.add(ToolStarted(call));
-                try {
-                  var recorded = await exec(
-                      call.input,
-                      ToolExecutionContext(
-                        isCancelled: () => cancel.cancelled,
-                        whenCancelled: cancel.whenCancelled,
-                        progress: (status) {
-                          if (active &&
-                              !cancel.cancelled &&
-                              status.isNotEmpty) {
-                            _toolActivity.add(ToolProgress(call, status));
-                          }
-                        },
-                        report: (text, {isError = false}) {
-                          if (active && !cancel.cancelled && text.isNotEmpty) {
-                            _toolActivity
-                                .add(ToolOutput(call, text, isError: isError));
-                          }
-                        },
-                      ));
-                  ctx.toolResult = recorded;
-                  ctx = _phase(ctx, (p, c) => p.afterToolResult(c));
-                  recorded = ctx.toolResult ?? recorded;
-                  result = recorded;
-                } catch (e) {
-                  result = ToolResult('tool threw: $e', isError: true);
-                } finally {
-                  active = false;
+                final decision = ctx.decision;
+                final exec = _executors[call.name];
+                if (_cancel.cancelled) {
+                  result =
+                      ToolResult('cancelled: ${_cancel.reason}', isError: true);
+                } else if (deniedBy != null) {
+                  result = decision.replacement ??
+                      ToolResult(
+                          decision.kind == DecisionKind.ask
+                              ? 'ask-unresolved by $deniedBy: ${decision.reason}'
+                              : 'denied by $deniedBy: ${decision.reason}',
+                          isError: true);
+                } else if (exec == null) {
+                  result =
+                      ToolResult('no executor for ${call.name}', isError: true);
+                } else {
+                  final cancel = _cancel;
+                  var active = true;
+                  _toolActivity.add(ToolStarted(call));
+                  try {
+                    var recorded = await exec(
+                        call.input,
+                        ToolExecutionContext(
+                          isCancelled: () => cancel.cancelled,
+                          whenCancelled: cancel.whenCancelled,
+                          progress: (status) {
+                            if (active &&
+                                !cancel.cancelled &&
+                                status.isNotEmpty) {
+                              _toolActivity.add(ToolProgress(call, status));
+                            }
+                          },
+                          report: (text, {isError = false}) {
+                            if (active &&
+                                !cancel.cancelled &&
+                                text.isNotEmpty) {
+                              _toolActivity.add(
+                                  ToolOutput(call, text, isError: isError));
+                            }
+                          },
+                        ));
+                    ctx.toolResult = recorded;
+                    var resultPhaseFailed = false;
+                    try {
+                      ctx = await _phase(ctx, 'afterToolResult',
+                          (p, c) => p.afterToolResult(c));
+                    } on _PhaseFailed {
+                      // The executed tool is never retried and its side
+                      // effect already happened once: record a
+                      // conservative error result instead of the possibly
+                      // untransformed one, and stop this batch. Pairing
+                      // holds; the turn continues to the next round.
+                      resultPhaseFailed = true;
+                      dispatchStopped = true;
+                    }
+                    if (resultPhaseFailed) {
+                      result = ToolResult(
+                          'result phase failed: the recorded result is not '
+                          'trustworthy',
+                          isError: true);
+                    } else {
+                      recorded = ctx.toolResult ?? recorded;
+                      result = recorded;
+                    }
+                  } catch (e) {
+                    result = ToolResult('tool threw: $e', isError: true);
+                  } finally {
+                    active = false;
+                  }
+                  _toolActivity.add(ToolFinished(call, result));
                 }
-                _toolActivity.add(ToolFinished(call, result));
               }
             }
           }
@@ -766,7 +917,8 @@ final class AgentLoop {
           return finish(StopReason.error, 'tools-changed mid-turn');
         }
       }
-      return finish(StopReason.error, 'max-steps ($maxStepsPerTurn) exceeded');
+    } on _PhaseFailed catch (failure) {
+      return finish(StopReason.error, failure.failure.toString());
     } catch (e) {
       // No path may leave a started turn open in the log, this one
       // included: end it as an error and let the caller see the throw.

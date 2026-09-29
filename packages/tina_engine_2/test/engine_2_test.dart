@@ -229,40 +229,61 @@ void main() {
     });
   });
 
-  group('5. plugin throws: turn continues, contribution absent', () {
-    test('throwing guard is ignored; tool runs; section omitted', () async {
-      final provider = ScriptedProvider([
-        scriptedReply('',
-            calls: [ToolUseBlock(id: 'c1', name: 't', input: {})]),
-        scriptedReply('done'),
-      ]);
-      final loop = AgentLoop(provider: provider, plugins: [
-        _Throw('test/bad-guard', throwIn: 'beforeTool'),
-        _Throw('test/bad-section', throwIn: 'systemSection'),
-        _plugin('test/owner', tools: [_tool('t')]),
-      ]);
-      loop.registerExecutor('t', (_) async => ToolResult('ran'));
-
-      final outcome = await loop.runTurn(const Input('x', id: 'i5'));
-
+  group('5. enforcement failures stop unsafe work', () {
+    for (final phase in ['onPrompt', 'onInput', 'beforeModelCall']) {
+      test('$phase failure stops before the provider', () async {
+        final provider = ScriptedProvider([scriptedReply('unreachable')]);
+        final loop = AgentLoop(
+            provider: provider, plugins: [_Throw('test/bad', throwIn: phase)]);
+        final outcome =
+            await loop.runTurn(const Input('original', id: 'failure'));
+        expect(outcome.stopReason, StopReason.error);
+        expect(provider.callCount, 0);
+        expect(loop.hookFailures.single.phase, phase);
+        expect(loop.log.whereType<TurnEndedEntry>(), hasLength(1));
+        if (phase != 'beforeModelCall') expect(outcome.messages, isEmpty);
+      });
+    }
+    for (final phase in ['beforeToolCall', 'afterToolResult']) {
+      test('$phase failure preserves pairing and stops batch dispatch',
+          () async {
+        final provider = ScriptedProvider([
+          scriptedReply('', calls: [
+            ToolUseBlock(id: 'a', name: 't', input: {}),
+            ToolUseBlock(id: 'b', name: 't', input: {}),
+          ]),
+          scriptedReply('done'),
+        ]);
+        final loop = AgentLoop(provider: provider, plugins: [
+          _Throw('test/bad', throwIn: phase),
+          _plugin('test/owner', tools: [_tool('t')]),
+        ]);
+        var executed = 0;
+        loop.registerExecutor('t', (_) async {
+          executed++;
+          return ToolResult('sensitive result');
+        });
+        final outcome = await loop.runTurn(const Input('go', id: 'failure'));
+        expect(executed, phase == 'beforeToolCall' ? 0 : 1);
+        final results = outcome.messages
+            .expand((m) => m.content)
+            .whereType<ToolResultBlock>()
+            .toList();
+        expect(results.map((r) => r.toolUseId), ['a', 'b']);
+        expect(results.every((r) => r.isError), isTrue);
+        expect(results.map((r) => r.content).join(),
+            isNot(contains('sensitive result')));
+        expect(loop.hookFailures.single.phase, phase);
+      });
+    }
+    test('end hook failure leaves the committed outcome intact', () async {
+      final loop = AgentLoop(
+          provider: ScriptedProvider([scriptedReply('done')]),
+          plugins: [_Throw('test/bad-end', throwIn: 'onTurnEnd')]);
+      final outcome = await loop.runTurn(const Input('go', id: 'end'));
       expect(outcome.stopReason, StopReason.complete);
-      final result = _result(outcome.messages.firstWhere(_isResult));
-      expect(result.isError, isFalse);
-      expect(provider.requests.first.systemPrompt, isNot(contains('BOOM')));
-    });
-
-    test('throwing onInput / beforeModelCall / onTurnEnd isolated', () async {
-      final provider = ScriptedProvider([scriptedReply('done')]);
-      final loop = AgentLoop(provider: provider, plugins: [
-        _Throw('test/bad-invocation', throwIn: 'onInput'),
-        _Throw('test/bad-request', throwIn: 'beforeModelCall'),
-        _Throw('test/bad-end', throwIn: 'onTurnEnd'),
-      ]);
-      final outcome = await loop.runTurn(const Input('original', id: 'i5b'));
-
-      expect(outcome.stopReason, StopReason.complete);
-      expect(_text(outcome.messages.first), 'original');
-      expect(provider.requests.first.systemPrompt, isNot(contains('|BOOM')));
+      expect(loop.log.whereType<TurnEndedEntry>(), hasLength(1));
+      expect(loop.hookFailures.single.phase, 'onTurnEnd');
     });
   });
 
@@ -700,20 +721,17 @@ void main() {
   });
 
   group('11. the copy rule: a context is copied per plugin call', () {
-    test(
-        'a thrower leaves the turn intact; its writes are absent; '
-        'the next plugin runs', () async {
+    test('a failed request hook never sends its partially prepared request',
+        () async {
       final provider = ScriptedProvider([scriptedReply('ok')]);
       final loop = AgentLoop(provider: provider, plugins: [
         _Writer('test/writer', section: 'KEPT'),
         _Throw('test/bad', throwIn: 'beforeModelCall'),
         _plugin('test/late', section: 'LATE'),
       ]);
-      await loop.runTurn(const Input('x', id: 'i12a'));
-
-      final prompt = provider.requests.single.systemPrompt;
-      expect(prompt, contains('KEPT')); // writer's write arrived
-      expect(prompt, contains('LATE')); // the next plugin still ran
+      final outcome = await loop.runTurn(const Input('x', id: 'i12a'));
+      expect(outcome.stopReason, StopReason.error);
+      expect(provider.requests, isEmpty);
     });
 
     test('the next plugin sees the prior plugin\'s writes', () async {

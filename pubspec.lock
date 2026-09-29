@@ -629,6 +629,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_step_limit:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_step_limit"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_subagents:
     dependency: transitive
     description:

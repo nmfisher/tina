@@ -5,8 +5,7 @@ scripted provider. Small enough to read in one sitting. Built on
 `tina_core` — its value types (messages, tools, tool calls, results) and
 its streaming `LlmProvider` are the ones used here.
 
-It is **not** wired into the tina app. Nothing depends on it. Nothing here
-replaces `packages/tina_engine`.
+The root executable uses this loop through `tina_host` and `tina_tui`.
 
 Dart standard library only, plus `tina_core` (path dependency). No network.
 No persistence. The point is to judge the design, not the coverage.
@@ -101,8 +100,10 @@ Before every plugin call the loop copies the context — `copy()` makes new
 lists with the same elements — and hands the copy over. The plugin writes
 to its copy; the loop keeps the copy it wrote and hands the *next* plugin
 a copy of that, so later plugins see earlier writes. A plugin that throws
-has its copy dropped: its writes never arrive, and the next plugin still
-runs. The turn is never broken by one bad plugin.
+has its copy dropped. Enforcement hooks fail closed; end-of-turn notification
+failures are recorded while remaining cleanup hooks continue. The cancellation
+token is shared and payload copies are shallow, so external side effects cannot
+be rolled back.
 
 ### Hooks, one paragraph each
 
@@ -177,10 +178,9 @@ for mutation.
    plugin left, and the turn continues. No crash. The check is at dispatch:
    a removal inside the guard loop for the same call does not undo it (see
    open question 8).
-6. **Isolation.** A plugin that throws in a phase must not break the turn.
-   Its copy of the context is dropped — its writes never arrive — and the
-   next plugin still runs, seeing every earlier write. Enforced for every
-   phase, including onTurnEnd.
+6. **Fail closed.** Input/prompt/request failures prevent provider calls. Tool
+   guard failures block dispatch; result-hook failures preserve pairing without
+   replaying side effects. End-hook failures do not change a committed outcome.
 7. **Unique ids.** A duplicate plugin `id` is a programming error. It throws
    at registration.
 
@@ -190,8 +190,8 @@ for mutation.
   ones last. The join belongs to the core.
 - Per-call request shaping: in `order`.
 - Tool guards: all must pass. `order` only decides which one reports first.
-- A throwing plugin is isolated: its copy is dropped, the turn goes on. One
-  bad plugin must never break every prompt or every turn.
+- Hooks may be asynchronous and are awaited in order. Cancellation interrupts
+  pending enforcement hooks; late writes and errors cannot authorize work.
 
 `order` is a single integer compared ascending. Ties are broken by plugin id
 so the sequence is the same every run — byte order is reproducible.
@@ -303,3 +303,16 @@ dart pub get && dart analyze && dart test
 ```
 
 in `packages/tina_engine_2`, all clean.
+
+## Optional limits and stop metadata
+
+The loop has no step ceiling. `tina/step-limit` is an opt-in plugin; zero means
+unlimited. It counts foreground rounds, not individual tool calls. The plugin
+snapshots its global configuration at each input; child sessions do not implicitly
+inherit it.
+
+Plugins use `TurnContext.requestStop` to stop with an attributed code/detail.
+The engine supplies the actual invoking plugin ID. A policy stop uses the existing
+`cancelled` terminal reason plus optional `stop` metadata, readable by older
+readers (which ignore the extra metadata). `onTurnEnd` is awaited even after
+cancellation, and hook failures are available through `AgentLoop.hookFailures`.

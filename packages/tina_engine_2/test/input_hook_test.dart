@@ -61,11 +61,10 @@ void main() {
     final turn = loop.runTurn(const Input('original', id: '1'));
     await plugin.ready.future;
     plugin.release.complete();
-    await turn;
-    expect(
-        (provider.requests.single.messages.last.content.single as TextBlock)
-            .text,
-        'original');
+    final outcome = await turn;
+    expect(outcome.stopReason, StopReason.error);
+    expect(provider.requests, isEmpty);
+    expect(outcome.messages, isEmpty);
     expect(loop.log.whereType<InputRewrittenEntry>(), isEmpty);
   });
 }

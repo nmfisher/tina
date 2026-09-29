@@ -81,6 +81,11 @@ Map<String, String> pluginDescriptions(
 /// the returned registry rejects the reserved namespace.
 PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
       definitions: [
+        PluginDefinition<TuiPluginContext>('tina/step-limit',
+            (c) => StepLimitConsolePlugin(configPath: c.configPath),
+            description:
+                'Optionally limits foreground model rounds per turn. Multiple tool calls in one response count as one round. Zero means unlimited; the numeric setting is global.',
+            live: true),
         grokGuardDefinition<TuiPluginContext>(),
         updateTuiDefinition<TuiPluginContext>(),
         updateDefinition<TuiPluginContext>(

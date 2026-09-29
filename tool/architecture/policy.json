@@ -31,7 +31,8 @@
     "tina_activity_tui",
     "tina_chat_tui",
     "tina_grok_guard",
-    "tina_mode"
+    "tina_mode",
+    "tina_step_limit"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -45,6 +46,7 @@
     "tina_chat_tui"
   ],
   "sourceRoots": {
+    "tina_step_limit": ["lib", "test"],
     "tina": [
       "lib",
       "bin",
@@ -291,6 +293,7 @@
     "tina_workflows": []
   },
   "packagePaths": {
+    "tina_step_limit": "packages/plugins/tina_step_limit",
     "tina": ".",
     "tina_app": "packages/tina_app",
     "tina_engine": "packages/tina_engine",
@@ -325,6 +328,7 @@
     "tina_mode": "packages/plugins/tina_mode"
   },
   "runtimeDependencies": {
+    "tina_step_limit": ["tina_engine_2", "toml"],
     "tina_grok_guard": [
       "tina_engine_2",
       "tina_host",
@@ -357,6 +361,7 @@
       "tina_console"
     ],
     "tina_chat_tui": [
+      "tina_step_limit",
       "tina_console",
       "tina_engine_2",
       "tina_host",
