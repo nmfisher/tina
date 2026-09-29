@@ -43,7 +43,7 @@ final class LivePanel extends AgentPlugin implements ConsoleContribution {
 
 void main() {
   test(
-      'a live UI plugin attaches, resizes, detaches and reloads through /plugins',
+      'a live UI plugin attaches, resizes, detaches and reloads through plugin settings',
       () async {
     final root = Directory.systemTemp.createTempSync('live-plugin-ui-');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -63,7 +63,8 @@ void main() {
             }, live: true));
     final done = runApp(TuiSession.wrap(app),
         screen: fakeScreen(io), resizes: resizes.stream);
-    await app.handleCommand('/plugins enable acme/panel');
+    app.pluginSettings
+        .apply('acme/panel', true, PluginScope.session, app.pluginManager);
     expect(instances.single.attached, 1);
     expect(instances.single.context.settings.sections.single.id, 'acme/panel');
     expect(app.commands['panel'], isNotNull);
@@ -71,14 +72,16 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     final paints = instances.single.repaints;
     expect(paints, greaterThan(0));
-    await app.handleCommand('/plugins disable acme/panel');
+    app.pluginSettings
+        .apply('acme/panel', false, PluginScope.session, app.pluginManager);
     expect(instances.single.detached, 1);
     expect(instances.single.context.settings.sections, isEmpty);
     expect(app.commands['panel'], isNull);
     resizes.add(ScreenLayout.fromSize(80, 24, split: false));
     await Future<void>.delayed(Duration.zero);
     expect(instances.single.repaints, paints);
-    await app.handleCommand('/plugins enable acme/panel');
+    app.pluginSettings
+        .apply('acme/panel', true, PluginScope.session, app.pluginManager);
     expect(instances, hasLength(2));
     expect(instances.last.attached, 1);
     io.feedBytes('/quit\r'.codeUnits);
@@ -108,7 +111,8 @@ void main() {
               }, live: true));
       final done = runApp(TuiSession.wrap(assembly), screen: fakeScreen(io));
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      await assembly.handleCommand('/plugins enable acme/panel');
+      assembly.pluginSettings.apply(
+          'acme/panel', true, PluginScope.session, assembly.pluginManager);
       expect(assembly.pluginManager.lastError,
           contains('fixture attachment failure'));
       expect(assembly.commands['panel'], isNull);
@@ -116,10 +120,12 @@ void main() {
       expect(instances.single.context.settings.sections, isEmpty);
       expect(instances.single.context.input.promptBuilder, isNull);
       failAttach = false;
-      await assembly.handleCommand('/plugins enable acme/panel');
+      assembly.pluginSettings.apply(
+          'acme/panel', true, PluginScope.session, assembly.pluginManager);
       expect(assembly.pluginManager.lastError, isNull);
       expect(instances.last.context.settings.sections.single.id, 'acme/panel');
-      await assembly.handleCommand('/plugins disable acme/panel');
+      assembly.pluginSettings.apply(
+          'acme/panel', false, PluginScope.session, assembly.pluginManager);
       expect(instances.last.context.settings.sections, isEmpty);
       io.feedBytes('/quit\r'.codeUnits);
       expect(await done, 0);

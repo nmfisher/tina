@@ -40,13 +40,10 @@ enabled = ["tina/persistence", "tina/plans", "tina/goals",
            "tina/auto-compact", "tina/subagents", "tina/update"]
 ```
 
-`/plugins` shows loaded/configured state and scope. For example:
-
-```text
-/plugins disable tina/goals --workspace
-/plugins enable tina/file-resources --global
-/plugins reset tina/goals --workspace
-```
+Open `/settings` → **Plugins** to enable or disable plugins with checkboxes.
+Choose Global, Workspace or Session scope; Space/Enter toggles, Ctrl-R restores
+inheritance. Changes save immediately and supported plugins load/unload live.
+Required plugins are locked; restart-only changes are marked pending restart.
 
 Session overrides take precedence over workspace, then global. Workspace config
 is `<workspace>/.tina/config`, with per-ID `[plugins.overrides]`; provider/model

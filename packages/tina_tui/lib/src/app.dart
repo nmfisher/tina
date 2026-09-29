@@ -49,10 +49,12 @@ Future<int> runApp(
           sections: console.settings,
           descriptors: session.assembly.descriptors,
           validatePlugins: session.assembly.validatePlugins,
-          pluginIds: session.assembly.pluginSettings.registry.ids);
+          pluginIds: session.assembly.pluginSettings.registry.ids,
+          pluginSettings: session.assembly.pluginSettings,
+          pluginManager: session.assembly.pluginManager);
       terminal.writeln(saved
           ? 'Settings saved. Changes apply on next launch.'
-          : 'Settings unchanged.');
+          : 'Settings closed.');
     } catch (_) {
       terminal.writeln(
           'Could not open settings. Check the config file and its permissions.');

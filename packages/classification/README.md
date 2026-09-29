@@ -13,8 +13,8 @@ and prevent late results from changing the display. The last result is transient
 and is not restored from session storage.
 
 The app enables it by default; explicit enabled-plugin lists need
-`tina/classification` added. `/plugins enable tina/classification` and disable
-work live. The Typesafe transport reads `[typesafe].api_key`, `model` and optional
+`tina/classification` added. Its checkbox in Settings → Plugins enables or
+disables it live. The Typesafe transport reads `[typesafe].api_key`, `model` and optional
 `endpoint` from the global config for each input. A stored key wins over
 `TYPESAFE_API_KEY`; a stored `${VARIABLE}` resolves from the environment. Missing
 credentials show unavailable, without making a network request. Chat generation

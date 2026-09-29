@@ -3,6 +3,8 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
 import 'config_document.dart';
+import 'plugin_settings.dart';
+import 'package:tina_host/tina_host.dart';
 
 /// Built-in fields edit global settings for future launches. Plugin sections
 /// supply their own controls and callbacks independently of that document.
@@ -44,6 +46,8 @@ final class SettingsPanel {
       List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins,
       SettingsRegistry? sections,
+      PluginSettings<dynamic>? pluginSettings,
+      PluginManager<dynamic>? pluginManager,
       Iterable<String> pluginIds = const []}) async {
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
@@ -119,31 +123,8 @@ final class SettingsPanel {
           case 2:
             await _providers(document, descriptors);
           case 3:
-            final plugins = document.table('plugins');
-            final choice = await _menu('Plugins', [
-              'Enabled feature plugins',
-              'Approval channel: ${plugins['approval_channel'] ?? defaultApprovalChannel}',
-            ]);
-            if (choice == 0) {
-              final initial = plugins['enabled'] as List? ?? defaultPluginIds;
-              final value = await _edit(
-                  'Global enabled plugins (replaces global overrides)',
-                  initial.join(', '),
-                  suggestions: pluginIds.toList());
-              if (value != null) {
-                plugins['enabled'] = _list(value);
-                plugins.remove('overrides');
-              }
-            } else if (choice == 1) {
-              final value = await _edit(
-                  'Approval channel plugin ID',
-                  plugins['approval_channel'] as String? ??
-                      defaultApprovalChannel,
-                  suggestions: pluginIds
-                      .where((id) => id.contains('approval'))
-                      .toList());
-              if (value != null) plugins['approval_channel'] = value.trim();
-            }
+            await _plugins(
+                document, pluginIds.toList(), pluginSettings, pluginManager);
           case 4:
             try {
               document.save(
@@ -211,6 +192,123 @@ final class SettingsPanel {
       _paint = null;
       _overlay.hide();
       editor.handleResize();
+    }
+  }
+
+  Future<void> _plugins(
+      ConfigDocument document,
+      List<String> ids,
+      PluginSettings<dynamic>? settings,
+      PluginManager<dynamic>? manager) async {
+    var scope = PluginScope.global;
+    var selected = 0;
+    var query = '';
+    settings?.reload();
+    Set<String> requiredIds() =>
+        settings?.requiredIds ??
+        {
+          'tina/providers',
+          'tina/persona',
+          'tina/mode',
+          'tina/tools',
+          'tina/approvals',
+          document.table('plugins')['approval_channel'] as String? ??
+              defaultApprovalChannel,
+        };
+    ids = {...ids, ...requiredIds()}.toList()..sort();
+    bool enabled(String id) {
+      if (requiredIds().contains(id)) return true;
+      if (settings != null) return settings.scopedState(id, scope).enabled;
+      final table = document.table('plugins');
+      return parsePluginOverrides(table)[id] ??
+          (table['enabled'] as List? ?? defaultPluginIds).contains(id);
+    }
+
+    while (true) {
+      var reset = false;
+      final rows = [
+        'Scope: ${scope.name}',
+        for (final id in ids)
+          '${enabled(id) ? '[x]' : '[ ]'} $id${requiredIds().contains(id) ? ' · required' : ''}',
+        'Approval channel: ${document.table('plugins')['approval_channel'] ?? defaultApprovalChannel}',
+      ];
+      final choice = await _menu(
+          settings == null
+              ? 'Plugins (Save changes to apply)'
+              : 'Plugins (toggles save immediately)',
+          rows,
+          initialSelected: selected,
+          initialQuery: query,
+          onQuery: (value) => query = value,
+          checkboxes: true,
+          onReset: () => reset = true,
+          detailFor: (index) {
+            if (index == 0) return 'Choose where changes apply';
+            if (index > ids.length) return 'Save changes; restart required';
+            final id = ids[index - 1];
+            if (requiredIds().contains(id))
+              return 'Required plugin · cannot disable';
+            if (settings == null) return 'Save changes to apply';
+            final active =
+                manager!.host.plugins.any((plugin) => plugin.id == id);
+            return '${settings.changeStatus(id, manager)} · active ${active ? 'on' : 'off'} · ${settings.scopedState(id, scope).source}';
+          });
+      if (choice == null) return;
+      selected = choice;
+      try {
+        if (choice == 0) {
+          if (settings == null) continue;
+          final chosen =
+              await _menu('Plugin scope', ['Global', 'Workspace', 'Session']);
+          if (chosen != null)
+            scope = [
+              PluginScope.global,
+              PluginScope.workspace,
+              PluginScope.session
+            ][chosen];
+        } else if (choice <= ids.length) {
+          final id = ids[choice - 1];
+          if (requiredIds().contains(id)) continue;
+          if (settings != null) {
+            settings.apply(id, reset ? null : !enabled(id), scope, manager!);
+            if (scope == PluginScope.global) {
+              final channel = document.table('plugins')['approval_channel'];
+              document.refreshTable('plugins');
+              if (channel != null)
+                document.table('plugins')['approval_channel'] = channel;
+            }
+            if (manager.lastError != null)
+              await _menu(
+                  'Plugin change pending', [manager.lastError!, 'Back']);
+          } else {
+            final table = document.table('plugins');
+            final overrides =
+                Map<String, dynamic>.from(table['overrides'] as Map? ?? {});
+            if (reset) {
+              overrides.remove(id);
+            } else {
+              overrides[id] = !enabled(id);
+            }
+            table['overrides'] = overrides;
+          }
+        } else {
+          final table = document.table('plugins');
+          final value = await _edit(
+              'Approval channel (Save changes; restart required)',
+              table['approval_channel'] as String? ?? defaultApprovalChannel,
+              suggestions: ids.where((id) => id.contains('approval')).toList());
+          if (value != null) table['approval_channel'] = value.trim();
+        }
+      } catch (error) {
+        await _menu('Could not change plugin', [
+          error is ArgumentError
+              ? error.message.toString()
+              : error is StateError
+                  ? error.message.toString()
+                  : 'Check the configuration and file permissions.',
+          'Back'
+        ]);
+      }
     }
   }
 
@@ -428,13 +526,21 @@ final class SettingsPanel {
   }
 
   Future<int?> _menu(String title, List<String> items,
-      {List<String> Function()? itemsNow,
+      {int initialSelected = 0,
+      String initialQuery = '',
+      void Function(String)? onQuery,
+      bool checkboxes = false,
+      String Function(int)? detailFor,
+      void Function()? onReset,
+      List<String> Function()? itemsNow,
       List<String> Function()? keysNow,
       void Function(int)? onSelected,
       bool Function()? valid}) async {
-    var selected = 0;
-    var query = '';
-    String? selectedKey;
+    var selected = initialSelected;
+    var query = initialQuery;
+    String? selectedKey = initialSelected < items.length
+        ? (keysNow?.call() ?? items)[initialSelected]
+        : null;
     List<int> matches() => [
           for (var i = 0; i < items.length; i++)
             if (items[i].toLowerCase().contains(query.toLowerCase())) i
@@ -453,7 +559,9 @@ final class SettingsPanel {
         if (previous >= 0) selected = previous;
       }
       selectedKey = keys[filtered[selected]];
-      final room = (dialogArea(screen.layout).height - (query.isEmpty ? 2 : 3))
+      final room = (dialogArea(screen.layout).height -
+              (query.isEmpty ? 2 : 3) -
+              (detailFor == null ? 0 : 1))
           .clamp(1, filtered.length);
       final start = (selected - room + 1).clamp(0, filtered.length - room);
       _show([
@@ -461,7 +569,10 @@ final class SettingsPanel {
         if (query.isNotEmpty) 'Find: $query',
         for (var i = start; i < start + room; i++)
           '${selected == i ? '›' : ' '} ${items[filtered[i]]}',
-        '↑↓ move · type to find · enter select · esc back'
+        if (detailFor != null) detailFor(filtered[selected]),
+        checkboxes
+            ? 'space/enter toggle · ^R inherit · esc back'
+            : '↑↓ move · type to find · enter select · esc back'
       ]);
     };
     while (true) {
@@ -479,7 +590,21 @@ final class SettingsPanel {
           return null;
         case ControlKey(code: ControlCode.enter):
           if (filtered.isNotEmpty) {
+            onQuery?.call(query);
             onSelected?.call(filtered[selected]);
+            return filtered[selected];
+          }
+        case CharInput(text: ' ') when checkboxes:
+          if (filtered.isNotEmpty) {
+            onQuery?.call(query);
+            return filtered[selected];
+          }
+        case ControlKey(code: ControlCode.ctrlR) when checkboxes:
+        case ControlKey(code: ControlCode.backspace)
+            when checkboxes && query.isEmpty:
+          if (filtered.isNotEmpty) {
+            onReset?.call();
+            onQuery?.call(query);
             return filtered[selected];
           }
         case CharInput(:final text):

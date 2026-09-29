@@ -115,9 +115,9 @@ adapter. Sandbox grant policy and the legacy app are unchanged.
 
 ## Scoped and live plugin management
 
-`/plugins` now lists configured/loaded state, source scope and pending changes.
-`enable`, `disable` and `reset` accept `--session` (default), `--workspace` and
-`--global`. Workspace config is `<working-directory>/.tina/config`; per-ID
+Settings → Plugins shows checkboxes, configured/loaded state, source scope and
+pending changes. Choose Global (default), Workspace or Session; Space/Enter
+toggles, Ctrl-R restores inheritance. Changes save immediately. Workspace config is `<working-directory>/.tina/config`; per-ID
 `[plugins.overrides]` inherit the global enabled baseline. Reset removes an
 override instead of copying another scope's current value. Session changes do
 not write a file. Unknown or invalid selections fail before configuration writes

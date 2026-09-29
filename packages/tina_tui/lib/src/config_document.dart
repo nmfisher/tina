@@ -48,6 +48,24 @@ final class ConfigDocument {
       values.putIfAbsent(name, () => <String, dynamic>{})
           as Map<String, dynamic>;
 
+  /// Adopt a table saved by a separate settings control while preserving drafts.
+  /// Refuse to absorb unrelated external edits into the snapshot's baseline.
+  void refreshTable(String name) {
+    final latest = ConfigDocument.open(path);
+    final original = _original == null
+        ? ConfigDocument.empty(path).values
+        : TomlDocument.parse(_original!).toMap();
+    String without(Map<String, dynamic> values) =>
+        TomlDocument.fromMap(Map<String, dynamic>.from(values)..remove(name))
+            .toString();
+    if (_original != null && without(original) != without(latest.values)) {
+      throw StateError('Config changed on disk; close settings and reopen it.');
+    }
+    values.remove(name);
+    if (latest.values.containsKey(name)) values[name] = latest.values[name];
+    _original = latest._original;
+  }
+
   TinaConfig validate(
       {List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins}) {

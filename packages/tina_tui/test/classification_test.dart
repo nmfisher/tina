@@ -89,11 +89,11 @@ endpoint = "http://127.0.0.1:${server.port}/judge"
       expect(transcript, hasLength(2));
       expect((transcript.first.content.single as TextBlock).text,
           'create a branch, check it out, then push');
-      await session.assembly
-          .handleCommand('/plugins disable tina/classification');
+      session.assembly.pluginSettings.apply('tina/classification', false,
+          PluginScope.session, session.assembly.pluginManager);
       expect(session.commands['classification'], isNull);
-      await session.assembly
-          .handleCommand('/plugins enable tina/classification');
+      session.assembly.pluginSettings.apply('tina/classification', true,
+          PluginScope.session, session.assembly.pluginManager);
       expect(session.commands['classification'], isNotNull);
     } finally {
       if (!release.isCompleted) release.complete();

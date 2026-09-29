@@ -4,7 +4,12 @@ The root CLI and `tina_tui` share the same reader. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
 edit it, preserving unknown legacy tables. Saving is atomic, uses mode 0600,
 and rejects externally changed files. Settings apply on the next launch;
-`/plugins` can apply supported plugin changes between turns.
+**Plugins** in `/settings` applies supported plugin changes between turns.
+Choose Global, Workspace or Session scope. Space/Enter toggles a checkbox;
+Ctrl-R restores inheritance. Toggles save immediately, even if you leave settings
+without saving other fields. The checkbox reflects the chosen scope; each row
+also shows its source, active state and any pending restart. Required plugins
+are locked. `--configure` has no live session, so its checkboxes use Save changes.
 
 See the [config compatibility audit](engine2-config-audit.md) for the exact
 consumed/ignored keys, credential precedence and verification of the existing
@@ -17,9 +22,9 @@ opens collapsible tool results, replacement previews, errors and child progress.
 Enter/Tab folds, arrows select, Page Up/Down or the wheel scroll, and Esc/F4
 closes. F4 works during execution and preserves unfinished input.
 
-Use `/plugins disable tina/activity-tui` to hide tool presentation for this
-session, or add `--workspace` / `--global` to persist the override. Reset removes
-the override. Re-enabling reconstructs recent calls/results from the transcript.
+In Settings → Plugins, uncheck `tina/activity-tui` to hide tool presentation.
+Choose Session for a temporary override or Workspace/Global to persist it.
+Ctrl-R removes the override. Re-enabling reconstructs recent calls/results from the transcript.
 An explicit `[plugins].enabled` list replaces the default set; include
 `"tina/activity-tui"` there if you want this presentation.
 
@@ -153,7 +158,7 @@ the variant picker; custom color tables remain editable in TOML.
 ## Input classification
 
 `tina/classification` is enabled by default. If `[plugins].enabled` is explicitly
-listed, add that ID or run `/plugins enable tina/classification --global`.
+listed, add that ID or check it in Settings → Plugins → Global scope.
 It reports project question vs instruction, then Git operations for instructions.
 Results appear in the status bar and `/classification`; they never change agent
 routing or permissions. Work runs in the background and stops on cancellation,

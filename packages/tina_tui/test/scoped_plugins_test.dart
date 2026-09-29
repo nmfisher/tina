@@ -27,7 +27,7 @@ void main() {
   }
 
   String output(TuiAssembly app) =>
-      (app.terminal as TuiTerminal).lines.map((l) => l.text).join('\n');
+      app.pluginSettings.describe(app.pluginManager);
 
   test('workspace overrides inherit the global list without copying it', () {
     local.parent.createSync();
@@ -45,23 +45,29 @@ void main() {
       'global, workspace and session changes honor precedence; reset restores inheritance',
       () async {
     final app = assemble();
-    await app.handleCommand('/plugins enable tina/goals --global');
+    app.pluginSettings
+        .apply('tina/goals', true, PluginScope.global, app.pluginManager);
     expect(app.commands['goal'], isNotNull);
     expect(app.pluginSettings.state('tina/goals').source, 'global');
-    await app.handleCommand('/plugins disable tina/goals --workspace');
+    app.pluginSettings
+        .apply('tina/goals', false, PluginScope.workspace, app.pluginManager);
     expect(app.commands['goal'], isNull);
     expect(local.readAsStringSync(), contains('overrides'));
     expect(local.readAsStringSync(), isNot(contains('enabled =')));
     final persisted = local.readAsStringSync();
-    await app.handleCommand('/plugins enable tina/goals'); // session is default
+    app.pluginSettings.apply('tina/goals', true, PluginScope.session,
+        app.pluginManager); // session is default
     expect(app.commands['goal'], isNotNull);
     expect(app.pluginSettings.state('tina/goals').source, 'session');
     expect(local.readAsStringSync(), persisted);
-    await app.handleCommand('/plugins reset tina/goals --session');
+    app.pluginSettings
+        .apply('tina/goals', null, PluginScope.session, app.pluginManager);
     expect(app.commands['goal'], isNull);
-    await app.handleCommand('/plugins reset tina/goals --workspace');
+    app.pluginSettings
+        .apply('tina/goals', null, PluginScope.workspace, app.pluginManager);
     expect(app.commands['goal'], isNotNull);
-    await app.handleCommand('/plugins reset tina/goals --global');
+    app.pluginSettings
+        .apply('tina/goals', null, PluginScope.global, app.pluginManager);
     expect(app.commands['goal'],
         isNull); // restored original explicit global baseline
     final restarted = assemble();
@@ -80,13 +86,15 @@ void main() {
       ]
     });
     final entries = app.host.session.loop.log.length;
-    await app.handleCommand('/plugins disable tina/plans');
+    app.pluginSettings
+        .apply('tina/plans', false, PluginScope.session, app.pluginManager);
     expect(app.commands['plan'], isNull);
     expect(app.host.plugins.whereType<PlansPlugin>(), isEmpty);
     await app.host.send('without plans');
     final provider = app
         .host.session.loop.provider; // stream wrapper remains the same session
-    await app.handleCommand('/plugins enable tina/plans');
+    app.pluginSettings
+        .apply('tina/plans', true, PluginScope.session, app.pluginManager);
     expect(app.pluginManager.lastError, isNull);
     final restored = app.host.plugins.whereType<PlansPlugin>().single;
     expect(identical(plan, restored), false);
@@ -105,11 +113,13 @@ void main() {
       'persistence and subagents remain pending restart while live changes still work',
       () async {
     final app = assemble();
-    await app.handleCommand('/plugins enable tina/persistence --workspace');
+    app.pluginSettings.apply(
+        'tina/persistence', true, PluginScope.workspace, app.pluginManager);
     expect(app.host.plugins.any((p) => p.id == 'tina/persistence'), false);
     expect(File('${workspace.path}/.tina/sessions.db').existsSync(), false);
     expect(output(app), contains('pending restart'));
-    await app.handleCommand('/plugins enable tina/goals');
+    app.pluginSettings
+        .apply('tina/goals', true, PluginScope.session, app.pluginManager);
     expect(app.commands['goal'], isNotNull);
     final restarted = assemble();
     expect(restarted.host.plugins.any((p) => p.id == 'tina/persistence'), true);
@@ -121,28 +131,28 @@ void main() {
       () async {
     final app = assemble();
     final original = global.readAsStringSync();
-    for (final line in [
-      '/plugins disable unknown/plugin --global',
-      '/plugins disable tina/tools --global',
-      '/plugins enable tina/approvals-stream --global',
-      '/plugins enable tina/goals --oops',
-      '/plugins enable tina/goals --session --global',
+    for (final id in [
+      'unknown/plugin',
+      'tina/tools',
+      'tina/approvals-stream'
     ]) {
-      await app.handleCommand(line);
+      expect(
+          () => app.pluginSettings
+              .apply(id, true, PluginScope.global, app.pluginManager),
+          throwsArgumentError);
     }
+    expect(app.commands['plugins'], isNull);
     expect(global.readAsStringSync(), original);
     expect(app.commands['goal'], isNull);
     expect(local.existsSync(), false);
-    expect(output(app), contains('unknown plugin'));
-    expect(output(app), contains('required'));
-    expect(output(app), contains('multiple providers'));
   });
 
   test('disabling persistence keeps the running store until restart', () async {
     global.writeAsStringSync(
         '[default]\nmodel="scripted"\n[plugins]\nenabled=["tina/persistence"]\n');
     final app = assemble();
-    await app.handleCommand('/plugins disable tina/persistence --workspace');
+    app.pluginSettings.apply(
+        'tina/persistence', false, PluginScope.workspace, app.pluginManager);
     expect(app.host.plugins.any((p) => p.id == 'tina/persistence'), true);
     expect(output(app), contains('pending restart'));
     await app.host.send('still persisted');
@@ -153,8 +163,8 @@ void main() {
 
   test('list distinguishes enabled, loaded, scope and restart state', () async {
     final app = assemble();
-    await app.handleCommand('/plugins enable tina/subagents --workspace');
-    await app.handleCommand('/plugins');
+    app.pluginSettings.apply(
+        'tina/subagents', true, PluginScope.workspace, app.pluginManager);
     expect(
         output(app),
         contains(

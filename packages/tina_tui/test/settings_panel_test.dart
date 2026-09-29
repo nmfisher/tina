@@ -91,9 +91,9 @@ enabled = []
   test('settings selects a channel independently of feature plugins', () async {
     final (saved, _) = await drive([
       down, down, down, enter, // plugins
-      down, enter, // approval channel
+      CharInput('Approval channel'), enter, // approval channel
       EditingKey(EditingAction.killToStart), CharInput('tina/approvals-stream'),
-      enter,
+      enter, escape,
       down, down, down, down, enter, // save
     ]);
     expect(saved, true);
@@ -134,14 +134,13 @@ enabled = []
             .model,
         'next');
   });
-  test('plugin fields complete namespaced IDs with Tab', () async {
+  test('plugin checkboxes filter namespaced IDs and save', () async {
     final (saved, _) = await drive([
       CharInput('Plugins'),
       enter,
-      enter,
       CharInput('tina/pl'),
-      ControlKey(ControlCode.tab),
-      enter,
+      CharInput(' '),
+      escape,
       CharInput('Save'),
       enter,
     ]);

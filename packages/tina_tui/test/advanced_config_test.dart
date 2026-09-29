@@ -132,11 +132,4 @@ void main() {
             }),
         throwsFormatException);
   });
-  test('plugin argument completion retains scope and full namespaced IDs', () {
-    expect(completePlugins('en', ['tina/plans']), ['enable']);
-    expect(completePlugins('enable tina/p', ['tina/plans', 'tina/goals']),
-        ['enable tina/plans']);
-    expect(completePlugins('disable tina/plans --w', ['tina/plans']),
-        ['disable tina/plans --workspace']);
-  });
 }

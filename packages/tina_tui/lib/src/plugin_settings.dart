@@ -65,13 +65,14 @@ final class PluginSettings<C> {
       };
 
   ({bool enabled, String source}) _state(String id, ConfigDocument global,
-      ConfigDocument workspace, Map<String, bool> session) {
-    if (session.containsKey(id))
+      ConfigDocument workspace, Map<String, bool> session,
+      {PluginScope scope = PluginScope.session}) {
+    if (scope == PluginScope.session && session.containsKey(id))
       return (enabled: session[id]!, source: 'session');
-    if (sessionBaseline != null)
+    if (scope == PluginScope.session && sessionBaseline != null)
       return (enabled: sessionBaseline!.contains(id), source: 'session');
     final local = parsePluginOverrides(workspace.values['plugins']);
-    if (local.containsKey(id))
+    if (scope != PluginScope.global && local.containsKey(id))
       return (enabled: local[id]!, source: 'workspace');
     final overrides = parsePluginOverrides(global.values['plugins']);
     if (overrides.containsKey(id))
@@ -85,6 +86,20 @@ final class PluginSettings<C> {
   ({bool enabled, String source}) state(String id) => requiredIds.contains(id)
       ? (enabled: true, source: 'required')
       : _state(id, _global, _workspace, _session);
+
+  ({bool enabled, String source}) scopedState(String id, PluginScope scope) =>
+      requiredIds.contains(id)
+          ? (enabled: true, source: 'required')
+          : _state(id, _global, _workspace, _session, scope: scope);
+
+  void apply(
+      String id, bool? enabled, PluginScope scope, PluginManager<C> manager) {
+    change(id, enabled, scope);
+    manager.select(selected);
+  }
+
+  String status(String id, PluginManager<C> manager) =>
+      _row(id, manager.host.plugins.any((p) => p.id == id), manager);
 
   List<String> _selection(ConfigDocument global, ConfigDocument workspace,
           Map<String, bool> session) =>
@@ -157,7 +172,7 @@ final class PluginSettings<C> {
     } else {
       if (scope == PluginScope.workspace && _sameFile) {
         throw StateError(
-            '--config points at the workspace file; use --global for that explicit config or choose a separate global file');
+            '--config points at the workspace file; use Global scope for that explicit config or choose a separate global file');
       }
       final document = scope == PluginScope.global ? global : workspace;
       final table = document.table('plugins');
@@ -196,7 +211,7 @@ final class PluginSettings<C> {
       for (final id in ids) _row(id, loaded.contains(id), manager),
       'Global: $globalPath',
       'Workspace: $workspacePath',
-      'Default scope: session. reset removes an override and restores inheritance.',
+      'Settings defaults to Global scope. Restore inheritance removes an override.',
       if (manager.lastError != null) manager.lastError!,
     ];
     return lines.join('\n');
@@ -204,80 +219,24 @@ final class PluginSettings<C> {
 
   String _row(String id, bool loaded, PluginManager<C> manager) {
     final resolved = state(id);
-    final pending = resolved.enabled != loaded;
+    final change = changeStatus(id, manager);
+    return '$id | ${resolved.enabled ? 'enabled' : 'disabled'} | ${loaded ? 'yes' : 'no'} | ${resolved.source} | $change';
+  }
+
+  String changeStatus(String id, PluginManager<C> manager) {
+    final loaded = manager.host.plugins.any((plugin) => plugin.id == id);
+    final pending = state(id).enabled != loaded;
     final policy = requiredIds.contains(id)
         ? 'required'
         : registry.definition(id).live
             ? 'live'
             : 'restart required';
-    final change = !pending
+    return !pending
         ? policy
         : manager.waitingForIdle
             ? 'pending until idle'
             : registry.ids.contains(id) && registry.definition(id).live
                 ? 'pending; live update not applied'
                 : 'pending restart';
-    return '$id | ${resolved.enabled ? 'enabled' : 'disabled'} | ${loaded ? 'yes' : 'no'} | ${resolved.source} | $change';
   }
-
-  void command(
-      String argument, PluginManager<C> manager, void Function(String) write) {
-    try {
-      final parts = argument.trim().isEmpty
-          ? <String>[]
-          : argument.trim().split(RegExp(r'\s+'));
-      if (parts.isEmpty || (parts.length == 1 && parts.single == 'list')) {
-        reload();
-        write(describe(manager));
-        return;
-      }
-      if (parts.length < 2 ||
-          parts.length > 3 ||
-          !['enable', 'disable', 'reset'].contains(parts[0])) {
-        throw ArgumentError(
-            'usage: /plugins [enable|disable|reset ID [--session|--workspace|--global]]');
-      }
-      final flag = parts.length == 3 ? parts[2] : '--session';
-      final scope = switch (flag) {
-        '--session' => PluginScope.session,
-        '--workspace' => PluginScope.workspace,
-        '--global' => PluginScope.global,
-        _ => throw ArgumentError('unknown scope: $flag'),
-      };
-      change(
-          parts[1], parts[0] == 'reset' ? null : parts[0] == 'enable', scope);
-      manager.select(selected);
-      write(
-          '${scope.name} override ${parts[0] == 'reset' ? 'removed' : 'updated'} for ${parts[1]}.');
-      write(_row(parts[1], manager.host.plugins.any((p) => p.id == parts[1]),
-          manager));
-      if (manager.lastError != null) write(manager.lastError!);
-    } on ArgumentError catch (e) {
-      write('Plugins: ${e.message}');
-    } on FormatException catch (e) {
-      write('Plugins: ${e.message}');
-    } on FileSystemException {
-      write('Plugins: could not read or save plugin configuration.');
-    } on StateError catch (e) {
-      write('Plugins: ${e.message}');
-    }
-  }
-}
-
-/// Complete the plugin command from the same registry used for validation.
-List<String> completePlugins(String argument, Iterable<String> ids) {
-  final words = argument.split(' ');
-  if (words.length == 1)
-    return ['list', 'enable', 'disable', 'reset']
-        .where((v) => v.startsWith(argument))
-        .toList();
-  if (!['enable', 'disable', 'reset'].contains(words.first)) return [];
-  final prefix = words.last;
-  final before = words.take(words.length - 1).join(' ');
-  final choices =
-      words.length == 2 ? ids : ['--session', '--workspace', '--global'];
-  return [
-    for (final value in choices)
-      if (value.startsWith(prefix)) '$before $value'
-  ];
 }

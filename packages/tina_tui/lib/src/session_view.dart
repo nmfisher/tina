@@ -70,10 +70,12 @@ final class SessionView implements ConsoleSessionView {
               sections: context.settings,
               descriptors: session.assembly.descriptors,
               validatePlugins: session.assembly.validatePlugins,
-              pluginIds: session.assembly.pluginSettings.registry.ids);
+              pluginIds: session.assembly.pluginSettings.registry.ids,
+              pluginSettings: session.assembly.pluginSettings,
+              pluginManager: session.assembly.pluginManager);
           notice(saved
               ? 'Settings saved. Changes apply on next launch.'
-              : 'Settings unchanged.');
+              : 'Settings closed.');
           context.chat.repaint();
         });
     if (showConfig) {

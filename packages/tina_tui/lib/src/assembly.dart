@@ -301,14 +301,6 @@ final class TuiAssembly {
               model: model ?? host.config.model)),
     );
     assembled = assembly;
-    host.commands.publish(Command(
-      name: 'plugins',
-      complete: (prefix) => completePlugins(prefix, registry.ids),
-      description:
-          'list or enable/disable plugins by session, workspace or global scope',
-      handler: (argument) => pluginSettings.command(
-          argument, assembly.pluginManager, output.writeln),
-    ));
     // Built-ins are the assembly's, registered by the assembly — the
     // same registry, the same dispatch.
     host.commands.publish(Command(

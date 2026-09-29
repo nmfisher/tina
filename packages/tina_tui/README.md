@@ -84,25 +84,18 @@ The same `[plugins.overrides]` table is accepted globally, above the existing
 `[plugins].enabled` baseline. Missing entries inherit. Workspace `enabled` lists
 are rejected so workspaces never need to copy the global list. `--config` replaces
 the global config path; workspace overrides still apply. When both paths identify
-the same file it is read once as the explicit global file, and `--workspace`
+the same file it is read once as the explicit global file, and Workspace-scope
 writes are refused to avoid silently treating one file as two scopes.
 
-`/plugins` lists registered plugins, configured and loaded state, effective scope,
-and pending changes. These commands default to session scope:
-
-```text
-/plugins enable tina/goals --session
-/plugins disable tina/subagents --workspace
-/plugins enable tina/file-resources --global
-/plugins reset tina/subagents --workspace
-```
-
-`reset` removes that scope's per-ID override and restores inheritance. Session
+Settings → **Plugins** lists registered plugins with enable/disable checkboxes,
+active state, source scope and pending changes. Choose Global (default), Workspace
+or Session scope. Space/Enter toggles; Ctrl-R removes that scope's per-ID override
+and restores inheritance. Changes save immediately. Session
 changes stay in memory and are not restored with session history. Global and
 workspace changes are saved atomically, preserve unrelated config, and apply to
 the current session where live changes are supported. Other running processes
 are not automatically reconfigured. A higher scope can mask a persisted change;
-the command reports the effective state and source.
+the checkbox shows the selected scope while the row also shows active state.
 
 Plans, goals, auto-compaction and file resources support live enable/disable.
 Changes requested during a turn wait until it finishes. Unload removes commands,
@@ -120,7 +113,7 @@ Plugin authors opt into live changes with `PluginDefinition(live: true)` (or
 and background-work lifecycle. Registrations made synchronously during `mountOn`
 are automatically owned by the plugin; subscriptions created later must be
 released by its lifecycle. The loader defaults unfamiliar plugins to restart-only.
-`/plugins` selects already registered factories; it does not install or download
+The Plugins settings submenu selects already registered factories; it does not install or download
 Dart packages.
 
 IDs use `publisher/name`; `tina/` is reserved for first-party factories.
@@ -140,7 +133,7 @@ Provider pooling is rejected explicitly. Legacy rate limits, quotas, theme and
 reasoning settings are preserved on save but are not implemented by this editor
 or wired by the new assembly. Workflow configuration stays deferred.
 
-With defaults, `/plan`, `/goal`, `/mode`, `/plugins`, `/settings` and `/quit` are registered.
+With defaults, `/plan`, `/goal`, `/mode`, `/settings` and `/quit` are registered.
 `/` completion reads that command registry; `@` completion reads workspace
 paths. The selected approval channel handles permission requests. The default
 `tina/approvals-tui` supplies the console dialog. `tina/approvals` tracks pending
