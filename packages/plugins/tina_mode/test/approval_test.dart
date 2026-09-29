@@ -7,6 +7,7 @@ import 'package:tina_mode/tina_mode.dart';
 class Human implements ApprovalRequester {
   int calls = 0;
   Map<String, Object?> lastDetails = {};
+  String lastReason = '';
   ApprovalDecision answer = ApprovalDecision.allow;
   @override
   Future<ApprovalDecision> request({
@@ -18,6 +19,7 @@ class Human implements ApprovalRequester {
   }) async {
     calls++;
     lastDetails = details;
+    lastReason = reason;
     return answer;
   }
 }
@@ -43,6 +45,35 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 );
 
 void main() {
+  test(
+    'auto fallback reason travels with the approval instead of only chat',
+    () async {
+      for (final entry in {
+        const PermissionJudgment(false): 'classifier recommends denial',
+        const PermissionJudgment(null, 'timed out'): 'classifier timed out',
+        const PermissionJudgment(null, 'provider error'):
+            'classifier provider error',
+        const PermissionJudgment(null, 'unreadable answer'):
+            'classifier unreadable answer',
+      }.entries) {
+        final human = Human();
+        final mode = ModePlugin(
+          mode: PermissionMode.auto,
+          approvals: human,
+          classifier: Judge(Future.value(entry.key)),
+        );
+        await request(mode);
+        expect(
+          human.lastReason,
+          'Auto approval: ${entry.value}. approval required',
+        );
+        expect(human.lastDetails['auto_approval_fallback'], entry.value);
+        expect(human.lastDetails['mode'], 'auto');
+        mode.closeSession();
+      }
+    },
+  );
+
   test(
     'human receives full tool context and allow once expires with invocation',
     () async {

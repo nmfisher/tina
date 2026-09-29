@@ -101,6 +101,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     if (call != null && _callApprovals.containsKey(operation)) {
       return _callApprovals[operation]!;
     }
+    String? autoFallback;
     if (mode == PermissionMode.auto) {
       final judge = classifier;
       final result = judge == null
@@ -129,22 +130,26 @@ class ModePlugin extends AgentPlugin implements ModeControl {
         }
         return ApprovalDecision.allow;
       }
-      terminal?.writeln(
-        result.allow == false
-            ? 'classifier recommends denial — asking you: $target'
-            : 'classifier ${result.failure ?? 'mode changed'} — asking you: $target',
-      );
+      autoFallback = mode != PermissionMode.auto
+          ? 'mode changed to ${mode.label}'
+          : result.allow == false
+          ? 'classifier recommends denial'
+          : 'classifier ${result.failure ?? 'unavailable'}';
+      terminal?.writeln('$autoFallback — asking you: $target');
     }
     final decision =
         await approvals?.request(
           operation: operation,
           target: target,
-          reason: reason,
+          reason: autoFallback == null
+              ? reason
+              : 'Auto approval: $autoFallback. $reason',
           details: {
             ...context,
             if (_call != null)
               'tool': {'name': _call!.name, 'input': _call!.input},
             'mode': mode.name,
+            if (autoFallback != null) 'auto_approval_fallback': autoFallback,
           },
         ) ??
         ApprovalDecision.deny;
