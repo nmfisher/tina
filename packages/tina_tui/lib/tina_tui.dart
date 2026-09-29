@@ -17,7 +17,7 @@
 ///   `TinaConfigFile` — the config reader the entry point calls first;
 /// - [providerForDescriptor], [builtinDescriptors], [descriptorByIdFor] —
 ///   the descriptor table and the seam a test factory overrides;
-/// - [listSessions] — the session listing the `--sessions` flag prints;
+/// - [listSessions] — a plain session listing for embedding hosts;
 /// - the TUI pieces: terminal, command dispatch, approval dialog and
 ///   approver, the render loop ([runApp]), chat/stream/tool-chip/status
 ///   views, and the input line's completion sources ([runApp] wires

@@ -12,7 +12,7 @@ Convert into an explicitly chosen SQLite store, then use the printed IDs:
 
 ```sh
 dart run bin/tina.dart --import-sessions "$HOME/.tina/sessions" --store /tmp/tina-import.db
-dart run bin/tina.dart --store /tmp/tina-import.db --sessions
+dart run bin/tina.dart --store /tmp/tina-import.db --resume
 dart run bin/tina.dart --store /tmp/tina-import.db --resume 'legacy:SESSION_ID:CONVERSATION_ID'
 ```
 

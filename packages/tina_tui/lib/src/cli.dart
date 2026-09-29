@@ -3,15 +3,17 @@ import 'package:tina_persistence/tina_persistence.dart';
 import 'app.dart';
 import 'tui_session.dart';
 import 'shell_completion.dart';
+import 'session_selection.dart';
 
 const cliHelp =
-    '''usage: tina [--config FILE] [--cwd DIR] [--store FILE] [--resume ID]
-            [--sessions] [--configure] [--version] [--completion bash|zsh|fish]
+    '''usage: tina [--config FILE] [--cwd DIR] [--store FILE] [--resume [ID] | --continue]
+            [--configure] [--version] [--completion bash|zsh|fish]
             [--import-sessions PATH [--dry-run]]
 
 Starts the engine2 terminal app. /help lists loaded commands.
 --configure edits global provider, model, plugin and request settings.
---sessions lists sessions in the new workspace store; --resume ID reopens one.
+--resume lists main sessions and lets you select one; --resume ID reopens it directly.
+--continue (-c) reopens the most recently updated main session in the workspace store.
 --import-sessions converts a legacy session root, directory, manifest or JSONL
 file into --store (default: the current workspace store). --dry-run writes nothing.
 Each imported conversation gets its own ID, printed for --resume. Sources stay unchanged.
@@ -21,7 +23,8 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
   String? configPath;
   String? storePath;
   String? sessionId;
-  var listOnly = false;
+  var resume = false;
+  var continueLatest = false;
   var configure = false;
   String? legacySource;
   var dryRun = false;
@@ -34,10 +37,16 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
       workingDirectory = args[++i];
     } else if (a == '--store' && i + 1 < args.length) {
       storePath = args[++i];
-    } else if (a == '--resume' && i + 1 < args.length) {
-      sessionId = args[++i];
-    } else if (a == '--sessions') {
-      listOnly = true;
+    } else if (a == '--resume') {
+      resume = true;
+      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+        sessionId = args[++i];
+      }
+    } else if (a.startsWith('--resume=') && a.length > '--resume='.length) {
+      resume = true;
+      sessionId = a.substring('--resume='.length);
+    } else if (a == '--continue' || a == '-c') {
+      continueLatest = true;
     } else if (a == '--configure') {
       configure = true;
     } else if (a == '--import-sessions' && i + 1 < args.length) {
@@ -68,13 +77,13 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
     stderr.writeln('tina: workspace does not exist: $workingDirectory');
     return 66;
   }
-  if ([listOnly, sessionId != null, configure, legacySource != null]
+  if ([resume, continueLatest, configure, legacySource != null]
               .where((v) => v)
               .length >
           1 ||
       (dryRun && legacySource == null)) {
     stderr.writeln(
-        'tina: --sessions, --resume, --configure and --import-sessions are mutually exclusive; --dry-run requires --import-sessions');
+        'tina: --continue, --resume, --configure and --import-sessions are mutually exclusive; --dry-run requires --import-sessions');
     return 64;
   }
 
@@ -111,17 +120,23 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
     }
   }
 
-  if (listOnly) {
+  if (continueLatest || (resume && sessionId == null)) {
     try {
-      listSessions(
-        writer: StdoutAssemblyWriter(),
-        storePath: storePath ?? defaultSessionStorePath(workingDirectory),
-      );
+      final sessions = resumableSessions(
+          storePath ?? defaultSessionStorePath(workingDirectory));
+      if (sessions.isEmpty) {
+        stderr.writeln('tina: no main sessions to resume');
+        return 66;
+      }
+      sessionId = continueLatest
+          ? sessions.first.id
+          : pickSession(sessions,
+              readLine: stdin.readLineSync, writeLine: stdout.writeln);
+      if (sessionId == null) return 0;
     } catch (e) {
       stderr.writeln('tina: $e');
       return 66;
     }
-    return 0;
   }
   try {
     final path = configPath ?? defaultConfigPath();

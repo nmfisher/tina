@@ -36,7 +36,7 @@ final class SinkAssemblyWriter implements AssemblyWriter {
 }
 
 /// The process's stdout and stderr. The one place the app writes a bare
-/// line outside the full-screen loop: the `--sessions` listing, which
+/// line outside the full-screen loop: a session listing, which
 /// runs before any screen exists.
 final class StdoutAssemblyWriter implements AssemblyWriter {
   const StdoutAssemblyWriter();

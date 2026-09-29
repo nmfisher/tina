@@ -205,6 +205,8 @@ void main() {
     expect(sessions.first.entries, 10);
     expect(sessions.last.entries, 5);
     expect(sessions.last.details!.depth, 1);
+    expect(sessions.first.lastActivityKey,
+        greaterThan(sessions.last.lastActivityKey));
   });
 
   test('a missing first entry is corruption', () {

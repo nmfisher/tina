@@ -84,14 +84,16 @@ an explicit enabled-plugin list, add it and restart. Saved conversations can
 be resumed individually; the arrangement of open panels is not persisted.
 
 ```sh
-tina --sessions                     # list this workspace's new sessions
+tina --resume                       # list and select a workspace session
+tina --continue                     # continue the most recently updated session (-c)
 tina --resume SESSION_ID            # continue a saved session
 tina --store /path/to/sessions.db    # override the SQLite store
 tina --completion zsh               # bash and fish also supported
 ```
 
 New sessions live in `<workspace>/.tina/sessions.db`. Old session files are left
-intact but cannot be resumed by engine2; there is no importer. The old session
+intact; use `--import-sessions PATH` to convert them first (see the
+[import guide](docs/engine2-session-import.md)). The old session
 slash commands have deliberately not been ported.
 
 `/update` checks for a release. `/update install` downloads, requires a matching

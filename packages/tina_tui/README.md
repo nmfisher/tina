@@ -173,13 +173,16 @@ store opener; the host has no filesystem or SQLite dependency. Override the
 location with `--store FILE`. List or resume using the default location:
 
 ```sh
-dart run bin/tina_tui.dart --cwd /path/to/project --sessions
+dart run bin/tina_tui.dart --cwd /path/to/project --resume
+dart run bin/tina_tui.dart --cwd /path/to/project --continue
 dart run bin/tina_tui.dart --cwd /path/to/project --resume SESSION_ID
 ```
 
-Use a separate store from legacy sessions. No legacy session importer exists.
-`--store` and `--resume` require persistence to be enabled. `--sessions` is a
-standalone read operation and does not load plugins or start a model session.
+Use `--import-sessions PATH` to convert legacy files into the new store;
+`--dry-run` previews without writing. The source files remain unchanged.
+`--store`, resuming and continuing require persistence to be enabled.
+Bare `--resume` prints a numbered picker before loading the app; Enter/q
+cancels. `--continue` (or `-c`) resumes the last updated main session.
 
 ## Verification
 

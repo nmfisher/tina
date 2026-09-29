@@ -56,15 +56,20 @@ final class StoredSession {
     required this.id,
     required this.registryKey,
     required this.entries,
+    int? lastActivityKey,
     this.title,
     this.details,
-  });
+  }) : lastActivityKey = lastActivityKey ?? registryKey;
 
   /// The session id the host started it with.
   final String id;
 
   /// The registry row where the session's slice begins.
   final int registryKey;
+
+  /// Most recent registry, metadata or entry row for this session. Row order
+  /// reflects local activity, including appends to a resumed conversation.
+  final int lastActivityKey;
 
   /// How many log rows follow the registry row (a lower bound while the
   /// session is still running in another process: this reader sees the
@@ -281,10 +286,12 @@ final class SessionStore {
     try {
       final sessions = <String, StoredSession>{};
       final counts = <String, int>{};
+      final latest = <String, int>{};
       for (final row in _log.readAll()) {
         final payload = row.payload;
         if (_isMarker(payload)) {
           final id = payload['session_id'] as String;
+          latest[id] = row.id;
           final previous = sessions[id];
           final details = payload['details'];
           sessions[id] = StoredSession(
@@ -298,6 +305,7 @@ final class SessionStore {
           );
         } else {
           final id = payload['slice'] as String;
+          latest[id] = row.id;
           counts[id] = (counts[id] ?? 0) + 1;
         }
       }
@@ -307,6 +315,7 @@ final class SessionStore {
             id: session.id,
             registryKey: session.registryKey,
             entries: counts[session.id] ?? 0,
+            lastActivityKey: latest[session.id],
             title: session.title,
             details: session.details,
           )

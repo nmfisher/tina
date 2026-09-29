@@ -479,11 +479,15 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.close()
 
         listing = subprocess.run(launcher + ["--store", str(store),
-                                  "--sessions"], cwd=PACKAGE.parent.parent, env=env,
-                                 capture_output=True, text=True, check=True, timeout=30)
-        session = next(line.split()[0] for line in listing.stdout.splitlines() if " entries" in line)
-        terminal = Terminal(command + ["--resume", session], env, columns, rows)
+                                  "--resume"], cwd=PACKAGE.parent.parent, env=env,
+                                 input="\n", capture_output=True, text=True, check=True, timeout=30)
+        assert any(" entries" in line for line in listing.stdout.splitlines()), 'resume picker omitted sessions'
+        resume_args = ["--continue"] if rows == 10 else (["-c"] if rows == 24 else ["--resume"])
+        terminal = Terminal(command + resume_args, env, columns, rows)
         try:
+            if rows not in (10, 24):
+                terminal.expect("Select session")
+                terminal.send('1\r')
             terminal.expect("smoke > ")
             # Restored rows are painted as a viewport, not printed through
             # stdout one by one. Scroll to inspect the retained first turn.
