@@ -85,9 +85,10 @@ GenerationOptions generationFor(TinaConfig config, String id, String model) {
   final descriptor = descriptorByIdFor(id, config.descriptors)!;
   final effort = settings?.reasoningEffort ?? config.reasoningEffort;
   final budget = settings?.thinkingBudget ?? config.thinkingBudget;
-  final cap = settings?.maxOutput ?? descriptor.models[model]?.maxOutput;
-  final maxOutput =
-      math.min(config.maxOutputTokens, cap ?? config.maxOutputTokens);
+  // The global value is a fallback, not a ceiling on provider/model settings.
+  final maxOutput = settings?.maxOutput ??
+      descriptor.models[model]?.maxOutput ??
+      config.maxOutputTokens;
   if (effort != null &&
       !['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
           .contains(effort))

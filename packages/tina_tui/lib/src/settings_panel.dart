@@ -444,7 +444,7 @@ final class SettingsPanel {
           'Pool members (provider or provider/model)',
           'Requests per minute',
           'Request spacing (ms)',
-          'Output ceiling',
+          'Output tokens',
           'Reasoning effort',
           'Thinking token budget',
           'Output token field'

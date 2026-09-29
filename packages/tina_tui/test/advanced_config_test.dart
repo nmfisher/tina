@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:test/test.dart';
+import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'config_parity_test.dart' show CaptureEndpoint;
 
@@ -33,7 +34,7 @@ void main() {
         'default': {
           'provider': id,
           'model': 'model',
-          'max_tokens': 3000,
+          'max_tokens': 1000,
           'reasoning_effort': 'high'
         },
         'providers': {
@@ -67,6 +68,51 @@ void main() {
           expect(body['generationConfig']['thinkingConfig'],
               {'thinkingLevel': 'HIGH'});
       }
+    }
+  });
+  test('output precedence is provider, model, then global fallback', () {
+    for (final (providerOutput, modelOutput, fallback, expected) in [
+      (32768, 16384, 8192, 32768),
+      (2048, 16384, 8192, 2048),
+      (null, 32768, 8192, 32768),
+      (null, 2048, 8192, 2048),
+      (null, null, 12000, 12000),
+      (null, null, null, 8192),
+    ]) {
+      final config = parseTinaConfig({
+        'default': {
+          'provider': 'fixture',
+          'model': 'model',
+          if (fallback != null) 'max_tokens': fallback,
+        },
+        'providers': {
+          'fixture': {
+            if (providerOutput != null) 'max_output': providerOutput,
+          },
+        },
+      }, descriptors: [
+        ProviderDescriptor(
+          id: 'fixture',
+          name: 'Fixture',
+          wire: ProviderWire.openAiCompatible,
+          baseUrl: 'https://example.invalid',
+          keyEnvVar: 'FIXTURE_API_KEY',
+          keyStyle: ProviderKeyStyle.bearer,
+          models: {
+            'model': ModelInfo(
+              id: 'model',
+              name: 'Model',
+              contextWindow: 131072,
+              supportsTools: true,
+              maxOutput: modelOutput,
+            ),
+          },
+        ),
+      ]).config;
+      expect(
+          generationFor(config, 'fixture', 'model').maxOutputTokens, expected,
+          reason:
+              'provider=$providerOutput model=$modelOutput default=$fallback');
     }
   });
   test('pools resolve explicit model IDs and share configured endpoint limits',

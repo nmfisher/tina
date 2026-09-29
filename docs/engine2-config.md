@@ -114,8 +114,10 @@ controls, not exact billing ceilings.
 ## Reasoning, output and theme
 
 `[default]` supports `max_tokens`, `reasoning_effort` and `thinking_budget`.
-Concrete provider tables may override effort/budget and cap output with
-`max_output`. Model-catalog output caps also apply when no provider cap is set.
+Concrete provider tables may override effort/budget and set output tokens with
+`max_output`. Output precedence is provider `max_output`, then the model catalog's
+output limit, then `[default].max_tokens` (8192 when omitted). The default is a
+fallback; it does not cap a configured provider or model value.
 
 - Anthropic: `max_tokens`, `output_config.effort`, adaptive thinking for an
   effort setting, or an explicit thinking budget (0 disables; otherwise at
