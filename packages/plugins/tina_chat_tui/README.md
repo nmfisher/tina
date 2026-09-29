@@ -4,7 +4,7 @@
 legacy Markdown, transcript and timestamp renderers; the old application's
 imports now re-export the same implementation. `tina/mode-tui`, in this package,
 owns Shift-Tab and the mode strip. Both are enabled by default and can be toggled
-with `/plugins` at session, workspace or global scope.
+in Settings → Plugins at session, workspace or global scope.
 
 - Chat rows have `HH:mm:ss` on the first line of each block. Recorded timestamps
   survive replay and resizing; imported messages without timestamps use the time
@@ -28,8 +28,8 @@ and contributes a persistent `update ⬆ vX.Y.Z · /update` line. Checking, fail
 and deferred checks are visible; up-to-date is quiet. The update indicator has
 priority over optional plan/goal/session text, while the token counter retains
 the right-hand slot. `ConsoleContext.bindStatus` gives each plugin ownership of
-its own lines, so unloading one does not erase the others. `/plugins disable
-tina/update-tui` removes the view live. `COCOON_UPDATE_CHECK=0` suppresses automatic
+its own lines, so unloading one does not erase the others. Unchecking
+`tina/update-tui` in Settings → Plugins removes the view live. `COCOON_UPDATE_CHECK=0` suppresses automatic
 checks; explicit `/update` checks still work and update the same status.
 
 The plugin subscribes to the loop's log and tool activity. Provider adapters send

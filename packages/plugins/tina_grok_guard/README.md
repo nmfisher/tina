@@ -1,7 +1,7 @@
 # Grok input guard
 
-Enable with `/plugins enable tina/grok-guard`. Add `--workspace` or `--global`
-to persist that choice. Disable with `/plugins disable tina/grok-guard`.
+Enable or disable `tina/grok-guard` with its checkbox in Settings → Plugins.
+Choose Global or Workspace to persist the choice, or Session for this session.
 The plugin is registered but opt-in, so it does not change the default app policy.
 
 User messages containing `grok` (case-insensitive substring match) ask:

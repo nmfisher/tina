@@ -143,6 +143,10 @@ class Terminal:
         raise AssertionError(f"did not see {text!r}")
 
     def send(self, text):
+        # Drain prior repaint bytes so an expectation cannot match stale rows.
+        deadline = time.monotonic() + 0.2
+        while select.select([self.master], [], [], 0)[0] and time.monotonic() < deadline:
+            self.read()
         start = len(self.output)
         os.write(self.master, text.encode())
         return start
@@ -423,7 +427,10 @@ def smoke(launcher, endpoint, columns, rows):
             plugin_checkbox('tina/grok-guard', False)
             start = terminal.send('grok unguarded\r')
             terminal.expect('smoke answer', start)
-            assert len(ModelStub.requests) == before_guard + 2
+            deadline = time.monotonic() + 5
+            while len(ModelStub.requests) < before_guard + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_guard + 2, 'unguarded input did not reach provider'
             time.sleep(0.1)
             # A new interactive panel owns a separate session and request log.
             start = terminal.send('/spawn\r')
@@ -484,7 +491,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('\x1bOS')
             terminal.quit()
         except Exception:
-            print(terminal.output.decode(errors="replace").replace("\x1b", "<ESC>"))
+            print(terminal.output[-24000:].decode(errors="replace").replace("\x1b", "<ESC>"))
             raise
         finally:
             terminal.close()
@@ -513,7 +520,7 @@ def smoke(launcher, endpoint, columns, rows):
             assert not (workspace / 'legacy-replayed').exists(), 'import replayed an old tool'
             terminal.quit()
         except Exception:
-            print(terminal.output.decode(errors='replace').replace('\x1b', '<ESC>'))
+            print(terminal.output[-24000:].decode(errors='replace').replace('\x1b', '<ESC>'))
             raise
         finally:
             terminal.close()
@@ -551,7 +558,7 @@ def smoke_cli(launcher):
             assert config.stat().st_mode & 0o777 == 0o600
             assert not (root / '.tina' / 'sessions.db').exists(), 'setup created a model session'
         except Exception:
-            print(terminal.output.decode(errors='replace').replace('\x1b', '<ESC>'))
+            print(terminal.output[-24000:].decode(errors='replace').replace('\x1b', '<ESC>'))
             raise
         finally:
             terminal.close()
