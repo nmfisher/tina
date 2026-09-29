@@ -28,13 +28,17 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
   }
 
   @override
-  void repaintConsole() => _console?.screen
-      .setModeLabel('mode: ${ModeCommandPlugin.wordFor(mode.mode)}');
+  void repaintConsole() {
+    if (_console?.isActive == true)
+      _console!.screen
+          .setModeLabel('mode: ${ModeCommandPlugin.wordFor(mode.mode)}');
+  }
+
   @override
   void detachConsole() {
     _unbind?.call();
     _unbind = null;
-    _console?.screen.setModeLabel(null);
+    if (_console?.isActive == true) _console?.screen.setModeLabel(null);
     _console = null;
   }
 

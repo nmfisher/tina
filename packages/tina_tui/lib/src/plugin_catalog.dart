@@ -73,6 +73,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         toolsDefinition<TuiPluginContext>((c) => c.tools),
       ],
       firstParty: {
+        'tina/panels-tui': (c) => PanelsTuiPlugin(terminal: c.terminal),
         'tina/chat-tui': (c) => ChatTuiPlugin(
             model: c.model,
             tokenCap: c.limits.sessionTokens,

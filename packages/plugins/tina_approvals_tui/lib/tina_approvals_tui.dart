@@ -43,7 +43,7 @@ final class ApprovalTuiPlugin extends AgentPlugin
       ticket.respond(ApprovalDecision.deny);
       return;
     }
-    await asker.ask(ticket);
+    await _context!.interact(() => asker.ask(ticket));
   }
 
   @override
@@ -91,7 +91,7 @@ final class ApprovalTuiPlugin extends AgentPlugin
     if (_overlay?.isVisible != true) return;
     context.screen.frame(() {
       _overlay!.hide();
-      context.screen.chat.repaint();
+      context.chat.repaint();
       context.screen.input.repaint();
       context.refreshInput();
     });

@@ -11,6 +11,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'settings_panel.dart';
 import 'completion_sources.dart';
 import 'tui_session.dart';
+import 'session_view.dart';
 
 /// Run the app on [session] until the user quits or stdin ends.
 ///
@@ -129,6 +130,26 @@ Future<int> runApp(
       } catch (_) {}
     }
     if (!s.passthrough) s.enterAltScreen();
+    final workspace =
+        session.host.plugins.whereType<ConsoleWorkspace>().firstOrNull;
+    if (workspace != null) {
+      resizeSubscription = (resizes ??
+              (screen == null
+                  ? s.io.watchSignal(io.ProcessSignal.sigwinch).map((_) =>
+                      ScreenLayout.fromSize(
+                          io.stdout.terminalColumns, io.stdout.terminalLines,
+                          split: false))
+                  : const Stream<ScreenLayout>.empty()))
+          .listen((layout) {
+        s.resize(layout);
+        workspace.repaintConsole();
+      });
+      return await workspace.runConsole(
+          console,
+          SessionView(session, showConfig: true),
+          (model) async =>
+              SessionView(TuiSession.wrap(session.assembly.newSession(model))));
+    }
     for (final contribution in contributions) {
       attached.add(contribution);
       contribution.attachConsole(console);

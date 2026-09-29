@@ -67,6 +67,22 @@ subprocess output. Approval dialogs use the selected approval-channel plugin.
 Tab offers argument completions supplied by each plugin. `@` completes files.
 Settings menus filter as you type, and Tab completes supported text fields.
 
+`/spawn` opens an independent conversation panel using the current model;
+`/spawn provider/model` selects a different model. Each panel keeps its own
+draft, input history, queued messages and saved session. Panels can run turns
+concurrently. Wide terminals show two panels side by side; narrow terminals
+show the selected panel.
+
+- Ctrl+G or Ctrl+W enters panel navigation: arrows/Tab select, Enter focuses,
+  Escape cancels navigation.
+- Ctrl+O toggles the selected panel between full width and the split layout.
+- Ctrl+X or `/close` closes the focused panel and cancels its running turn.
+- `/panels` lists open panels; `/quit` exits the whole application.
+
+This is supplied by the default `tina/panels-tui` UI plugin. If your config has
+an explicit enabled-plugin list, add it and restart. Saved conversations can
+be resumed individually; the arrangement of open panels is not persisted.
+
 ```sh
 tina --sessions                     # list this workspace's new sessions
 tina --resume SESSION_ID            # continue a saved session

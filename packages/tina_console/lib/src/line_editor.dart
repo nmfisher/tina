@@ -70,6 +70,7 @@ class LineEditor {
   int get keyCount => _keyCount;
 
   Completer<String?>? _completer;
+  void Function(String)? _lineSink;
   Completer<InputEvent>? _keyCompleter;
   // Whether the armed [_keyCompleter] yields to the focus ring's global keys
   // (see [readKey]). Cleared with the completer it belongs to.
@@ -259,6 +260,21 @@ class LineEditor {
   InputBackend get input => _input;
 
   // -- Public API ---------------------------------------------------------
+
+  /// Keep one editor armed across submissions. The callback runs at the input
+  /// event boundary, so queued lines and focus changes in the same byte burst
+  /// cannot lose text or assign it to a different view.
+  Future<void> readLines(String prompt,
+      {required void Function(String) onLine}) async {
+    if (_lineSink != null || _completer != null)
+      throw StateError('input already owned');
+    _lineSink = onLine;
+    try {
+      await readLine(prompt);
+    } finally {
+      _lineSink = null;
+    }
+  }
 
   Future<String?> readLine(String prompt) async {
     await _input.ready;
@@ -1514,6 +1530,10 @@ class LineEditor {
   }
 
   void _complete(String? result) {
+    if (result != null && _lineSink != null) {
+      _lineSink!(result);
+      return;
+    }
     final c = _completer;
     _completer = null;
     c?.complete(result);

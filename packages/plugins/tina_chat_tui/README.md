@@ -41,6 +41,16 @@ The host does not import this package. The frontend mounts generic
 `ConsoleContext` supplies scoped shortcuts and a live prompt binding. Approval
 readers and modal surfaces retain keyboard priority.
 
+`tina/panels-tui` supplies `/spawn [provider/model]`, `/panels` and `/close`.
+It manages frames, focus, drafts, histories and per-panel submission queues
+through generic console session views; the application supplies session creation
+and execution. The engine loop has no panel or focus concepts. Ctrl-G/Ctrl-W
+enters navigation, arrows/Tab select and Enter focuses. Ctrl-X closes a panel;
+Ctrl-O toggles full width. Two panels fit side by side at 100 columns or wider;
+other panels remain reachable through the focus ring. Approvals serialize across
+views and hold focus on the requesting panel until answered. This plugin is
+enabled by default; changing its enabled state requires a restart.
+
 The mode shortcut and `/mode` share `ModeControl`, whose setter updates both the
 file sandbox and process runner. Shift-Tab switches **normal ↔ read-only** without
 submitting input, cancelling a turn, or adding chat rows. It affects subsequent
@@ -48,7 +58,7 @@ tool checks; it does not retroactively stop an already running tool. This change
 does not introduce the legacy four-mode permission policy.
 
 If an existing config explicitly lists enabled plugins, add `tina/chat-tui`,
-`tina/mode-tui`, `tina/update` and `tina/update-tui` to enable these views. Disabling chat presentation
+`tina/mode-tui`, `tina/panels-tui`, `tina/update` and `tina/update-tui` to enable these views. Disabling chat presentation
 removes its transcript and prompt contribution; it does not change execution or
 persistence. Headless replies continue to use the ordinary terminal sink.
 

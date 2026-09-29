@@ -411,11 +411,40 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             assert len(ModelStub.requests) == before_guard + 2
             time.sleep(0.1)
+            # A new interactive panel owns a separate session and request log.
+            start = terminal.send('/spawn\r')
+            terminal.expect('2: smoke', start)
+            time.sleep(0.1)
+            before_child = len(ModelStub.requests)
+            start = terminal.send('child panel message\r')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) == before_child and time.monotonic() < deadline:
+                terminal.read()
+            terminal.expect('smoke answer', start)
+            child_request = json.dumps(ModelStub.requests[-1]['messages'])
+            assert 'child panel message' in child_request and 'terminal smoke' not in child_request
+            time.sleep(0.1)
+            terminal.send('\x07\t\r')  # Ctrl+G, Tab, Enter: focus the root.
+            time.sleep(0.1)
+            before_root = len(ModelStub.requests)
+            start = terminal.send('root panel message\r')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) == before_root and time.monotonic() < deadline:
+                terminal.read()
+            terminal.expect('smoke answer', start)
+            root_request = json.dumps(ModelStub.requests[-1]['messages'])
+            assert 'root panel message' in root_request and 'child panel message' not in root_request
+            time.sleep(0.1)
+            terminal.send('\x17\t\r')  # Ctrl+W also cycles.
+            time.sleep(0.1)
+            terminal.send('\x18')  # Ctrl+X closes the child and returns home.
+            time.sleep(0.1)
             terminal.quit()
             if rows in (10, 24):
                 assert b'\x1b[0m\x1b[?1049l' in terminal.output, 'theme leaked on exit'
-        except Exception:
-            print(terminal.output.decode(errors="replace").replace("\x1b", "<ESC>"))
+        except Exception as error:
+            print(f'FAIL {columns}x{rows}: {error}', flush=True)
+            print(terminal.output[-20000:].decode(errors="replace").replace("\x1b", "<ESC>"), flush=True)
             raise
         finally:
             ModelStub.release_stream.set()
@@ -530,8 +559,8 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert len(ModelStub.requests) == 66, (
-            f"expected 66 model requests, got {len(ModelStub.requests)}; "
+        assert len(ModelStub.requests) == 72, (
+            f"expected 72 model requests, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

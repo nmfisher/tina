@@ -72,7 +72,7 @@ final class ActivityTuiPlugin extends AgentPlugin
           final clean = row.output.substring(outputStart);
           final console = _console;
           if (console != null) {
-            console.screen.frame(() => console.screen.chat.write(clean));
+            console.screen.frame(() => console.chat.write(clean));
             if (clean.isNotEmpty) _liveLine = !clean.endsWith('\n');
           }
           if (row.truncated && !wasTruncated)
@@ -85,7 +85,7 @@ final class ActivityTuiPlugin extends AgentPlugin
 
   void _line(String text) {
     if (_liveLine) {
-      _console?.screen.frame(() => _console!.screen.chat.writeln());
+      _console?.screen.frame(() => _console!.chat.writeln());
       _liveLine = false;
     }
     terminal.writeln(text);
@@ -158,7 +158,7 @@ final class ActivityTuiPlugin extends AgentPlugin
     if (!_open || console == null) return;
     // A settings/approval key reader takes priority over this passive browser.
     // It never inherits a key intended to expand or scroll a tool result.
-    if (console.isReadingKey) {
+    if (console.isReadingKey || !console.isActive) {
       _overlay?.hide();
       return;
     }

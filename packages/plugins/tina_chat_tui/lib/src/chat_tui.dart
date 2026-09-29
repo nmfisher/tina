@@ -91,7 +91,7 @@ final class ChatTuiPlugin extends AgentPlugin
             model: model,
             busy: _busy,
             focused: true,
-            newLines: context.screen.chat.newWhileScrolled),
+            newLines: context.chat.newWhileScrolled),
         context.screen,
         width: context.screen.input.bounds.width,
         animationFrame: _frame));
@@ -99,14 +99,14 @@ final class ChatTuiPlugin extends AgentPlugin
       if (!context.isCompleting) {
         final rows = switch (event) {
           ArrowKey(direction: ArrowDirection.pageUp) =>
-            -context.screen.chat.usableHeight,
+            -context.chat.usableHeight,
           ArrowKey(direction: ArrowDirection.pageDown) =>
-            context.screen.chat.usableHeight,
+            context.chat.usableHeight,
           ScrollEvent(:final up) => up ? -3 : 3,
           _ => 0,
         };
         if (rows != 0) {
-          context.screen.chat.scrollBy(rows);
+          context.chat.scrollBy(rows);
           context.refreshInput();
           return true;
         }
@@ -360,7 +360,7 @@ final class ChatTuiPlugin extends AgentPlugin
     final console = _console;
     if (console != null) {
       console.screen.frame(() {
-        final chat = console.screen.chat;
+        final chat = console.chat;
         if (_blocks.length > 1) chat.writeln();
         _rows.add(chat.contentRows);
         for (final line in _render(block)) {
@@ -381,7 +381,7 @@ final class ChatTuiPlugin extends AgentPlugin
         for (final line in renderer.render(
             block,
             RenderContext(
-                width: _console!.screen.chat.bounds.width,
+                width: _console!.chat.bounds.width,
                 theme: _console!.screen.theme)))
           if (line.isBlank)
             const RegionLine('')
@@ -405,7 +405,7 @@ final class ChatTuiPlugin extends AgentPlugin
     if (_blocks.isNotEmpty &&
         identical(_blocks.last, block) &&
         _rows.length == _blocks.length) {
-      _console!.screen.chat.rewriteFrom(_rows.last, _render(block));
+      _console!.chat.rewriteFrom(_rows.last, _render(block));
     } else {
       _rebuild();
     }
@@ -420,15 +420,21 @@ final class ChatTuiPlugin extends AgentPlugin
       _rows.add(lines.length);
       lines.addAll(_render(block));
     }
-    _console!.screen.chat.rewriteFrom(0, lines);
+    _console!.chat.rewriteFrom(0, lines);
   }
 
   @override
   void repaintConsole() {
     final console = _console;
     if (console == null) return;
-    if (_width != console.screen.chat.bounds.width) {
-      _width = console.screen.chat.bounds.width;
+    if (console.isActive)
+      console.screen.setStatusLayout(const PriorityStatusLayout());
+    if (console.chat.isDetached) {
+      _width = -1;
+      return;
+    }
+    if (_width != console.chat.bounds.width) {
+      _width = console.chat.bounds.width;
       _rebuild();
     }
     _paintUsage();
@@ -511,7 +517,7 @@ final class ChatTuiPlugin extends AgentPlugin
   void _paintSelection() {
     _rebuild();
     if (_selected != null && _selected! < _rows.length) {
-      _console?.screen.chat.scrollRowIntoView(_rows[_selected!]);
+      _console?.chat.scrollRowIntoView(_rows[_selected!]);
     }
   }
 
@@ -531,7 +537,7 @@ final class ChatTuiPlugin extends AgentPlugin
       if (event.direction == ArrowDirection.down) at++;
       if (event.direction == ArrowDirection.pageUp ||
           event.direction == ArrowDirection.pageDown) {
-        _console!.screen.chat
+        _console!.chat
             .scrollBy(event.direction == ArrowDirection.pageUp ? -5 : 5);
         return true;
       }
@@ -558,7 +564,7 @@ final class ChatTuiPlugin extends AgentPlugin
     _selected = null;
     _unbindStatus?.call();
     _unbindStatus = null;
-    _console?.screen.setStatusLayout(null);
+    if (_console?.isActive == true) _console?.screen.setStatusLayout(null);
     _console = null;
     _width = -1;
   }

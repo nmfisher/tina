@@ -59,6 +59,7 @@ final class AssemblyOptions {
     this.plugins,
     this.approvalChannel,
     this.version = '0.0.0',
+    this.model,
   });
 
   /// Explicit config file, else `~/.tina/config`.
@@ -81,6 +82,7 @@ final class AssemblyOptions {
   /// Selected channel plugin; defaults to the global config.
   final String? approvalChannel;
   final String version;
+  final String? model;
 }
 
 /// Default store stays separate from legacy session files and is scoped to
@@ -147,6 +149,7 @@ final class TuiAssembly {
     required this.validatePlugins,
     required this.pluginSettings,
     required this.pluginManager,
+    required this.newSession,
   }) : commands = host.commands;
 
   final Host host;
@@ -174,6 +177,7 @@ final class TuiAssembly {
   final Commands commands;
 
   var _quit = false;
+  final TuiAssembly Function(String? model) newSession;
 
   /// Transient model output for the active foreground turn. Background
   /// requests and child providers do not feed the conversation renderer.
@@ -196,6 +200,7 @@ final class TuiAssembly {
     // defaults the user may have explicitly disabled.
     if (config is TinaConfigProblem) throw FormatException(config.problem);
     final resolved = config.config;
+    final model = options.model ?? resolved.model;
     final workingDirectory = options.workingDirectory ?? Directory.current.path;
     final output = terminal ?? TuiTerminal();
     final tools = ToolsPlugin(
@@ -235,7 +240,7 @@ final class TuiAssembly {
       providerPolicy: policy,
       limits: resolved.limits,
       version: options.version,
-      model: resolved.model,
+      model: model,
       openStore: persists ? openStore : null,
     );
     final plugins = registry.build(selected, context);
@@ -257,7 +262,7 @@ final class TuiAssembly {
           }
         };
       }),
-      model: resolved.model,
+      model: model,
       workingDirectory: workingDirectory,
       plugins: [
         ...basePlugins(context),
@@ -280,6 +285,19 @@ final class TuiAssembly {
       pluginSettings: pluginSettings,
       pluginManager:
           PluginManager(host: host, registry: registry, context: context),
+      newSession: (model) => TuiAssembly.start(
+          writer: writer,
+          providerFactory: providerFactory,
+          descriptors: descriptors,
+          registerPlugins: registerPlugins,
+          options: AssemblyOptions(
+              configPath: options.configPath,
+              workingDirectory: workingDirectory,
+              storePath: options.storePath,
+              plugins: pluginSettings.features,
+              approvalChannel: pluginSettings.channel,
+              version: options.version,
+              model: model ?? host.config.model)),
     );
     assembled = assembly;
     host.commands.publish(Command(

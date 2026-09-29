@@ -20,6 +20,7 @@ const defaultApprovalChannel = 'tina/approvals-tui';
 
 const defaultPluginIds = <String>[
   'tina/chat-tui',
+  'tina/panels-tui',
   'tina/mode-tui',
   'tina/activity-tui',
   'tina/persistence',
