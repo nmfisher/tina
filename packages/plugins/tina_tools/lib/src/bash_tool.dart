@@ -11,8 +11,7 @@ import 'tool_input.dart';
 /// process can do. Argument checking cannot make that safe and this tool
 /// does not pretend to try — the *runner* it is handed decides per call
 /// whether the command runs at all (in `readOnly` everything is refused;
-/// in `normal` anything not provably inside the session runs through the
-/// approver). That is also why this is not `exec` with a string mode bolted
+/// other modes require approval or a human session grant). That is also why this is not `exec` with a string mode bolted
 /// on: the two shapes are kept apart, here and in [ExecTool].
 class BashTool extends ProcessToolBase {
   /// The runner this tool starts processes through. Enforcement lives on

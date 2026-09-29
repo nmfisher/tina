@@ -36,7 +36,7 @@ class Io implements Stdio {
 
 class Mode implements ModeControl {
   @override
-  PermissionMode mode = PermissionMode.normal;
+  PermissionMode mode = PermissionMode.ask;
 }
 
 Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));
@@ -48,7 +48,7 @@ void main() {
   late ConsoleContext context;
   late ChatTuiPlugin chat;
   late ModeTuiPlugin modes;
-  late Mode control;
+  late ModePlugin control;
   setUp(() {
     io = Io();
     screen =
@@ -59,8 +59,8 @@ void main() {
         model: 'provider/test-model',
         now: () => DateTime(2026, 9, 28, 3, 4, 5));
     chat.attachConsole(context);
-    control = Mode();
-    modes = ModeTuiPlugin(mode: control)..attachConsole(context);
+    control = ModePlugin();
+    modes = ModeTuiPlugin(policy: control)..attachConsole(context);
   });
   tearDown(() {
     chat.closeSession();
@@ -143,7 +143,7 @@ void main() {
     expect(control.mode, PermissionMode.readOnly);
     expect(transcript(), isNot(contains('mode:')));
     expect(io.output.toString(), contains('mode: read-only'));
-    await ModeCommandPlugin(mode: control).commands.single.handler('normal');
+    await control.commands.single.handler('ask');
     modes.repaintConsole();
     io.feed('\x1b[Z');
     await tick();

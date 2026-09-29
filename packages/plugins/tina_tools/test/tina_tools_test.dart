@@ -15,7 +15,10 @@ void main() {
       tmp = Directory.systemTemp.createTempSync('tina_tools_sandbox_');
       tina = Directory('${Directory.systemTemp.path}/tina_tools_tina_home');
       io = const IoFileSystem();
-      sandbox = SandboxedFileSystem(io, workspaceRoot: tmp.path, tinaDir: tina);
+      sandbox = SandboxedFileSystem(io,
+          workspaceRoot: tmp.path,
+          tinaDir: tina,
+          mode: PermissionMode.allowEdits);
     });
 
     tearDown(() {
@@ -57,7 +60,7 @@ void main() {
             's',
             reason: '$m');
       }
-      sandbox.mode = PermissionMode.normal;
+      sandbox.mode = PermissionMode.ask;
     });
 
     test('a read inside the project lands in both modes', () async {
@@ -67,7 +70,7 @@ void main() {
         expect(await sandbox.readFileString(p.join(tmp.path, 'in.txt')), 'in',
             reason: '$m');
       }
-      sandbox.mode = PermissionMode.normal;
+      sandbox.mode = PermissionMode.ask;
     });
 
     test('a write outside the project asks: no denies, yes runs', () async {
@@ -334,7 +337,9 @@ void main() {
       // One WriteTool, nothing capability-shaped set on it, is fine.
       final tool = WriteTool(
           fs: SandboxedFileSystem(const IoFileSystem(),
-              workspaceRoot: tmp.path, tinaDir: tinaDir),
+              workspaceRoot: tmp.path,
+              tinaDir: tinaDir,
+              mode: PermissionMode.allowEdits),
           workspaceRoot: tmp.path);
 
       final normal = await tool.execute({'filePath': 'a.txt', 'content': 'n'});
@@ -463,7 +468,7 @@ void main() {
         expect(res.isError, isFalse, reason: '$m');
         expect(res.content, contains('x.dart'));
       }
-      sandbox.mode = PermissionMode.normal;
+      sandbox.mode = PermissionMode.ask;
     });
   });
 

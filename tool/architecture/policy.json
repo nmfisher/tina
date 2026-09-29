@@ -30,7 +30,8 @@
     "tina_providers",
     "tina_activity_tui",
     "tina_chat_tui",
-    "tina_grok_guard"
+    "tina_grok_guard",
+    "tina_mode"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -172,7 +173,14 @@
       "lib",
       "test"
     ],
-    "tina_grok_guard": ["lib", "test"]
+    "tina_grok_guard": [
+      "lib",
+      "test"
+    ],
+    "tina_mode": [
+      "lib",
+      "test"
+    ]
   },
   "frontendRoots": [
     "bin/",
@@ -313,10 +321,15 @@
     "tina_providers": "packages/plugins/tina_providers",
     "tina_activity_tui": "packages/plugins/tina_activity_tui",
     "tina_chat_tui": "packages/plugins/tina_chat_tui",
-    "tina_grok_guard": "packages/plugins/tina_grok_guard"
+    "tina_grok_guard": "packages/plugins/tina_grok_guard",
+    "tina_mode": "packages/plugins/tina_mode"
   },
   "runtimeDependencies": {
-    "tina_grok_guard": ["tina_engine_2", "tina_host", "tina_approvals"],
+    "tina_grok_guard": [
+      "tina_engine_2",
+      "tina_host",
+      "tina_approvals"
+    ],
     "tina_engine_2": [
       "tina_core"
     ],
@@ -350,7 +363,8 @@
       "tina_self_update",
       "tina_tools",
       "markdown",
-      "classification"
+      "classification",
+      "tina_mode"
     ],
     "classification": [
       "crypto",
@@ -358,6 +372,11 @@
       "toml",
       "tina_core",
       "tina_engine_2"
+    ],
+    "tina_mode": [
+      "classification",
+      "tina_engine_2",
+      "tina_approvals"
     ]
   },
   "pluginFreePackages": [

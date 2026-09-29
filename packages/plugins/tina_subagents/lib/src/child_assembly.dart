@@ -41,6 +41,12 @@ ChildSessionFactory standardChildFactory({
     // parent's assembly. Host.child builds the provider through the
     // factory, mounts exactly this plugin set, and records the depth on
     // the child's session details.
+    final mode = ModePlugin(
+      mode: parentTools.mode,
+      approvals: parentTools.modePolicy.approvals,
+      classifier: parentTools.modePolicy.classifier,
+      terminal: parentTools.modePolicy.terminal,
+    );
     return Host.child(
       depth: plugin.childDepth,
       sessionId: plugin.nextChildId(),
@@ -48,11 +54,12 @@ ChildSessionFactory standardChildFactory({
       providerFactory: providerFactory,
       model: model,
       plugins: [
+        mode,
         ToolsPlugin(
           workspaceRoot: parentTools.workingDirectory,
           tinaDir: Directory('${parentTools.workingDirectory}/.tina'),
-          mode: parentTools.mode,
-          osSandbox: false,
+          modePolicy: mode,
+          osSandbox: parentTools.osSandbox,
         ),
         ...?childPlugins?.call(),
         ...extraPlugins,

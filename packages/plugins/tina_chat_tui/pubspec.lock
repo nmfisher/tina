@@ -441,6 +441,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_mode:
+    dependency: "direct main"
+    description:
+      path: "../tina_mode"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_self_update:
     dependency: "direct main"
     description:

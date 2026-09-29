@@ -1,23 +1,6 @@
-/// The enforcement boundary for process execution — the twin of
-/// `SandboxedFileSystem`: a [ProcessRunner] wrapper that decides **per call**
-/// whether the command may run, and only hands the wrapped runner the
-/// requests that may.
-///
-/// The command × mode table, as built:
-///
-/// | mode     | in the writable directories, network off ok | outside them / needs network |
-/// |----------|---------------------------------------------|------------------------------|
-/// | readOnly | deny, never asked                           | deny, never asked            |
-/// | normal   | allow                                       | ask (deny if refused / no approver) |
-///
-/// There is no classifier and no "statically read-only command" route: a
-/// command string is not statically decidable, so in `readOnly` **every**
-/// command is refused outright and nobody is asked. In `normal` a command
-/// runs when every place its argv names — the working directory and each
-/// path-shaped argument — sits inside the session's writable directories,
-/// and it shows no sign of needing to reach the network while network is
-/// off; anything else asks the same approver the filesystem takes.
-/// **No approver wired means deny** — fail closed.
+/// Process boundary: read-only denies execution; other modes require an
+/// approval or a matching human session grant. The mode plugin routes reviews
+/// to a human or the automatic safety judge; OS confinement remains separate.
 library;
 
 import 'dart:io' show Platform;
@@ -34,6 +17,9 @@ export 'permissions.dart' show PermissionMode;
 /// One policy rule, named so a reason can cite it. These are the words the
 /// model reads in a refusal; keep them specific.
 enum CommandRule {
+  /// Execution requires approval even within writable directories.
+  permissionMode,
+
   /// `readOnly`: every command is refused outright — no classifier, no ask.
   readOnly,
 
@@ -63,6 +49,7 @@ enum CommandRule {
 /// first offending path.
 String commandReason(CommandRule rule, ProcessRequest request) =>
     switch (rule) {
+      CommandRule.permissionMode => 'allow command (${request.command})?',
       CommandRule.readOnly =>
         'denied: commands are not permitted in read-only mode '
             '(${request.command})',
@@ -189,7 +176,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
 
   SandboxedProcessRunner({
     required this.inner,
-    this.mode = PermissionMode.normal,
+    this.mode = PermissionMode.ask,
     WritableDirectories? writableDirectories,
     this.networkOff = true,
     this.approver,
@@ -268,7 +255,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
 /// a verdict out — so its tests are headless by construction.
 ///
 /// A session grant checked first short-circuits an ask: a command line
-/// remembered by a [CommandGrants] pattern runs in `normal` without asking
+/// remembered by a [CommandGrants] pattern runs outside read-only without asking
 /// again.
 CommandDecision decideCommand(
   ProcessRequest request,
@@ -304,8 +291,8 @@ CommandDecision decideCommand(
   if (writableDirectories.covers(request) &&
       !(networkOff && needsNetwork(request))) {
     return (
-      verdict: ToolVerdict.allow,
-      reason: commandReason(CommandRule.insideWritableSet, request),
+      verdict: ToolVerdict.ask,
+      reason: commandReason(CommandRule.permissionMode, request)
     );
   }
   return (

@@ -580,6 +580,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_mode:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_mode"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_persistence:
     dependency: transitive
     description:

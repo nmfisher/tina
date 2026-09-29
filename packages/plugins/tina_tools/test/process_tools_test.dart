@@ -171,6 +171,7 @@ void main() {
       final tool = ExecTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
+          approver: (_, __) async => Approval.yes,
           writableDirectories: WritableDirectories()..add('/'),
         ),
       );

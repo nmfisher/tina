@@ -22,7 +22,6 @@ const defaultPluginIds = <String>[
   'tina/classification',
   'tina/chat-tui',
   'tina/panels-tui',
-  'tina/mode-tui',
   'tina/activity-tui',
   'tina/persistence',
   'tina/plans',

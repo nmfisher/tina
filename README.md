@@ -96,6 +96,12 @@ intact; use `--import-sessions PATH` to convert them first (see the
 [import guide](docs/engine2-session-import.md)). The old session
 slash commands have deliberately not been ported.
 
+Shift-Tab cycles **ask → read-only → allow-edits → auto**; `/mode NAME` selects
+one directly. The single `tina/mode` plugin owns both the permission policy and
+its console attachment. Auto reviews tool operations with a safety judge and
+asks you when the judge denies or cannot decide. See the
+[mode plugin](packages/plugins/tina_mode/README.md) for exact behavior.
+
 `/update` checks for a release. `/update install` downloads, requires a matching
 SHA-256 checksum, validates the archive, then requests approval through the
 configured channel before replacing a marked private bundle. Restart afterward.

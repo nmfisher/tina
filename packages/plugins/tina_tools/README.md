@@ -9,8 +9,8 @@ Value types come from `tina_core`. No tool declares its own permissions:
 the thing that refuses is the seam the tool was handed, and the refusal
 reaches the model as that call's tool result. `ToolsPlugin` mounts the executors through
 `AgentPlugin.mountOn`. The host uses that common interface and imports no
-concrete tools. `ModeCommandPlugin` receives its `ModeControl` and optional
-`Terminal` explicitly.
+concrete tools. The single `tina/mode` plugin owns permission state,
+commands and approval routing. Tools consult its policy at their boundaries.
 
 ## The two seams
 
@@ -19,46 +19,29 @@ concrete tools. `ModeCommandPlugin` receives its `ModeControl` and optional
 | `FileSystem`     | `IoFileSystem`      | `SandboxedFileSystem`      | `SandboxViolation` |
 | `ProcessRunner`  | `IoProcessRunner`   | `SandboxedProcessRunner`   | `CommandRefused`   |
 
-Both wrappers use the same session mode (`normal` / `readOnly`) and approval
-service, and fail closed: **no approver wired means deny**. Command requests
-carry the full command to the configured channel.
-An "always" answer is remembered per session — a path glob for the
-filesystem, literal argv and cwd identity for processes — so the same operation
-never asks twice.
+Both wrappers consult the same `tina/mode` policy and fail closed when no
+approval service is available. The mode plugin's console attachment supplies
+Shift-Tab and the status label; no separate `tina/mode-tui` plugin is loaded.
 
-### Process enforcement: the command × mode table
+| Mode | Reads | Project writes | Commands / outside writes |
+| --- | --- | --- | --- |
+| `ask` (default) | allow | ask | ask |
+| `read-only` | allow | deny | deny |
+| `allow-edits` | allow | allow | ask |
+| `auto` | allow | classifier review | classifier review |
 
-| mode     | inside the writable directories, no network | outside them / needs network |
-|----------|---------------------------------------------|------------------------------|
-| readOnly | deny, never asked                           | deny, never asked            |
-| normal   | allow                                       | ask (deny if refused / no approver)  |
+In `auto`, an exact completed ALLOW approves the operation once. DENY,
+timeout, missing classifier or invalid response falls back to the configured
+human approval channel. Cancellation and read-only never fall back to asking.
+Human “always” grants remain session-scoped; classifier approvals do not create
+persistent or session grants. Protected Tina paths and OS sandbox restrictions
+remain enforced in every mode. Approval does not disable the OS sandbox.
 
-One shape is exempted from the quiet path regardless of its arguments: a
-request whose argv collapses a shell command into a single string
-(`/bin/sh -c <string>` — the `bash`-tool shape). What the string runs
-cannot be proven from argv, so it **always asks** in `normal` (and denies
-in `readOnly`); only an explicit session grant covers it silently.
-`argumentsCollapsed()` is that test; literal argv (`exec`) keeps the table
-above.
-
-There is **no classifier** and no "statically read-only command" route: a
-command string is not statically decidable, so `readOnly` refuses every
-command outright and nobody is asked. In `normal`, a command runs without
-asking only when its argv *provably* reads, or creates/edits/moves/deletes,
-nothing outside the session's writable directories (`WritableDirectories`)
-and it does not appear to need network while `networkOff` — the heuristic
-errs toward asking, never toward silently allowing. What "provably" means
-is narrow: `WritableDirectories.covers` checks the working directory and
-the arguments that are path-shaped — starting with `/`, `./` or `../`, or
-exactly `.` or `..`. A bare relative token like `etc/passwd` and an
-option-embedded path like `--out=../../x` are not path-shaped and
-therefore not judged; and the check says nothing about what the program
-does once it runs — this is a gate on arguments, not a boundary on
-behaviour; `OsSandboxRunner` supplies OS confinement separately.
-`bash` cannot prove anything (the shell reads the string whole),
-so in practice every `bash` call in `normal` asks unless a session grant
-already covers it; `exec`'s argv *can* be judged, which is one more reason
-the two tools exist as separate shapes.
+Read-only still blocks all commands, including commands that merely read.
+The legacy read-all shell-classification exception is not enabled.
+`WritableDirectories` and network heuristics explain why a command needs
+approval; they do not authorize it without review. `OsSandboxRunner` supplies
+OS confinement separately.
 
 ## `bash` vs `exec`: the shape is the safety property
 

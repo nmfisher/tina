@@ -12,7 +12,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_persona/tina_persona.dart';
 import 'package:tina_tools/tina_tools.dart'
-    show ModeControl, PermissionMode, ToolsPlugin;
+    show ModeControl, PermissionMode, ToolsPlugin, Approval;
 
 /// A config over a temp workspace: one ScriptedProvider per call — the
 /// factory shape the daemon-readiness rule requires — counting builds so
@@ -22,7 +22,7 @@ HostConfig _config(
   Directory ws,
   Directory tina,
   List<List<StreamEvent>> script, {
-  PermissionMode mode = PermissionMode.normal,
+  PermissionMode mode = PermissionMode.allowEdits,
   required void Function() onBuild,
 }) =>
     HostConfig(
@@ -66,7 +66,8 @@ void main() {
   test('process tools use the workspace and obey subsequent mode changes',
       () async {
     final plugin =
-        ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina, osSandbox: false);
+        ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina, osSandbox: false)
+          ..processRunner.commandApprover = (_, __) async => Approval.yes;
     final exec =
         plugin.toolList.singleWhere((tool) => tool.schema.name == 'exec');
     final first = await exec.execute({'program': '/bin/pwd'});
@@ -162,7 +163,7 @@ void main() {
   });
 
   group('the sandbox is the boundary', () {
-    test('a write inside the project runs in normal mode', () async {
+    test('a write inside the project runs in allow-edits mode', () async {
       final host = Host.start(_config(
           ws,
           tina,
@@ -297,7 +298,7 @@ void main() {
       expect(request.systemPrompt,
           startsWith('You are tina, a terminal coding agent.'));
       expect(request.systemPrompt, contains('Working directory: ${ws.path}'));
-      expect(request.systemPrompt, contains('Mode: normal'));
+      expect(request.systemPrompt, contains('Mode: ask'));
     });
   });
 
@@ -339,7 +340,7 @@ void main() {
 
       final control =
           (host.config.plugins.whereType<ToolsPlugin>().single as ModeControl);
-      expect(control.mode, PermissionMode.normal);
+      expect(control.mode, PermissionMode.ask);
     });
 
     test('the tools plugin works without a terminal', () {

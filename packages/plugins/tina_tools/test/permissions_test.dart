@@ -15,6 +15,23 @@ import 'package:test/test.dart';
 void main() {
   const root = '/work/project';
 
+  test(
+      'writes in ask and auto require review; only allow-edits permits project writes',
+      () {
+    for (final mode in PermissionMode.values) {
+      final result = decideOperation(
+          (op: FileOp.write, path: '$root/file'), mode,
+          projectRoot: root);
+      expect(
+          result.verdict,
+          switch (mode) {
+            PermissionMode.readOnly => ToolVerdict.deny,
+            PermissionMode.allowEdits => ToolVerdict.allow,
+            _ => ToolVerdict.ask,
+          });
+    }
+  });
+
   group('table: read', () {
     test('inside the project, both modes → allow', () {
       for (final mode in PermissionMode.values) {
@@ -45,10 +62,10 @@ void main() {
   });
 
   group('table: write', () {
-    test('inside the project in normal → allow', () {
+    test('inside the project in allow-edits → allow', () {
       final d = decideOperation(
         (op: FileOp.write, path: '$root/lib/main.dart'),
-        PermissionMode.normal,
+        PermissionMode.allowEdits,
         projectRoot: root,
       );
       expect(d.verdict, ToolVerdict.allow);
@@ -66,10 +83,10 @@ void main() {
       expect(d.reason, contains('read-only mode'));
     });
 
-    test('outside the project in normal → ask', () {
+    test('outside the project in ask → ask', () {
       final d = decideOperation(
         (op: FileOp.write, path: '/etc/hosts'),
-        PermissionMode.normal,
+        PermissionMode.ask,
         projectRoot: root,
       );
       expect(d.verdict, ToolVerdict.ask);
@@ -89,7 +106,7 @@ void main() {
     test('a path that merely shares a prefix is not "inside"', () {
       final d = decideOperation(
         (op: FileOp.write, path: '${root}-sibling/file'),
-        PermissionMode.normal,
+        PermissionMode.ask,
         projectRoot: root,
       );
       expect(d.verdict, ToolVerdict.ask);
@@ -98,7 +115,7 @@ void main() {
     test('the root itself counts as inside', () {
       final d = decideOperation(
         (op: FileOp.write, path: root),
-        PermissionMode.normal,
+        PermissionMode.allowEdits,
         projectRoot: root,
       );
       expect(d.verdict, ToolVerdict.allow);
@@ -110,7 +127,7 @@ void main() {
       final grants = FileGrants()..remember('/etc/hosts');
       final d = decideOperation(
         (op: FileOp.write, path: '/etc/hosts'),
-        PermissionMode.normal,
+        PermissionMode.ask,
         projectRoot: root,
         grants: grants,
       );
@@ -123,7 +140,7 @@ void main() {
       bool allows(String path) =>
           decideOperation(
             (op: FileOp.write, path: path),
-            PermissionMode.normal,
+            PermissionMode.ask,
             projectRoot: root,
             grants: grants,
           ).verdict ==
@@ -169,7 +186,7 @@ void main() {
     test('an ask names the operation and the leaf, not a resolved tree', () {
       final d = decideOperation(
         (op: FileOp.write, path: '/home/nick/.ssh/config'),
-        PermissionMode.normal,
+        PermissionMode.ask,
         projectRoot: root,
       );
       expect(d.reason, contains('config'));

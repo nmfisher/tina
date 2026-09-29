@@ -602,7 +602,7 @@ void main() {
         parentTools: ToolsPlugin(
           workspaceRoot: ws.dir.path,
           tinaDir: Directory('${ws.dir.path}/.tina'),
-          mode: PermissionMode.normal,
+          mode: PermissionMode.ask,
           osSandbox: false,
         ),
         providerFactory: (model) => ScriptedProvider(const []),

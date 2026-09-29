@@ -1,0 +1,15 @@
+name: tina_mode
+description: Session permission modes, commands and automatic approval policy.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  classification:
+    path: ../../classification
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_approvals:
+    path: ../tina_approvals
+dev_dependencies:
+  test: ^1.25.0

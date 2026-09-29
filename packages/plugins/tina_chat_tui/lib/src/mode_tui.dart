@@ -1,16 +1,29 @@
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_tools/tina_tools.dart';
+import 'package:tina_mode/tina_mode.dart';
 
 /// Keyboard and status presentation only. Both this shortcut and /mode write
 /// the same control, which updates the sandbox and process runner together.
 final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
-  ModeTuiPlugin({required this.mode});
-  final ModeControl mode;
+  ModeTuiPlugin({required this.policy});
+  final ModePlugin policy;
+  ModeControl get mode => policy;
   ConsoleContext? _console;
   void Function()? _unbind;
   @override
-  String get id => 'tina/mode-tui';
+  String get id => policy.id;
+  @override
+  int get order => policy.order;
+  @override
+  List<Command> get commands => policy.commands;
+  @override
+  void onInput(TurnContext context) => policy.onInput(context);
+  @override
+  void onTurnEnd(TurnContext context) => policy.onTurnEnd(context);
+  @override
+  void beforeToolCall(TurnContext context) => policy.beforeToolCall(context);
+  @override
+  void afterToolResult(TurnContext context) => policy.afterToolResult(context);
   @override
   void attachConsole(ConsoleContext context) {
     detachConsole();
@@ -18,9 +31,7 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
     _unbind = context.bindShortcut((event) {
       if (event is! ControlKey || event.code != ControlCode.backtab)
         return false;
-      mode.mode = mode.mode == PermissionMode.normal
-          ? PermissionMode.readOnly
-          : PermissionMode.normal;
+      mode.mode = mode.mode.next;
       repaintConsole();
       return true;
     });
@@ -30,8 +41,7 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
   @override
   void repaintConsole() {
     if (_console?.isActive == true)
-      _console!.screen
-          .setModeLabel('mode: ${ModeCommandPlugin.wordFor(mode.mode)}');
+      _console!.screen.setModeLabel('mode: ${mode.mode.label}');
   }
 
   @override
@@ -43,5 +53,8 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
   }
 
   @override
-  void closeSession() => detachConsole();
+  void closeSession() {
+    detachConsole();
+    policy.closeSession();
+  }
 }

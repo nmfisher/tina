@@ -52,10 +52,16 @@ List<PluginDefinition<TuiPluginContext>> basePluginDefinitions() => [
       PluginDefinition('tina/providers', (c) => c.providerPolicy!,
           description:
               'Connects configured models and providers and enforces request and token limits.'),
-      PluginDefinition('tina/mode',
-          (c) => ModeCommandPlugin(mode: c.tools, terminal: c.terminal),
+      PluginDefinition('tina/mode', (c) {
+        final policy = c.tools.modePolicy;
+        policy.terminal = c.terminal;
+        policy.classifier = PermissionClassifier(() =>
+            c.providerPolicy?.mainProvider(c.model) ??
+            c.providerFactory(c.model));
+        return ModeTuiPlugin(policy: policy);
+      },
           description:
-              'Controls whether tools may make changes or operate in read-only mode.'),
+              'Owns ask, read-only, allow-edits and auto permissions, with /mode and Shift-Tab selection.'),
     ];
 
 List<AgentPlugin> basePlugins(TuiPluginContext context) => [
@@ -116,11 +122,6 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Displays conversation history, model responses, tool calls, timestamps and token spend.',
             live: true),
         PluginDefinition<TuiPluginContext>(
-            'tina/mode-tui', (c) => ModeTuiPlugin(mode: c.tools),
-            description:
-                'Shows the current mode and lets Shift-Tab switch between normal and read-only.',
-            live: true),
-        PluginDefinition<TuiPluginContext>(
             'tina/activity-tui',
             (c) =>
                 ActivityTuiPlugin(terminal: c.terminal, printTranscript: false),
@@ -136,10 +137,19 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             'tina/plans',
             (c) => PlansPlugin(
                   terminal: c.terminal,
-                  // Share the tools plugin's channel-independent approval service.
-                  approver: (request, reason) async =>
-                      await c.tools.sandbox.approver?.call(request, reason) ??
-                      Approval.no,
+                  // Plan consent is always human, never a tool-safety judgment.
+                  approver: (request, reason) async {
+                    final decision =
+                        await c.tools.modePolicy.approvals?.request(
+                      operation: 'approve plan',
+                      target: request.path,
+                      reason: reason,
+                      kind: ApprovalKind.confirmation,
+                    );
+                    return decision == ApprovalDecision.allow
+                        ? Approval.yes
+                        : Approval.no;
+                  },
                 ),
             description:
                 'Lets the agent maintain a task plan and track progress through its steps.',

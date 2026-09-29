@@ -8,19 +8,7 @@ PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/tools',
         dependency: approvalRequester, create: (context, approvals) {
       final plugin = tools(context);
-      plugin.sandbox.approver = requesterApprover(approvals);
-      plugin.processRunner.commandApprover = (request, reason) async {
-        final decision = await approvals.request(
-          operation: 'run command',
-          target: [request.command, ...request.arguments].join(' '),
-          reason: reason,
-        );
-        return switch (decision) {
-          ApprovalDecision.allow => Approval.yes,
-          ApprovalDecision.allowAlways => Approval.always,
-          ApprovalDecision.deny => Approval.no,
-        };
-      };
+      plugin.modePolicy.approvals = approvals;
       return plugin;
     },
         description:
@@ -37,3 +25,41 @@ Approver requesterApprover(ApprovalRequester approvals) =>
           throw SandboxViolation('$reason — approval denied or cancelled'),
       };
     };
+
+Approval _answer(ApprovalDecision decision) => switch (decision) {
+      ApprovalDecision.allow => Approval.yes,
+      ApprovalDecision.allowAlways => Approval.always,
+      ApprovalDecision.deny =>
+        throw SandboxViolation('approval denied or cancelled'),
+    };
+
+/// Connect enforcement boundaries to the shared mode policy.
+void attachModePolicy(ToolsPlugin plugin) {
+  plugin.sandbox.approver = (request, reason) async {
+    final decision = await plugin.modePolicy.request(
+      operation: request.op.name,
+      target: request.path,
+      reason: reason,
+      context: {'workspace': plugin.workingDirectory},
+    );
+    return _answer(decision);
+  };
+  plugin.processRunner.commandApprover = (request, reason) async {
+    final decision = await plugin.modePolicy.request(
+      operation: 'run command',
+      target: [request.command, ...request.arguments].join(' '),
+      reason: reason,
+      context: {
+        'workspace': plugin.workingDirectory,
+        'executable': request.command,
+        'arguments': request.arguments,
+        'cwd': request.workingDirectory,
+      },
+    );
+    return switch (decision) {
+      ApprovalDecision.allow => Approval.yes,
+      ApprovalDecision.allowAlways => Approval.always,
+      ApprovalDecision.deny => Approval.no,
+    };
+  };
+}

@@ -845,3 +845,21 @@ jobs:
       - name: test (tina_chat_tui)
         working-directory: packages/plugins/tina_chat_tui
         run: dart test -j 4
+
+  tina_mode:
+    name: tina_mode (packages/plugins/tina_mode)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_mode)
+        working-directory: packages/plugins/tina_mode
+        run: dart pub get
+      - name: analyze (tina_mode)
+        working-directory: packages/plugins/tina_mode
+        run: dart analyze
+      - name: test (tina_mode)
+        working-directory: packages/plugins/tina_mode
+        run: dart test -j 4

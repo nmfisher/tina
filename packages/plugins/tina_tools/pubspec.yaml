@@ -7,6 +7,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_mode:
+    path: ../tina_mode
   tina_approvals:
     path: ../tina_approvals
   tina_host:

@@ -16,6 +16,9 @@
 /// user. And **asking is fail-closed**: no approver wired means deny.
 library;
 
+import 'package:tina_mode/tina_mode.dart';
+export 'package:tina_mode/tina_mode.dart' show PermissionMode, ModeControl;
+
 import 'glob.dart' show fileGlobMatch;
 
 /// What was decided about one operation.
@@ -31,20 +34,6 @@ enum ToolVerdict {
 
   /// The approver decides. With no approver, this resolves to deny — fail closed.
   ask,
-}
-
-/// Session-wide permission mode.
-///
-/// Only two. The operation × mode table is decided by the filesystem per
-/// call: in [PermissionMode.normal] reads run, writes inside the project
-/// root run, writes outside it ask; in [PermissionMode.readOnly] reads run
-/// and every write is denied — and never put to the user.
-enum PermissionMode {
-  /// Reads and in-project writes run; out-of-project writes ask.
-  normal,
-
-  /// Reads run; every write is denied without asking anyone.
-  readOnly,
 }
 
 /// Which kind of operation the filesystem was asked to do.
@@ -85,17 +74,9 @@ enum Approval {
 /// note — so it names the axis that decided.
 typedef FileDecision = ({ToolVerdict verdict, String reason});
 
-/// The operation × mode table: the whole rule, as built.
-///
-/// | op    | mode     | in project root | outside root / `~/.tina` |
-/// |-------|----------|-----------------|--------------------------|
-/// | read  | normal   | allow           | allow                    |
-/// | read  | readOnly | allow           | allow                    |
-/// | write | normal   | allow           | ask (deny if refused / no approver) |
-/// | write | readOnly | deny, never asked | deny, never asked      |
-///
-/// A session grant checked first short-circuits an ask: a path remembered
-/// by an [FileGrants] pattern runs in `normal` without asking again.
+/// Reads run in every mode; read-only denies writes before checking grants.
+/// Allow-edits permits project writes. Other writes go through the mode
+/// plugin's approval routing (human in ask, safety judge first in auto).
 FileDecision decideOperation(
   FileOperation op,
   PermissionMode mode, {
@@ -121,13 +102,18 @@ FileDecision decideOperation(
       reason: 'allowed by session grant: $granted',
     );
   }
-  if (_isUnder(op.path, projectRoot)) {
+  if (mode == PermissionMode.allowEdits && _isUnder(op.path, projectRoot)) {
     return (
       verdict: ToolVerdict.allow,
       reason: 'write inside the project root',
     );
   }
-  return (verdict: ToolVerdict.ask, reason: operationReason(op, mode));
+  return (
+    verdict: ToolVerdict.ask,
+    reason: _isUnder(op.path, projectRoot)
+        ? 'allow write in the project (${_leaf(op.path)})?'
+        : operationReason(op, mode)
+  );
 }
 
 /// Why the table said ask or deny, in one plain phrase — the string a UI
@@ -139,8 +125,7 @@ String operationReason(FileOperation op, PermissionMode mode) {
     (FileOp.read, _) => 'read of $name',
     (FileOp.write, PermissionMode.readOnly) =>
       'denied: writes are not permitted in read-only mode ($name)',
-    (FileOp.write, PermissionMode.normal) =>
-      'allow write outside the project root ($name)?',
+    (FileOp.write, _) => 'allow write outside the project root ($name)?',
   };
 }
 

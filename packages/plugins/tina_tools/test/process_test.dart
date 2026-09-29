@@ -88,7 +88,7 @@ void main() {
       }
     });
 
-    test('normal allows what stays inside the writable directories', () {
+    test('ask requires approval even inside writable directories', () {
       final ws = WritableDirectories()..add('/tmp/ws');
       final d = decideCommand((
         command: 'cat',
@@ -97,12 +97,12 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
-      expect(d.verdict, ToolVerdict.allow);
-      expect(d.reason, contains('writable directories'));
+      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
+      expect(d.verdict, ToolVerdict.ask);
+      expect(d.reason, contains('allow command'));
     });
 
-    test('normal asks when a path argument lands outside the directories', () {
+    test('ask mode asks when a path argument lands outside the directories', () {
       final ws = WritableDirectories()..add('/tmp/ws');
       final d = decideCommand((
         command: 'cat',
@@ -111,7 +111,7 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
+      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('outside the session'));
     });
@@ -125,22 +125,22 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
+      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
     });
 
     test('a fetch-shaped command asks while network is off', () {
       final ws = WritableDirectories()..add('/');
       for (final line in ['curl https://x.example', 'git push']) {
-        final d = decideCommand(req(line), PermissionMode.normal,
+        final d = decideCommand(req(line), PermissionMode.ask,
             writableDirectories: ws, networkOff: true);
         expect(d.verdict, ToolVerdict.ask, reason: line);
       }
-      // And with network on, the same commands are ordinary.
+      // Network access does not bypass the approval policy.
       for (final line in ['curl https://x.example', 'git push']) {
-        final d = decideCommand(req(line), PermissionMode.normal,
+        final d = decideCommand(req(line), PermissionMode.ask,
             writableDirectories: ws, networkOff: false);
-        expect(d.verdict, ToolVerdict.allow, reason: line);
+        expect(d.verdict, ToolVerdict.ask, reason: line);
       }
     });
 
@@ -155,7 +155,7 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.normal, writableDirectories: ws, networkOff: true);
+      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('cannot be checked'));
       // A literal-argv request with the same payload does not hit the rule.
@@ -166,13 +166,13 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.normal, writableDirectories: ws, networkOff: false);
-      expect(argvD.verdict, ToolVerdict.allow);
+      ), PermissionMode.ask, writableDirectories: ws, networkOff: false);
+      expect(argvD.verdict, ToolVerdict.ask);
     });
 
     test('a session grant short-circuits the ask', () {
       final grants = CommandGrants()..remember('git status');
-      final d = decideCommand(req('git status'), PermissionMode.normal,
+      final d = decideCommand(req('git status'), PermissionMode.ask,
           writableDirectories: WritableDirectories(),
           networkOff: true,
           grants: grants);
@@ -216,6 +216,7 @@ void main() {
       final inner = _ScriptedRunner([_done(0, 'ok', '')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
+        approver: (_, __) async => Approval.yes,
         writableDirectories: WritableDirectories()..add('/tmp/ws'),
       );
       final outcome = await runner.run(_req('cat /tmp/ws/f.txt'));
@@ -244,7 +245,7 @@ void main() {
       expect(inner.requests, isEmpty, reason: 'nothing ran');
     });
 
-    test('normal: outside the directories asks — no denies, yes runs',
+    test('ask: outside the directories asks — no denies, yes runs',
         () async {
       var answers = [Approval.no, Approval.yes];
       var asked = 0;
@@ -311,6 +312,7 @@ void main() {
       final inner = _ScriptedRunner([_refused('host-level fence said no')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
+        approver: (_, __) async => Approval.yes,
         writableDirectories: WritableDirectories()..add('/'),
       );
       final outcome = await runner.run(_req('ls /'));

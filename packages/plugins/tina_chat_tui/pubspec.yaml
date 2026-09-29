@@ -5,6 +5,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_mode:
+    path: ../tina_mode
   classification:
     path: ../../classification
   markdown: ^7.3.1

@@ -30,8 +30,8 @@ class SandboxViolation implements Exception {
 ///
 /// The decision is the operation × mode table ([decideOperation]):
 ///
-/// - `normal`: reads anywhere run; a write inside the project root runs; a
-///   write outside it is put to the [approver].
+/// - `ask` / `auto`: reads run; writes go to the mode-aware [approver].
+/// - `allowEdits`: project writes run; other writes go to the [approver].
 /// - `readOnly`: reads run; **every** write is denied — and never put to the
 ///   approver.
 ///
@@ -74,7 +74,7 @@ class SandboxedFileSystem implements FileSystem {
     this._inner, {
     required String workspaceRoot,
     required Directory tinaDir,
-    this.mode = PermissionMode.normal,
+    this.mode = PermissionMode.ask,
     this.approver,
     FileGrants? grants,
   })  : _projectRoot = workspaceRoot,

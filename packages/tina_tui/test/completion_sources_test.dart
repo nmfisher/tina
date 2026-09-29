@@ -327,7 +327,7 @@ void main() {
       expect(await done.timeout(const Duration(seconds: 10)), 0);
       expect(session.assembly.quitRequested, isTrue);
       final told = (session.terminal as TuiTerminal).lines.map((l) => l.text);
-      expect(told, contains('mode: normal'),
+      expect(told, contains('mode: ask'),
           reason: 'the / picker was fed from the Commands registry');
       expect(
         provider.requests.last.messages.last.content

@@ -9,13 +9,15 @@
 // Run: dart test
 library;
 
+import 'package:tina_tools/tina_tools.dart' show Approval;
+
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_tools/tina_tools.dart' show ModeCommandPlugin;
+import 'package:tina_mode/tina_mode.dart' show ModePlugin;
 import 'package:tina_tui/tina_tui.dart';
 
 /// A captured writer: every line the assembly said, joined.
@@ -127,7 +129,7 @@ void main() {
       await env.assembly.handleCommand('/mode sideways');
       // The mode did not move — the enum stays behind the service; the
       // vocabulary names it.
-      expect(ModeCommandPlugin.wordFor(env.assembly.tools.mode), 'normal');
+      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'ask');
       env.assembly.close();
     });
 
@@ -153,6 +155,7 @@ void main() {
         ]),
         scriptedReply('wrote hello.txt for you'),
       ]);
+      await env.assembly.handleCommand('/mode allow-edits');
       final outcome = await env.assembly.host.send('make hello.txt');
       expect(env.provider.callCount, 2,
           reason: 'the tool result went back to the model');
@@ -183,6 +186,8 @@ void main() {
         ]),
         scriptedReply('the command failed as asked'),
       ]);
+      env.assembly.tools.processRunner.commandApprover =
+          (_, __) async => Approval.yes;
       final outcome = await env.assembly.host.send('run something that fails');
       final resultMessage =
           outcome.messages.where((m) => m.role == Role.user).last;
@@ -248,7 +253,7 @@ void main() {
         scriptedReply('acknowledged the refusal'),
       ]);
       await env.assembly.handleCommand('/mode read-only');
-      expect(ModeCommandPlugin.wordFor(env.assembly.tools.mode), 'read-only');
+      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'read-only');
 
       await env.assembly.host.send('write a file');
       final last = env.provider.requests.last;
@@ -264,7 +269,7 @@ void main() {
       env.assembly.close();
     });
 
-    test('/mode normal switches back; the same write then runs', () async {
+    test('/mode allow-edits switches back; the same write then runs', () async {
       final env = _assembly([
         scriptedReply('', calls: [
           ToolUseBlock(
@@ -275,8 +280,8 @@ void main() {
         scriptedReply('done'),
       ]);
       await env.assembly.handleCommand('/mode read-only');
-      await env.assembly.handleCommand('/mode normal');
-      expect(ModeCommandPlugin.wordFor(env.assembly.tools.mode), 'normal');
+      await env.assembly.handleCommand('/mode allow-edits');
+      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'allow-edits');
 
       await env.assembly.host.send('write it now');
       expect(

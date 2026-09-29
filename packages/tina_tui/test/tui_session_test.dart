@@ -12,7 +12,7 @@ import 'dart:async';
 
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_tools/tina_tools.dart' show ModeCommandPlugin;
+import 'package:tina_mode/tina_mode.dart' show ModePlugin;
 import 'package:tina_tui/tina_tui.dart';
 
 void main() {
@@ -80,12 +80,12 @@ void main() {
 
   test('/mode flips the assembly\u2019s mode service by word', () async {
     await tui.runLine('/mode read-only');
-    expect(ModeCommandPlugin.wordFor(tui.assembly.tools.mode), 'read-only');
+    expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'read-only');
     expect((tui.terminal as TuiTerminal).lines.map((l) => l.text).join("\n"),
         contains('mode: read-only'));
     // And back, by the same word.
-    await tui.runLine('/mode normal');
-    expect(ModeCommandPlugin.wordFor(tui.assembly.tools.mode), 'normal');
+    await tui.runLine('/mode ask');
+    expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'ask');
   });
 
   test('a handed-in terminal is used; a default one is built otherwise', () {

@@ -131,6 +131,7 @@ final class PluginSettings<C> {
       session
     ]) {
       for (final id in layer.keys) {
+        if (id == 'tina/mode-tui') continue; // Retired UI-only registration.
         if (!registry.ids.contains(id) && !fixed.contains(id))
           throw ArgumentError('unknown plugin: $id');
         if (fixed.contains(id))
@@ -147,7 +148,8 @@ final class PluginSettings<C> {
       ...?((global.values['plugins'] as Map?)?['enabled'] as List?),
       ...?sessionBaseline
     ]) {
-      if (!registry.ids.contains(id))
+      if (id == 'tina/mode-tui') continue;
+      if (!registry.ids.contains(id) && !fixed.contains(id))
         throw ArgumentError('unknown plugin: $id');
     }
     registry.validate(_selection(global, workspace, session));

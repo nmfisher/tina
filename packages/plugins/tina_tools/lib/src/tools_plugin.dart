@@ -1,10 +1,9 @@
-/// The plugin that mounts the tool set — and owns the session's
-/// permission mode.
+/// Mounts the tool set and consults the session's mode plugin.
 ///
-/// The mode mechanism lives in `tina_tools`: the file system and the
+/// Permission state and approval routing live in `tina_mode`. The file system and the
 /// process runner consult it **per call**. This plugin is where its value
-/// lives for a session: it builds the sandbox with the starting mode,
-/// holds the handle to change it ([mode] / [setMode]), and tells the model
+/// is consulted: it builds the sandbox with the starting mode,
+/// holds the handle to change it ([mode]), and tells the model
 /// what the mode currently allows in its prompt section. The host itself
 /// never asks what the mode is and never branches on it.
 ///
@@ -29,16 +28,20 @@ final class ToolsPlugin extends AgentPlugin implements ModeControl {
   /// deliberate disable, `true` a degradation when no backend exists.
   final bool osSandbox;
 
+  final ModePlugin modePolicy;
+
   ToolsPlugin({
     this.id = 'tina/tools',
     this.order = 10,
     required String workspaceRoot,
     required Directory tinaDir,
-    PermissionMode mode = PermissionMode.normal,
+    PermissionMode mode = PermissionMode.ask,
+    ModePlugin? modePolicy,
     this.osSandbox = true,
     UnavailableBehaviour osUnavailable = UnavailableBehaviour.allow,
     bool osIsolateNetwork = true,
-  })  : osPlan = SandboxPlan(
+  })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
+        osPlan = SandboxPlan(
           workspaceRoot: workspaceRoot,
           tinaDir: tinaDir.path,
           isolateNetwork: osIsolateNetwork,
@@ -63,6 +66,12 @@ final class ToolsPlugin extends AgentPlugin implements ModeControl {
       mode: mode,
       writableDirectories: writable,
     );
+    this.modePolicy.listen((value) {
+      sandbox.mode = value;
+      processRunner.mode = value;
+    });
+    sandbox.mode = this.modePolicy.mode;
+    processRunner.mode = this.modePolicy.mode;
     toolList = [
       LsTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       ReadTool(fs: sandbox, workspaceRoot: workspaceRoot),
@@ -74,6 +83,7 @@ final class ToolsPlugin extends AgentPlugin implements ModeControl {
       ExecTool(runner: processRunner, workingDirectory: workspaceRoot),
     ];
     workingDirectory = workspaceRoot;
+    attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode);
   }
 
@@ -127,14 +137,13 @@ final class ToolsPlugin extends AgentPlugin implements ModeControl {
 
   /// The mode as of now. Reading it is the plugin's business; a host that
   /// asks is a host that has started making permission decisions.
-  PermissionMode get mode => sandbox.mode;
+  PermissionMode get mode => modePolicy.mode;
 
   /// Switch the mode. The next tool call obeys it — the file system and
   /// the process runner read the value per call; nothing else changes.
   @override
   set mode(PermissionMode mode) {
-    sandbox.mode = mode;
-    processRunner.mode = mode;
+    modePolicy.mode = mode;
   }
 
   @override
@@ -153,8 +162,13 @@ final class HostPromptSection {
 
   /// The section for a given mode — the words the model reads.
   String sectionFor(PermissionMode mode) =>
-      'Working directory: $workingDirectory. '
-      'Mode: ${mode == PermissionMode.readOnly ? 'read-only' : 'normal'} — '
-      '${mode == PermissionMode.readOnly ? 'writes are refused; reads run' : 'reads run; writes inside the working directory run; writes '
-          'outside it are refused unless approved'}.';
+      'Working directory: $workingDirectory. Mode: ${mode.label} — '
+      '${switch (mode) {
+        PermissionMode.ask => 'reads run; writes and commands require approval',
+        PermissionMode.readOnly => 'reads run; writes and commands are refused',
+        PermissionMode.allowEdits =>
+          'project edits run; commands and outside writes require approval',
+        PermissionMode.auto =>
+          'reads run; a safety judge reviews writes and commands; uncertain decisions ask the user',
+      }}.';
 }

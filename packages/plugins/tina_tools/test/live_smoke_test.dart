@@ -49,7 +49,7 @@ void main() {
         ToolsPlugin(
           workspaceRoot: ws.path,
           tinaDir: tina,
-          mode: PermissionMode.normal,
+          mode: PermissionMode.allowEdits,
         ),
       ],
     ));
