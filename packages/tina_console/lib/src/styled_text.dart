@@ -28,7 +28,7 @@ import 'term_width.dart';
 
 /// Bump this whenever [applySgrCode]'s semantics change so stale cached runs
 /// (computed against the old rules) are never reused.
-const int kStyledRunParserVersion = 1;
+const int kStyledRunParserVersion = 2;
 
 /// Global theme-style version, incremented by [Screen.setTheme]. Folded into
 /// the cache key so a theme change can never reuse a cached run whose colors
@@ -242,9 +242,8 @@ void applySgrCode(List<String> parts, StyledStyleSink sink, SgrState acc) {
   if (acc.styleTouched) sink.setStyles(acc.stylebits);
 }
 
-/// Consume the sub-parameters of an extended SGR (`38`/`48`). Only the
-/// `;2;r;g;b` (truecolor) form is applied; `;5;n` (256-palette) is eaten but
-/// not translated. Returns the number of extra parts consumed beyond the
+/// Consume truecolor or indexed-color sub-parameters of an extended SGR
+/// (`38`/`48`). Returns the number of extra parts consumed beyond the
 /// `38`/`48` head so the caller advances by that plus its own `idx++`.
 int _consumeExtendedRgb(
     List<String> parts, int idx, void Function(int) setRgb) {
@@ -258,6 +257,21 @@ int _consumeExtendedRgb(
     return 4;
   }
   if (mode == 5 && idx + 2 < parts.length) {
+    final index = int.tryParse(parts[idx + 2]);
+    if (index != null && index >= 0 && index <= 255) {
+      if (index < 16) {
+        setRgb(index < 8 ? _basicColorRgb[index] : _brightColorRgb[index - 8]);
+      } else if (index < 232) {
+        const levels = [0, 95, 135, 175, 215, 255];
+        final cube = index - 16;
+        setRgb((levels[cube ~/ 36] << 16) |
+            (levels[(cube ~/ 6) % 6] << 8) |
+            levels[cube % 6]);
+      } else {
+        final gray = 8 + (index - 232) * 10;
+        setRgb((gray << 16) | (gray << 8) | gray);
+      }
+    }
     return 2;
   }
   return 0;

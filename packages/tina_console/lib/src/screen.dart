@@ -14,6 +14,7 @@ import 'status_layout.dart';
 import 'stdio.dart';
 import 'styled_text.dart';
 import 'theme.dart';
+import 'backend/canvas_style.dart';
 import 'input_latency.dart';
 import 'input_log.dart';
 
@@ -48,6 +49,8 @@ class Screen {
   /// via [setTheme] so background detection can swap the scheme at startup.
   Theme get theme => _theme;
   Theme _theme;
+  bool _canvasNeedsPaint = false;
+  bool _canvasConfigured = false;
 
   ScreenLayout _layout;
 
@@ -145,6 +148,19 @@ class Screen {
     _activeChat = ScrollingTextRegion(this);
     _status = StatusRegion(this);
     _input = InputRegion(this);
+    _configureCanvas();
+  }
+
+  void _configureCanvas() {
+    if (theme.canvas.isDefault && !_canvasConfigured) return;
+    final backend = _backend;
+    if (backend == null || !backend.supportsColor || backend is! CanvasBackend)
+      return;
+    (backend as CanvasBackend).setCanvasStyle(
+        foreground: theme.canvas.foreground,
+        background: theme.canvas.background);
+    _canvasNeedsPaint = true;
+    _canvasConfigured = !theme.canvas.isDefault;
   }
 
   Screen({
@@ -498,6 +514,7 @@ class Screen {
   /// chance to re-render its content within the new bounds.
   void resize(ScreenLayout layout) => frame(() {
         _layout = layout;
+        if (_canvasConfigured) _canvasNeedsPaint = true;
         redrawFrame();
         _activeChat.handleResize();
         _status.handleResize();
@@ -627,6 +644,12 @@ class Screen {
     if (passthrough) return;
     final be = _backend!;
     final w = _layout.width;
+    if (_canvasNeedsPaint) {
+      _canvasNeedsPaint = false;
+      for (var row = 0; row < _layout.height; row++) {
+        be.eraseCells(row, 0, w);
+      }
+    }
     // Clear the menu box content row so stale labels don't linger; the
     // MenuBar repaints its labels on top.
     if (_layout.hasMenuBar) {
@@ -1025,6 +1048,7 @@ class Screen {
   /// reuse of runs computed against the prior theme's color mapping).
   void setTheme(Theme t) {
     _theme = t;
+    _configureCanvas();
     bumpThemeStyleVersion();
     styledRunCache.clear();
     _activeChat.clearPaintSnapshots();

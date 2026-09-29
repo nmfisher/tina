@@ -11,6 +11,7 @@ import '../stdio.dart';
 import '../styled_text.dart';
 import '../term_width.dart';
 import 'backend_surface.dart';
+import 'canvas_style.dart';
 import '../input_latency.dart';
 import 'discard_unbinder.dart';
 import 'init_reply_guard.dart';
@@ -262,7 +263,21 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
 /// library. This is a retained-mode backend — writes accumulate in the
 /// notcurses cell grid and are sent to the terminal on [flush] via
 /// [nc.NotCurses.render].
-class NotcursesBackend implements TerminalBackend, BackendDiagnostics {
+class NotcursesBackend
+    implements TerminalBackend, BackendDiagnostics, CanvasBackend {
+  CanvasStyle _canvas = const CanvasStyle();
+
+  @override
+  void setCanvasStyle(
+      {required String foreground, required String background}) {
+    if (_stopped || !supportsColor) return;
+    if (_canvas.isActive) _emitSgrStyled(_platform, 0, 0, '\x1b[0m');
+    _canvas = CanvasStyle(foreground: foreground, background: background);
+    for (final surface in _surfaces) {
+      surface._canvas = _canvas;
+    }
+  }
+
   final Stdio _io;
   final NotcursesPlatform _platform;
 
@@ -404,7 +419,11 @@ class NotcursesBackend implements TerminalBackend, BackendDiagnostics {
     if (_stopped) return;
     // Write n spaces at (row, col). This clears the cells in the retained
     // buffer — no flush needed yet.
-    _platform.putStrYX(row, col, ' ' * n);
+    if (_canvas.isActive) {
+      _emitSgrStyled(_platform, row, col, _canvas.apply(' ' * n));
+    } else {
+      _platform.putStrYX(row, col, ' ' * n);
+    }
     _gridDirty = true;
     _cursorRow = row;
     _cursorCol = col;
@@ -413,7 +432,8 @@ class NotcursesBackend implements TerminalBackend, BackendDiagnostics {
   @override
   void writeText(String text) {
     if (_stopped) return;
-    _cursorCol = _emitSgrStyled(_platform, _cursorRow, _cursorCol, text);
+    _cursorCol =
+        _emitSgrStyled(_platform, _cursorRow, _cursorCol, _canvas.apply(text));
     _gridDirty = true;
   }
 
@@ -597,6 +617,7 @@ class NotcursesBackend implements TerminalBackend, BackendDiagnostics {
           'notcurses could not create a child plane for the surface.');
     }
     if (surface is NotcursesBackendSurface) {
+      surface._canvas = _canvas;
       surface._requestPresent = _surfaceMutated;
       surface._onDestroy = () => _surfaces.remove(surface);
       _surfaces.add(surface);
@@ -657,6 +678,7 @@ class NotcursesBackend implements TerminalBackend, BackendDiagnostics {
 /// [lowerToBottom] use real z-ordering. Visibility is handled at the
 /// [Panel]/[Screen] layer, not here (notcurses has no hide/show).
 class NotcursesBackendSurface implements BackendSurface {
+  CanvasStyle _canvas = const CanvasStyle();
   final nc.Plane _plane;
   final NotcursesPlatform _platform;
   Rect _bounds;
@@ -715,6 +737,7 @@ class NotcursesBackendSurface implements BackendSurface {
       ..setFgDefault()
       ..setBgDefault()
       ..setStyles(0);
+    if (_canvas.isActive) _emitSgrStyled(sink, relRow, relCol, _canvas.reset);
     final erase = (clearCells ?? columns).clamp(0, columns);
     if (erase > visibleColumns(clipped)) {
       sink.putStrYX(relRow, relCol, ' ' * erase);
@@ -732,7 +755,7 @@ class NotcursesBackendSurface implements BackendSurface {
         _platform.render();
       }
     }
-    _emitSgrStyled(sink, relRow, relCol, clipped);
+    _emitSgrStyled(sink, relRow, relCol, _canvas.apply(clipped));
     _present();
   }
 
@@ -750,7 +773,11 @@ class NotcursesBackendSurface implements BackendSurface {
       ..setFgDefault()
       ..setBgDefault()
       ..setStyles(0);
-    sink.putStrYX(relRow, relCol, ' ' * columns);
+    if (_canvas.isActive) {
+      _emitSgrStyled(sink, relRow, relCol, _canvas.apply(' ' * columns));
+    } else {
+      sink.putStrYX(relRow, relCol, ' ' * columns);
+    }
     _present();
   }
 
@@ -765,6 +792,14 @@ class NotcursesBackendSurface implements BackendSurface {
     // ncplane_scrollup returns the number of lines scrolled (>= 0) on
     // success, or a negative error. Treat any non-negative result as success.
     final scrolled = _plane.scrollUp(count);
+    if (_canvas.isActive && scrolled >= 0) {
+      final sink = _PlaneSgrSink(_plane);
+      for (var row = (_bounds.height - count).clamp(0, _bounds.height);
+          row < _bounds.height;
+          row++) {
+        _emitSgrStyled(sink, row, 0, _canvas.apply(' ' * _bounds.width));
+      }
+    }
     _present();
     return scrolled >= 0;
   }

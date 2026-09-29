@@ -104,6 +104,25 @@ void main() {
       expect(sink.calls, ['setFgRGB(0xff0000)', 'putStrYX(0,0,\'X\')']);
     });
 
+    test('indexed colors resolve basic, cube and grayscale palette entries',
+        () {
+      for (final (index, rgb) in [
+        (0, 0x000000),
+        (9, 0xff0000),
+        (16, 0x000000),
+        (39, 0x00afff),
+        (231, 0xffffff),
+        (232, 0x080808),
+        (234, 0x1c1c1c),
+        (255, 0xeeeeee),
+      ]) {
+        final runs = parseStyledRuns('\x1b[38;5;${index}m\x1b[48;5;${index}mX');
+        final text = runs.singleWhere((run) => run.text == 'X');
+        expect(text.style.fg, rgb);
+        expect(text.style.bg, rgb);
+      }
+    });
+
     test('unknown SGR skipped, plain text still lands', () {
       final sink = _RecSink();
       _emitRuns(parseStyledRuns('\x1b[99mZ'), sink);

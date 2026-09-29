@@ -133,6 +133,19 @@ not Responses. Wire vocabulary references:
 variant = "dark" # default | light | dark
 ```
 
+`dark` and `light` paint Tina's background as well as its text; the terminal
+profile can use either background. `default` inherits the terminal's colors.
+Changes take effect on the next launch. Tina restores the normal terminal on
+exit without changing its profile or palette.
+
+Optional base-color overrides:
+
+```toml
+[theme.canvas]
+foreground = "38;5;252"
+background = "48;5;234"
+```
+
 Existing nested theme color overrides merge over the selected variant. Values
 are ANSI color-number strings, never arbitrary escape sequences. Settings offers
 the variant picker; custom color tables remain editable in TOML.

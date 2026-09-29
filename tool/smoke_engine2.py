@@ -185,7 +185,8 @@ def smoke(launcher, endpoint, columns, rows):
         config.write_text('version = 1\n[default]\nprovider = "local-smoke"\nmodel = "smoke"\n'
                           '[providers.local-smoke]\nwire = "anthropic"\n'
                           f'base_url = "{endpoint}"\napi_key = "config-smoke-key"\n'
-                          'models = ["smoke|Smoke model"]\n')
+                          'models = ["smoke|Smoke model"]\n'
+                          f'[theme]\nvariant = "{"dark" if rows == 10 else "light" if rows == 24 else "default"}"\n')
         workspace = root / 'workspace'
         workspace.mkdir()
         (workspace / 'preview.txt').write_text('before\n')
@@ -203,6 +204,9 @@ def smoke(launcher, endpoint, columns, rows):
         terminal = Terminal(command, env, columns, rows)
         try:
             terminal.expect("smoke > ")
+            if rows in (10, 24):
+                background = b'48;5;234' if rows == 10 else b'48;5;255'
+                assert background in terminal.output, 'theme did not set the application background'
             terminal.expect("mode: normal")
             terminal.expect("update ⬆ v999.0.0 · /update")
             start = terminal.send("\x1b[Z")
@@ -408,6 +412,8 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_guard + 2
             time.sleep(0.1)
             terminal.quit()
+            if rows in (10, 24):
+                assert b'\x1b[0m\x1b[?1049l' in terminal.output, 'theme leaked on exit'
         except Exception:
             print(terminal.output.decode(errors="replace").replace("\x1b", "<ESC>"))
             raise

@@ -4,6 +4,24 @@ import 'package:tina_tui/tina_tui.dart';
 import 'config_parity_test.dart' show CaptureEndpoint;
 
 void main() {
+  test('configured variants supply canvas colors and preserve overrides', () {
+    for (final variant in ['dark', 'light']) {
+      final config = parseTinaConfig({
+        'default': {'model': 'm'},
+        'theme': {
+          'variant': variant,
+          'canvas': {'foreground': '38;5;250'},
+          'dialog': {'confirm': '1;7'}
+        },
+      }).config;
+      final theme = resolveTheme(config.theme);
+      expect(
+          theme.canvas.background, variant == 'dark' ? '48;5;234' : '48;5;255');
+      expect(theme.canvas.foreground, '38;5;250');
+      expect(theme.dialog.confirm, '1;7');
+    }
+    expect(resolveTheme({}).canvas.isDefault, true);
+  });
   test('reasoning and output settings reach each wire in its own vocabulary',
       () async {
     for (final (id, wire) in [

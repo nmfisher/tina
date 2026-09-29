@@ -6,6 +6,7 @@ void main() {
   group('Theme.defaults', () {
     test('returns the shipped SGR values', () {
       const theme = Theme.defaults();
+      expect(theme.canvas.isDefault, true);
       expect(theme.chat.userBar, '7');
       expect(theme.chat.agentText, '39');
       expect(theme.border.focus, '36');
@@ -26,6 +27,7 @@ void main() {
   group('Theme.light / Theme.dark', () {
     test('light uses black-on-bright bars and standard ANSI codes', () {
       const theme = Theme.light();
+      expect(theme.canvas.background, '48;5;255');
       expect(theme.chat.userBar, '97;40'); // bright white on black
       expect(theme.chat.agentText, '30'); // black
       expect(theme.chat.cyan, '36');
@@ -35,6 +37,7 @@ void main() {
 
     test('dark uses bright bars and bright ANSI codes', () {
       const theme = Theme.dark();
+      expect(theme.canvas.background, '48;5;234');
       expect(theme.chat.userBar, '30;47'); // black on white
       expect(theme.chat.agentText, '97'); // bright white
       expect(theme.chat.cyan, '96'); // bright cyan
@@ -130,6 +133,15 @@ void main() {
   });
 
   group('Theme.fromMap', () {
+    test('canvas overrides round-trip with the other theme sections', () {
+      final theme = Theme.fromMap({
+        'canvas': {'foreground': '38;5;250', 'background': '48;5;235'},
+      });
+      final restored = Theme.fromMap(theme.toMap());
+      expect(restored.canvas.foreground, '38;5;250');
+      expect(restored.canvas.background, '48;5;235');
+      expect(restored.chat.agentText, '39');
+    });
     test('overrides only supplied keys; missing keys fall back to defaults',
         () {
       final theme = Theme.fromMap({

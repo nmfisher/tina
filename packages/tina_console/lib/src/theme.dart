@@ -7,6 +7,7 @@
 /// still takes a raw SGR parameter string, and the theme simply supplies
 /// those strings.
 class Theme {
+  final CanvasTheme canvas;
   final ChatTheme chat;
   final BorderTheme border;
   final MenuTheme menu;
@@ -19,6 +20,7 @@ class Theme {
   final HostMessageTheme hostMessage;
 
   const Theme({
+    this.canvas = const CanvasTheme(),
     this.chat = const ChatTheme(),
     this.border = const BorderTheme(),
     this.menu = const MenuTheme(),
@@ -33,10 +35,11 @@ class Theme {
 
   const Theme.defaults() : this();
 
-  /// Tuned for light-background terminals (white/light default background).
+  /// Light application background, independent of the terminal's background.
   /// Bright-on-dark bars, standard ANSI colours, black agent text.
   const Theme.light()
-      : chat = const ChatTheme.light(),
+      : canvas = const CanvasTheme.light(),
+        chat = const ChatTheme.light(),
         border = const BorderTheme.light(),
         menu = const MenuTheme(),
         completion = const CompletionTheme(),
@@ -47,10 +50,11 @@ class Theme {
         lineEditor = const LineEditorTheme(),
         hostMessage = const HostMessageTheme.light();
 
-  /// Tuned for dark-background terminals (black/dark default background).
+  /// Dark application background, independent of the terminal's background.
   /// Dark-on-bright bars, bright ANSI colour variants, bright agent text.
   const Theme.dark()
-      : chat = const ChatTheme.dark(),
+      : canvas = const CanvasTheme.dark(),
+        chat = const ChatTheme.dark(),
         border = const BorderTheme.dark(),
         menu = const MenuTheme(),
         completion = const CompletionTheme(),
@@ -65,6 +69,7 @@ class Theme {
     if (m == null) return const Theme.defaults();
     final cast = m.cast<String, dynamic>();
     return Theme(
+      canvas: CanvasTheme.fromMap(_cast(cast['canvas'])),
       chat: ChatTheme.fromMap(_cast(cast['chat'])),
       border: BorderTheme.fromMap(_cast(cast['border'])),
       menu: MenuTheme.fromMap(_cast(cast['menu'])),
@@ -79,6 +84,7 @@ class Theme {
   }
 
   Map<String, dynamic> toMap() => {
+        if (!canvas.isDefault) 'canvas': canvas.toMap(),
         if (!chat.isDefault) 'chat': chat.toMap(),
         if (!border.isDefault) 'border': border.toMap(),
         if (!menu.isDefault) 'menu': menu.toMap(),
@@ -89,6 +95,29 @@ class Theme {
         if (!spinner.isDefault) 'spinner': spinner.toMap(),
         if (!lineEditor.isDefault) 'line_editor': lineEditor.toMap(),
         if (!hostMessage.isDefault) 'host_message': hostMessage.toMap(),
+      };
+}
+
+/// Baseline colors for text, empty cells and SGR resets. The default leaves
+/// colors to the terminal. Explicit variants use the fixed 256-color palette.
+class CanvasTheme {
+  final String foreground;
+  final String background;
+  const CanvasTheme({this.foreground = '39', this.background = '49'});
+  const CanvasTheme.light()
+      : foreground = '38;5;232',
+        background = '48;5;255';
+  const CanvasTheme.dark()
+      : foreground = '38;5;252',
+        background = '48;5;234';
+
+  bool get isDefault => foreground == '39' && background == '49';
+  factory CanvasTheme.fromMap(Map<String, dynamic>? m) => CanvasTheme(
+      foreground: _sgr(m?['foreground'], '39'),
+      background: _sgr(m?['background'], '49'));
+  Map<String, dynamic> toMap() => {
+        'foreground': foreground,
+        'background': background,
       };
 }
 

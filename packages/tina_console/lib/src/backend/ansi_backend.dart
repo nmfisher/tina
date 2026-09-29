@@ -7,13 +7,27 @@ import '../stdio.dart';
 import '../input_latency.dart';
 import 'backend_surface.dart';
 import 'terminal_backend.dart';
+import 'canvas_style.dart';
 
 /// ANSI escape sequence implementation of [TerminalBackend].
 ///
 /// Batches all operations into a [StringBuffer] and writes them to
 /// [Stdio] on [flush]. This matches the original Screen behavior of
 /// building one batched string per operation.
-class AnsiBackend implements TerminalBackend, BackendDiagnostics {
+class AnsiBackend
+    implements TerminalBackend, BackendDiagnostics, CanvasBackend {
+  CanvasStyle _canvas = const CanvasStyle();
+  bool _usedCanvas = false;
+
+  @override
+  void setCanvasStyle(
+      {required String foreground, required String background}) {
+    if (!_ansi.useColor) return;
+    if (_canvas.isActive) _buf.write('\x1b[0m');
+    _canvas = CanvasStyle(foreground: foreground, background: background);
+    _usedCanvas |= _canvas.isActive;
+  }
+
   final Stdio _io;
   final AnsiCapable _ansi;
   final StringBuffer _buf = StringBuffer();
@@ -74,6 +88,7 @@ class AnsiBackend implements TerminalBackend, BackendDiagnostics {
   void eraseCells(int row, int col, int n) {
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
     _gridDirty = true;
+    _buf.write(_canvas.reset);
     _buf.write('\x1b[${row + 1};${col + 1}H');
     _buf.write('\x1b[${n}X');
   }
@@ -82,7 +97,7 @@ class AnsiBackend implements TerminalBackend, BackendDiagnostics {
   void writeText(String text) {
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
     _gridDirty = true;
-    _buf.write(text);
+    _buf.write(_canvas.apply(text));
   }
 
   @override
@@ -124,6 +139,7 @@ class AnsiBackend implements TerminalBackend, BackendDiagnostics {
 
   @override
   void leaveAltScreen() {
+    if (_usedCanvas) _buf.write('\x1b[0m');
     _buf.write('\x1b[?1049l');
   }
 
@@ -187,7 +203,7 @@ class AnsiBackend implements TerminalBackend, BackendDiagnostics {
     // gracefully instead of throwing.  targetSurface is ignored — ANSI has no
     // child planes, so there is no surface to parent the image onto.
     _buf.write('\x1b[${row + 1};${col + 1}H');
-    _buf.write('\x1b[2m▣\x1b[0m'); // dim placeholder glyph
+    writeText('\x1b[2m▣\x1b[0m'); // dim placeholder glyph
   }
 
   @override
