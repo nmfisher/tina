@@ -7,7 +7,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart' hide ApprovalDecision;
-import 'app_test.dart' show FakeIo;
+import 'app_test.dart' show FakeIo, approvalUi;
 import 'turn_rendering_test.dart' show waitFor;
 
 class Provider implements LlmProvider {
@@ -80,7 +80,7 @@ name = "Local testing"
 base_url = "http://localhost:1/v1"
 models = ["main|Main model", "other|Other model"]
 [plugins]
-enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistence", "tina/grok-guard", "tina/session-controls", "acme/attach-check"]
+enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "tina/persistence", "tina/grok-guard", "tina/session-controls", "acme/attach-check"]
 ''');
     providers.clear();
     session = TuiSession.wrap(TuiAssembly.start(
@@ -125,6 +125,126 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
   }
 
   PanelFrame getFrame() => editor.focusManager!.focused as PanelFrame;
+
+  test('commands opt into concurrent dispatch through their live registration',
+      () async {
+    var concurrent = false, queued = false;
+    session.commands.publish(Command(
+        name: 'peek',
+        description: 'fixture view',
+        allowWhileRunning: true,
+        handler: (_) => concurrent = true));
+    session.commands.publish(Command(
+        name: 'change',
+        description: 'fixture mutation',
+        handler: (_) => queued = true));
+    await keys('keep working\r');
+    final provider = providers.first;
+    await waitFor(() => provider.requests.length == 1);
+    await keys('/change\r/peek\r');
+    expect(concurrent, true);
+    expect(queued, false);
+    expect(provider.requests, hasLength(1));
+    provider.answer(0, 'finished');
+    await waitFor(() => queued);
+    expect(session.inputHistory, ['keep working']);
+  });
+
+  test(
+      'settings opens during generation and saves without stopping the request',
+      () async {
+    await keys('keep working\r');
+    final provider = providers.first;
+    await waitFor(() => provider.requests.length == 1);
+    await keys('/settings\r');
+    await waitFor(() => editor.isReadingKey);
+    expect(io.written.toString(), contains('Generation settings'));
+    expect(session.host.session.loop.running, true);
+    expect(provider.closed, false);
+    await keys('Generation\r');
+    await keys('2048\r');
+    expect(File('${dir.path}/config').readAsStringSync(),
+        contains('max_output = 2048'));
+    expect(provider.requests, hasLength(1));
+    expect(provider.closed, false);
+    await keys('\x1b');
+    await waitFor(() => !editor.isReadingKey);
+    expect(session.host.session.loop.running, true);
+    await keys('draft survives');
+    provider.answer(0, 'finished normally');
+    await waitFor(() => !session.host.session.loop.running);
+    expect(editor.editState.buffer, 'draft survives');
+    expect(session.inputHistory, ['keep working']);
+  });
+
+  test('plugin toggles made during a request wait until it ends', () async {
+    await keys('keep working\r');
+    final provider = providers.first;
+    await waitFor(() => provider.requests.length == 1);
+    await keys('/settings\r');
+    await waitFor(() => editor.isReadingKey);
+    await keys('Plugins\r');
+    await keys('tina/grok-guard\r');
+    final manager = session.assembly.pluginManager;
+    expect(manager.waitingForIdle, true);
+    expect(manager.pending, contains('tina/grok-guard'));
+    expect(manager.loaded, contains('tina/grok-guard'));
+    provider.answer(0, 'finished');
+    await waitFor(() => !manager.loaded.contains('tina/grok-guard'));
+    expect(editor.isReadingKey, true);
+    await keys('\x1b\x1b');
+    await waitFor(() => !editor.isReadingKey);
+    await keys('still editable');
+    expect(editor.editState.buffer, 'still editable');
+  });
+
+  test('shutdown releases settings even with an unsaved draft', () async {
+    await keys('keep working\r');
+    final provider = providers.first;
+    await waitFor(() => provider.requests.length == 1);
+    await keys('/quit\r/settings\r');
+    await waitFor(() => editor.isReadingKey);
+    await keys('Theme\r');
+    await keys('dark\r');
+    expect(io.written.toString(), contains('unsaved changes'));
+    provider.answer(0, 'finished');
+    expect(await app.timeout(const Duration(seconds: 3)), 0);
+  });
+
+  test('settings and a background read-only edit share one dialog owner',
+      () async {
+    await session.commands['mode']!.handler('read-only');
+    await keys('edit after reading\r');
+    final provider = providers.first;
+    await waitFor(() => provider.requests.length == 1);
+    await keys('/settings\r');
+    await waitFor(() => editor.isReadingKey);
+    provider.streams.first.add(const ToolCallStart(id: 'write', name: 'write'));
+    provider.streams.first.add(const MessageComplete(content: [
+      ToolUseBlock(
+          id: 'write',
+          name: 'write',
+          input: {'filePath': 'reviewed.txt', 'content': 'approved contents'})
+    ], stopReason: 'tool_use'));
+    await provider.streams.first.close();
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(approvalUi(session).asker!.current, isNull,
+        reason: 'settings retains input until dismissed');
+    expect(File('${dir.path}/reviewed.txt').existsSync(), false);
+    await keys('\x1b');
+    expect(session.host.session.loop.running, true);
+    await waitFor(() => approvalUi(session).asker!.current != null);
+    expect(approvalUi(session).asker!.current!.reason, contains('read-only'));
+    await keys('y');
+    await waitFor(() => provider.requests.length == 2);
+    expect(File('${dir.path}/reviewed.txt').readAsStringSync(),
+        'approved contents');
+    expect(session.assembly.tools.mode.label, 'read-only');
+    provider.answer(1, 'finished');
+    await waitFor(() => !session.host.session.loop.running);
+    await keys('chat draft');
+    expect(editor.editState.buffer, 'chat draft');
+  });
 
   test('model picker updates the active panel without changing its session',
       () async {

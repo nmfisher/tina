@@ -6,7 +6,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_tools/tina_tools.dart';
-import 'app_test.dart' show FakeIo, fakeScreen;
+import 'app_test.dart' show FakeIo, fakeScreen, approvalUi;
 
 Future<void> waitFor(bool Function() predicate) async {
   final deadline = DateTime.now().add(const Duration(seconds: 3));
@@ -39,6 +39,59 @@ final class ControlledProvider implements LlmProvider {
 }
 
 void main() {
+  test('settings opens during a request without the workspace plugin',
+      () async {
+    final directory =
+        Directory.systemTemp.createTempSync('tina_live_settings_');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final config = File('${directory.path}/config')..writeAsStringSync('''
+[default]
+model = "controlled"
+[plugins]
+enabled = ["tina/chat-tui"]
+''');
+    final provider = ControlledProvider();
+    final session = TuiSession.start(
+        providerFactory: (_) => provider,
+        workingDirectory: directory.path,
+        configPath: config.path);
+    final io = FakeIo();
+    late LineEditor editor;
+    final app = runApp(session,
+        screen: fakeScreen(io),
+        editorFor: (screen) =>
+            editor = LineEditor(screen: screen, escapeTimeout: Duration.zero));
+    addTearDown(() async {
+      session.host.session.loop.cancel('test cleanup');
+      io.closeInput();
+      await app;
+    });
+    await waitFor(() => editor.isEditing);
+    io.feedBytes('keep working\r'.codeUnits);
+    await waitFor(() => provider.requests.length == 1);
+    io.feedBytes('/settings\r'.codeUnits);
+    await waitFor(() => editor.isReadingKey);
+    expect(session.host.session.loop.running, true);
+    expect(provider.requests, hasLength(1));
+    provider.requests.single.add(const MessageComplete(
+        content: [TextBlock('finished')], stopReason: 'end_turn'));
+    await provider.requests.single.close();
+    await waitFor(() => !session.host.session.loop.running);
+    expect(editor.isReadingKey, true);
+    io.feedBytes('\x1b'.codeUnits);
+    await waitFor(() => !editor.isReadingKey);
+    io.feedBytes('next message\r'.codeUnits);
+    await waitFor(() => provider.requests.length == 2);
+    provider.requests.last.add(const MessageComplete(
+        content: [TextBlock('second answer')], stopReason: 'end_turn'));
+    await provider.requests.last.close();
+    await waitFor(() => !session.host.session.loop.running);
+    expect(session.inputHistory, ['keep working', 'next message']);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    io.feedBytes('/quit\r'.codeUnits);
+    expect(await app, 0);
+  });
+
   test(
       'Shift-Tab during generation gates the next file tool without cancelling',
       () async {
@@ -70,6 +123,9 @@ void main() {
           input: {'filePath': 'denied.txt', 'content': 'no'})
     ], stopReason: 'tool_use'));
     await provider.requests.first.close();
+    await waitFor(() => approvalUi(session).asker!.current != null);
+    expect(File('${directory.path}/denied.txt').existsSync(), false);
+    io.feedBytes('n'.codeUnits);
     await waitFor(() => provider.requests.length == 2);
     final result = session.host.session.loop.log
         .whereType<MessageAppendedEntry>()

@@ -242,6 +242,13 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send("terminal smoke\r")
             # The provider is blocked: text must be visible before completion.
             terminal.expect("streaming prefix", start)
+            active_requests = len(ModelStub.requests)
+            start = terminal.send('/settings\r')
+            terminal.expect('Generation settings', start)
+            assert len(ModelStub.requests) == active_requests
+            assert not ModelStub.release_stream.is_set()
+            terminal.send('\x1b')
+            time.sleep(0.1)
             start = terminal.resize(100, 20)
             terminal.expect("streaming prefix", start)
             # Submitted input must reach a fresh request before the stalled
@@ -275,8 +282,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect("smoke answer", start)
             ModelStub.release_cancelled.set()
             time.sleep(0.1)
-            start = terminal.send('/mode allow-edits\r')
-            terminal.expect('mode: allow-edits', start)
+            start = terminal.send('/mode read-only\r')
+            terminal.expect('mode: read-only', start)
             terminal.resize(columns, rows)
             time.sleep(0.1)
             start = terminal.send('approve this\r')
@@ -304,6 +311,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             assert ModelStub.approval_target.read_text() == 'approved'
             time.sleep(0.1)
+            start = terminal.send('/mode allow-edits\r')
+            terminal.expect('mode: allow-edits', start)
             start = terminal.send('run cancellable tool\r')
             terminal.expect('Run shell command', start)
             terminal.expect('❯ [y] allow once', start)

@@ -11,9 +11,8 @@
 /// out. It never touches a terminal, a loop, or the real filesystem, so the
 /// tests for it are headless by construction.
 ///
-/// The rule that outlived the declarations: **read-only never asks** — a
-/// write in [PermissionMode.readOnly] is denied outright, never put to the
-/// user. And **asking is fail-closed**: no approver wired means deny.
+/// Modes choose which operations need approval; an explicit human answer can
+/// authorize them in every mode. No approver wired means deny.
 library;
 
 import 'package:tina_mode/tina_mode.dart';
@@ -74,7 +73,7 @@ enum Approval {
 /// note — so it names the axis that decided.
 typedef FileDecision = ({ToolVerdict verdict, String reason});
 
-/// Reads run in every mode; read-only denies writes before checking grants.
+/// Reads run in every mode; read-only asks before writes.
 /// Allow-edits permits project writes. Other writes go through the mode
 /// plugin's approval routing (human in ask, safety judge first in auto).
 FileDecision decideOperation(
@@ -89,17 +88,17 @@ FileDecision decideOperation(
       reason: 'reads are allowed anywhere but the Tina data tree',
     );
   }
-  if (mode == PermissionMode.readOnly) {
-    return (
-      verdict: ToolVerdict.deny,
-      reason: operationReason(op, mode),
-    );
-  }
   final granted = grants?.patternFor(op.path);
   if (granted != null) {
     return (
       verdict: ToolVerdict.allow,
       reason: 'allowed by session grant: $granted',
+    );
+  }
+  if (mode == PermissionMode.readOnly) {
+    return (
+      verdict: ToolVerdict.ask,
+      reason: operationReason(op, mode),
     );
   }
   if (mode == PermissionMode.allowEdits && _isUnder(op.path, projectRoot)) {
@@ -124,7 +123,7 @@ String operationReason(FileOperation op, PermissionMode mode) {
   return switch ((op.op, mode)) {
     (FileOp.read, _) => 'read of $name',
     (FileOp.write, PermissionMode.readOnly) =>
-      'denied: writes are not permitted in read-only mode ($name)',
+      'allow write in read-only mode ($name)?',
     (FileOp.write, _) => 'allow write outside the project root ($name)?',
   };
 }

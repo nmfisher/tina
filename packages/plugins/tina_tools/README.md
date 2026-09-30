@@ -26,19 +26,20 @@ Shift-Tab and the status label; no separate `tina/mode-tui` plugin is loaded.
 | Mode | Reads | Project writes | Commands / outside writes |
 | --- | --- | --- | --- |
 | `ask` (default) | allow | ask | ask |
-| `read-only` | allow | deny | deny |
+| `read-only` | allow | human approval | human approval |
 | `allow-edits` | allow | allow | ask |
 | `auto` | allow | classifier review | classifier review |
 
 In `auto`, an exact completed ALLOW approves the operation once. DENY,
 timeout, missing classifier or invalid response falls back to the configured
-human approval channel. Cancellation and read-only never fall back to asking.
+human approval channel. Read-only always uses human approval for unapproved
+writes and commands. Cancellation does not fall back to asking.
 Human “always” grants remain session-scoped; classifier approvals do not create
 persistent or session grants. Protected Tina paths and OS sandbox restrictions
 remain enforced in every mode. Approval does not disable the OS sandbox.
 
-Read-only still blocks all commands, including commands that merely read.
-The legacy read-all shell-classification exception is not enabled.
+Read-only asks before any command, including commands that merely read.
+An explicit approval allows the requested operation without changing the mode.
 `WritableDirectories` and network heuristics explain why a command needs
 approval; they do not authorize it without review. `OsSandboxRunner` supplies
 OS confinement separately.

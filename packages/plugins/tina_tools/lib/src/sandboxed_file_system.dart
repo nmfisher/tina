@@ -32,8 +32,7 @@ class SandboxViolation implements Exception {
 ///
 /// - `ask` / `auto`: reads run; writes go to the mode-aware [approver].
 /// - `allowEdits`: project writes run; other writes go to the [approver].
-/// - `readOnly`: reads run; **every** write is denied — and never put to the
-///   approver.
+/// - `readOnly`: reads run; writes require explicit human approval.
 ///
 /// Asking is fail-closed: no approver wired means deny. An approver's
 /// [Approval.always] remembers a pattern in the session [grants], so

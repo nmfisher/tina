@@ -72,6 +72,7 @@ final class _View {
   late ConsoleContext context;
   final queue = Queue<String>();
   final history = <String>[];
+  final commands = <Future<void>>{};
   Future<void>? task;
   bool closed = false;
 }
@@ -113,6 +114,7 @@ final class _Workspace implements ConsolePanels {
       await Future.wait([
         for (final view in views)
           if (view.task != null) view.task!,
+        for (final view in views) ...view.commands,
         ...closing
       ]);
       for (final view in views.reversed) {
@@ -144,6 +146,19 @@ final class _Workspace implements ConsolePanels {
         unawaited(closeFocused());
       default:
         final receiver = target.session;
+        if (target.task != null && receiver is ConsoleCommandReceiver) {
+          final command =
+              (receiver as ConsoleCommandReceiver).offerCommand(line);
+          if (command != null) {
+            late final Future<void> task;
+            task = command.catchError((Object error) {
+              if (!target.closed && !stopped)
+                receiver.notice('Command error: $error');
+            }).whenComplete(() => target.commands.remove(task));
+            target.commands.add(task);
+            return;
+          }
+        }
         if (!line.trimLeft().startsWith('/') &&
             target.task != null &&
             receiver is ConsoleInputReceiver &&
@@ -399,7 +414,10 @@ final class _Workspace implements ConsolePanels {
     focus.focusPanel(views[index.clamp(0, views.length - 1)].frame);
     _layout();
     final close = () async {
-      await view.task;
+      await Future.wait([
+        if (view.task != null) view.task!,
+        ...view.commands,
+      ]);
       view.session.detachConsole();
       if (!identical(view.session, initial)) view.session.close();
     }();

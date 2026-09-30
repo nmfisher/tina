@@ -8,7 +8,11 @@ import 'tui_session.dart';
 /// Adapts a session to UI capabilities. The workspace plugin never imports
 /// this application or constructs an engine, provider, or persistence store.
 final class SessionView
-    implements ConsoleSessionView, ConsoleInputReceiver, ConsoleInputHistory {
+    implements
+        ConsoleSessionView,
+        ConsoleInputReceiver,
+        ConsoleInputHistory,
+        ConsoleCommandReceiver {
   SessionView(this.session, {this.showConfig = false});
   final TuiSession session;
   final bool showConfig;
@@ -38,7 +42,14 @@ final class SessionView
   bool offerInput(String text) => session.host.offerInput(text);
 
   @override
-  void cancel() => session.host.session.loop.cancel('escape');
+  Future<void>? offerCommand(String text) => session.offerCommand(text);
+
+  @override
+  void cancel() {
+    _settings?.cancel();
+    session.host.session.loop.cancel('escape');
+  }
+
   @override
   void notice(String text) {
     final transcript =
@@ -72,6 +83,7 @@ final class SessionView
     }
     _settings = SettingsPanel(context.screen, context.input);
     session.assembly.openSettings = () => context.interact(() async {
+          if (!context.isActive) return;
           final saved = await _settings!.run(
               applyGeneration: session.assembly.applySavedGeneration,
               path: session.assembly.configPath,
@@ -104,6 +116,7 @@ final class SessionView
 
   @override
   void detachConsole() {
+    _settings?.cancel();
     session.assembly.openSettings = null;
     session.assembly.pluginManager.onLoaded = null;
     session.assembly.pluginManager.onUnloading = null;

@@ -22,6 +22,15 @@ final class SettingsPanel {
   void repaint() => _paint?.call();
   Completer<void> _changed = Completer<void>();
   Future<InputEvent>? _pendingRead;
+  Completer<void> _cancel = Completer<void>();
+  bool _cancelled = false;
+
+  /// Release a live key reader before its session or frontend is torn down.
+  void cancel() {
+    _cancelled = true;
+    if (!_cancel.isCompleted) _cancel.complete();
+  }
+
   Future<InputEvent?> _nextEvent() async {
     _pendingRead ??= _read();
     final event = await Future.any<InputEvent?>(
@@ -55,6 +64,8 @@ final class SettingsPanel {
       Map<String, String> pluginDescriptions = const {},
       Iterable<String> pluginIds = const []}) async {
     _savedSection = false;
+    _cancelled = false;
+    _cancel = Completer<void>();
     _applyGeneration = applyGeneration;
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
@@ -62,13 +73,14 @@ final class SettingsPanel {
         document.table('default')['model'] == kTinaDefaultModel) {
       document.table('default')['model'] = '';
     }
-    _read = readEvent ?? editor.captureKeyReader();
+    _read = readEvent ?? editor.captureKeyReader(cancelSignal: _cancel.future);
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
     _overlay =
         OverlayRegion(screen, const Rect(row: 0, col: 0, width: 1, height: 1));
     try {
       while (true) {
+        if (_cancelled) return _savedSection;
         final defaults = document.table('default');
         SettingsSection? chosenSection;
         var currentSections = <SettingsSection>[];
@@ -98,6 +110,7 @@ final class SettingsPanel {
             itemsNow: items, onSelected: (index) {
           if (index >= 8) chosenSection = currentSections[index - 8];
         });
+        if (_cancelled) return _savedSection;
         if (selected == null) {
           if (!document.hasChanges) return _savedSection;
           final exit = await _menu('Unsaved settings', [
@@ -772,6 +785,7 @@ final class SettingsPanel {
       ]);
     };
     while (true) {
+      if (_cancelled) return null;
       if (valid?.call() == false) return null;
       repaint();
       final event = await _nextEvent();

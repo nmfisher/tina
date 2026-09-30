@@ -244,15 +244,15 @@ void main() {
           isFalse);
 
       sandbox.mode = PermissionMode.readOnly;
-      final bashRefused = await bash.execute({'command': 'echo c'});
-      expect(bashRefused.isError, isTrue);
-      expect(bashRefused.content, contains('read-only mode'));
-      final execRefused = await exec.execute({
+      final bashApproved = await bash.execute({'command': 'echo c'});
+      expect(bashApproved.isError, isFalse);
+      final execApproved = await exec.execute({
         'program': 'echo',
         'args': ['d']
       });
-      expect(execRefused.isError, isTrue);
-      expect(execRefused.content, contains('read-only mode'));
+      expect(execApproved.isError, isFalse);
+      expect(approver.asked, 4);
+      expect(sandbox.mode, PermissionMode.readOnly);
     });
   });
 }

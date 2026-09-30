@@ -117,6 +117,16 @@ final class TuiSession {
     return assembly.quitRequested;
   }
 
+  /// UI dispatchers can offer a line without naming individual commands.
+  /// Only an explicit opt-in may bypass the active conversation's queue.
+  Future<void>? offerCommand(String line) {
+    final decision = dispatchLine(commands, line);
+    if (decision is RunCommand && decision.command.allowWhileRunning) {
+      return decision.run();
+    }
+    return null;
+  }
+
   /// Close the host. The terminal's pending asks resolve with the empty
   /// answer — a closing front end never leaves a plugin hanging. (Only
   /// a [TuiTerminal] promises that; a foreign terminal is left alone.)

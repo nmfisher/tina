@@ -3,8 +3,54 @@ import 'package:tina_plans/tina_plans.dart';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/tina_tui.dart';
+import 'package:tina_approvals/tina_approvals.dart' as approvals;
 
 void main() {
+  test(
+      'read-only approval remembers only the chosen file and permits a later edit',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('tina-read-only-grants-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final human = _Human();
+    final assembly = TuiAssembly.start(
+        options: AssemblyOptions(
+            configPath: '${dir.path}/missing', workingDirectory: dir.path),
+        providerFactory: (_) => ScriptedProvider([
+              scriptedReply('', calls: const [
+                ToolUseBlock(
+                    id: 'first',
+                    name: 'write',
+                    input: {'filePath': 'approved.txt', 'content': 'one'}),
+                ToolUseBlock(id: 'edit', name: 'edit', input: {
+                  'filePath': 'approved.txt',
+                  'oldString': 'one',
+                  'newString': 'two'
+                }),
+                ToolUseBlock(
+                    id: 'other',
+                    name: 'write',
+                    input: {'filePath': 'other.txt', 'content': 'no'}),
+              ]),
+              scriptedReply('finished'),
+            ]));
+    addTearDown(assembly.close);
+    assembly.tools.modePolicy.approvals = human;
+    await assembly.handleCommand('/mode read-only');
+    await assembly.host.send('review writes');
+    expect(human.targets.map((path) => path.split('/').last),
+        ['approved.txt', 'other.txt']);
+    expect(human.modes, ['readOnly', 'readOnly']);
+    expect(File('${dir.path}/approved.txt').readAsStringSync(), 'two');
+    expect(File('${dir.path}/other.txt').existsSync(), false);
+    expect(assembly.tools.mode.label, 'read-only');
+    final results = assembly.host.session.loop.log
+        .whereType<MessageAppendedEntry>()
+        .expand((e) => e.message.content)
+        .whereType<ToolResultBlock>()
+        .toList();
+    expect(results.map((r) => r.isError), [false, false, true]);
+  });
+
   test('auto never substitutes classifier consent for plan approval', () async {
     final dir = Directory.systemTemp.createTempSync('tina-mode-plan-');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -84,6 +130,24 @@ void main() {
         expect(judgeRequests, isEmpty);
       }
     });
+  }
+}
+
+class _Human implements approvals.ApprovalRequester {
+  final targets = <String>[];
+  final modes = <String>[];
+  @override
+  Future<approvals.ApprovalDecision> request(
+      {required String operation,
+      required String target,
+      required String reason,
+      approvals.ApprovalKind kind = approvals.ApprovalKind.permission,
+      Map<String, Object?> details = const {}}) async {
+    targets.add(target);
+    modes.add(details['mode'] as String);
+    return target.endsWith('/approved.txt')
+        ? approvals.ApprovalDecision.allowAlways
+        : approvals.ApprovalDecision.deny;
   }
 }
 

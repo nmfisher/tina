@@ -75,8 +75,10 @@ void main() {
     expect(first.content, contains(ws.resolveSymbolicLinksSync()));
     plugin.mode = PermissionMode.readOnly;
     final second = await exec.execute({'program': '/bin/pwd'});
-    expect(second.isError, true);
-    expect(second.content, contains('read-only mode'));
+    expect(second.isError, false,
+        reason: 'explicit approval works in read-only');
+    expect(second.content, contains(ws.resolveSymbolicLinksSync()));
+    expect(plugin.mode, PermissionMode.readOnly);
   });
 
   group('a turn runs end to end', () {

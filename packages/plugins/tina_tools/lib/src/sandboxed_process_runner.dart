@@ -1,5 +1,5 @@
-/// Process boundary: read-only denies execution; other modes require an
-/// approval or a matching human session grant. The mode plugin routes reviews
+/// Process boundary: execution requires approval or a matching human session
+/// grant in every mode. The mode plugin routes reviews
 /// to a human or the automatic safety judge; OS confinement remains separate.
 library;
 
@@ -20,7 +20,7 @@ enum CommandRule {
   /// Execution requires approval even within writable directories.
   permissionMode,
 
-  /// `readOnly`: every command is refused outright — no classifier, no ask.
+  /// `readOnly`: commands require explicit human approval.
   readOnly,
 
   /// The command provably reads, or creates/edits/moves/deletes, nothing
@@ -51,8 +51,7 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
     switch (rule) {
       CommandRule.permissionMode => 'allow command (${request.command})?',
       CommandRule.readOnly =>
-        'denied: commands are not permitted in read-only mode '
-            '(${request.command})',
+        'allow command in read-only mode (${request.command})?',
       CommandRule.insideWritableSet =>
         'command stays inside the session\'s writable directories '
             '(${request.command})',
@@ -256,7 +255,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
 /// a verdict out — so its tests are headless by construction.
 ///
 /// A session grant checked first short-circuits an ask: a command line
-/// remembered by a [CommandGrants] pattern runs outside read-only without asking
+/// remembered by a [CommandGrants] pattern runs in any mode without asking
 /// again.
 CommandDecision decideCommand(
   ProcessRequest request,
@@ -265,18 +264,16 @@ CommandDecision decideCommand(
   required bool networkOff,
   CommandGrants? grants,
 }) {
-  if (mode == PermissionMode.readOnly) {
-    // No classifier, no "statically read-only command" route: every command
-    // is refused, and nobody is asked.
-    return (
-      verdict: ToolVerdict.deny,
-      reason: commandReason(CommandRule.readOnly, request)
-    );
-  }
   if (grants?.coversRequest(request) == true) {
     return (
       verdict: ToolVerdict.allow,
       reason: commandReason(CommandRule.sessionGrant, request),
+    );
+  }
+  if (mode == PermissionMode.readOnly) {
+    return (
+      verdict: ToolVerdict.ask,
+      reason: commandReason(CommandRule.readOnly, request)
     );
   }
   // A single unbreakable string (`sh -c <string>`, the bash-tool shape) can
@@ -309,8 +306,7 @@ typedef CommandDecision = ({ToolVerdict verdict, String reason});
 /// the `command: <shell>, arguments: ['-c', <string>]` shape every bash tool
 /// produces. What the string runs cannot be proven from argv: redirects,
 /// backticks, and newlines mean the writable directories can say nothing about it.
-/// Such requests never ride the writable directories; they ask (or refuse in
-/// read-only mode).
+/// Such requests never ride the writable directories; they ask in every mode.
 ///
 /// Shape test: the basename of [ProcessRequest.command] is a known shell and
 /// the shell's flag is followed by a payload — i.e. there is at least one

@@ -34,6 +34,8 @@ Future<int> runApp(
   // UI plugins own presentation. The app only routes generic notices and
   // mounts console capabilities; headless output still uses TuiTerminal.
   final queued = Queue<String>();
+  final commands = <Future<void>>{};
+  var stopping = false;
   StreamSubscription<ScreenLayout>? resizeSubscription;
 
   // The editor owns the raw bytes; where its keys go is decided below.
@@ -43,27 +45,29 @@ Future<int> runApp(
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
   final settings = SettingsPanel(s, editor);
-  session.assembly.openSettings = () async {
-    try {
-      final saved = await settings.run(
-          applyGeneration: session.assembly.applySavedGeneration,
-          path: session.assembly.configPath,
-          sections: console.settings,
-          descriptors: session.assembly.descriptors,
-          validatePlugins: session.assembly.validatePlugins,
-          pluginIds: session.assembly.pluginSettings.registry.ids,
-          pluginDescriptions:
-              pluginDescriptions(session.assembly.pluginSettings.registry),
-          pluginSettings: session.assembly.pluginSettings,
-          pluginManager: session.assembly.pluginManager);
-      terminal.writeln(saved
-          ? 'Settings saved. Generation applies to the next request.'
-          : 'Settings closed.');
-    } catch (_) {
-      terminal.writeln(
-          'Could not open settings. Check the config file and its permissions.');
-    }
-  };
+  session.assembly.openSettings = () => console.interact(() async {
+        if (stopping) return;
+        try {
+          final saved = await settings.run(
+              applyGeneration: session.assembly.applySavedGeneration,
+              path: session.assembly.configPath,
+              sections: console.settings,
+              descriptors: session.assembly.descriptors,
+              validatePlugins: session.assembly.validatePlugins,
+              pluginIds: session.assembly.pluginSettings.registry.ids,
+              pluginDescriptions:
+                  pluginDescriptions(session.assembly.pluginSettings.registry),
+              pluginSettings: session.assembly.pluginSettings,
+              pluginManager: session.assembly.pluginManager);
+          terminal.writeln(saved
+              ? 'Settings saved. Generation applies to the next request.'
+              : 'Settings closed.');
+        } catch (_) {
+          terminal.writeln(
+              'Could not open settings. Check the config file and its permissions.');
+        }
+        s.chat.repaint();
+      });
 
   // Completion is a front-end concern: the two sources hang off the
   // editor's own pickers (`/` — command names from the session's
@@ -194,6 +198,15 @@ Future<int> runApp(
         if (session.assembly.watchingTurn)
           session.host.session.loop.cancel('escape');
       }, onQueueSubmit: (text) {
+        final command = session.offerCommand(text);
+        if (command != null) {
+          late final Future<void> task;
+          task = command.catchError((Object error) {
+            if (!stopping) terminal.writeln('Command error: $error');
+          }).whenComplete(() => commands.remove(task));
+          commands.add(task);
+          return;
+        }
         if (text.trimLeft().startsWith('/') || !session.host.offerInput(text))
           queued.addLast(text);
       }, queueCount: queued.length);
@@ -207,6 +220,9 @@ Future<int> runApp(
     }
     return 0;
   } finally {
+    stopping = true;
+    settings.cancel();
+    await Future.wait(commands.toList());
     await resizeSubscription?.cancel();
     session.assembly.openSettings = null;
     session.assembly.pluginManager.onLoaded = null;

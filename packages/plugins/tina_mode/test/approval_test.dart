@@ -47,7 +47,7 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 
 void main() {
   test(
-    'network confirmation bypasses the auto classifier and respects read-only',
+    'network confirmation asks a human even in read-only and bypasses the judge',
     () async {
       final human = Human();
       final judge = Judge(Future.value(const PermissionJudgment(true)));
@@ -75,9 +75,9 @@ void main() {
           reason: 'push',
           humanOnly: true,
         ),
-        ApprovalDecision.deny,
+        ApprovalDecision.allow,
       );
-      expect(human.calls, 1);
+      expect(human.calls, 2);
       mode.closeSession();
     },
   );
@@ -187,7 +187,8 @@ void main() {
       await write('/outside/result');
       expect(human.calls, 2);
       mode.mode = PermissionMode.readOnly;
-      expect(await write('/outside/result'), ApprovalDecision.deny);
+      expect(await write('/outside/result'), ApprovalDecision.allow);
+      expect(human.calls, 3);
       mode.closeSession();
     },
   );
@@ -207,9 +208,13 @@ void main() {
   });
 
   test(
-    'ask and allow-edits send approval requests to the human, not the judge',
+    'ask, read-only and allow-edits send requests to the human, not the judge',
     () async {
-      for (final value in [PermissionMode.ask, PermissionMode.allowEdits]) {
+      for (final value in [
+        PermissionMode.ask,
+        PermissionMode.readOnly,
+        PermissionMode.allowEdits,
+      ]) {
         final human = Human();
         final judge = Judge(Future.value(const PermissionJudgment(true)));
         final mode = ModePlugin(
@@ -243,18 +248,23 @@ void main() {
     expect(human.calls, 3);
   });
 
-  test('read-only never consults judge or human', () async {
-    final human = Human();
-    final judge = Judge(Future.value(const PermissionJudgment(true)));
-    final mode = ModePlugin(
-      mode: PermissionMode.readOnly,
-      approvals: human,
-      classifier: judge,
-    );
-    expect(await request(mode), ApprovalDecision.deny);
-    expect(human.calls, 0);
-    expect(judge.calls, 0);
-  });
+  test(
+    'read-only consults the human and honors denial, never the judge',
+    () async {
+      final human = Human();
+      final judge = Judge(Future.value(const PermissionJudgment(true)));
+      final mode = ModePlugin(
+        mode: PermissionMode.readOnly,
+        approvals: human,
+        classifier: judge,
+      );
+      expect(await request(mode), ApprovalDecision.allow);
+      human.answer = ApprovalDecision.deny;
+      expect(await request(mode), ApprovalDecision.deny);
+      expect(human.calls, 2);
+      expect(judge.calls, 0);
+    },
+  );
 
   for (final action in ['cancel', 'read-only', 'close', 'end', 'ask']) {
     test('late automatic ALLOW respects $action', () async {
@@ -290,9 +300,11 @@ void main() {
       pending.complete(const PermissionJudgment(true));
       expect(
         await result,
-        action == 'ask' ? ApprovalDecision.allow : ApprovalDecision.deny,
+        action == 'ask' || action == 'read-only'
+            ? ApprovalDecision.allow
+            : ApprovalDecision.deny,
       );
-      expect(human.calls, action == 'ask' ? 1 : 0);
+      expect(human.calls, action == 'ask' || action == 'read-only' ? 1 : 0);
     });
   }
 }

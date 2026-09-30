@@ -31,11 +31,12 @@ Approver requesterApprover(ApprovalRequester approvals) =>
       };
     };
 
-Approval _answer(ApprovalDecision decision) => switch (decision) {
+Approval _answer(ApprovalDecision decision, String reason) =>
+    switch (decision) {
       ApprovalDecision.allow => Approval.yes,
       ApprovalDecision.allowAlways => Approval.always,
       ApprovalDecision.deny =>
-        throw SandboxViolation('approval denied or cancelled'),
+        throw SandboxViolation('$reason — approval denied or cancelled'),
     };
 
 /// Connect enforcement boundaries to the shared mode policy.
@@ -52,7 +53,7 @@ void attachModePolicy(ToolsPlugin plugin) {
         'permission_scope': 'file',
       },
     );
-    return _answer(decision);
+    return _answer(decision, reason);
   };
   plugin.processRunner.commandApprover = (request, reason) async {
     final decision = await plugin.modePolicy.request(

@@ -7,6 +7,12 @@ abstract interface class ConsoleInputReceiver {
   bool offerInput(String text);
 }
 
+/// Optional delivery of commands that their owners allow during a running
+/// turn. Null leaves the line on the ordinary queue; a future owns its lifetime.
+abstract interface class ConsoleCommandReceiver {
+  Future<void>? offerCommand(String text);
+}
+
 abstract interface class ConsoleInputHistory {
   Iterable<String> get inputHistory;
 }

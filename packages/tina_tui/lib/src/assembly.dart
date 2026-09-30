@@ -400,6 +400,7 @@ final class TuiAssembly {
     host.commands.publish(Command(
       name: 'settings',
       description: 'edit global configuration',
+      allowWhileRunning: true,
       handler: (_) async {
         final open = assembly.openSettings;
         if (open != null) {

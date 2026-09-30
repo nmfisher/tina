@@ -256,7 +256,8 @@ final class HostPromptSection {
       'Working directory: $workingDirectory. Mode: ${mode.label} — '
       '${switch (mode) {
         PermissionMode.ask => 'reads run; writes and commands require approval',
-        PermissionMode.readOnly => 'reads run; writes and commands are refused',
+        PermissionMode.readOnly =>
+          'prefer reading; writes and commands require explicit user approval',
         PermissionMode.allowEdits =>
           'project edits run; commands and outside writes require approval',
         PermissionMode.auto =>

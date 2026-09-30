@@ -78,12 +78,12 @@ void main() {
           timeout: null,
         );
 
-    test('readOnly refuses every command, with the reason saying so', () {
+    test('readOnly asks for every unapproved command', () {
       for (final line in ['git status', 'ls', 'echo hi', 'rm -rf /']) {
         final d = decideCommand(req(line), PermissionMode.readOnly,
             writableDirectories: WritableDirectories()..add('/'),
             networkOff: false);
-        expect(d.verdict, ToolVerdict.deny, reason: line);
+        expect(d.verdict, ToolVerdict.ask, reason: line);
         expect(d.reason, contains('read-only mode'), reason: line);
       }
     });
@@ -102,7 +102,8 @@ void main() {
       expect(d.reason, contains('allow command'));
     });
 
-    test('ask mode asks when a path argument lands outside the directories', () {
+    test('ask mode asks when a path argument lands outside the directories',
+        () {
       final ws = WritableDirectories()..add('/tmp/ws');
       final d = decideCommand((
         command: 'cat',
@@ -225,28 +226,29 @@ void main() {
       expect((outcome as CommandCompleted).note, isNotNull);
     });
 
-    test('readOnly refuses; the approver is never called; nothing runs',
-        () async {
+    test('readOnly waits for approval; yes runs and no refuses', () async {
       var asked = 0;
-      final inner = _ScriptedRunner(const []);
+      final inner = _ScriptedRunner([_done(0, 'approved', '')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
         mode: PermissionMode.readOnly,
         writableDirectories: WritableDirectories()..add('/'),
         approver: (_, __) async {
           asked++;
-          return Approval.yes;
+          return asked == 1 ? Approval.yes : Approval.no;
         },
       );
       final outcome = await runner.run(_req('git status'));
-      expect(outcome, isA<CommandRefused>());
-      expect((outcome as CommandRefused).reason, contains('read-only mode'));
-      expect(asked, 0, reason: 'read-only never asks');
-      expect(inner.requests, isEmpty, reason: 'nothing ran');
+      expect(outcome, isA<CommandCompleted>());
+      expect((outcome as CommandCompleted).stdout, 'approved');
+      expect(asked, 1);
+      expect(await runner.run(_req('git status')), isA<CommandRefused>());
+      expect(asked, 2);
+      expect(inner.requests, hasLength(1),
+          reason: 'denied execution never started');
     });
 
-    test('ask: outside the directories asks — no denies, yes runs',
-        () async {
+    test('ask: outside the directories asks — no denies, yes runs', () async {
       var answers = [Approval.no, Approval.yes];
       var asked = 0;
       final inner = _ScriptedRunner([_done(0, 'ran', '')]);

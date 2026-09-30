@@ -306,7 +306,8 @@ void main() {
       expect(noContent.content, contains('content is required'));
     });
 
-    test('readOnly denies an in-project write; nothing asks', () async {
+    test('readOnly asks before an in-project write; a denial leaves no file',
+        () async {
       final tmp = Directory.systemTemp.createTempSync('tina_tools_write_');
       addTearDown(() => tmp.deleteSync(recursive: true));
       var asked = 0;
@@ -317,14 +318,15 @@ void main() {
         mode: PermissionMode.readOnly,
         approver: (_, __) async {
           asked++;
-          return Approval.yes;
+          return Approval.no;
         },
       );
       final res = await WriteTool(fs: sandbox, workspaceRoot: tmp.path)
           .execute({'filePath': 'in-project.txt', 'content': 'x'});
       expect(res.isError, isTrue);
       expect(res.content, contains('read-only mode'));
-      expect(asked, 0);
+      expect(asked, 1);
+      expect(File(p.join(tmp.path, 'in-project.txt')).existsSync(), false);
     });
 
     test('no tool carries a declaration — the same WriteTool in both modes',

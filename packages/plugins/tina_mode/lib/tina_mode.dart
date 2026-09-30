@@ -132,10 +132,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   }) async {
     final turn = _turn;
     bool invalid() =>
-        _closed ||
-        turn?.cancelled == true ||
-        !identical(turn, _turn) ||
-        mode == PermissionMode.readOnly;
+        _closed || turn?.cancelled == true || !identical(turn, _turn);
     if (invalid()) return ApprovalDecision.deny;
     final call = _call;
     if (call != null && _callApprovals.containsKey(operation)) {

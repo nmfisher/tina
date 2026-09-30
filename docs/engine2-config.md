@@ -15,7 +15,10 @@ number takes precedence. Automatic thinking uses provider defaults; choosing
 a thinking level replaces the old budget/effort combination automatically.
 Existing custom thinking budgets remain visible and can be replaced using the
 same control. Other unsaved settings still offer Save, Discard or Keep editing.
-Settings apply on the next launch;
+`/settings` can open while a model request or tool is running. Saved generation
+settings apply to the next model request; the current request continues with its
+original values. Theme changes apply immediately. Other startup settings apply
+on the next launch.
 **Plugins** in `/settings` applies supported plugin changes between turns.
 Choose Global, Workspace or Session scope. Space/Enter toggles a checkbox;
 Ctrl-R restores inheritance. Toggles save immediately, even if you leave settings
@@ -52,6 +55,9 @@ technical details, and Esc cancels. Generic confirmations retain Yes/No.
 One-call approval includes the tool's atomic temporary-file/rename work,
 and expires after the invocation. Request details are channel-neutral metadata;
 the engine does not depend on terminal rendering.
+Read-only mode asks before writes and commands. Explicit approval permits the
+displayed operation without changing the mode; remembered grants retain their
+displayed scope. Auto mode also asks when classification cannot allow an action.
 
 ## Activity presentation
 

@@ -18,10 +18,16 @@ final class Command {
   /// frontends decide how to present it.
   final FutureOr<List<String>> Function(String prefix)? complete;
 
+  /// The handler may run while a conversation turn is active. Owners opt in
+  /// only when the command does not require an idle loop; dispatchers otherwise
+  /// keep it queued. Interactive handlers still share the frontend input owner.
+  final bool allowWhileRunning;
+
   const Command({
     required this.name,
     required this.description,
     required this.handler,
     this.complete,
+    this.allowWhileRunning = false,
   });
 }

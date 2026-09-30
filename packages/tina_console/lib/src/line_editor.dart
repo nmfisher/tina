@@ -296,8 +296,12 @@ class LineEditor {
   /// interaction, so nested dialogs cannot reopen after double-Esc.
   Future<void> get inputCancelled => _cancelKeyReads.future;
 
-  Future<InputEvent> Function() captureKeyReader({bool globalKeys = false}) {
-    final cancel = inputCancelled;
+  Future<InputEvent> Function() captureKeyReader(
+      {bool globalKeys = false, Future<void>? cancelSignal}) {
+    final cancel = Future.any([
+      inputCancelled,
+      if (cancelSignal != null) cancelSignal,
+    ]);
     return () => readKey(globalKeys: globalKeys, cancelSignal: cancel);
   }
 
@@ -943,6 +947,9 @@ class LineEditor {
       }
       final c = _keyCompleter!;
       _keyCompleter = null;
+      // A form consumed Escape as dismissal. It is no longer an Alt/Option
+      // prefix for the next conversation keystroke after the form closes.
+      if (event is EscapeKey) _lastEsc = null;
       if (PasteAudit.enabled) {
         PasteAudit.log(
           'readKey ANSWERED by $event (global=$_keyCompleterGlobal)',
