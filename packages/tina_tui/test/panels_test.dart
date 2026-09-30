@@ -202,7 +202,9 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
     expect(editor.editState.buffer, 'main draft');
     final store = SessionStore.open(defaultSessionStorePath(dir.path));
     try {
-      expect(store.list().map((s) => s.id), containsAll([mainId, otherId]));
+      expect(store.list().map((s) => s.id), contains(otherId));
+      expect(store.list().map((s) => s.id), isNot(contains(mainId)),
+          reason: 'the main panel only had an unsent draft');
       expect(
           store
               .readEntries(otherId)
@@ -210,8 +212,6 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
               .single
               .text,
           'other draft');
-      expect(
-          store.readEntries(mainId).whereType<InputRecordedEntry>(), isEmpty);
     } finally {
       store.close();
     }

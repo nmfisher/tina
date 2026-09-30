@@ -179,14 +179,44 @@ void main() {
     expect(() => opened.list(), throwsA(isA<SessionStoreException>()));
   });
 
-  test('starting an existing session refuses to append a second history', () {
+  test('opening and quitting without activity does not save a session', () {
+    final first = Host.start(_config(tmp, []), sessionId: 'unused');
+    final persistence =
+        first.config.plugins.whereType<PersistencePlugin>().single;
+    persistence.sessionChanged(first.context);
+    expect(persistence.registryKey, isNull);
+    expect(persistence.store.list(), isEmpty);
+    first.close();
+    final store = SessionStore.open(dbPath);
+    addTearDown(store.close);
+    expect(store.list(), isEmpty);
+  });
+
+  test('enabling persistence after activity captures the existing history',
+      () async {
+    final host =
+        Host.start(_config(tmp, [], persist: false), sessionId: 'late');
+    await host.send('hello');
+    final plugin =
+        PersistencePlugin(openStore: () => SessionStore.open(dbPath));
+    host.attachPlugin(plugin);
+    expect(plugin.store.list().single.id, 'late');
+    expect(
+        plugin.store.readEntries('late').length, host.session.loop.log.length);
+    expect(plugin.store.checkGaps('late'), isEmpty);
+    host.close();
+  });
+
+  test('starting an existing session refuses to append a second history',
+      () async {
     final first = Host.start(_config(tmp, []), sessionId: 'existing');
+    await first.send('hello');
     first.close();
     expect(() => Host.start(_config(tmp, []), sessionId: 'existing'),
         throwsA(isA<SessionStoreException>()));
     final store = SessionStore.open(dbPath);
     addTearDown(store.close);
     expect(store.list(), hasLength(1));
-    expect(store.readEntries('existing'), isEmpty);
+    expect(store.readEntries('existing'), isNotEmpty);
   });
 }

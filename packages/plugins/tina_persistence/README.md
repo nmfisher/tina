@@ -4,7 +4,10 @@
 session metadata updates and resume. The application assembly injects a
 `SessionStoreOpener`; the host knows only the generic plugin lifecycle.
 
-On open, the plugin creates a session or restores and validates its saved log.
+On open, the plugin restores and validates saved sessions. New sessions are
+registered only when the first log entry is recorded; opening and quitting,
+unsent drafts, and model metadata changes alone do not create saved sessions.
+Enabling persistence after activity also captures the existing in-memory log.
 It subscribes before other plugins mount, ignores replayed entries, and appends
 each new entry unchanged. Close unsubscribes and releases the store. Failed
 startup also closes partially opened resources. Starting an existing session ID

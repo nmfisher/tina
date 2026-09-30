@@ -39,6 +39,14 @@ void main() {
       () async {
     final assembly = assemble();
     addTearDown(assembly.close);
+    expect(
+        assembly.host.config.plugins
+            .whereType<PersistencePlugin>()
+            .single
+            .store
+            .list(),
+        isEmpty,
+        reason: 'startup alone is not session activity');
     expect(assembly.host.config.plugins.map((p) => p.id),
         containsAll(defaultPluginIds));
     expect(

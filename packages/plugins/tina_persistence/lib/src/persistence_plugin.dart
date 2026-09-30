@@ -27,6 +27,7 @@ final class PersistencePlugin extends AgentPlugin {
   String? _lastDetails;
   String? _lastModel;
   int? _subscription;
+  bool _saved = false;
 
   @override
   SessionSeed? openSession(PluginSession session) {
@@ -43,6 +44,7 @@ final class PersistencePlugin extends AgentPlugin {
       final details = store.readDetails(session.id);
       _lastDetails = jsonEncode(details.toJson());
       _lastModel = store.list().singleWhere((s) => s.id == session.id).model;
+      _saved = true;
       return SessionSeed(log: log, details: details, model: _lastModel);
     }
     if (store.list().any((saved) => saved.id == session.id)) {
@@ -51,22 +53,38 @@ final class PersistencePlugin extends AgentPlugin {
     }
     _lastDetails = jsonEncode(session.details.toJson());
     _lastModel = session.model;
-    registryKey = store.createSession(session.id,
-        title: session.title, model: session.model, details: session.details);
     return null;
   }
 
   @override
   void mountOn(AgentLoop loop) {
     _loop = loop;
+    // Runtime enablement also saves activity already recorded in memory.
+    if (!_saved && loop.log.isNotEmpty) {
+      _saveSession();
+      store.append(_session!.id, loop.log);
+    }
     _subscription = loop.subscribe((entry, event) {
-      if (event == LogEvent.appended) store.append(_session!.id, [entry]);
+      if (event != LogEvent.appended) return;
+      final session = _session!;
+      if (!_saved) _saveSession();
+      store.append(session.id, [entry]);
     });
+  }
+
+  void _saveSession() {
+    final session = _session!;
+    registryKey = store.createSession(session.id,
+        title: session.title, model: session.model, details: session.details);
+    _saved = true;
+    _lastDetails = jsonEncode(session.details.toJson());
+    _lastModel = session.model;
   }
 
   @override
   void sessionChanged(PluginSession session) {
     final encoded = jsonEncode(session.details.toJson());
+    if (!_saved) return;
     if (encoded == _lastDetails && session.model == _lastModel) return;
     store.updateDetails(session.id, session.details, model: session.model);
     _lastModel = session.model;
