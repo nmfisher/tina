@@ -45,6 +45,7 @@ Future<int> runApp(
   session.assembly.openSettings = () async {
     try {
       final saved = await settings.run(
+          applyGeneration: session.assembly.applySavedGeneration,
           path: session.assembly.configPath,
           sections: console.settings,
           descriptors: session.assembly.descriptors,
@@ -55,7 +56,7 @@ Future<int> runApp(
           pluginSettings: session.assembly.pluginSettings,
           pluginManager: session.assembly.pluginManager);
       terminal.writeln(saved
-          ? 'Settings saved. Changes apply on next launch.'
+          ? 'Settings saved. Generation applies to the next request.'
           : 'Settings closed.');
     } catch (_) {
       terminal.writeln(

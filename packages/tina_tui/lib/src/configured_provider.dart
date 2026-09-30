@@ -177,9 +177,11 @@ GenerationOptions generationFor(TinaConfig config, String id, String model) {
 }
 
 /// Construct one scheduling scope, shared by the main session and its children.
-ProviderPolicyPlugin configuredPolicy(TinaConfig config,
-    {LlmProvider Function(String)? override}) {
+ProviderPolicyPlugin configuredPolicy(TinaConfig initialConfig,
+    {LlmProvider Function(String)? override,
+    TinaConfig Function()? currentConfig}) {
   List<ProviderTarget> targets(String model) {
+    final config = currentConfig?.call() ?? initialConfig;
     var selected = config.providerId ?? 'anthropic';
     var wireModel = model;
     final slash = model.indexOf('/');
@@ -205,8 +207,8 @@ ProviderPolicyPlugin configuredPolicy(TinaConfig config,
   }
 
   // Validate the selected pool's generation settings before opening resources.
-  targets(config.model);
-  return ProviderPolicyPlugin(targets: targets, limits: config.limits);
+  targets(initialConfig.model);
+  return ProviderPolicyPlugin(targets: targets, limits: initialConfig.limits);
 }
 
 ProviderTarget _target(TinaConfig config, String member, String fallbackModel) {

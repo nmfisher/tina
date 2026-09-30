@@ -7,7 +7,7 @@ import 'configured_provider.dart';
 import 'plugin_settings.dart';
 import 'package:tina_host/tina_host.dart';
 
-/// Built-in fields edit global settings for future launches. Plugin sections
+/// Built-in fields edit global settings; generation can apply live. Plugin sections
 /// supply their own controls and callbacks independently of that document.
 final class SettingsPanel {
   SettingsPanel(this.screen, this.editor, {this.readEvent});
@@ -18,6 +18,7 @@ final class SettingsPanel {
   late OverlayRegion _overlay;
   void Function()? _paint;
   bool _savedSection = false;
+  void Function()? _applyGeneration;
   void repaint() => _paint?.call();
   Completer<void> _changed = Completer<void>();
   Future<InputEvent>? _pendingRead;
@@ -50,9 +51,11 @@ final class SettingsPanel {
       SettingsRegistry? sections,
       PluginSettings<dynamic>? pluginSettings,
       PluginManager<dynamic>? pluginManager,
+      void Function()? applyGeneration,
       Map<String, String> pluginDescriptions = const {},
       Iterable<String> pluginIds = const []}) async {
     _savedSection = false;
+    _applyGeneration = applyGeneration;
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
     if (!document.existsOnDisk &&
@@ -150,6 +153,7 @@ final class SettingsPanel {
             try {
               document.save(
                   descriptors: descriptors, validatePlugins: validatePlugins);
+              _applyGeneration?.call();
               return true;
             } catch (error) {
               // Parsing errors contain field names, never credential values.
@@ -354,6 +358,7 @@ final class SettingsPanel {
                 model);
             document.saveGeneration(id, fields,
                 descriptors: descriptors, validatePlugins: validatePlugins);
+            _applyGeneration?.call();
             _savedSection = true;
             return;
           } catch (failure) {

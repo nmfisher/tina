@@ -34,6 +34,48 @@ ProviderTarget target(String id, Stub p, {int concurrency = 4}) =>
     ProviderTarget(id: id, create: () => p, maxConcurrent: concurrency);
 
 void main() {
+  test('configuration refresh waits for next request and preserves spend',
+      () async {
+    final stream = StreamController<StreamEvent>();
+    final old = Stub(() => stream.stream);
+    final next = Stub(() => Stream.value(answer));
+    var selected = old;
+    final policy =
+        ProviderPolicyPlugin(targets: (_) => [target('same', selected)]);
+    addTearDown(policy.closeSession);
+    final main = policy.mainProvider('x');
+    final inFlight = request(main).toList();
+    await tick();
+    selected = next;
+    policy.refreshConfiguration();
+    expect(old.closed, false);
+    stream.add(answer);
+    await stream.close();
+    await inFlight;
+    expect(policy.sessionTokens, 5);
+    expect(old.closed, false);
+    await request(main).drain<void>();
+    expect(old.closed, true);
+    expect(next.calls, 1);
+    expect(policy.sessionTokens, 10);
+  });
+
+  test('failed configuration refresh reports a stream error without hanging',
+      () async {
+    var fail = false;
+    final old = Stub(() => Stream.value(answer));
+    final policy = ProviderPolicyPlugin(targets: (_) {
+      if (fail) throw const FormatException('invalid generation');
+      return [target('same', old)];
+    });
+    addTearDown(policy.closeSession);
+    final main = policy.mainProvider('x');
+    fail = true;
+    policy.refreshConfiguration();
+    expect(await request(main).toList(), contains(isA<StreamError>()));
+    expect(old.closed, false);
+  });
+
   for (final succeed in [true, false]) {
     test(
         'reasoning-only output limit retries once, books both attempts, success=$succeed',

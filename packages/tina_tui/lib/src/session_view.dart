@@ -67,6 +67,7 @@ final class SessionView implements ConsoleSessionView {
     _settings = SettingsPanel(context.screen, context.input);
     session.assembly.openSettings = () => context.interact(() async {
           final saved = await _settings!.run(
+              applyGeneration: session.assembly.applySavedGeneration,
               path: session.assembly.configPath,
               sections: context.settings,
               descriptors: session.assembly.descriptors,
@@ -77,7 +78,7 @@ final class SessionView implements ConsoleSessionView {
               pluginSettings: session.assembly.pluginSettings,
               pluginManager: session.assembly.pluginManager);
           notice(saved
-              ? 'Settings saved. Changes apply on next launch.'
+              ? 'Settings saved. Generation applies to the next request.'
               : 'Settings closed.');
           context.chat.repaint();
         });

@@ -38,7 +38,8 @@ enabled = []
   final escape = EscapeKey();
 
   Future<(bool, String)> drive(List<InputEvent> keys,
-      {List<ProviderDescriptor> providerDescriptors = descriptors}) async {
+      {List<ProviderDescriptor> providerDescriptors = descriptors,
+      void Function()? applyGeneration}) async {
     final io = FakeIo();
     final screen = fakeScreen(io);
     screen.resize(ScreenLayout.fromSize(40, 8, split: false));
@@ -57,6 +58,7 @@ enabled = []
     });
     try {
       final saved = await panel.run(
+          applyGeneration: applyGeneration,
           path: config.path,
           descriptors: providerDescriptors,
           pluginIds: ['tina/plans', 'tina/goals']);
@@ -155,14 +157,22 @@ enabled = []
 
   test('Enter saves the generation section without a second Save action',
       () async {
+    var applications = 0;
     final (saved, output) = await drive([
       CharInput('Generation'),
       enter,
       CharInput('16384'),
       enter,
       escape,
-    ]);
+    ], applyGeneration: () {
+      applications++;
+      final loaded =
+          loadTinaConfig(path: config.path, descriptors: descriptors).config;
+      expect(
+          generationFor(loaded, 'custom', 'original').maxOutputTokens, 16384);
+    });
     expect(saved, true);
+    expect(applications, 1);
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
     expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 16384);

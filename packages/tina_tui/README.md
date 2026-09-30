@@ -129,8 +129,10 @@ global plugin list and approval channel. Replacing the global list clears global
 per-ID overrides; workspace and session overrides remain independent. Credentials are masked. Save validates the draft, preserves
 unrelated legacy tables, detects external edits and atomically replaces the
 file with owner-only permissions on POSIX. TOML formatting/comments are
-normalized on save. Escape discards the draft. Changes apply on next launch;
-settings does not switch the active session or reload plugins.
+normalized on save. Escape discards the draft. Saved generation options apply
+to the next provider request, including subagent requests; an existing stream
+finishes with its original settings. Model selection and token spend are
+preserved. Default provider/model changes remain preferences for future launches.
 
 Provider pooling is rejected explicitly. Legacy rate limits, quotas, theme and
 reasoning settings are preserved on save but are not implemented by this editor

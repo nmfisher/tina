@@ -37,6 +37,11 @@ final class ProviderPolicyPlugin extends AgentPlugin implements ModelAccess {
   final _main = _Spend();
   final _global = _Spend();
   final _providers = <_PolicyProvider>{};
+  int _configurationRevision = 0;
+
+  /// Rebuild endpoint clients before their next request without losing spend
+  /// or interrupting an existing response. The targets callback reads config.
+  void refreshConfiguration() => _configurationRevision++;
 
   /// Reported provider spend, including calls in the current turn.
   int get sessionTokens => _main.total;
@@ -150,6 +155,7 @@ final class _Spend {
 final class _PolicyProvider extends LlmProvider {
   _PolicyProvider(
       super.model, this.policy, this.targets, this.spend, this.child) {
+    _configurationRevision = policy._configurationRevision;
     try {
       for (final target in targets) {
         _members.putIfAbsent(target.id, target.create);
@@ -162,12 +168,39 @@ final class _PolicyProvider extends LlmProvider {
     }
   }
   final ProviderPolicyPlugin policy;
-  final List<ProviderTarget> targets;
+  List<ProviderTarget> targets;
+  late int _configurationRevision;
   final _Spend spend;
   final bool child;
   final _members = <String, LlmProvider>{};
   final _cancellations = <void Function()>{};
   bool _closed = false;
+
+  void _refreshConfiguration() {
+    if (_configurationRevision == policy._configurationRevision ||
+        _cancellations.length > 1) return;
+    final nextTargets = policy.targets(model);
+    if (nextTargets.isEmpty) throw StateError('provider pool has no members');
+    final nextMembers = <String, LlmProvider>{};
+    try {
+      for (final target in nextTargets) {
+        nextMembers.putIfAbsent(target.id, target.create);
+      }
+    } catch (_) {
+      for (final member in nextMembers.values) {
+        member.close();
+      }
+      rethrow;
+    }
+    for (final member in _members.values) {
+      member.close();
+    }
+    _members
+      ..clear()
+      ..addAll(nextMembers);
+    targets = nextTargets;
+    _configurationRevision = policy._configurationRevision;
+  }
 
   @override
   Stream<StreamEvent> send(
@@ -195,23 +228,27 @@ final class _PolicyProvider extends LlmProvider {
 
     late StreamController<StreamEvent> output;
     Future<void> run() async {
-      final estimate = (utf8
-                  .encode(jsonEncode([
-                    system,
-                    messages.map((m) => m.toJson()).toList(),
-                    tools
-                        .map((t) => [t.name, t.description, t.inputSchema])
-                        .toList()
-                  ]))
-                  .length /
-              4)
-          .ceil();
-      final start = policy._rotation++ % targets.length;
-      // At most one extra attempt for a response that produced only reasoning.
-      var recovered = false;
-      var recoveryInstruction = '';
-      var attempts = targets.length;
       try {
+        // A running stream keeps its original clients; subsequent requests pick
+        // up saved configuration, including requests within a multi-step turn.
+        _refreshConfiguration();
+        final targets = this.targets;
+        final estimate = (utf8
+                    .encode(jsonEncode([
+                      system,
+                      messages.map((m) => m.toJson()).toList(),
+                      tools
+                          .map((t) => [t.name, t.description, t.inputSchema])
+                          .toList()
+                    ]))
+                    .length /
+                4)
+            .ceil();
+        final start = policy._rotation++ % targets.length;
+        // At most one extra attempt for a response that produced only reasoning.
+        var recovered = false;
+        var recoveryInstruction = '';
+        var attempts = targets.length;
         for (var attempt = 0; attempt < attempts && live; attempt++) {
           final target = targets[(start + attempt) % targets.length];
           final gate = policy._gates.putIfAbsent(

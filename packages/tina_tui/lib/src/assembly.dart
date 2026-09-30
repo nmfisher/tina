@@ -150,6 +150,7 @@ final class TuiAssembly {
     required this.pluginSettings,
     required this.pluginManager,
     required this.newSession,
+    required this.applySavedGeneration,
   }) : commands = host.commands;
 
   final Host host;
@@ -159,6 +160,7 @@ final class TuiAssembly {
   final List<ProviderDescriptor> descriptors;
   final void Function(Iterable<String>) validatePlugins;
   Future<void> Function()? openSettings;
+  final void Function() applySavedGeneration;
 
   /// Tools expose mode/status to the frontend; approvals are loader-injected.
   final ToolsPlugin tools;
@@ -199,7 +201,7 @@ final class TuiAssembly {
     // A malformed config must not silently re-enable persistence or other
     // defaults the user may have explicitly disabled.
     if (config is TinaConfigProblem) throw FormatException(config.problem);
-    final resolved = config.config;
+    var resolved = config.config;
     var model = options.model ??
         (providerFactory == null
             ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
@@ -213,7 +215,8 @@ final class TuiAssembly {
       workspaceRoot: workingDirectory,
       tinaDir: Directory('$workingDirectory/.tina'),
     );
-    final policy = configuredPolicy(resolved, override: providerFactory);
+    final policy = configuredPolicy(resolved,
+        override: providerFactory, currentConfig: () => resolved);
     final registry = firstPartyPlugins();
     registerPlugins?.call(registry);
     final pluginSettings = PluginSettings<TuiPluginContext>(
@@ -312,6 +315,35 @@ final class TuiAssembly {
       pluginSettings: pluginSettings,
       pluginManager:
           PluginManager(host: host, registry: registry, context: context),
+      applySavedGeneration: () {
+        final saved =
+            loadTinaConfig(path: options.configPath, descriptors: descriptors);
+        if (saved is TinaConfigProblem) throw FormatException(saved.problem);
+        // Keep launch-time routing, credentials and limits. Only generation
+        // options are reloaded into this session; default model changes remain
+        // preferences for future sessions.
+        final next = saved.config;
+        resolved = TinaConfig(
+            model: resolved.model,
+            providerId: resolved.providerId,
+            limits: resolved.limits,
+            theme: resolved.theme,
+            plugins: resolved.plugins,
+            approvalChannel: resolved.approvalChannel,
+            descriptors: resolved.descriptors,
+            maxOutputTokens: next.maxOutputTokens,
+            reasoningEffort: next.reasoningEffort,
+            thinkingBudget: next.thinkingBudget,
+            providers: {
+              for (final id in {
+                ...resolved.providers.keys,
+                ...next.providers.keys
+              })
+                id: (resolved.providers[id] ?? const ProviderSettings())
+                    .withGeneration(next.providers[id]),
+            });
+        policy.refreshConfiguration();
+      },
       newSession: (model) => TuiAssembly.start(
           writer: writer,
           providerFactory: providerFactory,
