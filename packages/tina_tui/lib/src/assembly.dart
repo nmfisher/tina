@@ -56,6 +56,7 @@ final class AssemblyOptions {
     this.workingDirectory,
     this.storePath,
     this.sessionId,
+    this.onRestart,
     this.plugins,
     this.approvalChannel,
     this.version = '0.0.0',
@@ -75,6 +76,8 @@ final class AssemblyOptions {
   /// Resume this session id instead of starting fresh. Requires persistence;
   /// [storePath] is optional. New entries continue the restored log.
   final String? sessionId;
+
+  final void Function(String bundleRoot, String? sessionId)? onRestart;
 
   /// Embedding override; otherwise the global config selects feature plugins.
   final List<String>? plugins;
@@ -260,6 +263,18 @@ final class TuiAssembly {
       providerPolicy: policy,
       limits: resolved.limits,
       version: options.version,
+      restart: options.onRestart == null
+          ? null
+          : (root) {
+              final current = assembled!;
+              final saved = current.host.plugins
+                  .whereType<PersistencePlugin>()
+                  .any((plugin) => plugin.store
+                      .list()
+                      .any((row) => row.id == current.host.session.id));
+              options.onRestart!(root, saved ? current.host.session.id : null);
+              current._quit = true;
+            },
       model: model,
       currentModel: () => assembled?.host.model ?? model,
       switchModel: (next) => assembled!.host.switchModel(providerFactory == null
@@ -364,6 +379,7 @@ final class TuiAssembly {
           registerPlugins: registerPlugins,
           options: AssemblyOptions(
               configPath: options.configPath,
+              onRestart: options.onRestart,
               workingDirectory: workingDirectory,
               storePath: options.storePath,
               plugins: pluginSettings.features,

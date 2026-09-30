@@ -32,6 +32,7 @@ final class TuiPluginContext {
     this.modelNames = const {},
     this.openStore,
     this.version = '0.0.0',
+    this.restart,
     this.providerPolicy,
     required this.configPath,
     this.limits = const RequestLimits(),
@@ -39,6 +40,7 @@ final class TuiPluginContext {
   final String workingDirectory;
   final String configPath;
   final String version;
+  final void Function(String)? restart;
   final ProviderPolicyPlugin? providerPolicy;
   final RequestLimits limits;
   final Terminal terminal;
@@ -106,7 +108,9 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         grokGuardDefinition<TuiPluginContext>(),
         updateTuiDefinition<TuiPluginContext>(),
         updateDefinition<TuiPluginContext>(
-            version: (c) => c.version, terminal: (c) => c.terminal),
+            version: (c) => c.version,
+            terminal: (c) => c.terminal,
+            restart: (c) => c.restart),
         approvalsDefinition<TuiPluginContext>(),
         approvalTuiDefinition<TuiPluginContext>(),
         PluginDefinition<TuiPluginContext>(

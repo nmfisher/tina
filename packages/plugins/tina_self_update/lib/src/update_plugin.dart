@@ -10,6 +10,7 @@ import 'update_status.dart';
 PluginDefinition<C> updateDefinition<C>({
   required String Function(C) version,
   required Terminal Function(C) terminal,
+  void Function(String)? Function(C)? restart,
 }) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/update',
         dependency: approvalRequester,
@@ -17,7 +18,8 @@ PluginDefinition<C> updateDefinition<C>({
         create: (context, approvals) => UpdatePlugin(
             currentVersion: version(context),
             terminal: terminal(context),
-            approvals: approvals),
+            approvals: approvals,
+            restart: restart?.call(context)),
         description:
             'Checks for new releases and installs an update after approval.');
 
@@ -27,6 +29,7 @@ final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {
       {required this.currentVersion,
       required this.terminal,
       required this.approvals,
+      this.restart,
       ReleaseChecker? checker,
       bool? backgroundEnabled,
       Future<UpdatePrepareOutcome> Function(ReleaseInfo, void Function(String))?
@@ -41,6 +44,9 @@ final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {
   final String currentVersion;
   final Terminal terminal;
   final ApprovalRequester approvals;
+
+  /// The application closes its terminal and sessions before relaunching.
+  final void Function(String bundleRoot)? restart;
   final ReleaseChecker checker;
   final bool backgroundEnabled;
   final _changes = StreamController<void>.broadcast();
@@ -157,7 +163,17 @@ final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {
               terminal.writeln('Update cancelled.');
               return;
             }
-            await update.install(notice: terminal.writeln);
+            final result = await update.install(notice: terminal.writeln);
+            if (result == UpdateResult.success && !_closed && restart != null) {
+              final answer = await approvals.request(
+                  operation: 'Restart tina?',
+                  target: update.bundleRoot,
+                  reason: 'Update installed successfully. Restart tina now?',
+                  kind: ApprovalKind.confirmation);
+              if (!_closed && answer == ApprovalDecision.allow) {
+                restart!(update.bundleRoot);
+              }
+            }
           } finally {
             update.discard();
           }

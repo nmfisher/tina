@@ -19,6 +19,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_mode/tina_mode.dart' show ModePlugin;
 import 'package:tina_tui/tina_tui.dart';
+import 'package:tina_self_update/tina_self_update.dart';
 
 /// A captured writer: every line the assembly said, joined.
 final class CapturedWriter implements AssemblyWriter {
@@ -54,6 +55,39 @@ final class CapturedWriter implements AssemblyWriter {
 }
 
 void main() {
+  test('restart handoff resumes saved activity and exits the requesting panel',
+      () async {
+    final ws = Directory.systemTemp.createTempSync('tina_restart_');
+    addTearDown(() => ws.deleteSync(recursive: true));
+    String? root;
+    String? id;
+    final app = TuiAssembly.start(
+        providerFactory: (_) => ScriptedProvider([scriptedReply('hello')]),
+        options: AssemblyOptions(
+          configPath: '/nonexistent/tina/config',
+          workingDirectory: ws.path,
+          onRestart: (bundle, session) {
+            root = bundle;
+            id = session;
+          },
+        ));
+    addTearDown(app.close);
+    app.host.plugins.whereType<UpdatePlugin>().single.restart!('/new/bundle');
+    expect(root, '/new/bundle');
+    expect(id, isNull, reason: 'empty sessions must not be resumed');
+    expect(app.quitRequested, isTrue);
+    final panel = app.newSession(null);
+    addTearDown(panel.close);
+    await panel.host.send('hello');
+    panel.host.plugins
+        .whereType<UpdatePlugin>()
+        .single
+        .restart!('/updated/bundle');
+    expect(root, '/updated/bundle');
+    expect(id, panel.host.session.id);
+    expect(panel.quitRequested, isTrue);
+  });
+
   group('headless by construction', () {
     test('a session assembles without a physical terminal and runs a full turn',
         () async {

@@ -467,17 +467,25 @@ void main() {
     expect(lines.join(), contains('unsafe path or entry type'));
     expect(outside.readAsStringSync(), 'keep');
   });
-  for (final decision in [ApprovalDecision.allow, ApprovalDecision.deny]) {
-    test('update plugin prepares before approval and cleans up after $decision',
+  for (final (decision, restartAnswer) in [
+    (ApprovalDecision.allow, ApprovalDecision.allow),
+    (ApprovalDecision.allow, ApprovalDecision.deny),
+    (ApprovalDecision.deny, ApprovalDecision.deny),
+  ]) {
+    test(
+        'update prepares and cleans up after $decision, restart $restartAnswer',
         () async {
       final installed = buildInstalledBundle('old');
       final fixture = buildArchive('new');
       final work = p.join(scratch!.path, 'work');
       final terminal = _Terminal();
       var asked = false;
+      var restartAsked = false;
+      String? restarted;
       final release = releaseFor('asset', checksumUrl: 'checksum');
       final plugin = UpdatePlugin(
           currentVersion: '1.0.0',
+          restart: (root) => restarted = root,
           terminal: terminal,
           checker: _Checker(release),
           prepare: (release, notice) => prepareUpdate(release,
@@ -488,6 +496,14 @@ void main() {
               workDirOverride: work,
               archiveSupplier: () async => fixture.archive),
           approvals: _Approvals((operation, target) {
+            if (operation == 'Restart tina?') {
+              restartAsked = true;
+              expect(
+                  File(p.join(installed.path, 'bin', 'tina'))
+                      .readAsStringSync(),
+                  'new');
+              return restartAnswer;
+            }
             asked = true;
             expect(operation, 'install update');
             expect(target, installed.path);
@@ -506,6 +522,13 @@ void main() {
       expect(Directory(work).existsSync(), false);
       await plugin.commands.single.handler('install');
       expect(asked, true);
+      expect(restartAsked, decision == ApprovalDecision.allow);
+      expect(
+          restarted,
+          decision == ApprovalDecision.allow &&
+                  restartAnswer == ApprovalDecision.allow
+              ? installed.path
+              : null);
       expect(Directory(work).existsSync(), false);
       expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(),
           decision == ApprovalDecision.allow ? 'new' : 'old');
@@ -579,11 +602,18 @@ class _Approvals implements ApprovalRequester {
   final ApprovalDecision Function(String, String) answer;
   @override
   Future<ApprovalDecision> request(
-          {required String operation,
-          required String target,
-          required String reason,
-          ApprovalKind kind = ApprovalKind.permission, Map<String, Object?> details = const {}}) async =>
-      answer(operation, target);
+      {required String operation,
+      required String target,
+      required String reason,
+      ApprovalKind kind = ApprovalKind.permission,
+      Map<String, Object?> details = const {}}) async {
+    expect(
+        kind,
+        operation == 'Restart tina?'
+            ? ApprovalKind.confirmation
+            : ApprovalKind.permission);
+    return answer(operation, target);
+  }
 }
 
 class _Checker extends ReleaseChecker {

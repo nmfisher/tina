@@ -225,6 +225,8 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
       return 0;
     }
     // Assemble the session with a buffered terminal shared by its plugins.
+    String? restartRoot;
+    String? restartSession;
     final assembly = TuiAssembly.start(
       options: AssemblyOptions(
         configPath: configPath,
@@ -234,6 +236,12 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         sessionId: sessionId,
         model: model,
         approvalChannel: headless ? 'tina/approvals-stream' : null,
+        onRestart: headless
+            ? null
+            : (root, id) {
+                restartRoot = root;
+                restartSession = id;
+              },
       ),
     );
 
@@ -301,7 +309,21 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
 
     // Attach the renderer and approval dialog to the assembled session.
     final session = TuiSession.wrap(assembly);
-    return await runApp(session);
+    final result = await runApp(session);
+    if (restartRoot == null) return result;
+    // runApp has flushed session stores and restored terminal modes.
+    final child = await Process.start(
+        '$restartRoot/bin/tina',
+        [
+          '--cwd',
+          workingDirectory,
+          '--config',
+          path,
+          if (storePath != null) ...['--store', storePath],
+          if (restartSession != null) ...['--resume', restartSession!],
+        ],
+        mode: ProcessStartMode.inheritStdio);
+    return await child.exitCode;
   } catch (e) {
     stderr.writeln('tina: $e');
     return 66;
