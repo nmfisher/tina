@@ -46,6 +46,7 @@ final class ProcessJobs implements ProcessRunner {
     _jobs[job.id] = job;
     job.done = Future.sync(() => inner.run(request,
         control: ProcessControl(
+          networkAllowed: control?.networkAllowed ?? false,
           isCancelled: () => job.cancel.isCompleted,
           whenCancelled: job.cancel.future,
           onStarted: () {

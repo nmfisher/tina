@@ -37,6 +37,43 @@ class ScriptedRunner implements ProcessRunner {
 }
 
 void main() {
+  test('approved networking keeps filesystem restrictions for both backends',
+      () async {
+    for (final backend in [SandboxBackend.sandboxExec, SandboxBackend.bwrap]) {
+      final inner = ScriptedRunner();
+      final runner = OsSandboxRunner(
+          inner: inner,
+          plan: const SandboxPlan(workspaceRoot: '/project'),
+          backend: backend);
+      final request = (
+        command: 'git',
+        arguments: ['push', 'origin'],
+        workingDirectory: '/project',
+        environment: null,
+        stdin: null,
+        timeout: null
+      );
+      await runner.run(request,
+          control: const ProcessControl(networkAllowed: true));
+      final args = inner.starts.last.arguments;
+      if (backend == SandboxBackend.sandboxExec) {
+        expect(args[1], isNot(contains('(deny network*)')));
+        expect(args[1], contains('(deny file-write*)'));
+        expect(args[1], contains('(subpath "/project")'));
+      } else {
+        expect(args, isNot(contains('--unshare-net')));
+        expect(args, contains('--ro-bind'));
+        expect(args, contains('--bind'));
+      }
+      await runner.run(request);
+      if (backend == SandboxBackend.sandboxExec) {
+        expect(inner.starts.last.arguments[1], contains('(deny network*)'));
+      } else {
+        expect(inner.starts.last.arguments, contains('--unshare-net'));
+      }
+    }
+  });
+
   group('classifySandboxFailure', () {
     const writable = ['/work/proj', '/tmp'];
     final mounted = [...writable, '/usr', '/bin', '/etc'];

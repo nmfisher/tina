@@ -91,11 +91,13 @@ abstract class ProcessRunner {
 /// permission and OS sandbox wrappers. No loop or terminal dependency.
 final class ProcessControl {
   const ProcessControl(
-      {this.isCancelled,
+      {this.networkAllowed = false,
+      this.isCancelled,
       this.whenCancelled,
       this.onOutput,
       this.whenInputPending,
       this.onStarted});
+  final bool networkAllowed;
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;

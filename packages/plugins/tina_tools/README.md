@@ -58,12 +58,20 @@ OS confinement separately.
 They are two tools on purpose, not one tool with a mode flag: the
 signatures say what each can and cannot do.
 
+## Network access
+
+`exec` and `bash` accept `network: true` with a required `network_reason`.
+The mode plugin requests explicit Yes/No confirmation, including in auto mode.
+Only that invocation gets network access; filesystem restrictions remain active.
+Declining starts no process. There is no automatic retry: retrying executes the
+entire command again. Without the flag, the default network policy applies.
+
 ## Refusals are results, not exceptions
 
 Both tools convert a refusal (`SandboxViolation` / `CommandRefused`) into
 `ToolResult.error(reason)` — an ordinary error result the model reads for
-that call. A **non-zero exit is not a refusal**: it is a completed run, and
-the model sees the exit code and output exactly as it would from a failing
+that call. A **non-zero exit is not a refusal**: it is a completed run marked as a failed
+tool result, and the model sees its exit code and output as for a failing
 build.
 
 ## OS confinement and process lifecycle

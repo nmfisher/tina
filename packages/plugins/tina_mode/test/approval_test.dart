@@ -47,6 +47,42 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 
 void main() {
   test(
+    'network confirmation bypasses the auto classifier and respects read-only',
+    () async {
+      final human = Human();
+      final judge = Judge(Future.value(const PermissionJudgment(true)));
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: judge,
+      );
+      expect(
+        await mode.request(
+          operation: 'network',
+          target: 'git push',
+          reason: 'push',
+          humanOnly: true,
+        ),
+        ApprovalDecision.allow,
+      );
+      expect(human.calls, 1);
+      expect(judge.calls, 0);
+      mode.mode = PermissionMode.readOnly;
+      expect(
+        await mode.request(
+          operation: 'network',
+          target: 'git push',
+          reason: 'push',
+          humanOnly: true,
+        ),
+        ApprovalDecision.deny,
+      );
+      expect(human.calls, 1);
+      mode.closeSession();
+    },
+  );
+
+  test(
     'late always approval after cancellation is denied and not cached',
     () async {
       final token = CancelToken();

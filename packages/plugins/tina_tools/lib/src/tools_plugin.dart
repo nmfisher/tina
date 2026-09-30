@@ -19,6 +19,7 @@ library;
 import 'dart:io';
 import 'dart:async';
 
+import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 
@@ -88,13 +89,31 @@ final class ToolsPlugin extends AgentPlugin
       EditTool(fs: sandbox, workspaceRoot: workspaceRoot),
       GlobTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       StatTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
-      BashTool(runner: processJobs, workingDirectory: workspaceRoot),
-      ExecTool(runner: processJobs, workingDirectory: workspaceRoot),
+      BashTool(
+          runner: processJobs,
+          workingDirectory: workspaceRoot,
+          approveNetwork: _approveNetwork),
+      ExecTool(
+          runner: processJobs,
+          workingDirectory: workspaceRoot,
+          approveNetwork: _approveNetwork),
       ProcessJobTool(processJobs),
     ];
     workingDirectory = workspaceRoot;
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode);
+  }
+
+  Future<bool> _approveNetwork(ProcessRequest request, String reason) async {
+    final answer = await modePolicy.request(
+      operation: 'Allow network access?',
+      target: [request.command, ...request.arguments].join(' '),
+      reason:
+          '$reason\nCommand: ${request.command} ${request.arguments}\nDirectory: ${request.workingDirectory ?? workingDirectory}\nAllow network for this command once? Filesystem confinement remains active. A retry reruns the entire command.',
+      humanOnly: true,
+      context: {'cwd': request.workingDirectory},
+    );
+    return answer == ApprovalDecision.allow;
   }
 
   /// The one configuration behind both the OS layout and the gate's
@@ -212,5 +231,8 @@ final class HostPromptSection {
       'and sh wrappers whenever possible; do not use exec to invoke sh -c '
       'or bash -c as a workaround. Use bash only when shell features such as '
       'pipes, redirects or expansions are actually required. Exec passes options '
-      'and subcommands unchanged; it does not perform shell quoting or expansion.';
+      'and subcommands unchanged; it does not perform shell quoting or expansion. '
+      'For commands requiring network access, set network: true and network_reason '
+      'on exec or bash to request explicit user approval. This keeps the filesystem '
+      'sandbox active; do not claim the user must run the command manually.';
 }

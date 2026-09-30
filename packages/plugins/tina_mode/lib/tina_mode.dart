@@ -128,6 +128,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     required String target,
     required String reason,
     Map<String, Object?> context = const {},
+    bool humanOnly = false,
   }) async {
     final turn = _turn;
     bool invalid() =>
@@ -141,7 +142,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
       return _callApprovals[operation]!;
     }
     String? autoFallback;
-    if (mode == PermissionMode.auto) {
+    if (mode == PermissionMode.auto && !humanOnly) {
       final judge = classifier;
       final result = judge == null
           ? const PermissionJudgment(null, 'not configured')
@@ -180,6 +181,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
         await approvals?.request(
           operation: operation,
           target: target,
+          kind: humanOnly ? ApprovalKind.confirmation : ApprovalKind.permission,
           reason: autoFallback == null
               ? reason
               : 'Auto approval: $autoFallback. $reason',

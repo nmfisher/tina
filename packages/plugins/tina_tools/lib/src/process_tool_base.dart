@@ -23,6 +23,9 @@ abstract class ProcessToolBase implements Tool {
   /// runner; the tool has none.
   ProcessRunner get runner;
 
+  Future<bool> Function(ProcessRequest request, String reason)?
+      get approveNetwork => null;
+
   @override
   Future<ToolResult> execute(Map<String, dynamic> input,
       {ProcessControl? control});
@@ -31,7 +34,31 @@ abstract class ProcessToolBase implements Tool {
 
   /// Run one request and shape the outcome for the model.
   Future<ToolResult> runRequest(ProcessRequest request,
-      {ProcessControl? control}) async {
+      {ProcessControl? control, Map<String, dynamic> input = const {}}) async {
+    bool network;
+    String reason;
+    try {
+      network = optionalBool(input, 'network') ?? false;
+      reason = network ? requiredString(input, 'network_reason') : '';
+    } on ToolValidationException catch (e) {
+      return ToolResult.error(e.message);
+    }
+    if (network) {
+      if (control?.isCancelled?.call() == true ||
+          await approveNetwork?.call(request, reason) != true ||
+          control?.isCancelled?.call() == true) {
+        return ToolResult.error(
+            'Network access denied; command was not started.');
+      }
+      control = ProcessControl(
+        networkAllowed: true,
+        isCancelled: control?.isCancelled,
+        whenCancelled: control?.whenCancelled,
+        whenInputPending: control?.whenInputPending,
+        onStarted: control?.onStarted,
+        onOutput: control?.onOutput,
+      );
+    }
     final watch = Stopwatch()..start();
     final outcome = await runner.run(request, control: control);
     watch.stop();
@@ -61,7 +88,7 @@ ToolResult processOutcomeResult(RunOutcome outcome, {Duration? elapsed}) {
       :final timedOut
     ) =>
       ToolResult(_report(exitCode, stdout, stderr),
-          isError: cancelled || timedOut,
+          isError: exitCode != 0 || cancelled || timedOut,
           elapsed: elapsed,
           timedOut: timedOut,
           emptyOutput: stdout.isEmpty && stderr.isEmpty),

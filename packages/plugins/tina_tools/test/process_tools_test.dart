@@ -55,7 +55,7 @@ void main() {
       expect(res.content, contains('command is required'));
     });
 
-    test('a non-zero exit is a normal result, not an error', () async {
+    test('nonzero exit is reported as a failed tool result', () async {
       final approver = _Approving();
       final tool = BashTool(
         runner: SandboxedProcessRunner(
@@ -65,7 +65,7 @@ void main() {
         ),
       );
       final res = await tool.execute({'command': 'false'});
-      expect(res.isError, isFalse, reason: 'a failing command is a result');
+      expect(res.isError, isTrue);
       expect(res.content, contains('exit code: 2'));
       expect(res.content, contains('boom'));
     });
@@ -86,6 +86,52 @@ void main() {
   });
 
   group('exec tool', () {
+    test('network is denied without an explicit approval and requires a reason',
+        () async {
+      final inner = _RecordingRunner(_done(0, '', ''));
+      final tool = ExecTool(runner: inner);
+      expect((await tool.execute({'program': 'git', 'network': true})).isError,
+          isTrue);
+      expect(
+          (await tool.execute({
+            'program': 'git',
+            'network': true,
+            'network_reason': 'push branch'
+          }))
+              .isError,
+          isTrue);
+      expect(inner.command, isNull);
+    });
+    test('network approval survives job ownership and applies to one call only',
+        () async {
+      final inner = _RecordingRunner(_done(0, '', ''));
+      final jobs = ProcessJobs(inner);
+      addTearDown(jobs.close);
+      var asks = 0;
+      final tool = ExecTool(
+          runner: jobs,
+          approveNetwork: (request, reason) async {
+            asks++;
+            expect(request.arguments, ['push', 'origin']);
+            expect(reason, 'push branch');
+            return true;
+          });
+      await tool.execute({
+        'program': 'git',
+        'args': ['push', 'origin'],
+        'network': true,
+        'network_reason': 'push branch'
+      });
+      expect(asks, 1);
+      expect(inner.receivedControl!.networkAllowed, isTrue);
+      await tool.execute({
+        'program': 'git',
+        'args': ['status']
+      });
+      expect(inner.receivedControl!.networkAllowed, isFalse);
+      expect(asks, 1);
+    });
+
     test('passes options, subcommands and explicit separators unchanged',
         () async {
       for (final args in [
@@ -225,6 +271,7 @@ CommandCompleted _done(int code, String out, String err) =>
 /// Records exactly what the tool handed the runner, then plays one outcome.
 final class _RecordingRunner implements ProcessRunner {
   CommandOutcome _next;
+  ProcessControl? receivedControl;
   String? command;
   List<String>? arguments;
   String? workingDirectory;
@@ -240,6 +287,7 @@ final class _RecordingRunner implements ProcessRunner {
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
+    receivedControl = control;
     command = request.command;
     arguments = List.of(request.arguments);
     workingDirectory = request.workingDirectory;

@@ -285,7 +285,8 @@ final class OsSandboxRunner implements ProcessRunner {
             workspaceRoot: plan.workspaceRoot,
             tinaDir: plan.tinaDir,
             writablePaths: plan.writablePaths,
-            isolateNetwork: plan.isolateNetwork,
+            isolateNetwork:
+                plan.isolateNetwork && !(control?.networkAllowed ?? false),
             childEnvironment: plan.childEnvironment,
           ),
         ),
@@ -295,7 +296,8 @@ final class OsSandboxRunner implements ProcessRunner {
             '-p',
             buildSeatbeltProfile(
               writablePaths: plan.writableLayout(),
-              isolateNetwork: plan.isolateNetwork,
+              isolateNetwork:
+                  plan.isolateNetwork && !(control?.networkAllowed ?? false),
             ),
           ],
         ),

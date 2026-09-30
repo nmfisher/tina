@@ -17,6 +17,67 @@ bool get _backendAvailable =>
     resolveSandboxBackend() != SandboxBackend.passThrough;
 
 void main() {
+  test(
+      'network approval reaches a local server while outside writes stay blocked',
+      tags: 'live-os-sandbox', () async {
+    if (!_backendAvailable) {
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    final root = Directory(Directory.systemTemp
+        .createTempSync('tina_network_')
+        .resolveSymbolicLinksSync());
+    addTearDown(() => root.deleteSync(recursive: true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) {
+      request.response.write('network works');
+      request.response.close();
+    });
+    final runner = OsSandboxRunner(
+        inner: const IoProcessRunner(),
+        plan: SandboxPlan(workspaceRoot: root.path));
+    final request = (
+      command: 'curl',
+      arguments: [
+        '--noproxy',
+        '*',
+        '--max-time',
+        '3',
+        '--fail',
+        '--silent',
+        'http://127.0.0.1:${server.port}'
+      ],
+      workingDirectory: root.path,
+      environment: null,
+      stdin: null,
+      timeout: null
+    );
+    final denied = await runner.run(request);
+    expect(
+        denied is CommandBlocked ||
+            denied is CommandCompleted && denied.exitCode != 0,
+        isTrue);
+    final allowed = await runner.run(request,
+        control: const ProcessControl(networkAllowed: true));
+    expect(allowed, isA<CommandCompleted>());
+    expect((allowed as CommandCompleted).exitCode, 0, reason: allowed.stderr);
+    expect(allowed.stdout, 'network works');
+    final outside = await runner.run((
+      command: 'touch',
+      arguments: ['/usr/share/tina-network-escape-probe'],
+      workingDirectory: root.path,
+      environment: null,
+      stdin: null,
+      timeout: null
+    ), control: const ProcessControl(networkAllowed: true));
+    expect(
+        outside is CommandBlocked ||
+            outside is CommandCompleted && outside.exitCode != 0,
+        isTrue);
+    expect(File('/usr/share/tina-network-escape-probe').existsSync(), isFalse);
+  });
+
   test('sandboxed git status and local fetch can write to /dev/null',
       tags: 'live-os-sandbox',
       timeout: const Timeout(Duration(minutes: 2)), () async {
