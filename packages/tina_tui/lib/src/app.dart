@@ -39,6 +39,7 @@ Future<int> runApp(
   // The editor owns the raw bytes; where its keys go is decided below.
   late final LineEditor editor =
       editorFor != null ? editorFor(s) : LineEditor(screen: s);
+  editor.restoreHistory(session.inputHistory);
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
   final settings = SettingsPanel(s, editor);
@@ -192,7 +193,10 @@ Future<int> runApp(
       editor.beginCancelMonitor(() {
         if (session.assembly.watchingTurn)
           session.host.session.loop.cancel('escape');
-      }, onQueueSubmit: queued.addLast, queueCount: queued.length);
+      }, onQueueSubmit: (text) {
+        if (text.trimLeft().startsWith('/') || !session.host.offerInput(text))
+          queued.addLast(text);
+      }, queueCount: queued.length);
       try {
         await session.runLine(line, renderReply: false);
       } finally {

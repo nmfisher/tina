@@ -28,6 +28,13 @@ sealed class RunOutcome {
   const RunOutcome();
 }
 
+/// The command continues under a session-owned job manager.
+final class CommandRunning extends RunOutcome {
+  const CommandRunning(this.id, this.output);
+  final String id;
+  final String output;
+}
+
 /// The command ran (through the wrapped runner) and finished. A **non-zero
 /// [exitCode] is a normal result, not a refusal** — the two must never be
 /// confused: the model sees `exit code` + output and decides what to do,
@@ -83,10 +90,17 @@ abstract class ProcessRunner {
 /// Cancellation and output for one invocation, forwarded unchanged through
 /// permission and OS sandbox wrappers. No loop or terminal dependency.
 final class ProcessControl {
-  const ProcessControl({this.isCancelled, this.whenCancelled, this.onOutput});
+  const ProcessControl(
+      {this.isCancelled,
+      this.whenCancelled,
+      this.onOutput,
+      this.whenInputPending,
+      this.onStarted});
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;
+  final Future<void>? whenInputPending;
+  final void Function()? onStarted;
 }
 
 /// Owns the spawned process until exit or cancellation cleanup has completed.
@@ -117,6 +131,7 @@ class IoProcessRunner implements ProcessRunner {
           exitCode: 127, stdout: '', stderr: e.message, note: 'spawn failed');
     }
     final out = _CapturedOutput();
+    control?.onStarted?.call();
     final err = _CapturedOutput();
     final drained = <Future<void>>[];
     final subscriptions = <StreamSubscription<String>>[];

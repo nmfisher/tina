@@ -223,15 +223,15 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
     }
   });
 
-  test('two panels run concurrently and queue only into the submitting session',
+  test('new input steers only the submitting session while another panel runs',
       () async {
-    await keys('first\rsecond\rmain draft');
+    await keys('first\r');
     await waitFor(() => providers.first.requests.length == 1);
+    await keys('second\rmain draft');
+    await waitFor(() => providers.first.requests.length == 2);
     await spawn('other');
     await keys('independent\rchild draft');
     await waitFor(() => providers.last.requests.length == 1);
-    providers.first.answer(0, 'main answer');
-    await waitFor(() => providers.first.requests.length == 2);
     expect(
         screen.chat.snapshotLines().join('\n'), isNot(contains('main answer')));
     expect(editor.editState.buffer, 'child draft');
@@ -239,7 +239,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
     providers.first.answer(1, 'main second answer');
     await keys('\x07\t\r');
     expect(editor.editState.buffer, 'main draft');
-    expect(screen.chat.snapshotLines().join('\n'), contains('main answer'));
+    expect(
+        screen.chat.snapshotLines().join('\n'), contains('main second answer'));
     expect(screen.chat.snapshotLines().join('\n'),
         isNot(contains('child answer')));
     expect(

@@ -232,6 +232,18 @@ request context through an append-only log event; budgets, mode and plugin state
 remain intact. The compaction plugin supplies `/compact`, preserving recent
 turns and storing its summary.
 
+Submitting a message while the agent is busy steers the active conversation.
+The loop closes an unfinished model response, preserves its text, pairs pending
+tool calls, and runs the new message through the normal input hooks before the
+next request. Process tools yield a job ID and partial output without killing
+the command. The tools plugin's `process` tool can inspect, wait for or cancel
+that job; waits also yield to new input. Other tools finish their current atomic
+operation before the new message is handled. Slash commands remain queued until
+the conversation is idle.
+
+Resume restores submitted messages into Up/Down editor recall, including those
+before compaction or `/clear`. Each panel keeps its own history and draft.
+
 `--model provider/model` selects a model at startup; `--models [provider]` lists
 models. `--prompt "text"` runs one turn without a TUI, and `--prompt -` reads stdin.
 These can use `--continue` or `--resume ID`. The final reply goes to stdout,

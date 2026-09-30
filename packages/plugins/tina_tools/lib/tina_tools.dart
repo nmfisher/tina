@@ -22,6 +22,7 @@ export 'package:tina_mode/tina_mode.dart';
 export 'src/os_sandbox_runner.dart';
 export 'src/permissions.dart';
 export 'src/process_runner.dart';
+export 'src/process_jobs.dart';
 export 'src/process_tool_base.dart';
 export 'src/read_tool.dart';
 export 'src/sandbox_failure.dart';

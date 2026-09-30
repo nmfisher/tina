@@ -37,6 +37,24 @@ final class TuiSession {
   /// The registry the command plugins published into.
   final Commands commands;
 
+  /// Raw submitted messages in transcript order, including inputs before
+  /// compaction or clear. Legacy logs without input records use user text.
+  List<String> get inputHistory {
+    final log = host.session.loop.log;
+    final recorded =
+        log.whereType<InputRecordedEntry>().map((e) => e.turnId).toSet();
+    return [
+      for (final entry in log)
+        if (entry is InputRecordedEntry && entry.text.isNotEmpty)
+          entry.text
+        else if (entry is MessageAppendedEntry &&
+            entry.message.role == Role.user &&
+            !recorded.contains(entry.turnId))
+          for (final block in entry.message.content.whereType<TextBlock>())
+            if (block.text.isNotEmpty) block.text,
+    ];
+  }
+
   /// The session's permission mode as the vocabulary's word — the status
   /// strip's label. The enum never leaves the tools package.
   String get modeWord {

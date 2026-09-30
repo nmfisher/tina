@@ -29,7 +29,7 @@
 library;
 
 import 'dart:async'
-    show FutureOr, StreamController, StreamSubscription, unawaited;
+    show Completer, FutureOr, StreamController, StreamSubscription, unawaited;
 import 'dart:collection';
 
 import 'package:tina_core/tina_core.dart';
@@ -231,8 +231,24 @@ final class AgentLoop {
   /// No-op when no call is in flight: the flag alone stops the turn at
   /// the next check.
   void cancel(String why) {
+    _inputs.clear();
     _cancel.cancel(why);
     _modelCall?.close();
+  }
+
+  final _inputs = Queue<Input>();
+  Completer<void> _inputPending = Completer<void>();
+
+  /// Accept input while work is running. Only the loop writes it to the log,
+  /// after pending tool calls are paired and before the next request.
+  bool offerInput(Input input) {
+    if (!_running || !_inTurn || _cancel.cancelled || input.text.trim().isEmpty)
+      return false;
+    _inputs.add(input);
+    if (!_inputPending.isCompleted) _inputPending.complete();
+    final call = _modelCall;
+    if (call != null && !call.isClosed) unawaited(call.close());
+    return true;
   }
 
   /// The model call in flight, when one is — [cancel] closes it so the
@@ -480,15 +496,28 @@ final class AgentLoop {
       ].join('\n\n');
 
   /// The five steps of one turn, in order, in one pass.
-  Future<Outcome> runTurn(Input raw) async {
+  Future<Outcome> runTurn(Input raw,
+      {void Function(Outcome)? onOutcome}) async {
     if (_running) throw StateError('a turn is already running');
     _running = true;
     try {
-      return await _runTurn(raw);
+      var outcome = await _runTurn(raw);
+      onOutcome?.call(outcome);
+      while (_inputs.isNotEmpty) {
+        final next = _inputs.removeFirst();
+        _inputPending = Completer<void>();
+        if (_inputs.isNotEmpty) _inputPending.complete();
+        _cancel = CancelToken();
+        outcome = await _runTurn(next);
+        onOutcome?.call(outcome);
+      }
+      return outcome;
     } finally {
       _running = false;
       _inTurn = false;
       _cancel = CancelToken();
+      _inputs.clear();
+      _inputPending = Completer<void>();
     }
   }
 
@@ -605,6 +634,9 @@ final class AgentLoop {
       // cancelled, or a plugin requests termination.
       // ------------------------------------------------------------------
       while (true) {
+        if (_inputs.isNotEmpty) {
+          return finish(StopReason.cancelled, 'continuing with new input');
+        }
         if (_cancel.cancelled) {
           return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
         }
@@ -625,6 +657,8 @@ final class AgentLoop {
         // sent and the turn ends as an error before the provider call.
         ctx = await _phase(
             ctx, 'beforeModelCall', (p, c) => p.beforeModelCall(c));
+        if (_inputs.isNotEmpty)
+          return finish(StopReason.cancelled, 'continuing with new input');
         if (_cancel.cancelled)
           return finish(StopReason.cancelled, _cancel.reason);
         var request = Request(
@@ -749,6 +783,13 @@ final class AgentLoop {
           recordPartialText();
           return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
         }
+        if (_inputs.isNotEmpty) {
+          if (completion == null) {
+            recordPartialText();
+            return finish(StopReason.cancelled, 'continuing with new input');
+          }
+          // A completed response's tool calls still need paired results below.
+        }
         if (failure != null) {
           recordPartialText();
           return finish(StopReason.error, 'provider error: ${failure.error}');
@@ -793,6 +834,8 @@ final class AgentLoop {
         appended.add(reply);
         responses.add(reply);
         if (toolCalls.isEmpty) {
+          if (_inputs.isNotEmpty)
+            return finish(StopReason.cancelled, 'continuing with new input');
           return finish(StopReason.complete, replyText);
         }
 
@@ -809,7 +852,10 @@ final class AgentLoop {
         var dispatchStopped = false;
         for (final call in toolCalls) {
           ToolResult result;
-          if (dispatchStopped) {
+          if (_inputs.isNotEmpty) {
+            result = ToolResult('not executed: new user input received',
+                isError: true);
+          } else if (dispatchStopped) {
             result = ToolResult(
                 'not dispatched: an earlier call in this response stopped '
                 'dispatch',
@@ -854,6 +900,9 @@ final class AgentLoop {
                 if (_cancel.cancelled) {
                   result =
                       ToolResult('cancelled: ${_cancel.reason}', isError: true);
+                } else if (_inputs.isNotEmpty) {
+                  result = ToolResult('not executed: new user input received',
+                      isError: true);
                 } else if (deniedBy != null) {
                   result = decision.replacement ??
                       ToolResult('denied by $deniedBy: ${decision.reason}',
@@ -871,6 +920,7 @@ final class AgentLoop {
                         ToolExecutionContext(
                           isCancelled: () => cancel.cancelled,
                           whenCancelled: cancel.whenCancelled,
+                          whenInputPending: _inputPending.future,
                           progress: (status) {
                             if (active &&
                                 !cancel.cancelled &&

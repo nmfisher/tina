@@ -193,6 +193,12 @@ final class Host {
   }
 
   String get model => context.model!;
+  int _nextInput = 0;
+
+  bool offerInput(String text) =>
+      !_closed &&
+      session.loop.offerInput(
+          Input(text, id: 't-${session.loop.seq}-input-${++_nextInput}'));
 
   void switchModel(String model) {
     _checkIdle();
@@ -205,9 +211,9 @@ final class Host {
 
   Future<Outcome> send(String text, {String? turnId}) async {
     if (_closed) throw StateError('host is closed');
-    final outcome = await session.loop
-        .runTurn(Input(text, id: turnId ?? 't-${session.loop.seq}'));
-    session.turns.add(outcome);
+    final outcome = await session.loop.runTurn(
+        Input(text, id: turnId ?? 't-${session.loop.seq}'),
+        onOutcome: session.turns.add);
     context.notifyChanged();
     onIdle?.call();
     return outcome;

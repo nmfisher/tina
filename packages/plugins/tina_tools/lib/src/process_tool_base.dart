@@ -35,33 +35,7 @@ abstract class ProcessToolBase implements Tool {
     final watch = Stopwatch()..start();
     final outcome = await runner.run(request, control: control);
     watch.stop();
-    return switch (outcome) {
-      CommandRefused(:final reason) => ToolResult.error(reason),
-      CommandBlocked(:final reason) => ToolResult.error(reason),
-      CommandCompleted(
-        :final exitCode,
-        :final stdout,
-        :final stderr,
-        :final cancelled,
-        :final timedOut
-      ) =>
-        ToolResult(_report(exitCode, stdout, stderr),
-            isError: cancelled || timedOut,
-            elapsed: watch.elapsed,
-            timedOut: timedOut,
-            emptyOutput: stdout.isEmpty && stderr.isEmpty),
-    };
-  }
-
-  String _report(int exitCode, String stdout, String stderr) {
-    final buf = StringBuffer('exit code: $exitCode');
-    if (stdout.trim().isNotEmpty) {
-      buf.write('\n--- stdout ---\n${stdout.trim()}');
-    }
-    if (stderr.trim().isNotEmpty) {
-      buf.write('\n--- stderr ---\n${stderr.trim()}');
-    }
-    return buf.toString();
+    return processOutcomeResult(outcome, elapsed: watch.elapsed);
   }
 
   /// Shared input validation: an optional timeout in seconds.
@@ -69,4 +43,38 @@ abstract class ProcessToolBase implements Tool {
     final secs = optionalInt(input, 'timeout');
     return secs == null ? null : Duration(seconds: secs);
   }
+}
+
+ToolResult processOutcomeResult(RunOutcome outcome, {Duration? elapsed}) {
+  return switch (outcome) {
+    CommandRunning(:final id, :final output) => ToolResult(
+        'Process is still running. Job ID: $id. Use process with job_id and '
+        'action status/wait/cancel; do not restart this command.\n$output',
+        elapsed: elapsed),
+    CommandRefused(:final reason) => ToolResult.error(reason),
+    CommandBlocked(:final reason) => ToolResult.error(reason),
+    CommandCompleted(
+      :final exitCode,
+      :final stdout,
+      :final stderr,
+      :final cancelled,
+      :final timedOut
+    ) =>
+      ToolResult(_report(exitCode, stdout, stderr),
+          isError: cancelled || timedOut,
+          elapsed: elapsed,
+          timedOut: timedOut,
+          emptyOutput: stdout.isEmpty && stderr.isEmpty),
+  };
+}
+
+String _report(int exitCode, String stdout, String stderr) {
+  final buf = StringBuffer('exit code: $exitCode');
+  if (stdout.trim().isNotEmpty) {
+    buf.write('\n--- stdout ---\n${stdout.trim()}');
+  }
+  if (stderr.trim().isNotEmpty) {
+    buf.write('\n--- stderr ---\n${stderr.trim()}');
+  }
+  return buf.toString();
 }

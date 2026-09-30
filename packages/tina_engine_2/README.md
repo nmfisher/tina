@@ -38,7 +38,7 @@ Everything else in this file follows from those two lines.
 ## The loop, in five steps
 
 ```
-1. take one input (from the caller, or a queue the caller supplies)
+1. take one input (from the caller, or the loop's input inbox)
 2. build the request (joined prompt sections + history + pinned tools)
 3. call the provider
 4. run the tool calls it asked for

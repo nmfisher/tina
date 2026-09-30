@@ -7,7 +7,8 @@ import 'tui_session.dart';
 
 /// Adapts a session to UI capabilities. The workspace plugin never imports
 /// this application or constructs an engine, provider, or persistence store.
-final class SessionView implements ConsoleSessionView {
+final class SessionView
+    implements ConsoleSessionView, ConsoleInputReceiver, ConsoleInputHistory {
   SessionView(this.session, {this.showConfig = false});
   final TuiSession session;
   final bool showConfig;
@@ -18,6 +19,8 @@ final class SessionView implements ConsoleSessionView {
   String get id => session.host.session.id;
   @override
   String get label => session.host.model;
+  @override
+  Iterable<String> get inputHistory => session.inputHistory;
   @override
   bool get quitRequested => session.assembly.quitRequested;
   @override
@@ -30,6 +33,9 @@ final class SessionView implements ConsoleSessionView {
   Future<void> submit(String text) async {
     await session.runLine(text, renderReply: false);
   }
+
+  @override
+  bool offerInput(String text) => session.host.offerInput(text);
 
   @override
   void cancel() => session.host.session.loop.cancel('escape');

@@ -1,6 +1,16 @@
 import 'console_contribution.dart';
 import 'package:fuzzy_ranker/fuzzy_ranker.dart';
 
+/// Optional delivery of new input to a busy conversation. UI code has no
+/// knowledge of its loop, tools or provider.
+abstract interface class ConsoleInputReceiver {
+  bool offerInput(String text);
+}
+
+abstract interface class ConsoleInputHistory {
+  Iterable<String> get inputHistory;
+}
+
 /// A conversation presented by a frontend. Session construction and execution
 /// stay with the application; panel layout has no engine or provider knowledge.
 abstract interface class ConsoleSessionView implements ConsoleContribution {

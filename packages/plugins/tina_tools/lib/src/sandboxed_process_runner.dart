@@ -240,6 +240,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
               timedOut: timedOut),
         CommandRefused() => inner,
         CommandBlocked() => inner,
+        CommandRunning() => inner,
       };
 
   /// The approver is the filesystem's type: a [FileOperation]. The command's

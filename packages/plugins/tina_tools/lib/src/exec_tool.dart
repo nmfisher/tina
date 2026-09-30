@@ -53,7 +53,8 @@ class ExecTool extends ProcessToolBase {
             'read as options. Prefer `bash` for anything needing shell '
             'syntax. Each call is checked against the session\'s permissions '
             'before anything runs; a refusal arrives as this call\'s error '
-            'result.',
+            'result. New user input makes a running command yield a job ID '
+            'without stopping it; use process to inspect, wait or cancel.',
         inputSchema: {
           'type': 'object',
           'properties': {

@@ -238,23 +238,25 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect("streaming prefix", start)
             start = terminal.resize(100, 20)
             terminal.expect("streaming prefix", start)
-            # Submitted prompts queue behind the stalled turn; unfinished text
-            # survives both queued turns and is completed at the idle prompt.
+            # Submitted input must reach a fresh request before the stalled
+            # response finishes. Multiple submissions may be coalesced into
+            # one request, while every input remains in transcript order.
             terminal.send('queued one\rqueued two\rdra')
-            time.sleep(0.1)
-            assert len(ModelStub.requests) == request_start + 1, 'queued input ran concurrently'
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                terminal.read()
+                if len(ModelStub.requests) > request_start + 1 and 'queued two' in json.dumps(ModelStub.requests[-1]['messages']):
+                    break
+            else:
+                raise AssertionError('new input did not reach the provider while the original stream was stalled')
+            messages = json.dumps(ModelStub.requests[-1]['messages'])
+            assert 'queued one' in messages and 'queued two' in messages, 'new inputs lost transcript order'
             ModelStub.release_stream.set()
             terminal.expect("smoke answer", start)
-            deadline = time.monotonic() + 10
-            while len(ModelStub.requests) < request_start + 3 and time.monotonic() < deadline:
-                terminal.read()
-            assert len(ModelStub.requests) == request_start + 3, 'queued turns did not drain'
-            assert 'queued one' in json.dumps(ModelStub.requests[request_start + 1]['messages'][-1])
-            assert 'queued two' in json.dumps(ModelStub.requests[request_start + 2]['messages'][-1])
             time.sleep(0.2)
             start = terminal.send('ft\r')
             terminal.expect('draft answer', start)
-            assert 'draft' in json.dumps(ModelStub.requests[request_start + 3]['messages'][-1])
+            assert 'draft' in json.dumps(ModelStub.requests[-1]['messages'][-1])
             time.sleep(0.1)
             start = terminal.send("cancel this\r")
             terminal.expect("cancel pending", start)
@@ -513,11 +515,15 @@ def smoke(launcher, endpoint, columns, rows):
                 terminal.expect("Select session")
                 terminal.send('1\r')
             terminal.expect("smoke > ")
+            start = terminal.send('\x1b[A')
+            terminal.expect('finish plan example', start)
+            terminal.send('\x1b[B')
             # Restored rows are painted as a viewport, not printed through
             # stdout one by one. Scroll to inspect the retained first turn.
             terminal.send('\x1b[5~' * 80)
             terminal.expect("terminal smoke")
-            terminal.expect("streaming prefix smoke answer")
+            terminal.expect("streaming prefix")
+            terminal.expect("smoke answer")
             terminal.send('\x1b[6~' * 80)
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
@@ -545,6 +551,9 @@ def smoke(launcher, endpoint, columns, rows):
         terminal = Terminal(command + ['--resume', 'legacy:archive:archive'], env, columns, rows)
         try:
             terminal.expect('smoke > ')
+            start = terminal.send('\x1b[A')
+            terminal.expect('legacy hello', start)
+            terminal.send('\x1b[B')
             terminal.send('\x1b[5~' * 20)
             terminal.expect('legacy hello')
             terminal.expect('legacy reply')
@@ -649,8 +658,8 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert len(ModelStub.requests) == 84, (
-            f"expected 84 model requests, got {len(ModelStub.requests)}; "
+        assert 81 <= len(ModelStub.requests) <= 84, (
+            f"expected 81–84 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

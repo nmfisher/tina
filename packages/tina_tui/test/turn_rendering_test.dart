@@ -61,7 +61,8 @@ void main() {
     await waitFor(() => provider.requests.length == 1);
     io.feedBytes('\x1b[Z'.codeUnits);
     await waitFor(() => session.assembly.tools.mode == PermissionMode.readOnly);
-    provider.requests.first.add(const ToolCallStart(id: 'write', name: 'write'));
+    provider.requests.first
+        .add(const ToolCallStart(id: 'write', name: 'write'));
     provider.requests.first.add(const MessageComplete(content: [
       ToolUseBlock(
           id: 'write',
@@ -88,7 +89,9 @@ void main() {
     expect(await app, 0);
   });
 
-  test('busy input queues in order and an unfinished draft survives', () async {
+  test(
+      'busy input reaches the provider promptly and an unfinished draft survives',
+      () async {
     final directory = Directory.systemTemp.createTempSync('tina_queue_');
     addTearDown(() => directory.deleteSync(recursive: true));
     final provider = ControlledProvider();
@@ -108,17 +111,15 @@ void main() {
     await waitFor(() => provider.requests.length == 1);
     io.feedBytes('second\rthird\rdra'.codeUnits);
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    expect(provider.requests, hasLength(1));
-    for (var i = 0; i < 3; i++) {
-      await waitFor(() => provider.requests.length == i + 1);
-      provider.requests[i].add(MessageComplete(
-          content: [TextBlock('answer $i')], stopReason: 'end_turn'));
-      await provider.requests[i].close();
-    }
+    expect(provider.requests.length, greaterThan(1));
+    provider.requests.last.add(const MessageComplete(
+        content: [TextBlock('latest answer')], stopReason: 'end_turn'));
+    await provider.requests.last.close();
     await waitFor(() => session.host.session.turns.length == 3);
     await Future<void>.delayed(const Duration(milliseconds: 30));
     io.feedBytes('ft\r'.codeUnits);
-    await waitFor(() => provider.requests.length == 4);
+    final previousRequests = provider.requests.length;
+    await waitFor(() => provider.requests.length > previousRequests);
     expect(
         session.host.session.loop.log
             .whereType<InputRecordedEntry>()

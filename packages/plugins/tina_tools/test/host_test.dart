@@ -154,7 +154,7 @@ void main() {
             'glob',
             'stat',
           ]));
-      expect(offered, hasLength(8));
+      expect(offered, hasLength(9));
       // The advertised tool's executor ran: the file landed in the
       // session's working directory.
       expect(File('${ws.path}/made.txt').readAsStringSync(), 'by the model');

@@ -17,6 +17,7 @@
 library;
 
 import 'dart:io';
+import 'dart:async';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
@@ -73,6 +74,7 @@ final class ToolsPlugin extends AgentPlugin
       mode: mode,
       writableDirectories: writable,
     );
+    processJobs = ProcessJobs(processRunner);
     this.modePolicy.listen((value) {
       sandbox.mode = value;
       processRunner.mode = value;
@@ -86,8 +88,9 @@ final class ToolsPlugin extends AgentPlugin
       EditTool(fs: sandbox, workspaceRoot: workspaceRoot),
       GlobTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       StatTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
-      BashTool(runner: processRunner, workingDirectory: workspaceRoot),
-      ExecTool(runner: processRunner, workingDirectory: workspaceRoot),
+      BashTool(runner: processJobs, workingDirectory: workspaceRoot),
+      ExecTool(runner: processJobs, workingDirectory: workspaceRoot),
+      ProcessJobTool(processJobs),
     ];
     workingDirectory = workspaceRoot;
     attachModePolicy(this);
@@ -99,6 +102,7 @@ final class ToolsPlugin extends AgentPlugin
   /// the plugin owns it, the host never touches it.
   final SandboxPlan osPlan;
   late final SandboxedProcessRunner processRunner;
+  late final ProcessJobs processJobs;
 
   /// The session id for this plugin on the loop.
   @override
@@ -128,11 +132,20 @@ final class ToolsPlugin extends AgentPlugin
     modePolicy.mountPolicy(loop, ownerId: id);
     for (final t in toolList) {
       loop.registerContextExecutor(t.schema.name, (input, context) {
+        if (t is ProcessJobTool) {
+          return t.execute(input,
+              control: ProcessControl(
+                  isCancelled: context.isCancelled,
+                  whenCancelled: context.whenCancelled,
+                  whenInputPending: context.whenInputPending,
+                  onOutput: context.report));
+        }
         if (t is ProcessToolBase) {
           return t.execute(input,
               control: ProcessControl(
                 isCancelled: context.isCancelled,
                 whenCancelled: context.whenCancelled,
+                whenInputPending: context.whenInputPending,
                 onOutput: context.report,
               ));
         }
@@ -150,7 +163,10 @@ final class ToolsPlugin extends AgentPlugin
   @override
   void onTurnEnd(TurnContext c) => modePolicy.onTurnEnd(c);
   @override
-  void closeSession() => modePolicy.closeSession();
+  void closeSession() {
+    unawaited(processJobs.close());
+    modePolicy.closeSession();
+  }
 
   late final HostPromptSection prompt;
 

@@ -143,6 +143,11 @@ final class _Workspace implements ConsolePanels {
       case '/close':
         unawaited(closeFocused());
       default:
+        final receiver = target.session;
+        if (!line.trimLeft().startsWith('/') &&
+            target.task != null &&
+            receiver is ConsoleInputReceiver &&
+            (receiver as ConsoleInputReceiver).offerInput(line)) return;
         target.queue.add(line);
         target.task ??= _drain(target);
     }
@@ -155,6 +160,9 @@ final class _Workspace implements ConsolePanels {
         conversationId: session.id,
         border: false);
     final view = _View(session, frame, chat);
+    if (session is ConsoleInputHistory) {
+      view.history.addAll((session as ConsoleInputHistory).inputHistory);
+    }
     view.context = context.forView(
         chat: chat,
         isActive: () => !stopped && !view.closed && identical(active, view),

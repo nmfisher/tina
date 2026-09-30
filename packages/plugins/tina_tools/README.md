@@ -85,6 +85,14 @@ remain ordinary completed results; cancellation and timeout are tool errors.
 On cancel or timeout, the runner snapshots the POSIX process tree, sends TERM,
 then KILL to survivors after a grace period. Cleanup completes before returning.
 This is best effort: `pgrep` must be available, and detached/reparented daemons
-or children forked after the snapshot can escape discovery. Background-job
-supervision is not implemented. Pipes retained by descendants are bounded to a
+or children forked after the snapshot can escape discovery. Pipes retained by descendants are bounded to a
 one-second drain after the direct process exits.
+
+`ToolsPlugin` owns a `ProcessJobs` runner outside the permission and OS sandbox
+wrappers. When new user input arrives, a running command returns a job ID and
+partial output while its process continues. `process` supports `status`, `wait`
+and `cancel`; `wait_ms` optionally bounds a wait, and new input interrupts waits.
+Waiting never reruns the original command. Closing the plugin cancels owned
+jobs; `ProcessJobs.close()` completes after their process cleanup. Job IDs are
+unique across plugin lifetimes; live jobs do not survive exit/resume. Completed
+detached results remain available during the owning session.

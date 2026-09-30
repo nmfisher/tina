@@ -37,10 +37,15 @@ final class ToolExecutionContext {
     required this.whenCancelled,
     required this.report,
     this.progress = _ignoreProgress,
+    this.whenInputPending,
   });
   final void Function(String status) progress;
   final bool Function() isCancelled;
   final Future<void> whenCancelled;
+
+  /// Executors may yield ownership of background work rather than blocking
+  /// the next user input. This signal does not cancel their work.
+  final Future<void>? whenInputPending;
   final void Function(String text, {bool isError}) report;
 }
 
