@@ -17,6 +17,48 @@ bool get _backendAvailable =>
     resolveSandboxBackend() != SandboxBackend.passThrough;
 
 void main() {
+  test('sandboxed git status and local fetch can write to /dev/null',
+      tags: 'live-os-sandbox',
+      timeout: const Timeout(Duration(minutes: 2)), () async {
+    if (!_backendAvailable) {
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    final root = Directory(Directory.systemTemp
+        .createTempSync('tina_git_sandbox_')
+        .resolveSymbolicLinksSync());
+    addTearDown(() => root.deleteSync(recursive: true));
+    final project = Directory('${root.path}/project')..createSync();
+    final origin = '${root.path}/origin.git';
+    for (final args in [
+      ['init', '--bare', origin],
+      ['init', project.path],
+      ['-C', project.path, 'remote', 'add', 'origin', origin]
+    ]) {
+      final setup = await Process.run('git', args);
+      expect(setup.exitCode, 0, reason: '${setup.stderr}');
+    }
+    final runner = OsSandboxRunner(
+        inner: const IoProcessRunner(),
+        plan: SandboxPlan(workspaceRoot: root.path, isolateNetwork: false));
+    for (final args in [
+      ['status', '--porcelain=v1', '-b'],
+      ['fetch', 'origin']
+    ]) {
+      final result = await runner.run((
+        command: 'git',
+        arguments: args,
+        workingDirectory: project.path,
+        environment: null,
+        stdin: null,
+        timeout: null
+      ));
+      expect(result, isA<CommandCompleted>(), reason: '$result');
+      final completed = result as CommandCompleted;
+      expect(completed.exitCode, 0, reason: completed.stderr);
+    }
+  });
+
   test('a command inside the jail cannot write outside the project',
       timeout: const Timeout(Duration(minutes: 2)),
       tags: 'live-os-sandbox', () async {
@@ -26,7 +68,9 @@ void main() {
       markTestSkipped('no OS sandbox backend on this host');
       return;
     }
-    final ws = Directory.systemTemp.createTempSync('tina_escape_ws_');
+    final ws = Directory(Directory.systemTemp
+        .createTempSync('tina_escape_ws_')
+        .resolveSymbolicLinksSync());
     addTearDown(() => ws.deleteSync(recursive: true));
     final plan = SandboxPlan(workspaceRoot: ws.path);
     final runner = OsSandboxRunner(

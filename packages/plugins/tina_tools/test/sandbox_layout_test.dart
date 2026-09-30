@@ -143,6 +143,7 @@ void main() {
 (allow default)
 (deny network*)
 (deny file-write*)
+(allow file-write-data (literal "/dev/null"))
 (allow file-write* (subpath "/work/proj"))
 (allow file-write* (subpath "/tmp"))
 ''');

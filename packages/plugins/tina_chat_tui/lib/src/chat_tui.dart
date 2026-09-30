@@ -640,7 +640,8 @@ String _subject(ToolUse call) {
   final name = call.name, input = call.input;
   final detail = switch (name) {
     'bash' => input['command'],
-    'exec' => '${input['executable']} ${input['args'] ?? []}',
+    'exec' =>
+      '${input['program'] ?? input['executable'] ?? "(unknown program)"} ${input['args'] ?? []}',
     'read' || 'write' || 'edit' => input['filePath'],
     'glob' || 'grep' => input['pattern'] == null
         ? null

@@ -329,6 +329,26 @@ void main() {
     expect(await line, 'draft intact');
   });
 
+  test('exec displays program with legacy executable fallback', () {
+    for (final key in ['program', 'executable']) {
+      final call = ToolUse(id: key, name: 'exec', input: {
+        key: 'git',
+        'args': ['status', '--porcelain=v1', '-b'],
+      });
+      chat.observe(ToolStarted(call));
+      chat.observe(ToolFinished(call, const ToolResult('ok')));
+    }
+    final subjects = chat.blocks
+        .where((b) => b.kind == ChatBlockKind.toolCall)
+        .map((b) => b.subject)
+        .toList();
+    expect(subjects, hasLength(2));
+    for (final subject in subjects) {
+      expect(subject, contains('git [status, --porcelain=v1, -b]'));
+      expect(subject, isNot(contains('null')));
+    }
+  });
+
   test('tool output is bounded and terminal controls cannot escape into rows',
       () {
     chat.observe(const ToolStarted(call));

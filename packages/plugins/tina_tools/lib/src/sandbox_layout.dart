@@ -171,6 +171,9 @@ String buildSeatbeltProfile({
   sb.write('(allow default)\n'); // process, reads, everything not named below
   if (isolateNetwork) sb.write('(deny network*)\n');
   sb.write('(deny file-write*)\n'); // then deny every write, re-granting below
+  // Programs such as git open /dev/null for output redirection. Grant only
+  // data writes to that device, not metadata changes or access to all /dev.
+  sb.write('(allow file-write-data (literal "/dev/null"))\n');
   if (hidePath != null) {
     sb.write('(deny file-read* (subpath "${_escapeProfilePath(hidePath)}"))\n');
     for (final path in readAllowPaths) {
