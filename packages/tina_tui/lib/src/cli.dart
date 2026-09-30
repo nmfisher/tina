@@ -7,6 +7,7 @@ import 'app.dart';
 import 'tui_session.dart';
 import 'shell_completion.dart';
 import 'session_selection.dart';
+import 'restart.dart';
 
 const cliHelp =
     '''usage: tina [--config FILE] [--cwd DIR] [--store FILE] [--resume [ID] | --continue]
@@ -312,18 +313,14 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
     final result = await runApp(session);
     if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
-    final child = await Process.start(
-        '$restartRoot/bin/tina',
-        [
-          '--cwd',
-          workingDirectory,
-          '--config',
-          path,
-          if (storePath != null) ...['--store', storePath],
-          if (restartSession != null) ...['--resume', restartSession!],
-        ],
-        mode: ProcessStartMode.inheritStdio);
-    return await child.exitCode;
+    return await restartInTerminal('$restartRoot/bin/tina', [
+      '--cwd',
+      workingDirectory,
+      '--config',
+      path,
+      if (storePath != null) ...['--store', storePath],
+      if (restartSession != null) ...['--resume', restartSession!],
+    ]);
   } catch (e) {
     stderr.writeln('tina: $e');
     return 66;
