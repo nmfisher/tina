@@ -1,3 +1,4 @@
+import 'state_compatibility.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
@@ -197,18 +198,17 @@ final class LegacySessionImporter {
               };
             }
 
-            entries.add(PlanChangedEntry.fromJson({
+            entries.add(decodePersistedEntry({
+              'type': 'plan_changed',
               ...value,
               'items': (value['items'] as List).map(item).toList()
-            }, '', 0));
+            }));
           } else {
             final status = value['status'] == null
                 ? <String, dynamic>{}
                 : _map(value['status']);
-            entries.add(GoalChangedEntry.fromJson(
-                {'text': value['text'], ...status},
-                status['at'] as String? ?? '',
-                0));
+            entries.add(decodePersistedEntry(
+                {'type': 'goal_changed', 'text': value['text'], ...status}));
           }
         } on Object {
           warnings.add(

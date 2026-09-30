@@ -62,9 +62,10 @@ The default model label `scripted` still uses the real provider factory;
 it is not an offline demo provider.
 
 The list above is the default when `[plugins].enabled` is absent. An explicit
-list replaces it; `enabled = []` disables all optional feature plugins,
-including persistence. Persona, tools and mode are always supplied by the
-application assembly. Add `tina/file-resources` to load workspace `.tina/skills`.
+list with `selection_version = 2` replaces the full selection. Older configs
+retain their formerly implicit base plugins for compatibility. Requirements are
+derived from capabilities: the application needs a model provider, and enabled
+consumers need their declared providers. Add `tina/file-resources` to load workspace `.tina/skills`.
 Unknown, duplicate or unqualified plugin IDs fail at startup. Malformed or
 unsupported configuration fails before a session is created.
 
@@ -104,9 +105,9 @@ executors, hooks, subscriptions and frontend contributions; reloading creates a
 fresh instance and lets the plugin replay its state from the transcript. Failed
 activation cleans partial registrations and leaves existing plugins loaded.
 Persistence and subagents require restart; their configured and loaded states
-can therefore differ. Persona, tools, mode, the approval service and the selected
-channel are required. Dependency validation rejects removing a required provider
-while its consumers remain enabled. Channel changes use the approval-channel
+can therefore differ. The system-instruction plugin is optional. Settings show
+which enabled consumer or application capability requires each provider.
+Dependency validation rejects removing a provider while its consumers remain enabled. Channel changes use the approval-channel
 setting and require restart.
 
 Plugin authors opt into live changes with `PluginDefinition(live: true)` (or

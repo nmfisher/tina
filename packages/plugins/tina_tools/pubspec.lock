@@ -378,10 +378,10 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_persona:
+  tina_system_instruction:
     dependency: "direct dev"
     description:
-      path: "../tina_persona"
+      path: "../tina_system_instruction"
       relative: true
     source: path
     version: "0.1.0"

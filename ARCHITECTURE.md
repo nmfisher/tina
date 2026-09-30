@@ -34,7 +34,7 @@ packages/
     tina_approvals_tui/ console delivery of approval requests
     tina_persistence/ session store, append subscription and resume
     tina_tools/
-    tina_persona/
+    tina_system_instruction/
     tina_compaction/
     tina_plans/
     tina_goals/
@@ -54,7 +54,7 @@ Plugin IDs use `publisher/name`. The application assembly seeds the first-party
 catalog; extension registration rejects the reserved `tina/` namespace. The
 global `~/.tina/config` selects feature plugins, defaulting to persistence,
 plans, goals, auto-compaction, subagents and self-update. The assembly always supplies
-persona, provider policy, tools and the mode command; workflows remain deferred.
+system instruction, provider policy, tools and the mode command; workflows remain deferred.
 
 Persistence owns the SQLite session store and its log subscription. The
 assembly injects an opener for the chosen location; the host only calls generic

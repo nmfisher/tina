@@ -27,7 +27,7 @@ void main() {
     final provider = ScriptedProvider([]);
     final loop = AgentLoop(provider: provider, plugins: [
       Hook('test/a', before: (c) {
-        c.requestStop('spoofed/id', 'quota', detail: 'done for now');
+        c.requestStop('quota', detail: 'done for now');
       })
     ]);
     final outcome = await loop.runTurn(const Input('go', id: 'one'));
@@ -126,9 +126,7 @@ void main() {
               ToolUseBlock(id: id, name: 'echo', input: {})
           ])
         ]),
-        plugins: [
-          Hook('test/a', guard: (c) => c.requestStop('test/a', 'blocked'))
-        ]);
+        plugins: [Hook('test/a', guard: (c) => c.requestStop('blocked'))]);
     loop.registerExecutor('echo', (_) async {
       executed++;
       return const ToolResult('ok');

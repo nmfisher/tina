@@ -17,14 +17,6 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
   @override
   List<Command> get commands => policy.commands;
   @override
-  void onInput(TurnContext context) => policy.onInput(context);
-  @override
-  void onTurnEnd(TurnContext context) => policy.onTurnEnd(context);
-  @override
-  void beforeToolCall(TurnContext context) => policy.beforeToolCall(context);
-  @override
-  void afterToolResult(TurnContext context) => policy.afterToolResult(context);
-  @override
   void attachConsole(ConsoleContext context) {
     detachConsole();
     _console = context;
@@ -55,6 +47,5 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
   @override
   void closeSession() {
     detachConsole();
-    policy.closeSession();
   }
 }

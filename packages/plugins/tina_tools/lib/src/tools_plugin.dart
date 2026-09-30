@@ -21,7 +21,14 @@ import 'dart:io';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 
-final class ToolsPlugin extends AgentPlugin implements ModeControl {
+abstract interface class ToolSessionSource implements ModePolicySource {
+  PermissionMode get mode;
+  String get workingDirectory;
+  bool get osSandbox;
+}
+
+final class ToolsPlugin extends AgentPlugin
+    implements ModeControl, ToolSessionSource {
   /// Whether the OS jail layer was requested. The layer itself decides per
   /// host whether a backend exists ([OsSandboxRunner.backend]); this flag
   /// records the host's decision to have the layer at all — `false` is a
@@ -118,6 +125,7 @@ final class ToolsPlugin extends AgentPlugin implements ModeControl {
       ];
 
   void mountOn(AgentLoop loop) {
+    modePolicy.mountPolicy(loop, ownerId: id);
     for (final t in toolList) {
       loop.registerContextExecutor(t.schema.name, (input, context) {
         if (t is ProcessToolBase) {
@@ -132,6 +140,17 @@ final class ToolsPlugin extends AgentPlugin implements ModeControl {
       });
     }
   }
+
+  @override
+  void onInput(TurnContext c) => modePolicy.onInput(c);
+  @override
+  void beforeToolCall(TurnContext c) => modePolicy.beforeToolCall(c);
+  @override
+  void afterToolResult(TurnContext c) => modePolicy.afterToolResult(c);
+  @override
+  void onTurnEnd(TurnContext c) => modePolicy.onTurnEnd(c);
+  @override
+  void closeSession() => modePolicy.closeSession();
 
   late final HostPromptSection prompt;
 

@@ -377,24 +377,18 @@ final class SettingsPanel {
     var selected = 0;
     var query = '';
     settings?.reload();
-    Set<String> requiredIds() =>
-        settings?.requiredIds ??
-        {
-          'tina/providers',
-          'tina/persona',
-          'tina/mode',
-          'tina/tools',
-          'tina/approvals',
-          document.table('plugins')['approval_channel'] as String? ??
-              defaultApprovalChannel,
-        };
+    Set<String> requiredIds() => settings?.requiredIds ?? {};
     ids = {...ids, ...requiredIds()}.toList()..sort();
     bool enabled(String id) {
       if (requiredIds().contains(id)) return true;
       if (settings != null) return settings.scopedState(id, scope).enabled;
       final table = document.table('plugins');
       return parsePluginOverrides(table)[id] ??
-          (table['enabled'] as List? ?? defaultPluginIds).contains(id);
+          pluginBaseline(
+                  (table['enabled'] as List? ?? defaultPluginIds)
+                      .cast<String>(),
+                  selectionVersion: table['selection_version'] as int? ?? 1)
+              .contains(id);
     }
 
     String description(String id) =>
@@ -430,7 +424,8 @@ final class SettingsPanel {
             if (index > ids.length) return 'Save changes; restart required';
             final id = ids[index - 1];
             if (requiredIds().contains(id))
-              return 'Required plugin · cannot disable';
+              return settings?.blockingReasons[id]?.join('; ') ??
+                  'Required by selected plugins';
             if (settings == null) return 'Save changes to apply';
             final active =
                 manager!.host.plugins.any((plugin) => plugin.id == id);

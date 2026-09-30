@@ -36,6 +36,23 @@ final class PluginDefinition<C> {
           (context, dependencies) => create(context, dependencies.single as D),
           live);
 
+  static PluginDefinition<C>
+      dependingOn2<C, A extends Object, B extends Object>(String id,
+              {required String description,
+              required PluginCapability<A> first,
+              required PluginCapability<B> second,
+              required AgentPlugin Function(C, A, B) create,
+              List<PluginCapability<Object>> provides = const [],
+              bool live = false}) =>
+          PluginDefinition._(
+              id,
+              description,
+              [first, second],
+              provides,
+              (context, values) =>
+                  create(context, values[0] as A, values[1] as B),
+              live);
+
   /// Opt-in: resources and background work support between-turn detach/reload.
   final bool live;
   final String id;
@@ -57,3 +74,11 @@ final class PluginDefinition<C> {
   AgentPlugin build(C context, List<Object> dependencies) =>
       _create(context, dependencies);
 }
+
+/// Application-level model access, independent of any concrete provider plugin.
+abstract interface class ModelAccess {
+  LlmProvider mainProvider(String model);
+  LlmProvider childProvider(String model);
+}
+
+const modelAccess = PluginCapability<ModelAccess>('tina/model-access');

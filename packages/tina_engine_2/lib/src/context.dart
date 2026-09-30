@@ -109,7 +109,8 @@ final class TurnContext {
   /// The accepted stop request, when one was made. Set by [requestStop];
   /// first stop wins. Present even on copies the loop later discards —
   /// stopping is turn-wide, like cancellation.
-  StopRequest? stopRequest;
+  StopRequest? _stopRequest;
+  StopRequest? get stopRequest => _stopRequest;
 
   /// A plugin asks the turn to stop. One generic stop, first request wins
   /// (later requests are no-ops), attributed to the invoking plugin by its
@@ -119,9 +120,9 @@ final class TurnContext {
   ///
   /// Interrupts pending work like cancellation, with structured attribution.
   /// The engine assigns the invoking plugin ID when accepting the request.
-  void requestStop(String pluginId, String code, {String detail = ''}) {
+  void requestStop(String code, {String detail = ''}) {
     if (stopRequest != null || _cancel.cancelled) return;
-    stopRequest = StopRequest(pluginId: pluginId, code: code, detail: detail);
+    _stopRequest = StopRequest(pluginId: '', code: code, detail: detail);
     _cancel.cancel('plugin stop: ${stopRequest!}');
   }
 

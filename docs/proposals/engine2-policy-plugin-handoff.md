@@ -1,6 +1,9 @@
 # Engine2 policy/plugin separation — implementation handoff
 
-Status: proposed implementation plan; no runtime fixes are included in this handoff.
+Status: implemented. The findings below record the original baseline.
+Async fail-closed hooks, optional step limits, plugin-owned state, persisted mode,
+capability-based requirements and a single approval path are now implemented.
+The identity plugin is named `tina/system-instruction`; old config IDs remain readable.
 Baseline inspected: `0cfb059` on `asb/engine2`.
 
 ## Objective and constraints
@@ -370,7 +373,7 @@ Remove duplicate required-ID lists from settings validation and assembly. Catalo
 factory declarations and the default plugin list can still contain first-party
 IDs; generic validation, state resolution and the loop cannot depend on their
 spellings. Bring the separately constructed base plugins into the same selection
-model where possible. Persona should be a selectable default unless a real
+model where possible. System instruction should be a selectable default unless a real
 consumer declares a requirement; it is not inherently required by the loop.
 
 Preserve explicit `approval_channel` configuration as an application role

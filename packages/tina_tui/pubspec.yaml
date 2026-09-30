@@ -49,8 +49,8 @@ dependencies:
   path: ^1.9.0
   tina_persistence:
     path: ../plugins/tina_persistence
-  tina_persona:
-    path: ../plugins/tina_persona
+  tina_system_instruction:
+    path: ../plugins/tina_system_instruction
   tina_plans:
     path: ../plugins/tina_plans
   tina_goals:

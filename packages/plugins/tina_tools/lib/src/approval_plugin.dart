@@ -2,11 +2,16 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_host/tina_host.dart';
 import '../tina_tools.dart';
 
+const toolProvider = PluginCapability<ToolSessionSource>('tina/tool-provider');
+const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
+
 /// Plugin-owned integration. The application supplies filesystem/tool options;
 /// the loader supplies the approval capability, never a particular channel.
 PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/tools',
-        dependency: approvalRequester, create: (context, approvals) {
+        dependency: approvalRequester,
+        provides: [toolProvider, modePolicySource],
+        create: (context, approvals) {
       final plugin = tools(context);
       plugin.modePolicy.approvals = approvals;
       return plugin;

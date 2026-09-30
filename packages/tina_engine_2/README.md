@@ -121,7 +121,7 @@ invariants below).
 nothing. The core owns the join: it puts the newlines between sections and
 drops empty ones, so no plugin can hand over a whole prompt. With no
 sections the prompt is an empty string: the core owns no prompt text, so
-the persona lives in a plugin (in tina_host), not here.
+the system instruction lives in a plugin (in tina_host), not here.
 
 **`onInput`** — first hook of a turn, right after the prompt phase. The
 input is `c.input`; a rewrite is an assignment. Runs in `order`. The
@@ -136,13 +136,10 @@ redaction plugin would live — the loop itself never rewrites what the
 model is about to see, and the transcript is untouched: a plugin edits
 its copy of the message list, never the truth.
 
-**`beforeToolCall`** — the guard. Called before each tool executes, in
-`order`. The call is `c.call`; set `c.decision` to `Decision.deny` or
-`Decision.ask` — or leave the allow that is already there. All guards
-must pass; `order` only decides which one reports first, and the first
-non-allow decision stops the guard phase. In this package `ask` has no UI
-to route to, so it resolves to deny — recorded as `ask-unresolved` in the
-result content, an explicit and visible fallback, not a silent one.
+**`beforeToolCall`** — an awaited policy hook. It may await an injected approval
+requester and set `Decision.allow` or `Decision.deny`. The first non-allow
+result ends the guard phase. Exceptions prevent dispatch; cancellation closes
+the recorded tool batch with matching results. The loop knows no approval channel.
 
 **`afterToolResult`** — called after a tool result exists, in `order`. The
 result is `c.toolResult`; assign to it to replace what the core records,
@@ -256,9 +253,8 @@ or is out of scope for a review artifact.
 - **Providers** — the interface is here; real HTTP providers are not. No
   network in this package by design. Shipping one would make this package
   depend on http and on key management, which are someone else's problem.
-- **UI** — absent, including for `Decision.ask`. There is no approval UI,
-  so `ask` resolves to deny and the fallback is recorded. A real host would
-  supply an ask-handler; this package does not pretend to have one.
+- **UI** — supplied by plugins. A policy receives an approval requester through
+  capability injection and awaits the selected terminal or external channel.
 
 ## Open questions
 
@@ -266,9 +262,6 @@ or is out of scope for a review artifact.
    allow or deny, but not edit `c.call`. A modify path would cover
    redaction but adds a second way to change what the model asked for.
    Left out to keep the decision enum honest.
-2. **Is `ask` resolving to deny right?** With no UI it is the only safe
-   fallback, but a host may prefer fail-closed-to-allow with an audit note.
-   The recording makes either auditable; the default is a judgement call.
 3. **Where does the header for the prompt join live?** The core inserts one
    blank line between sections. Whether that belongs in the core or in a
    prompt-assembly plugin is not settled; core keeps the join deterministic

@@ -434,6 +434,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_goals:
+    dependency: "direct main"
+    description:
+      path: "../tina_goals"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_host:
     dependency: "direct main"
     description:

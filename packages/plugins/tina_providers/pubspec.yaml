@@ -5,6 +5,8 @@ publish_to: none
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_host:
+    path: ../../tina_host
   tina_engine_2:
     path: ../../tina_engine_2
 dev_dependencies:

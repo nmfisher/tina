@@ -1,5 +1,5 @@
-name: tina_persona
-description: The persona plugin for tina.
+name: tina_system_instruction
+description: The system instruction plugin for tina.
 publish_to: none
 version: 0.1.0
 environment:

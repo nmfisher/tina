@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:tina_host/tina_host.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -20,7 +21,7 @@ final class ProviderTarget {
 }
 
 /// Policy is a plugin; the loop only sees ordinary providers and turn hooks.
-final class ProviderPolicyPlugin extends AgentPlugin {
+final class ProviderPolicyPlugin extends AgentPlugin implements ModelAccess {
   ProviderPolicyPlugin(
       {required this.targets, this.limits = const RequestLimits()})
       : _globalGate = LaunchGate(
@@ -117,7 +118,7 @@ final class ProviderPolicyPlugin extends AgentPlugin {
     final estimated = usage.estimated ? _tokens(value) : 0;
     final measured = usage.estimated ? const EntryUsage() : value;
     _add(spend, _tokens(measured), estimated);
-    _loop?.recordState(UsageRecordedEntry(
+    _loop?.recordUsage(UsageRecordedEntry(
         turnId: turnId,
         usage: measured,
         estimatedTokens: estimated,

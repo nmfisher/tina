@@ -180,7 +180,7 @@ final class Outcome {
 }
 
 /// The guard decision for one [ToolUse].
-enum DecisionKind { allow, deny, ask }
+enum DecisionKind { allow, deny }
 
 /// What a guard decided about one tool call.
 final class Decision {
@@ -189,7 +189,6 @@ final class Decision {
         replacement = null;
   const Decision.deny(this.reason, {this.replacement})
       : kind = DecisionKind.deny;
-  const Decision.ask(this.reason, {this.replacement}) : kind = DecisionKind.ask;
 
   final DecisionKind kind;
   final String reason;

@@ -130,10 +130,7 @@ final class ConfigDocument {
     if (result is TinaConfigProblem) throw FormatException(result.problem);
     configuredPolicy(result.config).closeSession();
     validatePlugins?.call([
-      'tina/approvals',
-      result.config.approvalChannel,
-      'tina/tools',
-      ...result.config.plugins
+      ...{result.config.approvalChannel, ...result.config.plugins}
     ]);
     return result.config;
   }

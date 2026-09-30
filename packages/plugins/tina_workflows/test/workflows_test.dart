@@ -204,7 +204,11 @@ void main() {
       expect(turnInputs[1], contains('A did its thing'));
       expect(turnInputs[1], contains('Do B with'));
 
-      final run = loop.log.whereType<WorkflowRunEntry>().single;
+      final run = loop.log
+          .whereType<PluginStateEntry>()
+          .where(WorkflowRunEntry.matches)
+          .map(WorkflowRunEntry.decode)
+          .single;
       expect(run.workflow, 'tiny');
       expect(run.status, WorkflowRunEntry.statusSuccess);
       // start/a/b dispatch handlers; `done` is the graph's terminal and
@@ -236,7 +240,11 @@ void main() {
       await plugin.run(name: 'routed', terminal: _CaptureTerminal());
 
       expect(provider.callCount, 1, reason: 'approve ends the run');
-      final run = loop.log.whereType<WorkflowRunEntry>().single;
+      final run = loop.log
+          .whereType<PluginStateEntry>()
+          .where(WorkflowRunEntry.matches)
+          .map(WorkflowRunEntry.decode)
+          .single;
       expect(run.status, WorkflowRunEntry.statusSuccess);
       expect(run.nodes, ['start', 'reviewer']);
     });
@@ -251,7 +259,11 @@ void main() {
       final (loop, plugin) = _wired(tinaDir: tina, provider: provider);
       await plugin.run(name: 'tiny', terminal: _CaptureTerminal());
 
-      final run = loop.log.whereType<WorkflowRunEntry>().single;
+      final run = loop.log
+          .whereType<PluginStateEntry>()
+          .where(WorkflowRunEntry.matches)
+          .map(WorkflowRunEntry.decode)
+          .single;
       expect(run.status, WorkflowRunEntry.statusFailed);
       expect(run.detail, contains('node "a" failed'));
       expect(loop.derive().workflowRun!.status, WorkflowRunEntry.statusFailed);
@@ -269,7 +281,12 @@ void main() {
           });
       await plugin.run(name: 'tiny', terminal: _CaptureTerminal());
 
-      expect(loop.log.whereType<WorkflowRunEntry>(), isEmpty,
+      expect(
+          loop.log
+              .whereType<PluginStateEntry>()
+              .where(WorkflowRunEntry.matches)
+              .map(WorkflowRunEntry.decode),
+          isEmpty,
           reason: 'the user stopping the session is no verdict');
       expect(loop.derive().workflowRun, isNull);
     });
@@ -291,7 +308,11 @@ digraph par {
           _wired(tinaDir: tina, runNodeTurn: (loop, nodeTurn) async => 'x');
       await plugin.run(name: 'par', terminal: _CaptureTerminal());
 
-      final run = loop.log.whereType<WorkflowRunEntry>().single;
+      final run = loop.log
+          .whereType<PluginStateEntry>()
+          .where(WorkflowRunEntry.matches)
+          .map(WorkflowRunEntry.decode)
+          .single;
       expect(run.status, WorkflowRunEntry.statusFailed);
       expect(run.detail, contains('does not support'));
     });
@@ -315,7 +336,11 @@ digraph gated {
 
       expect(terminal.lines.join('\n'), contains('? Proceed?'));
       expect(terminal.lines.join('\n'), contains('[Y] Yes, continue'));
-      final run = loop.log.whereType<WorkflowRunEntry>().single;
+      final run = loop.log
+          .whereType<PluginStateEntry>()
+          .where(WorkflowRunEntry.matches)
+          .map(WorkflowRunEntry.decode)
+          .single;
       expect(run.status, WorkflowRunEntry.statusSuccess);
       expect(run.nodes, ['start', 'gate']);
     });
@@ -336,7 +361,11 @@ digraph gated {
           _wired(tinaDir: tina, runNodeTurn: (loop, nodeTurn) async => 'x');
       await plugin.run(name: 'gated', terminal: _CaptureTerminal());
 
-      final run = loop.log.whereType<WorkflowRunEntry>().single;
+      final run = loop.log
+          .whereType<PluginStateEntry>()
+          .where(WorkflowRunEntry.matches)
+          .map(WorkflowRunEntry.decode)
+          .single;
       expect(run.status, WorkflowRunEntry.statusFailed);
     });
   });
@@ -402,7 +431,11 @@ digraph gated {
       terminal.lines.clear();
       await cmd.handler('run default fix the flaky parser test');
       await _drain();
-      final run = loop.log.whereType<WorkflowRunEntry>().last;
+      final run = loop.log
+          .whereType<PluginStateEntry>()
+          .where(WorkflowRunEntry.matches)
+          .map(WorkflowRunEntry.decode)
+          .last;
       expect(run.workflow, 'default');
       expect(loop.derive().workflowRun, isNotNull);
 
@@ -426,7 +459,12 @@ digraph gated {
       await _drain();
       expect(terminal.lines.join('\n'),
           contains('workflow "ghost": workflow not found'));
-      expect(loop.log.whereType<WorkflowRunEntry>(), isEmpty);
+      expect(
+          loop.log
+              .whereType<PluginStateEntry>()
+              .where(WorkflowRunEntry.matches)
+              .map(WorkflowRunEntry.decode),
+          isEmpty);
     });
   });
 

@@ -18,7 +18,30 @@ const int kTinaConfigVersion = 1;
 
 const defaultApprovalChannel = 'tina/approvals-tui';
 
+/// Preserve selections written before the system-instruction plugin rename.
+String canonicalPluginId(String id) =>
+    id == 'tina/persona' ? 'tina/system-instruction' : id;
+
+/// v1 configs listed optional features only; these were previously implicit.
+const retiredPluginIds = {'tina/mode-tui'};
+const legacyProfilePlugins = <String>[
+  'tina/providers',
+  'tina/system-instruction',
+  'tina/mode',
+  'tina/tools',
+  'tina/approvals',
+];
+
+List<String> pluginBaseline(List<String> ids, {int selectionVersion = 1}) => [
+      ...{
+        if (selectionVersion == 1) ...legacyProfilePlugins,
+        for (final id in ids)
+          if (!retiredPluginIds.contains(id)) canonicalPluginId(id)
+      },
+    ];
+
 const defaultPluginIds = <String>[
+  ...legacyProfilePlugins,
   'tina/classification',
   'tina/chat-tui',
   'tina/panels-tui',
@@ -213,7 +236,8 @@ TinaConfigResult parseTinaConfig(
         table.keys.any((key) =>
             key != 'enabled' &&
             key != 'approval_channel' &&
-            key != 'overrides')) {
+            key != 'overrides' &&
+            key != 'selection_version')) {
       throw FormatException(
           '[plugins] supports enabled, overrides and approval_channel');
     }
@@ -248,6 +272,11 @@ TinaConfigResult parseTinaConfig(
       }
     }
   }
+  final selectionVersion =
+      (parsed['plugins'] as Map?)?['selection_version'] ?? 1;
+  if (selectionVersion != 1 && selectionVersion != 2)
+    throw const FormatException('Unsupported plugin selection version');
+  plugins = pluginBaseline(plugins, selectionVersion: selectionVersion as int);
   final overrides = parsePluginOverrides(parsed['plugins']);
   final selected = plugins.toSet();
   for (final entry in overrides.entries) {
@@ -427,7 +456,12 @@ Map<String, bool> parsePluginOverrides(Object? pluginTable) {
     } on ArgumentError {
       throw FormatException('invalid plugin override ID: ${entry.key}');
     }
-    result[entry.key as String] = entry.value as bool;
+    final id = entry.key as String;
+    final canonical = canonicalPluginId(id);
+    // An explicit current name takes precedence over its legacy alias.
+    if (id == canonical || !raw.containsKey(canonical)) {
+      result[canonical] = entry.value as bool;
+    }
   }
   return result;
 }

@@ -28,6 +28,7 @@
 /// entries.
 library;
 
+import 'state_compatibility.dart';
 import 'dart:convert';
 import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:tina_core/tina_core.dart';
@@ -181,7 +182,7 @@ final class SessionStore {
     for (var i = 0; i < entries.length; i++) {
       if (entries[i].seq != i)
         throw const FormatException('import sequence gap');
-      final entry = SessionEntry.fromJson(entries[i].toJson());
+      final entry = decodePersistedEntry(entries[i].toJson());
       payloads.add(jsonEncode({'slice': id, ...entry.toJson()}));
     }
     final marker = jsonEncode({
@@ -360,7 +361,7 @@ final class SessionStore {
       return [
         for (final row in readLog(sessionId))
           if (!_isMarker(row.payload))
-            SessionEntry.fromJson(Map<String, Object?>.of(row.payload)),
+            decodePersistedEntry(Map<String, Object?>.of(row.payload)),
       ];
     } on SessionStoreException {
       rethrow;

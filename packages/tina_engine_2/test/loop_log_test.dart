@@ -44,22 +44,21 @@ Future<ToolResult> _echoExec(Map<String, Object?> args) async =>
 void main() {
   test('one turn appends the full entry sequence, seq == position', () async {
     final provider = ScriptedProvider([scriptedReply('hi there')]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     final seen = <(SessionEntry, LogEvent)>[];
     loop.subscribe((e, ev) => seen.add((e, ev))); // replay of empty log: none
 
     await loop.runTurn(const Input('hello', id: 'i1'));
 
-    expect(
-        [for (final e in loop.log) e.kind],
-        [
-          'turn_started',
-          'input_recorded',
-          'message_appended',
-          'message_appended',
-          'turn_ended',
-        ]);
+    expect([
+      for (final e in loop.log) e.kind
+    ], [
+      'turn_started',
+      'input_recorded',
+      'message_appended',
+      'message_appended',
+      'turn_ended',
+    ]);
     for (var i = 0; i < loop.log.length; i++) {
       expect(loop.log[i].seq, i, reason: 'position ${loop.log[i].kind}');
     }
@@ -74,11 +73,9 @@ void main() {
     expect(seen.length, loop.log.length);
   });
 
-  test('a subscriber receives the existing log as replay, in order',
-      () async {
+  test('a subscriber receives the existing log as replay, in order', () async {
     final provider = ScriptedProvider([scriptedReply('one')]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     await loop.runTurn(const Input('first', id: 'a'));
     final replayed = <SessionEntry>[];
     loop.subscribe((e, ev) {
@@ -93,15 +90,13 @@ void main() {
   test('listener payloads are the log bytes: same JSON, entry for entry',
       () async {
     final provider = ScriptedProvider([scriptedReply('done')]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     final appendedJson = <String>[];
     loop.subscribe((e, ev) {
       if (ev == LogEvent.appended) appendedJson.add(jsonEncode(e.toJson()));
     });
     await loop.runTurn(const Input('x', id: 'i'));
-    expect(appendedJson,
-        [for (final e in loop.log) jsonEncode(e.toJson())]);
+    expect(appendedJson, [for (final e in loop.log) jsonEncode(e.toJson())]);
   });
 
   test('the request is derived from the log — nothing else to derive from',
@@ -112,8 +107,7 @@ void main() {
       ]),
       scriptedReply('final'),
     ]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     loop.registerExecutor('echo', _echoExec);
     await loop.runTurn(const Input('go', id: 'i1'));
 
@@ -126,9 +120,7 @@ void main() {
     expect(derived.messages.length, 4);
     expect(
       [for (final m in second.messages) jsonEncode(m.toJson())],
-      [
-        for (final m in derived.messages.take(3)) jsonEncode(m.toJson())
-      ],
+      [for (final m in derived.messages.take(3)) jsonEncode(m.toJson())],
       reason: 'user, assistant(tool_use), user(tool_result) — then sent',
     );
     // The fourth logged message is the final reply the second stream
@@ -149,8 +141,7 @@ void main() {
       ]),
       scriptedReply('final'),
     ]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     loop.registerExecutor('echo', _echoExec);
     await loop.runTurn(const Input('go', id: 'i1'));
 
@@ -170,8 +161,7 @@ void main() {
   test('a rewrite lands as an entry naming the plugin; raw input stays',
       () async {
     final provider = ScriptedProvider([scriptedReply('ok')]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Rewriter()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Rewriter()]);
     await loop.runTurn(const Input('as typed', id: 'i1'));
 
     final raw = loop.log.whereType<InputRecordedEntry>().single;
@@ -185,8 +175,7 @@ void main() {
     expect(userBlock.text, 'as typed (rewritten)');
   });
 
-  test('turn usage is summed from the provider-reported numbers',
-      () async {
+  test('turn usage is summed from the provider-reported numbers', () async {
     final provider = ScriptedProvider([
       [
         const ToolCallStart(id: 'c1', name: 'echo'),
@@ -197,9 +186,7 @@ void main() {
             ],
             stopReason: 'tool_use',
             usage: TokenUsage(
-                inputTokens: 10,
-                outputTokens: 5,
-                cacheReadInputTokens: 2)),
+                inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 2)),
       ],
       [
         const MessageComplete(
@@ -208,14 +195,15 @@ void main() {
             usage: TokenUsage(inputTokens: 7, outputTokens: 3)),
       ],
     ]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     loop.registerExecutor('echo', _echoExec);
     final outcome = await loop.runTurn(const Input('q', id: 'i1'));
     expect(outcome.stopReason, StopReason.complete);
     final ended = loop.log.whereType<TurnEndedEntry>().single;
-    expect(ended.usage,
-        const EntryUsage(inputTokens: 17, outputTokens: 8, cacheReadInputTokens: 2));
+    expect(
+        ended.usage,
+        const EntryUsage(
+            inputTokens: 17, outputTokens: 8, cacheReadInputTokens: 2));
     expect(provider.callCount, 2, reason: 'one turn, two requests');
     // The outcome's stand-in count is unchanged: responses this turn.
     expect(outcome.usage, 2);
@@ -225,8 +213,7 @@ void main() {
     final provider = ScriptedProvider([
       [const StreamError('boom')],
     ]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     final outcome = await loop.runTurn(const Input('q', id: 'i1'));
     expect(outcome.stopReason, StopReason.error);
     final ended = loop.log.whereType<TurnEndedEntry>().single;
@@ -235,8 +222,8 @@ void main() {
 
   test('a provider that throws inside send() ends the turn as an error',
       () async {
-    final loop = AgentLoop(
-        provider: _ThrowingProvider(), plugins: [const _Echo()]);
+    final loop =
+        AgentLoop(provider: _ThrowingProvider(), plugins: [const _Echo()]);
     final outcome = await loop.runTurn(const Input('q', id: 'i2'));
     expect(outcome.stopReason, StopReason.error);
     final ended = loop.log.whereType<TurnEndedEntry>().single;
@@ -244,7 +231,8 @@ void main() {
     expect(ended.turnId, 'i2');
   });
 
-  test('a listener that throws mid-turn: the turn still ends in the log, '
+  test(
+      'a listener that throws mid-turn: the turn still ends in the log, '
       'the error surfaces', () async {
     final loop = AgentLoop(
         provider: ScriptedProvider([scriptedReply('x')]),
@@ -263,27 +251,34 @@ void main() {
     expect(ended.turnId, 'i3');
   });
 
-  test('mode setter appends an entry and derive reports it', () {
-    final loop = AgentLoop(
-        provider: ScriptedProvider([]),
-        plugins: [const _Echo()],
-        settings: const SessionSettings(mode: 'normal'));
-    loop.mode = 'read-only';
-    final changed = loop.log.whereType<ModeChangedEntry>().single;
-    expect(changed.mode, 'read-only');
-    expect(changed.seq, 0);
-    expect(loop.derive().mode, 'read-only');
-    expect(loop.mode, 'read-only');
+  test('state writer binds its owner and cannot forge another namespace', () {
+    final loop =
+        AgentLoop(provider: ScriptedProvider([]), plugins: [const _Echo()]);
+    final owner = 'test/echo';
+    final write = loop.stateWriter(owner);
+    write(PluginStateEntry.snapshot(
+        pluginId: owner, stateKey: 'data', schemaVersion: 1, value: {'x': 1}));
+    expect(loop.derive().pluginStates[owner]!['data']!.value, {'x': 1});
+    expect(
+        () => write(PluginStateEntry.snapshot(
+            pluginId: 'test/other',
+            stateKey: 'data',
+            schemaVersion: 1,
+            value: {})),
+        throwsStateError);
+    loop.removePlugin(owner);
+    expect(
+        () => write(PluginStateEntry.snapshot(
+            pluginId: owner, stateKey: 'data', schemaVersion: 1, value: {})),
+        throwsStateError);
   });
 
-  test('compact appends an entry and the derive splices the summary',
-      () async {
+  test('compact appends an entry and the derive splices the summary', () async {
     final provider = ScriptedProvider([
       scriptedReply('first'),
       scriptedReply('second'),
     ]);
-    final loop = AgentLoop(
-        provider: provider, plugins: [const _Echo()]);
+    final loop = AgentLoop(provider: provider, plugins: [const _Echo()]);
     await loop.runTurn(const Input('q1', id: 't1'));
     await loop.runTurn(const Input('q2', id: 't2'));
     expect(loop.derive().messages.length, 4);
@@ -296,8 +291,7 @@ void main() {
     final messages = loop.derive().messages;
     expect(messages.length, 3);
     expect(messages.first.isSynthetic, isTrue);
-    expect((messages.first.content.single as TextBlock).text,
-        'q1/a1 happened');
+    expect((messages.first.content.single as TextBlock).text, 'q1/a1 happened');
     expect((messages[1].content.single as TextBlock).text, 'q2');
     expect(c.seq, loop.log.length - 1);
 
@@ -329,23 +323,23 @@ void main() {
       const TurnStartedEntry(turnId: 'old-1'),
       const InputRecordedEntry(turnId: 'old-1', text: 'earlier question'),
       MessageAppendedEntry(
-          turnId: 'old-1', message: Message(role: Role.user, content: [TextBlock('earlier question')])),
+          turnId: 'old-1',
+          message: Message(
+              role: Role.user, content: [TextBlock('earlier question')])),
       MessageAppendedEntry(
           turnId: 'old-1',
-          message: Message(role: Role.assistant, content: [TextBlock('earlier answer')])),
+          message: Message(
+              role: Role.assistant, content: [TextBlock('earlier answer')])),
       const TurnEndedEntry(turnId: 'old-1', reason: TurnStopReason.complete),
     ];
     final provider = ScriptedProvider([scriptedReply('now I answer')]);
-    final loop = AgentLoop(
-        provider: provider,
-        plugins: [const _Echo()],
-        seedLog: seed);
+    final loop =
+        AgentLoop(provider: provider, plugins: [const _Echo()], seedLog: seed);
     await loop.runTurn(const Input('next question', id: 'new-1'));
 
     final messages = provider.requests.single.messages;
     expect(messages.length, 3);
-    expect((messages[0].content.single as TextBlock).text,
-        'earlier question');
+    expect((messages[0].content.single as TextBlock).text, 'earlier question');
     expect((messages[1].content.single as TextBlock).text, 'earlier answer');
     expect((messages[2].content.single as TextBlock).text, 'next question');
     // The seed kept its seqs; the new entries continue from it.

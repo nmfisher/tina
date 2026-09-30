@@ -6,7 +6,9 @@ typedef PluginFactory<C> = AgentPlugin Function(C context);
 /// Application catalog. Only its constructor may register first-party names.
 /// Dependency graphs are validated before any factory is called.
 final class PluginRegistry<C> {
-  PluginRegistry({List<PluginDefinition<C>> definitions = const []}) {
+  PluginRegistry(
+      {List<PluginDefinition<C>> definitions = const [],
+      this.requiredCapabilities = const []}) {
     for (final definition in definitions) {
       if (!definition.id.startsWith('tina/')) {
         throw ArgumentError(
@@ -15,6 +17,8 @@ final class PluginRegistry<C> {
       _add(definition);
     }
   }
+
+  final List<PluginCapability<Object>> requiredCapabilities;
 
   final _definitions = <String, PluginDefinition<C>>{};
 
@@ -49,6 +53,36 @@ final class PluginRegistry<C> {
     _ordered(ids);
   }
 
+  /// Reasons why removing a selected provider would invalidate this profile.
+  Map<String, List<String>> blockingReasons(Iterable<String> ids) {
+    final selected = ids.toSet();
+    final result = <String, List<String>>{};
+    for (final id in selected) {
+      final supplied = definition(id).provides.map((c) => c.name).toSet();
+      final reasons = <String>[
+        for (final role in requiredCapabilities)
+          if (supplied.contains(role.name)) 'Application requires ${role.name}',
+        for (final consumer in selected)
+          if (consumer != id)
+            for (final dependency in definition(consumer).requires)
+              if (supplied.contains(dependency.name))
+                '$consumer requires ${dependency.name}',
+      ];
+      if (reasons.isNotEmpty) result[id] = List.unmodifiable(reasons);
+    }
+    return Map.unmodifiable(result);
+  }
+
+  PluginSelection selection(Iterable<String> ids) {
+    final selected = ids.toList();
+    try {
+      final ordered = orderedIds(selected);
+      return PluginSelection(ordered, blockingReasons(ordered), const []);
+    } on ArgumentError catch (error) {
+      return PluginSelection(selected, const {}, [error.message.toString()]);
+    }
+  }
+
   List<PluginDefinition<C>> _ordered(Iterable<String> ids) {
     final selected = <String, PluginDefinition<C>>{};
     final providers = <String, PluginDefinition<C>>{};
@@ -66,6 +100,11 @@ final class PluginRegistry<C> {
         }
         providers[capability.name] = definition;
       }
+    }
+    for (final capability in requiredCapabilities) {
+      if (!providers.containsKey(capability.name))
+        throw ArgumentError(
+            'Application requires ${capability.name}; no provider selected');
     }
     final visiting = <String>{};
     final visited = <String>{};
@@ -135,4 +174,13 @@ final class PluginRegistry<C> {
       rethrow;
     }
   }
+}
+
+final class PluginSelection {
+  PluginSelection(List<String> selected, this.blockingReasons, this.errors)
+      : selected = List.unmodifiable(selected);
+  final List<String> selected;
+  final Map<String, List<String>> blockingReasons;
+  final List<String> errors;
+  bool get valid => errors.isEmpty;
 }

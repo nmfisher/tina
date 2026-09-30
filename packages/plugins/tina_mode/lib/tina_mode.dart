@@ -10,6 +10,10 @@ export 'package:classification/permissions.dart';
 
 /// Owns permission mode and approval routing. Tools enforce its decisions;
 /// a console attachment renders it without introducing terminal dependencies.
+abstract interface class ModePolicySource {
+  ModePlugin get modePolicy;
+}
+
 class ModePlugin extends AgentPlugin implements ModeControl {
   ModePlugin({
     PermissionMode mode = PermissionMode.ask,
@@ -24,12 +28,47 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   @override
   PermissionMode get mode => _mode;
   PermissionMode _mode;
+  void Function(PluginStateEntry)? _writeState;
+  @override
+  void mountOn(AgentLoop loop) => mountPolicy(loop, ownerId: id);
+
+  String _stateOwner = 'tina/mode';
+  void mountPolicy(AgentLoop loop, {required String ownerId}) {
+    _stateOwner = ownerId;
+    final state =
+        (loop.derive().pluginStates[ownerId] ??
+        loop.derive().pluginStates[id])?['permission-mode'];
+    if (state != null && state.value != null) {
+      if (state.schemaVersion != 1)
+        throw FormatException(
+          'Unsupported mode state version ${state.schemaVersion}',
+        );
+      final word = state.value!['mode'];
+      final restored = word == 'normal'
+          ? PermissionMode.ask
+          : parseMode(word is String ? word : '');
+      if (restored == null)
+        throw FormatException('Unknown saved permission mode: $word');
+      mode = restored;
+    }
+    // Missing historical state retains the configured mode (ask by default).
+    _writeState = loop.stateWriter(ownerId);
+  }
+
   final _listeners = <void Function(PermissionMode)>[];
   Completer<void> _changed = Completer<void>();
   final _closedSignal = Completer<void>();
   @override
   set mode(PermissionMode value) {
     if (_mode == value) return;
+    _writeState?.call(
+      PluginStateEntry.snapshot(
+        pluginId: _stateOwner,
+        stateKey: 'permission-mode',
+        schemaVersion: 1,
+        value: {'mode': value.label},
+      ),
+    );
     _mode = value;
     _callApprovals.clear();
     _changed.complete();
@@ -190,6 +229,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   void closeSession() {
     if (_closed) return;
     _closed = true;
+    _writeState = null;
     _closedSignal.complete();
     _listeners.clear();
   }

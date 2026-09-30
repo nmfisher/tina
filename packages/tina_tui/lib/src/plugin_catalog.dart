@@ -10,7 +10,7 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_tools/tina_tools.dart';
-import 'package:tina_persona/tina_persona.dart';
+import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
@@ -45,28 +45,21 @@ final class TuiPluginContext {
 
 /// Required host plugins also carry metadata, without becoming optional features.
 List<PluginDefinition<TuiPluginContext>> basePluginDefinitions() => [
-      PluginDefinition('tina/persona', (_) => const PersonaPlugin(),
+      PluginDefinition(
+          'tina/system-instruction', (_) => const SystemInstructionPlugin(),
           description:
               'Supplies the agent identity and base instructions for conversations.'),
       PluginDefinition('tina/providers', (c) => c.providerPolicy!,
+          provides: [modelAccess],
           description:
               'Connects configured models and providers and enforces request and token limits.'),
-      PluginDefinition('tina/mode', (c) {
-        final policy = c.tools.modePolicy;
-        policy.terminal = c.terminal;
-        policy.classifier = PermissionClassifier(() =>
-            c.providerPolicy?.mainProvider(c.model) ??
-            c.providerFactory(c.model));
-        return ModeTuiPlugin(policy: policy);
-      },
+      PluginDefinition.dependingOn<TuiPluginContext, ModePolicySource>(
+          'tina/mode',
+          dependency: modePolicySource,
+          create: (c, source) => ModeTuiPlugin(policy: source.modePolicy),
+          live: true,
           description:
-              'Owns ask, read-only, allow-edits and auto permissions, with /mode and Shift-Tab selection.'),
-    ];
-
-List<AgentPlugin> basePlugins(TuiPluginContext context) => [
-      for (final definition in basePluginDefinitions())
-        if (definition.id != 'tina/providers' || context.providerPolicy != null)
-          definition.build(context, const []),
+              'Adds /mode and Shift-Tab controls for the tools permission policy.'),
     ];
 
 Map<String, String> pluginDescriptions(
@@ -80,7 +73,9 @@ Map<String, String> pluginDescriptions(
 /// This catalog alone grants first-party names. Extension registration on
 /// the returned registry rejects the reserved namespace.
 PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
+      requiredCapabilities: [modelAccess],
       definitions: [
+        ...basePluginDefinitions(),
         PluginDefinition<TuiPluginContext>('tina/step-limit',
             (c) => StepLimitConsolePlugin(configPath: c.configPath),
             description:
@@ -97,7 +92,21 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             provides: [approvalChannel],
             description:
                 'Delivers approval requests through a stream for an external interaction channel.'),
-        toolsDefinition<TuiPluginContext>((c) => c.tools),
+        PluginDefinition.dependingOn2<TuiPluginContext, ApprovalRequester,
+                ModelAccess>('tina/tools',
+            first: approvalRequester,
+            second: modelAccess,
+            provides: [toolProvider, modePolicySource],
+            create: (c, approvals, models) {
+          c.tools.modePolicy
+            ..approvals = approvals
+            ..terminal = c.terminal
+            ..classifier =
+                PermissionClassifier(() => models.mainProvider(c.model));
+          return c.tools;
+        },
+            description:
+                'Provides sandboxed file, search and shell tools with permission policy and approval routing.'),
         PluginDefinition<TuiPluginContext>(
             'tina/classification',
             (c) => ClassificationConsolePlugin.configured(
@@ -137,14 +146,14 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             description:
                 'Saves conversation history in SQLite so sessions can be listed and resumed.',
             live: false),
-        PluginDefinition<TuiPluginContext>(
+        PluginDefinition.dependingOn<TuiPluginContext, ApprovalRequester>(
             'tina/plans',
-            (c) => PlansConsolePlugin(
+            dependency: approvalRequester,
+            create: (c, approvals) => PlansConsolePlugin(
                   terminal: c.terminal,
                   // Plan consent is always human, never a tool-safety judgment.
                   approver: (request, reason) async {
-                    final decision =
-                        await c.tools.modePolicy.approvals?.request(
+                    final decision = await approvals.request(
                       operation: 'approve plan',
                       target: request.path,
                       reason: reason,
@@ -168,19 +177,21 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             description:
                 'Summarizes older conversation history when context grows large to make room for more work.',
             live: true),
-        PluginDefinition<TuiPluginContext>(
-            'tina/subagents',
-            (c) => SubagentsPlugin(
+        PluginDefinition.dependingOn2<TuiPluginContext, ToolSessionSource,
+                ModelAccess>('tina/subagents',
+            first: toolProvider,
+            second: modelAccess,
+            create: (c, parentTools, models) => SubagentsPlugin(
                   config: SubagentsConfig(
                       maxDepth: c.limits.childDepth,
                       maxConcurrency: c.limits.childConcurrency,
                       tokenBudget: 0),
                   sessionFactory: standardChildFactory(
-                    parentTools: c.tools,
-                    providerFactory: c.providerFactory,
+                    parentTools: parentTools,
+                    providerFactory: models.childProvider,
                     model: c.model,
                     childPlugins: () => [
-                      const PersonaPlugin(),
+                      const SystemInstructionPlugin(),
                       if (c.openStore != null)
                         PersistencePlugin(openStore: c.openStore!),
                     ],

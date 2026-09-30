@@ -6,6 +6,21 @@ import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart';
 
 void main() {
+  test('legacy system-instruction selections retain their enabled state', () {
+    expect(pluginBaseline(['tina/persona'], selectionVersion: 2),
+        ['tina/system-instruction']);
+    expect(
+        parsePluginOverrides({
+          'overrides': {'tina/persona': false}
+        }),
+        {'tina/system-instruction': false});
+    expect(
+        parsePluginOverrides({
+          'overrides': {'tina/system-instruction': true, 'tina/persona': false}
+        }),
+        {'tina/system-instruction': true});
+  });
+
   late Directory workspace;
   late File config;
   setUp(() {
@@ -24,15 +39,8 @@ void main() {
       () async {
     final assembly = assemble();
     addTearDown(assembly.close);
-    expect(
-        assembly.host.config.plugins.map((p) => p.id),
-        containsAll([
-          'tina/tools',
-          'tina/persona',
-      'tina/providers',
-          'tina/mode',
-          ...defaultPluginIds,
-        ]));
+    expect(assembly.host.config.plugins.map((p) => p.id),
+        containsAll(defaultPluginIds));
     expect(assembly.commands.all.map((c) => c.name),
         containsAll(['plan', 'goal', 'mode', 'settings', 'quit']));
     for (final legacy in ['model', 'session', 'sessions', 'resume', 'save']) {
@@ -58,14 +66,16 @@ void main() {
         .writeAsStringSync('[default]\nmodel="test"\n[plugins]\nenabled=[]\n');
     final assembly = assemble();
     addTearDown(assembly.close);
-    expect(assembly.host.config.plugins.map((p) => p.id), [
-      'tina/persona',
-      'tina/providers',
-      'tina/mode',
-      'tina/approvals-tui',
-      'tina/approvals',
-      'tina/tools'
-    ]);
+    expect(
+        assembly.host.config.plugins.map((p) => p.id),
+        unorderedEquals([
+          'tina/system-instruction',
+          'tina/providers',
+          'tina/mode',
+          'tina/approvals-tui',
+          'tina/approvals',
+          'tina/tools'
+        ]));
     await assembly.host.send('hello');
     expect(assembly.commands['plan'], isNull);
     expect(assembly.commands['goal'], isNull);
@@ -139,6 +149,6 @@ enabled = [
     global
         .writeAsStringSync('[default]\nmodel="test"\n[plugins]\nenabled=[]\n');
     final result = loadTinaConfig(environment: {'HOME': workspace.path});
-    expect(result.config.plugins, isEmpty);
+    expect(result.config.plugins, legacyProfilePlugins);
   });
 }

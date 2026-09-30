@@ -55,7 +55,7 @@ enabled = []
     expect(descriptor.wire, ProviderWire.openAiCompatible);
     expect(descriptor.models['vendor/model']!.name, 'Local model');
     expect(config.providers['local']!.disabledModels, {'other'});
-    expect(config.plugins, isEmpty);
+    expect(config.plugins, legacyProfilePlugins);
     final provider = configuredProvider(config, config.model,
         environment: {'LOCAL_API_KEY': 'env'});
     addTearDown(provider.close);
@@ -196,7 +196,8 @@ enabled = []
     expect((reloaded.table('sessions')['jsonl'] as Map)['root'], '/old/store');
     expect((reloaded.table('providers')['anthropic'] as Map)['api_key'],
         'preserved-key');
-    expect(loadTinaConfig(path: file.path).config.plugins, isEmpty);
+    expect(
+        loadTinaConfig(path: file.path).config.plugins, legacyProfilePlugins);
     if (!Platform.isWindows) expect(file.statSync().mode & 0x1ff, 0x180);
     file.writeAsStringSync('[default]\nmodel="external"\n');
     expect(() => reloaded.save(), throwsStateError);

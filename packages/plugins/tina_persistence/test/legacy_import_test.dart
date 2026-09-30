@@ -126,9 +126,14 @@ void main() {
       expect(result.active, true);
       final derived =
           deriveSession(store.readEntries(result.id!), const SessionSettings());
-      expect(derived.plan!.items.single.state, 'in_progress');
-      expect(derived.goal!.text, 'objective');
-      expect(derived.mode, 'normal');
+      expect(
+          ((derived.pluginStates['tina/plans']!['plan']!.value!['items']
+                  as List)
+              .single as Map)['state'],
+          'in_progress');
+      expect(derived.pluginStates['tina/goals']!['goal']!.value!['text'],
+          'objective');
+      expect(derived.pluginStates['tina/mode'], isNull);
       expect(derived.pendingTurnId, isNull);
       final metadata =
           store.readLog(result.id!).first.payload['legacy_import'] as Map;

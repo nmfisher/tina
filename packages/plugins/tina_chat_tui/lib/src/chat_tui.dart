@@ -1,3 +1,5 @@
+import 'package:tina_plans/tina_plans.dart';
+import 'package:tina_goals/tina_goals.dart';
 import 'dart:async';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -269,11 +271,19 @@ final class ChatTuiPlugin extends AgentPlugin
               ToolResult(block.content, isError: block.isError));
         }
       }
-    } else if (entry is PlanChangedEntry) {
-      _plan = entry;
+    } else if (PlanChangedEntry.matches(entry)) {
+      try {
+        _plan = PlanChangedEntry.decode(entry as PluginStateEntry);
+      } catch (_) {
+        _plan = null;
+      } // The owner reports incompatible state when enabled.
       _paintUsage();
-    } else if (entry is GoalChangedEntry) {
-      _goal = entry;
+    } else if (GoalChangedEntry.matches(entry)) {
+      try {
+        _goal = GoalChangedEntry.decode(entry as PluginStateEntry);
+      } catch (_) {
+        _goal = null;
+      }
       _paintUsage();
     } else if (entry is UsageRecordedEntry) {
       _paintUsage();

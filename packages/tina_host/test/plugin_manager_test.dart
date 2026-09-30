@@ -81,7 +81,7 @@ void main() {
     manager.select([]);
     expect(runtime.commands['probe'], isNull);
     expect(instances.single.closes, 1);
-    runtime.session.loop.recordState(GoalChangedEntry(text: 'after removal'));
+    runtime.session.loop.recordUsage(const UsageRecordedEntry(turnId: 'test'));
     expect(instances.single.seen, seen);
     manager.select(['test/probe']);
     expect(manager.lastError, isNull); // no leaked executor collision
@@ -108,7 +108,7 @@ void main() {
     expect(probes.single.closes, 1);
     expect(runtime.plugins, isEmpty);
     expect(runtime.commands['probe'], isNull);
-    runtime.session.loop.recordState(GoalChangedEntry(text: 'after failure'));
+    runtime.session.loop.recordUsage(const UsageRecordedEntry(turnId: 'test'));
     expect(probes.single.seen, 0);
     fail = false;
     manager.reconcile();

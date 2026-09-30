@@ -204,7 +204,8 @@ void main() {
       expect(result.content, contains('example/guard'));
     });
 
-    test('ask with no UI resolves to deny, recorded as ask-unresolved',
+    test(
+        'an awaited policy decision denies without a special approval loop path',
         () async {
       final provider = ScriptedProvider([
         scriptedReply('',
@@ -225,7 +226,7 @@ void main() {
 
       expect(ran, isEmpty);
       final result = _result(outcome.messages.firstWhere(_isResult));
-      expect(result.content, contains('ask-unresolved'));
+      expect(result.content, contains('denied by'));
     });
   });
 
@@ -902,7 +903,10 @@ final class _Ask extends AgentPlugin {
   @override
   final String id;
   @override
-  void beforeToolCall(TurnContext c) => c.decision = Decision.ask('unsure');
+  Future<void> beforeToolCall(TurnContext c) async {
+    await Future<void>.delayed(Duration.zero);
+    c.decision = const Decision.deny('declined');
+  }
 }
 
 /// Throws in one chosen phase.

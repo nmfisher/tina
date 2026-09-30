@@ -20,310 +20,11 @@ import 'dart:convert';
 
 import 'message.dart';
 import 'stream.dart';
+import 'plugin_id.dart';
 
 /// Why a turn stopped. The loop's stop vocabulary, owned here so an
 /// entry can carry it without the core depending on a loop package.
 enum TurnStopReason { complete, cancelled, error }
-
-/// The approval dimension of the session's plan, carried on
-/// [PlanChangedEntry]. The agent moves a plan to [requested] (the
-/// `update_plan` tool's `approval` field) when it wants sign-off before
-/// executing; only the user moves it to [approved] or [rejected] (the
-/// `/plan` command). [none] is the default and also what an edited plan
-/// falls back to — an edited plan must be re-approved.
-enum PlanApproval { none, requested, approved, rejected }
-
-/// The goal judge's verdict on whether the session's goal has been met.
-/// [none] is the fresh-goal default (never judged); [achieved] and
-/// [uncertain] come from a post-turn judge check; [inProgress] is
-/// recorded explicitly too, so a flip (achieved → inProgress) reads as a
-/// re-opened goal, not a stale label.
-enum GoalVerdict { none, inProgress, achieved, uncertain }
-
-/// The session's goal changed: the user's stated objective plus the
-/// latest judge verdict. One goal per session; the latest entry wins,
-/// and an entry with an empty text clears the goal. Like the plan, the
-/// entry **is** the state — the words as typed and the verdict with its
-/// evidence are not derivable from anything else in the log.
-final class GoalChangedEntry extends SessionEntry {
-  static const kindName = 'goal_changed';
-
-  /// The objective as the user typed it (trimmed). Empty = cleared.
-  final String text;
-
-  /// The latest verdict. [GoalVerdict.none] = not judged yet (a new goal
-  /// always starts here — a new goal is not yet judged).
-  final GoalVerdict verdict;
-
-  /// The verdict's one-line evidence, as the judge phrased it.
-  final String evidence;
-
-  final String at;
-
-  const GoalChangedEntry({
-    required this.text,
-    this.verdict = GoalVerdict.none,
-    this.evidence = '',
-    this.at = '',
-    super.seq = 0,
-  });
-
-  @override
-  GoalChangedEntry withSeq(int newSeq) => GoalChangedEntry(
-        text: text,
-        verdict: verdict,
-        evidence: evidence,
-        at: at,
-        seq: newSeq,
-      );
-
-  @override
-  String get kind => kindName;
-
-  @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'text': text,
-        'verdict': verdict.name,
-        'evidence': evidence,
-        if (at.isNotEmpty) 'at': at,
-      };
-
-  /// Strict decode: the text must be a string and the verdict word one
-  /// the enum spells. A cleared goal is `text: ''` — a row without
-  /// `text` at all is a corrupt row, not an empty goal.
-  static GoalChangedEntry fromJson(
-    Map<String, dynamic> j,
-    String at,
-    int seq,
-  ) {
-    final text = j['text'];
-    final verdictName = j['verdict'];
-    if (text is! String) {
-      throw const FormatException('goal_changed requires text');
-    }
-    final verdict = verdictName == null
-        ? GoalVerdict.none
-        : GoalVerdict.values.asNameMap()[verdictName] ??
-            (throw FormatException('unknown goal verdict: $verdictName'));
-    final evidence = j['evidence'];
-    if (evidence != null && evidence is! String) {
-      throw const FormatException('goal_changed evidence must be a string');
-    }
-    return GoalChangedEntry(
-      text: text,
-      verdict: verdict,
-      evidence: evidence as String? ?? '',
-      at: at,
-    ).withSeq(seq);
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is GoalChangedEntry &&
-      text == other.text &&
-      verdict == other.verdict &&
-      evidence == other.evidence &&
-      at == other.at;
-
-  @override
-  int get hashCode => Object.hash(kindName, text, verdict, evidence, at);
-
-  @override
-  String toString() =>
-      'GoalChanged(${text.isEmpty ? '<cleared>' : text.length.toString() + ' chars'}, '
-      '${verdict.name})';
-}
-
-/// One item of the session's plan, as the log carries it: the text and
-/// the state word. One nesting level — children must be childless; the
-/// writers validate that before appending, and [PlanChangedEntry.fromJson]
-/// re-enforces it so a corrupt row cannot smuggle deeper nesting in.
-final class PlanEntryItem {
-  /// The state words: the same vocabulary the tool schema spells.
-  static const stateWords = ['pending', 'in_progress', 'done'];
-
-  final String text;
-  final String state;
-
-  /// Subtasks. One level: children of children are rejected.
-  final List<PlanEntryItem> children;
-
-  const PlanEntryItem(this.text,
-      {required this.state, this.children = const []});
-
-  /// The `update_plan` wire shape for [state], validated before an entry
-  /// carries it. Throws on anything else — a state the tool never wrote
-  /// must not silently become `pending`.
-  static String validateState(String state) {
-    if (!stateWords.contains(state)) {
-      throw FormatException(
-          'plan item state must be one of ${stateWords.join(", ")}');
-    }
-    return state;
-  }
-
-  PlanEntryItem copyWith({String? state}) =>
-      PlanEntryItem(text, state: state ?? this.state, children: children);
-
-  @override
-  bool operator ==(Object other) =>
-      other is PlanEntryItem &&
-      text == other.text &&
-      state == other.state &&
-      _listEquals(children, other.children);
-
-  @override
-  int get hashCode => Object.hash(text, state, Object.hashAll(children));
-
-  @override
-  String toString() => 'PlanEntryItem($state, $text'
-      '${children.isEmpty ? '' : ', ${children.length} children'})';
-}
-
-bool _listEquals(List<PlanEntryItem> a, List<PlanEntryItem> b) {
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
-
-/// The conversation's task plan changed: this entry **is** the plan, the
-/// whole current state carried forward — the latest one in the log wins,
-/// and a resume derives from it the same way the running session does.
-/// Nothing else about a plan is derivable (the model's reasons, the user's
-/// edits mid-run), which is why the state itself is logged rather than
-/// recomputed.
-///
-/// The shape is deliberately structured — items, each with a state word,
-/// plus the approval dimension — not one text blob: the prompt section, a
-/// future overlay and an auditor all read the same structured fact, and
-/// the at-most-one-in-progress rule is checkable against the entry instead
-/// of trusted from the writer.
-final class PlanChangedEntry extends SessionEntry {
-  static const kindName = 'plan_changed';
-
-  /// The complete item list this entry installs. Empty list = plan cleared.
-  final List<PlanEntryItem> items;
-
-  /// The user-approval dimension. The writer resolves the
-  /// edit-resets-approval rule (the plugin's store) before appending, so
-  /// derive replays it verbatim — one authority, not two.
-  final PlanApproval approval;
-
-  final String at;
-
-  const PlanChangedEntry({
-    required this.items,
-    this.approval = PlanApproval.none,
-    this.at = '',
-    super.seq = 0,
-  });
-
-  @override
-  PlanChangedEntry withSeq(int newSeq) => PlanChangedEntry(
-        items: items,
-        approval: approval,
-        at: at,
-        seq: newSeq,
-      );
-
-  @override
-  String get kind => kindName;
-
-  @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'items': [
-          for (final i in items) _itemToJson(i),
-        ],
-        'approval': approval.name,
-        if (at.isNotEmpty) 'at': at,
-      };
-
-  static Map<String, dynamic> _itemToJson(PlanEntryItem item) => {
-        'text': item.text,
-        'state': item.state,
-        if (item.children.isNotEmpty)
-          'children': [for (final c in item.children) _itemToJson(c)],
-      };
-
-  /// The item cap a decoded entry enforces — a corrupt row is a reader
-  /// error, not a plan. The plugin's store applies the same cap before
-  /// anything is appended.
-  static const maxItems = 64;
-
-  /// Strict-but-bounded decode: unknown states throw (the tool never
-  /// wrote them), depth beyond one level of children throws (the writer
-  /// validated the same rule), and the item cap holds.
-  static PlanChangedEntry fromJson(
-    Map<String, dynamic> j,
-    String at,
-    int seq,
-  ) {
-    final rawItems = j['items'];
-    if (rawItems is! List) {
-      throw const FormatException('plan_changed requires an items array');
-    }
-    if (rawItems.length > maxItems) {
-      throw const FormatException('plan_changed exceeds the item cap');
-    }
-    final approvalName = j['approval'] as String?;
-    final approval = approvalName == null
-        ? PlanApproval.none
-        : PlanApproval.values.asNameMap()[approvalName] ??
-            (throw FormatException('unknown plan approval: $approvalName'));
-    return PlanChangedEntry(
-      items: [
-        for (final raw in rawItems) _itemFromJson(raw as Map<String, dynamic>),
-      ],
-      approval: approval,
-      at: at,
-    ).withSeq(seq);
-  }
-
-  static PlanEntryItem _itemFromJson(Map<String, dynamic> j,
-      {bool allowChildren = true}) {
-    final text = j['text'];
-    final state = j['state'];
-    if (text is! String || state is! String) {
-      throw const FormatException('plan item requires text and state');
-    }
-    final rawChildren = j['children'];
-    final children = <PlanEntryItem>[];
-    if (rawChildren != null) {
-      if (!allowChildren) {
-        throw const FormatException('plan supports one nesting level only');
-      }
-      if (rawChildren is! List) {
-        throw const FormatException('plan item children must be an array');
-      }
-      for (final rawChild in rawChildren) {
-        children.add(_itemFromJson(rawChild as Map<String, dynamic>,
-            allowChildren: false));
-      }
-    }
-    return PlanEntryItem(text,
-        state: PlanEntryItem.validateState(state), children: children);
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is PlanChangedEntry &&
-      _listEquals(items, other.items) &&
-      approval == other.approval &&
-      at == other.at;
-
-  @override
-  int get hashCode => Object.hash(Object.hashAll(items), approval, at);
-
-  @override
-  String toString() =>
-      'PlanChanged(${items.length} items, approval ${approval.name})';
-}
-
-/// History was compacted: derived-message positions [replacedFrom]..
 
 /// What the providers reported using, as recorded on a [TurnEndedEntry].
 /// Shaped so `TokenUsage` converts losslessly and sums additively.
@@ -387,6 +88,83 @@ final class EntryUsage {
 
 /// One entry in the session log. Sealed: the case set below is the whole
 /// set, and a reader switches over it exhaustively.
+/// Opaque, versioned whole-state snapshot belonging to one plugin/key.
+/// Payload interpretation belongs to the owner. Null is an explicit tombstone.
+abstract class PluginStateEntry extends SessionEntry {
+  const PluginStateEntry({super.seq});
+  factory PluginStateEntry.snapshot(
+      {required String pluginId,
+      required String stateKey,
+      required int schemaVersion,
+      required Map<String, dynamic>? value,
+      String at = '',
+      int seq = 0}) {
+    validatePluginId(pluginId);
+    if (!RegExp(r'^[a-z][a-z0-9_/-]*$').hasMatch(stateKey) ||
+        schemaVersion < 1 ||
+        seq < 0) {
+      throw const FormatException('Invalid plugin-state envelope');
+    }
+    final frozen = _freezeJson(value);
+    return _PluginSnapshot(pluginId, stateKey, schemaVersion,
+        frozen as Map<String, dynamic>?, at, seq);
+  }
+  String get pluginId;
+  String get stateKey;
+  int get schemaVersion;
+  Map<String, dynamic>? get value;
+  String get at;
+  @override
+  String get kind => 'plugin_state';
+  @override
+  PluginStateEntry withSeq(int seq) => PluginStateEntry.snapshot(
+      pluginId: pluginId,
+      stateKey: stateKey,
+      schemaVersion: schemaVersion,
+      value: value,
+      at: at,
+      seq: seq);
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        'plugin_id': pluginId,
+        'state_key': stateKey,
+        'schema_version': schemaVersion,
+        'value': value,
+        if (at.isNotEmpty) 'at': at
+      };
+}
+
+Object? _freezeJson(Object? value) {
+  if (value == null || value is String || value is bool || value is int)
+    return value;
+  if (value is double && value.isFinite) return value;
+  if (value is List) return List<Object?>.unmodifiable(value.map(_freezeJson));
+  if (value is Map && value.keys.every((k) => k is String)) {
+    return Map<String, dynamic>.unmodifiable(
+        {for (final e in value.entries) e.key as String: _freezeJson(e.value)});
+  }
+  throw const FormatException('Plugin state must contain only JSON values');
+}
+
+final class _PluginSnapshot extends PluginStateEntry {
+  const _PluginSnapshot(this.pluginId, this.stateKey, this.schemaVersion,
+      this.value, this.at, int seq)
+      : super(seq: seq);
+  @override
+  final String pluginId, stateKey, at;
+  @override
+  final int schemaVersion;
+  @override
+  final Map<String, dynamic>? value;
+  @override
+  bool operator ==(Object other) =>
+      other is PluginStateEntry &&
+      jsonEncode(toJson()) == jsonEncode(other.toJson());
+  @override
+  int get hashCode => jsonEncode(toJson()).hashCode;
+}
+
 sealed class SessionEntry {
   const SessionEntry({this.seq = 0});
 
@@ -416,6 +194,20 @@ sealed class SessionEntry {
     final at = (j['at'] as String?) ?? '';
     final stamped = (j['seq'] as num?)?.toInt() ?? 0;
     switch (type) {
+      case 'plugin_state':
+        if (j['schema_version'] is! int ||
+            !j.containsKey('value') ||
+            (j['seq'] != null && j['seq'] is! int))
+          throw const FormatException('Invalid plugin-state envelope');
+        return PluginStateEntry.snapshot(
+            pluginId: j['plugin_id'] as String,
+            stateKey: j['state_key'] as String,
+            schemaVersion: j['schema_version'] as int,
+            value: j['value'] == null
+                ? null
+                : Map<String, dynamic>.from(j['value'] as Map),
+            at: at,
+            seq: stamped);
       case TurnStartedEntry.kindName:
         return TurnStartedEntry(turnId: j['turn_id'] as String, at: at)
             .withSeq(stamped);
@@ -460,9 +252,6 @@ sealed class SessionEntry {
           at: at,
           seq: stamped,
         );
-      case ModeChangedEntry.kindName:
-        return ModeChangedEntry(mode: j['mode'] as String, at: at)
-            .withSeq(stamped);
       case CompactedEntry.kindName:
         return CompactedEntry(
           replacedFrom: (j['replaced_from'] as num).toInt(),
@@ -470,12 +259,6 @@ sealed class SessionEntry {
           summary: j['summary'] as String,
           at: at,
         ).withSeq(stamped);
-      case PlanChangedEntry.kindName:
-        return PlanChangedEntry.fromJson(j, at, stamped);
-      case GoalChangedEntry.kindName:
-        return GoalChangedEntry.fromJson(j, at, stamped);
-      case WorkflowRunEntry.kindName:
-        return WorkflowRunEntry.fromJson(j, at, stamped);
       default:
         throw FormatException('Unknown session entry type: $type');
     }
@@ -798,129 +581,6 @@ final class UsageRecordedEntry extends SessionEntry {
       Object.hash(kindName, turnId, usage, estimatedTokens, child, at);
 }
 
-/// The plan as a derivation reports it: the entry's items and approval
-/// plus the derived answers (which item is in progress, the counts) the
-/// prompt section and a strip both want. Value type; [PlanChangedEntry]
-/// is the truth, this is its reading.
-final class SessionPlan {
-  final List<PlanEntryItem> items;
-  final PlanApproval approval;
-
-  const SessionPlan({required this.items, this.approval = PlanApproval.none});
-
-  bool get isEmpty => items.isEmpty;
-
-  bool get needsApproval => approval == PlanApproval.requested;
-
-  bool get isApproved => approval == PlanApproval.approved;
-
-  /// Every item, top-level rows then their children — the walk the
-  /// counts and the in-progress check use.
-  Iterable<PlanEntryItem> get allItems sync* {
-    for (final item in items) {
-      yield item;
-      yield* item.children;
-    }
-  }
-
-  /// The in-progress texts, in order — at most one when the writers
-  /// validated, but derive does not re-trust: a corrupt hand-sewn log
-  /// with two shows both rather than picking one.
-  List<String> get inProgress => [
-        for (final i in allItems)
-          if (i.state == 'in_progress') i.text,
-      ];
-
-  int get doneCount => allItems.where((i) => i.state == 'done').length;
-
-  @override
-  bool operator ==(Object other) =>
-      other is SessionPlan &&
-      _listEquals(items, other.items) &&
-      approval == other.approval;
-
-  @override
-  int get hashCode => Object.hash(Object.hashAll(items), approval);
-
-  @override
-  String toString() => 'SessionPlan(${items.length} items, ${doneCount} done, '
-      'approval ${approval.name})';
-}
-
-/// The goal as a derivation reports it: the objective, the latest
-/// verdict and its evidence. Value type; [GoalChangedEntry] is the
-/// truth, this is its reading.
-final class SessionGoal {
-  final String text;
-  final GoalVerdict verdict;
-  final String evidence;
-
-  const SessionGoal({
-    required this.text,
-    this.verdict = GoalVerdict.none,
-    this.evidence = '',
-  });
-
-  bool get hasVerdict => verdict != GoalVerdict.none;
-
-  bool get isAchieved => verdict == GoalVerdict.achieved;
-
-  bool get isUncertain => verdict == GoalVerdict.uncertain;
-
-  @override
-  bool operator ==(Object other) =>
-      other is SessionGoal &&
-      text == other.text &&
-      verdict == other.verdict &&
-      evidence == other.evidence;
-
-  @override
-  int get hashCode => Object.hash(text, verdict, evidence);
-
-  @override
-  String toString() => 'SessionGoal(${text.length} chars, ${verdict.name})';
-}
-
-/// The permission mode moved. It moves outside the loop — a slash
-/// command, an operator key — so nothing about a turn recomputes it; the
-/// log records it and derive reports the latest value in
-/// [DerivedSession.mode].
-final class ModeChangedEntry extends SessionEntry {
-  static const kindName = 'mode_changed';
-
-  /// The mode's word, as the session's vocabulary spells it (`normal`,
-  /// `read-only`). A string, not an enum: the core owns no vocabulary.
-  final String mode;
-
-  final String at;
-
-  const ModeChangedEntry({required this.mode, this.at = '', super.seq = 0});
-
-  @override
-  ModeChangedEntry withSeq(int newSeq) =>
-      ModeChangedEntry(mode: mode, at: at, seq: newSeq);
-
-  @override
-  String get kind => kindName;
-
-  @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'mode': mode,
-        if (at.isNotEmpty) 'at': at,
-      };
-
-  @override
-  bool operator ==(Object other) =>
-      other is ModeChangedEntry && mode == other.mode && at == other.at;
-
-  @override
-  int get hashCode => Object.hash(kindName, mode, at);
-
-  @override
-  String toString() => 'ModeChanged($mode)';
-}
-
 /// History was compacted: derived-message positions [replacedFrom]..
 /// [replacedTo] (inclusive; indexes into the derived message list **as
 /// it stood when this entry was appended** — a log is replayed in order,
@@ -987,280 +647,35 @@ final class CompactedEntry extends SessionEntry {
       'Compacted($replacedFrom..$replacedTo, ${summary.length} chars)';
 }
 
-/// A workflow run as a derivation reports it: the workflow's name, how it
-/// ended, its final text and the nodes that executed. Value type;
-/// [WorkflowRunEntry] is the truth, this is its reading.
-final class SessionWorkflowRun {
-  /// How the run ended, as [WorkflowRunEntry] spells it.
-  final String status;
-
-  /// The workflow's name — the catalog name it launched under.
-  final String workflow;
-
-  /// The run's final output: the last node's response on success, the
-  /// failure reason otherwise. Empty when the run produced neither.
-  final String detail;
-
-  /// The node ids that executed, in execution order.
-  final List<String> nodes;
-
-  const SessionWorkflowRun({
-    required this.workflow,
-    required this.status,
-    this.detail = '',
-    this.nodes = const [],
-  });
-
-  bool get isSuccess => status == WorkflowRunEntry.statusSuccess;
-
-  @override
-  bool operator ==(Object other) =>
-      other is SessionWorkflowRun &&
-      workflow == other.workflow &&
-      status == other.status &&
-      detail == other.detail &&
-      _stringListEquals(nodes, other.nodes);
-
-  @override
-  int get hashCode =>
-      Object.hash(workflow, status, detail, Object.hashAll(nodes));
-
-  @override
-  String toString() =>
-      'SessionWorkflowRun($workflow, $status, ${nodes.length} nodes)';
-}
-
-bool _stringListEquals(List<String> a, List<String> b) {
-  if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i]) return false;
-  }
-  return true;
-}
-
-/// One workflow run ended. The run itself is not part of the
-/// conversation — a node's work is real turns in the log, and that is
-/// where its content lives — but the run's **outcome** is a whole-state
-/// fact no later log reading can recompute (which graph traversal
-/// produced these turns, and how the traversal ended). Like
-/// [PlanChangedEntry] and [GoalChangedEntry], the entry **is** the
-/// state: the latest one wins in a derive, so a resume sees the same
-/// last-run summary the running session did.
-///
-/// The node list is an audit trail, capped by the writer; a run that
-/// failed before any node executed records an empty list.
-final class WorkflowRunEntry extends SessionEntry {
-  static const kindName = 'workflow_run';
-
-  /// The only status words an entry carries.
-  static const statusSuccess = 'success';
-  static const statusFailed = 'failed';
-
-  /// The workflow's name — the catalog name it launched under.
-  final String workflow;
-
-  /// How the run ended: [statusSuccess] or [statusFailed].
-  final String status;
-
-  /// The run's final output: the last node's response on success, the
-  /// failure reason otherwise.
-  final String detail;
-
-  /// The node ids that executed, in execution order.
-  final List<String> nodes;
-
-  final String at;
-
-  const WorkflowRunEntry({
-    required this.workflow,
-    required this.status,
-    this.detail = '',
-    this.nodes = const [],
-    this.at = '',
-    super.seq = 0,
-  });
-
-  /// The writer's constructor: validates the status word and rejects an
-  /// empty workflow name, so a bad append throws at the writer instead
-  /// of decoding into a run nobody launched.
-  factory WorkflowRunEntry.record({
-    required String workflow,
-    required String status,
-    String detail = '',
-    List<String> nodes = const [],
-    String at = '',
-  }) {
-    if (workflow.isEmpty) {
-      throw const FormatException('workflow_run requires a workflow name');
-    }
-    if (status != statusSuccess && status != statusFailed) {
-      throw FormatException(
-          'workflow_run status must be "$statusSuccess" or "$statusFailed"');
-    }
-    return WorkflowRunEntry(
-      workflow: workflow,
-      status: status,
-      detail: detail,
-      nodes: List.of(nodes),
-      at: at,
-    );
-  }
-
-  @override
-  WorkflowRunEntry withSeq(int newSeq) => WorkflowRunEntry(
-        workflow: workflow,
-        status: status,
-        detail: detail,
-        nodes: nodes,
-        at: at,
-        seq: newSeq,
-      );
-
-  @override
-  String get kind => kindName;
-
-  @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        'workflow': workflow,
-        'status': status,
-        'detail': detail,
-        'nodes': [...nodes],
-        if (at.isNotEmpty) 'at': at,
-      };
-
-  /// Strict decode: the status word is validated (a corrupt row is a
-  /// reader error, not a successful run) and the workflow name must be
-  /// there. The node cap matches the writer's — see the plugin.
-  static WorkflowRunEntry fromJson(
-    Map<String, dynamic> j,
-    String at,
-    int seq,
-  ) {
-    final workflow = j['workflow'];
-    final status = j['status'];
-    if (workflow is! String || workflow.isEmpty) {
-      throw const FormatException('workflow_run requires a workflow name');
-    }
-    if (status != statusSuccess && status != statusFailed) {
-      throw FormatException(
-          'workflow_run status must be "$statusSuccess" or "$statusFailed"');
-    }
-    final rawNodes = j['nodes'];
-    if (rawNodes != null && rawNodes is! List) {
-      throw const FormatException('workflow_run nodes must be an array');
-    }
-    return WorkflowRunEntry(
-      workflow: workflow,
-      status: status,
-      detail: (j['detail'] as String?) ?? '',
-      nodes: [
-        for (final n in (rawNodes as List?) ?? const []) n as String,
-      ],
-      at: at,
-    ).withSeq(seq);
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is WorkflowRunEntry &&
-      workflow == other.workflow &&
-      status == other.status &&
-      detail == other.detail &&
-      _stringListEquals(nodes, other.nodes) &&
-      at == other.at;
-
-  @override
-  int get hashCode =>
-      Object.hash(workflow, status, detail, Object.hashAll(nodes), at);
-
-  @override
-  String toString() => 'WorkflowRun($workflow, $status, ${nodes.length} nodes)';
-}
-
 /// The per-session settings derive consults. Plain strings — the core
 /// owns no mode vocabulary and no prompt text. A session restarts these;
 /// the log does not carry them.
 final class SessionSettings {
-  /// The session's system prompt, as configured.
   final String systemPrompt;
-
-  /// The session's permission mode as configured at start (`normal`,
-  /// `read-only`, ...). The log's [ModeChangedEntry]s override this.
-  final String mode;
-
-  const SessionSettings({this.systemPrompt = '', this.mode = 'normal'});
-
-  Map<String, dynamic> toJson() =>
-      {'system_prompt': systemPrompt, 'mode': mode};
-
-  factory SessionSettings.fromJson(Map<String, dynamic> j) => SessionSettings(
-        systemPrompt: (j['system_prompt'] as String?) ?? '',
-        mode: (j['mode'] as String?) ?? 'normal',
-      );
-
+  const SessionSettings({this.systemPrompt = ''});
+  Map<String, dynamic> toJson() => {'system_prompt': systemPrompt};
+  factory SessionSettings.fromJson(Map<String, dynamic> j) =>
+      SessionSettings(systemPrompt: j['system_prompt'] as String? ?? '');
   @override
   bool operator ==(Object other) =>
-      other is SessionSettings &&
-      systemPrompt == other.systemPrompt &&
-      mode == other.mode;
-
+      other is SessionSettings && systemPrompt == other.systemPrompt;
   @override
-  int get hashCode => Object.hash(systemPrompt, mode);
-
-  @override
-  String toString() => 'SessionSettings(${toJson()})';
+  int get hashCode => systemPrompt.hashCode;
 }
 
 /// What derive produced: the request-shaped view of the log.
 final class DerivedSession {
-  const DerivedSession({
-    required this.messages,
-    required this.systemPrompt,
-    required this.mode,
-    required this.entriesConsumed,
-    this.pendingTurnId,
-    this.plan,
-    this.goal,
-    this.workflowRun,
-  });
-
-  /// The conversation the provider should see, oldest first.
+  const DerivedSession(
+      {required this.messages,
+      required this.systemPrompt,
+      required this.entriesConsumed,
+      this.pendingTurnId,
+      this.pluginStates = const {}});
   final List<Message> messages;
-
-  /// The system prompt: the setting (entries do not change it today).
   final String systemPrompt;
-
-  /// The mode now: the setting, overridden by the log's latest
-  /// [ModeChangedEntry].
-  final String mode;
-
-  /// How many log entries this derivation consumed — the resume point a
-  /// caller streaming entries incrementally picks up from.
   final int entriesConsumed;
-
-  /// The turn whose input was taken but whose [TurnEndedEntry] is not in
-  /// the log, or null when the log ends on a completed turn. A resume
-  /// replays such a turn; it must not half-send it.
   final String? pendingTurnId;
-
-  /// The session's plan now: the latest [PlanChangedEntry]'s state, or
-  /// null when the log carries none. Like the mode, it is replayed from
-  /// the log — the running session and a resume read the same fact.
-  final SessionPlan? plan;
-
-  /// The session's goal now: the latest [GoalChangedEntry]'s state, or
-  /// null when no goal is set (or the last entry cleared it).
-  final SessionGoal? goal;
-
-  /// The last workflow run's outcome: the latest [WorkflowRunEntry]'s
-  /// state, or null when the log carries none.
-  final SessionWorkflowRun? workflowRun;
-
-  @override
-  String toString() =>
-      'DerivedSession(${messages.length} messages, mode $mode, '
-      'consumed $entriesConsumed, pending ${pendingTurnId ?? 'none'})';
+  final Map<String, Map<String, PluginStateEntry>> pluginStates;
 }
 
 /// Log + settings in, request out. Pure: the same log and the same
@@ -1297,26 +712,14 @@ DerivedSession deriveSession(
   // in flight when it was appended; the completed-turn set decides what
   // survives the snap.
   final slots = <_Slot>[];
-  var mode = settings.mode;
   final systemPrompt = settings.systemPrompt;
   final completedTurns = <String>{};
   final openTurns = <String>[];
 
-  /// The latest plan state, replayed entry by entry — the entry carries
-  /// the whole plan, so the last one wins.
-  SessionPlan? plan;
-
-  /// The latest goal state, same rule; null when none is set.
-  SessionGoal? goal;
-
-  /// The latest workflow-run outcome, same rule; null when the log
-  /// carries no run.
-  SessionWorkflowRun? workflowRun;
+  final states = <String, Map<String, PluginStateEntry>>{};
 
   for (final e in log) {
     switch (e) {
-      case ModeChangedEntry(mode: final newMode):
-        mode = newMode;
       case TurnStartedEntry(:final turnId):
         openTurns.add(turnId);
       case InputRecordedEntry() ||
@@ -1334,20 +737,8 @@ DerivedSession deriveSession(
           :final summary
         ):
         _compact(slots, replacedFrom, replacedTo, summary);
-      case PlanChangedEntry(items: final items, approval: final approval):
-        plan = SessionPlan(items: List.unmodifiable(items), approval: approval);
-      case GoalChangedEntry(:final text, :final verdict, :final evidence):
-        goal = text.isEmpty
-            ? null
-            : SessionGoal(text: text, verdict: verdict, evidence: evidence);
-      case WorkflowRunEntry(
-          :final workflow,
-          :final status,
-          :final detail,
-          :final nodes
-        ):
-        workflowRun = SessionWorkflowRun(
-            workflow: workflow, status: status, detail: detail, nodes: nodes);
+      case PluginStateEntry():
+        (states[e.pluginId] ??= {})[e.stateKey] = e;
     }
   }
   // A turn that started but never ended — a crash mid-turn, or an
@@ -1366,12 +757,12 @@ DerivedSession deriveSession(
   return DerivedSession(
     messages: messages,
     systemPrompt: systemPrompt,
-    mode: mode,
     entriesConsumed: log.length,
     pendingTurnId: pendingTurnId,
-    plan: plan,
-    goal: goal,
-    workflowRun: workflowRun,
+    pluginStates: Map.unmodifiable({
+      for (final entry in states.entries)
+        entry.key: Map<String, PluginStateEntry>.unmodifiable(entry.value)
+    }),
   );
 }
 

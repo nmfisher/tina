@@ -69,7 +69,11 @@ void main() {
     expect(terminal.lines.last, contains('Goal: ship the parser rewrite'));
     expect(terminal.lines.last, contains('not judged yet'));
 
-    final entry = loop.log.whereType<GoalChangedEntry>().single;
+    final entry = loop.log
+        .whereType<PluginStateEntry>()
+        .where(GoalChangedEntry.matches)
+        .map(GoalChangedEntry.decode)
+        .single;
     expect(entry.text, 'ship the parser rewrite');
     expect(entry.verdict, GoalVerdict.none);
 
@@ -82,7 +86,14 @@ void main() {
     await plugin.commands.single.handler('clear');
     expect(terminal.lines.last, 'Goal cleared.');
     expect(_sections(loop, plugin), isEmpty);
-    expect(loop.log.whereType<GoalChangedEntry>().last.text, isEmpty);
+    expect(
+        loop.log
+            .whereType<PluginStateEntry>()
+            .where(GoalChangedEntry.matches)
+            .map(GoalChangedEntry.decode)
+            .last
+            .text,
+        isEmpty);
   });
 
   test('the goal survives a store round trip: a resumed host derives it',
@@ -101,7 +112,7 @@ void main() {
       ],
     ));
     await started.session.loop.runTurn(const Input('go', id: 't1'));
-    started.session.loop.recordState(const GoalChangedEntry(
+    started.session.loop.stateWriter('tina/goals')(const GoalChangedEntry(
         text: 'land slice five',
         verdict: GoalVerdict.achieved,
         evidence: 'the suite is green'));
@@ -137,7 +148,8 @@ void main() {
           'reads the new grammar'),
     ]);
     final (loop, plugin, _) = _wired(provider: provider);
-    loop.recordState(const GoalChangedEntry(text: 'land slice five'));
+    loop.stateWriter('tina/goals')(
+        const GoalChangedEntry(text: 'land slice five'));
 
     await loop.runTurn(const Input('do the work', id: 't1'));
     await settle();
@@ -152,7 +164,11 @@ void main() {
     expect((judgeRequest.messages.single.content.single as TextBlock).text,
         contains('do the work'));
 
-    final verdicts = loop.log.whereType<GoalChangedEntry>().toList();
+    final verdicts = loop.log
+        .whereType<PluginStateEntry>()
+        .where(GoalChangedEntry.matches)
+        .map(GoalChangedEntry.decode)
+        .toList();
     expect(verdicts, hasLength(2));
     expect(verdicts.last.verdict, GoalVerdict.achieved);
     expect(verdicts.last.evidence, contains('parser tests pass'));
@@ -167,7 +183,8 @@ void main() {
       [const StreamError('provider down')],
     ]);
     final (loop, plugin, _) = _wired(provider: provider);
-    loop.recordState(const GoalChangedEntry(text: 'the objective'));
+    loop.stateWriter('tina/goals')(
+        const GoalChangedEntry(text: 'the objective'));
 
     await loop.runTurn(const Input('go', id: 't1'));
     await settle();
@@ -184,7 +201,8 @@ void main() {
     loop2.subscribe((entry, event) {
       if (entry is TurnStartedEntry) loop2.cancel('operator said stop');
     });
-    loop2.recordState(const GoalChangedEntry(text: 'the objective'));
+    loop2.stateWriter('tina/goals')(
+        const GoalChangedEntry(text: 'the objective'));
     final outcome = await loop2.runTurn(const Input('go', id: 't1'));
     expect(outcome.stopReason, StopReason.cancelled);
     await settle();
@@ -205,21 +223,36 @@ void main() {
       scriptedReply('VERDICT: no — the work visibly continues'),
     ]);
     final (loop, plugin, _) = _wired(provider: provider);
-    loop.recordState(const GoalChangedEntry(text: 'the objective'));
+    loop.stateWriter('tina/goals')(
+        const GoalChangedEntry(text: 'the objective'));
 
     await loop.runTurn(const Input('one', id: 't1'));
     await settle();
-    expect(loop.log.whereType<GoalChangedEntry>(), hasLength(1),
+    expect(
+        loop.log
+            .whereType<PluginStateEntry>()
+            .where(GoalChangedEntry.matches)
+            .map(GoalChangedEntry.decode),
+        hasLength(1),
         reason: 'a failed judge call records nothing');
 
     await loop.runTurn(const Input('two', id: 't2'));
     await settle();
-    expect(loop.log.whereType<GoalChangedEntry>(), hasLength(1),
+    expect(
+        loop.log
+            .whereType<PluginStateEntry>()
+            .where(GoalChangedEntry.matches)
+            .map(GoalChangedEntry.decode),
+        hasLength(1),
         reason: 'an unparsable answer records nothing either');
 
     await loop.runTurn(const Input('three', id: 't3'));
     await settle();
-    final verdicts = loop.log.whereType<GoalChangedEntry>().toList();
+    final verdicts = loop.log
+        .whereType<PluginStateEntry>()
+        .where(GoalChangedEntry.matches)
+        .map(GoalChangedEntry.decode)
+        .toList();
     expect(verdicts, hasLength(2));
     expect(verdicts.last.verdict, GoalVerdict.inProgress);
   });
@@ -235,20 +268,35 @@ void main() {
       scriptedReply('VERDICT: unclear — the evidence is ambiguous'),
     ]);
     final (loop, _, _) = _wired(provider: provider);
-    loop.recordState(const GoalChangedEntry(text: 'the objective'));
+    loop.stateWriter('tina/goals')(
+        const GoalChangedEntry(text: 'the objective'));
 
     await loop.runTurn(const Input('one', id: 't1'));
     await settle();
-    expect(loop.log.whereType<GoalChangedEntry>(), hasLength(2));
+    expect(
+        loop.log
+            .whereType<PluginStateEntry>()
+            .where(GoalChangedEntry.matches)
+            .map(GoalChangedEntry.decode),
+        hasLength(2));
 
     await loop.runTurn(const Input('two', id: 't2'));
     await settle();
-    expect(loop.log.whereType<GoalChangedEntry>(), hasLength(2),
+    expect(
+        loop.log
+            .whereType<PluginStateEntry>()
+            .where(GoalChangedEntry.matches)
+            .map(GoalChangedEntry.decode),
+        hasLength(2),
         reason: 'the judge agreeing with itself appends nothing');
 
     await loop.runTurn(const Input('three', id: 't3'));
     await settle();
-    final verdicts = loop.log.whereType<GoalChangedEntry>().toList();
+    final verdicts = loop.log
+        .whereType<PluginStateEntry>()
+        .where(GoalChangedEntry.matches)
+        .map(GoalChangedEntry.decode)
+        .toList();
     expect(verdicts, hasLength(3));
     expect(verdicts.last.verdict, GoalVerdict.uncertain);
   });
@@ -281,7 +329,9 @@ void main() {
         text: 'the objective',
         verdict: GoalVerdict.uncertain,
         evidence: 'mixed signals');
-    final back = SessionEntry.fromJson(entry.toJson()..remove('seq'));
+    final back = GoalChangedEntry.decode(
+        SessionEntry.fromJson(entry.toJson()..remove('seq'))
+            as PluginStateEntry);
     expect(back, entry);
 
     expect(

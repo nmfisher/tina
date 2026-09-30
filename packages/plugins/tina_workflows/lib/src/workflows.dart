@@ -42,6 +42,8 @@
 /// not wired, so an over-budget run fails instead of pausing to ask.
 library;
 
+import 'state.dart';
+
 import 'dart:async';
 
 import 'dart:io';
@@ -305,6 +307,7 @@ final class WorkflowsPlugin extends AgentPlugin {
   final NodeTurnRunner? _runNodeTurn;
 
   AgentLoop? _loop;
+  void Function(PluginStateEntry)? _writer;
 
   final Terminal? terminal;
 
@@ -348,12 +351,19 @@ final class WorkflowsPlugin extends AgentPlugin {
   void mountOn(AgentLoop loop) {
     if (_loop != null) return;
     _loop = loop;
+    _writer = loop.stateWriter(id);
     if (seedOnMount) seedDefaultWorkflow(workflowsDir);
-    for (final e in loop.log.whereType<WorkflowRunEntry>()) {
+    for (final e in loop.log
+        .whereType<PluginStateEntry>()
+        .where(WorkflowRunEntry.matches)
+        .map(WorkflowRunEntry.decode)) {
       lastRun = _asRun(e);
     }
     loop.subscribe((entry, event) {
-      if (entry is WorkflowRunEntry) lastRun = _asRun(entry);
+      if (WorkflowRunEntry.matches(entry))
+        lastRun = entry is PluginStateEntry && entry.value == null
+            ? null
+            : _asRun(WorkflowRunEntry.decode(entry as PluginStateEntry));
     });
   }
 
@@ -450,7 +460,7 @@ final class WorkflowsPlugin extends AgentPlugin {
     switch (outcome.status) {
       case StageStatus.success || StageStatus.partialSuccess:
         final detail = outcome.text.isNotEmpty ? outcome.text : outcome.notes;
-        loop.recordState(WorkflowRunEntry.record(
+        _writer!(WorkflowRunEntry.record(
           workflow: prepared.name,
           status: WorkflowRunEntry.statusSuccess,
           detail: detail,
@@ -466,7 +476,7 @@ final class WorkflowsPlugin extends AgentPlugin {
           terminal.writeln('○ run not recorded: cancelled');
           return;
         }
-        loop.recordState(WorkflowRunEntry.record(
+        _writer!(WorkflowRunEntry.record(
           workflow: prepared.name,
           status: WorkflowRunEntry.statusFailed,
           detail: outcome.failureReason,

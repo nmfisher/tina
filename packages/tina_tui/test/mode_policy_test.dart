@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:tina_plans/tina_plans.dart';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/tina_tui.dart';
@@ -33,7 +34,9 @@ void main() {
     expect(builds, 1, reason: 'only the conversation model was called');
     expect(
         assembly.host.session.loop.log
-            .whereType<PlanChangedEntry>()
+            .whereType<PluginStateEntry>()
+            .where(PlanChangedEntry.matches)
+            .map(PlanChangedEntry.decode)
             .last
             .approval,
         PlanApproval.rejected);

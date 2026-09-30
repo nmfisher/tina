@@ -20,6 +20,8 @@
 ///   tools, never entering the transcript.
 library;
 
+import 'state.dart';
+
 import 'dart:async';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -244,6 +246,7 @@ final class GoalsPlugin extends AgentPlugin {
   SessionGoal? goal;
 
   AgentLoop? _loop;
+  void Function(PluginStateEntry)? _writer;
   int? _subscription;
   bool _closed = false;
   StreamSubscription<void>? _judgeSub;
@@ -266,19 +269,24 @@ final class GoalsPlugin extends AgentPlugin {
   void mountOn(AgentLoop loop) {
     if (_loop != null) return;
     _loop = loop;
-    for (final e in loop.log.whereType<GoalChangedEntry>()) {
+    _writer = loop.stateWriter(id);
+    for (final e in loop.log
+        .whereType<PluginStateEntry>()
+        .where(GoalChangedEntry.matches)
+        .map(GoalChangedEntry.decode)) {
       goal = e.text.isEmpty
           ? null
           : SessionGoal(text: e.text, verdict: e.verdict, evidence: e.evidence);
     }
     _subscription = loop.subscribe((entry, event) {
-      if (entry is GoalChangedEntry) {
-        goal = entry.text.isEmpty
+      if (GoalChangedEntry.matches(entry)) {
+        final decoded = GoalChangedEntry.decode(entry as PluginStateEntry);
+        goal = decoded.text.isEmpty
             ? null
             : SessionGoal(
-                text: entry.text,
-                verdict: entry.verdict,
-                evidence: entry.evidence);
+                text: decoded.text,
+                verdict: decoded.verdict,
+                evidence: decoded.evidence);
       }
       if (event == LogEvent.appended && entry is TurnEndedEntry) {
         // The turn-quality guard: only a completed turn is evidence. The
@@ -328,7 +336,7 @@ final class GoalsPlugin extends AgentPlugin {
     if (trimmed.length > goalMaxEvidenceLength) {
       trimmed = trimmed.substring(0, goalMaxEvidenceLength);
     }
-    loop.recordState(GoalChangedEntry(
+    _writer!(GoalChangedEntry(
       text: text,
       verdict: verdict,
       evidence: trimmed,
@@ -365,7 +373,7 @@ final class GoalsPlugin extends AgentPlugin {
     if (RegExp(r'^clear$', caseSensitive: false).hasMatch(args)) {
       if (loop == null) return;
       final had = goal != null;
-      loop.recordState(const GoalChangedEntry(text: ''));
+      _writer!(const GoalChangedEntry(text: ''));
       terminal.writeln(had ? 'Goal cleared.' : 'No goal set.');
       return;
     }
@@ -387,7 +395,7 @@ final class GoalsPlugin extends AgentPlugin {
       terminal.writeln('goal text exceeds $goalMaxTextLength chars');
       return;
     }
-    loop.recordState(GoalChangedEntry(text: trimmed));
+    _writer!(GoalChangedEntry(text: trimmed));
     _showGoal(terminal);
   }
 

@@ -29,7 +29,7 @@ class StepLimitPlugin extends AgentPlugin {
   @override
   void beforeModelCall(TurnContext context) {
     if (_limit > 0 && _rounds >= _limit) {
-      context.requestStop(id, 'step_limit',
+      context.requestStop('step_limit',
           detail:
               'Model round limit ($_limit) reached. Send another message to continue.');
       return;

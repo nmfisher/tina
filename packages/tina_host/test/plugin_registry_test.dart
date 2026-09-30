@@ -25,6 +25,44 @@ const other = PluginCapability<AgentPlugin>('acme/other');
 
 void main() {
   test(
+      'two typed dependencies and application roles resolve before construction',
+      () {
+    var built = 0;
+    final registry = PluginRegistry<void>(requiredCapabilities: [service]);
+    registry.registerDefinition(PluginDefinition('acme/service', (_) {
+      built++;
+      return ServicePlugin('acme/service');
+    }, description: 'service', provides: [service]));
+    registry.registerDefinition(PluginDefinition('acme/other', (_) {
+      built++;
+      return const NamedPlugin('acme/other');
+    }, description: 'other', provides: [other]));
+    registry.registerDefinition(
+        PluginDefinition.dependingOn2<void, Service, AgentPlugin>(
+            'acme/consumer',
+            first: service,
+            second: other,
+            description: 'consumer', create: (_, a, b) {
+      expect(a.value, 'injected');
+      expect(b.id, 'acme/other');
+      built++;
+      return const NamedPlugin('acme/consumer');
+    }));
+    expect(registry.selection(['acme/consumer']).valid, false);
+    expect(built, 0);
+    final selection =
+        registry.selection(['acme/consumer', 'acme/other', 'acme/service']);
+    expect(selection.valid, true);
+    expect(selection.selected.last, 'acme/consumer');
+    expect(selection.blockingReasons['acme/service'], hasLength(2));
+    registry.build(selection.selected, null);
+    expect(built, 3);
+    expect(registry.blockingReasons(['acme/service'])['acme/service'],
+        ['Application requires acme/service']);
+    expect(registry.selection([]).valid, false);
+  });
+
+  test(
       'descriptions are validated before factories run and available while unloaded',
       () {
     var builds = 0;

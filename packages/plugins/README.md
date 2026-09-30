@@ -10,7 +10,7 @@ Each directory is a Dart package with its own public API and tests.
 | `tina_approvals_tui` | Console approval delivery and dialogs |
 | `tina_persistence` | Session store, append subscription, metadata and resume |
 | `tina_tools` | File/process tools, sandbox permissions, `ToolsPlugin`, `/mode` |
-| `tina_persona` | Agent identity prompt section |
+| `tina_system_instruction` | Agent identity prompt section |
 | `tina_compaction` | Context summarization and compaction |
 | `tina_plans` | Plan state, `update_plan`, `/plan` |
 | `tina_goals` | Goal state, judging, `/goal` |
@@ -38,7 +38,8 @@ rule for trusted plugins, not a sandbox for arbitrary Dart code.
 The global `~/.tina/config` selects feature plugins through `[plugins].enabled`.
 The TUI defaults to `tina/persistence`, `tina/plans`, `tina/goals`,
 `tina/auto-compact`, `tina/subagents` and `tina/update`; `tina/file-resources` is opt-in.
-Persona, provider policy, tools and mode remain the base plugins. Config selects registered
+System instruction, provider policy, tools and mode are selected by default.
+Requirements come from declared capabilities rather than fixed plugin IDs. Config selects registered
 factories; it does not download or dynamically import Dart packages.
 
 `tina_index` keeps serving existing callers; this move does not introduce an

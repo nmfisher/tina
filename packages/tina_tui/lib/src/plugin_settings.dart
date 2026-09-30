@@ -55,14 +55,11 @@ final class PluginSettings<C> {
       ((global.values['plugins'] as Map?)?['approval_channel'] as String?) ??
       defaultApprovalChannel;
   String get channel => _channel(_global, _workspace);
-  Set<String> get requiredIds => {
-        'tina/providers',
-        'tina/persona',
-        'tina/mode',
-        'tina/tools',
-        'tina/approvals',
-        channel
+  Map<String, List<String>> get blockingReasons => {
+        ...registry.blockingReasons(selected),
+        channel: ['Selected approval delivery role'],
       };
+  Set<String> get requiredIds => blockingReasons.keys.toSet();
 
   ({bool enabled, String source}) _state(String id, ConfigDocument global,
       ConfigDocument workspace, Map<String, bool> session,
@@ -70,7 +67,10 @@ final class PluginSettings<C> {
     if (scope == PluginScope.session && session.containsKey(id))
       return (enabled: session[id]!, source: 'session');
     if (scope == PluginScope.session && sessionBaseline != null)
-      return (enabled: sessionBaseline!.contains(id), source: 'session');
+      return (
+        enabled: pluginBaseline(sessionBaseline!).contains(id),
+        source: 'session'
+      );
     final local = parsePluginOverrides(workspace.values['plugins']);
     if (scope != PluginScope.global && local.containsKey(id))
       return (enabled: local[id]!, source: 'workspace');
@@ -79,7 +79,14 @@ final class PluginSettings<C> {
       return (enabled: overrides[id]!, source: 'global');
     final baseline = (global.values['plugins'] as Map?)?['enabled'] as List?;
     if (baseline != null)
-      return (enabled: baseline.contains(id), source: 'global');
+      return (
+        enabled: pluginBaseline(baseline.cast<String>(),
+                selectionVersion: (global.values['plugins']
+                        as Map?)?['selection_version'] as int? ??
+                    1)
+            .contains(id),
+        source: 'global'
+      );
     return (enabled: defaultPluginIds.contains(id), source: 'built-in');
   }
 
@@ -102,41 +109,34 @@ final class PluginSettings<C> {
       _row(id, manager.host.plugins.any((p) => p.id == id), manager);
 
   List<String> _selection(ConfigDocument global, ConfigDocument workspace,
-          Map<String, bool> session) =>
+          Map<String, bool> session,
+          {PluginScope scope = PluginScope.session}) =>
       [
-        'tina/approvals',
-        _channel(global, workspace),
-        'tina/tools',
-        for (final id in registry.ids)
-          if (_state(id, global, workspace, session).enabled) id,
+        ...{
+          _channel(global, workspace),
+          for (final id in registry.ids)
+            if (_state(id, global, workspace, session, scope: scope).enabled) id
+        },
       ];
   List<String> get selected => _selection(_global, _workspace, _session);
-  List<String> get features => selected.skip(3).toList();
+  List<String> get features => selected;
 
   void _validate(ConfigDocument global, ConfigDocument workspace,
       Map<String, bool> session) {
     global.validate(descriptors: descriptors);
     validateWorkspacePlugins(workspace.values);
-    final fixed = {
-      'tina/providers',
-      'tina/persona',
-      'tina/mode',
-      'tina/tools',
-      'tina/approvals',
-      _channel(global, workspace)
-    };
     for (final layer in [
       parsePluginOverrides(global.values['plugins']),
       parsePluginOverrides(workspace.values['plugins']),
       session
     ]) {
       for (final id in layer.keys) {
-        if (id == 'tina/mode-tui') continue; // Retired UI-only registration.
-        if (!registry.ids.contains(id) && !fixed.contains(id))
+        if (retiredPluginIds.contains(id))
+          continue; // Retired UI-only registration.
+        if (!registry.ids.contains(id))
           throw ArgumentError('unknown plugin: $id');
-        if (fixed.contains(id))
-          throw ArgumentError(
-              '$id is required; its enablement cannot be overridden');
+        if (id == _channel(global, workspace) && layer[id] == false)
+          throw ArgumentError('$id is the selected approval channel');
       }
     }
     if (sessionBaseline != null &&
@@ -148,10 +148,15 @@ final class PluginSettings<C> {
       ...?((global.values['plugins'] as Map?)?['enabled'] as List?),
       ...?sessionBaseline
     ]) {
-      if (id == 'tina/mode-tui') continue;
-      if (!registry.ids.contains(id) && !fixed.contains(id))
+      if (retiredPluginIds.contains(id)) continue;
+      if (!registry.ids.contains(id))
         throw ArgumentError('unknown plugin: $id');
     }
+    final emptyWorkspace = ConfigDocument.empty(workspace.path);
+    registry.validate(_selection(global, emptyWorkspace, const {},
+        scope: PluginScope.global));
+    registry.validate(
+        _selection(global, workspace, const {}, scope: PluginScope.workspace));
     registry.validate(_selection(global, workspace, session));
   }
 
@@ -160,8 +165,7 @@ final class PluginSettings<C> {
   void change(String id, bool? enabled, PluginScope scope) {
     reload();
     if (requiredIds.contains(id))
-      throw ArgumentError(
-          '$id is required and cannot be disabled or enabled separately');
+      throw ArgumentError('$id: ${blockingReasons[id]!.join('; ')}');
     if (!registry.ids.contains(id)) throw ArgumentError('unknown plugin: $id');
     final global = _global.fork(), workspace = _workspace.fork();
     final session = Map<String, bool>.of(_session);
@@ -178,6 +182,11 @@ final class PluginSettings<C> {
       }
       final document = scope == PluginScope.global ? global : workspace;
       final table = document.table('plugins');
+      if (scope == PluginScope.global && table['selection_version'] != 2) {
+        table['enabled'] = pluginBaseline(
+            (table['enabled'] as List?)?.cast<String>() ?? defaultPluginIds);
+        table['selection_version'] = 2;
+      }
       final overrides =
           Map<String, dynamic>.from(table['overrides'] as Map? ?? {});
       if (enabled == null) {

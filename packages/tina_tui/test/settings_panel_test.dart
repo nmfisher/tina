@@ -85,7 +85,7 @@ enabled = []
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
     expect(loaded.providers['custom']!.apiKey, 'new-secret');
-    expect(loaded.plugins, isEmpty);
+    expect(loaded.plugins, legacyProfilePlugins);
     expect(loaded.model, 'original');
   });
 
@@ -101,7 +101,7 @@ enabled = []
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
     expect(loaded.approvalChannel, 'tina/approvals-stream');
-    expect(loaded.plugins, isEmpty);
+    expect(loaded.plugins, legacyProfilePlugins);
   });
 
   test('model choices omit disabled models and save the wire ID', () async {
@@ -150,7 +150,7 @@ enabled = []
         loadTinaConfig(path: config.path, descriptors: descriptors)
             .config
             .plugins,
-        ['tina/plans']);
+        [...legacyProfilePlugins, 'tina/plans']);
   });
 
   test('Enter saves the generation section without a second Save action',

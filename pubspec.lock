@@ -594,13 +594,6 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_persona:
-    dependency: transitive
-    description:
-      path: "packages/plugins/tina_persona"
-      relative: true
-    source: path
-    version: "0.1.0"
   tina_plans:
     dependency: transitive
     description:
@@ -640,6 +633,13 @@ packages:
     dependency: transitive
     description:
       path: "packages/plugins/tina_subagents"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_system_instruction:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_system_instruction"
       relative: true
     source: path
     version: "0.1.0"

@@ -2,3 +2,5 @@
 library;
 
 export 'src/workflows.dart';
+
+export 'src/state.dart';

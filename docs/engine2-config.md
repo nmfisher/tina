@@ -238,3 +238,15 @@ tina --completion fish | source
 
 Shell completion covers flags, paths and shell names. It does not start the
 app or query session IDs. `@` file completion remains available in the prompt.
+
+## Plugin selection migration (0.9.6)
+
+`[plugins] selection_version = 2` makes `enabled` the complete plugin selection.
+Legacy lists without this marker retain their formerly implicit base plugins.
+Saving global plugin checkboxes writes the complete selection and this marker.
+Workspace and session overrides retain their precedence over global settings.
+Settings explain capability dependencies before allowing a provider to be disabled.
+
+`tina/system-instruction` replaces `tina/persona`; old enabled lists and overrides
+are read using the new name. `tina/step-limit` is optional; the loop has no built-in
+step ceiling. Human approval requests have no timeout by default.

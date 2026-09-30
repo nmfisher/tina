@@ -615,22 +615,22 @@ jobs:
         working-directory: packages/tina_tui
         run: dart test --tags tty --run-skipped test/app_smoke_test.dart
 
-  tina_persona:
-    name: tina_persona (packages/plugins/tina_persona)
+  tina_system_instruction:
+    name: tina_system_instruction (packages/plugins/tina_system_instruction)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
-      - name: pub get (tina_persona)
-        working-directory: packages/plugins/tina_persona
+      - name: pub get (tina_system_instruction)
+        working-directory: packages/plugins/tina_system_instruction
         run: dart pub get
-      - name: analyze (tina_persona)
-        working-directory: packages/plugins/tina_persona
+      - name: analyze (tina_system_instruction)
+        working-directory: packages/plugins/tina_system_instruction
         run: dart analyze
-      - name: test (tina_persona)
-        working-directory: packages/plugins/tina_persona
+      - name: test (tina_system_instruction)
+        working-directory: packages/plugins/tina_system_instruction
         run: dart test -j 4
 
   tina_compaction:

@@ -10,7 +10,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
-import 'package:tina_persona/tina_persona.dart';
+import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_tools/tina_tools.dart'
     show ModeControl, PermissionMode, ToolsPlugin, Approval;
 
@@ -285,14 +285,14 @@ void main() {
         ]),
         workingDirectory: ws.path,
         plugins: [
-          const PersonaPlugin(),
+          const SystemInstructionPlugin(),
           ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina),
         ],
       ));
 
       await host.send('hello');
 
-      // The loop hands the provider the system prompt; the persona plugin
+      // The loop hands the provider the system prompt; the system instruction plugin
       // leads it and the tools plugin's section is inside it, under it.
       final request = built!.requests.single;
       expect(request.systemPrompt,

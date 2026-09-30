@@ -519,13 +519,6 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_persona:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_persona"
-      relative: true
-    source: path
-    version: "0.1.0"
   tina_plans:
     dependency: "direct main"
     description:
@@ -565,6 +558,13 @@ packages:
     dependency: "direct main"
     description:
       path: "../plugins/tina_subagents"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_system_instruction:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_system_instruction"
       relative: true
     source: path
     version: "0.1.0"

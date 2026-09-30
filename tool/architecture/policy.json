@@ -19,7 +19,7 @@
     "tina_file_resources",
     "tina_tui",
     "tina_workflows",
-    "tina_persona",
+    "tina_system_instruction",
     "tina_compaction",
     "tina_plans",
     "tina_goals",
@@ -46,7 +46,10 @@
     "tina_chat_tui"
   ],
   "sourceRoots": {
-    "tina_step_limit": ["lib", "test"],
+    "tina_step_limit": [
+      "lib",
+      "test"
+    ],
     "tina": [
       "lib",
       "bin",
@@ -130,7 +133,7 @@
       "lib",
       "test"
     ],
-    "tina_persona": [
+    "tina_system_instruction": [
       "lib",
       "test"
     ],
@@ -313,7 +316,7 @@
     "tina_file_resources": "packages/plugins/tina_file_resources",
     "tina_tui": "packages/tina_tui",
     "tina_workflows": "packages/plugins/tina_workflows",
-    "tina_persona": "packages/plugins/tina_persona",
+    "tina_system_instruction": "packages/plugins/tina_system_instruction",
     "tina_compaction": "packages/plugins/tina_compaction",
     "tina_plans": "packages/plugins/tina_plans",
     "tina_goals": "packages/plugins/tina_goals",
@@ -328,7 +331,10 @@
     "tina_mode": "packages/plugins/tina_mode"
   },
   "runtimeDependencies": {
-    "tina_step_limit": ["tina_engine_2", "toml"],
+    "tina_step_limit": [
+      "tina_engine_2",
+      "toml"
+    ],
     "tina_grok_guard": [
       "tina_engine_2",
       "tina_host",
@@ -353,7 +359,8 @@
       "tina_approvals"
     ],
     "tina_providers": [
-      "tina_engine_2"
+      "tina_engine_2",
+      "tina_host"
     ],
     "tina_activity_tui": [
       "tina_core",
@@ -370,7 +377,8 @@
       "markdown",
       "classification",
       "tina_mode",
-      "tina_plans"
+      "tina_plans",
+      "tina_goals"
     ],
     "classification": [
       "crypto",

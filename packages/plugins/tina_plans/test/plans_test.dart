@@ -47,6 +47,27 @@ final class _CaptureTerminal implements Terminal {
 }
 
 void main() {
+  test('future plugin state is opaque while disabled and rejected by its owner',
+      () async {
+    final state = PluginStateEntry.snapshot(
+        pluginId: 'tina/plans',
+        stateKey: 'plan',
+        schemaVersion: 999,
+        value: {'future': true});
+    final loop = AgentLoop(
+        provider: ScriptedProvider([scriptedReply('ok')]),
+        plugins: [],
+        seedLog: [state]);
+    expect((await loop.runTurn(const Input('hello', id: 'one'))).stopReason,
+        StopReason.complete);
+    final plugin = PlansPlugin();
+    final enabled = AgentLoop(
+        provider: ScriptedProvider([]), plugins: [plugin], seedLog: [state]);
+    expect(() => plugin.mountOn(enabled), throwsFormatException);
+    plugin.closeSession();
+    expect(loop.log.first.toJson(), state.toJson());
+  });
+
   test('update_plan writes a PlanChangedEntry; the store replays the log',
       () async {
     final (loop, plugin, provider) = _wired();
@@ -62,7 +83,11 @@ void main() {
     });
     expect(result.isError, isFalse, reason: result.content);
 
-    final entries = loop.log.whereType<PlanChangedEntry>().toList();
+    final entries = loop.log
+        .whereType<PluginStateEntry>()
+        .where(PlanChangedEntry.matches)
+        .map(PlanChangedEntry.decode)
+        .toList();
     expect(entries, hasLength(1));
     expect(entries.single.items.map((i) => i.text).toList(),
         ['survey', 'implement', 'verify']);
@@ -301,7 +326,11 @@ void main() {
     });
     expect(result.content, contains('approved by the user'));
     expect(plugin.store.state.approval, PlanApproval.approved);
-    final entry = loop.log.whereType<PlanChangedEntry>().last;
+    final entry = loop.log
+        .whereType<PluginStateEntry>()
+        .where(PlanChangedEntry.matches)
+        .map(PlanChangedEntry.decode)
+        .last;
     expect(entry.approval, PlanApproval.approved);
 
     final (loop2, plugin2, _) = _wired(approver: (request, reason) async {
@@ -362,9 +391,11 @@ void main() {
       ],
       approval: PlanApproval.approved,
     );
-    final back = SessionEntry.fromJson(entry.toJson()..remove('seq'));
+    final back = PlanChangedEntry.decode(
+        SessionEntry.fromJson(entry.toJson()..remove('seq'))
+            as PluginStateEntry);
     expect(back, isA<PlanChangedEntry>());
-    final plan = back as PlanChangedEntry;
+    final plan = back;
     expect(plan.items.first.children.single.text, 'child');
     expect(plan.items.last.text, 'second');
     expect(plan.approval, PlanApproval.approved);

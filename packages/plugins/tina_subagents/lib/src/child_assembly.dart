@@ -26,7 +26,7 @@ import 'package:tina_tools/tina_tools.dart';
 import 'subagents_plugin.dart';
 
 ChildSessionFactory standardChildFactory({
-  required ToolsPlugin parentTools,
+  required ToolSessionSource parentTools,
   required ProviderFactory providerFactory,
   String model = 'scripted',
   List<AgentPlugin> Function()? childPlugins,
@@ -54,7 +54,6 @@ ChildSessionFactory standardChildFactory({
       providerFactory: providerFactory,
       model: model,
       plugins: [
-        mode,
         ToolsPlugin(
           workspaceRoot: parentTools.workingDirectory,
           tinaDir: Directory('${parentTools.workingDirectory}/.tina'),

@@ -208,7 +208,6 @@ final class TuiAssembly {
       tinaDir: Directory('$workingDirectory/.tina'),
     );
     final policy = configuredPolicy(resolved, override: providerFactory);
-    final factory = policy.mainProvider;
     final registry = firstPartyPlugins();
     registerPlugins?.call(registry);
     final pluginSettings = PluginSettings<TuiPluginContext>(
@@ -245,6 +244,7 @@ final class TuiAssembly {
       openStore: persists ? openStore : null,
     );
     final plugins = registry.build(selected, context);
+    final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     TuiAssembly? assembled;
     final hostConfig = HostConfig(
       providerFactory: (model) => _ObservedProvider(factory(model), () {
@@ -265,10 +265,7 @@ final class TuiAssembly {
       }),
       model: model,
       workingDirectory: workingDirectory,
-      plugins: [
-        ...basePlugins(context),
-        ...plugins,
-      ],
+      plugins: plugins,
     );
     final host = options.sessionId == null
         ? Host.start(hostConfig)

@@ -76,7 +76,9 @@ final class AgentLoop {
     List<SessionEntry> seedLog = const [],
   })  : _provider = provider,
         _settings = settings {
-    _log.addAll(seedLog);
+    _log.addAll(seedLog.map((entry) => entry is PluginStateEntry
+        ? SessionEntry.fromJson(entry.toJson())
+        : entry));
     _seq = _log.length;
     for (final p in plugins) {
       addPlugin(p);
@@ -103,9 +105,8 @@ final class AgentLoop {
   final List<SessionEntry> _log = [];
   int _seq = 0;
 
-  /// The per-session settings derive consults. The mode moves through
-  /// [set mode]; each move appends a [ModeChangedEntry].
-  SessionSettings _settings;
+  /// Structural settings for request derivation.
+  final SessionSettings _settings;
 
   final List<_LogListener> _listeners = [];
   int _nextListenerId = 0;
@@ -221,19 +222,8 @@ final class AgentLoop {
   /// The next entry's position. Equals `log.length` between turns.
   int get seq => _seq;
 
-  /// The session's settings (system prompt, mode) as the loop holds them.
+  /// The session's settings (system prompt) as the loop holds them.
   SessionSettings get settings => _settings;
-
-  /// The permission mode now — the setting, or the latest
-  /// [ModeChangedEntry]'s word, which is the same thing: setting the mode
-  /// appends the entry. Derive reads the log, not this field.
-  String get mode => _settings.mode;
-
-  set mode(String newMode) {
-    _settings =
-        SessionSettings(systemPrompt: _settings.systemPrompt, mode: newMode);
-    _append(ModeChangedEntry(mode: newMode, at: _now()));
-  }
 
   /// Listen to the log. The listener first receives every entry already
   /// in the log as [LogEvent.replay], in order, then each new entry as it
@@ -306,7 +296,28 @@ final class AgentLoop {
   /// the tool executor that produced the state runs inside a turn, and
   /// a state change is not a message splice: nothing about the request
   /// under construction shifts under it.
-  void recordState(SessionEntry entry) => _append(entry);
+  void _recordState(PluginStateEntry entry) =>
+      _append(PluginStateEntry.snapshot(
+          pluginId: entry.pluginId,
+          stateKey: entry.stateKey,
+          schemaVersion: entry.schemaVersion,
+          value: entry.value,
+          at: entry.at));
+
+  /// A writer bound to a registered owner. Capturing it cannot forge structural
+  /// entries or write another namespace, and removing the owner invalidates it.
+  void Function(PluginStateEntry) stateWriter(String pluginId) {
+    final owner = _byId[pluginId];
+    if (owner == null || (_mounting != null && _mounting != pluginId))
+      throw StateError('State writer owner is not mounted');
+    return (entry) {
+      if (!identical(_byId[pluginId], owner) || entry.pluginId != pluginId)
+        throw StateError('Invalid state writer owner');
+      _recordState(entry);
+    };
+  }
+
+  void recordUsage(UsageRecordedEntry entry) => _append(entry);
 
   /// The end entry appended on a crash path: listener errors on this one
   /// write are suppressed (the original error is what must surface; a
@@ -821,10 +832,7 @@ final class AgentLoop {
                       ToolResult('cancelled: ${_cancel.reason}', isError: true);
                 } else if (deniedBy != null) {
                   result = decision.replacement ??
-                      ToolResult(
-                          decision.kind == DecisionKind.ask
-                              ? 'ask-unresolved by $deniedBy: ${decision.reason}'
-                              : 'denied by $deniedBy: ${decision.reason}',
+                      ToolResult('denied by $deniedBy: ${decision.reason}',
                           isError: true);
                 } else if (exec == null) {
                   result =

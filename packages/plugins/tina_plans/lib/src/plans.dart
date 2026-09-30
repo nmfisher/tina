@@ -24,6 +24,8 @@
 /// a turn — waiting is the caller's (the executor's) business.
 library;
 
+import 'state.dart';
+
 import 'dart:async';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -177,9 +179,11 @@ class PlanStore {
     }
   }
 
+  void Function(PluginStateEntry)? _writer;
+
   void _write(
       AgentLoop loop, List<PlanEntryItem> items, PlanApproval approval) {
-    loop.recordState(PlanChangedEntry(
+    _writer!(PlanChangedEntry(
       items: List.of(items),
       approval: approval,
     ));
@@ -193,7 +197,8 @@ class PlanStore {
   void hydrateFrom(List<SessionEntry> log) {
     PlanChangedEntry? latest;
     for (final e in log) {
-      if (e is PlanChangedEntry) latest = e;
+      if (PlanChangedEntry.matches(e))
+        latest = PlanChangedEntry.decode(e as PluginStateEntry);
     }
     _state = latest == null
         ? PlanState(items: const [])
@@ -354,12 +359,14 @@ class PlansPlugin extends AgentPlugin {
   void mountOn(AgentLoop loop) {
     if (_loop != null) return;
     _loop = loop;
+    store._writer = loop.stateWriter(id);
     store.hydrateFrom(loop.log);
     loop.registerExecutor('update_plan', execute);
     _subscription = loop.subscribe((entry, event) {
-      if (entry is PlanChangedEntry) {
-        store._state =
-            PlanState(items: List.of(entry.items), approval: entry.approval);
+      if (PlanChangedEntry.matches(entry)) {
+        final decoded = PlanChangedEntry.decode(entry as PluginStateEntry);
+        store._state = PlanState(
+            items: List.of(decoded.items), approval: decoded.approval);
         store._changes.add(null);
       }
     });
