@@ -92,6 +92,17 @@ final class AgentLoop {
   /// plugin does not build its own and never closes this one.
   LlmProvider get provider => _provider;
 
+  /// Read current tool registration metadata, including after plugin changes.
+  ToolSchema? toolSchema(String name) {
+    // Match the turn's pinned tool map: the last registration wins.
+    for (final plugin in _inOrder().reversed) {
+      for (final schema in plugin.tools.reversed) {
+        if (schema.name == name) return schema;
+      }
+    }
+    return null;
+  }
+
   /// Replace the request resource only between turns.
   void replaceProvider(LlmProvider provider) {
     if (running) throw StateError('provider changes require an idle loop');

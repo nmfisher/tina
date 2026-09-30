@@ -127,6 +127,10 @@ void main() {
     await tick();
     io.feed('\r');
     await tick();
+    expect(plugin.visibleLines.join('\n'), contains('Result'));
+    expect(plugin.visibleLines.join('\n'), isNot(contains('Call:')));
+    io.feed('t');
+    await tick();
     expect(plugin.visibleLines.join('\n'), contains('Call: call-2'));
     io.feed('\x1bOS');
     await tick();

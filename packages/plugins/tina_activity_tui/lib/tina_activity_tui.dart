@@ -28,6 +28,7 @@ final class ActivityTuiPlugin extends AgentPlugin
   bool _liveLine = false;
   int _selected = 0;
   int _scroll = 0;
+  bool _technical = false;
   bool get isOpen => _open;
   List<String> visibleLines = const [];
   @override
@@ -41,6 +42,8 @@ final class ActivityTuiPlugin extends AgentPlugin
   @override
   void mountOn(AgentLoop loop) {
     _loop = loop;
+    model.describe =
+        (call) => loop.toolSchema(call.name)?.describe?.call(call.input);
     _logHandle = loop.subscribe((entry, event) {
       final completed = model.entry(entry, event);
       if (event == LogEvent.appended) {
@@ -65,7 +68,7 @@ final class ActivityTuiPlugin extends AgentPlugin
       switch (event) {
         case ToolStarted():
           _line(
-              'tool: ${plainText(event.call.name)} — running${row.target.isEmpty ? '' : ' · ${bounded(row.target, 100)}'}');
+              '${row.label} — running${row.target.isEmpty ? '' : ' · ${bounded(row.target, 100)}'}');
         case ToolProgress():
           _line(row.progress);
         case ToolOutput():
@@ -94,7 +97,7 @@ final class ActivityTuiPlugin extends AgentPlugin
   void _completion(ActivityRecord row) {
     if (!printTranscript) return;
     _line(
-        'tool: ${plainText(row.call.name)} — ${row.state}${row.duration.isEmpty ? '' : ' · ${row.duration}'}');
+        '${row.label} — ${row.state}${row.duration.isEmpty ? '' : ' · ${row.duration}'}');
     final preview = bounded(row.summary, 400);
     if (preview.isNotEmpty) _line(preview);
     final old = row.call.input['oldString'],
@@ -122,6 +125,7 @@ final class ActivityTuiPlugin extends AgentPlugin
     _open = true;
     _selected = model.records.isEmpty ? 0 : model.records.length - 1;
     _scroll = 0;
+    _technical = false;
     _ticker = Timer.periodic(
         const Duration(milliseconds: 250), (_) => repaintConsole());
     repaintConsole(followSelection: true);
@@ -172,9 +176,9 @@ final class ActivityTuiPlugin extends AgentPlugin
       final row = model.records[i];
       if (i == _selected) selectedLine = body.length;
       body.add(
-          '${i == _selected ? '›' : ' '} ${row.expanded ? '▾' : '▸'} ${plainText(row.call.name)} · ${row.state} ${row.duration} · ${row.target}');
+          '${i == _selected ? '›' : ' '} ${row.expanded ? '▾' : '▸'} ${row.label} · ${row.state} ${row.duration} · ${row.target}');
       if (row.expanded) {
-        for (final text in row.details()) {
+        for (final text in row.details(technical: _technical)) {
           for (final line in text.split('\n')) {
             body.addAll(wrapDialogText(line, (area.width - 2).clamp(1, 10000))
                 .map((s) => '  $s'));
@@ -198,7 +202,7 @@ final class ActivityTuiPlugin extends AgentPlugin
     visibleLines = [
       'Activity · ${model.records.length} recent calls · $running running',
       ...body.skip(_scroll).take(room),
-      '↑↓ select · Enter fold · PgUp/PgDn scroll · Esc/F4 close',
+      '↑↓ select · Enter expand · T details · PgUp/PgDn · Esc close',
     ].take(area.height).map((s) => clipDialogText(s, area.width)).toList();
     final painted = visibleLines.map((line) {
       final clean = line.trimLeft();
@@ -241,6 +245,9 @@ final class ActivityTuiPlugin extends AgentPlugin
         if (model.records.isNotEmpty)
           model.records[_selected].expanded =
               !model.records[_selected].expanded;
+        repaintConsole(followSelection: true);
+      case CharInput(text: 't' || 'T'):
+        _technical = !_technical;
         repaintConsole(followSelection: true);
       default:
         break;

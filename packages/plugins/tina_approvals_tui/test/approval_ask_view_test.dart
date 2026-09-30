@@ -35,10 +35,9 @@ void main() {
 
   test('the three answers are offered: allow always, allow, deny', () {
     final lines = text(askDialog().rows(width: 200));
-    expect(lines.where((l) => l.contains('[a] allow matching calls')),
-        hasLength(1));
+    expect(lines.where((l) => l.contains('[a] allow this file')), hasLength(1));
     expect(lines.where((l) => l.contains('[y] allow once')), hasLength(1));
-    expect(lines.where((l) => l.contains('[n] deny once')), hasLength(1));
+    expect(lines.where((l) => l.contains('[n] deny')), hasLength(1));
   });
 
   test('a read ask is labeled as a read', () {

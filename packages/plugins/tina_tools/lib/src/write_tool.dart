@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as p;
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 
 import 'atomic_write.dart';
 import 'file_system.dart';
@@ -21,6 +22,7 @@ class WriteTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
+        describe: describeWrite,
         name: 'write',
         description:
             'Create or overwrite a file with the given content. Parent '

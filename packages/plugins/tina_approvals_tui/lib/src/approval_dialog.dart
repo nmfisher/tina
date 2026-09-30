@@ -145,55 +145,87 @@ class ApprovalDialog {
     final name = call?.name ?? toolMap['name']?.toString() ?? ask?.op ?? '';
     final rawInput = call?.input ?? toolMap['input'];
     final input = rawInput is Map ? rawInput : const {};
+    final description = ToolDescription.fromJson(ask?.details['description']);
+    final scope = ask?.details['permission_scope'] ??
+        ({'bash', 'exec'}.contains(name)
+            ? 'command'
+            : {'read', 'write', 'edit', 'ls', 'stat', 'glob'}.contains(name) ||
+                    {'read', 'write'}.contains(ask?.op)
+                ? 'file'
+                : null);
+    final alwaysLabel = switch (scope) {
+      'file' => 'allow this file for this session',
+      'command' => 'allow this command for this session',
+      _ => 'allow matching calls for this session',
+    };
     final label = ask?.confirmation == true
         ? ask!.title
-        : switch (name) {
-            'bash' => 'Run shell command',
-            'exec' => 'Run program',
-            'edit' => 'Edit file',
-            'write' => 'Write file',
-            'read' => 'Read file',
-            _ => ask?.title ?? name,
-          };
+        : description?.title ??
+            switch (name) {
+              'bash' => 'Run shell command',
+              'exec' => 'Run program',
+              'edit' => 'Edit file',
+              'write' => 'Write file',
+              'read' => 'Read file',
+              _ => ask?.title ?? name,
+            };
     if (width <= 0 || height <= 0) return [];
     RenderLine row(String text, [String? style]) => RenderLine(runs: [
           RenderRun(clipDialogText(_safe(text), width), style),
         ]);
     final details = <String>[
-      if (ask?.confirmation == true)
-        ask!.reason
-      else ...[
-        if (name == 'bash' || name == 'exec') ...[
+      if (ask?.confirmation == true) ...[
+        ask!.reason,
+        if (description != null) ...[
+          if (description.target.isNotEmpty &&
+              !description.fields.containsKey('Command'))
+            description.target,
+          for (final entry in description.fields.entries)
+            '${entry.key}: ${entry.value}',
+          if (ask.details['cwd'] != null) 'Directory: ${ask.details['cwd']}',
+        ],
+      ] else ...[
+        if (name == 'bash' ||
+            name == 'exec' ||
+            description?.fields.containsKey('Command') == true) ...[
           'Directory: ${input['cwd'] ?? ask?.details['cwd'] ?? ask?.details['workspace'] ?? '.'}',
           if (input['env'] is Map && (input['env'] as Map).isNotEmpty)
             'Environment: ${(input['env'] as Map).length} override(s)',
           '',
-          if (name == 'bash')
+          if (description?.fields['Command'] != null)
+            description!.fields['Command']!
+          else if (name == 'bash')
             '${input['command'] ?? ask?.path ?? ''}'
           else
             _argv(input, ask),
         ] else ...[
           if ((input['filePath'] ?? input['path']) != null || ask != null)
-            '${(input['filePath'] ?? input['path']) ?? ask!.path}',
+            description?.target ??
+                '${(input['filePath'] ?? input['path']) ?? ask!.path}',
+          if (description != null)
+            for (final entry in description.fields.entries)
+              '${entry.key}: ${entry.value}',
           if (name == 'write' && input['content'] is String)
             ..._diff(input['content'] as String, '+'),
           if (name == 'edit')
             ..._editDiff(
                 (input['oldString'] ?? input['old_string'] ?? '').toString(),
                 (input['newString'] ?? input['new_string'] ?? '').toString()),
-          if (!{'write', 'edit'}.contains(name) && input.isNotEmpty)
-            for (final entry in input.entries)
-              '${entry.key}: ${entry.value is String ? entry.value : jsonEncode(entry.value)}',
         ],
         if (call?.argumentsParseError != null) call!.argumentsParseError!,
         if (ask != null) 'Why: ${ask.reason}',
-        if (_hasAlways && {'write', 'edit'}.contains(name))
-          'Remember: this file only for this conversation; other files still ask.',
-        if (_hasAlways && {'bash', 'exec'}.contains(name))
-          'Remember: this exact command and working directory for this conversation.',
+        if (_hasAlways && scope == 'file')
+          'Session approval covers only this file. Other files still ask.',
+        if (_hasAlways && scope == 'command')
+          'Session approval covers this exact command in this directory.',
       ],
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',
+      if (_details && input.isNotEmpty) ...[
+        'Tool: $name',
+        'Arguments',
+        _pretty(input),
+      ],
     ].map(_safe).toList();
     String? contentStyle(String detail) {
       if (name == 'edit' || name == 'write') {
@@ -213,8 +245,9 @@ class ApprovalDialog {
     if (_details) {
       final lines = [
         for (final detail in details)
-          for (final line in wrapDialogText(detail, width))
-            row(line, contentStyle(detail))
+          for (final part in detail.split('\n'))
+            for (final line in wrapDialogText(part, width))
+              row(line, contentStyle(detail))
       ];
       final count = (height - 2).clamp(1, height);
       _pageSize = count;
@@ -231,22 +264,39 @@ class ApprovalDialog {
     if (ask?.confirmation != true) {
       final choices = [
         '[y] allow once',
-        '[n] deny once',
-        if (_hasAlways) '[a] allow matching calls for this conversation',
+        '[n] deny',
+        if (_hasAlways) '[a] $alwaysLabel',
       ];
       RenderLine choice(int i, {bool compact = false}) => row(
           '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
           i == _selected ? theme.dialog.confirm : null);
       if (height <= 3) return [choice(_selected, compact: true)];
-      final allChoices = height >= choices.length + 4;
-      final choiceCount = allChoices ? choices.length : 1;
+      final bar = RenderLine(runs: [
+        for (var i = 0; i < choices.length; i++) ...[
+          if (i > 0) const RenderRun('  ', null),
+          RenderRun('${i == _selected ? '❯' : ' '} ${choices[i]}',
+              i == _selected ? theme.dialog.confirm : null),
+        ],
+      ]);
+      final inline =
+          visibleWidth(bar.runs.map((run) => run.text).join()) <= width;
+      // Context takes priority over laying out every choice vertically. All
+      // choices still have shortcuts; narrow cards show the selected choice.
+      final allChoices = !inline && height >= choices.length + 6;
+      final choiceRows = inline
+          ? [bar]
+          : allChoices
+              ? [for (var i = 0; i < choices.length; i++) choice(i)]
+              : [choice(_selected, compact: true)];
       final preview = [
         for (final detail in details)
-          for (final line
-              in wrapDialogText(detail, (width - 2).clamp(1, width)))
-            row('│ $line', contentStyle(detail)),
+          for (final part in detail.split('\n'))
+            for (final line
+                in wrapDialogText(part, (width - 2).clamp(1, width)))
+              row('│ $line', contentStyle(detail)),
       ];
-      final available = (height - choiceCount - 4).clamp(0, preview.length);
+      final available =
+          (height - choiceRows.length - 2).clamp(0, preview.length);
       final paged = preview.length > available && available >= 2;
       final budget = available - (paged ? 1 : 0);
       _pageSize = budget > 0 ? budget : 1;
@@ -258,15 +308,12 @@ class ApprovalDialog {
         if (paged)
           row('│ Preview ${_previewOffset + 1}–${_previewOffset + budget}/${preview.length} · PgUp/PgDn or wheel',
               chat.dim),
-        if (allChoices)
-          for (var i = 0; i < choices.length; i++) choice(i)
-        else
-          choice(_selected, compact: true),
-        if (height > 4)
-          row('│ ↑↓ choose · Enter confirm · Tab details · Esc cancel',
-              chat.dim),
-        row('└', chat.dim),
-        row('❯ Approve $name?', theme.dialog.confirm),
+        row(
+            width >= 56
+                ? '│ ↑↓ choose · Enter confirm · Tab details · Esc deny'
+                : '│ ↑↓ · Enter · Tab details · Esc deny',
+            chat.dim),
+        ...choiceRows,
       ].take(height).toList();
     }
     final choices = _choices;
@@ -285,14 +332,13 @@ class ApprovalDialog {
     final visibleDetails = ask?.confirmation == true
         ? [
             for (final detail in details)
-              ...wrapDialogText(detail, (width - 2).clamp(1, width))
+              ...wrapDialogWords(detail, (width - 2).clamp(1, width))
           ]
         : details;
     final detailCount = (height - 3).clamp(0, visibleDetails.length);
     return [
       row('┌─ $label', theme.dialog.confirm),
-      for (final detail in visibleDetails.take(detailCount))
-        row('│ $detail', chat.dim),
+      for (final detail in visibleDetails.take(detailCount)) row('│ $detail'),
       if (height > 2)
         row(
             width >= 56
@@ -414,6 +460,23 @@ String _inlineArgs(Map<String, dynamic> input) {
   return input.entries
       .map((e) => '${e.key}: ${jsonEncode(e.value)}')
       .join(', ');
+}
+
+String _pretty(Object? value) {
+  Object? redact(Object? v) => switch (v) {
+        Map v => {
+            for (final entry in v.entries)
+              '${entry.key}': RegExp(
+                          r'(password|secret|token|api[_-]?key|authorization)',
+                          caseSensitive: false)
+                      .hasMatch('${entry.key}')
+                  ? '[redacted]'
+                  : redact(entry.value)
+          },
+        List v => v.map(redact).toList(),
+        _ => v,
+      };
+  return const JsonEncoder.withIndent('  ').convert(redact(value));
 }
 
 // Render controls literally; tool arguments must never execute terminal escapes.

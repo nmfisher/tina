@@ -41,6 +41,21 @@ class Mode implements ModeControl {
 
 Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));
 const call = ToolUse(id: 'a', name: 'bash', input: {'command': 'echo hello'});
+
+class _Descriptions extends AgentPlugin {
+  @override
+  String get id => 'acme/descriptions';
+  @override
+  List<ToolSchema> get tools => [
+        ToolSchema(
+            name: 'third_party',
+            description: 'Test',
+            inputSchema: const {},
+            describe: (input) => ToolDescription(
+                title: 'Review notes', target: '${input['path']}'))
+      ];
+}
+
 void main() {
   late Io io;
   late Screen screen;
@@ -75,6 +90,35 @@ void main() {
       ..feed(io.output.toString());
     return List.generate(24, vt.rowText).join('\n');
   }
+
+  test(
+      'tool-owned descriptions label calls and structured failures read as text',
+      () {
+    final tools = _Descriptions();
+    final loop =
+        AgentLoop(provider: ScriptedProvider([]), plugins: [tools, chat]);
+    chat.mountOn(loop);
+    const custom = ToolUse(
+        id: 'custom', name: 'third_party', input: {'path': 'notes.txt'});
+    chat.observe(const ToolStarted(custom));
+    chat.observe(const ToolFinished(
+        custom,
+        ToolResult(
+            '{"code":"conflict","message":"The file changed before this edit.","recovery":"Read it again."}',
+            isError: true)));
+    expect(transcript(), contains('Review notes · notes.txt'));
+    expect(
+        chat.blocks.singleWhere((b) => b.kind == ChatBlockKind.toolCall).status,
+        contains('The file changed before this edit.'));
+    expect(
+        chat.blocks
+            .singleWhere((b) => b.kind == ChatBlockKind.toolCall)
+            .body
+            .expand((line) => line.runs)
+            .map((run) => run.text)
+            .join('\n'),
+        contains('Recovery: Read it again.'));
+  });
 
   test('estimated spend shares the strip with update status and trips the cap',
       () async {

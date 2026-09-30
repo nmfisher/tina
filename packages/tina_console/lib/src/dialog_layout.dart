@@ -57,3 +57,29 @@ List<String> wrapDialogText(String text, int width) {
   lines.add(row.toString());
   return lines;
 }
+
+/// Wrap explanatory prose at word boundaries. Commands, paths and diffs use
+/// [wrapDialogText] to retain every literal character instead.
+List<String> wrapDialogWords(String text, int width) {
+  if (width <= 0) return [];
+  final result = <String>[];
+  for (final paragraph in text.split('\n')) {
+    var line = '';
+    for (final word
+        in paragraph.split(RegExp(r'\s+')).where((s) => s.isNotEmpty)) {
+      if (line.isNotEmpty && visibleWidth('$line $word') > width) {
+        result.add(line);
+        line = '';
+      }
+      if (visibleWidth(word) > width) {
+        final pieces = wrapDialogText(word, width);
+        result.addAll(pieces.take(pieces.length - 1));
+        line = pieces.last;
+      } else {
+        line = line.isEmpty ? word : '$line $word';
+      }
+    }
+    result.add(line);
+  }
+  return result;
+}

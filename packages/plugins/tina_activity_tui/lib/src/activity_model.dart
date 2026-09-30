@@ -11,9 +11,11 @@ String bounded(String text, [int limit = 65536]) => text.length <= limit
     : '${text.substring(0, limit)}\n[details truncated]';
 
 final class ActivityRecord {
-  ActivityRecord(this.call, {bool historical = false})
+  ActivityRecord(this.call, {bool historical = false, this.description})
       : state = historical ? 'recorded' : 'waiting';
   final ToolUse call;
+  final ToolDescription? description;
+  String get label => description?.title ?? plainText(call.name);
   String state;
   String output = '';
   String progress = '';
@@ -30,6 +32,7 @@ final class ActivityRecord {
           ? '${DateTime.now().difference(started!).inSeconds}s'
           : '';
   String get target {
+    if (description != null) return plainText(description!.target);
     final input = call.input;
     for (final key in ['filePath', 'path', 'command', 'prompt']) {
       if (input[key] is String)
@@ -80,13 +83,17 @@ final class ActivityRecord {
         : lines.first;
   }
 
-  List<String> details() {
+  List<String> details({bool technical = false}) {
     final value = result;
     final object = value == null ? null : _object(value.content);
     final old = call.input['oldString'];
     final replacement = call.input['newString'];
     return [
-      'Call: ${plainText(call.id)}',
+      if (description != null) ...[
+        'Action: ${plainText(description!.fields.containsKey('Command') ? description!.title : description!.summary)}',
+        for (final entry in description!.fields.entries)
+          '${plainText(entry.key)}: ${plainText(entry.value)}',
+      ],
       if (progressHistory.isNotEmpty) ...[
         'Progress',
         ...progressHistory.map((s) => '  $s')
@@ -107,11 +114,17 @@ final class ActivityRecord {
         'Preview of arguments; not a whole-file diff',
         ...replacementDiff(old, replacement),
       ],
-      'Arguments',
-      _pretty(call.input),
+      if (technical) ...[
+        'Call: ${plainText(call.id)}',
+        'Arguments',
+        _pretty(call.input),
+      ],
       if (output.isNotEmpty) ...['Live output', output],
       if (truncated) '[live output truncated]',
-      if (value != null) ...['Result', value.content],
+      if (value != null && (object == null || !value.isError || technical)) ...[
+        'Result',
+        value.content
+      ],
     ];
   }
 }
@@ -206,6 +219,7 @@ List<String> replacementDiff(String before, String after) {
 final class ActivityModel {
   ActivityModel({this.capacity = 80});
   final int capacity;
+  ToolDescription? Function(ToolUse)? describe;
   final records = <ActivityRecord>[];
   ActivityRecord record(ToolUse call,
       {bool historical = false, bool fresh = false}) {
@@ -213,7 +227,12 @@ final class ActivityModel {
       for (final row in records.reversed) {
         if (row.call.id == call.id) return row;
       }
-    final row = ActivityRecord(call, historical: historical);
+    ToolDescription? description;
+    try {
+      description = describe?.call(call);
+    } catch (_) {}
+    final row =
+        ActivityRecord(call, historical: historical, description: description);
     records.add(row);
     if (records.length > capacity) records.removeAt(0);
     return row;

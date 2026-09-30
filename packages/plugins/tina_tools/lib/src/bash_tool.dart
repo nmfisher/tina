@@ -1,4 +1,5 @@
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 
 import 'process_runner.dart';
 import 'process_tool_base.dart';
@@ -47,6 +48,7 @@ class BashTool extends ProcessToolBase {
 
   @override
   ToolSchema get schema => const ToolSchema(
+        describe: describeBash,
         name: 'bash',
         description:
             'Run a shell command string and capture its exit code, stdout and '

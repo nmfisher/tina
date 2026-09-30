@@ -9,6 +9,11 @@ enum PanelInputMode {
   /// keys retain their usual behavior. No shared input row is reserved.
   readOnly,
 
+  /// The panel explicitly owns selection/action keys while focused, even
+  /// with a visible conversation draft. Modal questions still take priority;
+  /// Escape returns to chat. Used by interactive plugin views such as plans.
+  commands,
+
   /// All input belongs to the panel, including Escape and Ctrl+C. Ctrl+G is
   /// reserved for focus navigation. Prompts and modal overlays take priority.
   /// Unhandled events are dropped rather than leaking into the chat editor.

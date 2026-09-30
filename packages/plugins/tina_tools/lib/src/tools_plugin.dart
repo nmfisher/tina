@@ -109,9 +109,12 @@ final class ToolsPlugin extends AgentPlugin
       operation: 'Allow network access?',
       target: [request.command, ...request.arguments].join(' '),
       reason:
-          '$reason\nCommand: ${request.command} ${request.arguments}\nDirectory: ${request.workingDirectory ?? workingDirectory}\nAllow network for this command once? Filesystem confinement remains active. A retry reruns the entire command.',
+          '$reason\nNetwork access applies only to this command. Filesystem confinement remains active. A retry reruns the entire command.',
       humanOnly: true,
-      context: {'cwd': request.workingDirectory},
+      context: {
+        'cwd': request.workingDirectory ?? workingDirectory,
+        'description': describeCommandRequest(request).toJson(),
+      },
     );
     return answer == ApprovalDecision.allow;
   }
@@ -141,6 +144,28 @@ final class ToolsPlugin extends AgentPlugin
   /// advertises ([toolSchemas]); their executors are registered by
   /// [mountOn].
   late final List<Tool> toolList;
+  ToolUse? _activeCall;
+
+  ToolDescription describeFileRequest(String operation, String path) {
+    final call = _activeCall;
+    final describe = call == null
+        ? null
+        : toolList
+            .where((tool) => tool.schema.name == call.name)
+            .firstOrNull
+            ?.schema
+            .describe;
+    final description = call == null ? null : describe?.call(call.input);
+    return ToolDescription(
+        title: description?.title ??
+            (operation == 'read'
+                ? 'Read file'
+                : operation == 'write'
+                    ? 'Write file'
+                    : operation),
+        target: path,
+        fields: description?.fields ?? const {});
+  }
 
   @override
   List<ToolSchema> get tools => [
@@ -176,11 +201,23 @@ final class ToolsPlugin extends AgentPlugin
   @override
   void onInput(TurnContext c) => modePolicy.onInput(c);
   @override
-  void beforeToolCall(TurnContext c) => modePolicy.beforeToolCall(c);
+  void beforeToolCall(TurnContext c) {
+    _activeCall = c.call;
+    modePolicy.beforeToolCall(c);
+  }
+
   @override
-  void afterToolResult(TurnContext c) => modePolicy.afterToolResult(c);
+  void afterToolResult(TurnContext c) {
+    _activeCall = null;
+    modePolicy.afterToolResult(c);
+  }
+
   @override
-  void onTurnEnd(TurnContext c) => modePolicy.onTurnEnd(c);
+  void onTurnEnd(TurnContext c) {
+    _activeCall = null;
+    modePolicy.onTurnEnd(c);
+  }
+
   @override
   void closeSession() {
     unawaited(processJobs.close());

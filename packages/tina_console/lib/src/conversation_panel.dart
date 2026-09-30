@@ -253,7 +253,8 @@ class PanelFrame implements Focusable, PanelInputTarget {
         return true;
       }
     }
-    return inputMode == PanelInputMode.readOnly &&
+    return (inputMode == PanelInputMode.readOnly ||
+            inputMode == PanelInputMode.commands) &&
         (event is CharInput ||
             event is PasteInput ||
             event is EditingKey ||

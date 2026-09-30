@@ -226,8 +226,9 @@ void main() {
       final resultMessage =
           outcome.messages.where((m) => m.role == Role.user).last;
       final block = resultMessage.content.whereType<ToolResultBlock>().single;
-      expect(block.isError, isFalse,
-          reason: 'a failing command is a normal result');
+      expect(block.isError, isTrue,
+          reason:
+              'a nonzero exit is a failed execution, reported with its output');
       // BSD ls returns 1; GNU ls returns 2 for the same missing file.
       expect(block.content, matches(r'exit code: [1-9][0-9]*'));
       expect(block.content, contains('definitely-not-here'));

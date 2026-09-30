@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 import 'process_runner.dart';
 import 'process_tool_base.dart';
 import 'tool.dart';
@@ -159,6 +160,7 @@ final class ProcessJobTool implements Tool {
   final ProcessJobs jobs;
   @override
   ToolSchema get schema => const ToolSchema(
+          describe: describeProcess,
           name: 'process',
           description:
               'Inspect, wait for, or cancel a background process job from bash/exec. '

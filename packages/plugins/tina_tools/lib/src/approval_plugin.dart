@@ -45,7 +45,12 @@ void attachModePolicy(ToolsPlugin plugin) {
       operation: request.op.name,
       target: request.path,
       reason: reason,
-      context: {'workspace': plugin.workingDirectory},
+      context: {
+        'workspace': plugin.workingDirectory,
+        'description':
+            plugin.describeFileRequest(request.op.name, request.path).toJson(),
+        'permission_scope': 'file',
+      },
     );
     return _answer(decision);
   };
@@ -59,6 +64,8 @@ void attachModePolicy(ToolsPlugin plugin) {
         'executable': request.command,
         'arguments': request.arguments,
         'cwd': request.workingDirectory,
+        'description': describeCommandRequest(request).toJson(),
+        'permission_scope': 'command',
       },
     );
     return switch (decision) {

@@ -289,6 +289,14 @@ class PlansPlugin extends AgentPlugin {
   /// the entry: the complete item list each call, one nesting level, the
   /// approval dimension on the side.
   ToolSchema get schema => ToolSchema(
+        describe: (input) => ToolDescription(
+            title: 'Update plan',
+            target: input['items'] is List
+                ? '${(input['items'] as List).length} steps'
+                : '',
+            fields: {
+              if (input['approval'] != null) 'Approval': '${input['approval']}'
+            }),
         name: 'update_plan',
         description:
             'Replace this conversation\'s task plan. Pass the complete '

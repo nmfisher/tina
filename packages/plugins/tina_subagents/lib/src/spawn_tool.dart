@@ -21,6 +21,8 @@ final class SpawnTool extends Tool {
 
   @override
   ToolSchema get schema => ToolSchema(
+        describe: (input) => ToolDescription(
+            title: 'Delegate task', target: '${input['prompt'] ?? ''}'),
         name: SubagentsPlugin.schemaName,
         description: 'Spawn one sub-agent to do a scoped piece of work. '
             'Give it a self-contained prompt; its final text is returned '

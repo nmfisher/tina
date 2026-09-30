@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 
 import 'file_system.dart';
 import 'io_file_system.dart';
@@ -25,6 +26,7 @@ class ReadTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
+        describe: describeRead,
         name: 'read',
         description:
             'Read a text file. Returns lines numbered "N: <line>". Default '

@@ -99,24 +99,24 @@ void main() {
       () async {
     final decision = ask(kind: ApprovalKind.permission);
     await tick();
-    expect(input(), contains('❯ Approve Send message??'));
+    expect(input(), contains('❯ [y] allow once'));
     expect(all(), contains('❯ [y] allow once'));
     io.feed('\x1b[B');
     await tick();
     io.output.clear();
     screen.resize(ScreenLayout.fromSize(20, 6, split: false));
     ui.repaintConsole();
-    expect(all(), contains('❯ [n] deny once'));
+    expect(all(), contains('❯ [n] deny'));
     io.feed('\t');
     await tick();
     expect(ui.asker!.current, isNotNull);
     io.feed('\r'); // details back, never approval
     await tick();
-    expect(all(), contains('❯ [n] deny once'));
+    expect(all(), contains('❯ [n] deny'));
     io.output.clear();
     screen.resize(ScreenLayout.fromSize(120, 30, split: true));
     ui.repaintConsole();
-    expect(all(), contains('❯ [n] deny once'));
+    expect(all(), contains('❯ [n] deny'));
     io.feed('\x1b');
     expect(await decision, ApprovalDecision.deny);
     await tick();

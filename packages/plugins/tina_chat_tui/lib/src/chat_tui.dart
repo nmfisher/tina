@@ -1,6 +1,7 @@
 import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'chat_transcript.dart';
@@ -98,7 +99,10 @@ final class ChatTuiPlugin extends AgentPlugin
         width: context.screen.input.bounds.width,
         animationFrame: _frame));
     _unbindKey = context.bindShortcut((event) {
-      if (!context.isCompleting) {
+      final focused = context.input.focusManager?.focused;
+      final panelOwnsNavigation = focused is PanelInputTarget &&
+          focused.inputMode == PanelInputMode.commands;
+      if (!context.isCompleting && !panelOwnsNavigation) {
         final rows = switch (event) {
           ArrowKey(direction: ArrowDirection.pageUp) =>
             -context.chat.usableHeight,
@@ -341,10 +345,20 @@ final class ChatTuiPlugin extends AgentPlugin
         _flushThinking();
         _flushMarkdown();
         final block = ChatBlock.toolCall(_speaker,
-            subject: _clean(_subject(call)), status: 'waiting');
+            subject: _clean(_describe(call)), status: 'waiting');
         _add(block, at: at);
         return block;
       });
+
+  String _describe(ToolUse call) {
+    try {
+      return _loop?.toolSchema(call.name)?.describe?.call(call.input).summary ??
+          _subject(call);
+    } catch (_) {
+      // A broken description must never hide the actual call or stop a turn.
+      return _subject(call);
+    }
+  }
 
   void _finish(String id, ToolResult result) {
     if (!_finished.add(id)) return;
@@ -354,7 +368,19 @@ final class ChatTuiPlugin extends AgentPlugin
     final text = _clean(
         result.content.length >= output.length ? result.content : output);
     final timing = _timing(result.elapsed);
-    final why = text
+    var display = text;
+    if (result.isError) {
+      try {
+        final object = jsonDecode(text);
+        if (object is Map && object['message'] is String) {
+          display = [
+            object['message'],
+            if (object['recovery'] is String) 'Recovery: ${object['recovery']}',
+          ].join('\n');
+        }
+      } catch (_) {}
+    }
+    final why = display
         .split('\n')
         .map((s) => s.trim())
         .firstWhere((s) => s.isNotEmpty, orElse: () => '');
@@ -364,7 +390,8 @@ final class ChatTuiPlugin extends AgentPlugin
       if (result.isError && why.isNotEmpty)
         why.length > 60 ? '${why.substring(0, 59)}…' : why,
     ].join(' · ');
-    block.body = text.trim().isEmpty ? const [] : plainLines(_bound(text));
+    block.body =
+        display.trim().isEmpty ? const [] : plainLines(_bound(display));
     _changed(block);
     _hint();
   }

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 
 import 'glob.dart';
 import 'sandboxed_file_system.dart';
@@ -25,6 +26,7 @@ class GlobTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
+        describe: describeGlob,
         name: 'glob',
         description:
             'List files matching a glob pattern. Supports `*` (any chars '

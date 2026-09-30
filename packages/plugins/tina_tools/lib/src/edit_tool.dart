@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' show FileSystemException;
 
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 
 import 'atomic_write.dart';
 import 'file_system.dart';
@@ -27,6 +28,7 @@ class EditTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
+        describe: describeEdit,
         name: 'edit',
         description:
             'Replace an exact string in a file. `oldString` must match '

@@ -35,6 +35,75 @@ void main() {
     expect(runs.singleWhere((r) => r.text.contains('+ after')).code,
         Theme.defaults().chat.green);
   });
+
+  test('plugin-owned action descriptions work for an unfamiliar tool', () {
+    final dialog = ApprovalDialog(null,
+        ask: ApprovalAskContext(
+            'deploy', 'preview.example', 'Publish this preview?',
+            details: {
+              'description': const ToolDescription(
+                  title: 'Publish preview',
+                  target: 'preview.example',
+                  fields: {'Destination': 'preview.example'}).toJson(),
+              'tool': {
+                'name': 'acme_deploy',
+                'input': {'site_id': 'internal-id', 'api_token': 'secret-value'}
+              },
+            }));
+    var shown = dialog.rows().map(text).join('\n');
+    expect(shown, contains('Publish preview'));
+    expect(shown, contains('Destination: preview.example'));
+    expect(shown, isNot(contains('site_id')));
+    dialog.handleKey(ApprovalKey.details);
+    shown = dialog.rows().map(text).join('\n');
+    expect(shown, contains('site_id'));
+    expect(shown, contains('[redacted]'));
+    expect(shown, isNot(contains('secret-value')));
+  });
+
+  test('scope wording matches exact file and command grants', () {
+    for (final scope in ['file', 'command']) {
+      final dialog = ApprovalDialog(null,
+          ask: ApprovalAskContext('request', '/actual/target', 'needs approval',
+              details: {'permission_scope': scope}));
+      expect(dialog.rows(width: 100).map(text).join('\n'),
+          contains('[a] allow this $scope for this session'));
+      dialog.handleKey(ApprovalKey.down);
+      dialog.handleKey(ApprovalKey.down);
+      expect(dialog.current.decision, ApprovalDecision.allowAlways);
+    }
+  });
+
+  test('network confirmations display the actual command and directory', () {
+    final dialog = ApprovalDialog(null,
+        ask: ApprovalAskContext('Allow network access?', 'git push',
+            'This command needs network access.',
+            confirmation: true,
+            details: {
+              'description': const ToolDescription(
+                  title: 'Push Git changes',
+                  target: 'git push origin work',
+                  fields: {'Command': 'git push origin work'}).toJson(),
+              'cwd': '/project',
+            }));
+    final shown = dialog.rows(width: 100).map(text).join('\n');
+    expect(shown, contains('Command: git push origin work'));
+    expect(shown, contains('Directory: /project'));
+    expect(shown, contains('[x] Yes'));
+    expect(shown, isNot(contains('[a]')));
+  });
+
+  test('short terminal cards reserve space for context above the input choices',
+      () {
+    final dialog = ApprovalDialog(null,
+        ask: const ApprovalAskContext(
+            'write', '/outside/notes.txt', 'outside the project'));
+    final rows = dialog.rows(width: 80, height: 7).map(text).toList();
+    expect(rows.join('\n'), contains('/outside/notes.txt'));
+    expect(rows.last, contains('[y] allow once'));
+    expect(rows.last, contains('[n] deny'));
+    expect(rows.last, contains('[a] allow this file'));
+  });
   test('command is readable and preview paging keeps the selected answer', () {
     final dialog = ApprovalDialog(ToolUse(id: 'long', name: 'bash', input: {
       'command': List.generate(30, (i) => 'echo line_$i').join('\n')
@@ -53,7 +122,7 @@ void main() {
     for (var i = 0; i < 20; i++) {
       rows = dialog.rows(width: 80, height: 12);
       seen.addAll(rows.map(text));
-      expect(rows.map(text).join('\n'), contains('❯ [n] deny once'));
+      expect(rows.map(text).join('\n'), contains('❯ [n] deny'));
       dialog.handleKey(ApprovalKey.pageDown);
       expect(dialog.current.decision, decision);
     }
@@ -201,11 +270,11 @@ void main() {
     expect(texts.first, '┌ Run shell command · awaiting approval');
     expect(texts.any((t) => t.contains('rm -rf build/')), isTrue);
     expect(texts.where((t) => t.startsWith('❯ [')), hasLength(1));
-    expect(texts.where((t) => t.contains('[n]') || t.contains('[a]')),
-        hasLength(2));
-    expect(texts.any((t) => t.contains('allow matching calls')), isTrue);
-    expect(texts.join(), contains('Esc cancel'));
-    expect(texts.last, '❯ Approve bash?');
+    expect(texts.join(), contains('[n] deny'));
+    expect(texts.join(), contains('[a] allow this command'));
+    expect(texts.any((t) => t.contains('allow this command')), isTrue);
+    expect(texts.join(), contains('Esc deny'));
+    expect(texts.last, contains('[y] allow once'));
   });
 
   test('selected choice is highlighted with the dialog style', () {
@@ -221,8 +290,8 @@ void main() {
         .where((r) => r.text.startsWith('❯ ['))
         .toList();
     expect(highlighted, hasLength(1));
-    expect(highlighted.single.text, contains('deny once'));
-    expect(highlighted.single.text, isNot(contains('allow matching calls')));
+    expect(highlighted.single.text, contains('deny'));
+    expect(highlighted.single.text, isNot(contains('allow this command')));
     expect(highlighted.single.code, Theme.defaults().dialog.confirm);
   });
 
@@ -250,7 +319,11 @@ void main() {
         final rows = dialog.rows(width: area.width, height: area.height);
         final lines = rows.map(text).toList();
         expect(rows.length, lessThanOrEqualTo(area.height));
-        expect(lines.where((line) => line.startsWith('❯ [')), hasLength(1));
+        expect(
+            rows
+                .expand((row) => row.runs)
+                .where((run) => run.text.startsWith('❯ [')),
+            hasLength(1));
         for (final line in lines)
           expect(visibleWidth(line), lessThanOrEqualTo(area.width));
         expect(lines.join(), contains('❯ ['));

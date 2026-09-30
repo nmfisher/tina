@@ -32,18 +32,24 @@ local config. Legacy cached provider definitions are read offline at startup.
 
 The single `tina/plans` plugin attaches a live plan panel in the terminal: step
 states, child steps, completion counts and approval state. Ctrl-P toggles visibility.
-The intended controls are Ctrl-G to focus the panel, arrows to select, Enter to
-fold child steps or approve, Space to toggle a step, and R to reject. Plan-panel
-focus, item selection and expansion have been reported as inaccessible and are
-tracked in the [UI follow-ups](engine2-migration.md#ui-follow-ups).
-Small terminals collapse the
-panel to the active step. Each conversation owns its plan and panel attachment.
+Press Ctrl-G, Tab to highlight the plan, then Enter to focus it. Up/Down select
+items; Enter expands or collapses the full item text and its child steps.
+Page Up/Down or the wheel scroll long details. Esc returns to the conversation
+with the input draft preserved. Approval uses A, rejection uses R, and Space
+toggles the selected step's progress. Browsing never submits input or approves
+the plan. Small terminals collapse the unfocused panel to the active step;
+focusing it opens the scrollable list. Selection and expansion survive progress
+updates. Each conversation owns its plan and panel attachment.
 
-`tina/approvals-tui` renders permissions above the input line with command,
-directory or edit previews. Y allows the invocation once, N denies, and A
-remembers the matching permission for the session. Arrows/Enter also work;
-Tab opens scrollable details, and Esc cancels. Generic confirmations retain
-Yes/No. One-call approval includes the tool's atomic temporary-file/rename work,
+Tool plugins provide optional action descriptions with their tool schemas;
+the transcript, activity browser and approvals use those descriptions for
+plain-language labels. `tina/approvals-tui` renders permissions above the input
+line with the actual command, directory, affected file or colored edit preview.
+Y allows the invocation once, N denies, and A remembers the displayed scope
+for the session: this file, or this exact command in this directory. Choices
+share one row when space permits. Arrows/Enter also work; Tab opens scrollable
+technical details, and Esc cancels. Generic confirmations retain Yes/No.
+One-call approval includes the tool's atomic temporary-file/rename work,
 and expires after the invocation. Request details are channel-neutral metadata;
 the engine does not depend on terminal rendering.
 
@@ -51,7 +57,8 @@ the engine does not depend on terminal rendering.
 
 `tina/activity-tui` is included in the default plugin set. F4 or `/activity`
 opens collapsible tool results, replacement previews, errors and child progress.
-Enter/Tab folds, arrows select, Page Up/Down or the wheel scroll, and Esc/F4
+Enter/Tab folds, T toggles raw arguments and call details, arrows select,
+Page Up/Down or the wheel scroll, and Esc/F4
 closes. F4 works during execution and preserves unfinished input.
 
 In Settings → Plugins, uncheck `tina/activity-tui` to hide tool presentation.

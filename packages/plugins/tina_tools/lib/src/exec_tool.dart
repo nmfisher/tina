@@ -1,4 +1,5 @@
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 
 import 'process_runner.dart';
 import 'process_tool_base.dart';
@@ -36,6 +37,7 @@ class ExecTool extends ProcessToolBase {
 
   @override
   ToolSchema get schema => const ToolSchema(
+        describe: describeExec,
         name: 'exec',
         description:
             'Run a program directly with literal arguments, without a shell. '

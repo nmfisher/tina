@@ -216,13 +216,18 @@ final class _Workspace implements ConsolePanels {
       old.frame.inputCursor = draft.cursor;
     }
     active = view;
+    focus.home = view.frame;
     visibleIndex = views.indexOf(view);
     screen.setActiveChat(view.chat);
     editor.commandProvider = view.session.commandCompletion;
     editor.completionProvider = view.session.fileCompletion;
     editor.restoreHistory(view.history);
     _layout();
-    editor.loadEditState(view.frame.inputBuffer, view.frame.inputCursor);
+    // Returning from a plugin panel in this same conversation keeps the live
+    // editor draft. Saved per-conversation drafts are for session switches.
+    if (!identical(old, view)) {
+      editor.loadEditState(view.frame.inputBuffer, view.frame.inputCursor);
+    }
     context.refreshStatus();
   }
 
@@ -314,7 +319,10 @@ final class _Workspace implements ConsolePanels {
       return true;
     }
     if (focus.isCycling) return false;
-    if (event is EscapeKey && !editor.isCompleting && active?.task != null) {
+    if (event is EscapeKey &&
+        !editor.isCompleting &&
+        identical(focus.focused, active?.frame) &&
+        active?.task != null) {
       if (editor.editState.buffer.isNotEmpty)
         editor.loadEditState('', 0);
       else

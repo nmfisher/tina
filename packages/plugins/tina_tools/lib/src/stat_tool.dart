@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:tina_core/tina_core.dart';
+import 'tool_descriptions.dart';
 
 import 'sandboxed_file_system.dart';
 import 'permissions.dart';
@@ -23,6 +24,7 @@ class StatTool implements Tool {
 
   @override
   ToolSchema get schema => const ToolSchema(
+        describe: describeStat,
         name: 'stat',
         description:
             'Report metadata for one path: type (file/directory/symlink), '

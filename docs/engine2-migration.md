@@ -70,18 +70,23 @@ submodule; it is not part of that deletion.
 
 ## UI follow-ups
 
-- [ ] Make tool activity and approvals easier to read: lead with a plain-language
+- [x] Make tool activity and approvals easier to read: lead with a plain-language
   action and affected file or destination, show readable commands and colored
   diffs, and make the scope of each approval choice explicit. Keep technical
   details expandable. Tool plugins supply the context; the presentation plugins
   render it.
-- [ ] Fix keyboard access to the plan panel. Include the visible plan panel in
+- [x] Fix keyboard access to the plan panel. Include the visible plan panel in
   focus cycling, show which panel and item are selected, use Up/Down to select
   plan items, and Enter to expand/collapse the selected item so its full text and
   available child steps can be read. Keep the selection visible when scrolling
   or resizing, and preserve the conversation's input draft when focus returns.
-  Verify this in a real PTY while plan progress updates arrive. This belongs to
+  Covered by editor tests and real PTY checks. This belongs to
   `tina/plans` and the console's generic panel focus/input support.
+
+Use Ctrl-G, Tab, Enter to focus the plan; Up/Down select, Enter expands,
+Page Up/Down scrolls, and Esc restores chat focus and its draft. A explicitly
+approves; browsing and expanding do not. See the
+[presentation controls](engine2-config.md#plan-and-approval-presentation).
 
 ## Activity presentation
 
@@ -91,12 +96,13 @@ F4 or `/activity` opens it, including during a running turn. Enter/Tab folds the
 selected call, arrows select, Page Up/Down or the wheel scroll, and Esc/F4 closes.
 Browsing preserves the input draft and yields to approval/settings key readers.
 
-The browser retains the latest 80 calls. It shows arguments, bounded live output,
-results, elapsed time and child progress. Edit previews compare replacement
+The browser retains the latest 80 calls. It shows action descriptions, bounded
+live output, results, elapsed time and child progress. Edit previews compare replacement
 arguments; they are not whole-file diffs. Failed/unconfirmed replacements are
 explicitly labeled. Structured errors expose their message, recovery guidance
-and current context. Replay restores calls/results without executing tools or
-reprinting output; transient progress and timing are not persisted.
+and current context. T reveals raw arguments and call details. Replay restores
+calls/results without executing tools or reprinting output; transient progress
+and timing are not persisted.
 
 The application mounts the same generic `ConsoleContribution` used by other UI
 plugins. The console provides removable key bindings and modal registration;
@@ -122,7 +128,7 @@ or remote channel without changing tools, the loop, or frontend dispatch.
 The former `TuiSession.wireApprovers` and direct `TuiAssembly.start(approver:)`
 entry points are removed.
 
-Pending approvals expire (five-minute default), deny on turn cancellation,
+Pending approvals have no timeout by default, deny on turn cancellation,
 channel failure or shutdown, and reject duplicate/late replies. The stream
 adapter has one subscriber and denies on disconnect. Requests are not persisted;
 SMS delivery/authentication remains the responsibility of a future channel

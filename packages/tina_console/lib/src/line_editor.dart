@@ -721,7 +721,10 @@ class LineEditor {
     // cancel monitor as a bogus cancel). Without a panel, baseline's
     // fall-through stands: typing reaches the armed prompt/editor (a
     // declining overlay must not blackout the chat input).
-    return _exclusivePanelFocused;
+    final focused = _focusManager?.focused;
+    return _exclusivePanelFocused ||
+        (focused is PanelInputTarget &&
+            focused.inputMode == PanelInputMode.commands);
   }
 
   /// Panel-owned input bypasses chat editing, cancellation and app shortcuts.
@@ -775,6 +778,17 @@ class LineEditor {
       (event is ArrowKey &&
           (event.direction == ArrowDirection.pageUp ||
               event.direction == ArrowDirection.pageDown));
+
+  /// A panel explicitly providing commands owns its navigation even while a
+  /// conversation draft is visible. Ordinary/exclusive panels retain the
+  /// prompt precedence that protects a visible editor from stale focus.
+  bool _panelMayTake(InputEvent event) {
+    final target = _focusManager?.focused;
+    return (target is PanelInputTarget &&
+            target.inputMode == PanelInputMode.commands) ||
+        !_promptRowOwnsKeyboard ||
+        _scrollKeysBypassPrompt(event);
+  }
 
   /// Hide editor-only overlays when a panel takes over the keyboard. Drafts
   /// and command history remain intact for the next conversation focus.
@@ -975,9 +989,7 @@ class LineEditor {
       // the keyboard the panel is off the input path — except the scroll
       // keys (wheel + PgUp/PgDn page the focused panel's transcript), whose
       // keys belong to the queue/cancel machinery below.
-      final panelMayTake =
-          !_promptRowOwnsKeyboard || _scrollKeysBypassPrompt(event);
-      if (panelMayTake &&
+      if (_panelMayTake(event) &&
           (_focusManager?.focused?.handleEvent(event) ?? false)) {
         return KeyHandledBy.panel;
       }
@@ -1256,9 +1268,7 @@ class LineEditor {
     //    no-op, so the old gate just dropped them: panels spawned behind an
     //    armed prompt never scrolled).
     final focused = _focusManager?.focused;
-    final panelMayTake =
-        !_promptRowOwnsKeyboard || _scrollKeysBypassPrompt(event);
-    if (panelMayTake && focused != null && focused.handleEvent(event)) {
+    if (_panelMayTake(event) && focused != null && focused.handleEvent(event)) {
       return KeyHandledBy.panel;
     }
     // macOS Option+Arrow fallback: ESC and the letter arrive in separate

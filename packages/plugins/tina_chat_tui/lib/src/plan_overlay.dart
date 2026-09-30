@@ -7,6 +7,8 @@ enum PlanOverlayMode { auto, manual, off }
 
 typedef Plan = PlanState;
 typedef PlanItem = PlanEntryItem;
+typedef PlanPaint = String Function(String text, String? code);
+typedef _Address = (int, int?);
 
 extension on PlanState {
   Iterable<PlanEntryItem> get allItems => [
@@ -14,93 +16,91 @@ extension on PlanState {
       ];
 }
 
-/// Paints [text] in SGR [code] (null = default). Injected so the renderer
-/// stays a pure function — tests pass a marker paint instead of a backend.
-typedef PlanPaint = String Function(String text, String? code);
-
-/// View-model knobs for [renderPlanOverlayLines]. Kept separate from the plan
-/// value so the renderer never mutates anything plan-shaped.
 class PlanOverlayUi {
-  /// Active item only (vs the full list). The host sets this automatically
-  /// when the plan does not fit the terminal.
-  final bool collapsed;
-
-  /// Roots ([Plan.items] indices) whose subtask subtree is folded. Absent =
-  /// expanded; the empty set is "everything expanded", the default.
-  final Set<int> collapsedRoots;
-
-  /// Index into the FLATTENED VISIBLE rows (see [_visibleRows]) of the
-  /// cycle-selected row (expanded mode only), or null for no selection.
-  /// Rendered with a `❯` marker; the host wires Enter to it. Collapsed
-  /// subtrees occupy no slot, so one ↓ hop walks past them.
-  final int? selectedIndex;
-
-  /// True while focus cycling has highlighted this overlay — the host draws
-  /// the box border in the cycling tint instead of dim.
-  final bool highlighted;
-
-  /// True while this overlay owns keyboard focus — the footer advertises the
-  /// selection keys.
-  final bool focused;
-
   const PlanOverlayUi({
     this.collapsed = false,
     this.collapsedRoots = const {},
+    this.expandedItems = const {},
     this.selectedIndex,
     this.highlighted = false,
     this.focused = false,
+    this.offset = 0,
+    this.maxRows,
   });
+  final bool collapsed;
+  final Set<int> collapsedRoots;
+  final Set<(int, int?)> expandedItems;
+  final int? selectedIndex;
+  final bool highlighted, focused;
+  final int offset;
+  final int? maxRows;
 }
 
-/// One visible row of the expanded overlay: an item plus the address the
-/// host needs to act on it — which [Plan.items] root it belongs to, which
-/// child slot it fills (null for the root row itself), and its indent depth.
 class _Row {
+  const _Row(this.item, this.rootIndex, this.childIndex);
   final PlanItem item;
   final int rootIndex;
   final int? childIndex;
-  final int depth;
-
-  const _Row({
-    required this.item,
-    required this.rootIndex,
-    required this.childIndex,
-    required this.depth,
-  });
-
-  /// Only root rows can carry children (nesting is capped at one level).
-  bool get hasChildren => childIndex == null && item.children.isNotEmpty;
+  int get depth => childIndex == null ? 0 : 1;
+  _Address get address => (rootIndex, childIndex);
 }
 
-/// The rows the expanded overlay paints: every root row followed by its
-/// children — except under roots listed in [collapsedRoots], whose subtrees
-/// are skipped entirely (they occupy no slot, hence no selection stop).
 List<_Row> _visibleRows(Plan plan, {Set<int> collapsedRoots = const {}}) => [
       for (final (ri, item) in plan.items.indexed) ...[
-        _Row(item: item, rootIndex: ri, childIndex: null, depth: 0),
+        _Row(item, ri, null),
         if (!collapsedRoots.contains(ri))
-          for (final (ci, child) in item.children.indexed)
-            _Row(item: child, rootIndex: ri, childIndex: ci, depth: 1),
+          for (final (ci, child) in item.children.indexed) _Row(child, ri, ci),
       ],
     ];
 
-/// Renders the plan overlay box as a list of paintable lines (borders
-/// included). Pure: same inputs → byte-identical lines. The host owns
-/// geometry, painting and the [OverlayRegion]; this only decides content.
-///
-/// Shape (expanded, second item carrying a collapsed subtree):
-/// ```
-/// ┌ plan · 2/5 · needs approval ─┐
-/// │ ✓ done item                  │
-/// │ ▸ active item (+2)           │   cyan (accent) + fold glyph + count
-/// │   · subtask                  │   children indent two spaces
-/// │ · pending item               │   dim
-/// └ ctrl+p collapse · /plan appr ┘
-/// ```
-///
-/// Selection (focused cycling): the [PlanOverlayUi.selectedIndex] VISIBLE row
-/// gains a `❯` marker, and when [PlanOverlayUi.focused] the footer advertises
-/// the keys: `enter approve/expand · r reject · ↑↓ select`.
+List<(String, String?)> _body(Plan plan, PlanOverlayUi ui, int innerWidth) {
+  if (ui.collapsed) {
+    final active = plan.allItems.where((i) => i.state == 'in_progress');
+    return [for (final item in active) ('▸ ${item.text}', 'accent')];
+  }
+  final rows = _visibleRows(plan, collapsedRoots: ui.collapsedRoots);
+  return [
+    for (final (i, row) in rows.indexed)
+      ..._itemLines(row, ui, innerWidth, selected: i == ui.selectedIndex),
+  ];
+}
+
+List<(String, String?)> _itemLines(_Row row, PlanOverlayUi ui, int width,
+    {required bool selected}) {
+  final expanded = ui.expandedItems.contains(row.address);
+  final indent = '  ' * row.depth;
+  final state = switch (row.item.state) {
+    'done' => '✓',
+    'in_progress' => '▸',
+    _ => '·',
+  };
+  final prefix =
+      '$indent${selected ? '❯' : ' '} ${expanded ? '▾' : '▸'} $state ';
+  final kind = selected
+      ? 'accent'
+      : row.item.state == 'done'
+          ? 'ok'
+          : null;
+  final text = _safe(row.item.text);
+  if (!expanded) {
+    final count = row.childIndex == null &&
+            row.item.children.isNotEmpty &&
+            ui.collapsedRoots.contains(row.rootIndex)
+        ? ' (+${row.item.children.length})'
+        : '';
+    final titleWidth =
+        (width - visibleWidth(prefix) - visibleWidth(count)).clamp(0, width);
+    return [('$prefix${_fit(text, titleWidth)}$count', kind)];
+  }
+  final lines =
+      wrapDialogWords(text, (width - visibleWidth(prefix)).clamp(1, width));
+  return [
+    for (final (i, line) in lines.indexed)
+      ('${i == 0 ? prefix : ' ' * visibleWidth(prefix)}$line', kind),
+  ];
+}
+
+/// Pure rendering. Expanded text wraps; viewport clipping never wraps chrome.
 List<String> renderPlanOverlayLines({
   required Plan plan,
   required PlanOverlayUi ui,
@@ -108,212 +108,61 @@ List<String> renderPlanOverlayLines({
   required PlanPaint paint,
 }) {
   if (width < 8) return const [];
-  final innerW = width - 4; // borders + one padding column each side
-  // The header lives in the top border's title slot.
-  final header = _headerText(plan);
-  final active = plan.allItems
-      .where((i) => i.state == 'in_progress')
-      .map((i) => i.text)
-      .join(' · ');
-  final footer = ui.focused
-      ? '↑↓ select · ↵ approve/expand · r reject · ␣ toggle item'
-      : ui.collapsed
-          ? 'ctrl+p hide'
-          : 'ctrl+p hide';
-
-  final rows = ui.collapsed
-      ? const <_Row>[]
-      : _visibleRows(plan, collapsedRoots: ui.collapsedRoots);
-  final interior = ui.collapsed
-      ? <(String, String?)>[
-          // Collapsed: only the in-progress row.
-          if (active.isNotEmpty) ('▸ $active', 'accent'),
-        ]
-      : [
-          // Expanded: every visible row. The selected row (host-driven,
-          // while the overlay is cycled to) swaps its state glyph for a ❯
-          // marker; color still encodes the state. Parents show a fold
-          // glyph (▾ expanded / ▸ folded) and a dim-ish (+n) count while
-          // folded; children indent two spaces per depth.
-          for (final (vi, row) in rows.indexed)
-            (
-              _rowText(
-                row,
-                selected: vi == ui.selectedIndex,
-                collapsedRoots: ui.collapsedRoots,
-              ),
-              switch (row.item.state) {
-                'pending' => null,
-                'in_progress' => 'accent',
-                'done' => 'ok',
-                _ => null,
-              },
-            ),
-        ];
-
-  // While the focus ring highlights this overlay, its chrome takes the
-  // cycling tint instead of dim (same vocabulary the panels use).
-  final borderCode = ui.highlighted ? 'highlight' : 'dim';
-
-  final lines = <String>[];
-  // Top border with the header embedded, box-drawing style. The title is
-  // ellipsized (never silently hard-cut) when it overflows the box.
-  final titleSeg = _fit(' $header ', width - 2);
-  lines.add(
-    '${_p(paint, '┌', borderCode)}'
-    '${_p(paint, titleSeg, 'header')}'
-    '${_p(paint, '─' * (width - 2 - _visible(titleSeg)), borderCode)}'
-    '${_p(paint, '┐', borderCode)}',
-  );
-  for (final (text, kind) in interior) {
-    final shown = _fit(text, innerW);
-    final pad = ' ' * (innerW - _visible(shown));
-    final styled = switch (kind) {
-      'accent' => _p(paint, shown, 'accent'),
-      'ok' => _p(paint, shown, 'ok'),
-      _ => shown, // pending/header rows render plain, dim padding around
-    };
-    lines.add(
-      '${_p(paint, '│', borderCode)} '
-      '$styled$pad'
-      ' ${_p(paint, '│', borderCode)}',
-    );
-  }
-  // Footer.
-  final footerShown = _fit(footer, innerW);
-  final footerPad = ' ' * (innerW - _visible(footerShown));
-  lines.add(
-    '${_p(paint, '│', borderCode)} '
-    '${_p(paint, '$footerShown$footerPad', 'footer')}'
-    ' ${_p(paint, '│', borderCode)}',
-  );
-  lines.add(
-    '${_p(paint, '└', borderCode)}'
-    '${_p(paint, '─' * (width - 2), borderCode)}'
-    '${_p(paint, '┘', borderCode)}',
-  );
-  return lines;
-  // Codes are symbolic ('dim', 'header', 'accent', 'ok', 'highlight') and
-  // the HOST maps them to Theme SGR strings via its injected [PlanPaint], so
-  // the renderer has no theme dependency at all.
-}
-
-/// The glyph + indent + text of one row. A folded parent renders its state
-/// glyph slot as the fold caret and appends `(+n)`; the caret wins over the
-/// in-progress `▸` so fold state is always visible. The selection marker
-/// replaces the glyph on any row.
-String _rowText(
-  _Row row, {
-  required bool selected,
-  required Set<int> collapsedRoots,
-}) {
-  final indent = '  ' * row.depth;
-  final folded = row.hasChildren && collapsedRoots.contains(row.rootIndex);
-  final marker = selected
-      ? '❯'
-      : row.hasChildren
-          ? (folded ? '▸' : '▾')
-          : switch (row.item.state) {
-              'pending' => '·',
-              'in_progress' => '▸',
-              'done' => '✓',
-              _ => '·',
-            };
-  final hint = folded ? ' (+${row.item.children.length})' : '';
-  return '$indent$marker ${row.item.text}$hint';
-}
-
-String _p(PlanPaint paint, String text, String kind) {
-  final code = switch (kind) {
-    'dim' => 'dim',
-    'header' => 'header',
-    'accent' => 'accent',
-    'ok' => 'ok',
-    'highlight' => 'highlight',
-    _ => null,
-  };
-  return paint(text, code);
-}
-
-String _headerText(Plan plan) {
+  final inner = width - 4;
   final all = plan.allItems.toList();
   final done = all.where((i) => i.state == 'done').length;
-  final counts = '${plan.items.isEmpty ? 0 : done}/${all.length}';
-  final badge = switch (plan.approval) {
-    PlanApproval.none => '',
+  final approval = switch (plan.approval) {
     PlanApproval.requested => ' · needs approval',
     PlanApproval.approved => ' · approved',
     PlanApproval.rejected => ' · rejected',
+    _ => '',
   };
-  return 'plan · $counts$badge';
-}
-
-/// Clip [s] to [maxCols] visible columns with an ellipsis.
-String _fit(String s, int maxCols) {
-  s = s.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
-  if (_visible(s) <= maxCols) return s;
-  var out = '';
-  for (var i = 0; i < s.length;) {
-    final size = runeSizeAt(s, i);
-    final candidate = out + s.substring(i, i + size);
-    if (_visible('$candidate…') > maxCols) break;
-    out = candidate;
-    i += size;
+  final title = _fit(' plan · $done/${all.length}$approval ', width - 2);
+  final border = ui.highlighted
+      ? 'highlight'
+      : ui.focused
+          ? 'accent'
+          : 'dim';
+  final body = _body(plan, ui, inner);
+  final offset = ui.offset.clamp(0, body.isEmpty ? 0 : body.length - 1);
+  final visible = body.skip(offset).take(ui.maxRows ?? body.length).toList();
+  final hasMore = offset > 0 || offset + visible.length < body.length;
+  final footer = ui.focused
+      ? '↑↓ select · Enter expand · Esc chat'
+      : 'Ctrl+G, Tab, Enter focus · Ctrl+P hide';
+  String box(String text, [String? kind]) {
+    final shown = _fit(text, inner);
+    return '${paint('│', border)} ${paint(shown, kind)}'
+        '${' ' * (inner - visibleWidth(shown))} ${paint('│', border)}';
   }
-  return '$out…';
+
+  return [
+    '${paint('┌', border)}$title${paint('─' * (width - 2 - visibleWidth(title)), border)}${paint('┐', border)}',
+    for (final row in visible) box(row.$1, row.$2),
+    if (ui.focused) box('A approve · R reject · Space toggle', 'dim'),
+    box(
+        hasMore
+            ? '${offset + 1}–${offset + visible.length}/${body.length} · PgUp/PgDn scroll'
+            : footer,
+        'dim'),
+    '${paint('└${'─' * (width - 2)}┘', border)}',
+  ];
 }
 
-int _visible(String s) {
-  var w = 0;
-  for (var i = 0; i < s.length;) {
-    final size = runeSizeAt(s, i);
-    w += runeWidth(codePointAt(s, i));
-    i += size;
-  }
-  return w;
-}
+String _safe(String text) =>
+    text.replaceAll(RegExp(r'[\x00-\x1f\x7f-\x9f]'), ' ');
+String _fit(String text, int width) => clipDialogText(_safe(text), width);
 
-/// Interior height [renderPlanOverlayLines] needs for [plan] at [collapsed]:
-/// the VISIBLE item rows (folded subtrees contribute nothing) or the single
-/// active row, plus the footer row.
-int planOverlayContentHeight(
-  Plan plan, {
-  required bool collapsed,
-  Set<int> collapsedRoots = const {},
-}) {
-  if (collapsed) {
-    final hasActive = plan.allItems.any((i) => i.state == 'in_progress');
-    return (hasActive ? 1 : 0) + 1; // active row? + footer
-  }
-  return _visibleRows(plan, collapsedRoots: collapsedRoots).length + 1;
-}
+int planOverlayContentHeight(Plan plan,
+        {required bool collapsed, Set<int> collapsedRoots = const {}}) =>
+    (collapsed
+        ? plan.allItems.where((i) => i.state == 'in_progress').length
+        : _visibleRows(plan, collapsedRoots: collapsedRoots).length) +
+    1;
 
-/// The plan column: an [OverlayRegion] docked inside the chat area's
-/// top-right corner, re-rendered on every [PlanStore.changes] event for the
-/// attached conversation (via its plan store, the same source the status
-/// strip uses).
-///
-/// It is also a [Focusable]: Ctrl+G cycles highlight it like any panel, and
-/// once FOCUSED it claims ↑/↓ (move the selection over the visible rows,
-/// collapsed subtrees skipped in one hop), Enter (toggle a parent's subtree
-/// open/closed; approve anywhere else — the footer is the dedicated approve
-/// stop, reached by ↓ past the last row), `a` (approve), `r` (reject the
-/// plan), and space (toggle the selected item pending↔done) — the same store
-/// writes `/plan approve|reject|done|pending` perform, so the agent, the
-/// status strip, and this overlay all re-render from one source of truth.
-/// ←/→ (and every other key) fall through to the shared chat editor / focus
-/// ring so typing, paste, and spatial cycling keep working while the overlay
-/// is up. Fold state lives only in this overlay's view state — it is never
-/// persisted. Collapsed mode and Ctrl+P (wired by the coordinator to
-/// [toggle]) behave as before; the overlay is only focusable while its
-/// region is painted.
-///
-/// Visibility: [PlanOverlayMode.auto] shows the overlay whenever the
-/// conversation has a plan (degrading to collapsed when it does not fit);
-/// [manual] only after Ctrl+P; [off] constructs nothing (the coordinator
-/// skips [start]). Ctrl+P records a user override that wins over the mode
-/// until toggled back.
-class PlanOverlay implements Focusable {
+/// A session-owned plan view. Browsing changes only view state; approval and
+/// progress changes require their explicit action keys.
+class PlanOverlay implements PanelInputTarget {
   PlanOverlay({
     required this.screen,
     required this.store,
@@ -325,380 +174,258 @@ class PlanOverlay implements Focusable {
     this.onReject,
     this.onSpace,
   });
-
   final Screen screen;
   final PlanStore store;
   final AgentLoop loop;
   final ConsoleContext context;
-  final PlanOverlayMode mode;
-
-  /// Focus ring this overlay joins when started. The overlay unregisters
-  /// itself in [dispose]; [FocusManager] skips it while hidden via
-  /// [canFocus].
   final FocusManager? focusManager;
-
-  /// Plan action hooks, mirroring `/plan`. When [onApprove]/[onReject] are
-  /// null the overlay writes the store directly (the same thing the command
-  /// does). [onSpace] defaults to the per-item pending↔done toggle.
-  final void Function()? onApprove;
-  final void Function()? onReject;
-  final void Function()? onSpace;
-
+  final PlanOverlayMode mode;
+  final void Function()? onApprove, onReject, onSpace;
   OverlayRegion? _region;
   StreamSubscription<void>? _sub;
-  bool _started = false;
-  bool _focused = false;
-  bool _highlighted = false;
-
-  /// Index into the VISIBLE rows of the current plan (see [_rows]).
-  int? _selected;
-
-  /// True when ↓ has moved past the last row onto the footer (the dedicated
-  /// approve stop). Only reachable when the plan has any subtasks, so plain
-  /// plans keep the old clamp-at-the-ends behavior.
-  bool _onFooter = false;
-
-  /// [Plan.items] indices with folded subtrees. Pure view state: never
-  /// persisted, reset when the overlay hides.
-  final Set<int> _collapsedRoots = {};
-
-  /// User override: null = follow [mode]; true/false = forced show/hide.
+  bool _started = false, _focused = false, _highlighted = false;
   bool? _userOverride;
+  int? _selected;
+  int _offset = 0, _room = 1, _maxOffset = 0;
+  bool _followSelection = true;
+  final Set<_Address> _expanded = {};
+  List<PlanItem> _previous = const [];
 
-  /// Test/debug surface: whether the overlay region is currently painted.
   bool get regionVisible => _region?.isVisible ?? false;
-
-  /// True while this overlay holds focus — visible only in debug/test
-  /// surfaces that need it; the ring's source of truth is [FocusManager].
   bool get debugFocused => _focused;
-
-  // -- Focusable ------------------------------------------------------------
-
   @override
   bool get hasFocus => _focused;
-
-  /// Only focusable while painted: a hidden overlay would be a ring entry
-  /// that highlights nothing and swallows keys.
   @override
-  bool get canFocus => _region?.isVisible ?? false;
-
-  /// The painted box while shown (so spatial cycling reaches it); the empty
-  /// rect while hidden takes it out of spatial navigation.
+  bool get canFocus => regionVisible && context.isActive;
   @override
-  Rect get bounds =>
-      (_region?.isVisible ?? false) ? _region!.bounds : Rect.empty;
+  Rect get bounds => regionVisible ? _region!.bounds : Rect.empty;
+  @override
+  PanelInputMode get inputMode => PanelInputMode.commands;
+  Set<int> get _collapsedRoots => {
+        for (final (i, _) in store.state.items.indexed)
+          if (!_expanded.contains((i, null))) i
+      };
+  List<_Row> get _rows =>
+      _visibleRows(store.state, collapsedRoots: _collapsedRoots);
+  _Row? get _selectedRow {
+    final rows = _rows, index = _selected;
+    return index == null || index < 0 || index >= rows.length
+        ? null
+        : rows[index];
+  }
+
+  PlanItem? get selectedItem => _selectedRow?.item;
+  int get firstActionableIndex {
+    final i = _rows.indexWhere((r) => r.item.state != 'done');
+    return i < 0 ? 0 : i;
+  }
 
   @override
   void focus() {
     _focused = true;
     _highlighted = false;
-    _onFooter = false;
-    _setSelected(firstActionableIndex);
-    render();
+    _selected ??= firstActionableIndex;
+    _followSelection = true;
+    refresh();
   }
 
   @override
   void blur() {
     _focused = false;
-    _selected = null;
-    _onFooter = false;
-    render();
+    refresh();
   }
 
   @override
   void highlight() {
     _highlighted = true;
-    render();
+    refresh();
   }
 
   @override
   void unhighlight() {
     _highlighted = false;
-    render();
+    refresh();
   }
 
   @override
   bool handleEvent(InputEvent event) {
-    if (!_focused) return false;
-    if (event is ScrollEvent) {
-      _onFooter = false;
-      _setSelected((_selected ?? 0) + (event.up ? -1 : 1));
-      return true;
-    }
-    if (event is ArrowKey) {
-      switch (event.direction) {
-        case ArrowDirection.up:
-          if (_onFooter) {
-            _onFooter = false;
-            render();
-          } else {
-            _setSelected((_selected ?? 0) - 1);
-          }
-        case ArrowDirection.down:
-          final current = _selected ?? -1;
-          if (_onFooter) break; // stay parked on the approve stop
-          // With subtasks in play, ↓ past the last row parks on the footer
-          // (the approve stop); without them the selection clamps as before.
-          if (_rows.any((r) => r.hasChildren) && current >= _rows.length - 1) {
-            _onFooter = true;
-            render();
-          } else {
-            _setSelected(current + 1);
-          }
-        case ArrowDirection.pageUp:
-          _onFooter = false;
-          _setSelected(0);
-        case ArrowDirection.pageDown:
-        case ArrowDirection.left:
-        case ArrowDirection.right:
-          return false; // spatial cycling keys must reach the focus ring
-      }
-      return true;
-    }
-    if (event is ControlKey) {
-      // Enter toggles a selected parent's subtree; anywhere else (or on the
-      // footer) it approves — an armed prompt routes it to the focused panel
-      // before submit; the footer advertises it. Every other control combo
-      // stays with the editor/global handlers (Ctrl+P toggles this overlay,
-      // Ctrl+W kills a word, Ctrl+C interrupts…). Only plain arrows and the
-      // verbs are ours.
-      if (event.code == ControlCode.enter) {
+    if (!_focused || !canFocus) return false;
+    switch (event) {
+      case ArrowKey(direction: ArrowDirection.up):
+        _select((_selected ?? 0) - 1);
+      case ArrowKey(direction: ArrowDirection.down):
+        _select((_selected ?? -1) + 1);
+      case ArrowKey(direction: ArrowDirection.pageUp):
+        _scroll(-_room);
+      case ArrowKey(direction: ArrowDirection.pageDown):
+        _scroll(_room);
+      case ScrollEvent(:final up):
+        _scroll(up ? -3 : 3);
+      case ControlKey(code: ControlCode.enter):
         final row = _selectedRow;
-        if (!_onFooter && row != null && row.hasChildren) {
-          _toggleExpanded(row.rootIndex);
-          return true;
+        if (row != null) {
+          if (!_expanded.remove(row.address)) _expanded.add(row.address);
+          _followSelection = true;
+          refresh();
         }
-        (onApprove ?? _approve)();
-        return true;
-      }
-      return false;
+      case CharInput(text: 'a' || 'A'):
+        (onApprove ?? () => store.approve(loop))();
+      case CharInput(text: 'r' || 'R'):
+        (onReject ?? () => store.reject(loop))();
+      case CharInput(text: ' '):
+        (onSpace ?? _toggleItem)();
+      case EscapeKey():
+        return false; // the generic focus ring returns to chat
+      case ControlKey(code: ControlCode.ctrlC || ControlCode.ctrlD):
+        return false;
+      default:
+        break; // a read-only panel never edits the conversation draft
     }
-    if (event is EscapeKey) return false;
-    if (event is CharInput) {
-      switch (event.text) {
-        case 'a' || 'A':
-          (onApprove ?? _approve)();
-          return true;
-        case 'r' || 'R':
-          (onReject ?? _reject)();
-          return true;
-        case ' ' when onSpace != null:
-          onSpace!();
-          return true;
-        case ' ':
-          _toggleItem();
-          return true;
-      }
-      return false; // typing must reach the chat editor
-    }
-    return false;
+    return true;
   }
 
-  /// Enter/`a`: mirror `/plan approve` (the active item advances as the agent
-  /// works; done items stay done). No-op without a plan.
-  void _approve() {
-    if (store.state.isEmpty) return;
-    store.approve(loop);
-    refresh();
-  }
-
-  /// `r`: mirror `/plan reject`.
-  void _reject() {
-    if (store.state.isEmpty) return;
-    store.reject(loop);
-    refresh();
-  }
-
-  /// Fold/unfold a root's subtree. Pure view state — the store is untouched,
-  /// so this repaints directly instead of waiting for a change event.
-  void _toggleExpanded(int rootIndex) {
-    if (!_collapsedRoots.remove(rootIndex)) _collapsedRoots.add(rootIndex);
-    _clampSelected();
-    render();
-  }
-
-  /// Space: toggle the selected item pending↔done (the `/plan done <n>` /
-  /// `/plan pending <n>` pair), parent or child alike; parents and children
-  /// tick independently (no auto done). Refresh comes from the store's
-  /// change stream.
-  void _toggleItem() {
-    final plan = store.state;
-    final row = _selectedRow;
-    if (plan.isEmpty || row == null) return;
-    String flip(String s) => s == 'done' ? 'pending' : 'done';
-    final parent = plan.items[row.rootIndex];
-    final PlanItem updated;
-    if (row.childIndex == null) {
-      updated = parent.copyWith(state: flip(parent.state));
-    } else {
-      updated = PlanEntryItem(
-        parent.text,
-        state: parent.state,
-        children: [
-          for (final (ci, child) in parent.children.indexed)
-            ci == row.childIndex
-                ? child.copyWith(state: flip(child.state))
-                : child,
-        ],
-      );
-    }
-    try {
-      store.update(loop, [
-        for (final (i, it) in plan.items.indexed)
-          i == row.rootIndex ? updated : it,
-      ]);
-    } on ArgumentError {
-      return; // mirror /plan: a rejected update just keeps the old plan
-    }
-  }
-
-  /// The rows the overlay would paint right now (expanded geometry — the
-  /// selection only exists in expanded mode; collapsed overlays hide it).
-  List<_Row> get _rows => _visibleRows(
-        store.state,
-        collapsedRoots: _collapsedRoots,
-      );
-
-  /// The row under the selection, or null when nothing is selected
-  /// (collapsed geometry, hidden, blurred, out of range, or parked on the
-  /// footer approve stop).
-  _Row? get _selectedRow {
-    if (_onFooter) return null;
-    final i = _selected;
+  void _select(int index) {
     final rows = _rows;
-    if (i == null || i < 0 || i >= rows.length) return null;
-    return rows[i];
-  }
-
-  /// Row item under the selection, or null when nothing is selected.
-  PlanItem? get selectedItem => _selectedRow?.item;
-
-  /// First non-done VISIBLE row, or 0 — where focusing lands the selection.
-  int get firstActionableIndex {
-    final i = _rows.indexWhere((row) => row.item.state != 'done');
-    return i < 0 ? 0 : i;
-  }
-
-  void _setSelected(int i) {
-    final count = _rows.length;
-    if (count == 0) return;
-    final next = i.clamp(0, count - 1);
-    if (next == _selected) return;
-    _selected = next;
-    render();
-  }
-
-  /// Keep the selection inside the visible rows after the row list shrank
-  /// (a subtree folded, a plan update removed rows).
-  void _clampSelected() {
-    final count = _rows.length;
-    if (count == 0) {
-      _selected = null;
-      _onFooter = false;
-    } else if (_selected != null && _selected! >= count) {
-      _selected = count - 1;
-    }
-  }
-
-  /// Repaint when any visual input to the chrome changed (selection, focus,
-  /// highlight). No-op while hidden — [refresh] paints these flags.
-  void render() {
-    if (!(_region?.isVisible ?? false)) return;
+    if (rows.isEmpty) return;
+    _selected = index.clamp(0, rows.length - 1);
+    _followSelection = true;
     refresh();
   }
 
-  /// The plan width: capped, and never wider than the chat area.
-  static const _maxWidth = 44;
+  void _scroll(int amount) {
+    _offset = (_offset + amount).clamp(0, _maxOffset);
+    _followSelection = false;
+    refresh();
+  }
 
-  bool get _wantVisible {
-    final override = _userOverride;
-    if (override != null) return override;
-    return mode == PlanOverlayMode.auto;
+  void _toggleItem() {
+    final row = _selectedRow;
+    if (row == null) return;
+    final parent = store.state.items[row.rootIndex];
+    PlanItem flip(PlanItem item) =>
+        item.copyWith(state: item.state == 'done' ? 'pending' : 'done');
+    final updated = row.childIndex == null
+        ? flip(parent)
+        : PlanItem(
+            parent.text,
+            state: parent.state,
+            children: [
+              for (final (i, child) in parent.children.indexed)
+                i == row.childIndex ? flip(child) : child
+            ],
+          );
+    store.update(loop, [
+      for (final (i, item) in store.state.items.indexed)
+        i == row.rootIndex ? updated : item
+    ]);
+  }
+
+  /// Preserve item identity across progress ticks/reordering; remove view
+  /// state when its item disappears or its text changes.
+  void _syncItems() {
+    final current = store.state.items;
+    if (identical(current, _previous)) return;
+    final oldRows = _visibleRows(PlanState(items: _previous), collapsedRoots: {
+      for (var i = 0; i < _previous.length; i++)
+        if (!_expanded.contains((i, null))) i
+    });
+    (String, String?) identity(_Row row, List<PlanItem> items) => (
+          items[row.rootIndex].text,
+          row.childIndex == null ? null : row.item.text
+        );
+    final selected = _selected != null && _selected! < oldRows.length
+        ? identity(oldRows[_selected!], _previous)
+        : null;
+    final expanded = {
+      for (final row in _visibleRows(PlanState(items: _previous)))
+        if (_expanded.contains(row.address)) identity(row, _previous)
+    };
+    _expanded.clear();
+    for (final row in _visibleRows(store.state)) {
+      if (expanded.contains(identity(row, current))) _expanded.add(row.address);
+    }
+    _previous = current;
+    final rows = _rows;
+    final preserved =
+        rows.indexWhere((row) => identity(row, current) == selected);
+    if (_selected != null)
+      _selected = preserved >= 0
+          ? preserved
+          : _selected!.clamp(0, rows.isEmpty ? 0 : rows.length - 1);
   }
 
   void start() {
     if (_started) return;
     _started = true;
     focusManager?.register(this);
-    _sub = store.changes.listen(
-      (_) => refresh(),
-      onError: (Object _) => refresh(),
-    );
+    _sub = store.changes.listen((_) => refresh());
     refresh();
   }
 
-  /// Ctrl+P: hidden → shown → hidden. Consumed by the editor hook whenever
-  /// the overlay exists (even when nothing changes visually — off-mode never
-  /// constructs one).
   void toggle() {
-    _userOverride = !_wantVisible;
+    _userOverride = !(_userOverride ?? mode == PlanOverlayMode.auto);
     refresh();
   }
 
-  /// Recompute bounds + repaint (resize, or a layout change).
   void relayout() => refresh();
-
-  /// Re-read the focused conversation's plan and repaint or hide.
+  void render() => refresh();
   void refresh() {
-    if (!_started) return;
-    // An input-owning modal paints above this passive panel. Do not erase or
-    // repaint its cells until the modal releases the editor.
-    if (context.isReadingKey) return;
+    if (!_started || context.isReadingKey) return;
     final plan = store.state;
-    final show = !plan.isEmpty && _wantVisible && context.isActive;
-    if (!show) {
-      _hide();
-      return;
-    }
-    _clampSelected();
     final chat = context.chat.bounds;
-    final width = _maxWidth < chat.width ? _maxWidth : chat.width;
-    // Collapsed when the full list cannot fit between the borders; an
-    // already-collapsed box that still does not fit hides entirely.
-    var collapsed = planOverlayContentHeight(
-              plan,
-              collapsed: false,
-              collapsedRoots: _collapsedRoots,
-            ) +
-            2 >
-        chat.height;
-    if (collapsed &&
-        planOverlayContentHeight(
-                  plan,
-                  collapsed: true,
-                  collapsedRoots: _collapsedRoots,
-                ) +
-                2 >
-            chat.height) {
+    if (plan.isEmpty ||
+        !context.isActive ||
+        !(_userOverride ?? mode == PlanOverlayMode.auto) ||
+        chat.width < 8 ||
+        chat.height < 4) {
       _hide();
       return;
     }
+    _syncItems();
+    final width = chat.width.clamp(8, 44);
+    // Even the smallest focusable viewport keeps one item and its controls.
+    final chrome = _focused && chat.height >= 5 ? 4 : 3;
+    final collapsed = !_focused && _rows.length + chrome > chat.height;
     final ui = PlanOverlayUi(
       collapsed: collapsed,
       collapsedRoots: _collapsedRoots,
-      selectedIndex: _focused && !_onFooter ? _selected : null,
+      expandedItems: _expanded,
+      selectedIndex: _focused ? _selected : null,
       highlighted: _highlighted,
       focused: _focused,
     );
-    final height = (planOverlayContentHeight(
-              plan,
-              collapsed: collapsed,
-              collapsedRoots: _collapsedRoots,
-            ) +
-            2)
-        .clamp(3, chat.height);
-    final bounds = Rect(
-      row: chat.row,
-      col: chat.col + chat.width - width,
-      width: width,
-      height: height,
-    );
+    final body = _body(plan, ui, width - 4);
+    _room = (chat.height - chrome).clamp(1, body.isEmpty ? 1 : body.length);
+    _maxOffset = (body.length - _room).clamp(0, body.length);
+    _offset = _offset.clamp(0, _maxOffset);
+    if (_focused && _followSelection && _selected != null) {
+      var line = 0;
+      for (final (i, row) in _rows.indexed) {
+        if (i == _selected) break;
+        line += _itemLines(row, ui, width - 4, selected: false).length;
+      }
+      if (line < _offset || line >= _offset + _room)
+        _offset = line.clamp(0, _maxOffset);
+    }
     final lines = renderPlanOverlayLines(
-      plan: plan,
-      ui: ui,
-      width: width,
-      paint: _themePaint,
-    );
+        plan: plan,
+        ui: PlanOverlayUi(
+            collapsed: collapsed,
+            collapsedRoots: _collapsedRoots,
+            expandedItems: _expanded,
+            selectedIndex: _focused ? _selected : null,
+            highlighted: _highlighted,
+            focused: _focused,
+            offset: _offset,
+            maxRows: _room),
+        width: width,
+        paint: _themePaint);
+    if (lines.length > chat.height) lines.removeAt(lines.length - 3);
+    final bounds = Rect(
+        row: chat.row,
+        col: chat.col + chat.width - width,
+        width: width,
+        height: lines.length);
     final region = _region ??= OverlayRegion(screen, bounds);
     if (region.isVisible &&
         (region.bounds.row != bounds.row ||
@@ -711,38 +438,29 @@ class PlanOverlay implements Focusable {
     region.update(bounds: bounds, lines: lines);
   }
 
-  /// Symbolic code → Theme SGR string. The same vocabulary the renderer
-  /// emits (`dim`/`header`/`accent`/`ok`/`highlight`), so a custom theme
-  /// restyles the overlay with the config.
-  String _themePaint(String text, String? code) {
-    if (text.isEmpty) return text;
-    final theme = screen.theme;
-    final sgr = switch (code) {
-      'dim' => theme.chat.dim,
-      'accent' => theme.chat.cyan,
-      'ok' => theme.chat.green,
-      'highlight' => theme.chat.yellow,
-      // Pending rows render in the default style.
+  String _themePaint(String text, String? kind) {
+    final style = switch (kind) {
+      'dim' => screen.theme.chat.dim,
+      'accent' => screen.theme.chat.cyan,
+      'ok' => screen.theme.chat.green,
+      'highlight' => screen.theme.chat.yellow,
       _ => null,
     };
-    return sgr == null ? text : screen.colorize(sgr, text);
+    return style == null ? text : screen.colorize(style, text);
   }
 
   void _hide() {
-    final region = _region;
-    // Dropping off-screen drops our claims: no selection, no footer stop, no
-    // highlight, and not focused — a stale focused flag would let a/r/space
-    // act on an invisible panel. (A stale [FocusManager.focused] pointer is
-    // harmless: [handleEvent] no-ops while unfocused, and the ring skips us
-    // via [canFocus].) Fold state is deliberately kept: it is cosmetic view
-    // state, not a claim on input.
+    final wasFocused = _focused;
+    final wasHighlighted = _highlighted;
     _focused = false;
     _highlighted = false;
-    _selected = null;
-    _onFooter = false;
-    if (region == null) return;
-    if (region.isVisible) {
-      region.hide();
+    if (wasHighlighted && identical(focusManager?.highlighted, this)) {
+      focusManager?.cancel();
+    }
+    if (wasFocused && identical(focusManager?.focused, this))
+      focusManager?.returnHome();
+    if (_region?.isVisible == true) {
+      _region!.hide();
       context.chat.repaint();
     }
   }
@@ -751,8 +469,7 @@ class PlanOverlay implements Focusable {
     _started = false;
     if (identical(focusManager?.focused, this)) focusManager?.returnHome();
     focusManager?.unregister(this);
-    _sub?.cancel();
-    _sub = null;
+    unawaited(_sub?.cancel());
     _region?.dispose();
     _region = null;
   }

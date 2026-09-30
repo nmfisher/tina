@@ -20,6 +20,8 @@ void main() {
   late PlansConsolePlugin plugin;
   late AgentLoop loop;
   late bool active;
+  late FocusManager focus;
+  late PanelFrame chatPanel;
   String visible() {
     final vt = VirtualTerminal(
         width: screen.layout.width, height: screen.layout.height)
@@ -33,6 +35,13 @@ void main() {
     screen =
         Screen(io: io, layout: ScreenLayout.fromSize(80, 24, split: false));
     editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+    focus = FocusManager();
+    chatPanel = PanelFrame(
+        screen: screen, label: 'chat', conversationId: 'test', border: false)
+      ..setOuter(screen.chat.bounds);
+    focus.register(chatPanel);
+    focus.home = chatPanel;
+    editor.focusManager = focus;
     plugin = PlansConsolePlugin();
     loop = AgentLoop(provider: ScriptedProvider([]), plugins: [plugin]);
     plugin.mountOn(loop);
@@ -44,6 +53,7 @@ void main() {
   });
   tearDown(() {
     plugin.closeSession();
+    chatPanel.dispose();
     editor.close(reportLatency: false);
     screen.dispose();
     unawaited(io.input.close());
@@ -57,12 +67,12 @@ void main() {
     ]);
     plugin.repaintConsole();
     expect(visible(), contains('plan · 1/3'));
-    expect(visible(), contains('· test'));
+    expect(visible(), contains('(+2)'));
     plugin.overlay!.focus();
     plugin.overlay!.handleEvent(ControlKey(ControlCode.enter));
-    expect(visible(), contains('(+2)'));
-    plugin.overlay!.handleEvent(ControlKey(ControlCode.enter));
     expect(visible(), contains('· test'));
+    plugin.overlay!.handleEvent(ControlKey(ControlCode.enter));
+    expect(visible(), contains('(+2)'));
     plugin.store.update(loop, [const PlanEntryItem('finished', state: 'done')]);
     plugin.repaintConsole();
     expect(visible(), contains('plan · 1/1'));
@@ -88,11 +98,15 @@ void main() {
         PlanEntryItem('step $i', state: i == 5 ? 'in_progress' : 'pending'),
     ]);
     screen.resize(ScreenLayout.fromSize(40, 8, split: false));
+    chatPanel.setOuter(screen.chat.bounds);
+    io.output.clear();
     plugin.repaintConsole();
     expect(visible(), contains('step 5'));
     expect(plugin.overlay!.bounds.height,
         lessThanOrEqualTo(screen.chat.bounds.height));
     screen.resize(ScreenLayout.fromSize(10, 3, split: false));
+    chatPanel.setOuter(screen.chat.bounds);
+    io.output.clear();
     plugin.repaintConsole();
     expect(plugin.overlay!.regionVisible, false);
   });
@@ -126,5 +140,165 @@ void main() {
         paint: (text, _) => text);
     expect(rows.first, contains('1/2'));
     for (final row in rows) expect(visibleWidth(row), lessThanOrEqualTo(24));
+  });
+
+  test('folded child counts remain visible beside long titles', () {
+    final rows = renderPlanOverlayLines(
+        plan: PlanState(items: const [
+          PlanEntryItem('A long parent title that requires clipping',
+              state: 'pending',
+              children: [
+                PlanEntryItem('first', state: 'pending'),
+                PlanEntryItem('second', state: 'pending'),
+              ])
+        ]),
+        ui: const PlanOverlayUi(collapsedRoots: {0}),
+        width: 24,
+        paint: (text, _) => text);
+    expect(rows[1], contains('(+2)'));
+    for (final row in rows) expect(visibleWidth(row), lessThanOrEqualTo(24));
+  });
+
+  void focusPlan() {
+    editor.inject(ControlKey(ControlCode.ctrlG));
+    editor.inject(ControlKey(ControlCode.tab));
+    expect(focus.highlighted, same(plugin.overlay));
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(focus.focused, same(plugin.overlay));
+  }
+
+  test(
+      'real editor routes selection and leaf expansion without submitting or approving',
+      () async {
+    const long =
+        'Read the entire long plan item, including this final detail END_OF_ITEM';
+    plugin.store.update(loop, const [
+      PlanEntryItem('first', state: 'pending'),
+      PlanEntryItem(long, state: 'pending')
+    ]);
+    plugin.repaintConsole();
+    final prompt = editor.readLine('model > ');
+    await pumpEventQueue();
+    editor.inject(CharInput('my draft'));
+    final entries = loop.log.length;
+    focusPlan();
+    editor.inject(ArrowKey(ArrowDirection.down));
+    expect(plugin.overlay!.selectedItem!.text, long);
+    expect(visible(), isNot(contains('END_OF_ITEM')));
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(visible(), contains('END_OF_ITEM'));
+    expect(loop.log.length, entries);
+    expect(plugin.store.state.approval, PlanApproval.none);
+    editor.inject(CharInput('z'));
+    expect(editor.editState.buffer, 'my draft');
+    editor.inject(EscapeKey());
+    expect(focus.focused, same(chatPanel));
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(await prompt, 'my draft');
+  });
+
+  test('selection and expansion survive live progress changes and reordering',
+      () async {
+    const long =
+        'A selected item with enough text to wrap and end in RETAINED_DETAIL';
+    plugin.store.update(loop, const [
+      PlanEntryItem('first', state: 'pending'),
+      PlanEntryItem(long, state: 'pending')
+    ]);
+    plugin.repaintConsole();
+    final prompt = editor.readLine('model > ');
+    await pumpEventQueue();
+    focusPlan();
+    editor.inject(ArrowKey(ArrowDirection.down));
+    editor.inject(ControlKey(ControlCode.enter));
+    plugin.store.update(loop, const [
+      PlanEntryItem('inserted', state: 'pending'),
+      PlanEntryItem('first', state: 'done'),
+      PlanEntryItem(long, state: 'in_progress')
+    ]);
+    plugin.repaintConsole();
+    expect(plugin.overlay!.selectedItem!.text, long);
+    expect(visible(), contains('RETAINED_DETAIL'));
+    editor.inject(EscapeKey());
+    editor.inject(ControlKey(ControlCode.enter));
+    await prompt;
+  });
+
+  test('small focused panels scroll the full plan and expanded text', () async {
+    plugin.store.update(loop, [
+      for (var i = 0; i < 20; i++)
+        PlanEntryItem(
+            'step $i has long details to read after expanding it END_STEP_$i',
+            state: i == 5 ? 'in_progress' : 'pending')
+    ]);
+    screen.resize(ScreenLayout.fromSize(40, 8, split: false));
+    chatPanel.setOuter(screen.chat.bounds);
+    io.output.clear();
+    plugin.repaintConsole();
+    final prompt = editor.readLine('model > ');
+    await pumpEventQueue();
+    focusPlan();
+    for (var i = 0; i < 19; i++) editor.inject(ArrowKey(ArrowDirection.down));
+    expect(plugin.overlay!.selectedItem!.text, contains('step 19'));
+    expect(visible(), contains('❯'));
+    editor.inject(ControlKey(ControlCode.enter));
+    editor.inject(ArrowKey(ArrowDirection.pageDown));
+    editor.inject(ArrowKey(ArrowDirection.pageDown));
+    expect(visible(), contains('END_STEP_19'));
+    expect(plugin.overlay!.bounds.height,
+        lessThanOrEqualTo(screen.chat.bounds.height));
+    screen.resize(ScreenLayout.fromSize(80, 24, split: false));
+    chatPanel.setOuter(screen.chat.bounds);
+    io.output.clear();
+    plugin.repaintConsole();
+    expect(plugin.overlay!.selectedItem!.text, contains('step 19'));
+    editor.inject(EscapeKey());
+    editor.inject(ControlKey(ControlCode.enter));
+    await prompt;
+  });
+
+  test('busy input capture still routes plan keys and preserves queued draft',
+      () async {
+    plugin.store.update(loop, const [
+      PlanEntryItem('one', state: 'pending'),
+      PlanEntryItem('two', state: 'pending')
+    ]);
+    plugin.repaintConsole();
+    final prompt = editor.readLine('model > ');
+    await pumpEventQueue();
+    final submitted = <String>[];
+    editor.beginCancelMonitor(() => fail('browsing must not cancel'),
+        onQueueSubmit: submitted.add);
+    editor.inject(CharInput('queued draft'));
+    focusPlan();
+    editor.inject(ArrowKey(ArrowDirection.down));
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(plugin.overlay!.selectedItem!.text, 'two');
+    expect(submitted, isEmpty);
+    editor.inject(EscapeKey());
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(submitted, ['queued draft']);
+    editor.endCancelMonitor();
+    editor.inject(ControlKey(ControlCode.enter));
+    await prompt;
+  });
+
+  test('hiding or unloading the focused plan returns focus to the draft',
+      () async {
+    plugin.store.update(loop, const [PlanEntryItem('one', state: 'pending')]);
+    plugin.repaintConsole();
+    final prompt = editor.readLine('model > ');
+    await pumpEventQueue();
+    editor.inject(CharInput('draft'));
+    focusPlan();
+    editor.inject(ControlKey(ControlCode.ctrlP));
+    expect(focus.focused, same(chatPanel));
+    expect(plugin.overlay!.regionVisible, isFalse);
+    editor.inject(ControlKey(ControlCode.ctrlP));
+    focusPlan();
+    plugin.detachConsole();
+    expect(focus.focused, same(chatPanel));
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(await prompt, 'draft');
   });
 }

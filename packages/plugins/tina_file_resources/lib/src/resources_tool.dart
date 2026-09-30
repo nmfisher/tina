@@ -22,6 +22,8 @@ final class ResourcesTool extends Tool {
 
   @override
   ToolSchema get schema => ToolSchema(
+        describe: (input) => ToolDescription(
+            title: 'Read resource', target: '${input['name'] ?? ''}'),
         name: schemaName,
         description: 'Read one resource body by its exact name, as '
             'listed in the prompt. Prefer this over reading the folder '

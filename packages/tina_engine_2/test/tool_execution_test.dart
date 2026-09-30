@@ -10,7 +10,39 @@ final class ExampleTool extends AgentPlugin {
       const [ToolSchema(name: 'example', description: '', inputSchema: {})];
 }
 
+final class DescribedTool extends AgentPlugin {
+  DescribedTool(this.id, this.title);
+  @override
+  final String id;
+  final String title;
+  @override
+  List<ToolSchema> get tools => [
+        ToolSchema(
+            name: 'example',
+            description: '',
+            inputSchema: const {},
+            describe: (_) => ToolDescription(title: title)),
+      ];
+}
+
 void main() {
+  test('tool descriptions follow current registrations and tool precedence',
+      () {
+    final loop = AgentLoop(provider: ScriptedProvider([]), plugins: [
+      DescribedTool('test/a', 'First description'),
+      DescribedTool('test/b', 'Second description'),
+    ]);
+    String? title() => loop.toolSchema('example')?.describe?.call({}).title;
+    expect(title(), 'Second description');
+    loop.removePlugin('test/b');
+    expect(title(), 'First description');
+    loop.removePlugin('test/a');
+    expect(loop.toolSchema('example'), isNull);
+    loop.addPlugin(DescribedTool('test/c', 'Loaded description'));
+    expect(title(), 'Loaded description');
+    expect(loop.toolSchema('unknown'), isNull);
+  });
+
   test(
       'execution observes cancellation, pairs the result and ignores late output',
       () async {

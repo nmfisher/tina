@@ -5,7 +5,8 @@
 /// job: this package does not depend on any terminal.
 library;
 
-export 'package:tina_core/tina_core.dart' show ToolResult, ToolSchema;
+export 'package:tina_core/tina_core.dart'
+    show ToolResult, ToolSchema, ToolDescription;
 
 export 'src/atomic_write.dart';
 export 'src/bash_tool.dart';
@@ -32,6 +33,7 @@ export 'src/sandboxed_process_runner.dart';
 export 'src/stat_tool.dart';
 export 'src/tool.dart';
 export 'src/tool_input.dart';
+export 'src/tool_descriptions.dart';
 export 'src/write_tool.dart';
 
 export 'src/tools_plugin.dart';

@@ -12,11 +12,43 @@ class ToolSchema {
   final String name;
   final String description;
   final Map<String, dynamic> inputSchema;
+
+  /// Optional, channel-neutral description supplied by the tool's owner.
+  /// Providers send only name/description/inputSchema to the model. The loop
+  /// does not interpret this description or make decisions from it.
+  final ToolDescription Function(Map<String, dynamic> input)? describe;
   const ToolSchema({
     required this.name,
     required this.description,
     required this.inputSchema,
+    this.describe,
   });
+}
+
+/// Human-readable tool context, usable by a terminal, remote approval channel,
+/// or other observer. It carries no rendering or permission policy.
+final class ToolDescription {
+  const ToolDescription(
+      {required this.title, this.target = '', this.fields = const {}});
+  final String title;
+  final String target;
+  final Map<String, String> fields;
+  String get summary => target.isEmpty ? title : '$title · $target';
+  Map<String, Object?> toJson() =>
+      {'title': title, 'target': target, 'fields': fields};
+  static ToolDescription? fromJson(Object? value) {
+    if (value is! Map || value['title'] is! String) return null;
+    final fields = value['fields'];
+    return ToolDescription(
+        title: value['title'] as String,
+        target: value['target'] is String ? value['target'] as String : '',
+        fields: {
+          if (fields is Map)
+            for (final entry in fields.entries)
+              if (entry.key is String && entry.value is String)
+                entry.key as String: entry.value as String
+        });
+  }
 }
 
 /// A tool call requested by the model. Derived from `ToolUseBlock`'s

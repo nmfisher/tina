@@ -79,10 +79,16 @@ class ModelStub(BaseHTTPRequestHandler):
         for trigger, name, arguments in [
             ('start plan example', 'update_plan', {'items': [
                 {'text': 'inspect code', 'state': 'done'},
-                {'text': 'restore panel', 'state': 'in_progress'}]}),
+                {'text': 'restore panel and verify that selecting this item reveals its entire explanation and nested tasks without sending a message or approving the plan. PLAN_DETAILS_END',
+                 'state': 'in_progress', 'children': [
+                     {'text': 'check focused input routing', 'state': 'pending'},
+                     {'text': 'check full item details', 'state': 'pending'}]}]}),
             ('finish plan example', 'update_plan', {'items': [
                 {'text': 'inspect code', 'state': 'done'},
-                {'text': 'restore panel', 'state': 'done'}]}),
+                {'text': 'restore panel and verify that selecting this item reveals its entire explanation and nested tasks without sending a message or approving the plan. PLAN_DETAILS_END',
+                 'state': 'done', 'children': [
+                     {'text': 'check focused input routing', 'state': 'done'},
+                     {'text': 'check full item details', 'state': 'done'}]}]}),
             ('edit example', 'edit', {'filePath': 'preview.txt', 'oldString': 'before', 'newString': 'after'}),
             ('conflict example', 'edit', {'filePath': 'preview.txt', 'oldString': 'missing text', 'newString': 'never applied'}),
             ('delegate example', 'spawn_subagent', {'prompt': 'child example'}),
@@ -275,6 +281,7 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             start = terminal.send('approve this\r')
             terminal.expect('Write file', start)
+            terminal.expect('❯ [y] allow once', start)
             start = terminal.send('\t')
             terminal.expect('Details', start)
             start = terminal.resize(40, 8)
@@ -284,7 +291,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('❯ [y] allow once', start)
             assert not ModelStub.approval_target.exists()
             start = terminal.send('\x1b[B')
-            terminal.expect('❯ [n] deny once', start)
+            terminal.expect('❯ [n] deny', start)
             start = terminal.send('\r')
             terminal.expect('smoke answer', start)
             assert not ModelStub.approval_target.exists(), 'denied write landed'
@@ -307,7 +314,7 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
             start = terminal.send('\r')
-            terminal.expect('Call: bash-smoke', start)
+            terminal.expect('Action: Run shell command', start)
             terminal.expect('Live output', start)
             terminal.expect('subprocess-live', start)
             terminal.send('\x1bOS')
@@ -418,7 +425,7 @@ def smoke(launcher, endpoint, columns, rows):
             plugin_checkbox('tina/activity-tui', True, reset=True)
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
-            terminal.expect('spawn_subagent', start)
+            terminal.expect('Delegate task', start)
             terminal.send('\x1bOS')
             plugin_checkbox('tina/file-resources', True, scope='workspace')
             plugin_checkbox('tina/file-resources', False, scope='workspace')
@@ -481,17 +488,38 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('\x18')  # Ctrl+X closes the child and returns home.
             time.sleep(0.1)
             start = terminal.send('start plan example\r')
-            terminal.expect('plan · 1/2', start)
+            terminal.expect('plan · 1/4', start)
             terminal.expect('restore panel', start)
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
+            # The real input dispatcher must browse the plan without sending
+            # the draft, granting approval, or losing it on return to chat.
+            before_browse = len(ModelStub.requests)
+            terminal.send('draft stays here')
+            start = terminal.send('\x07\t\r')
+            terminal.expect('A approve', start)
+            start = terminal.send('\x1b[A\x1b[B\r')
+            terminal.expect('▾', start)
+            start = terminal.send('\x1b[6~' * 10)
+            terminal.expect('PLAN_DETAILS_END', start)
+            start = terminal.send('\x1b[B')
+            terminal.expect('check focused input routing', start)
+            start = terminal.send('\r')
+            terminal.expect('check focused input routing', start)
+            start = terminal.send('\x1b[A\r')
+            terminal.expect('(+2)', start)
+            start = terminal.send('\x1b')
+            terminal.expect('draft stays here', start)
+            assert len(ModelStub.requests) == before_browse, 'plan navigation submitted a message'
+            terminal.send('\x15')  # clear the restored draft
+            time.sleep(0.1)
             start = terminal.send('finish plan example\r')
-            terminal.expect('plan · 2/2', start)
+            terminal.expect('plan · 4/4', start)
             terminal.expect('smoke answer', start)
             terminal.send('\x10')  # Ctrl+P hides the plan without changing it.
             time.sleep(0.1)
             start = terminal.send('\x10')
-            terminal.expect('plan · 2/2', start)
+            terminal.expect('plan · 4/4', start)
             terminal.quit()
             if rows in (10, 24):
                 assert b'\x1b[0m\x1b[?1049l' in terminal.output, 'theme leaked on exit'
@@ -527,7 +555,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('\x1b[6~' * 80)
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
-            terminal.expect('spawn_subagent', start)
+            terminal.expect('Delegate task', start)
             terminal.send('\x1bOS')
             terminal.quit()
         except Exception:
