@@ -3,6 +3,39 @@ import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_console/tina_console.dart';
 
 void main() {
+  test('stamps appear only on sender or calendar-minute changes', () {
+    final renderer = TimestampChatRenderer(now: () => DateTime(2026));
+    const agent = ChatSpeaker(id: 'agent', label: 'main');
+    final blocks = [
+      ChatBlock.user('first'),
+      ChatBlock.user('same sender'),
+      ChatBlock.notice(agent, 'agent reply'),
+      ChatBlock.notice(agent, 'tool output'),
+      ChatBlock.notice(agent, 'next minute'),
+      ChatBlock.user('user reply'),
+    ];
+    final times = [
+      DateTime(2026, 9, 30, 12, 0, 1),
+      DateTime(2026, 9, 30, 12, 0, 59),
+      DateTime(2026, 9, 30, 12, 0, 59),
+      DateTime(2026, 9, 30, 12, 0, 59),
+      DateTime(2026, 9, 30, 12, 1),
+      DateTime(2026, 9, 30, 12, 1),
+    ];
+    for (var i = 0; i < blocks.length; i++) renderer.stamp(blocks[i], times[i]);
+    renderer.group(blocks);
+    String gutter(ChatBlock block) => renderer
+        .render(block, RenderContext(width: 80, theme: const Theme.defaults()))
+        .first
+        .runs
+        .first
+        .text;
+    expect(blocks.map(gutter),
+        ['12:00 ', '      ', '12:00 ', '      ', '12:01 ', '12:01 ']);
+    renderer.group([blocks[0], blocks[3]]);
+    expect(gutter(blocks[3]), '12:00 ');
+  });
+
   test('minute timestamps and hanging gutters preserve wrapped content', () {
     final block = ChatBlock.user('one two three four five six\nnext line');
     final renderer =

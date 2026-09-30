@@ -378,6 +378,7 @@ final class ChatTuiPlugin extends AgentPlugin
 
   void _add(ChatBlock block, {DateTime? at}) {
     renderer.stamp(block, at ?? _now());
+    renderer.follow(block, _blocks.lastOrNull);
     _blocks.add(block);
     final console = _console;
     if (console != null) {
@@ -436,6 +437,7 @@ final class ChatTuiPlugin extends AgentPlugin
   void _rebuild() {
     if (_console == null) return;
     final lines = <RegionLine>[];
+    renderer.group(_blocks);
     _rows.clear();
     for (final block in _blocks) {
       if (lines.isNotEmpty) lines.add(const RegionLine(''));
