@@ -2,6 +2,16 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 void main() {
+  test('full restarted Tina sends input and receives a model reply', () async {
+    final result = await Process.run('python3', [
+      'tool/smoke_restart.py',
+      '--dart',
+      Platform.resolvedExecutable,
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    expect(result.stdout, contains('PASS full restarted app input'));
+  }, skip: Platform.isWindows, timeout: const Timeout(Duration(minutes: 2)));
+
   test('restart accepts terminal input after old stdin subscription closes',
       () async {
     final fixture = File('packages/tina_tui/test/fixtures/restart_input.dart')

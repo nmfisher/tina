@@ -310,17 +310,22 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
 
     // Attach the renderer and approval dialog to the assembled session.
     final session = TuiSession.wrap(assembly);
+    final terminalDevice = stdin.hasTerminal ? terminalDevicePath() : null;
     final result = await runApp(session);
     if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
-    return await restartInTerminal('$restartRoot/bin/tina', [
-      '--cwd',
-      workingDirectory,
-      '--config',
-      path,
-      if (storePath != null) ...['--store', storePath],
-      if (restartSession != null) ...['--resume', restartSession!],
-    ]);
+    if (terminalDevice == null) throw StateError('restart requires a terminal');
+    return await restartInTerminal(
+        '$restartRoot/bin/tina',
+        [
+          '--cwd',
+          workingDirectory,
+          '--config',
+          path,
+          if (storePath != null) ...['--store', storePath],
+          if (restartSession != null) ...['--resume', restartSession!],
+        ],
+        terminalDevice: terminalDevice);
   } catch (e) {
     stderr.writeln('tina: $e');
     return 66;
