@@ -86,10 +86,11 @@ void main() {
   });
 
   group('exec tool', () {
-    test('network is denied without an explicit approval and requires a reason',
+    test(
+        'network is denied without a permission approver and requires a reason',
         () async {
       final inner = _RecordingRunner(_done(0, '', ''));
-      final tool = ExecTool(runner: inner);
+      final tool = ExecTool(runner: SandboxedProcessRunner(inner: inner));
       expect((await tool.execute({'program': 'git', 'network': true})).isError,
           isTrue);
       expect(
@@ -105,17 +106,22 @@ void main() {
     test('network approval survives job ownership and applies to one call only',
         () async {
       final inner = _RecordingRunner(_done(0, '', ''));
-      final jobs = ProcessJobs(inner);
-      addTearDown(jobs.close);
       var asks = 0;
-      final tool = ExecTool(
-          runner: jobs,
-          approveNetwork: (request, reason) async {
+      final gate = SandboxedProcessRunner(
+          inner: inner,
+          commandApprover: (request, review) async {
             asks++;
-            expect(request.arguments, ['push', 'origin']);
-            expect(reason, 'push branch');
-            return true;
+            if (asks == 1) {
+              expect(request.arguments, ['push', 'origin']);
+              expect(review.networkReason, 'push branch');
+              expect(review.missingPermissions,
+                  {ProcessPermission.execution, ProcessPermission.network});
+            }
+            return Approval.yes;
           });
+      final jobs = ProcessJobs(gate);
+      addTearDown(jobs.close);
+      final tool = ExecTool(runner: jobs);
       await tool.execute({
         'program': 'git',
         'args': ['push', 'origin'],
@@ -129,7 +135,8 @@ void main() {
         'args': ['status']
       });
       expect(inner.receivedControl!.networkAllowed, isFalse);
-      expect(asks, 1);
+      expect(asks, 2);
+      expect(gate.grants.isEmpty, isTrue);
     });
 
     test('passes options, subcommands and explicit separators unchanged',

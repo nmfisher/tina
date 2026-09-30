@@ -92,6 +92,12 @@ class ModelStub(BaseHTTPRequestHandler):
             ('edit example', 'edit', {'filePath': 'preview.txt', 'oldString': 'before', 'newString': 'after'}),
             ('conflict example', 'edit', {'filePath': 'preview.txt', 'oldString': 'missing text', 'newString': 'never applied'}),
             ('delegate example', 'spawn_subagent', {'prompt': 'child example'}),
+            ('network permission example', 'exec', {'program': '/bin/echo',
+                'args': ['network-permission-output'], 'network': True,
+                'network_reason': 'test combined execution and network approval'}),
+            ('different network example', 'exec', {'program': '/bin/echo',
+                'args': ['different-network-output'], 'network': True,
+                'network_reason': 'test exact network permission scope'}),
         ]:
             if trigger in json.dumps(prompt):
                 events[1] = {"type": "content_block_start", "index": 0,
@@ -312,6 +318,38 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('a')
             terminal.expect('smoke answer', start)
             assert ModelStub.approval_target.read_text() == 'approved'
+            terminal.resize(columns, rows)
+            time.sleep(0.1)
+            before_network = len(ModelStub.requests)
+            start = terminal.send('network permission example\r')
+            terminal.expect('with network access', start)
+            terminal.expect('[a] allow this command with network access for this session', start)
+            start = terminal.send('a')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_network + 2, 'one approval did not complete the network command'
+            terminal.expect('smoke answer', start)  # One decision covers both permissions.
+            time.sleep(0.1)
+            before_network = len(ModelStub.requests)
+            start = terminal.send('network permission example\r')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_network + 2, 'remembered network command did not finish'
+            terminal.expect('smoke answer', start)
+            assert b'awaiting approval' not in terminal.output[start:], 'network Always was not reused'
+            time.sleep(0.1)
+            before_network = len(ModelStub.requests)
+            start = terminal.send('different network example\r')
+            terminal.expect('with network access', start)
+            terminal.expect('❯ [y] allow once', start)
+            start = terminal.send('n')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_network + 2, 'denied network command did not finish'
+            terminal.expect('smoke answer', start)
             time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
             terminal.expect('mode: allow-edits', start)
@@ -611,7 +649,7 @@ def smoke(launcher, endpoint, columns, rows):
             raise
         finally:
             terminal.close()
-        print(f"PASS {columns}x{rows}: prompt, completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation, approvals, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
+        print(f"PASS {columns}x{rows}: prompt, completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation, approvals/network grants, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
 
 
 def smoke_cli(launcher):
@@ -702,8 +740,8 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert 81 <= len(ModelStub.requests) <= 84, (
-            f"expected 81–84 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
+        assert 99 <= len(ModelStub.requests) <= 102, (
+            f"expected 99–102 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

@@ -65,8 +65,8 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
             'against the writable directories (${request.arguments.join(' ')})',
     };
 
-/// Session-scoped "always" answers for commands, remembered as exact command
-/// lines — the twin of `FileGrants`, but there is no sibling-glob trick here:
+/// Session-scoped "always" answers, remembered as permissions on exact structured
+/// commands — the twin of `FileGrants`, but there is no sibling-glob trick here:
 /// a command line has no directory to widen into, and widening `"git
 /// status"` to `"git *"` would silently approve a tree of unrelated
 /// commands. A host may remember a prefix glob deliberately (see
@@ -77,7 +77,8 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
 final class CommandGrants {
   final List<String> _patterns = [];
   final Set<String> _exactLines = {};
-  final Map<String, String> _requests = {};
+  final Map<String, ({String line, Set<ProcessPermission> permissions})>
+      _requests = {};
 
   static String _key(ProcessRequest request) {
     final environment = request.environment;
@@ -96,17 +97,32 @@ final class CommandGrants {
     ]);
   }
 
-  void rememberRequest(ProcessRequest request) {
-    _requests[_key(request)] = lineOf(request);
+  void rememberRequest(
+    ProcessRequest request, {
+    Set<ProcessPermission> permissions = const {ProcessPermission.execution},
+  }) {
+    if (permissions.isEmpty) return;
+    final key = _key(request);
+    final grant = _requests.putIfAbsent(
+        key, () => (line: lineOf(request), permissions: <ProcessPermission>{}));
+    grant.permissions.addAll(permissions);
   }
 
-  bool coversRequest(ProcessRequest request) =>
-      _requests.containsKey(_key(request)) ||
-      patternFor(lineOf(request)) != null;
+  bool coversRequest(
+    ProcessRequest request, {
+    ProcessPermission permission = ProcessPermission.execution,
+  }) =>
+      _requests[_key(request)]?.permissions.contains(permission) == true ||
+      // Explicit line/pattern grants authorize execution only.
+      (permission == ProcessPermission.execution &&
+          patternFor(lineOf(request)) != null);
 
   /// Human-readable labels for explicit grants and approved requests.
-  List<String> get patterns =>
-      List.unmodifiable([..._exactLines, ..._patterns, ..._requests.values]);
+  List<String> get patterns => List.unmodifiable([
+        ..._exactLines,
+        ..._patterns,
+        ..._requests.values.map((grant) => grant.line)
+      ]);
 
   bool get isEmpty => patterns.isEmpty;
   int get length => patterns.length;
@@ -149,6 +165,24 @@ final class CommandGrants {
 bool fileGlobMatchCommand(String pattern, String commandLine) =>
     fileGlobMatch(pattern, commandLine);
 
+/// One review of the entire action, including permissions already granted.
+/// The answer authorizes only [missingPermissions]; Always stores those for
+/// this structured command in this session.
+final class CommandApproval {
+  CommandApproval({
+    required this.reason,
+    required Set<ProcessPermission> requiredPermissions,
+    required Set<ProcessPermission> missingPermissions,
+    this.networkReason,
+  })  : requiredPermissions = Set.unmodifiable(requiredPermissions),
+        missingPermissions = Set.unmodifiable(missingPermissions);
+
+  final String reason;
+  final Set<ProcessPermission> requiredPermissions;
+  final Set<ProcessPermission> missingPermissions;
+  final String? networkReason;
+}
+
 /// A [ProcessRunner] that enforces the command × mode table before any
 /// process exists.
 ///
@@ -165,8 +199,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
   PermissionMode mode;
 
   /// The session's writable directories — paths a command may create or
-  /// modify. A command that stays inside them (and needs no network) runs
-  /// without asking; anything else asks.
+  /// modify. Used to explain an approval request; these are not execution grants.
   final WritableDirectories writableDirectories;
 
   /// Whether the session lets commands reach the network. Off by default:
@@ -177,7 +210,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
   /// deny: fail closed.
   Approver? approver;
 
-  Future<Approval> Function(ProcessRequest, String)? commandApprover;
+  /// Reviews the whole command once for all missing permissions.
+  Future<Approval> Function(ProcessRequest, CommandApproval)? commandApprover;
 
   /// Session grants remembered from "always" answers.
   final CommandGrants grants;
@@ -196,35 +230,82 @@ final class SandboxedProcessRunner implements ProcessRunner {
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
+    // The reviewed identity and the spawned command must remain identical
+    // while an asynchronous approval is pending.
+    request = (
+      command: request.command,
+      arguments: List.unmodifiable(request.arguments),
+      workingDirectory: request.workingDirectory,
+      environment: request.environment == null
+          ? null
+          : Map.unmodifiable(request.environment!),
+      stdin: request.stdin,
+      timeout: request.timeout,
+    );
+    if (control?.isCancelled?.call() == true) {
+      return const CommandRefused('cancelled: command was not started');
+    }
+    final network = control?.networkRequested ?? false;
+    final requiredPermissions = {
+      ProcessPermission.execution,
+      if (network) ProcessPermission.network,
+    };
+    final missing = requiredPermissions
+        .where((permission) =>
+            !grants.coversRequest(request, permission: permission))
+        .toSet();
     final decision = decideCommand(request, mode,
         writableDirectories: writableDirectories,
         networkOff: networkOff,
         grants: grants);
-    switch (decision.verdict) {
-      case ToolVerdict.allow:
-        return _completed(
-            await inner.run(request, control: control), decision.reason);
-      case ToolVerdict.deny:
-        return CommandRefused(decision.reason);
-      case ToolVerdict.ask:
-        final approver = this.approver;
-        if (approver == null && commandApprover == null) {
-          return CommandRefused('${decision.reason} — denied: no approver is '
-              'wired to approve it');
-        }
-        switch (await (commandApprover?.call(request, decision.reason) ??
-            approver!(_asFileOperation(request), decision.reason))) {
-          case Approval.yes:
-            return _completed(
-                await inner.run(request, control: control), decision.reason);
-          case Approval.always:
-            grants.rememberRequest(request);
-            return _completed(
-                await inner.run(request, control: control), decision.reason);
-          case Approval.no:
-            return CommandRefused('${decision.reason} — denied by the user');
-        }
+    if (decision.verdict == ToolVerdict.deny) {
+      return CommandRefused(decision.reason);
     }
+    final baseReason =
+        decision.verdict == ToolVerdict.allow && missing.isNotEmpty
+            ? 'allow network access for this command (${request.command})?'
+            : decision.reason;
+    final reason = network
+        ? '$baseReason\nNetwork access: ${control?.networkReason ?? 'requested'}. '
+            'Access applies to this subprocess and its children. '
+            'Filesystem confinement remains active.'
+        : decision.reason;
+    if (missing.isNotEmpty) {
+      final review = CommandApproval(
+        reason: reason,
+        requiredPermissions: requiredPermissions,
+        missingPermissions: missing,
+        networkReason: network ? control?.networkReason : null,
+      );
+      final approve = commandApprover;
+      final fileApprover = approver;
+      // A filesystem-only approver cannot authorize network access.
+      if (approve == null &&
+          (fileApprover == null ||
+              missing.contains(ProcessPermission.network))) {
+        return CommandRefused(
+            '$reason — denied: no approver is wired to approve it');
+      }
+      final answer = approve != null
+          ? approve(request, review)
+          : fileApprover!(_asFileOperation(request), reason);
+      final cancellation = control?.whenCancelled;
+      final permission = await (cancellation == null
+          ? answer
+          : Future.any([answer, cancellation.then((_) => Approval.no)]));
+      if (control?.isCancelled?.call() == true) {
+        return const CommandRefused('cancelled: command was not started');
+      }
+      if (permission == Approval.no) {
+        return CommandRefused('$reason — denied by the user or cancelled');
+      }
+      if (permission == Approval.always) {
+        grants.rememberRequest(request, permissions: missing);
+      }
+    }
+    final authorized =
+        (control ?? const ProcessControl()).copyWith(networkAllowed: network);
+    return _completed(await inner.run(request, control: authorized), reason);
   }
 
   /// The inner runner may refuse (a host-enforced seam) or report an

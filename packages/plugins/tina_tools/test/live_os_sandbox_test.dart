@@ -30,13 +30,22 @@ void main() {
     addTearDown(() => root.deleteSync(recursive: true));
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));
+    var connections = 0;
     server.listen((request) {
+      connections++;
       request.response.write('network works');
       request.response.close();
     });
-    final runner = OsSandboxRunner(
+    final sandbox = OsSandboxRunner(
         inner: const IoProcessRunner(),
         plan: SandboxPlan(workspaceRoot: root.path));
+    final reviews = <CommandApproval>[];
+    final runner = SandboxedProcessRunner(
+        inner: sandbox,
+        commandApprover: (_, review) async {
+          reviews.add(review);
+          return Approval.always;
+        });
     final request = (
       command: 'curl',
       arguments: [
@@ -58,11 +67,28 @@ void main() {
         denied is CommandBlocked ||
             denied is CommandCompleted && denied.exitCode != 0,
         isTrue);
-    final allowed = await runner.run(request,
-        control: const ProcessControl(networkAllowed: true));
+    expect(connections, 0);
+    const network = ProcessControl(
+        networkRequested: true, networkReason: 'contact local fixture server');
+    final allowed = await runner.run(request, control: network);
     expect(allowed, isA<CommandCompleted>());
     expect((allowed as CommandCompleted).exitCode, 0, reason: allowed.stderr);
     expect(allowed.stdout, 'network works');
+    expect(reviews, hasLength(2));
+    expect(reviews.last.requiredPermissions,
+        {ProcessPermission.execution, ProcessPermission.network});
+    expect(reviews.last.missingPermissions, {ProcessPermission.network});
+    final remembered = await runner.run(request, control: network);
+    expect((remembered as CommandCompleted).stdout, 'network works');
+    expect(reviews, hasLength(2));
+    expect(connections, 2);
+    final offline = await runner.run(request);
+    expect(
+        offline is CommandBlocked ||
+            offline is CommandCompleted && offline.exitCode != 0,
+        true);
+    expect(connections, 2,
+        reason: 'a stored network grant does not open an offline invocation');
     final outside = await runner.run((
       command: 'touch',
       arguments: ['/usr/share/tina-network-escape-probe'],
@@ -70,7 +96,7 @@ void main() {
       environment: null,
       stdin: null,
       timeout: null
-    ), control: const ProcessControl(networkAllowed: true));
+    ), control: network);
     expect(
         outside is CommandBlocked ||
             outside is CommandCompleted && outside.exitCode != 0,

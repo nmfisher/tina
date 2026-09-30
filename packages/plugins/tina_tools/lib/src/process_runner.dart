@@ -20,6 +20,10 @@ typedef ProcessRequest = ({
   Duration? timeout,
 });
 
+/// Permissions for a process invocation. Network opens access for the entire
+/// subprocess tree; it does not relax filesystem confinement.
+enum ProcessPermission { execution, network }
+
 /// What happened: the command ran to completion ([CommandCompleted]), the
 /// permission boundary refused it before a process existed
 /// ([CommandRefused]), or the OS sandbox stopped it mid-run
@@ -87,22 +91,45 @@ abstract class ProcessRunner {
   Future<RunOutcome> run(ProcessRequest request, {ProcessControl? control});
 }
 
-/// Cancellation and output for one invocation, forwarded unchanged through
-/// permission and OS sandbox wrappers. No loop or terminal dependency.
+/// Requirements, cancellation and output for one invocation. The permission
+/// boundary sets authorization; wrappers preserve the other fields.
+/// No loop or terminal dependency.
 final class ProcessControl {
   const ProcessControl(
-      {this.networkAllowed = false,
+      {this.networkRequested = false,
+      this.networkReason,
+      this.networkAllowed = false,
       this.isCancelled,
       this.whenCancelled,
       this.onOutput,
       this.whenInputPending,
       this.onStarted});
+  final bool networkRequested;
+  final String? networkReason;
+
+  /// Authorization supplied by the permission boundary, never by tool input.
   final bool networkAllowed;
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;
   final Future<void>? whenInputPending;
   final void Function()? onStarted;
+
+  ProcessControl copyWith({
+    bool? networkRequested,
+    String? networkReason,
+    bool? networkAllowed,
+  }) =>
+      ProcessControl(
+        networkRequested: networkRequested ?? this.networkRequested,
+        networkReason: networkReason ?? this.networkReason,
+        networkAllowed: networkAllowed ?? this.networkAllowed,
+        isCancelled: isCancelled,
+        whenCancelled: whenCancelled,
+        onOutput: onOutput,
+        whenInputPending: whenInputPending,
+        onStarted: onStarted,
+      );
 }
 
 /// Owns the spawned process until exit or cancellation cleanup has completed.
@@ -112,6 +139,10 @@ class IoProcessRunner implements ProcessRunner {
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
+    if (control?.networkRequested == true && control?.networkAllowed != true) {
+      return const CommandRefused(
+          'Network access denied: no permission boundary approved this command.');
+    }
     CommandCompleted stopped(String reason, String out, String err) =>
         CommandCompleted(
             exitCode: -9,

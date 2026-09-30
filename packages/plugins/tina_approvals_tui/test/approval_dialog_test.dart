@@ -74,7 +74,7 @@ void main() {
     }
   });
 
-  test('network confirmations display the actual command and directory', () {
+  test('human-only confirmations display the actual command and directory', () {
     final dialog = ApprovalDialog(null,
         ask: ApprovalAskContext('Allow network access?', 'git push',
             'This command needs network access.',
@@ -91,6 +91,40 @@ void main() {
     expect(shown, contains('Directory: /project'));
     expect(shown, contains('❯ [y] Yes'));
     expect(shown, isNot(contains('[a]')));
+  });
+
+  test('permission scope text is supplied by plugins, including network grants',
+      () async {
+    final dialog = ApprovalDialog(null,
+        ask: ApprovalAskContext('run command', 'git fetch origin',
+            'Network access: fetch dependencies. Filesystem confinement remains active.',
+            details: {
+              'cwd': '/project',
+              'permission_scope': 'command',
+              'permission_scope_label': 'this command with network access',
+              'permission_scope_description':
+                  'This exact command and its network access only; other commands still ask.',
+              'description': const ToolDescription(
+                  title: 'Fetch Git changes with network access',
+                  target: 'git fetch origin',
+                  fields: {'Command': 'git fetch origin'}).toJson(),
+            }));
+    final shown = dialog.rows(width: 120).map(text).join('\n');
+    expect(shown, contains('Fetch Git changes with network access'));
+    expect(shown, contains('Directory: /project'));
+    expect(shown, contains('git fetch origin'));
+    expect(shown, contains('[y] allow once'));
+    expect(shown, contains('[n] deny'));
+    expect(
+        shown,
+        contains(
+            '[a] allow this command with network access for this session'));
+    expect(shown, contains('other commands still ask'));
+    expect(shown, isNot(contains('[y] Yes')));
+    expect(
+        (await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.always])))
+            .decision,
+        ApprovalDecision.allowAlways);
   });
 
   test('short terminal cards reserve space for context above the input choices',

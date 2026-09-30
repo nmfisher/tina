@@ -19,7 +19,6 @@ library;
 import 'dart:io';
 import 'dart:async';
 
-import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 
@@ -89,34 +88,13 @@ final class ToolsPlugin extends AgentPlugin
       EditTool(fs: sandbox, workspaceRoot: workspaceRoot),
       GlobTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       StatTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
-      BashTool(
-          runner: processJobs,
-          workingDirectory: workspaceRoot,
-          approveNetwork: _approveNetwork),
-      ExecTool(
-          runner: processJobs,
-          workingDirectory: workspaceRoot,
-          approveNetwork: _approveNetwork),
+      BashTool(runner: processJobs, workingDirectory: workspaceRoot),
+      ExecTool(runner: processJobs, workingDirectory: workspaceRoot),
       ProcessJobTool(processJobs),
     ];
     workingDirectory = workspaceRoot;
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode);
-  }
-
-  Future<bool> _approveNetwork(ProcessRequest request, String reason) async {
-    final answer = await modePolicy.request(
-      operation: 'Allow network access?',
-      target: [request.command, ...request.arguments].join(' '),
-      reason:
-          '$reason\nNetwork access applies only to this command. Filesystem confinement remains active. A retry reruns the entire command.',
-      humanOnly: true,
-      context: {
-        'cwd': request.workingDirectory ?? workingDirectory,
-        'description': describeCommandRequest(request).toJson(),
-      },
-    );
-    return answer == ApprovalDecision.allow;
   }
 
   /// The one configuration behind both the OS layout and the gate's
@@ -271,6 +249,8 @@ final class HostPromptSection {
       'pipes, redirects or expansions are actually required. Exec passes options '
       'and subcommands unchanged; it does not perform shell quoting or expansion. '
       'For commands requiring network access, set network: true and network_reason '
-      'on exec or bash to request explicit user approval. This keeps the filesystem '
-      'sandbox active; do not claim the user must run the command manually.';
+      'on exec or bash. Execution and network are reviewed together under the '
+      'current permission mode. Network permission applies to the entire '
+      'subprocess tree, while the filesystem sandbox stays active. Retrying '
+      'reruns the entire command; do not claim the user must run it manually.';
 }

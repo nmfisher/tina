@@ -15,8 +15,6 @@ class ExecTool extends ProcessToolBase {
   /// the runner; the tool carries no policy of its own.
   @override
   final ProcessRunner runner;
-  @override
-  final Future<bool> Function(ProcessRequest, String)? approveNetwork;
 
   /// The directory the program runs in. Null means the process inherits the
   /// host's cwd.
@@ -27,7 +25,6 @@ class ExecTool extends ProcessToolBase {
 
   ExecTool({
     required this.runner,
-    this.approveNetwork,
     this.workingDirectory,
     this.environment,
   });
@@ -56,7 +53,7 @@ class ExecTool extends ProcessToolBase {
             'network': {
               'type': 'boolean',
               'description':
-                  'Request network access for this invocation. Requires explicit user confirmation; filesystem sandbox stays active.'
+                  'Request network access for this subprocess and its children. Reviewed with execution under the current permission mode; filesystem sandbox stays active.'
             },
             'network_reason': {
               'type': 'string',

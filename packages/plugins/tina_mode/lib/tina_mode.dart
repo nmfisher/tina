@@ -87,7 +87,11 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   ToolUse? _call;
   // One approval covers one invocation, including atomic temp/rename writes.
   // It never survives afterToolResult or a mode change.
-  final Map<String, ApprovalDecision> _callApprovals = {};
+  final Map<
+    ({String operation, bool humanOnly, String permissions}),
+    ApprovalDecision
+  >
+  _callApprovals = {};
   bool _closed = false;
 
   static final modeWords = List<String>.unmodifiable(
@@ -128,6 +132,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     required String target,
     required String reason,
     Map<String, Object?> context = const {},
+    ApprovalKind kind = ApprovalKind.permission,
     bool humanOnly = false,
   }) async {
     final turn = _turn;
@@ -135,11 +140,20 @@ class ModePlugin extends AgentPlugin implements ModeControl {
         _closed || turn?.cancelled == true || !identical(turn, _turn);
     if (invalid()) return ApprovalDecision.deny;
     final call = _call;
-    if (call != null && _callApprovals.containsKey(operation)) {
-      return _callApprovals[operation]!;
+    final requiredPermissions = context['required_permissions'];
+    final cacheKey = (
+      operation: operation,
+      humanOnly: humanOnly,
+      permissions: requiredPermissions is Iterable
+          ? requiredPermissions.join(',')
+          : '',
+    );
+    final permission = kind == ApprovalKind.permission;
+    if (permission && call != null && _callApprovals.containsKey(cacheKey)) {
+      return _callApprovals[cacheKey]!;
     }
     String? autoFallback;
-    if (mode == PermissionMode.auto && !humanOnly) {
+    if (mode == PermissionMode.auto && permission && !humanOnly) {
       final judge = classifier;
       final result = judge == null
           ? const PermissionJudgment(null, 'not configured')
@@ -163,7 +177,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
         terminal?.writeln('$operation allowed by classifier: $target');
         // Classifier approvals apply once, never become human session grants.
         if (call != null && identical(call, _call)) {
-          _callApprovals[operation] = ApprovalDecision.allow;
+          _callApprovals[cacheKey] = ApprovalDecision.allow;
         }
         return ApprovalDecision.allow;
       }
@@ -178,7 +192,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
         await approvals?.request(
           operation: operation,
           target: target,
-          kind: humanOnly ? ApprovalKind.confirmation : ApprovalKind.permission,
+          kind: kind,
           reason: autoFallback == null
               ? reason
               : 'Auto approval: $autoFallback. $reason',
@@ -192,10 +206,11 @@ class ModePlugin extends AgentPlugin implements ModeControl {
         ) ??
         ApprovalDecision.deny;
     if (invalid()) return ApprovalDecision.deny;
-    if (call != null &&
+    if (permission &&
+        call != null &&
         identical(call, _call) &&
         decision == ApprovalDecision.allow) {
-      _callApprovals[operation] = decision;
+      _callApprovals[cacheKey] = decision;
     }
     return decision;
   }

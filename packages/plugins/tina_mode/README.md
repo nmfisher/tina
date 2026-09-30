@@ -15,14 +15,14 @@ separate migration work; this change does not port legacy permission flags.
 | Mode | Reads | Writes inside project | Commands and outside writes |
 | --- | --- | --- | --- |
 | ask | allow | human approval | human approval |
-| read-only | allow | deny | deny |
+| read-only | allow | human approval | human approval |
 | allow-edits | allow | allow | human approval |
 | auto | allow | safety judge | safety judge |
 
 The tools package enforces these decisions on canonical filesystem paths and
 process requests. Protected Tina paths and OS confinement cannot be bypassed
-by changing mode. Explicit human session grants skip repeat approvals except
-in read-only. Sub-agents inherit the mode and approval services at creation;
+by changing mode. Explicit human session grants skip repeat approvals in every
+mode. Sub-agents inherit the mode and approval services at creation;
 their mode plugin has its own cancellation lifecycle and retains OS confinement.
 
 The judge implementation lives in `classification/permissions.dart`, separate
@@ -38,5 +38,13 @@ Cancellation, shutdown or switching to read-only prevents a late ALLOW from
 executing. Changing to another mode reverts to human approval for that pending
 request. The judge stream is cancelled and its provider closed on completion.
 
-The current read-only mode blocks every command. The legacy read-all exception
-for commands classified as read-only is deliberately not part of this port.
+Read-only asks before every unapproved command, including read-only commands.
+Approving a call does not change the selected mode.
+
+Network is a permission on the command invocation. Execution and network are
+reviewed together, including in auto mode; tools own their separate session
+grants. Auto ALLOW never becomes Always. `request(kind: confirmation)` always
+uses human Yes/No approval. `humanOnly: true` can instead require a human for
+a permission while retaining Allow once / Deny / Always; the two flags are
+independent. An approval cached within one tool invocation cannot authorize a
+different permission set or substitute for a confirmation.

@@ -23,9 +23,6 @@ abstract class ProcessToolBase implements Tool {
   /// runner; the tool has none.
   ProcessRunner get runner;
 
-  Future<bool> Function(ProcessRequest request, String reason)?
-      get approveNetwork => null;
-
   @override
   Future<ToolResult> execute(Map<String, dynamic> input,
       {ProcessControl? control});
@@ -43,22 +40,12 @@ abstract class ProcessToolBase implements Tool {
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
     }
-    if (network) {
-      if (control?.isCancelled?.call() == true ||
-          await approveNetwork?.call(request, reason) != true ||
-          control?.isCancelled?.call() == true) {
-        return ToolResult.error(
-            'Network access denied; command was not started.');
-      }
-      control = ProcessControl(
-        networkAllowed: true,
-        isCancelled: control?.isCancelled,
-        whenCancelled: control?.whenCancelled,
-        whenInputPending: control?.whenInputPending,
-        onStarted: control?.onStarted,
-        onOutput: control?.onOutput,
-      );
-    }
+    // Declare requirements; the runner reviews the whole invocation once.
+    control = (control ?? const ProcessControl()).copyWith(
+      networkRequested: network,
+      networkReason: reason,
+      networkAllowed: false,
+    );
     final watch = Stopwatch()..start();
     final outcome = await runner.run(request, control: control);
     watch.stop();

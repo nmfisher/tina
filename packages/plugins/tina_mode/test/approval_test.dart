@@ -8,6 +8,7 @@ class Human implements ApprovalRequester {
   int calls = 0;
   Map<String, Object?> lastDetails = {};
   String lastReason = '';
+  ApprovalKind lastKind = ApprovalKind.permission;
   Future<ApprovalDecision>? pending;
   ApprovalDecision answer = ApprovalDecision.allow;
   @override
@@ -21,6 +22,7 @@ class Human implements ApprovalRequester {
     calls++;
     lastDetails = details;
     lastReason = reason;
+    lastKind = kind;
     return pending ?? answer;
   }
 }
@@ -47,7 +49,7 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 
 void main() {
   test(
-    'network confirmation asks a human even in read-only and bypasses the judge',
+    'confirmation asks a human in auto and read-only and bypasses the judge',
     () async {
       final human = Human();
       final judge = Judge(Future.value(const PermissionJudgment(true)));
@@ -58,26 +60,95 @@ void main() {
       );
       expect(
         await mode.request(
-          operation: 'network',
-          target: 'git push',
-          reason: 'push',
-          humanOnly: true,
+          operation: 'confirm plan',
+          target: 'plan',
+          reason: 'Start work?',
+          kind: ApprovalKind.confirmation,
         ),
         ApprovalDecision.allow,
       );
       expect(human.calls, 1);
       expect(judge.calls, 0);
+      expect(human.lastKind, ApprovalKind.confirmation);
       mode.mode = PermissionMode.readOnly;
       expect(
         await mode.request(
-          operation: 'network',
-          target: 'git push',
-          reason: 'push',
-          humanOnly: true,
+          operation: 'confirm plan',
+          target: 'plan',
+          reason: 'Start work?',
+          kind: ApprovalKind.confirmation,
         ),
         ApprovalDecision.allow,
       );
       expect(human.calls, 2);
+      mode.closeSession();
+    },
+  );
+
+  test(
+    'human-only permission retains Always instead of becoming confirmation',
+    () async {
+      final human = Human()..answer = ApprovalDecision.allowAlways;
+      final judge = Judge(Future.value(const PermissionJudgment(true)));
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: judge,
+      );
+      expect(
+        await mode.request(
+          operation: 'deploy',
+          target: 'preview',
+          reason: 'human consent',
+          humanOnly: true,
+        ),
+        ApprovalDecision.allowAlways,
+      );
+      expect(human.lastKind, ApprovalKind.permission);
+      expect(judge.calls, 0);
+      mode.closeSession();
+    },
+  );
+
+  test(
+    'cached execution approval never covers a new network permission or confirmation',
+    () async {
+      final human = Human();
+      final mode = ModePlugin(approvals: human);
+      final context = TurnContext(
+        CancelToken(),
+        input: const Input('run', id: 'run'),
+        messages: [],
+        promptSections: [],
+        pinnedTools: [],
+        call: const ToolUse(id: 'exec', name: 'exec', input: {}),
+      );
+      mode.onInput(context);
+      mode.beforeToolCall(context);
+      await mode.request(
+        operation: 'run command',
+        target: 'git',
+        reason: 'run',
+        context: {
+          'required_permissions': ['execution'],
+        },
+      );
+      await mode.request(
+        operation: 'run command',
+        target: 'git',
+        reason: 'network',
+        context: {
+          'required_permissions': ['execution', 'network'],
+        },
+      );
+      await mode.request(
+        operation: 'run command',
+        target: 'git',
+        reason: 'confirm',
+        kind: ApprovalKind.confirmation,
+      );
+      expect(human.calls, 3);
+      expect(human.lastKind, ApprovalKind.confirmation);
       mode.closeSession();
     },
   );

@@ -299,60 +299,74 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await waitFor(() => !session.host.session.loop.running);
   });
 
-  test(
-      'Always entered in the UI is reused for the exact command on later turns',
-      () async {
-    await session.commands['mode']!.handler('read-only');
-    final provider = providers.first;
-    Future<void> command(int index, String text) async {
-      provider.streams[index]
-          .add(ToolCallStart(id: 'exec-$index', name: 'exec'));
-      provider.streams[index].add(MessageComplete(content: [
-        ToolUseBlock(id: 'exec-$index', name: 'exec', input: {
-          'program': '/bin/echo',
-          'args': [text],
-        })
-      ], stopReason: 'tool_use'));
-      await provider.streams[index].close();
-    }
+  for (final network in [false, true]) {
+    test(
+        'UI Always remembers the exact command${network ? ' with network' : ''} on later turns',
+        () async {
+      await session.commands['mode']!.handler('read-only');
+      final provider = providers.first;
+      Future<void> command(int index, String text) async {
+        provider.streams[index]
+            .add(ToolCallStart(id: 'exec-$index', name: 'exec'));
+        provider.streams[index].add(MessageComplete(content: [
+          ToolUseBlock(id: 'exec-$index', name: 'exec', input: {
+            'program': '/bin/echo',
+            'args': [text],
+            if (network) 'network': true,
+            if (network) 'network_reason': 'test session network approval',
+          })
+        ], stopReason: 'tool_use'));
+        await provider.streams[index].close();
+      }
 
-    await keys('run command\r');
-    await waitFor(() => provider.requests.length == 1);
-    await command(0, 'remembered command');
-    await waitFor(() => approvalUi(session).asker!.current != null);
-    expect(approvalUi(session).asker!.current!.details['permission_scope'],
-        'command');
-    await keys('a');
-    await waitFor(() => provider.requests.length == 2);
-    expect(session.assembly.tools.processRunner.grants.length, 1);
-    provider.answer(1, 'ran');
-    await waitFor(() => !session.host.session.loop.running);
+      await keys('run command\r');
+      await waitFor(() => provider.requests.length == 1);
+      await command(0, 'remembered command');
+      await waitFor(() => approvalUi(session).asker!.current != null);
+      expect(approvalUi(session).asker!.current!.details['permission_scope'],
+          'command');
+      expect(approvalUi(session).asker!.current!.kind, ApprovalKind.permission);
+      expect(
+          approvalUi(session).asker!.current!.details['required_permissions'],
+          ['execution', if (network) 'network']);
+      if (network) {
+        await waitFor(
+            () => io.written.toString().contains('with network access'));
+        expect(io.written.toString(),
+            contains('allow this command with network access'));
+      }
+      await keys('a');
+      await waitFor(() => provider.requests.length == 2);
+      expect(session.assembly.tools.processRunner.grants.length, 1);
+      provider.answer(1, 'ran');
+      await waitFor(() => !session.host.session.loop.running);
 
-    await keys('run again\r');
-    await waitFor(() => provider.requests.length == 3);
-    await command(2, 'remembered command');
-    await waitFor(() => provider.requests.length == 4);
-    expect(approvalUi(session).asker!.current, isNull);
-    final results = session.host.session.loop.log
-        .whereType<MessageAppendedEntry>()
-        .expand((entry) => entry.message.content)
-        .whereType<ToolResultBlock>();
-    expect(results, hasLength(2));
-    expect(results.every((result) => !result.isError), true);
-    expect(results.last.content, contains('remembered command'));
-    provider.answer(3, 'ran again');
-    await waitFor(() => !session.host.session.loop.running);
+      await keys('run again\r');
+      await waitFor(() => provider.requests.length == 3);
+      await command(2, 'remembered command');
+      await waitFor(() => provider.requests.length == 4);
+      expect(approvalUi(session).asker!.current, isNull);
+      final results = session.host.session.loop.log
+          .whereType<MessageAppendedEntry>()
+          .expand((entry) => entry.message.content)
+          .whereType<ToolResultBlock>();
+      expect(results, hasLength(2));
+      expect(results.every((result) => !result.isError), true);
+      expect(results.last.content, contains('remembered command'));
+      provider.answer(3, 'ran again');
+      await waitFor(() => !session.host.session.loop.running);
 
-    await keys('run different command\r');
-    await waitFor(() => provider.requests.length == 5);
-    await command(4, 'different arguments');
-    await waitFor(() => approvalUi(session).asker!.current != null);
-    await keys('n');
-    await waitFor(() => provider.requests.length == 6);
-    expect(session.assembly.tools.processRunner.grants.length, 1);
-    provider.answer(5, 'declined');
-    await waitFor(() => !session.host.session.loop.running);
-  });
+      await keys('run different command\r');
+      await waitFor(() => provider.requests.length == 5);
+      await command(4, 'different arguments');
+      await waitFor(() => approvalUi(session).asker!.current != null);
+      await keys('n');
+      await waitFor(() => provider.requests.length == 6);
+      expect(session.assembly.tools.processRunner.grants.length, 1);
+      provider.answer(5, 'declined');
+      await waitFor(() => !session.host.session.loop.running);
+    });
+  }
 
   test('model picker updates the active panel without changing its session',
       () async {

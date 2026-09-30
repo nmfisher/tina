@@ -5,8 +5,8 @@ The model-facing file tools (ls, read, write, edit, glob, stat) over a
 (`bash`, `exec`) over a [`ProcessRunner`](lib/src/process_runner.dart)
 seam — and the two sandbox wrappers that decide, per call, what may run.
 
-Value types come from `tina_core`. No tool declares its own permissions:
-the thing that refuses is the seam the tool was handed, and the refusal
+Value types come from `tina_core`. Tools declare invocation requirements;
+permission policy lives on the seam the tool was handed, and a refusal
 reaches the model as that call's tool result. `ToolsPlugin` mounts the executors through
 `AgentPlugin.mountOn`. The host uses that common interface and imports no
 concrete tools. The single `tina/mode` plugin owns permission state,
@@ -62,10 +62,29 @@ signatures say what each can and cannot do.
 ## Network access
 
 `exec` and `bash` accept `network: true` with a required `network_reason`.
-The mode plugin requests explicit Yes/No confirmation, including in auto mode.
-Only that invocation gets network access; filesystem restrictions remain active.
-Declining starts no process. There is no automatic retry: retrying executes the
-entire command again. Without the flag, the default network policy applies.
+The process boundary checks execution and network grants separately, then asks
+the mode plugin to review the whole action once for any missing permissions.
+In auto mode, the safety judge sees the full command, tool input, required and
+missing permissions, and network reason. ALLOW applies once; DENY, uncertainty
+or failure asks the human. Other modes ask the human directly.
+
+The human gets Allow once, Deny, and Always allow this command with network
+access for this session. Always remembers the missing permissions for the exact
+program, argv, directory, environment and stdin. An execution-only grant does
+not authorize network. Explicit command patterns also grant execution only.
+Grants are in memory, isolated between panels, and expire on exit/resume.
+Cancellation cannot create a late grant or start the command.
+
+Network access applies to the entire subprocess tree, without destination/domain
+restrictions. Filesystem confinement remains active. Even a stored network grant
+does not open access unless that invocation requests it. Declining starts no
+process. There is no automatic retry: retrying executes the entire command again.
+Without the flag, the default network policy applies.
+
+`tina/approvals` correlates the decision and `tina/approvals-tui` renders generic
+plugin-supplied descriptions and permission scope text. Neither owns network
+policy; the OS wrapper enforces the approved invocation. Human-only review is
+independent of permission versus Yes/No confirmation presentation.
 
 ## Refusals are results, not exceptions
 

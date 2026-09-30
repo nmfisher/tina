@@ -51,7 +51,7 @@ void main() {
   });
 
   test(
-      'exact file grants support atomic writes, isolate panels, and expire on resume',
+      'exact file and execution/network grants isolate panels and expire on resume',
       () async {
     final root = Directory.systemTemp.createTempSync('tina_grants_');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -82,9 +82,16 @@ void main() {
       commandAsks++;
       return Approval.always;
     };
-    await app.tools.processRunner.run(command);
+    const network = ProcessControl(
+        networkRequested: true, networkReason: 'test network grant');
+    await app.tools.processRunner.run(command, control: network);
+    await app.tools.processRunner.run(command, control: network);
     await app.tools.processRunner.run(command);
     expect(commandAsks, 1);
+    expect(
+        app.tools.processRunner.grants
+            .coversRequest(command, permission: ProcessPermission.network),
+        true);
     var asks = 0;
     app.tools.sandbox.approver = (_, __) async {
       asks++;
@@ -112,7 +119,10 @@ void main() {
       return Approval.no;
     };
     expect(await panel.tools.processRunner.run(command), isA<CommandRefused>());
-    expect(panelCommandAsks, 1);
+    expect(await panel.tools.processRunner.run(command, control: network),
+        isA<CommandRefused>());
+    expect(panelCommandAsks, 2);
+    expect(panel.tools.processRunner.grants.isEmpty, true);
     panel.tools.sandbox.approver = (_, __) async => Approval.no;
     await expectLater(panel.tools.sandbox.writeFile(target, 'panel'),
         throwsA(isA<SandboxViolation>()));
@@ -130,7 +140,10 @@ void main() {
     };
     expect(
         await resumed.tools.processRunner.run(command), isA<CommandRefused>());
-    expect(resumeCommandAsks, 1);
+    expect(await resumed.tools.processRunner.run(command, control: network),
+        isA<CommandRefused>());
+    expect(resumeCommandAsks, 2);
+    expect(resumed.tools.processRunner.grants.isEmpty, true);
     resumed.tools.sandbox.approver = (_, __) async => Approval.no;
     await expectLater(resumed.tools.sandbox.writeFile(target, 'resumed'),
         throwsA(isA<SandboxViolation>()));

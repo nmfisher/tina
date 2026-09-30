@@ -19,8 +19,6 @@ class BashTool extends ProcessToolBase {
   /// the runner; the tool carries no policy of its own.
   @override
   final ProcessRunner runner;
-  @override
-  final Future<bool> Function(ProcessRequest, String)? approveNetwork;
 
   /// The directory the command runs in. Null means the process inherits the
   /// host's cwd.
@@ -36,7 +34,6 @@ class BashTool extends ProcessToolBase {
 
   BashTool({
     required this.runner,
-    this.approveNetwork,
     this.workingDirectory,
     this.shell = '/bin/sh',
     this.shellFlag = '-c',
@@ -65,7 +62,7 @@ class BashTool extends ProcessToolBase {
             'network': {
               'type': 'boolean',
               'description':
-                  'Request network access for this invocation. Requires explicit user confirmation; filesystem sandbox stays active.'
+                  'Request network access for this subprocess and its children. Reviewed with execution under the current permission mode; filesystem sandbox stays active.'
             },
             'network_reason': {
               'type': 'string',

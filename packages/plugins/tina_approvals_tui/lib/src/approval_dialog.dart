@@ -153,11 +153,14 @@ class ApprovalDialog {
                     {'read', 'write'}.contains(ask?.op)
                 ? 'file'
                 : null);
-    final alwaysLabel = switch (scope) {
-      'file' => 'allow this file for this session',
-      'command' => 'allow this command for this session',
-      _ => 'allow matching calls for this session',
-    };
+    final scopeLabel = ask?.details['permission_scope_label'];
+    final alwaysLabel = scopeLabel is String
+        ? 'allow $scopeLabel for this session'
+        : switch (scope) {
+            'file' => 'allow this file for this session',
+            'command' => 'allow this command for this session',
+            _ => 'allow matching calls for this session',
+          };
     final label = ask?.confirmation == true
         ? ask!.title
         : description?.title ??
@@ -214,9 +217,14 @@ class ApprovalDialog {
         ],
         if (call?.argumentsParseError != null) call!.argumentsParseError!,
         if (ask != null) 'Why: ${ask.reason}',
-        if (_hasAlways && scope == 'file')
+        if (_hasAlways &&
+            ask?.details['permission_scope_description'] is String)
+          ask!.details['permission_scope_description'] as String
+        else if (_hasAlways && scope == 'file')
           'Session approval covers only this file. Other files still ask.',
-        if (_hasAlways && scope == 'command')
+        if (_hasAlways &&
+            ask?.details['permission_scope_description'] == null &&
+            scope == 'command')
           'Session approval covers this exact command in this directory.',
       ],
       if (_details && ask?.details['mode'] != null)

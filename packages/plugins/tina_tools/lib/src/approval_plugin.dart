@@ -55,18 +55,42 @@ void attachModePolicy(ToolsPlugin plugin) {
     );
     return _answer(decision, reason);
   };
-  plugin.processRunner.commandApprover = (request, reason) async {
+  plugin.processRunner.commandApprover = (request, review) async {
+    final network =
+        review.requiredPermissions.contains(ProcessPermission.network);
+    final description = describeCommandRequest(request);
     final decision = await plugin.modePolicy.request(
       operation: 'run command',
       target: [request.command, ...request.arguments].join(' '),
-      reason: reason,
+      reason: review.reason,
       context: {
         'workspace': plugin.workingDirectory,
         'executable': request.command,
         'arguments': request.arguments,
         'cwd': request.workingDirectory,
-        'description': describeCommandRequest(request).toJson(),
+        'environment': request.environment,
+        'stdin': request.stdin,
+        'required_permissions': [
+          for (final p in review.requiredPermissions) p.name
+        ],
+        'missing_permissions': [
+          for (final p in review.missingPermissions) p.name
+        ],
+        if (network) 'network_reason': review.networkReason,
+        'description': (network
+                ? ToolDescription(
+                    title: '${description.title} with network access',
+                    target: description.target,
+                    fields: description.fields)
+                : description)
+            .toJson(),
         'permission_scope': 'command',
+        if (network) ...{
+          'permission_scope_label': 'this command with network access',
+          'permission_scope_description':
+              'Session approval covers this exact command, directory, environment '
+                  'and input, including network access for its subprocess tree.',
+        },
       },
     );
     return switch (decision) {

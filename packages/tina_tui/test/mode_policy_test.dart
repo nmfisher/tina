@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:tina_tools/tina_tools.dart' show ProcessPermission;
 import 'package:tina_plans/tina_plans.dart';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -6,6 +8,107 @@ import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_approvals/tina_approvals.dart' as approvals;
 
 void main() {
+  for (final answer in ['ALLOW', 'DENY', 'unreadable']) {
+    test('auto reviews network with execution: $answer', () async {
+      final dir = Directory.systemTemp.createTempSync('tina-auto-network-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final judgeRequests = <String>[];
+      final human = _NetworkHuman();
+      final agent = ScriptedProvider([
+        scriptedReply('', calls: [
+          for (final id in ['first', 'second'])
+            ToolUseBlock(id: id, name: 'exec', input: const {
+              'program': '/bin/echo',
+              'args': ['network reviewed'],
+              'network': true,
+              'network_reason': 'test network action',
+            }),
+        ]),
+        scriptedReply('finished'),
+      ]);
+      var builds = 0;
+      final assembly = TuiAssembly.start(
+          options: AssemblyOptions(
+              configPath: '${dir.path}/missing', workingDirectory: dir.path),
+          providerFactory: (_) =>
+              builds++ == 0 ? agent : _Judge(judgeRequests, answer: answer));
+      addTearDown(assembly.close);
+      assembly.tools.modePolicy.approvals = human;
+      await assembly.handleCommand('/mode auto');
+      await assembly.host.send('run network commands');
+      final automatic = answer == 'ALLOW';
+      expect(judgeRequests, hasLength(automatic ? 2 : 1),
+          reason: 'automatic consent expires; human Always is a session grant');
+      final judged = jsonDecode(judgeRequests.first) as Map;
+      expect(judged['required_permissions'], ['execution', 'network']);
+      expect(judged['missing_permissions'], ['execution', 'network']);
+      expect(judged['executable'], '/bin/echo');
+      expect(judged['arguments'], ['network reviewed']);
+      expect(judged['network_reason'], 'test network action');
+      expect((judged['tool'] as Map)['input']['network'], true);
+      expect(human.requests, hasLength(automatic ? 0 : 1));
+      if (!automatic) {
+        expect(human.kinds.single, approvals.ApprovalKind.permission);
+        expect(human.requests.single['required_permissions'],
+            ['execution', 'network']);
+        expect(human.requests.single['auto_approval_fallback'],
+            contains('classifier'));
+      }
+      expect(assembly.tools.processRunner.grants.isEmpty, automatic);
+      final results = assembly.host.session.loop.log
+          .whereType<MessageAppendedEntry>()
+          .expand((e) => e.message.content)
+          .whereType<ToolResultBlock>()
+          .toList();
+      expect(results, hasLength(2));
+      expect(results.every((result) => !result.isError), true);
+      expect(results.last.content, contains('network reviewed'));
+    });
+  }
+
+  test('auto reviews network even when execution already has a session grant',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('tina-network-extra-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final judgeRequests = <String>[];
+    final agent = ScriptedProvider([
+      scriptedReply('', calls: const [
+        ToolUseBlock(id: 'fetch', name: 'exec', input: {
+          'program': '/bin/echo',
+          'args': ['network reviewed'],
+          'network': true,
+          'network_reason': 'test network action',
+        })
+      ]),
+      scriptedReply('finished'),
+    ]);
+    var builds = 0;
+    final assembly = TuiAssembly.start(
+        options: AssemblyOptions(
+            configPath: '${dir.path}/missing', workingDirectory: dir.path),
+        providerFactory: (_) => builds++ == 0 ? agent : _Judge(judgeRequests));
+    addTearDown(assembly.close);
+    final request = (
+      command: '/bin/echo',
+      arguments: ['network reviewed'],
+      workingDirectory: assembly.tools.workingDirectory,
+      environment: null,
+      stdin: null,
+      timeout: null,
+    );
+    assembly.tools.processRunner.grants.rememberRequest(request);
+    await assembly.handleCommand('/mode auto');
+    await assembly.host.send('run with network');
+    expect(judgeRequests, hasLength(1));
+    final judged = jsonDecode(judgeRequests.single) as Map;
+    expect(judged['required_permissions'], ['execution', 'network']);
+    expect(judged['missing_permissions'], ['network']);
+    expect(
+        assembly.tools.processRunner.grants
+            .coversRequest(request, permission: ProcessPermission.network),
+        false);
+  });
+
   test(
       'read-only approval remembers only the chosen file and permits a later edit',
       () async {
@@ -152,8 +255,9 @@ class _Human implements approvals.ApprovalRequester {
 }
 
 class _Judge extends LlmProvider {
-  _Judge(this.requests) : super('judge');
+  _Judge(this.requests, {this.answer = 'ALLOW'}) : super('judge');
   final List<String> requests;
+  final String answer;
   @override
   Stream<StreamEvent> send(
       {required String system,
@@ -163,9 +267,26 @@ class _Judge extends LlmProvider {
         .whereType<TextBlock>()
         .map((b) => b.text)
         .join());
-    yield const MessageComplete(
-        content: [TextBlock('ALLOW')],
+    yield MessageComplete(
+        content: [TextBlock(answer)],
         stopReason: 'end_turn',
         usage: TokenUsage(inputTokens: 10, outputTokens: 7));
+  }
+}
+
+class _NetworkHuman implements approvals.ApprovalRequester {
+  final requests = <Map<String, Object?>>[];
+  final kinds = <approvals.ApprovalKind>[];
+  @override
+  Future<approvals.ApprovalDecision> request({
+    required String operation,
+    required String target,
+    required String reason,
+    approvals.ApprovalKind kind = approvals.ApprovalKind.permission,
+    Map<String, Object?> details = const {},
+  }) async {
+    requests.add(details);
+    kinds.add(kind);
+    return approvals.ApprovalDecision.allowAlways;
   }
 }
