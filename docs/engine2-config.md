@@ -56,6 +56,12 @@ has its own row, with an arrow and highlighting on the selected answer.
 Arrows/Enter also work; Tab opens scrollable technical details, and Esc cancels.
 Yes/No confirmations use the same layout and Y/N shortcuts. Very short terminals
 show the selected answer and its position in the list.
+Remembered permissions live in the tools plugin for the running session. File
+grants match the exact canonical path, including later edits and atomic writes.
+Command grants match the program, literal arguments, working directory,
+environment values and stdin; a different command or file asks again. Grants
+are isolated between panels and expire when the session is closed or resumed.
+Network Yes/No confirmation is separate and applies to one invocation.
 One-call approval includes the tool's atomic temporary-file/rename work,
 and expires after the invocation. Request details are channel-neutral metadata;
 the engine does not depend on terminal rendering.

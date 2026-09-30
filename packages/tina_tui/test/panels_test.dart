@@ -246,6 +246,114 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(editor.editState.buffer, 'chat draft');
   });
 
+  test('Always entered in the UI is reused on later turns for the same file',
+      () async {
+    await session.commands['mode']!.handler('read-only');
+    final provider = providers.first;
+    Future<void> write(int index, String path, String content) async {
+      provider.streams[index]
+          .add(ToolCallStart(id: 'write-$index', name: 'write'));
+      provider.streams[index].add(MessageComplete(content: [
+        ToolUseBlock(id: 'write-$index', name: 'write', input: {
+          'filePath': path,
+          'content': content,
+        })
+      ], stopReason: 'tool_use'));
+      await provider.streams[index].close();
+    }
+
+    await keys('first write\r');
+    await waitFor(() => provider.requests.length == 1);
+    await write(0, 'remembered.txt', 'first');
+    await waitFor(() => approvalUi(session).asker!.current != null);
+    expect(approvalUi(session).asker!.current!.details['permission_scope'],
+        'file');
+    await keys('a');
+    await waitFor(() => provider.requests.length == 2);
+    final target = File('${dir.path}/remembered.txt');
+    expect(target.readAsStringSync(), 'first');
+    expect(session.assembly.tools.sandbox.grants.patterns,
+        [target.resolveSymbolicLinksSync()]);
+    provider.answer(1, 'saved');
+    await waitFor(() => !session.host.session.loop.running);
+
+    await keys('write again\r');
+    await waitFor(() => provider.requests.length == 3);
+    await write(2, './remembered.txt', 'second');
+    await waitFor(() => provider.requests.length == 4);
+    expect(approvalUi(session).asker!.current, isNull);
+    expect(target.readAsStringSync(), 'second');
+    expect(session.assembly.tools.sandbox.grants.length, 1);
+    provider.answer(3, 'saved again');
+    await waitFor(() => !session.host.session.loop.running);
+
+    await keys('write another file\r');
+    await waitFor(() => provider.requests.length == 5);
+    await write(4, 'other.txt', 'denied');
+    await waitFor(() => approvalUi(session).asker!.current != null);
+    await keys('n');
+    await waitFor(() => provider.requests.length == 6);
+    expect(File('${dir.path}/other.txt').existsSync(), false);
+    expect(session.assembly.tools.sandbox.grants.length, 1);
+    provider.answer(5, 'declined');
+    await waitFor(() => !session.host.session.loop.running);
+  });
+
+  test(
+      'Always entered in the UI is reused for the exact command on later turns',
+      () async {
+    await session.commands['mode']!.handler('read-only');
+    final provider = providers.first;
+    Future<void> command(int index, String text) async {
+      provider.streams[index]
+          .add(ToolCallStart(id: 'exec-$index', name: 'exec'));
+      provider.streams[index].add(MessageComplete(content: [
+        ToolUseBlock(id: 'exec-$index', name: 'exec', input: {
+          'program': '/bin/echo',
+          'args': [text],
+        })
+      ], stopReason: 'tool_use'));
+      await provider.streams[index].close();
+    }
+
+    await keys('run command\r');
+    await waitFor(() => provider.requests.length == 1);
+    await command(0, 'remembered command');
+    await waitFor(() => approvalUi(session).asker!.current != null);
+    expect(approvalUi(session).asker!.current!.details['permission_scope'],
+        'command');
+    await keys('a');
+    await waitFor(() => provider.requests.length == 2);
+    expect(session.assembly.tools.processRunner.grants.length, 1);
+    provider.answer(1, 'ran');
+    await waitFor(() => !session.host.session.loop.running);
+
+    await keys('run again\r');
+    await waitFor(() => provider.requests.length == 3);
+    await command(2, 'remembered command');
+    await waitFor(() => provider.requests.length == 4);
+    expect(approvalUi(session).asker!.current, isNull);
+    final results = session.host.session.loop.log
+        .whereType<MessageAppendedEntry>()
+        .expand((entry) => entry.message.content)
+        .whereType<ToolResultBlock>();
+    expect(results, hasLength(2));
+    expect(results.every((result) => !result.isError), true);
+    expect(results.last.content, contains('remembered command'));
+    provider.answer(3, 'ran again');
+    await waitFor(() => !session.host.session.loop.running);
+
+    await keys('run different command\r');
+    await waitFor(() => provider.requests.length == 5);
+    await command(4, 'different arguments');
+    await waitFor(() => approvalUi(session).asker!.current != null);
+    await keys('n');
+    await waitFor(() => provider.requests.length == 6);
+    expect(session.assembly.tools.processRunner.grants.length, 1);
+    provider.answer(5, 'declined');
+    await waitFor(() => !session.host.session.loop.running);
+  });
+
   test('model picker updates the active panel without changing its session',
       () async {
     final id = getFrame().conversationId;

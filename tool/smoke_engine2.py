@@ -246,11 +246,11 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect("streaming prefix", start)
             active_requests = len(ModelStub.requests)
             start = terminal.send('/settings\r')
-            terminal.expect('Generation settings', start)
+            terminal.expect('enter select · esc back', start)
             assert len(ModelStub.requests) == active_requests
             assert not ModelStub.release_stream.is_set()
-            terminal.send('\x1b')
-            time.sleep(0.1)
+            closed = terminal.send('\x1b')
+            terminal.expect('Settings closed.', closed)
             start = terminal.resize(100, 20)
             terminal.expect("streaming prefix", start)
             # Submitted input must reach a fresh request before the stalled
@@ -498,9 +498,14 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             terminal.send('\x18')  # Ctrl+X closes the child and returns home.
             time.sleep(0.1)
+            before_plan = len(ModelStub.requests)
             start = terminal.send('start plan example\r')
             terminal.expect('plan · 1/4', start)
             terminal.expect('restore panel', start)
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_plan + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_plan + 2, 'plan tool response did not reach the provider'
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
             # The real input dispatcher must browse the plan without sending

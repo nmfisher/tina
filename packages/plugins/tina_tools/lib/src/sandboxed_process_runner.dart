@@ -79,13 +79,22 @@ final class CommandGrants {
   final Set<String> _exactLines = {};
   final Map<String, String> _requests = {};
 
-  static String _key(ProcessRequest request) => jsonEncode([
-        request.command,
-        request.arguments,
-        request.workingDirectory,
-        request.environment,
-        request.stdin,
-      ]);
+  static String _key(ProcessRequest request) {
+    final environment = request.environment;
+    final names = environment?.keys.toList()?..sort();
+    return jsonEncode([
+      request.command,
+      request.arguments,
+      request.workingDirectory,
+      // Map insertion order is not part of the command's permission scope.
+      // Null still differs from an empty map: it inherits the host environment.
+      if (names == null)
+        null
+      else
+        {for (final name in names) name: environment![name]},
+      request.stdin,
+    ]);
+  }
 
   void rememberRequest(ProcessRequest request) {
     _requests[_key(request)] = lineOf(request);

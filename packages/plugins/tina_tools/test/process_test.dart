@@ -213,6 +213,45 @@ void main() {
       expect(asked, 4);
     });
 
+    test(
+        'remembered command matches environment values regardless of map order',
+        () async {
+      var asked = 0;
+      final runner = SandboxedProcessRunner(
+        inner:
+            _ScriptedRunner(List.filled(4, _done(0, '', ''), growable: true)),
+        commandApprover: (_, __) async {
+          asked++;
+          return asked == 1 ? Approval.always : Approval.no;
+        },
+      );
+      ProcessRequest request(Map<String, String>? env,
+              {String stdin = 'input'}) =>
+          (
+            command: 'cat',
+            arguments: [],
+            workingDirectory: '/project',
+            environment: env,
+            stdin: stdin,
+            timeout: null,
+          );
+      expect(await runner.run(request({'LANG': 'C', 'PATH': '/bin'})),
+          isA<CommandCompleted>());
+      expect(await runner.run(request({'PATH': '/bin', 'LANG': 'C'})),
+          isA<CommandCompleted>());
+      expect(asked, 1);
+      expect(await runner.run(request({'LANG': 'C', 'PATH': '/other'})),
+          isA<CommandRefused>());
+      expect(
+          await runner
+              .run(request({'LANG': 'C', 'PATH': '/bin'}, stdin: 'other')),
+          isA<CommandRefused>());
+      expect(await runner.run(request(null)), isA<CommandRefused>(),
+          reason: 'inheriting the host environment is a different permission');
+      expect(asked, 4);
+      expect(runner.grants.length, 1);
+    });
+
     test('an allowed command runs on the inner runner', () async {
       final inner = _ScriptedRunner([_done(0, 'ok', '')]);
       final runner = SandboxedProcessRunner(
