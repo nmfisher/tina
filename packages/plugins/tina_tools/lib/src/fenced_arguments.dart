@@ -1,17 +1,7 @@
-/// Builds a process argument list in which model-supplied values are
-/// unambiguously data.
-///
-/// A program cannot tell a value from an option: both are just strings in
-/// `argv`. That is the whole injection class — a model value like
-/// `--pre=rm -rf /` handed over as a bare token is read by the program as a
-/// flag that runs a command — and no amount of care at the call site fixes
-/// the class, because the next tool author has to remember too.
-///
-/// So argv for [ExecTool] is assembled through this type instead. Options go
-/// in the option region; every model-derived value goes after the `--`
-/// fence, where POSIX argument parsing requires the program to treat it as
-/// positional. A value therefore *cannot* be emitted in the option region:
-/// [build] is the only way out, and it is what puts the fence in.
+/// Builds arguments for a dedicated tool whose program supports an option
+/// separator. Tool-owned options precede `--`; positional data follows it.
+/// Generic ExecTool does not use this builder: it preserves the caller's argv.
+/// Only use this for programs and command positions that support `--`.
 ///
 /// ```dart
 /// final args = FencedArguments()

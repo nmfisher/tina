@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:test/test.dart';
 
@@ -85,44 +86,33 @@ void main() {
   });
 
   group('exec tool', () {
-    test('model values arrive fenced: after --, never as options', () async {
-      final inner = _RecordingRunner(_done(0, '', ''));
-      final tool = ExecTool(runner: inner, workingDirectory: '/tmp/ws');
-      final res = await tool.execute({
-        'program': 'grep',
-        'args': ['--pre=rm -rf /', '/tmp/ws/x.txt'],
-      });
-      expect(res.isError, isFalse);
-      // The assertion the brief asks for: the argv the runner actually
-      // received. Every model value is after the fence.
-      expect(inner.command, 'grep');
-      expect(inner.arguments, ['--', '--pre=rm -rf /', '/tmp/ws/x.txt']);
-      // And no model value sits before the fence.
-      final argv = List.of(inner.arguments ?? const <String>[]);
-      expect(argv.indexOf('--'), 0,
-          reason: 'the tool emitted no options of its own, so the fence '
-              'opens at argv[0]');
+    test('passes options, subcommands and explicit separators unchanged',
+        () async {
+      for (final args in [
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        ['-n', '--', 'two words', 'file.txt'],
+        ['-n', '1,3p', 'file.txt'],
+        ['.', '-name', '*.dart'],
+      ]) {
+        final inner = _RecordingRunner(_done(0, '', ''));
+        await ExecTool(runner: inner)
+            .execute({'program': 'program', 'args': args});
+        expect(inner.arguments, args);
+      }
     });
 
-    test('tool options would precede the fence; model values never', () async {
-      final inner = _RecordingRunner(_done(0, '', ''));
-      // Drive the same builder the tool uses, with a tool-derived option,
-      // to pin the ordering rule itself.
-      final argv = (FencedArguments()
-            ..flag('--no-heading')
-            ..option('--glob', '*.dart') // tool-derived, one token
-            ..value('--pre=rm -rf /')) // model value
-          .build();
-      expect(argv, ['--no-heading', '--glob=*.dart', '--', '--pre=rm -rf /']);
-      // The runner receives exactly this shape:
-      inner.play(_done(0, '', ''));
-      await ExecTool(runner: inner).execute({
-        'program': 'rg',
-        'args': ['--pre=rm -rf /']
+    test('direct git subcommands run without a wrapper', () async {
+      final project = Directory.systemTemp.createTempSync('tina_exec_git_');
+      addTearDown(() => project.deleteSync(recursive: true));
+      expect((await Process.run('git', ['init', project.path])).exitCode, 0);
+      final result = await ExecTool(
+              runner: const IoProcessRunner(), workingDirectory: project.path)
+          .execute({
+        'program': 'git',
+        'args': ['rev-parse', '--git-dir'],
       });
-      final argv2 = List.of(inner.arguments ?? const <String>[]);
-      expect(argv2.last, '--pre=rm -rf /');
-      expect(argv2.indexOf('--'), lessThan(argv2.indexOf('--pre=rm -rf /')));
+      expect(result.isError, isFalse, reason: result.content);
+      expect(result.content, contains('.git'));
     });
 
     test('no model values → no fence at all', () async {
@@ -167,7 +157,7 @@ void main() {
       expect(res.content, contains('no approver'));
     });
 
-    test('end-to-end on the real runner: the fence holds for real', () async {
+    test('literal shell syntax is not interpreted by exec', () async {
       final tool = ExecTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
@@ -175,14 +165,13 @@ void main() {
           writableDirectories: WritableDirectories()..add('/'),
         ),
       );
-      // `echo` with a hostile "option": it must arrive as data and be
-      // echoed back verbatim, not interpreted by anything.
+      // Shell metacharacters remain literal arguments without a shell.
       final res = await tool.execute({
-        'program': 'echo',
-        'args': ['--pre=rm -rf /'],
+        'program': 'printf',
+        'args': ['%s', r'$(echo expanded) | cat > file'],
       });
       expect(res.isError, isFalse);
-      expect(res.content, contains('--pre=rm -rf /'));
+      expect(res.content, contains(r'$(echo expanded) | cat > file'));
     });
   });
 

@@ -211,7 +211,6 @@ final class HostPromptSection {
       'ls, grep, sed and find directly with literal arguments. Avoid bash '
       'and sh wrappers whenever possible; do not use exec to invoke sh -c '
       'or bash -c as a workaround. Use bash only when shell features such as '
-      'pipes, redirects or expansions are actually required. Follow the exec '
-      'schema for separating options from argument values; exec does not '
-      'perform shell quoting or expansion.';
+      'pipes, redirects or expansions are actually required. Exec passes options '
+      'and subcommands unchanged; it does not perform shell quoting or expansion.';
 }

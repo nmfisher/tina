@@ -49,13 +49,11 @@ OS confinement separately.
   pipes, expansions, redirects — so it can do anything the process can do.
   That is the point of the tool, and no argument checking makes it safe;
   only the runner's per-call decision does.
-- **`exec`** takes a **program and values**. The tool assembles argv itself
-  through [`FencedArguments`](lib/src/fenced_arguments.dart): every
-  model-supplied value is emitted **after the `--` fence**, where POSIX
-  argument parsing requires the program to treat it as a positional. A
-  model value therefore *cannot* arrive as an option — `--pre=rm -rf /`
-  lands as inert data — and the guarantee is structural, because
-  `FencedArguments.build()` is the only way argv leaves the tool.
+- **`exec`** takes a **program and argument list**. Arguments are passed
+  unchanged, including options and subcommands. It does not insert `--` or
+  interpret shell quoting, expansions, pipes or redirects. Both permission
+  checks and the OS sandbox apply to the actual invocation. Dedicated tools
+  can use `FencedArguments` when their particular program supports `--`.
 
 They are two tools on purpose, not one tool with a mode flag: the
 signatures say what each can and cannot do.
