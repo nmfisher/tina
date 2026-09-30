@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/testing.dart' show VirtualTerminal;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_persistence/tina_persistence.dart';
@@ -90,8 +91,10 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
           return p;
         }));
     io = FakeIo();
-    screen =
-        Screen(io: io, layout: ScreenLayout.fromSize(120, 24, split: false));
+    screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(120, 24, split: false),
+        ansi: AnsiCapable.yes);
     sizes = StreamController();
     app = runApp(session,
         screen: screen,
@@ -118,6 +121,22 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
   }
 
   PanelFrame getFrame() => editor.focusManager!.focused as PanelFrame;
+
+  test('closing a spawned panel clears the complete bottom rail', () async {
+    final terminal = VirtualTerminal(width: 120, height: 24);
+    await spawn('other');
+    terminal.feed(io.written.toString());
+    io.written.clear();
+    final railRow = screen.layout.stripRow - 1;
+    expect(terminal.charAt(railRow, 119), '┘');
+    await keys('\x18');
+    terminal.feed(io.written.toString());
+    for (var col = 0; col < 120; col++) {
+      expect(terminal.charAt(railRow, col), ' ', reason: 'column $col');
+    }
+    expect(getFrame().border, false);
+    expect(screen.input.bounds.isEmpty, false);
+  });
 
   test(
       'spawn, cycle, resize and close preserve independent drafts and sessions',

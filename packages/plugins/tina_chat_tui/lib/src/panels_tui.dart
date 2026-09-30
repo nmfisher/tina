@@ -231,8 +231,12 @@ final class _Workspace implements ConsolePanels {
         for (final view in views) {
           view.chat.detach();
         }
-        screen.eraseChatArea();
-        screen.input.erase();
+        // Frames extend through the row below the normal input. Clear the
+        // entire workspace so old rails and offscreen panels cannot survive
+        // a layout change. The status strip is painted separately below it.
+        for (var row = layout.chat.row; row < layout.stripRow; row++) {
+          screen.eraseAtAbsolute(row: row, col: 0, n: width, moveCursor: false);
+        }
         for (var i = 0; i < views.length; i++) {
           final view = views[i];
           final visible = i >= first && i < first + slots;
