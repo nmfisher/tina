@@ -267,12 +267,25 @@ final class TuiAssembly {
           : next),
       models: [
         for (final descriptor in resolved.descriptors)
-          for (final name in descriptor.models.keys)
-            if (!(resolved.providers[descriptor.id]?.disabledModels
-                    .contains(name) ??
-                false))
-              '${descriptor.id}/$name'
+          if (resolved.providers.containsKey(descriptor.id) ||
+              descriptor.id == resolved.providerId ||
+              (resolved.providers.isEmpty && descriptor.id == 'anthropic') ||
+              model.startsWith('${descriptor.id}/'))
+            for (final name in descriptor.models.keys)
+              if (!(resolved.providers[descriptor.id]?.disabledModels
+                      .contains(name) ??
+                  false))
+                '${descriptor.id}/$name'
       ],
+      providerNames: {
+        for (final descriptor in resolved.descriptors)
+          descriptor.id: descriptor.name,
+      },
+      modelNames: {
+        for (final descriptor in resolved.descriptors)
+          for (final entry in descriptor.models.entries)
+            '${descriptor.id}/${entry.key}': entry.value.name,
+      },
       openStore: persists ? openStore : null,
     );
     final plugins = registry.build(selected, context);

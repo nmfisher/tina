@@ -28,6 +28,8 @@ final class TuiPluginContext {
     required this.currentModel,
     required this.switchModel,
     this.models = const [],
+    this.providerNames = const {},
+    this.modelNames = const {},
     this.openStore,
     this.version = '0.0.0',
     this.providerPolicy,
@@ -46,6 +48,8 @@ final class TuiPluginContext {
   final String Function() currentModel;
   final void Function(String) switchModel;
   final List<String> models;
+  final Map<String, String> providerNames;
+  final Map<String, String> modelNames;
   final SessionStoreOpener? openStore;
 }
 
@@ -88,7 +92,9 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 terminal: c.terminal,
                 currentModel: c.currentModel,
                 switchModel: c.switchModel,
-                models: c.models),
+                models: c.models,
+                providerNames: c.providerNames,
+                modelNames: c.modelNames),
             description:
                 'Switches the active conversation model and clears its context and display.',
             live: true),

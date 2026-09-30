@@ -76,8 +76,9 @@ void main() {
 [default]
 model = "main"
 [providers.local]
+name = "Local testing"
 base_url = "http://localhost:1/v1"
-models = ["main", "other"]
+models = ["main|Main model", "other|Other model"]
 [plugins]
 enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistence", "tina/grok-guard", "tina/session-controls", "acme/attach-check"]
 ''');
@@ -128,8 +129,13 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
   test('model picker updates the active panel without changing its session',
       () async {
     final id = getFrame().conversationId;
+    expect(await session.commands['model']!.complete!(''),
+        ['local/main', 'local/other'],
+        reason: 'unconfigured catalog providers should not clutter the picker');
     await keys('/model\r');
     await waitFor(() => editor.isReadingKey);
+    expect(io.written.toString(), contains('Local testing (local)'));
+    expect(io.written.toString(), contains('Other model · other'));
     await keys('local/other\r');
     await waitFor(
         () => !editor.isReadingKey && getFrame().label.endsWith('local/other'));
