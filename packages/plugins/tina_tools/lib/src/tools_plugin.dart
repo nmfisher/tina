@@ -205,5 +205,13 @@ final class HostPromptSection {
           'project edits run; commands and outside writes require approval',
         PermissionMode.auto =>
           'reads run; a safety judge reviews writes and commands; uncertain decisions ask the user',
-      }}.';
+      }}.\n\n'
+      'Prefer dedicated file tools for listing, reading, searching paths and '
+      'editing. When a command is needed, use exec to run programs such as '
+      'ls, grep, sed and find directly with literal arguments. Avoid bash '
+      'and sh wrappers whenever possible; do not use exec to invoke sh -c '
+      'or bash -c as a workaround. Use bash only when shell features such as '
+      'pipes, redirects or expansions are actually required. Follow the exec '
+      'schema for separating options from argument values; exec does not '
+      'perform shell quoting or expansion.';
 }
