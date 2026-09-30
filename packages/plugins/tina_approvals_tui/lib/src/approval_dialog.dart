@@ -187,6 +187,10 @@ class ApprovalDialog {
         ],
         if (call?.argumentsParseError != null) call!.argumentsParseError!,
         if (ask != null) 'Why: ${ask.reason}',
+        if (_hasAlways && {'write', 'edit'}.contains(name))
+          'Remember: this file only for this conversation; other files still ask.',
+        if (_hasAlways && {'bash', 'exec'}.contains(name))
+          'Remember: this exact command and working directory for this conversation.',
       ],
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',

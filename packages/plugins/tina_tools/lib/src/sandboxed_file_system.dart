@@ -62,10 +62,14 @@ class SandboxedFileSystem implements FileSystem {
   /// closed. The filesystem never blocks on the approver beyond this call.
   Approver? approver;
 
-  /// The session's remembered "always" answers, as path globs. The approver's
+  /// The session's remembered "always" answers, as exact canonical paths. The approver's
   /// [Approval.always] causes a [remember] here; a host may also
   /// pre-seed grants to widen a grant deliberately.
   final FileGrants grants;
+
+  // Only temporary files created by this sandbox inherit the target grant.
+  // This permits atomic replacement without approving unrelated siblings.
+  final Map<String, String> _temporaryTargets = {};
 
   Future<String>? _rootFuture;
   Future<String>? _tinaFuture;
@@ -159,7 +163,11 @@ class SandboxedFileSystem implements FileSystem {
   @override
   Future<void> delete(String path) async {
     await guard(FileOp.write, path);
-    return _inner.delete(path);
+    try {
+      await _inner.delete(path);
+    } finally {
+      _temporaryTargets.remove(await resolveCanonical(path));
+    }
   }
 
   @override
@@ -167,7 +175,10 @@ class SandboxedFileSystem implements FileSystem {
     // The temp lives in the same dir as `near`; guard `near` as a write so a
     // temp can't be staged outside the root / inside tina.
     await guard(FileOp.write, near);
-    return _inner.createTempFile(near: near);
+    final tmp = await _inner.createTempFile(near: near);
+    _temporaryTargets[await resolveCanonical(tmp)] =
+        await resolveCanonical(near);
+    return tmp;
   }
 
   /// The one decision point, per call: structural checks first (canonical
@@ -179,7 +190,9 @@ class SandboxedFileSystem implements FileSystem {
   Future<void> guard(FileOp op, String path) async {
     final target = await resolveCanonical(path);
     await assertOutsideTina(target);
-    final request = (op: op, path: target);
+    final approvedTarget = _temporaryTargets[target] ?? target;
+    await assertOutsideTina(approvedTarget);
+    final request = (op: op, path: approvedTarget);
     final decision = decideOperation(
       request,
       mode,
@@ -201,11 +214,7 @@ class SandboxedFileSystem implements FileSystem {
           case Approval.yes:
             return;
           case Approval.always:
-            // Remember what was approved: the exact canonical path, plus
-            // the dir-level sibling glob [FileGrants.remember] adds so a
-            // same-dir temp+rename pass does not re-ask. Never wider than
-            // the directory that was approved.
-            grants.remember(target);
+            grants.rememberExact(approvedTarget);
             return;
           case Approval.no:
             throw SandboxViolation('${decision.reason} — denied by the user');

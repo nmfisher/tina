@@ -129,45 +129,35 @@ String operationReason(FileOperation op, PermissionMode mode) {
   };
 }
 
-/// Session-scoped "always" answers, remembered as path globs.
-///
-/// An approver that says "always" causes the caller to [remember] a pattern;
-/// the second identical write then matches and does not ask again. The
-/// pattern the filesystem remembers is the canonical path itself — exact,
-/// no wider than what was approved — but a host may [remember] any glob
-/// (`/tmp/shared/**`) to widen a grant deliberately.
-///
-/// Sessions are in-memory by design: grants die with the object, so nothing
-/// outlives the run that approved it.
+/// Session-scoped file approvals: human decisions remember exact canonical
+/// paths. Embedders may deliberately add explicit glob patterns with [remember].
+/// A new session owns a new instance; grants are never persisted.
 final class FileGrants {
   final List<String> _patterns = [];
 
   /// The remembered patterns, oldest first. Unmodifiable view.
-  List<String> get patterns => List.unmodifiable(_patterns);
+  List<String> get patterns => List.unmodifiable([..._exact, ..._patterns]);
 
-  bool get isEmpty => _patterns.isEmpty;
-  int get length => _patterns.length;
+  bool get isEmpty => _patterns.isEmpty && _exact.isEmpty;
+  int get length => _patterns.length + _exact.length;
 
-  /// Remembers [pattern] (a `fileGlobMatch` glob) and a dir-sibling `*`
-  /// alongside it, so a grant on a directory (or on a file created via
-  /// same-dir temp + rename) covers the directory itself and its siblings
-  /// without covering any deeper tree.
+  final Set<String> _exact = {};
+
+  /// Explicit pattern grants are for embedders; human file approvals are exact.
   bool remember(String pattern) {
     if (_patterns.contains(pattern)) return false;
     _patterns.add(pattern);
-    final slash = pattern.lastIndexOf('/');
-    final dirGlob = slash < 0 ? '*' : '${pattern.substring(0, slash + 1)}*';
-    if (dirGlob != pattern && !_patterns.contains(dirGlob)) {
-      _patterns.add(dirGlob);
-    }
     return true;
   }
+
+  bool rememberExact(String path) => _exact.add(path);
 
   /// True when [path] matches any remembered pattern.
   bool allows(String path) => patternFor(path) != null;
 
   /// The first pattern that matches [path], or null.
   String? patternFor(String path) {
+    if (_exact.contains(path)) return path;
     for (final pattern in _patterns) {
       if (fileGlobMatch(pattern, path)) return pattern;
     }

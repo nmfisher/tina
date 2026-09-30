@@ -8,6 +8,7 @@ class Human implements ApprovalRequester {
   int calls = 0;
   Map<String, Object?> lastDetails = {};
   String lastReason = '';
+  Future<ApprovalDecision>? pending;
   ApprovalDecision answer = ApprovalDecision.allow;
   @override
   Future<ApprovalDecision> request({
@@ -20,7 +21,7 @@ class Human implements ApprovalRequester {
     calls++;
     lastDetails = details;
     lastReason = reason;
-    return answer;
+    return pending ?? answer;
   }
 }
 
@@ -45,6 +46,47 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 );
 
 void main() {
+  test(
+    'late always approval after cancellation is denied and not cached',
+    () async {
+      final token = CancelToken();
+      final human = Human();
+      final pending = Completer<ApprovalDecision>();
+      human.pending = pending.future;
+      final mode = ModePlugin(approvals: human);
+      final context = TurnContext(
+        token,
+        input: const Input('write', id: 'turn'),
+        messages: [],
+        promptSections: [],
+        pinnedTools: [],
+        call: const ToolUse(id: 'write', name: 'write', input: {}),
+      );
+      mode.onInput(context);
+      mode.beforeToolCall(context);
+      final result = request(mode);
+      token.cancel('cancelled');
+      pending.complete(ApprovalDecision.allowAlways);
+      expect(await result, ApprovalDecision.deny);
+      mode.onTurnEnd(context);
+      human.pending = null;
+      human.answer = ApprovalDecision.deny;
+      final next = TurnContext(
+        CancelToken(),
+        input: const Input('next', id: 'next'),
+        messages: [],
+        promptSections: [],
+        pinnedTools: [],
+        call: context.call,
+      );
+      mode.onInput(next);
+      mode.beforeToolCall(next);
+      expect(await request(mode), ApprovalDecision.deny);
+      expect(human.calls, 2);
+      mode.closeSession();
+    },
+  );
+
   test(
     'auto fallback reason travels with the approval instead of only chat',
     () async {
