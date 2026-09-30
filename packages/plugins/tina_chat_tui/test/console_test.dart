@@ -193,7 +193,7 @@ void main() {
     chat.observe(const ToolOutput(call, 'hello\n'));
     chat.observe(const ToolFinished(
         call, ToolResult('hello\n', elapsed: Duration(milliseconds: 41))));
-    expect(transcript(), contains('03:04:05  hello'));
+    expect(transcript(), contains('03:04  hello'));
     expect(transcript(), contains('▸ reasoning  13 chars'));
     expect(transcript(), contains('→ bash · echo hello  ok · 41ms'));
     expect(transcript(), contains('Answer'));
@@ -212,7 +212,7 @@ void main() {
             .runs
             .first
             .text,
-        '03:04:05 ');
+        '03:04 ');
   });
   test(
       'Ctrl-B expands actual output in place, preserves draft, and yields to approval',
@@ -268,7 +268,7 @@ void main() {
     ]);
     chat.mountOn(loop);
     chat.attachConsole(context);
-    expect(transcript(), contains('03:04:05  old prompt'));
+    expect(transcript(), contains('03:04  old prompt'));
     expect(transcript(), contains('failed · Permission denied'));
     expect(transcript(), contains('▸ reasoning'));
     expect(chat.blocks.where((b) => b.kind == ChatBlockKind.toolCall),

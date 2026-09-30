@@ -13,8 +13,8 @@ class TimestampChatRenderer extends Renderer<ChatBlock> {
 
   void stamp(ChatBlock block, DateTime at) => _stamped[block] = at;
 
-  /// Gutter width: `HH:mm:ss ` — fixed, so stamps column-align across rows.
-  static const int stampWidth = 9;
+  /// Gutter width: `HH:mm ` — fixed, so stamps column-align across rows.
+  static const int stampWidth = 6;
 
   @override
   List<RenderLine> render(ChatBlock value, RenderContext context) {
@@ -26,12 +26,9 @@ class TimestampChatRenderer extends Renderer<ChatBlock> {
       return const ChatRenderer().render(value, context);
     }
 
-    // Lay the block out in the columns left of the gutter, then prepend the
-    // stamp to the FIRST non-blank line only: a message spanning several
-    // visual rows (explicit newlines or soft wrap) is one event — stamping
-    // every row both doubled the noise and misread continuation lines as
-    // separate messages. Blank separators stay blank either way, matching the
-    // transcript's rule.
+    // Reserve the same gutter on every content row. Only the first
+    // nonblank row carries a timestamp; continuations keep its indentation.
+    // Blank separators stay blank.
     final inner = RenderContext(
       width: context.width - stampWidth,
       theme: context.theme,
@@ -40,16 +37,17 @@ class TimestampChatRenderer extends Renderer<ChatBlock> {
     final out = <RenderLine>[];
     var stamped = false;
     for (final line in const ChatRenderer().render(value, inner)) {
-      if (line.isBlank || stamped) {
+      if (line.isBlank) {
         out.add(line);
       } else {
+        final gutter = stamped ? ' ' * stampWidth : stamp;
         stamped = true;
         out.add(
           RenderLine(
             bar: line.bar,
             align: line.align,
             animated: line.animated,
-            runs: [RenderRun(stamp, context.theme.chat.dim), ...line.runs],
+            runs: [RenderRun(gutter, context.theme.chat.dim), ...line.runs],
           ),
         );
       }
@@ -57,8 +55,7 @@ class TimestampChatRenderer extends Renderer<ChatBlock> {
     return out;
   }
 
-  static String _format(DateTime at) =>
-      '${_two(at.hour)}:${_two(at.minute)}:${_two(at.second)} ';
+  static String _format(DateTime at) => '${_two(at.hour)}:${_two(at.minute)} ';
 
   static String _two(int v) => v.toString().padLeft(2, '0');
 }
