@@ -68,6 +68,21 @@ source, tests and their architecture exceptions can be retired in a separate
 cleanup after acceptance. Preserve the existing modified `dart_notcurses`
 submodule; it is not part of that deletion.
 
+## UI follow-ups
+
+- [ ] Make tool activity and approvals easier to read: lead with a plain-language
+  action and affected file or destination, show readable commands and colored
+  diffs, and make the scope of each approval choice explicit. Keep technical
+  details expandable. Tool plugins supply the context; the presentation plugins
+  render it.
+- [ ] Fix keyboard access to the plan panel. Include the visible plan panel in
+  focus cycling, show which panel and item are selected, use Up/Down to select
+  plan items, and Enter to expand/collapse the selected item so its full text and
+  available child steps can be read. Keep the selection visible when scrolling
+  or resizing, and preserve the conversation's input draft when focus returns.
+  Verify this in a real PTY while plan progress updates arrive. This belongs to
+  `tina/plans` and the console's generic panel focus/input support.
+
 ## Activity presentation
 
 `packages/plugins/tina_activity_tui` owns tool status, streaming output and the

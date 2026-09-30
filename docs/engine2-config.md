@@ -32,8 +32,11 @@ local config. Legacy cached provider definitions are read offline at startup.
 
 The single `tina/plans` plugin attaches a live plan panel in the terminal: step
 states, child steps, completion counts and approval state. Ctrl-P toggles visibility.
-Use Ctrl-G to focus the panel, arrows to select, Enter to fold child steps or
-approve, Space to toggle a step, and R to reject. Small terminals collapse the
+The intended controls are Ctrl-G to focus the panel, arrows to select, Enter to
+fold child steps or approve, Space to toggle a step, and R to reject. Plan-panel
+focus, item selection and expansion have been reported as inaccessible and are
+tracked in the [UI follow-ups](engine2-migration.md#ui-follow-ups).
+Small terminals collapse the
 panel to the active step. Each conversation owns its plan and panel attachment.
 
 `tina/approvals-tui` renders permissions above the input line with command,
