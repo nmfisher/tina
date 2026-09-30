@@ -60,7 +60,7 @@ final class ChatTuiPlugin extends AgentPlugin
   void Function()? _unbindStatus;
   Timer? _ticker;
   int _frame = 0, _width = -1;
-  bool _busy = false, _hinted = false;
+  bool _busy = false;
   int? _selected;
   String _streamed = '', _thinking = '';
   bool _sawThinking = false;
@@ -393,7 +393,6 @@ final class ChatTuiPlugin extends AgentPlugin
     block.body =
         display.trim().isEmpty ? const [] : plainLines(_bound(display));
     _changed(block);
-    _hint();
   }
 
   @override
@@ -418,13 +417,6 @@ final class ChatTuiPlugin extends AgentPlugin
         }
       });
     }
-    _hint();
-  }
-
-  void _hint() {
-    if (_hinted || !_blocks.any((b) => b.canFold)) return;
-    _hinted = true;
-    _add(ChatBlock.notice(_speaker, '^B folds blocks · F4 browses activity'));
   }
 
   List<RegionLine> _render(ChatBlock block) => [
