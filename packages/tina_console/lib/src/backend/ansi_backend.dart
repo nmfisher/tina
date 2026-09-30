@@ -18,6 +18,7 @@ class AnsiBackend
     implements TerminalBackend, BackendDiagnostics, CanvasBackend {
   CanvasStyle _canvas = const CanvasStyle();
   bool _usedCanvas = false;
+  String? _cursorColor;
 
   @override
   void setCanvasStyle(
@@ -26,6 +27,11 @@ class AnsiBackend
     if (_canvas.isActive) _buf.write('\x1b[0m');
     _canvas = CanvasStyle(foreground: foreground, background: background);
     _usedCanvas |= _canvas.isActive;
+    final cursorColor = _canvas.cursorColor;
+    if (cursorColor != _cursorColor) {
+      _buf.write(CanvasStyle.cursorSequence(cursorColor));
+      _cursorColor = cursorColor;
+    }
   }
 
   final Stdio _io;
@@ -139,6 +145,10 @@ class AnsiBackend
 
   @override
   void leaveAltScreen() {
+    if (_cursorColor != null) {
+      _buf.write(CanvasStyle.cursorSequence(null));
+      _cursorColor = null;
+    }
     if (_usedCanvas) _buf.write('\x1b[0m');
     _buf.write('\x1b[?1049l');
   }

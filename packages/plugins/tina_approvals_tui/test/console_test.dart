@@ -72,7 +72,8 @@ void main() {
       expect(input(), contains('test-model > draft'));
       final decision = ask();
       await tick();
-      expect(input(), contains('[x] Yes   [ ] No'));
+      expect(input(), contains('[n] No'));
+      expect(all(), contains('❯ [y] Yes'));
       expect(input(), isNot(contains('test-model')));
       expect(input(), isNot(contains('draft')));
       final vt = visible();
@@ -81,7 +82,8 @@ void main() {
       expect(above, contains('Your message contains grok'));
       io.feed('\x1b[C'); // right selects No
       await tick();
-      expect(input(), contains('[ ] Yes   [x] No'));
+      expect(input(), contains('❯ [n] No'));
+      expect(all(), contains('  [y] Yes'));
       io.feed('\r');
       expect(await decision, ApprovalDecision.deny);
       await tick();
@@ -99,7 +101,7 @@ void main() {
       () async {
     final decision = ask(kind: ApprovalKind.permission);
     await tick();
-    expect(input(), contains('❯ [y] allow once'));
+    expect(input(), contains('[a] allow matching calls'));
     expect(all(), contains('❯ [y] allow once'));
     io.feed('\x1b[B');
     await tick();

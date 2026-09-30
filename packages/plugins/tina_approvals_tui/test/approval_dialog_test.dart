@@ -89,7 +89,7 @@ void main() {
     final shown = dialog.rows(width: 100).map(text).join('\n');
     expect(shown, contains('Command: git push origin work'));
     expect(shown, contains('Directory: /project'));
-    expect(shown, contains('[x] Yes'));
+    expect(shown, contains('❯ [y] Yes'));
     expect(shown, isNot(contains('[a]')));
   });
 
@@ -100,9 +100,35 @@ void main() {
             'write', '/outside/notes.txt', 'outside the project'));
     final rows = dialog.rows(width: 80, height: 7).map(text).toList();
     expect(rows.join('\n'), contains('/outside/notes.txt'));
-    expect(rows.last, contains('[y] allow once'));
-    expect(rows.last, contains('[n] deny'));
-    expect(rows.last, contains('[a] allow this file'));
+    expect(rows[rows.length - 3], '❯ [y] allow once');
+    expect(rows[rows.length - 2], '  [n] deny');
+    expect(rows.last, '  [a] allow this file for this session');
+  });
+
+  test('permission and Yes/No answers use the same vertical selector', () {
+    for (final confirmation in [false, true]) {
+      final dialog = ApprovalDialog(null,
+          ask: ApprovalAskContext(
+              'Continue?', 'target.txt', 'Review this action',
+              confirmation: confirmation));
+      final count = confirmation ? 2 : 3;
+      for (final width in [40, 80, 160]) {
+        final rows = dialog.rows(width: width, height: 12);
+        final answers = rows
+            .where((r) => RegExp(r'^.[ ]\[[yna]\]').hasMatch(text(r)))
+            .toList();
+        expect(answers, hasLength(count));
+        expect(
+            answers.map(text).where((s) => s.startsWith('❯ ')), hasLength(1));
+        expect(answers.first.runs.single.code, Theme.defaults().dialog.confirm);
+        expect(rows.map(text).join(), isNot(contains('[x]')));
+      }
+      dialog.handleKey(ApprovalKey.down);
+      final selected =
+          dialog.rows().singleWhere((r) => text(r).startsWith('❯ '));
+      expect(text(selected), confirmation ? '❯ [n] No' : '❯ [n] deny');
+      expect(selected.runs.single.code, Theme.defaults().dialog.confirm);
+    }
   });
   test('command is readable and preview paging keeps the selected answer', () {
     final dialog = ApprovalDialog(ToolUse(id: 'long', name: 'bash', input: {
@@ -187,8 +213,9 @@ void main() {
     final rows = dialog().rows(width: 80, height: 10);
     final text = rows.map((r) => r.runs.map((s) => s.text).join()).join('\n');
     expect(text, contains(question));
-    expect(text, contains('[x] Yes'));
-    expect(text, contains('[ ] No'));
+    expect(text, contains('❯ [y] Yes'));
+    expect(text, contains('  [n] No'));
+    expect(text, isNot(contains('[x]')));
     expect(text, isNot(contains('always')));
     expect(
         (await dialog().awaitDecision(ScriptedKeySource([ApprovalKey.confirm])))
@@ -206,7 +233,7 @@ void main() {
     final small = dialog().rows(width: 40, height: 5);
     expect(small.length, lessThanOrEqualTo(5));
     expect(small.map((r) => r.runs.map((s) => s.text).join()).join('\n'),
-        contains('[ ] No'));
+        contains('[n] No'));
   });
   final call = const ToolUse(
     id: 'c1',
@@ -274,7 +301,7 @@ void main() {
     expect(texts.join(), contains('[a] allow this command'));
     expect(texts.any((t) => t.contains('allow this command')), isTrue);
     expect(texts.join(), contains('Esc deny'));
-    expect(texts.last, contains('[y] allow once'));
+    expect(texts.last, contains('[a] allow this command'));
   });
 
   test('selected choice is highlighted with the dialog style', () {
@@ -340,7 +367,7 @@ void main() {
     dialog.handleKey(ApprovalKey.down);
     final rows = dialog.rows(width: 14, height: 1);
     expect(rows, hasLength(1));
-    expect(text(rows.single), '[x] No (2/2)');
+    expect(text(rows.single), '❯ [n] No (2/2)');
   });
 
   test('details scroll to the complete path; enter returns without approving',

@@ -261,92 +261,49 @@ class ApprovalDialog {
         if (height > 2) row('↑↓ scroll · tab back · esc deny', chat.dim),
       ].take(height).toList();
     }
-    if (ask?.confirmation != true) {
-      final choices = [
-        '[y] allow once',
-        '[n] deny',
-        if (_hasAlways) '[a] $alwaysLabel',
-      ];
-      RenderLine choice(int i, {bool compact = false}) => row(
-          '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
-          i == _selected ? theme.dialog.confirm : null);
-      if (height <= 3) return [choice(_selected, compact: true)];
-      final bar = RenderLine(runs: [
-        for (var i = 0; i < choices.length; i++) ...[
-          if (i > 0) const RenderRun('  ', null),
-          RenderRun('${i == _selected ? '❯' : ' '} ${choices[i]}',
-              i == _selected ? theme.dialog.confirm : null),
-        ],
-      ]);
-      final inline =
-          visibleWidth(bar.runs.map((run) => run.text).join()) <= width;
-      // Context takes priority over laying out every choice vertically. All
-      // choices still have shortcuts; narrow cards show the selected choice.
-      final allChoices = !inline && height >= choices.length + 6;
-      final choiceRows = inline
-          ? [bar]
-          : allChoices
-              ? [for (var i = 0; i < choices.length; i++) choice(i)]
-              : [choice(_selected, compact: true)];
-      final preview = [
-        for (final detail in details)
-          for (final part in detail.split('\n'))
-            for (final line
-                in wrapDialogText(part, (width - 2).clamp(1, width)))
-              row('│ $line', contentStyle(detail)),
-      ];
-      final available =
-          (height - choiceRows.length - 2).clamp(0, preview.length);
-      final paged = preview.length > available && available >= 2;
-      final budget = available - (paged ? 1 : 0);
-      _pageSize = budget > 0 ? budget : 1;
-      _maxPreviewOffset = (preview.length - budget).clamp(0, preview.length);
-      _previewOffset = _previewOffset.clamp(0, _maxPreviewOffset);
-      return [
-        row('┌ $label · awaiting approval', theme.dialog.confirm),
-        ...preview.skip(_previewOffset).take(budget),
-        if (paged)
-          row('│ Preview ${_previewOffset + 1}–${_previewOffset + budget}/${preview.length} · PgUp/PgDn or wheel',
-              chat.dim),
-        row(
-            width >= 56
-                ? '│ ↑↓ choose · Enter confirm · Tab details · Esc deny'
-                : '│ ↑↓ · Enter · Tab details · Esc deny',
-            chat.dim),
-        ...choiceRows,
-      ].take(height).toList();
-    }
-    final choices = _choices;
-    final runs = [
-      for (var i = 0; i < choices.length; i++) ...[
-        if (i > 0) const RenderRun('   ', null),
-        RenderRun('${i == _selected ? '[x]' : '[ ]'} ${choices[i]}',
-            i == _selected ? theme.dialog.confirm : null),
-      ],
+    final choices = ask?.confirmation == true
+        ? ['[y] Yes', '[n] No']
+        : [
+            '[y] allow once',
+            '[n] deny',
+            if (_hasAlways) '[a] $alwaysLabel',
+          ];
+    RenderLine choice(int i, {bool compact = false}) => row(
+        '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
+        i == _selected ? theme.dialog.confirm : null);
+    if (height <= 3) return [choice(_selected, compact: true)];
+    // Every answer gets its own row. Only very short terminals show the
+    // selected answer alone, keeping one row for the request's context.
+    final choiceRows = height >= choices.length + 3
+        ? [for (var i = 0; i < choices.length; i++) choice(i)]
+        : [choice(_selected, compact: true)];
+    final preview = [
+      for (final detail in details)
+        for (final part in detail.split('\n'))
+          for (final line in ask?.confirmation == true
+              ? wrapDialogWords(part, (width - 2).clamp(1, width))
+              : wrapDialogText(part, (width - 2).clamp(1, width)))
+            row('│ $line', contentStyle(detail)),
     ];
-    final selector = visibleWidth(runs.map((r) => r.text).join()) <= width
-        ? RenderLine(runs: runs)
-        : row('[x] ${choices[_selected]} (${_selected + 1}/${choices.length})',
-            theme.dialog.confirm);
-    if (height == 1) return [selector];
-    final visibleDetails = ask?.confirmation == true
-        ? [
-            for (final detail in details)
-              ...wrapDialogWords(detail, (width - 2).clamp(1, width))
-          ]
-        : details;
-    final detailCount = (height - 3).clamp(0, visibleDetails.length);
+    final available = (height - choiceRows.length - 2).clamp(0, preview.length);
+    final paged = preview.length > available && available >= 2;
+    final budget = available - (paged ? 1 : 0);
+    _pageSize = budget > 0 ? budget : 1;
+    _maxPreviewOffset = (preview.length - budget).clamp(0, preview.length);
+    _previewOffset = _previewOffset.clamp(0, _maxPreviewOffset);
     return [
-      row('┌─ $label', theme.dialog.confirm),
-      for (final detail in visibleDetails.take(detailCount)) row('│ $detail'),
-      if (height > 2)
-        row(
-            width >= 56
-                ? '└─ arrows choose · enter confirm · tab details · esc deny'
-                : 'arrows · enter · tab details · esc deny',
+      row('┌ $label · awaiting approval', theme.dialog.confirm),
+      ...preview.skip(_previewOffset).take(budget),
+      if (paged)
+        row('│ Preview ${_previewOffset + 1}–${_previewOffset + budget}/${preview.length} · PgUp/PgDn or wheel',
             chat.dim),
-      selector,
-    ];
+      row(
+          width >= 56
+              ? '│ ↑↓ choose · Enter confirm · Tab details · Esc deny'
+              : '│ ↑↓ · Enter · Tab details · Esc deny',
+          chat.dim),
+      ...choiceRows,
+    ].take(height).toList();
   }
 
   /// Apply one navigation key; returns true when the selection changed.

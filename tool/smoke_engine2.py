@@ -223,6 +223,8 @@ def smoke(launcher, endpoint, columns, rows):
             if rows in (10, 24):
                 background = b'48;5;234' if rows == 10 else b'48;5;255'
                 assert background in terminal.output, 'theme did not set the application background'
+                cursor = b'\x1b]12;#d0d0d0\x07' if rows == 10 else b'\x1b]12;#080808\x07'
+                assert cursor in terminal.output, 'hardware cursor did not follow the theme'
             terminal.expect("mode: ask")
             terminal.expect("update ⬆ v999.0.0 · /update")
             start = terminal.send("\x1b[Z")
@@ -444,8 +446,8 @@ def smoke(launcher, endpoint, columns, rows):
             before_guard = len(ModelStub.requests)
             start = terminal.send('GROK declined\r')
             terminal.expect('Your message contains grok, this is a no-no.', start)
-            terminal.expect('[x] Yes', start)
-            terminal.expect('[ ] No', start)
+            terminal.expect('❯ [y] Yes', start)
+            terminal.expect('[n] No', start)
             assert len(ModelStub.requests) == before_guard, 'input reached provider before approval'
             start = terminal.send('\x1b[B\r')
             terminal.expect('message declined', start)
@@ -453,7 +455,7 @@ def smoke(launcher, endpoint, columns, rows):
             # Let the modal's key-burst window finish before typing a new line.
             time.sleep(0.1)
             start = terminal.send('grok approved\r')
-            terminal.expect('[x] Yes', start)
+            terminal.expect('❯ [y] Yes', start)
             start = terminal.send('\r')
             terminal.expect('smoke answer', start)
             assert len(ModelStub.requests) == before_guard + 1

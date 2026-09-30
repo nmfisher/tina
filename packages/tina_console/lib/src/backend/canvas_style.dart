@@ -1,3 +1,5 @@
+import '../styled_text.dart';
+
 /// An optional backend capability for application-owned default colors.
 abstract interface class CanvasBackend {
   void setCanvasStyle({required String foreground, required String background});
@@ -10,6 +12,16 @@ class CanvasStyle {
   final String foreground;
   final String background;
   bool get isActive => foreground != '39' || background != '49';
+
+  /// Hardware cursor color follows the explicit application foreground. SGR
+  /// only colors cells; it cannot change a terminal profile's black cursor.
+  String? get cursorColor {
+    final rgb = parseStyledRuns('\x1b[${foreground}m ').last.style.fg;
+    return rgb == null ? null : '#${rgb.toRadixString(16).padLeft(6, '0')}';
+  }
+
+  static String cursorSequence(String? color) =>
+      color == null ? '\x1b]112\x07' : '\x1b]12;$color\x07';
   String get reset => isActive ? '\x1b[0;$foreground;${background}m' : '';
   static final _sgr = RegExp(r'\x1b\[([0-9;]*)m');
 

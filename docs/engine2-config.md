@@ -17,7 +17,9 @@ Existing custom thinking budgets remain visible and can be replaced using the
 same control. Other unsaved settings still offer Save, Discard or Keep editing.
 `/settings` can open while a model request or tool is running. Saved generation
 settings apply to the next model request; the current request continues with its
-original values. Theme changes apply immediately. Other startup settings apply
+original values. Theme changes apply immediately. The hardware text cursor follows
+the theme's foreground color, and the terminal-profile cursor color is restored
+on exit or when returning to the default theme. Other startup settings apply
 on the next launch.
 **Plugins** in `/settings` applies supported plugin changes between turns.
 Choose Global, Workspace or Session scope. Space/Enter toggles a checkbox;
@@ -49,9 +51,11 @@ the transcript, activity browser and approvals use those descriptions for
 plain-language labels. `tina/approvals-tui` renders permissions above the input
 line with the actual command, directory, affected file or colored edit preview.
 Y allows the invocation once, N denies, and A remembers the displayed scope
-for the session: this file, or this exact command in this directory. Choices
-share one row when space permits. Arrows/Enter also work; Tab opens scrollable
-technical details, and Esc cancels. Generic confirmations retain Yes/No.
+for the session: this file, or this exact command in this directory. Each choice
+has its own row, with an arrow and highlighting on the selected answer.
+Arrows/Enter also work; Tab opens scrollable technical details, and Esc cancels.
+Yes/No confirmations use the same layout and Y/N shortcuts. Very short terminals
+show the selected answer and its position in the list.
 One-call approval includes the tool's atomic temporary-file/rename work,
 and expires after the invocation. Request details are channel-neutral metadata;
 the engine does not depend on terminal rendering.

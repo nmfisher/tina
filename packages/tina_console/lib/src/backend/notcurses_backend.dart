@@ -266,6 +266,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
 class NotcursesBackend
     implements TerminalBackend, BackendDiagnostics, CanvasBackend {
   CanvasStyle _canvas = const CanvasStyle();
+  String? _cursorColor;
 
   @override
   void setCanvasStyle(
@@ -273,6 +274,11 @@ class NotcursesBackend
     if (_stopped || !supportsColor) return;
     if (_canvas.isActive) _emitSgrStyled(_platform, 0, 0, '\x1b[0m');
     _canvas = CanvasStyle(foreground: foreground, background: background);
+    final cursorColor = _canvas.cursorColor;
+    if (cursorColor != _cursorColor) {
+      _platform.writeRawToTty(CanvasStyle.cursorSequence(cursorColor));
+      _cursorColor = cursorColor;
+    }
     for (final surface in _surfaces) {
       surface._canvas = _canvas;
     }
@@ -541,7 +547,14 @@ class NotcursesBackend
         // Its handle is already invalidated; stop frees any remaining planes.
       }
     }
-    _platform.stop();
+    try {
+      if (_cursorColor != null) {
+        _platform.writeRawToTty(CanvasStyle.cursorSequence(null));
+        _cursorColor = null;
+      }
+    } finally {
+      _platform.stop();
+    }
   }
 
   // -- Bracketed paste ----------------------------------------------------

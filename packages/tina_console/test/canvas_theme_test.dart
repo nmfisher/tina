@@ -14,7 +14,8 @@ import 'stdio_fake.dart';
 List<({String text, int? fg, int? bg})> paints(String output) {
   final state = SgrState();
   final result = <({String text, int? fg, int? bg})>[];
-  for (final match in RegExp(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b[78]|[^\x1b]+')
+  for (final match in RegExp(
+          r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[78]|[^\x1b]+')
       .allMatches(output)) {
     final token = match[0]!;
     if (token.startsWith('\x1b[') && token.endsWith('m')) {
@@ -82,7 +83,9 @@ void main() {
       io.written.clear();
       screen.leaveAltScreen();
       expect(io.written.toString(), contains('\x1b[0m\x1b[?1049l'));
-      expect(io.written.toString(), isNot(contains('\x1b]')),
+      expect(io.written.toString(), contains('\x1b]112\x07'),
+          reason: 'the shell regains its terminal-profile cursor color');
+      expect(io.written.toString(), isNot(contains('\x1b]4;')),
           reason: 'application themes never modify the terminal palette');
     });
   }
@@ -178,5 +181,55 @@ void main() {
       }
     }
     expect(writes, greaterThanOrEqualTo(2));
+  });
+
+  test('hardware cursor follows dark, light, custom and default themes', () {
+    for (final native in [false, true]) {
+      final io = FakeStdio();
+      final platform = RecordingPlatform();
+      final TerminalBackend backend;
+      if (native) {
+        backend = NotcursesBackend.forTesting(io: io, platform: platform);
+      } else {
+        backend = AnsiBackend(io: io, ansi: AnsiCapable.yes);
+      }
+      final screen = Screen.withBackend(
+          io: io,
+          backend: backend,
+          ansi: AnsiCapable.yes,
+          theme: const Theme.dark(),
+          layout: ScreenLayout.fromSize(80, 10));
+      addTearDown(() {
+        screen.dispose();
+        io.close();
+      });
+      screen.enterAltScreen();
+      screen.setTheme(const Theme.light());
+      screen.setTheme(const Theme(
+          canvas:
+              CanvasTheme(foreground: '38;2;20;210;180', background: '40')));
+      screen.setTheme(const Theme.defaults());
+      screen.setTheme(const Theme.dark());
+      screen.leaveAltScreen();
+      final output =
+          native ? platform.rawTtyWrites.join() : io.written.toString();
+      final colors = RegExp(r'\x1b\](?:12;#[a-f0-9]{6}|112)\x07')
+          .allMatches(output)
+          .map((m) => m[0]!)
+          .toList();
+      expect(
+          colors,
+          [
+            '\x1b]12;#d0d0d0\x07',
+            '\x1b]12;#080808\x07',
+            '\x1b]12;#14d2b4\x07',
+            '\x1b]112\x07',
+            '\x1b]12;#d0d0d0\x07',
+            '\x1b]112\x07',
+          ],
+          reason: native ? 'native terminal' : 'ANSI terminal');
+      expect(output, isNot(contains('\x1b]4;')));
+      if (native) expect(platform.calls.last, 'stop');
+    }
   });
 }
