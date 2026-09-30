@@ -143,6 +143,34 @@ void main() {
     expect(await line, 'draft');
   });
 
+  test('Escape releases approval keys so the next response submits', () async {
+    final line = editor.readLine('test-model > ');
+    final decision = ask(kind: ApprovalKind.permission);
+    await tick();
+    io.feed('\x1b');
+    expect(await decision, ApprovalDecision.deny);
+    await tick();
+    io.feed('replacement response\r');
+    expect(
+        await line.timeout(const Duration(seconds: 1)), 'replacement response');
+  });
+
+  test('ending a busy input monitor cannot be undone by approval cleanup',
+      () async {
+    editor.beginCancelMonitor(() {}, onQueueSubmit: (_) {});
+    final decision = ask(kind: ApprovalKind.permission);
+    await tick();
+    io.feed('\x1b');
+    // The turn may finish before the approval's readKey cleanup microtask.
+    editor.endInputCaptureWindow();
+    final line = editor.readLine('test-model > ');
+    expect(await decision, ApprovalDecision.deny);
+    await tick();
+    io.feed('replacement response\r');
+    expect(
+        await line.timeout(const Duration(seconds: 1)), 'replacement response');
+  });
+
   test('external cancellation restores the input while the key read unwinds',
       () async {
     final line = editor.readLine('test-model > ');

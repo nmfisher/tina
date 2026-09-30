@@ -393,9 +393,12 @@ class LineEditor {
   /// Completion owns its page keys while a picker is visible.
   bool get isCompleting => _activePicker != null;
 
+  int _monitorGeneration = 0;
+
   Future<InputEvent> _readKeyOnce(bool globalKeys, bool panelNavigation,
       bool acceptPaste, Future<void>? stop) {
     final c = Completer<InputEvent>();
+    final savedGeneration = _monitorGeneration;
     final savedCancel = _cancelHandler;
     final savedQueueSubmit = _onQueueSubmit;
     _cancelHandler = null;
@@ -408,8 +411,12 @@ class LineEditor {
     void restoreMonitor() {
       if (restored) return;
       restored = true;
-      _cancelHandler = savedCancel;
-      _onQueueSubmit = savedQueueSubmit;
+      // The turn can finish (or another input owner can begin) while the
+      // approval read unwinds. Never resurrect that expired busy monitor.
+      if (_monitorGeneration == savedGeneration) {
+        _cancelHandler = savedCancel;
+        _onQueueSubmit = savedQueueSubmit;
+      }
       _restoreKeyMonitor = null;
     }
 
@@ -445,6 +452,7 @@ class LineEditor {
     void Function(String)? onQueueSubmit,
     int queueCount = 0,
   }) {
+    _monitorGeneration++;
     _cancelHandler = onCancel;
     _onQueueSubmit = onQueueSubmit;
     final draft = _capturedDraft;
@@ -461,6 +469,7 @@ class LineEditor {
   }
 
   void endCancelMonitor() {
+    _monitorGeneration++;
     _cancelHandler = null;
     if (_queueModeActive) _renderQueueDisplay();
     _queueModeActive = false;
