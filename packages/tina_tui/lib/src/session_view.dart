@@ -17,7 +17,7 @@ final class SessionView implements ConsoleSessionView {
   @override
   String get id => session.host.session.id;
   @override
-  String get label => session.host.config.model;
+  String get label => session.host.model;
   @override
   bool get quitRequested => session.assembly.quitRequested;
   @override

@@ -23,6 +23,7 @@ final class HostConfig {
   const HostConfig({
     required this.providerFactory,
     this.model = 'scripted',
+    this.restoreModel = true,
     required this.workingDirectory,
     this.plugins = const [],
     this.systemPrompt = '',
@@ -36,6 +37,7 @@ final class HostConfig {
 
   /// The model label, handed to the factory.
   final String model;
+  final bool restoreModel;
 
   /// The directory the session works in.
   final String workingDirectory;

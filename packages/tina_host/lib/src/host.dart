@@ -134,6 +134,7 @@ final class Host {
       id: id,
       workingDirectory: config.workingDirectory,
       title: config.sessionTitle,
+      model: config.model,
       resuming: resuming,
       details: config.details,
       notifyChanged: () {
@@ -154,12 +155,15 @@ final class Host {
             throw StateError('multiple plugins supplied session history');
           seed = restored;
           context.details = restored.details;
+          if (config.restoreModel && restored.model != null) {
+            context.model = restored.model;
+          }
         }
       }
       if (resuming && seed == null) {
         throw StateError('no loaded plugin restored session $id');
       }
-      provider = config.providerFactory(config.model);
+      provider = config.providerFactory(context.model!);
       final loop = AgentLoop(
         provider: provider,
         plugins: plugins,
@@ -186,6 +190,17 @@ final class Host {
       } catch (_) {/* Preserve opening error. */}
       rethrow;
     }
+  }
+
+  String get model => context.model!;
+
+  void switchModel(String model) {
+    _checkIdle();
+    if (model == this.model) return;
+    final provider = config.providerFactory(model);
+    session.loop.replaceProvider(provider);
+    context.model = model;
+    context.notifyChanged();
   }
 
   Future<Outcome> send(String text, {String? turnId}) async {

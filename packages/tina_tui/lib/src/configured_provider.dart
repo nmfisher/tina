@@ -171,7 +171,15 @@ GenerationOptions generationFor(TinaConfig config, String id, String model) {
 ProviderPolicyPlugin configuredPolicy(TinaConfig config,
     {LlmProvider Function(String)? override}) {
   List<ProviderTarget> targets(String model) {
-    final selected = config.providerId ?? 'anthropic';
+    var selected = config.providerId ?? 'anthropic';
+    var wireModel = model;
+    final slash = model.indexOf('/');
+    if (slash > 0 &&
+        descriptorByIdFor(model.substring(0, slash), config.descriptors) !=
+            null) {
+      selected = model.substring(0, slash);
+      wireModel = model.substring(slash + 1);
+    }
     if (override != null)
       return [
         ProviderTarget(
@@ -183,7 +191,7 @@ ProviderPolicyPlugin configuredPolicy(TinaConfig config,
     final members = config.providers[selected]?.members ?? const <String>[];
     return [
       for (final member in members.isEmpty ? [selected] : members)
-        _target(config, member, model)
+        _target(config, member, wireModel)
     ];
   }
 

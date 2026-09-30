@@ -85,12 +85,36 @@ final class AgentLoop {
     }
   }
 
-  final LlmProvider _provider;
+  LlmProvider _provider;
 
   /// The session's provider, read-only. Compaction needs it: the summary
   /// is one extra request on the provider the turn already uses — the
   /// plugin does not build its own and never closes this one.
   LlmProvider get provider => _provider;
+
+  /// Replace the request resource only between turns.
+  void replaceProvider(LlmProvider provider) {
+    if (running) throw StateError('provider changes require an idle loop');
+    final old = _provider;
+    _provider = provider;
+    old.close();
+  }
+
+  /// Reserve the session for an asynchronous operation outside a turn.
+  Future<T> betweenTurns<T>(Future<T> Function() operation) async {
+    if (running) throw StateError('session is busy');
+    _running = true;
+    try {
+      return await operation();
+    } finally {
+      _running = false;
+    }
+  }
+
+  void clearHistory() {
+    if (running) throw StateError('clear between turns');
+    _append(ContextClearedEntry(at: _now()));
+  }
 
   /// Plugins in registration order. A duplicate id throws here.
   final LinkedHashMap<String, AgentPlugin> _byId = LinkedHashMap();
@@ -528,11 +552,11 @@ final class AgentLoop {
           detail: detail,
           changedBy: changedBy,
           stopRequest: stop);
+      _inTurn = false; // The transcript turn is closed before post-turn work.
       await _phase(ctx, 'onTurnEnd', (p, c) {
         c.outcome = outcome;
         return p.onTurnEnd(c);
       }, observational: true);
-      _inTurn = false;
       return outcome;
     }
 

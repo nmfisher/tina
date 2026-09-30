@@ -195,7 +195,8 @@ Future<void> main(List<String> args) async {
         options: AssemblyOptions(
             configPath: path, workingDirectory: workspace.path));
     try {
-      if (app.host.config.model != config.model)
+      if (app.host.config.model !=
+          '${config.providerId ?? 'anthropic'}/${config.model}')
         throw StateError('startup model mismatch');
     } finally {
       app.close();

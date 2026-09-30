@@ -217,3 +217,21 @@ See [migration status](../../docs/engine2-migration.md).
 The root CLI supports `--configure`, `--version`, and `--completion bash|zsh|fish`.
 Command arguments are completed by plugin-owned `Command.complete` callbacks.
 Settings menus filter as you type; Tab completes supported text fields.
+
+## Conversation controls and headless runs
+
+`tina/session-controls` is enabled by default and supplies `/model` (a searchable
+picker), `/model provider/model`, and `/clear`. Explicit plugin selections can
+enable it through Settings → Plugins. Model switching retains history and
+changes only the active conversation. Its selection is saved by persistence;
+resume restores it unless `--model` overrides it. Older sessions without model
+metadata fall back to the configured default. `/clear` resets the display and
+request context through an append-only log event; budgets, mode and plugin state
+remain intact. The compaction plugin supplies `/compact`, preserving recent
+turns and storing its summary.
+
+`--model provider/model` selects a model at startup; `--models [provider]` lists
+models. `--prompt "text"` runs one turn without a TUI, and `--prompt -` reads stdin.
+These can use `--continue` or `--resume ID`. The final reply goes to stdout,
+failures to stderr, and failed/cancelled turns return nonzero. Headless approval
+requests are denied rather than waiting for input or widening permissions.

@@ -90,7 +90,7 @@ final class ChatTuiPlugin extends AgentPlugin
     _unbindPrompt = context.bindPrompt(() => renderConversationPrompt(
         ConversationPrompt(
             conversationId: '',
-            model: model,
+            model: _loop?.provider.model ?? model,
             busy: _busy,
             focused: true,
             newLines: context.chat.newWhileScrolled),
@@ -215,7 +215,19 @@ final class ChatTuiPlugin extends AgentPlugin
   void entry(SessionEntry entry, LogEvent event) {
     final at =
         DateTime.tryParse(entry.toJson()['at'] as String? ?? '')?.toLocal();
-    if (entry is TurnStartedEntry) {
+    if (entry is ContextClearedEntry) {
+      _blocks.clear();
+      _rows.clear();
+      _calls.clear();
+      _finished.clear();
+      _recordedInputs.clear();
+      _responseBlocks.clear();
+      _thinking = '';
+      _streamed = '';
+      _preview = null;
+      _console?.chat.resetAfterClear();
+      _console?.chat.repaint();
+    } else if (entry is TurnStartedEntry) {
       _busy = event == LogEvent.appended;
     } else if (entry is InputRecordedEntry) {
       _recordedInputs.add(entry.turnId);

@@ -25,6 +25,9 @@ final class TuiPluginContext {
     required this.tools,
     required this.providerFactory,
     required this.model,
+    required this.currentModel,
+    required this.switchModel,
+    this.models = const [],
     this.openStore,
     this.version = '0.0.0',
     this.providerPolicy,
@@ -40,6 +43,9 @@ final class TuiPluginContext {
   final ToolsPlugin tools;
   final ProviderFactory providerFactory;
   final String model;
+  final String Function() currentModel;
+  final void Function(String) switchModel;
+  final List<String> models;
   final SessionStoreOpener? openStore;
 }
 
@@ -76,6 +82,16 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
       requiredCapabilities: [modelAccess],
       definitions: [
         ...basePluginDefinitions(),
+        PluginDefinition<TuiPluginContext>(
+            'tina/session-controls',
+            (c) => SessionControlsPlugin(
+                terminal: c.terminal,
+                currentModel: c.currentModel,
+                switchModel: c.switchModel,
+                models: c.models),
+            description:
+                'Switches the active conversation model and clears its context and display.',
+            live: true),
         PluginDefinition<TuiPluginContext>('tina/step-limit',
             (c) => StepLimitConsolePlugin(configPath: c.configPath),
             description:
@@ -173,7 +189,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Tracks an active goal and its progress across turns, with optional token budgets.',
             live: true),
         PluginDefinition<TuiPluginContext>(
-            'tina/auto-compact', (_) => CompactionPlugin(),
+            'tina/auto-compact', (c) => CompactionPlugin(terminal: c.terminal),
             description:
                 'Summarizes older conversation history when context grows large to make room for more work.',
             live: true),
@@ -190,6 +206,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                     parentTools: parentTools,
                     providerFactory: models.childProvider,
                     model: c.model,
+                    currentModel: c.currentModel,
                     childPlugins: () => [
                       const SystemInstructionPlugin(),
                       if (c.openStore != null)

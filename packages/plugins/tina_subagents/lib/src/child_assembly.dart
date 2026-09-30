@@ -29,6 +29,7 @@ ChildSessionFactory standardChildFactory({
   required ToolSessionSource parentTools,
   required ProviderFactory providerFactory,
   String model = 'scripted',
+  String Function()? currentModel,
   List<AgentPlugin> Function()? childPlugins,
   List<AgentPlugin> extraPlugins = const [],
 }) {
@@ -52,7 +53,7 @@ ChildSessionFactory standardChildFactory({
       sessionId: plugin.nextChildId(),
       workingDirectory: parentTools.workingDirectory,
       providerFactory: providerFactory,
-      model: model,
+      model: currentModel?.call() ?? model,
       plugins: [
         ToolsPlugin(
           workspaceRoot: parentTools.workingDirectory,

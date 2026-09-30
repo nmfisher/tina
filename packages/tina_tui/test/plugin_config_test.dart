@@ -41,9 +41,19 @@ void main() {
     addTearDown(assembly.close);
     expect(assembly.host.config.plugins.map((p) => p.id),
         containsAll(defaultPluginIds));
-    expect(assembly.commands.all.map((c) => c.name),
-        containsAll(['plan', 'goal', 'mode', 'settings', 'quit']));
-    for (final legacy in ['model', 'session', 'sessions', 'resume', 'save']) {
+    expect(
+        assembly.commands.all.map((c) => c.name),
+        containsAll([
+          'plan',
+          'goal',
+          'mode',
+          'model',
+          'compact',
+          'clear',
+          'settings',
+          'quit'
+        ]));
+    for (final legacy in ['session', 'sessions', 'resume', 'save']) {
       expect(assembly.commands[legacy], isNull,
           reason: 'session command ports are explicitly deferred');
     }

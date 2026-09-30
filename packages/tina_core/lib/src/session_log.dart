@@ -252,6 +252,8 @@ sealed class SessionEntry {
           at: at,
           seq: stamped,
         );
+      case ContextClearedEntry.kindName:
+        return ContextClearedEntry(at: at, seq: stamped);
       case CompactedEntry.kindName:
         return CompactedEntry(
           replacedFrom: (j['replaced_from'] as num).toInt(),
@@ -588,6 +590,20 @@ final class UsageRecordedEntry extends SessionEntry {
 /// replaced by one synthetic user message carrying [summary]. The
 /// dropped text is unrecoverable, which is exactly why this entry
 /// exists: it is the one fact no derivation can reproduce.
+/// An explicit request-context reset. Stored messages remain in the audit log.
+final class ContextClearedEntry extends SessionEntry {
+  static const kindName = 'context_cleared';
+  const ContextClearedEntry({this.at = '', super.seq = 0});
+  final String at;
+  @override
+  String get kind => kindName;
+  @override
+  ContextClearedEntry withSeq(int seq) => ContextClearedEntry(at: at, seq: seq);
+  @override
+  Map<String, dynamic> toJson() =>
+      {...super.toJson(), if (at.isNotEmpty) 'at': at};
+}
+
 final class CompactedEntry extends SessionEntry {
   static const kindName = 'compacted';
 
@@ -731,6 +747,10 @@ DerivedSession deriveSession(
       case TurnEndedEntry(:final turnId):
         completedTurns.add(turnId);
         openTurns.remove(turnId);
+      case ContextClearedEntry():
+        slots.clear();
+        openTurns.clear();
+        break;
       case CompactedEntry(
           :final replacedFrom,
           :final replacedTo,

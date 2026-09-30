@@ -26,9 +26,9 @@ be enabled to resume. Old on-disk sessions still need `--import-sessions` first.
 
 | Legacy entry point / behavior | Current engine2 behavior |
 | --- | --- |
-| `--model`, `--models [provider]` | No CLI override or listing. Use the app's model picker or global configuration. |
-| Resume restores the saved model unless overridden | Assembly chooses the currently configured model; stored history is restored, but model selection is not restored from that session. |
-| `--prompt`, `--goal`, `--max-goal-turns` | No headless CLI entry point. Interactive goals remain a plugin feature. |
+| `--model`, `--models [provider]` | Restored, alongside the plugin-owned `/model` picker. |
+| Resume restores the saved model unless overridden | Restored for sessions with model metadata; older rows fall back to the configured model. |
+| `--prompt` | Restored for headless runs; `--prompt -` reads stdin. Approval requests are denied without a human channel. |
 | `--base-url`, `--max-output-tokens` / `--max-tokens`, `--reasoning-effort` | No corresponding CLI overrides. Provider/generation configuration is supported; see the config audit. |
 | Token, sub-agent and request-rate limit flags | Config supports these settings, but their legacy CLI overrides are absent. |
 | `--max-steps`, `--auto-compact-threshold` | No CLI overrides. Step-policy extraction remains a separate proposal, not part of this release. |
@@ -40,8 +40,7 @@ be enabled to resume. Old on-disk sessions still need `--import-sessions` first.
 | `--layout`, `--backend` | No launch flags; current panel/rendering behavior is controlled by the TUI. |
 | `--workflow`, `--enable-workflow` | Intentionally deferred; do not reconnect workflows/Attractor. |
 
-Highest-value follow-ups are model override/listing, restoring a resumed
-session's model, and a deliberately designed headless entry point. Decide the
+Model override/listing, session model restoration and headless prompts are implemented. Decide the
 verbose shorthand and permission/trust semantics explicitly rather than
 silently copying the old flags. Repository indexing remains deferred; the
 classification plugin is display-only.

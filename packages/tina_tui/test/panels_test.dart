@@ -75,8 +75,11 @@ void main() {
     final config = File('${dir.path}/config')..writeAsStringSync('''
 [default]
 model = "main"
+[providers.local]
+base_url = "http://localhost:1/v1"
+models = ["main", "other"]
 [plugins]
-enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistence", "tina/grok-guard", "acme/attach-check"]
+enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistence", "tina/grok-guard", "tina/session-controls", "acme/attach-check"]
 ''');
     providers.clear();
     session = TuiSession.wrap(TuiAssembly.start(
@@ -121,6 +124,34 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/mode-tui", "tina/persistenc
   }
 
   PanelFrame getFrame() => editor.focusManager!.focused as PanelFrame;
+
+  test('model picker updates the active panel without changing its session',
+      () async {
+    final id = getFrame().conversationId;
+    await keys('/model\r');
+    await waitFor(() => editor.isReadingKey);
+    await keys('local/other\r');
+    await waitFor(
+        () => !editor.isReadingKey && getFrame().label.endsWith('local/other'));
+    expect(getFrame().conversationId, id);
+    expect(session.host.model, 'local/other');
+    expect(providers.first.closed, true);
+    await keys('draft after switching');
+    await waitFor(() => editor.editState.buffer == 'draft after switching');
+  });
+
+  test('clear removes rendered history and leaves the input usable', () async {
+    await keys('remember this\r');
+    await waitFor(() => providers.first.requests.isNotEmpty);
+    providers.first.answer(0, 'old answer');
+    await waitFor(() => session.host.session.turns.isNotEmpty);
+    await keys('/clear\r');
+    expect(
+        screen.chat.snapshotLines().join('\n'), isNot(contains('old answer')));
+    expect(session.host.session.loop.derive().messages, isEmpty);
+    await keys('fresh draft');
+    expect(editor.editState.buffer, 'fresh draft');
+  });
 
   test('closing a spawned panel clears the complete bottom rail', () async {
     final terminal = VirtualTerminal(width: 120, height: 24);

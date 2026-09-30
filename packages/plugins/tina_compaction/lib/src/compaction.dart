@@ -103,6 +103,7 @@ class _Split {
 final class CompactionPlugin extends AgentPlugin {
   CompactionPlugin({
     this.config = const CompactionConfig(),
+    this.terminal,
     this.id = 'tina/auto-compact',
   })  : assert(config.overThresholdMargin >= 1.0),
         assert(config.keepRecentTurns >= 0);
@@ -116,6 +117,36 @@ final class CompactionPlugin extends AgentPlugin {
   int get order => 900;
 
   final CompactionConfig config;
+  final Terminal? terminal;
+  @override
+  List<Command> get commands => [
+        Command(
+            name: 'compact',
+            description: 'summarize conversation history now',
+            handler: (_) async {
+              final loop = _loop;
+              if (loop == null) return;
+              await loop.betweenTurns(() async {
+                final view = loop.derive();
+                final split =
+                    _splitAtTurnBoundary(view.messages, config.keepRecentTurns);
+                if (split == null) {
+                  terminal?.writeln('Not enough earlier history to compact.');
+                  return;
+                }
+                final summary = await _summarize(
+                    loop, view.messages.sublist(split.from, split.to + 1));
+                if (_loop != loop) return;
+                if (summary == null) {
+                  terminal?.writeln('Compaction failed; history retained.');
+                  return;
+                }
+                loop.compact(
+                    split.from, split.to, '$compactionSummaryMarker$summary');
+                terminal?.writeln('Conversation compacted.');
+              });
+            })
+      ];
 
   AgentLoop? _loop;
 
@@ -135,7 +166,7 @@ final class CompactionPlugin extends AgentPlugin {
   }
 
   @override
-  void onTurnEnd(TurnContext c) {
+  Future<void> onTurnEnd(TurnContext c) async {
     if (config.thresholdTokens <= 0) return;
     final loop = _loop;
     if (loop == null) return;
@@ -149,7 +180,7 @@ final class CompactionPlugin extends AgentPlugin {
     if (split == null) return;
 
     _nextTrigger = estimate * config.overThresholdMargin;
-    _compact(loop, view.messages, split);
+    await _compact(loop, view.messages, split);
   }
 
   /// The split that keeps [keep] recent *turns* verbatim: the boundary is
@@ -176,7 +207,8 @@ final class CompactionPlugin extends AgentPlugin {
     return null;
   }
 
-  void _compact(AgentLoop loop, List<Message> messages, _Split split) {
+  Future<void> _compact(
+      AgentLoop loop, List<Message> messages, _Split split) async {
     final summaryRequest = [
       ...messages.sublist(split.from, split.to + 1),
       Message(
@@ -187,10 +219,9 @@ final class CompactionPlugin extends AgentPlugin {
         ],
       ),
     ];
-    _summarize(loop, summaryRequest).then((summary) {
-      if (_loop != loop || summary == null) return;
-      loop.compact(split.from, split.to, '$compactionSummaryMarker$summary');
-    });
+    final summary = await _summarize(loop, summaryRequest);
+    if (_loop != loop || summary == null) return;
+    loop.compact(split.from, split.to, '$compactionSummaryMarker$summary');
   }
 
   /// One streaming request on the session's provider; the summary is the
@@ -200,6 +231,7 @@ final class CompactionPlugin extends AgentPlugin {
   /// and the next turn retries.
   Future<String?> _summarize(AgentLoop loop, List<Message> messages) async {
     final buf = StringBuffer();
+    var completed = false;
     try {
       await for (final event in loop.provider.send(
         system: compactionSummarySystemPrompt(),
@@ -210,6 +242,8 @@ final class CompactionPlugin extends AgentPlugin {
           case TextDelta(:final text):
             buf.write(text);
           case MessageComplete(content: final blocks):
+            completed = true;
+            buf.clear();
             for (final b in blocks) {
               if (b is TextBlock) buf.write(b.text);
             }
@@ -223,6 +257,6 @@ final class CompactionPlugin extends AgentPlugin {
       return null;
     }
     final text = buf.toString().trim();
-    return text.isEmpty ? null : text;
+    return !completed || text.isEmpty ? null : text;
   }
 }

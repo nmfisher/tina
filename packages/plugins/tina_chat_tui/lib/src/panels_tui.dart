@@ -265,6 +265,8 @@ final class _Workspace implements ConsolePanels {
         screen.input.setBoundsOverride(
             selected.frame.isParked ? Rect.empty : selected.frame.inputRect);
         for (final view in views) {
+          view.frame.relabel(
+              '${view.frame.label.split(':').first}: ${view.session.label}');
           view.session.repaintConsole();
           view.frame.render();
         }
@@ -329,7 +331,7 @@ final class _Workspace implements ConsolePanels {
     } finally {
       view.task = null;
       view.frame.setBusy(false);
-      if (!view.closed && !stopped) view.session.repaintConsole();
+      if (!view.closed && !stopped) _layout();
     }
   }
 

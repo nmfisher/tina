@@ -25,6 +25,7 @@ final class PersistencePlugin extends AgentPlugin {
   PluginSession? _session;
   AgentLoop? _loop;
   String? _lastDetails;
+  String? _lastModel;
   int? _subscription;
 
   @override
@@ -41,15 +42,17 @@ final class PersistencePlugin extends AgentPlugin {
       }
       final details = store.readDetails(session.id);
       _lastDetails = jsonEncode(details.toJson());
-      return SessionSeed(log: log, details: details);
+      _lastModel = store.list().singleWhere((s) => s.id == session.id).model;
+      return SessionSeed(log: log, details: details, model: _lastModel);
     }
     if (store.list().any((saved) => saved.id == session.id)) {
       throw SessionStoreException(
           'session ${session.id} already exists; resume it instead');
     }
     _lastDetails = jsonEncode(session.details.toJson());
+    _lastModel = session.model;
     registryKey = store.createSession(session.id,
-        title: session.title, details: session.details);
+        title: session.title, model: session.model, details: session.details);
     return null;
   }
 
@@ -64,8 +67,9 @@ final class PersistencePlugin extends AgentPlugin {
   @override
   void sessionChanged(PluginSession session) {
     final encoded = jsonEncode(session.details.toJson());
-    if (encoded == _lastDetails) return;
-    store.updateDetails(session.id, session.details);
+    if (encoded == _lastDetails && session.model == _lastModel) return;
+    store.updateDetails(session.id, session.details, model: session.model);
+    _lastModel = session.model;
     _lastDetails = encoded;
   }
 

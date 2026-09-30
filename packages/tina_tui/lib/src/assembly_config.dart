@@ -44,6 +44,7 @@ const defaultPluginIds = <String>[
   ...legacyProfilePlugins,
   'tina/classification',
   'tina/chat-tui',
+  'tina/session-controls',
   'tina/panels-tui',
   'tina/activity-tui',
   'tina/persistence',

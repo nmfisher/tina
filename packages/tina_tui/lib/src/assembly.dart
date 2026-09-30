@@ -200,7 +200,10 @@ final class TuiAssembly {
     // defaults the user may have explicitly disabled.
     if (config is TinaConfigProblem) throw FormatException(config.problem);
     final resolved = config.config;
-    final model = options.model ?? resolved.model;
+    var model = options.model ??
+        (providerFactory == null
+            ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
+            : resolved.model);
     final workingDirectory = options.workingDirectory ?? Directory.current.path;
     final output = terminal ?? TuiTerminal();
     final tools = ToolsPlugin(
@@ -231,6 +234,17 @@ final class TuiAssembly {
       return SessionStore.open(path);
     }
 
+    TuiAssembly? assembled;
+    if (options.sessionId != null && options.model == null) {
+      final stored = openStore();
+      try {
+        model =
+            stored.list().singleWhere((s) => s.id == options.sessionId).model ??
+                model;
+      } finally {
+        stored.close();
+      }
+    }
     final context = TuiPluginContext(
       configPath: options.configPath ?? defaultConfigPath(),
       workingDirectory: workingDirectory,
@@ -241,11 +255,20 @@ final class TuiAssembly {
       limits: resolved.limits,
       version: options.version,
       model: model,
+      currentModel: () => assembled?.host.model ?? model,
+      switchModel: (next) => assembled!.host.switchModel(next),
+      models: [
+        for (final descriptor in resolved.descriptors)
+          for (final name in descriptor.models.keys)
+            if (!(resolved.providers[descriptor.id]?.disabledModels
+                    .contains(name) ??
+                false))
+              '${descriptor.id}/$name'
+      ],
       openStore: persists ? openStore : null,
     );
     final plugins = registry.build(selected, context);
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
-    TuiAssembly? assembled;
     final hostConfig = HostConfig(
       providerFactory: (model) => _ObservedProvider(factory(model), () {
         final current = assembled;
@@ -264,6 +287,7 @@ final class TuiAssembly {
         };
       }),
       model: model,
+      restoreModel: options.model == null,
       workingDirectory: workingDirectory,
       plugins: plugins,
     );
@@ -295,7 +319,7 @@ final class TuiAssembly {
               plugins: pluginSettings.features,
               approvalChannel: pluginSettings.channel,
               version: options.version,
-              model: model ?? host.config.model)),
+              model: model ?? host.model)),
     );
     assembled = assembly;
     // Built-ins are the assembly's, registered by the assembly — the

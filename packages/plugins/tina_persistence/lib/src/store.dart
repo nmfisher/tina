@@ -59,6 +59,7 @@ final class StoredSession {
     required this.entries,
     int? lastActivityKey,
     this.title,
+    this.model,
     this.details,
   }) : lastActivityKey = lastActivityKey ?? registryKey;
 
@@ -79,6 +80,7 @@ final class StoredSession {
 
   /// The title given at creation, when there was one.
   final String? title;
+  final String? model;
 
   /// The session's counters (depth, children in flight, tokens spent)
   /// as the registry row carries them, or null when the row predates
@@ -155,13 +157,16 @@ final class SessionStore {
   /// session's slice. Returns the row's id. [details] rides on the same
   /// row — it is session-level fact, not log content — and comes back
   /// with [readDetails].
-  int createSession(String id, {String? title, SessionDetails? details}) {
+  int createSession(String id,
+      {String? title, String? model, SessionDetails? details}) {
     try {
       return _log.append({
         'type': _markerType,
         'session_id': id,
         if (title != null) 'title': title,
+        if (model != null) 'model': model,
         if (details != null) 'details': details.toJson(),
+        if (model != null) 'model': model,
       });
     } on Object catch (e) {
       _fail('recording session $id', e);
@@ -252,12 +257,14 @@ final class SessionStore {
   /// place). [readDetails] and the hosts' resume take the newest row,
   /// so this is an update by convention — and the registry stays a
   /// history, not a mutable cell.
-  void updateDetails(String sessionId, SessionDetails details) {
+  void updateDetails(String sessionId, SessionDetails details,
+      {String? model}) {
     try {
       _log.append({
         'type': _markerType,
         'session_id': sessionId,
         'details': details.toJson(),
+        if (model != null) 'model': model,
       });
     } on Object catch (e) {
       _fail('updating details of session $sessionId', e);
@@ -300,6 +307,7 @@ final class SessionStore {
             registryKey: previous?.registryKey ?? row.id,
             entries: 0,
             title: payload['title'] as String? ?? previous?.title,
+            model: payload['model'] as String? ?? previous?.model,
             details: details is Map<String, dynamic>
                 ? SessionDetails.fromJson(Map<String, Object?>.of(details))
                 : previous?.details,
@@ -318,6 +326,7 @@ final class SessionStore {
             entries: counts[session.id] ?? 0,
             lastActivityKey: latest[session.id],
             title: session.title,
+            model: session.model,
             details: session.details,
           )
       ];

@@ -7,6 +7,7 @@ final class PluginSession {
     required this.id,
     required this.workingDirectory,
     this.title,
+    this.model,
     this.resuming = false,
     SessionDetails? details,
     required this.notifyChanged,
@@ -15,6 +16,7 @@ final class PluginSession {
   final String id;
   final String workingDirectory;
   final String? title;
+  String? model;
   final bool resuming;
   SessionDetails details;
   final void Function() notifyChanged;
@@ -23,7 +25,8 @@ final class PluginSession {
 /// Restored session state. The host seeds the loop; plugins never append to
 /// a second transcript or write directly to the loop's log.
 final class SessionSeed {
-  SessionSeed({required this.log, required this.details});
+  SessionSeed({required this.log, required this.details, this.model});
   final List<SessionEntry> log;
   final SessionDetails details;
+  final String? model;
 }
