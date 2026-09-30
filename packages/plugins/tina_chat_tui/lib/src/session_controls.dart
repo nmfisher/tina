@@ -60,7 +60,7 @@ final class SessionControlsPlugin extends AgentPlugin
   Future<String?> _pick(ConsoleContext console) async {
     final overlay = OverlayRegion(console.screen, Rect.empty);
     var query = '';
-    var selected = 0;
+    var selected = models.indexOf(currentModel()).clamp(0, models.length);
     try {
       while (true) {
         final matches = models

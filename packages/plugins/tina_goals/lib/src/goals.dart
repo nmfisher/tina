@@ -250,6 +250,7 @@ final class GoalsPlugin extends AgentPlugin {
   int? _subscription;
   bool _closed = false;
   StreamSubscription<void>? _judgeSub;
+  Future<bool>? _pendingJudgment;
 
   @override
   List<ToolSchema> get tools => const [];
@@ -298,6 +299,40 @@ final class GoalsPlugin extends AgentPlugin {
     });
   }
 
+  /// Headless orchestration belongs to the goal owner, including its bound.
+  /// A missing bound means continue while the judge reports progress is needed.
+  Future<bool> runToGoal(
+      {required String text,
+      required Future<Outcome> Function(String) send,
+      String? initialPrompt,
+      int? maxTurns,
+      void Function(Outcome)? onTurn}) async {
+    if (_loop == null) throw StateError('goal plugin is not mounted');
+    if (text.trim().isEmpty ||
+        text.trim().length > goalMaxTextLength ||
+        (maxTurns != null && maxTurns < 1))
+      throw ArgumentError('invalid goal or turn bound');
+    _writer!(GoalChangedEntry(text: text.trim()));
+    for (var turn = 0;
+        !_closed && (maxTurns == null || turn < maxTurns);
+        turn++) {
+      final outcome = await send(turn == 0
+          ? initialPrompt ?? text
+          : 'Continue working toward the current goal. Last assessment: ${goal?.evidence ?? "not yet achieved"}');
+      onTurn?.call(outcome);
+      if (outcome.stopReason != StopReason.complete) return false;
+      try {
+        if (await _pendingJudgment != true) return false;
+      } catch (_) {
+        return false;
+      }
+      if (_closed || goal?.text != text.trim()) return false;
+      if (goal?.verdict == GoalVerdict.achieved) return true;
+      if (goal?.verdict != GoalVerdict.inProgress) return false;
+    }
+    return false;
+  }
+
   /// One judge check against the log as it stands. Records the verdict
   /// only when it differs — a judge agreeing with itself must not spam
   /// the log with entries.
@@ -305,8 +340,9 @@ final class GoalsPlugin extends AgentPlugin {
     final loop = _loop!;
     final current = goal!;
     late final StreamSubscription<void> sub;
-    sub = Stream<void>.fromFuture(_judgeOnce(loop, current)).listen((_) {},
-        onError: (_) {
+    _pendingJudgment = _judgeOnce(loop, current);
+    sub = Stream<void>.fromFuture(_pendingJudgment!.then<void>((_) {}))
+        .listen((_) {}, onError: (_) {
       // The judge never breaks the session: a failed check is a silent
       // skip, and the next completed turn tries again.
       sub.cancel();
@@ -314,20 +350,21 @@ final class GoalsPlugin extends AgentPlugin {
     return sub;
   }
 
-  Future<void> _judgeOnce(AgentLoop loop, SessionGoal current) async {
+  Future<bool> _judgeOnce(AgentLoop loop, SessionGoal current) async {
     final view = loop.derive();
     final parsed = await judge(
       provider: loop.provider,
       goalText: current.text,
       digest: GoalJudgeDigest.build(view.messages),
     );
-    if (_closed || parsed == null) return;
+    if (_closed || parsed == null) return false;
     if (goal == null || goal!.text != current.text)
-      return; // replaced meanwhile
+      return false; // replaced meanwhile
     if (goal!.verdict == parsed.verdict && goal!.evidence == parsed.evidence) {
-      return; // no change, no entry
+      return true; // no change, no entry
     }
     _record(loop, current.text, parsed.verdict, parsed.evidence);
+    return true;
   }
 
   void _record(

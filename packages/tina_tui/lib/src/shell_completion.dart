@@ -8,7 +8,7 @@ String shellCompletion(String shell) => switch (shell) {
     --completion) COMPREPLY=( $(compgen -W 'bash zsh fish' -- "$cur") ); return;;
     --resume) if [[ "$cur" != -* ]]; then return; fi;;
   esac
-  COMPREPLY=( $(compgen -W '--model --models --prompt --config --cwd --store --resume --continue -c --configure --version --help --completion --import-sessions --dry-run' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--model --models --prompt --goal --max-goal-turns --config --cwd --store --resume --continue -c --configure --version --help --completion --import-sessions --dry-run' -- "$cur") )
 }
 complete -F _tina_complete tina''',
       'zsh' => r'''#compdef tina
@@ -16,12 +16,15 @@ _tina() {
   _arguments '--config[Global config file]:file:_files' '--cwd[Workspace]:directory:_files -/' \
     '--store[Session store]:file:_files' '--resume[Select or resume session]::session ID:' \
     '--model[Model for this run]:model:' '--models[List models]:provider:' '--prompt[Headless prompt]:prompt:' \
+    '--goal[Headless goal]:goal:' '--max-goal-turns[Bound goal turns]:count:' \
     '--continue[Continue latest session]' '-c[Continue latest session]' '--configure[Edit settings]' '--version[Print version]' \
     '--help[Usage]' '--completion[Shell completion]:shell:(bash zsh fish)' \
     '--import-sessions[Import legacy sessions]:source:_files' '--dry-run[Preview import without writing]'
 }
 compdef _tina tina''',
       'fish' => r'''complete -c tina -f
+complete -c tina -l goal -r
+complete -c tina -l max-goal-turns -r
 complete -c tina -l model -r
 complete -c tina -l models
 complete -c tina -l prompt -r
@@ -32,6 +35,8 @@ complete -c tina -l resume
 complete -c tina -l import-sessions -r -F
 complete -c tina -l dry-run
 complete -c tina -l continue -s c
+complete -c tina -l goal -r
+complete -c tina -l max-goal-turns -r
 complete -c tina -l model -r
 complete -c tina -l models
 complete -c tina -l prompt -r

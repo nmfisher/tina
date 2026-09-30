@@ -235,3 +235,10 @@ models. `--prompt "text"` runs one turn without a TUI, and `--prompt -` reads st
 These can use `--continue` or `--resume ID`. The final reply goes to stdout,
 failures to stderr, and failed/cancelled turns return nonzero. Headless approval
 requests are denied rather than waiting for input or widening permissions.
+
+`--goal "objective"` runs headlessly until the goals plugin judges it achieved.
+`--prompt` can supply a different first instruction, and `--max-goal-turns N`
+sets an explicit positive turn bound. Without that bound the plugin continues
+while judgments report more work is needed; uncertain/failed judgments stop the
+run. `tina/goals` must be enabled. Achieved goals return zero; incomplete goals
+and provider failures return nonzero. Ctrl-C cancels the run.

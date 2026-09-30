@@ -28,7 +28,7 @@ be enabled to resume. Old on-disk sessions still need `--import-sessions` first.
 | --- | --- |
 | `--model`, `--models [provider]` | Restored, alongside the plugin-owned `/model` picker. |
 | Resume restores the saved model unless overridden | Restored for sessions with model metadata; older rows fall back to the configured model. |
-| `--prompt` | Restored for headless runs; `--prompt -` reads stdin. Approval requests are denied without a human channel. |
+| `--prompt`, `--goal`, `--max-goal-turns` | Restored. `--prompt -` reads stdin; the goals plugin owns continuation and an optional explicit turn bound. Headless approval requests are denied. |
 | `--base-url`, `--max-output-tokens` / `--max-tokens`, `--reasoning-effort` | No corresponding CLI overrides. Provider/generation configuration is supported; see the config audit. |
 | Token, sub-agent and request-rate limit flags | Config supports these settings, but their legacy CLI overrides are absent. |
 | `--max-steps`, `--auto-compact-threshold` | No CLI overrides. Step-policy extraction remains a separate proposal, not part of this release. |

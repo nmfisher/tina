@@ -38,7 +38,7 @@ enabled = ["tina/persistence", "tina/session-controls"]
       requests.add(body);
       credentials.add(request.headers.value('authorization'));
       request.response.headers.contentType =
-          ContentType('text', 'event-stream');
+          ContentType('text', 'event-stream', charset: 'utf-8');
       if (fail) {
         await request.response.close();
         return;
@@ -76,8 +76,7 @@ enabled = ["tina/persistence", "tina/session-controls"]
     });
     final args = ['--config', config.path, '--cwd', directory.path];
     expect(
-        await runCli([...args, '--prompt', 'hello', '--model', 'local/second']),
-        0);
+        await runCli([...args, '--prompt', 'hello', '--model', 'second']), 0);
     expect(requests.single['model'], 'second');
     expect(await runCli([...args, '--continue', '--prompt', 'next']), 0);
     expect(requests.last['model'], 'second');
@@ -130,5 +129,82 @@ enabled = ["tina/persistence", "tina/session-controls"]
     } finally {
       store.close();
     }
+  });
+  test('headless goals wait for verdicts and honor explicit turn bounds',
+      () async {
+    final directory =
+        Directory.systemTemp.createTempSync('tina-headless-goal-');
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() async {
+      await server.close(force: true);
+      directory.deleteSync(recursive: true);
+    });
+    final config = File('${directory.path}/config')..writeAsStringSync('''
+[default]
+provider = "local"
+model = "goal"
+[providers.local]
+base_url = "http://127.0.0.1:${server.port}/v1"
+api_key = "fixture"
+models = ["goal"]
+[plugins]
+enabled = ["tina/goals"]
+''');
+    var turns = 0, judgments = 0;
+    var invalidJudge = false;
+    server.listen((request) async {
+      final body = jsonDecode(await utf8.decoder.bind(request).join())
+          as Map<String, dynamic>;
+      final judging = (body['tools'] as List?)?.isNotEmpty != true;
+      if (judging) {
+        judgments++;
+      } else {
+        turns++;
+      }
+      final text = !judging
+          ? 'goal work'
+          : invalidJudge
+              ? 'invalid verdict'
+              : judgments.isEven
+                  ? 'VERDICT: yes — completed'
+                  : 'VERDICT: no — work remains';
+      request.response.headers.contentType =
+          ContentType('text', 'event-stream', charset: 'utf-8');
+      request.response.write('data: ${jsonEncode({
+            'choices': [
+              {
+                'index': 0,
+                'delta': {'content': text},
+                'finish_reason': 'stop'
+              }
+            ]
+          })}\n\n');
+      request.response.write('data: [DONE]\n\n');
+      await request.response.close();
+    });
+    final args = ['--config', config.path, '--cwd', directory.path];
+    expect(
+        await runCli(
+            [...args, '--goal', 'Finish the work', '--max-goal-turns', '2']),
+        0);
+    expect(turns, 2);
+    expect(judgments, 2);
+    turns = 0;
+    judgments = 0;
+    expect(
+        await runCli(
+            [...args, '--goal', 'Finish the work', '--max-goal-turns', '1']),
+        1);
+    expect(turns, 1);
+    expect(judgments, 1);
+    invalidJudge = true;
+    turns = 0;
+    judgments = 0;
+    expect(await runCli([...args, '--goal', 'Finish the work']), 1);
+    expect(turns, 1);
+    expect(judgments, 1);
+    expect(
+        await runCli([...args, '--goal', 'Work', '--max-goal-turns', '0']), 64);
+    expect(await runCli([...args, '--max-goal-turns', '2']), 64);
   });
 }

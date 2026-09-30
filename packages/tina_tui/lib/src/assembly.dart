@@ -204,6 +204,9 @@ final class TuiAssembly {
         (providerFactory == null
             ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
             : resolved.model);
+    if (providerFactory == null && options.model != null) {
+      model = canonicalModelReference(resolved, model);
+    }
     final workingDirectory = options.workingDirectory ?? Directory.current.path;
     final output = terminal ?? TuiTerminal();
     final tools = ToolsPlugin(
@@ -256,7 +259,9 @@ final class TuiAssembly {
       version: options.version,
       model: model,
       currentModel: () => assembled?.host.model ?? model,
-      switchModel: (next) => assembled!.host.switchModel(next),
+      switchModel: (next) => assembled!.host.switchModel(providerFactory == null
+          ? canonicalModelReference(resolved, next)
+          : next),
       models: [
         for (final descriptor in resolved.descriptors)
           for (final name in descriptor.models.keys)

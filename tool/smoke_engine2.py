@@ -452,7 +452,7 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             # A new interactive panel owns a separate session and request log.
             start = terminal.send('/spawn\r')
-            terminal.expect('2: smoke', start)
+            terminal.expect('2: local-smoke/smoke', start)
             time.sleep(0.1)
             before_child = len(ModelStub.requests)
             start = terminal.send('child panel message\r')

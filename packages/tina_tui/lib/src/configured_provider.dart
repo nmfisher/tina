@@ -5,6 +5,15 @@ import 'package:tina_core/tina_core.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
 
+/// Persist the provider with a model even when the user supplies a bare ID.
+String canonicalModelReference(TinaConfig config, String model) {
+  final slash = model.indexOf('/');
+  if (slash > 0 &&
+      descriptorByIdFor(model.substring(0, slash), config.descriptors) != null)
+    return model;
+  return '${config.providerId ?? 'anthropic'}/$model';
+}
+
 /// Config values override environment values; named providers keep their own
 /// endpoint and credentials. The same factory builds foreground and child runs.
 LlmProvider configuredProvider(

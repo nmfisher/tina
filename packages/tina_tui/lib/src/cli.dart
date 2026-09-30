@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:async';
+import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show StopReason;
 import 'package:tina_persistence/tina_persistence.dart';
 import 'app.dart';
@@ -9,6 +11,7 @@ import 'session_selection.dart';
 const cliHelp =
     '''usage: tina [--config FILE] [--cwd DIR] [--store FILE] [--resume [ID] | --continue]
             [--model PROVIDER/MODEL] [--models [PROVIDER]] [--prompt TEXT|-]
+            [--goal TEXT [--max-goal-turns N]]
             [--configure] [--version] [--completion bash|zsh|fish]
             [--import-sessions PATH [--dry-run]]
 
@@ -16,6 +19,7 @@ Starts the engine2 terminal app. /help lists loaded commands.
 --model overrides the model for this run; resume otherwise restores its saved model.
 --models prints available models without starting a session.
 --prompt runs one turn without the TUI; use - to read the prompt from stdin.
+--goal runs until its judge reports success; --max-goal-turns optionally bounds it.
 Headless approval requests are denied; the permission mode is never escalated.
 --configure edits global provider, model, plugin and request settings.
 --resume lists main sessions and lets you select one; --resume ID reopens it directly.
@@ -29,6 +33,8 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
   String? configPath;
   String? model;
   String? prompt;
+  String? goal;
+  int? maxGoalTurns;
   String? listProvider;
   var listModels = false;
   String? storePath;
@@ -43,6 +49,14 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
     final a = args[i];
     if (a == '--model' && i + 1 < args.length) {
       model = args[++i];
+    } else if (a == '--goal' && i + 1 < args.length) {
+      goal = args[++i];
+    } else if (a == '--max-goal-turns' && i + 1 < args.length) {
+      maxGoalTurns = int.tryParse(args[++i]);
+      if (maxGoalTurns == null || maxGoalTurns < 1) {
+        stderr.writeln('tina: --max-goal-turns requires a positive integer');
+        return 64;
+      }
     } else if (a == '--prompt' && i + 1 < args.length) {
       prompt = args[++i];
     } else if (a == '--models') {
@@ -91,11 +105,19 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
       return 64;
     }
   }
+  final headless = prompt != null || goal != null;
+  if ((maxGoalTurns != null && goal == null) ||
+      (goal != null &&
+          (goal.trim().isEmpty || goal.trim().length > goalMaxTextLength))) {
+    stderr.writeln(
+        'tina: --goal must be 1–$goalMaxTextLength characters; --max-goal-turns requires --goal');
+    return 64;
+  }
   if (!Directory(workingDirectory).existsSync()) {
     stderr.writeln('tina: workspace does not exist: $workingDirectory');
     return 66;
   }
-  if ((prompt != null && (configure || legacySource != null || listModels)) ||
+  if ((headless && (configure || legacySource != null || listModels)) ||
       (listModels &&
           (resume || continueLatest || configure || legacySource != null))) {
     stderr.writeln(
@@ -211,17 +233,56 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         storePath: storePath,
         sessionId: sessionId,
         model: model,
-        approvalChannel: prompt == null ? null : 'tina/approvals-stream',
+        approvalChannel: headless ? 'tina/approvals-stream' : null,
       ),
     );
 
-    if (prompt != null) {
+    if (headless) {
       try {
-        final text = prompt;
-        final interruption = ProcessSignal.sigint
-            .watch()
-            .listen((_) => assembly.host.session.loop.cancel('interrupt'));
+        final text = prompt ?? goal!;
+        final interrupted = Completer<void>();
+        final interruption = ProcessSignal.sigint.watch().listen((_) {
+          assembly.host.session.loop.cancel('interrupt');
+          if (!interrupted.isCompleted) interrupted.complete();
+        });
         try {
+          if (goal != null) {
+            final owner =
+                assembly.host.plugins.whereType<GoalsPlugin>().firstOrNull;
+            if (owner == null) {
+              stderr.writeln('tina: --goal requires tina/goals');
+              return 78;
+            }
+            var cancelled = false;
+            final achieved = await Future.any([
+              owner.runToGoal(
+                  text: goal,
+                  initialPrompt: text,
+                  maxTurns: maxGoalTurns,
+                  send: (line) => assembly.host.send(line),
+                  onTurn: (outcome) {
+                    final reply = assembly.host.session.lastReply;
+                    if (reply != null && reply.isNotEmpty)
+                      stdout.writeln(reply);
+                    if (outcome.stopReason != StopReason.complete) {
+                      cancelled = outcome.stopReason == StopReason.cancelled;
+                      stderr.writeln(outcome.detail);
+                    }
+                  }),
+              interrupted.future.then((_) {
+                cancelled = true;
+                return false;
+              }),
+            ]);
+            if (!achieved && !cancelled)
+              stderr.writeln(
+                  'tina: goal was not achieved or completion could not be verified');
+            return achieved
+                ? 0
+                : cancelled
+                    ? 130
+                    : 1;
+          }
           final outcome = await assembly.host.send(text);
           final reply = assembly.host.session.lastReply;
           if (reply != null && reply.isNotEmpty) stdout.writeln(reply);
