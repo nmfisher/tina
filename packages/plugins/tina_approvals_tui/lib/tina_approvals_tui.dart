@@ -193,6 +193,10 @@ final class _ConsoleKeys implements KeySource {
         CharInput(text: 'y') => ApprovalKey.allow,
         CharInput(text: 'n') => ApprovalKey.deny,
         CharInput(text: 'a') => ApprovalKey.always,
+        ArrowKey(direction: ArrowDirection.pageUp) => ApprovalKey.pageUp,
+        ArrowKey(direction: ArrowDirection.pageDown) => ApprovalKey.pageDown,
+        ScrollEvent(:final up) =>
+          up ? ApprovalKey.scrollUp : ApprovalKey.scrollDown,
         ArrowKey(direction: ArrowDirection.up) => ApprovalKey.up,
         ArrowKey(direction: ArrowDirection.down) => ApprovalKey.down,
         ArrowKey(direction: ArrowDirection.left) => ApprovalKey.up,

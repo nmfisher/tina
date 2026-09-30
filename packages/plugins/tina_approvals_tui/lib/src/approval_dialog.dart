@@ -17,7 +17,20 @@ export 'package:tina_approvals/tina_approvals.dart' show ApprovalDecision;
 
 /// One key press, already decoded. A raw-mode host maps its parsed input
 /// events to these; tests feed a list literal.
-enum ApprovalKey { up, down, confirm, cancel, details, allow, deny, always }
+enum ApprovalKey {
+  up,
+  down,
+  pageUp,
+  pageDown,
+  scrollUp,
+  scrollDown,
+  confirm,
+  cancel,
+  details,
+  allow,
+  deny,
+  always
+}
 
 /// Where keys come from. The dialog [ApprovalDialog.awaitDecision]s until a
 /// key resolves or cancels it.
@@ -84,6 +97,9 @@ class ApprovalDialog {
   bool _details = false;
   int _detailOffset = 0;
   int _maxDetailOffset = 0;
+  int _previewOffset = 0;
+  int _maxPreviewOffset = 0;
+  int _pageSize = 1;
 
   /// The pending tool call, when the question came from one. A permission
   /// ask straight from the sandbox has no call — only [ask].
@@ -161,16 +177,13 @@ class ApprovalDialog {
             '${(input['filePath'] ?? input['path']) ?? ask!.path}',
           if (name == 'write' && input['content'] is String)
             ..._diff(input['content'] as String, '+'),
-          if (name == 'edit') ...[
-            ..._diff(
+          if (name == 'edit')
+            ..._editDiff(
                 (input['oldString'] ?? input['old_string'] ?? '').toString(),
-                '-'),
-            ..._diff(
-                (input['newString'] ?? input['new_string'] ?? '').toString(),
-                '+'),
-          ],
+                (input['newString'] ?? input['new_string'] ?? '').toString()),
           if (!{'write', 'edit'}.contains(name) && input.isNotEmpty)
-            _inlineArgs(Map<String, dynamic>.from(input)),
+            for (final entry in input.entries)
+              '${entry.key}: ${entry.value is String ? entry.value : jsonEncode(entry.value)}',
         ],
         if (call?.argumentsParseError != null) call!.argumentsParseError!,
         if (ask != null) 'Why: ${ask.reason}',
@@ -178,19 +191,36 @@ class ApprovalDialog {
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',
     ].map(_safe).toList();
+    String? contentStyle(String detail) {
+      if (name == 'edit' || name == 'write') {
+        if (detail.startsWith('+ ')) return chat.green;
+        if (detail.startsWith('- ')) return chat.red;
+        if (detail.startsWith('  ') || detail == '⋯') return chat.dim;
+      }
+      if (detail.startsWith('Directory:') || detail.startsWith('Mode:')) {
+        return chat.dim;
+      }
+      if (detail.startsWith('Why:') || detail.startsWith('Environment:')) {
+        return chat.yellow;
+      }
+      return null;
+    }
+
     if (_details) {
       final lines = [
-        for (final detail in details) ...wrapDialogText(detail, width)
+        for (final detail in details)
+          for (final line in wrapDialogText(detail, width))
+            row(line, contentStyle(detail))
       ];
       final count = (height - 2).clamp(1, height);
+      _pageSize = count;
       _maxDetailOffset = (lines.length - count).clamp(0, lines.length);
       _detailOffset = _detailOffset.clamp(0, _maxDetailOffset);
       return [
         if (height > 1)
           row('Details ${_detailOffset + 1}/${lines.length}',
               theme.dialog.confirm),
-        for (final line in lines.skip(_detailOffset).take(count))
-          row(line, chat.dim),
+        for (final line in lines.skip(_detailOffset).take(count)) line,
         if (height > 2) row('↑↓ scroll · tab back · esc deny', chat.dim),
       ].take(height).toList();
     }
@@ -210,18 +240,20 @@ class ApprovalDialog {
         for (final detail in details)
           for (final line
               in wrapDialogText(detail, (width - 2).clamp(1, width)))
-            row(
-                '│ $line',
-                detail.startsWith('+')
-                    ? chat.green
-                    : detail.startsWith('-')
-                        ? chat.red
-                        : chat.dim),
+            row('│ $line', contentStyle(detail)),
       ];
-      final budget = (height - choiceCount - 4).clamp(0, preview.length);
+      final available = (height - choiceCount - 4).clamp(0, preview.length);
+      final paged = preview.length > available && available >= 2;
+      final budget = available - (paged ? 1 : 0);
+      _pageSize = budget > 0 ? budget : 1;
+      _maxPreviewOffset = (preview.length - budget).clamp(0, preview.length);
+      _previewOffset = _previewOffset.clamp(0, _maxPreviewOffset);
       return [
         row('┌ $label · awaiting approval', theme.dialog.confirm),
-        ...preview.take(budget),
+        ...preview.skip(_previewOffset).take(budget),
+        if (paged)
+          row('│ Preview ${_previewOffset + 1}–${_previewOffset + budget}/${preview.length} · PgUp/PgDn or wheel',
+              chat.dim),
         if (allChoices)
           for (var i = 0; i < choices.length; i++) choice(i)
         else
@@ -269,6 +301,25 @@ class ApprovalDialog {
 
   /// Apply one navigation key; returns true when the selection changed.
   bool handleKey(ApprovalKey key) {
+    if ({
+      ApprovalKey.pageUp,
+      ApprovalKey.pageDown,
+      ApprovalKey.scrollUp,
+      ApprovalKey.scrollDown
+    }.contains(key)) {
+      final backwards =
+          key == ApprovalKey.pageUp || key == ApprovalKey.scrollUp;
+      final amount = key == ApprovalKey.pageUp || key == ApprovalKey.pageDown
+          ? _pageSize
+          : 3;
+      final delta = backwards ? -amount : amount;
+      if (_details) {
+        _detailOffset = (_detailOffset + delta).clamp(0, _maxDetailOffset);
+      } else {
+        _previewOffset = (_previewOffset + delta).clamp(0, _maxPreviewOffset);
+      }
+      return true;
+    }
     if (key == ApprovalKey.details ||
         (_details && key == ApprovalKey.confirm)) {
       _details = !_details;
@@ -280,6 +331,10 @@ class ApprovalDialog {
       return true;
     }
     switch (key) {
+      case ApprovalKey.pageUp:
+      case ApprovalKey.pageDown:
+      case ApprovalKey.scrollUp:
+      case ApprovalKey.scrollDown:
       case ApprovalKey.allow:
       case ApprovalKey.deny:
       case ApprovalKey.always:
@@ -323,6 +378,10 @@ class ApprovalDialog {
           if (ask?.confirmation != true && _hasAlways) {
             return const ApprovalOutcome(ApprovalDecision.allowAlways);
           }
+        case ApprovalKey.pageUp:
+        case ApprovalKey.pageDown:
+        case ApprovalKey.scrollUp:
+        case ApprovalKey.scrollDown:
         case ApprovalKey.up:
         case ApprovalKey.down:
         case ApprovalKey.details:
@@ -375,4 +434,37 @@ String _argv(Map input, ApprovalAskContext? ask) {
   }
 
   return [executable, if (args is List) ...args].map(quote).join(' ');
+}
+
+// Keep shared lines as context rather than presenting them as removed/added.
+Iterable<String> _editDiff(String before, String after) sync* {
+  final old = before.split('\n');
+  final updated = after.split('\n');
+  var prefix = 0;
+  while (prefix < old.length &&
+      prefix < updated.length &&
+      old[prefix] == updated[prefix]) {
+    prefix++;
+  }
+  var suffix = 0;
+  while (suffix < old.length - prefix &&
+      suffix < updated.length - prefix &&
+      old[old.length - suffix - 1] == updated[updated.length - suffix - 1]) {
+    suffix++;
+  }
+  if (prefix > 3) yield '⋯';
+  for (final line in old.take(prefix).skip(prefix > 3 ? prefix - 3 : 0)) {
+    yield '  $line';
+  }
+  for (final line in old.skip(prefix).take(old.length - prefix - suffix)) {
+    yield '- $line';
+  }
+  for (final line
+      in updated.skip(prefix).take(updated.length - prefix - suffix)) {
+    yield '+ $line';
+  }
+  for (final line in updated.skip(updated.length - suffix).take(3)) {
+    yield '  $line';
+  }
+  if (suffix > 3) yield '⋯';
 }

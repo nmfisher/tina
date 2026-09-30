@@ -35,6 +35,54 @@ void main() {
     expect(runs.singleWhere((r) => r.text.contains('+ after')).code,
         Theme.defaults().chat.green);
   });
+  test('command is readable and preview paging keeps the selected answer', () {
+    final dialog = ApprovalDialog(ToolUse(id: 'long', name: 'bash', input: {
+      'command': List.generate(30, (i) => 'echo line_$i').join('\n')
+    }));
+    var rows = dialog.rows(width: 80, height: 12);
+    expect(
+        rows
+            .expand((r) => r.runs)
+            .singleWhere((r) => r.text.contains('echo line_0'))
+            .code,
+        isNull);
+    expect(rows.map(text).join('\n'), contains('Preview'));
+    dialog.handleKey(ApprovalKey.down);
+    final decision = dialog.current.decision;
+    final seen = <String>[];
+    for (var i = 0; i < 20; i++) {
+      rows = dialog.rows(width: 80, height: 12);
+      seen.addAll(rows.map(text));
+      expect(rows.map(text).join('\n'), contains('❯ [n] deny once'));
+      dialog.handleKey(ApprovalKey.pageDown);
+      expect(dialog.current.decision, decision);
+    }
+    expect(seen.join('\n'), contains('echo line_29'));
+    dialog.handleKey(ApprovalKey.pageUp);
+    expect(dialog.rows(width: 80, height: 12).map(text).join('\n'),
+        isNot(contains('echo line_29')));
+  });
+
+  test('edit context is unchanged and diff colors survive Tab details', () {
+    final dialog =
+        ApprovalDialog(const ToolUse(id: 'edit', name: 'edit', input: {
+      'path': 'file.dart',
+      'oldString': 'header\nbefore\nfooter',
+      'newString': 'header\nafter\nfooter',
+    }));
+    for (var i = 0; i < 2; i++) {
+      final runs = dialog.rows().expand((r) => r.runs).toList();
+      expect(runs.singleWhere((r) => r.text.contains('- before')).code,
+          Theme.defaults().chat.red);
+      expect(runs.singleWhere((r) => r.text.contains('+ after')).code,
+          Theme.defaults().chat.green);
+      expect(runs.singleWhere((r) => r.text.contains('  header')).code,
+          Theme.defaults().chat.dim);
+      expect(runs.any((r) => r.text.contains('- header')), isFalse);
+      dialog.handleKey(ApprovalKey.details);
+    }
+  });
+
   test('permission shortcuts and tiny layouts retain a visible selection',
       () async {
     for (final entry in {
