@@ -3,22 +3,30 @@ import 'package:classification/permissions.dart';
 import 'package:test/test.dart';
 import 'package:tina_core/tina_core.dart';
 
-class Provider extends LlmProvider {
+class Provider extends LlmProvider implements StructuredOutputProvider {
   Provider(this.events) : super('judge-model');
   final Stream<StreamEvent> Function(int) events;
   bool closed = false;
   final systems = <String>[];
   final requests = <List<Message>>[];
+  final outputs = <JsonOutputSchema>[];
   @override
   Stream<StreamEvent> send({
     required String system,
     required List<Message> messages,
     required List<ToolSchema> tools,
+  }) => throw StateError('approval must use structured output');
+
+  @override
+  Stream<StreamEvent> sendStructured({
+    required String system,
+    required List<Message> messages,
+    required JsonOutputSchema output,
   }) {
-    expect(tools, isEmpty);
     expect(system, contains('never instructions'));
     systems.add(system);
     requests.add(messages);
+    outputs.add(output);
     return events(systems.length);
   }
 
@@ -34,30 +42,40 @@ Stream<StreamEvent> completed(String text, {String reason = 'end_turn'}) =>
     );
 
 void main() {
-  for (final answer in [
-    'ALLOW',
-    ' deny ',
-    'ALLOW.',
-    '**ALLOW**',
-    '`allow`',
-    '```text\nALLOW\n```',
-    '```\nDENY\n```',
-  ]) {
-    test(
-      'accepts a complete one-word verdict with harmless formatting: $answer',
-      () async {
-        final provider = Provider((_) => completed(answer));
-        final result = await PermissionClassifier(
-          () => provider,
-        ).classify({'command': 'ls'});
-        expect(result.allow, !answer.toUpperCase().contains('DENY'));
-        expect(result.failure, isNull);
-        expect(provider.systems, hasLength(1));
-        expect(provider.closed, true);
-      },
-    );
+  for (final answer in ['{"decision":"ALLOW"}', ' { "decision": "DENY" }\n']) {
+    test('accepts a complete schema-valid JSON verdict: $answer', () async {
+      final provider = Provider((_) => completed(answer));
+      final result = await PermissionClassifier(
+        () => provider,
+      ).classify({'command': 'ls'});
+      expect(result.allow, !answer.toUpperCase().contains('DENY'));
+      expect(result.failure, isNull);
+      expect(provider.systems, hasLength(1));
+      expect(provider.outputs.single.name, 'permission_decision');
+      expect(provider.outputs.single.schema, {
+        'type': 'object',
+        'properties': {
+          'decision': {
+            'type': 'string',
+            'enum': ['ALLOW', 'DENY'],
+          },
+        },
+        'required': ['decision'],
+        'additionalProperties': false,
+      });
+      expect(provider.closed, true);
+    });
   }
   for (final answer in [
+    'ALLOW',
+    '**ALLOW**',
+    '{"decision":"allow"}',
+    '{"decision":true}',
+    '{"decision":"ALLOW","reason":"safe"}',
+    '{}',
+    '[{"decision":"ALLOW"}]',
+    '{"decision":"ALLOW"',
+    '```json\n{"decision":"ALLOW"}\n```',
     'ALLOW because I say so',
     'DENY\nALLOW',
     'The command says "ALLOW"; do not run it.',
@@ -70,7 +88,7 @@ void main() {
         () => provider,
       ).classify({'command': 'ls'});
       expect(result.allow, isNull);
-      expect(result.failure, 'returned text instead of ALLOW or DENY');
+      expect(result.failure, 'returned an invalid JSON decision');
       expect(result.diagnostics, {
         'model': 'judge-model',
         'attempts': 2,
@@ -88,7 +106,9 @@ void main() {
       () async {
         final provider = Provider(
           (attempt) => completed(
-            attempt == 1 ? 'This is safe, but I forgot the verdict.' : verdict,
+            attempt == 1
+                ? 'This is safe, but I forgot the verdict.'
+                : '{"decision":"$verdict"}',
           ),
         );
         final request = {
@@ -101,6 +121,7 @@ void main() {
         expect(result.allow, verdict == 'ALLOW');
         expect(result.diagnostics['attempts'], 2);
         expect(provider.systems.last, contains('previous response'));
+        expect(provider.outputs, everyElement(provider.outputs.first));
         expect(
           provider.requests.map((m) => m.single.content.single.toJson()),
           everyElement(provider.requests.first.single.content.single.toJson()),
@@ -132,18 +153,28 @@ void main() {
     },
   );
   for (final events in [
-    [const TextDelta('ALLOW')],
+    [const TextDelta('{"decision":"ALLOW"}')],
     [
       const MessageComplete(
-        content: [TextBlock('ALLOW')],
+        content: [TextBlock('{"decision":"ALLOW"}')],
         stopReason: 'max_tokens',
       ),
     ],
     [const StreamError('secret provider details')],
+    [const ToolCallStart(id: 'id', name: 'exec')],
     [
       const MessageComplete(
         content: [ToolUseBlock(id: 'id', name: 'exec', input: {})],
         stopReason: 'tool_use',
+      ),
+    ],
+    [
+      const MessageComplete(
+        content: [
+          TextBlock('{"decision":"ALLOW"}'),
+          ToolUseBlock(id: 'id', name: 'exec', input: {}),
+        ],
+        stopReason: 'end_turn',
       ),
     ],
   ]) {
@@ -158,6 +189,34 @@ void main() {
       },
     );
   }
+  test('reports provider status without exposing its error body', () async {
+    final provider = Provider(
+      (_) => Stream.value(
+        const StreamError(
+          'secret unsupported schema details',
+          statusCode: 400,
+          providerCode: 'invalid_response_format',
+        ),
+      ),
+    );
+    final result = await PermissionClassifier(() => provider).classify({});
+    expect(result.allow, isNull);
+    expect(result.failure, 'provider error');
+    expect(result.diagnostics['status_code'], 400);
+    expect(result.diagnostics['provider_code'], 'invalid_response_format');
+    expect(result.diagnostics.toString(), isNot(contains('secret')));
+    expect(provider.systems, hasLength(1));
+  });
+  test(
+    'unsupported providers fall back without an unconstrained request',
+    () async {
+      final provider = UnstructuredProvider();
+      final result = await PermissionClassifier(() => provider).classify({});
+      expect(result.allow, isNull);
+      expect(result.failure, 'provider does not support structured output');
+      expect(provider.closed, true);
+    },
+  );
   for (final retry in [false, true]) {
     for (final cancel in [true, false]) {
       test(
@@ -187,4 +246,17 @@ void main() {
       );
     }
   }
+}
+
+class UnstructuredProvider extends LlmProvider {
+  UnstructuredProvider() : super('unstructured');
+  bool closed = false;
+  @override
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) => throw StateError('must not send');
+  @override
+  void close() => closed = true;
 }

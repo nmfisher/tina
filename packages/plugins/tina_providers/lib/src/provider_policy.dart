@@ -152,7 +152,8 @@ final class _Spend {
   int turn = 0;
 }
 
-final class _PolicyProvider extends LlmProvider {
+final class _PolicyProvider extends LlmProvider
+    implements StructuredOutputProvider {
   _PolicyProvider(
       super.model, this.policy, this.targets, this.spend, this.child) {
     _configurationRevision = policy._configurationRevision;
@@ -204,9 +205,26 @@ final class _PolicyProvider extends LlmProvider {
 
   @override
   Stream<StreamEvent> send(
-      {required String system,
-      required List<Message> messages,
-      required List<ToolSchema> tools}) {
+          {required String system,
+          required List<Message> messages,
+          required List<ToolSchema> tools}) =>
+      _send(system: system, messages: messages, tools: tools);
+
+  @override
+  Stream<StreamEvent> sendStructured({
+    required String system,
+    required List<Message> messages,
+    required JsonOutputSchema output,
+  }) =>
+      _send(
+          system: system, messages: messages, tools: const [], schema: output);
+
+  Stream<StreamEvent> _send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+    JsonOutputSchema? schema,
+  }) {
     final cancelled = Completer<void>();
     StreamSubscription<StreamEvent>? upstream;
     void Function()? release;
@@ -239,7 +257,8 @@ final class _PolicyProvider extends LlmProvider {
                       messages.map((m) => m.toJson()).toList(),
                       tools
                           .map((t) => [t.name, t.description, t.inputSchema])
-                          .toList()
+                          .toList(),
+                      if (schema != null) schema.schema,
                     ]))
                     .length /
                 4)
@@ -251,6 +270,16 @@ final class _PolicyProvider extends LlmProvider {
         var attempts = targets.length;
         for (var attempt = 0; attempt < attempts && live; attempt++) {
           final target = targets[(start + attempt) % targets.length];
+          final provider = _members.putIfAbsent(target.id, target.create);
+          if (schema != null && provider is! StructuredOutputProvider) {
+            if (attempt + 1 == attempts) {
+              output.add(const StreamError(
+                  'provider does not support structured output',
+                  providerCode: 'structured_output_unsupported'));
+              return;
+            }
+            continue;
+          }
           final gate = policy._gates.putIfAbsent(
               target.gateKey ?? target.id,
               () => LaunchGate(
@@ -269,7 +298,6 @@ final class _PolicyProvider extends LlmProvider {
             output.add(StreamError(refusal, requiresUserAction: true));
             return;
           }
-          final provider = _members.putIfAbsent(target.id, target.create);
           final done = Completer<void>();
           var published = false;
           var reasoned = false;
@@ -291,12 +319,16 @@ final class _PolicyProvider extends LlmProvider {
           }
 
           settleActive = settle;
-          upstream = provider
-              .send(
+          final stream = schema == null
+              ? provider.send(
                   system: system + recoveryInstruction,
                   messages: messages,
                   tools: tools)
-              .listen((event) {
+              : (provider as StructuredOutputProvider).sendStructured(
+                  system: system + recoveryInstruction,
+                  messages: messages,
+                  output: schema);
+          upstream = stream.listen((event) {
             if (!live || done.isCompleted) return;
             try {
               if (event is StreamError) {

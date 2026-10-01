@@ -62,7 +62,7 @@ void main() {
     final app = TuiAssembly.start(
       providerFactory: (model) {
         models.add(model);
-        return ScriptedProvider([scriptedReply('ALLOW')], model: model);
+        return _StructuredJudge(model);
       },
       options: AssemblyOptions(
           configPath: '/nonexistent/tina/config', workingDirectory: ws.path),
@@ -372,4 +372,20 @@ void main() {
       env.assembly.close();
     });
   });
+}
+
+class _StructuredJudge extends LlmProvider implements StructuredOutputProvider {
+  _StructuredJudge(super.model);
+  @override
+  Stream<StreamEvent> send(
+          {required String system,
+          required List<Message> messages,
+          required List<ToolSchema> tools}) =>
+      Stream.fromIterable(scriptedReply('hello'));
+  @override
+  Stream<StreamEvent> sendStructured(
+          {required String system,
+          required List<Message> messages,
+          required JsonOutputSchema output}) =>
+      Stream.fromIterable(scriptedReply('{"decision":"ALLOW"}'));
 }

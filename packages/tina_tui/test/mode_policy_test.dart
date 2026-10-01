@@ -261,21 +261,31 @@ class _Human implements approvals.ApprovalRequester {
   }
 }
 
-class _Judge extends LlmProvider {
+class _Judge extends LlmProvider implements StructuredOutputProvider {
   _Judge(this.requests, {this.answer = 'ALLOW'}) : super('judge');
   final List<String> requests;
   final String answer;
   @override
   Stream<StreamEvent> send(
+          {required String system,
+          required List<Message> messages,
+          required List<ToolSchema> tools}) =>
+      throw StateError('judge must use structured output');
+  @override
+  Stream<StreamEvent> sendStructured(
       {required String system,
       required List<Message> messages,
-      required List<ToolSchema> tools}) async* {
+      required JsonOutputSchema output}) async* {
     requests.add(messages.single.content
         .whereType<TextBlock>()
         .map((b) => b.text)
         .join());
     yield MessageComplete(
-        content: [TextBlock(answer)],
+        content: [
+          TextBlock(answer == 'unreadable'
+              ? answer
+              : jsonEncode({'decision': answer}))
+        ],
         stopReason: 'end_turn',
         usage: TokenUsage(inputTokens: 10, outputTokens: 7));
   }

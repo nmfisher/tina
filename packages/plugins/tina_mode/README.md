@@ -31,9 +31,18 @@ provider instance for the selected model. Reviews count toward the session's
 token ledger and limits. The request includes the full tool input, workspace,
 and operation being approved; no tools are available to the judge.
 
-Only a one-word ALLOW in a completed response authorizes execution, once.
-Whitespace, a trailing period, and Markdown wrapping around that one word are
-accepted. An explanation containing ALLOW is never interpreted as permission.
+Only a completed `{"decision":"ALLOW"}` response authorizes execution, once.
+The schema requires exactly one field and an ALLOW/DENY enum; the classifier
+validates it locally too. Prose, Markdown, extra fields, tool calls and partial
+responses never grant permission. Provider adapters request native constraints:
+[OpenAI strict JSON Schema](https://developers.openai.com/api/docs/guides/structured-outputs),
+[Anthropic output_config.format](https://platform.claude.com/docs/en/build-with-claude/structured-outputs),
+and [Gemini responseFormat](https://ai.google.dev/gemini-api/docs/generate-content/structured-output).
+[Z.ai](https://docs.z.ai/guides/capabilities/struct-output) documents JSON mode
+only: GLM requests constrain JSON syntax and include the schema in the prompt,
+with the same local validation. This does not guarantee schema compliance at
+generation time. An endpoint rejecting constraints falls back to human approval;
+it is never silently retried as an unconstrained text request.
 The judge retries a completed malformed verdict once with a stricter prompt;
 both attempts share the same 30-second timeout and cancellation signal.
 DENY, missing configuration, timeout or malformed output asks the human through

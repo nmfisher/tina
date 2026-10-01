@@ -22,3 +22,23 @@ abstract class LlmProvider {
 
   void close() {}
 }
+
+/// A named JSON Schema for a model's final answer. Separate from tool schemas:
+/// a structured request produces data and cannot invoke tools.
+final class JsonOutputSchema {
+  const JsonOutputSchema({required this.name, required this.schema});
+  final String name;
+  final Map<String, Object?> schema;
+}
+
+/// Optional provider capability, independent of the agent loop. Adapters request
+/// schema-constrained output where supported, or JSON mode on endpoints which
+/// only support JSON syntax. Callers must validate the completed answer either
+/// way; refusals, truncation and incompatible endpoints remain possible.
+abstract interface class StructuredOutputProvider {
+  Stream<StreamEvent> sendStructured({
+    required String system,
+    required List<Message> messages,
+    required JsonOutputSchema output,
+  });
+}

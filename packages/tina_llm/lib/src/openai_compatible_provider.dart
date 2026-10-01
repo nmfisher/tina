@@ -318,7 +318,23 @@ Map<String, dynamic> chatCompletionsBody({
 
 /// One OpenAI-compatible endpoint: bearer token from the environment,
 /// chat-completions over the injected HTTP seam, SSE in, core events out.
-final class OpenAiCompatibleProvider extends LlmProvider {
+enum OpenAiStructuredOutput { jsonSchema, jsonObject }
+
+/// Z.ai's GLM endpoints document JSON mode, without schema enforcement.
+/// Other compatible endpoints receive the strict schema request; rejection
+/// remains an error instead of silently retrying without constraints.
+OpenAiStructuredOutput openAiStructuredOutputFor(String baseUrl) {
+  final host = Uri.parse(baseUrl).host.toLowerCase();
+  return host == 'z.ai' ||
+          host.endsWith('.z.ai') ||
+          host == 'bigmodel.cn' ||
+          host.endsWith('.bigmodel.cn')
+      ? OpenAiStructuredOutput.jsonObject
+      : OpenAiStructuredOutput.jsonSchema;
+}
+
+final class OpenAiCompatibleProvider extends LlmProvider
+    implements StructuredOutputProvider {
   OpenAiCompatibleProvider({
     required String model,
     required this.baseUrl,
@@ -326,7 +342,10 @@ final class OpenAiCompatibleProvider extends LlmProvider {
     HttpEndpoint? endpoint,
     this.stallTimeout = const Duration(seconds: 120),
     this.generation = const GenerationOptions(),
+    OpenAiStructuredOutput? structuredOutput,
   })  : _endpoint = endpoint ?? IoHttpEndpoint(endpoint: baseUrl),
+        structuredOutput =
+            structuredOutput ?? openAiStructuredOutputFor(baseUrl),
         _tokenFrom = tokenFrom,
         super(model);
 
@@ -339,6 +358,10 @@ final class OpenAiCompatibleProvider extends LlmProvider {
   final Duration stallTimeout;
   final GenerationOptions generation;
 
+  /// JSON-only endpoints (e.g. Z.ai) constrain syntax, not the schema. The
+  /// caller still supplies its schema in the prompt and validates the answer.
+  final OpenAiStructuredOutput structuredOutput;
+
   @override
   void close() {
     final e = _endpoint;
@@ -350,6 +373,23 @@ final class OpenAiCompatibleProvider extends LlmProvider {
     required String system,
     required List<Message> messages,
     required List<ToolSchema> tools,
+  }) =>
+      _send(system: system, messages: messages, tools: tools);
+
+  @override
+  Stream<StreamEvent> sendStructured({
+    required String system,
+    required List<Message> messages,
+    required JsonOutputSchema output,
+  }) =>
+      _send(
+          system: system, messages: messages, tools: const [], output: output);
+
+  Stream<StreamEvent> _send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+    JsonOutputSchema? output,
   }) async* {
     final token = _tokenFrom();
     if (token.isEmpty) {
@@ -361,6 +401,28 @@ final class OpenAiCompatibleProvider extends LlmProvider {
     }
     final HttpResponse response;
     try {
+      final request = generation.openAi(chatCompletionsBody(
+        model: model,
+        system: output != null &&
+                structuredOutput == OpenAiStructuredOutput.jsonObject
+            ? '$system\nReturn JSON matching this schema: ${jsonEncode(output.schema)}'
+            : system,
+        messages: messages,
+        tools: tools,
+      ));
+      if (output != null) {
+        request['response_format'] = switch (structuredOutput) {
+          OpenAiStructuredOutput.jsonSchema => {
+              'type': 'json_schema',
+              'json_schema': {
+                'name': output.name,
+                'strict': true,
+                'schema': output.schema
+              },
+            },
+          OpenAiStructuredOutput.jsonObject => {'type': 'json_object'},
+        };
+      }
       response = await _endpoint.post(
         chatCompletionsPath(baseUrl),
         headers: {
@@ -368,12 +430,7 @@ final class OpenAiCompatibleProvider extends LlmProvider {
           'accept': 'text/event-stream',
           'authorization': 'Bearer $token',
         },
-        body: encodeBody(generation.openAi(chatCompletionsBody(
-          model: model,
-          system: system,
-          messages: messages,
-          tools: tools,
-        ))),
+        body: encodeBody(request),
       );
     } catch (e) {
       yield StreamError('request failed: transport error ($e)');

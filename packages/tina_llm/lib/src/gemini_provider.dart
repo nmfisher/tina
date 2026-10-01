@@ -220,7 +220,8 @@ final class GeminiBuilder with WireBuilderState {
 /// One Gemini endpoint: key from the environment (`x-goog-api-key`),
 /// streamGenerateContent over the injected HTTP seam, SSE in, core
 /// events out.
-final class GeminiProvider extends LlmProvider {
+final class GeminiProvider extends LlmProvider
+    implements StructuredOutputProvider {
   GeminiProvider({
     required String model,
     required String Function() tokenFrom,
@@ -249,6 +250,23 @@ final class GeminiProvider extends LlmProvider {
     required String system,
     required List<Message> messages,
     required List<ToolSchema> tools,
+  }) =>
+      _send(system: system, messages: messages, tools: tools);
+
+  @override
+  Stream<StreamEvent> sendStructured({
+    required String system,
+    required List<Message> messages,
+    required JsonOutputSchema output,
+  }) =>
+      _send(
+          system: system, messages: messages, tools: const [], output: output);
+
+  Stream<StreamEvent> _send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+    JsonOutputSchema? output,
   }) async* {
     final key = _tokenFrom();
     if (key.isEmpty) {
@@ -260,18 +278,25 @@ final class GeminiProvider extends LlmProvider {
     }
     final HttpResponse response;
     try {
+      final request = generation.gemini(geminiBody(
+        system: system,
+        messages: messages,
+        tools: tools,
+        maxOutputTokens: generation.maxOutputTokens,
+      ));
+      if (output != null) {
+        (request['generationConfig']
+            as Map<String, dynamic>)['responseFormat'] = {
+          'text': {'mimeType': 'application/json', 'schema': output.schema},
+        };
+      }
       response = await _endpoint.post(
         geminiStreamPath(baseUrl, model),
         headers: {
           'content-type': 'application/json',
           'x-goog-api-key': key,
         },
-        body: encodeBody(generation.gemini(geminiBody(
-          system: system,
-          messages: messages,
-          tools: tools,
-          maxOutputTokens: 8192,
-        ))),
+        body: encodeBody(request),
       );
     } catch (e) {
       yield StreamError('request failed: transport error ($e)');

@@ -40,7 +40,8 @@ String? _env(String name) {
 }
 
 /// The Anthropic-wire provider.
-final class AnthropicProvider extends LlmProvider {
+final class AnthropicProvider extends LlmProvider
+    implements StructuredOutputProvider {
   /// Build from the environment. [tokenFrom] exists so tests can inject a
   /// fake token value without touching the process environment; the
   /// default reads `TINA_LLM_TOKEN`, then `ANTHROPIC_AUTH_TOKEN` (both
@@ -133,6 +134,23 @@ final class AnthropicProvider extends LlmProvider {
     required String system,
     required List<Message> messages,
     required List<ToolSchema> tools,
+  }) =>
+      _send(system: system, messages: messages, tools: tools);
+
+  @override
+  Stream<StreamEvent> sendStructured({
+    required String system,
+    required List<Message> messages,
+    required JsonOutputSchema output,
+  }) =>
+      _send(
+          system: system, messages: messages, tools: const [], output: output);
+
+  Stream<StreamEvent> _send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+    JsonOutputSchema? output,
   }) async* {
     final (:token, :bearer) = _auth();
     if (token == null || token.isEmpty) {
@@ -143,12 +161,19 @@ final class AnthropicProvider extends LlmProvider {
       return;
     }
 
-    final body = encodeBody(generation.anthropic(requestBody(
+    final request = generation.anthropic(requestBody(
       model: model,
       system: system,
       messages: messages,
       tools: tools,
-    )));
+    ));
+    if (output != null) {
+      request['output_config'] = {
+        ...?request['output_config'] as Map<String, dynamic>?,
+        'format': {'type': 'json_schema', 'schema': output.schema},
+      };
+    }
+    final body = encodeBody(request);
 
     HttpResponse response;
     try {

@@ -23,6 +23,43 @@ class Stub extends LlmProvider {
   }
 }
 
+class StructuredStub extends Stub implements StructuredOutputProvider {
+  StructuredStub(super.reply);
+  final schemas = <JsonOutputSchema>[];
+  final systems = <String>[];
+  @override
+  Stream<StreamEvent> send(
+          {required String system,
+          required List<Message> messages,
+          required List<ToolSchema> tools}) =>
+      throw StateError('must preserve schema');
+  @override
+  Stream<StreamEvent> sendStructured(
+      {required String system,
+      required List<Message> messages,
+      required JsonOutputSchema output}) {
+    schemas.add(output);
+    systems.add(system);
+    calls++;
+    return reply();
+  }
+}
+
+const schema = JsonOutputSchema(name: 'decision', schema: {
+  'type': 'object',
+  'properties': {
+    'decision': {
+      'type': 'string',
+      'enum': ['ALLOW', 'DENY']
+    }
+  },
+  'required': ['decision'],
+  'additionalProperties': false,
+});
+Stream<StreamEvent> structuredRequest(LlmProvider provider) =>
+    (provider as StructuredOutputProvider)
+        .sendStructured(system: 'review', messages: [], output: schema);
+
 const answer = MessageComplete(
     content: [TextBlock('answer')],
     stopReason: 'end_turn',
@@ -34,6 +71,94 @@ ProviderTarget target(String id, Stub p, {int concurrency = 4}) =>
     ProviderTarget(id: id, create: () => p, maxConcurrent: concurrency);
 
 void main() {
+  test(
+      'structured requests preserve schema across failover and configuration refresh',
+      () async {
+    final failed = StructuredStub(() => Stream.value(const StreamError(
+        'temporary',
+        statusCode: 503,
+        retryAfter: Duration.zero,
+        usage: TokenUsage(inputTokens: 2, outputTokens: 1))));
+    final success = StructuredStub(() => Stream.value(answer));
+    final replacement = StructuredStub(() => Stream.value(answer));
+    var selected = success;
+    final policy = ProviderPolicyPlugin(
+        targets: (_) => [target('failed', failed), target('ok', selected)]);
+    addTearDown(policy.closeSession);
+    final main = policy.mainProvider('x');
+    expect(await structuredRequest(main).toList(), contains(answer));
+    expect(failed.schemas.single, same(schema));
+    expect(success.schemas.single, same(schema));
+    expect(policy.sessionTokens, 8);
+    selected = replacement;
+    policy.refreshConfiguration();
+    await structuredRequest(main).drain<void>();
+    expect(success.closed, true);
+    expect(replacement.schemas.single, same(schema));
+    expect(policy.sessionTokens, 13);
+  });
+  test('structured recovery retains constraints and counts both attempts',
+      () async {
+    late StructuredStub member;
+    member = StructuredStub(() => Stream.fromIterable(member.calls == 1
+        ? [
+            const ReasoningDelta('thinking'),
+            const StreamError('output limit',
+                providerCode: 'output_limit',
+                usage: TokenUsage(inputTokens: 10, outputTokens: 20)),
+          ]
+        : [answer]));
+    final policy =
+        ProviderPolicyPlugin(targets: (_) => [target('only', member)]);
+    addTearDown(policy.closeSession);
+    await structuredRequest(policy.mainProvider('x')).drain<void>();
+    expect(member.schemas, [schema, schema]);
+    expect(member.systems.last, contains('Keep reasoning brief'));
+    expect(policy.sessionTokens, 35);
+  });
+  test('unsupported pool members never receive an unconstrained classification',
+      () async {
+    final unsupported = Stub(() => throw StateError('must not send'));
+    final supported = StructuredStub(() => Stream.value(answer));
+    final policy = ProviderPolicyPlugin(
+        targets: (_) => [target('no', unsupported), target('yes', supported)]);
+    addTearDown(policy.closeSession);
+    expect(await structuredRequest(policy.mainProvider('x')).toList(),
+        contains(answer));
+    expect(unsupported.calls, 0);
+    expect(policy.sessionTokens, 5);
+    final onlyUnsupported =
+        ProviderPolicyPlugin(targets: (_) => [target('no', unsupported)]);
+    addTearDown(onlyUnsupported.closeSession);
+    final error =
+        (await structuredRequest(onlyUnsupported.mainProvider('x')).toList())
+            .whereType<StreamError>()
+            .single;
+    expect(error.providerCode, 'structured_output_unsupported');
+    expect(onlyUnsupported.sessionTokens, 0);
+  });
+  test('cancelling a structured request releases the shared concurrency gate',
+      () async {
+    var cancelled = false;
+    final stream =
+        StreamController<StreamEvent>(onCancel: () => cancelled = true);
+    late StructuredStub member;
+    member = StructuredStub(
+        () => member.calls == 1 ? stream.stream : Stream.value(answer));
+    final policy = ProviderPolicyPlugin(
+        targets: (_) => [target('only', member, concurrency: 1)]);
+    addTearDown(policy.closeSession);
+    final main = policy.mainProvider('x');
+    final subscription = structuredRequest(main).listen((_) {});
+    await tick();
+    final next = structuredRequest(main).toList();
+    await tick();
+    expect(member.calls, 1);
+    await subscription.cancel();
+    expect(await next, contains(answer));
+    expect(cancelled, true);
+    await stream.close();
+  });
   test('configuration refresh waits for next request and preserves spend',
       () async {
     final stream = StreamController<StreamEvent>();
