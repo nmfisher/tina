@@ -19,7 +19,18 @@ Map<String, dynamic> _toolJson(ToolSchema t) => {
 /// wire (the types were copied from it), so this is their `toJson` — with
 /// reasoning handled separately because [ReasoningBlock] is transcript
 /// data, not a `ContentBlock`.
-Map<String, dynamic> _blockJson(ContentBlock b) => b.toJson();
+Map<String, dynamic> _blockJson(ContentBlock b) =>
+    b is ToolResultBlock && b.images.isNotEmpty
+        ? {
+            'type': 'tool_result',
+            'tool_use_id': b.toolUseId,
+            'content': [
+              TextBlock(b.content).toJson(),
+              for (final image in b.images) image.toJson()
+            ],
+            if (b.isError) 'is_error': true,
+          }
+        : b.toJson();
 
 /// One message, wire-shaped: `{role, content}`. Reasoning blocks ride
 /// ahead of the answer content as `thinking` blocks, each with its

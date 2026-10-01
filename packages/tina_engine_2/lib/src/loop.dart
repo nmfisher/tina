@@ -537,17 +537,11 @@ final class AgentLoop {
     _stopRequest = null;
     // ------------------------------------------------------------------
     // Step 1: take the input. The pinned tool set is snapshotted once,
-    // from the plugins' `tools` getters, before anything runs.
+    // from the plugins' `tools` getters after preparation, before prompt,
+    // input or execution hooks run.
     // ------------------------------------------------------------------
-    final pinnedMap = {
-      for (final p in _inOrder())
-        for (final t in p.tools) t.name: t
-    };
-    final ownerOf = {
-      for (final p in _inOrder())
-        for (final t in p.tools) t.name: p.id
-    };
-    final pinned = [for (final t in pinnedMap.values) t];
+    final pinnedMap = <String, ToolSchema>{};
+    final ownerOf = <String, String>{};
     final turnId = raw.id;
     final appended = <Message>[];
     final requests = <Request>[];
@@ -568,7 +562,7 @@ final class AgentLoop {
       rethrow;
     }
 
-    var ctx = _start(raw, pinned);
+    var ctx = _start(raw, const []);
 
     // The single exit: record the turn's end in the log, build the
     // outcome, fan out onTurnEnd, return. Every exit — complete,
@@ -601,6 +595,17 @@ final class AgentLoop {
     }
 
     try {
+      ctx = await _phase(ctx, 'prepareTurn', (p, c) => p.prepareTurn(c));
+      if (_cancel.cancelled) {
+        return finish(StopReason.cancelled, _cancel.reason);
+      }
+      for (final plugin in _inOrder()) {
+        for (final tool in plugin.tools) {
+          pinnedMap[tool.name] = tool;
+          ownerOf[tool.name] = plugin.id;
+        }
+      }
+      ctx.pinnedTools = List.of(pinnedMap.values);
       // Prompt-section phase, once per turn. The sections the plugins add
       // here are the base; `beforeModelCall` may adjust them per call.
       // A throwing onPrompt is fail-closed: the turn ends as an error
@@ -988,6 +993,7 @@ final class AgentLoop {
             ToolResultBlock(
                 toolUseId: call.id,
                 content: result.content,
+                images: result.images,
                 isError: result.isError),
           ]);
           _append(MessageAppendedEntry(

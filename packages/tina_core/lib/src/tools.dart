@@ -87,6 +87,9 @@ class ToolUse {
 
 class ToolResult {
   final String content;
+
+  /// Images accompany readable text and remain binary data on provider wires.
+  final List<ImageBlock> images;
   final bool isError;
 
   /// Optional execution metadata. Null unless the tool measures it; purely
@@ -104,6 +107,7 @@ class ToolResult {
   const ToolResult(
     this.content, {
     this.isError = false,
+    this.images = const [],
     this.elapsed,
     this.timedOut,
     this.emptyOutput,

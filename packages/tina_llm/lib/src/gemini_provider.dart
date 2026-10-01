@@ -59,6 +59,10 @@ List<Map<String, dynamic>> geminiContents(
     for (final b in m.content) {
       if (b is TextBlock) {
         parts.add({'text': b.text});
+      } else if (b is ImageBlock) {
+        parts.add({
+          'inlineData': {'mimeType': b.mimeType, 'data': b.data}
+        });
       } else if (b is ToolUseBlock) {
         parts.add({
           'functionCall': {'name': b.name, 'args': b.input},
@@ -74,6 +78,11 @@ List<Map<String, dynamic>> geminiContents(
             },
           },
         });
+        for (final image in b.images) {
+          parts.add({
+            'inlineData': {'mimeType': image.mimeType, 'data': image.data}
+          });
+        }
       }
     }
     if (parts.isNotEmpty) out.add({'role': role, 'parts': parts});

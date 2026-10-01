@@ -58,6 +58,11 @@ abstract class AgentPlugin {
   /// Tools contributed to the loop. Snapshotted once per turn.
   List<ToolSchema> get tools => const [];
 
+  /// Finish asynchronous discovery before this turn's tool set is pinned.
+  /// Changes from external notifications are applied here, never mid-turn.
+  /// The usual cancellation and fail-closed hook rules apply.
+  FutureOr<void> prepareTurn(TurnContext context) {}
+
   /// Prepare session resources before constructing the loop. A plugin may
   /// return the restored transcript and details when resuming.
   SessionSeed? openSession(PluginSession session) => null;

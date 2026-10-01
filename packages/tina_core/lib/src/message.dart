@@ -19,6 +19,12 @@ sealed class ContentBlock {
     switch (type) {
       case 'text':
         return TextBlock(j['text'] as String);
+      case 'image':
+        final source = j['source'] as Map;
+        return ImageBlock(
+          data: source['data'] as String,
+          mimeType: source['media_type'] as String,
+        );
       case 'tool_use':
         return ToolUseBlock(
           id: j['id'] as String,
@@ -31,6 +37,11 @@ sealed class ContentBlock {
           toolUseId: j['tool_use_id'] as String,
           content: j['content'] as String,
           isError: (j['is_error'] as bool?) ?? false,
+          images: [
+            for (final image in (j['images'] as List? ?? const []))
+              ContentBlock.fromJson(Map<String, dynamic>.from(image as Map))
+                  as ImageBlock,
+          ],
         );
       default:
         throw FormatException('Unknown content block type: $type');
@@ -44,6 +55,18 @@ class TextBlock extends ContentBlock {
 
   @override
   Map<String, dynamic> toJson() => {'type': 'text', 'text': text};
+}
+
+/// A provider-neutral inline image. The JSON shape preserves existing logs.
+class ImageBlock extends ContentBlock {
+  const ImageBlock({required this.data, required this.mimeType});
+  final String data;
+  final String mimeType;
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'image',
+        'source': {'type': 'base64', 'media_type': mimeType, 'data': data},
+      };
 }
 
 class ToolUseBlock extends ContentBlock {
@@ -78,10 +101,12 @@ class ToolResultBlock extends ContentBlock {
   final String toolUseId;
   final String content;
   final bool isError;
+  final List<ImageBlock> images;
   const ToolResultBlock({
     required this.toolUseId,
     required this.content,
     this.isError = false,
+    this.images = const [],
   });
 
   @override
@@ -90,6 +115,8 @@ class ToolResultBlock extends ContentBlock {
         'tool_use_id': toolUseId,
         'content': content,
         if (isError) 'is_error': true,
+        if (images.isNotEmpty)
+          'images': [for (final image in images) image.toJson()],
       };
 }
 

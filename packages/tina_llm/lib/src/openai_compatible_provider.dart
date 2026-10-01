@@ -253,6 +253,30 @@ List<Map<String, dynamic>> chatCompletionsMessages(List<Message> messages) {
       if (rest.isNotEmpty) {
         out.add({'role': 'user', 'content': rest.join('\n')});
       }
+      final images = [
+        for (final block in m.content)
+          if (block is ImageBlock) block,
+        for (final block in m.content.whereType<ToolResultBlock>())
+          ...block.images,
+      ];
+      if (images.isNotEmpty) {
+        out.add({
+          'role': 'user',
+          'content': [
+            {
+              'type': 'text',
+              'text': 'Images returned by the preceding tool results.'
+            },
+            for (final image in images)
+              {
+                'type': 'image_url',
+                'image_url': {
+                  'url': 'data:${image.mimeType};base64,${image.data}'
+                }
+              },
+          ]
+        });
+      }
       continue;
     }
     // Assistant: the model's own words and its calls.
