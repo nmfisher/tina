@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/testing.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
@@ -249,7 +251,7 @@ enabled = []
       escape,
       escape,
     ]);
-    expect(reopened, contains('16384'));
+    expect(reopened, contains('16,384'));
   });
 
   for (final applyDraft in [true, false]) {
@@ -466,5 +468,99 @@ enabled = []
         await drive([down, enter, down, enter, escape, down, enter]);
     expect(saved, isFalse);
     expect(config.readAsStringSync(), before);
+  });
+
+  test('generation edits at the cursor, accepts commas and stores an integer',
+      () async {
+    final (saved, output) = await drive([
+      CharInput('Generation'),
+      enter,
+      PasteInput('16,380'),
+      ArrowKey(ArrowDirection.left),
+      EditingKey(EditingAction.delete),
+      CharInput('4'),
+      enter,
+      escape,
+    ]);
+    expect(saved, true);
+    expect(output, contains('16,384'));
+    expect(
+        ConfigDocument.open(config.path).table('providers')['custom']
+            ['max_output'],
+        16384);
+  });
+
+  test(
+      'real settings reader receives bracketed paste and parks the cursor in the field',
+      () async {
+    final io = FakeIo();
+    final screen = fakeScreen(io);
+    final editor = LineEditor(screen: screen);
+    final panel = SettingsPanel(screen, editor);
+    Future<void> settle() async {
+      for (var i = 0; i < 4; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    Future<void> key(InputEvent event) async {
+      editor.inject(event);
+      await settle();
+    }
+
+    void cursorAt(String visible, int offset) {
+      final vt = VirtualTerminal(
+          width: screen.layout.width, height: screen.layout.height);
+      vt.feed(io.written.toString());
+      final rows = List.generate(vt.height, vt.rowText);
+      final row = rows.indexWhere((line) => line.contains(visible));
+      expect(row, greaterThanOrEqualTo(0));
+      expect(vt.cursorRow, row);
+      expect(vt.cursorCol, rows[row].indexOf(visible) + offset);
+    }
+
+    final line = editor.readLine('> ');
+    await settle();
+    await key(CharInput('preserved draft'));
+    final run = panel.run(path: config.path, descriptors: descriptors);
+    try {
+      await settle();
+      await key(CharInput('Request and token limits'));
+      await key(enter);
+      await key(CharInput('Turn token'));
+      await key(enter);
+      io.feedBytes('\x1b[200~1,234,567\x1b[201~'.codeUnits);
+      await settle();
+      expect(editor.editState.buffer, 'preserved draft');
+      cursorAt('1,234,567', 9);
+      await key(EditingKey(EditingAction.home));
+      cursorAt('1,234,567', 0);
+      await key(ArrowKey(ArrowDirection.right));
+      cursorAt('1,234,567', 2); // Skip the displayed separator.
+      await key(EditingKey(EditingAction.delete));
+      await key(CharInput('9'));
+      cursorAt('1,934,567', 3);
+      // Resize while editing: the same digit must remain under the cursor.
+      io.written.clear();
+      screen.resize(ScreenLayout.fromSize(40, 8, split: false));
+      editor.handleResize();
+      panel.repaint();
+      cursorAt('1,934,567', 3);
+      await key(enter);
+      await key(CharInput('Save'));
+      await key(enter);
+      expect(await run.timeout(const Duration(seconds: 3)), true);
+      expect(
+          ConfigDocument.open(config.path).table('limits')['max_turn_tokens'],
+          1934567);
+      expect(editor.editState.buffer, 'preserved draft');
+      await key(enter);
+      expect(await line, 'preserved draft');
+    } finally {
+      panel.cancel();
+      editor.close();
+      screen.dispose();
+      io.closeInput();
+    }
   });
 }

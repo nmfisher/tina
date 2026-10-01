@@ -74,7 +74,9 @@ final class SettingsPanel {
         document.table('default')['model'] == kTinaDefaultModel) {
       document.table('default')['model'] = '';
     }
-    _read = readEvent ?? editor.captureKeyReader(cancelSignal: _cancel.future);
+    _read = readEvent ??
+        editor.captureKeyReader(
+            acceptPaste: true, cancelSignal: _cancel.future);
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
     _overlay =
@@ -155,22 +157,26 @@ final class SettingsPanel {
             }
           case 5:
             final values = document.table('limits');
-            const keys = [
-              'max_global_tokens',
-              'max_session_tokens',
-              'max_turn_tokens',
-              'max_request_tokens',
-              'max_sub_agent_tokens',
-              'max_sub_agent_depth',
-              'max_sub_agent_concurrency',
-              'requests_per_minute',
-              'min_request_interval_ms',
-              'max_concurrent_requests'
-            ];
-            final index = await _menu('Limits (0 disables token/rate caps)',
-                [for (final key in keys) '$key: ${values[key] ?? 'default'}']);
+            const fields = {
+              'max_global_tokens': 'Global token limit',
+              'max_session_tokens': 'Session token limit',
+              'max_turn_tokens': 'Turn token limit',
+              'max_request_tokens': 'Request token limit',
+              'max_sub_agent_tokens': 'Sub-agent token limit',
+              'max_sub_agent_depth': 'Sub-agent depth',
+              'max_sub_agent_concurrency': 'Concurrent sub-agents',
+              'requests_per_minute': 'Requests per minute',
+              'min_request_interval_ms': 'Minimum request interval (ms)',
+              'max_concurrent_requests': 'Concurrent requests'
+            };
+            final keys = fields.keys.toList();
+            final index = await _menu('Limits (0 disables token/rate caps)', [
+              for (final key in keys)
+                '${fields[key]}: ${_preview(key, values[key])}'
+            ]);
             if (index != null)
-              await _field(values, keys[index], keys[index], numeric: true);
+              await _field(values, keys[index], fields[keys[index]]!,
+                  numeric: true);
           case 6:
             await _generation(document, descriptors, validatePlugins);
           case 7:
@@ -184,7 +190,11 @@ final class SettingsPanel {
     } finally {
       unlisten?.call();
       _paint = null;
+      if (!_cancel.isCompleted) _cancel.complete();
+      await _pendingRead;
+      _pendingRead = null;
       _overlay.hide();
+      editor.endKeyCaptureWindow();
       editor.handleResize();
     }
   }
@@ -218,7 +228,9 @@ final class SettingsPanel {
     final model = config.model;
     final automaticOutput =
         descriptor.models[model]?.maxOutput ?? config.maxOutputTokens;
-    var output = settings?.maxOutput?.toString() ?? '';
+    final initialOutput = settings?.maxOutput?.toString() ?? '';
+    var output =
+        TextLineInput(buffer: initialOutput, cursor: initialOutput.length);
     var replaceOutput = true;
     final localEffort = settings?.reasoningEffort;
     final localBudget = settings?.thinkingBudget;
@@ -257,23 +269,37 @@ final class SettingsPanel {
       if (budget == 0) {
         thinking = 1;
       } else {
-        labels.add('Custom ($budget tokens)');
+        labels.add('Custom (${formatInteger(budget)} tokens)');
         efforts.add('budget');
         thinking = labels.length - 1;
       }
     }
     var selected = 0;
     String? error;
-    _paint = () => _show([
-          'Generation · $id',
-          '${selected == 0 ? '›' : ' '} Output limit: ${output.isEmpty ? 'Automatic ($automaticOutput)' : output}',
-          '${selected == 1 ? '›' : ' '} Thinking: ${labels[thinking]}',
-          error ??
-              (selected == 0
-                  ? 'Type number · Ctrl-U Automatic'
-                  : '←→ choose · applies to this provider'),
-          '↑↓ select · Enter save · Esc cancel',
-        ]);
+    _paint = () {
+      final prefix = '${selected == 0 ? '›' : ' '} Output limit: ';
+      final view = textFieldView(output,
+          numeric: true,
+          width: (dialogArea(screen.layout).width - visibleWidth(prefix))
+              .clamp(1, 10000));
+      _show([
+        'Generation · $id',
+        '$prefix${output.buffer.isEmpty ? 'Automatic (${formatInteger(automaticOutput)})' : view.text}',
+        '${selected == 1 ? '›' : ' '} Thinking: ${labels[thinking]}',
+        error ??
+            (selected == 0
+                ? '←→ edit · type number · Ctrl-U Automatic'
+                : '←→ choose · applies to this provider'),
+        '↑↓ select · Enter save · Esc cancel',
+      ],
+          cursor: selected == 0
+              ? (
+                  1,
+                  visibleWidth(prefix) +
+                      (output.buffer.isEmpty ? 0 : view.cursorColumn)
+                )
+              : null);
+    };
     while (true) {
       repaint();
       final event = await _nextEvent();
@@ -288,34 +314,27 @@ final class SettingsPanel {
         case ControlKey(code: ControlCode.tab):
           selected = 1 - selected;
           replaceOutput = true;
-        case ArrowKey(direction: ArrowDirection.left):
+        case ArrowKey(direction: ArrowDirection.left) when selected == 1:
           if (selected == 1) thinking = (thinking - 1) % labels.length;
-        case ArrowKey(direction: ArrowDirection.right):
+        case ArrowKey(direction: ArrowDirection.right) when selected == 1:
         case CharInput(text: ' ') when selected == 1:
           if (selected == 1) thinking = (thinking + 1) % labels.length;
-        case EditingKey(action: EditingAction.killToStart):
-          if (selected == 0) {
-            output = '';
-            replaceOutput = false;
-          }
-        case ControlKey(code: ControlCode.backspace):
-          if (selected == 0 && output.isNotEmpty) {
-            output = output.substring(0, output.length - 1);
-            replaceOutput = false;
-          }
         case CharInput(:final text):
         case PasteInput(:final text):
           if (selected == 0) {
-            if (!RegExp(r'^\d+$').hasMatch(text.trim())) {
+            final digits = _numericText(text);
+            if (digits == null) {
               error = 'Type a number, or Ctrl-U for Automatic.';
             } else {
-              output = (replaceOutput ? '' : output) + text.trim();
+              output = (replaceOutput ? const TextLineInput() : output)
+                  .insert(digits);
               replaceOutput = false;
             }
           }
         case ControlKey(code: ControlCode.enter):
-          final number = output.isEmpty ? null : int.tryParse(output);
-          if (output.isNotEmpty && (number == null || number <= 0)) {
+          final number =
+              output.buffer.isEmpty ? null : int.tryParse(output.buffer);
+          if (output.buffer.isNotEmpty && (number == null || number <= 0)) {
             error = 'Output limit must be a positive number.';
             continue;
           }
@@ -354,7 +373,13 @@ final class SettingsPanel {
                 : 'Could not save; check permissions or reopen Settings.';
           }
         default:
-          break;
+          if (selected == 0) {
+            final edited = _editKey(output, event);
+            if (edited != null) {
+              output = edited;
+              replaceOutput = false;
+            }
+          }
       }
     }
   }
@@ -741,7 +766,11 @@ final class SettingsPanel {
   String _preview(String field, Object? value) {
     if (value == null) return 'default';
     if (field == 'api_key' || field == 'auth_token') return 'configured';
-    return value is List ? value.join(', ') : value.toString();
+    return value is List
+        ? value.join(', ')
+        : value is int
+            ? formatInteger(value)
+            : value.toString();
   }
 
   List<String> _list(String text) =>
@@ -755,7 +784,7 @@ final class SettingsPanel {
     final old = values[key];
     final value = await _edit(
         label, old is List ? old.join(', ') : old?.toString() ?? '',
-        secret: secret, suggestions: suggestions);
+        secret: secret, numeric: numeric, suggestions: suggestions);
     if (value == null) return;
     if (numeric && value.isNotEmpty) {
       final number = int.tryParse(value);
@@ -773,14 +802,20 @@ final class SettingsPanel {
     }
   }
 
-  void _show(List<String> lines) {
+  void _show(List<String> lines, {(int, int)? cursor}) {
     final area = dialogArea(screen.layout);
     final visible = lines
         .take(area.height)
         .map((v) => clipDialogText(v, area.width))
         .toList();
-    _overlay.update(
-        bounds: centeredDialog(screen.layout, visible), lines: visible);
+    final bounds = centeredDialog(screen.layout, visible);
+    screen.frame(() {
+      _overlay.update(bounds: bounds, lines: visible);
+      if (cursor != null && bounds.height > 0 && bounds.width > 0) {
+        screen.parkCursorAt(bounds.row + cursor.$1.clamp(0, bounds.height - 1),
+            bounds.col + cursor.$2.clamp(0, bounds.width - 1));
+      }
+    });
   }
 
   Future<int?> _menu(String title, List<String> items,
@@ -912,33 +947,33 @@ final class SettingsPanel {
 
   Future<String?> _edit(String label, String initial,
       {bool secret = false,
+      bool numeric = false,
       List<String> suggestions = const [],
       bool Function()? valid}) async {
     var input = TextLineInput(buffer: initial, cursor: initial.length);
+    String? error;
     _paint = () {
-      final text = secret ? '•' * input.buffer.runes.length : input.buffer;
-      final cursor = secret
-          ? input.buffer.substring(0, input.cursor).runes.length
-          : input.cursor;
-      // Keep the cursor and the end of a long value in the visible viewport.
-      final width = (dialogArea(screen.layout).width - 2).clamp(1, 10000);
-      final before = text.substring(0, cursor);
-      final tail = before.runes.toList();
-      while (tail.isNotEmpty &&
-          visibleWidth(String.fromCharCodes(tail)) >= width) {
-        tail.removeAt(0);
-      }
+      final view = textFieldView(input,
+          width: dialogArea(screen.layout).width,
+          secret: secret,
+          numeric: numeric);
       _show([
         label,
-        '${String.fromCharCodes(tail)}▏${text.substring(cursor)}',
-        '${suggestions.isEmpty ? '' : 'tab complete · '}enter accept · esc cancel · ctrl-u clear'
-      ]);
+        view.text,
+        error ??
+            '${suggestions.isEmpty ? '' : 'tab complete · '}enter accept · esc cancel · ctrl-u clear'
+      ], cursor: (
+        1,
+        view.cursorColumn
+      ));
     };
     while (true) {
       if (valid?.call() == false) return null;
       repaint();
       final event = await _nextEvent();
       if (valid?.call() == false) return null;
+      if (event == null) continue;
+      error = null;
       switch (event) {
         case EscapeKey():
           return null;
@@ -961,27 +996,53 @@ final class SettingsPanel {
                   cursor: replacement.length);
             }
           }
-        case ControlKey(code: ControlCode.backspace):
-          input = input.backspace();
         case CharInput(:final text):
-          input = input.insert(text);
         case PasteInput(:final text):
-          input = input.insert(text.replaceAll(RegExp(r'[\r\n]'), ''));
-        case ArrowKey(direction: ArrowDirection.left):
-          input = input.moveLeft();
-        case ArrowKey(direction: ArrowDirection.right):
-          input = input.moveRight();
-        case EditingKey(action: EditingAction.home):
-          input = input.moveHome();
-        case EditingKey(action: EditingAction.end):
-          input = input.moveEnd();
-        case EditingKey(action: EditingAction.delete):
-          input = input.deleteForward();
-        case EditingKey(action: EditingAction.killToStart):
-          input = const TextLineInput();
+          final value = numeric
+              ? _numericText(text)
+              : text.replaceAll(RegExp(r'[\r\n]'), '');
+          if (value == null) {
+            error = 'Enter a nonnegative integer (commas are allowed).';
+          } else {
+            input = input.insert(value);
+          }
         default:
-          break;
+          input = _editKey(input, event) ?? input;
       }
     }
   }
+
+  String? _numericText(String text) {
+    text = text.trim();
+    return RegExp(r'^(?:\d+|\d{1,3}(?:,\d{3})+)$').hasMatch(text)
+        ? text.replaceAll(',', '')
+        : null;
+  }
+
+  TextLineInput? _editKey(TextLineInput input, InputEvent event) =>
+      switch (event) {
+        ControlKey(code: ControlCode.backspace) => input.backspace(),
+        ArrowKey(
+          direction: ArrowDirection.left,
+          :final hasAlt,
+          :final hasCtrl
+        ) =>
+          hasAlt || hasCtrl ? input.moveWordLeft() : input.moveLeft(),
+        ArrowKey(
+          direction: ArrowDirection.right,
+          :final hasAlt,
+          :final hasCtrl
+        ) =>
+          hasAlt || hasCtrl ? input.moveWordRight() : input.moveRight(),
+        EditingKey(action: EditingAction.home) => input.moveHome(),
+        EditingKey(action: EditingAction.end) => input.moveEnd(),
+        EditingKey(action: EditingAction.delete) => input.deleteForward(),
+        EditingKey(action: EditingAction.killToStart) => const TextLineInput(),
+        EditingKey(action: EditingAction.killToEnd) => input.killToEnd(),
+        EditingKey(action: EditingAction.deleteWordBackward) =>
+          input.killWordBackward(),
+        EditingKey(action: EditingAction.deleteWordForward) =>
+          input.killWordForward(),
+        _ => null,
+      };
 }

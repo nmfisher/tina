@@ -123,7 +123,7 @@ class ChatBlock {
         kind: ChatBlockKind.reasoning,
         body: plainLines(text),
         subject: complete ? 'reasoning' : 'reasoning (partial)',
-        status: '${text.length} chars',
+        status: '${formatInteger(text.length)} chars',
       );
 
   /// A tool call. [subject] is the one-line description (`bash · grep -rn …`),

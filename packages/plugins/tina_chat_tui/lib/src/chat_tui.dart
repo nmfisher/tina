@@ -493,8 +493,6 @@ final class ChatTuiPlugin extends AgentPlugin
     if (console == null) return const [];
     final tokens = sessionTokens?.call() ?? _tokens;
     final estimated = sessionEstimatedTokens?.call() ?? 0;
-    String number(int n) =>
-        '$n'.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
     final theme = console.screen.theme.chat;
     final fraction = tokenCap > 0 ? (tokens + estimated) / tokenCap : 0.0;
     final plan = _plan;
@@ -537,12 +535,12 @@ final class ChatTuiPlugin extends AgentPlugin
         if (fraction >= 1)
           RenderRun('SPEND LIMIT TRIPPED', theme.red)
         else ...[
-          RenderRun('Σ ${number(tokens)}', theme.dim),
+          RenderRun('Σ ${formatInteger(tokens)}', theme.dim),
           if (estimated > 0)
-            RenderRun(' +~${number(estimated)} est', theme.yellow),
+            RenderRun(' +~${formatInteger(estimated)} est', theme.yellow),
           if (tokenCap > 0)
             RenderRun(
-                ' / ${number(tokenCap)} · ${(fraction * 100).round()}%',
+                ' / ${formatInteger(tokenCap)} · ${(fraction * 100).round()}%',
                 fraction >= .9
                     ? theme.red
                     : fraction >= .75

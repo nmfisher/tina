@@ -37,6 +37,7 @@ export 'src/input_event.dart';
 export 'src/input_log.dart';
 export 'src/input_parser.dart';
 export 'src/text_line_input.dart';
+export 'src/text_field_view.dart';
 export 'src/line_editor.dart';
 export 'src/line_layout.dart';
 export 'src/menu.dart';

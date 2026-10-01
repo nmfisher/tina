@@ -297,12 +297,30 @@ class LineEditor {
   Future<void> get inputCancelled => _cancelKeyReads.future;
 
   Future<InputEvent> Function() captureKeyReader(
-      {bool globalKeys = false, Future<void>? cancelSignal}) {
+      {bool globalKeys = false,
+      bool acceptPaste = false,
+      Future<void>? cancelSignal}) {
     final cancel = Future.any([
       inputCancelled,
       if (cancelSignal != null) cancelSignal,
     ]);
-    return () => readKey(globalKeys: globalKeys, cancelSignal: cancel);
+    return () => readKey(
+        globalKeys: globalKeys, acceptPaste: acceptPaste, cancelSignal: cancel);
+  }
+
+  /// A screen-owning form has closed. Stop treating the next conversation
+  /// keystrokes as overflow for another field in that form.
+  /// Call after its last key read has settled, before returning to the draft.
+  void endKeyCaptureWindow() {
+    if (_readKeyTurn != null) return;
+    _burstTimer?.cancel();
+    _burstTimer = null;
+    _burstForm = false;
+    final pending = List<InputEvent>.of(_pending);
+    _pending.clear();
+    for (final event in pending) {
+      _onEventInner(event);
+    }
   }
 
   /// Wait for the next input event. Suspends any active cancel-monitor for

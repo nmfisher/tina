@@ -461,9 +461,9 @@ Iterable<String> _classifierDetails(Map details) sync* {
   if (details['attempts'] != null)
     yield 'Classifier attempts: ${details['attempts']}';
   if (details['answer_characters'] != null)
-    yield 'Classifier answer: ${details['answer_characters']} characters';
+    yield 'Classifier answer: ${details['answer_characters'] is int ? formatInteger(details['answer_characters'] as int) : details['answer_characters']} characters';
   if (details['reasoning_characters'] != null)
-    yield 'Classifier reasoning: ${details['reasoning_characters']} characters';
+    yield 'Classifier reasoning: ${details['reasoning_characters'] is int ? formatInteger(details['reasoning_characters'] as int) : details['reasoning_characters']} characters';
   if (details['stop_reason'] != null)
     yield 'Classifier completion: ${details['stop_reason']}';
 }
