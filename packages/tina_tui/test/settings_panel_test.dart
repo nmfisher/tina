@@ -252,6 +252,50 @@ enabled = []
     expect(reopened, contains('16384'));
   });
 
+  for (final applyDraft in [true, false]) {
+    test(
+        'generation saves inside the provider tree preserve ${applyDraft ? 'applied' : 'cancelled'} credential drafts',
+        () async {
+      var applications = 0;
+      final (saved, _) = await drive([
+        CharInput('Providers and models'), enter,
+        ArrowKey(ArrowDirection.right), down,
+        EditingKey(EditingAction.killToStart), PasteInput('draft-secret'),
+        for (var i = 0; i < 7; i++) down, enter, // advanced provider fields
+        CharInput('Generation'), enter, CharInput('16384'), enter,
+        escape, // back to the provider tree
+        if (applyDraft) ...[
+          ArrowKey(ArrowDirection.left), // provider row, Enter applies the tree
+          enter,
+          CharInput('Save'),
+          enter
+        ] else ...[
+          escape,
+          escape
+        ],
+      ], applyGeneration: () {
+        applications++;
+        final provider =
+            loadTinaConfig(path: config.path, descriptors: descriptors)
+                .config
+                .providers['custom']!;
+        expect(provider.maxOutput, 16384);
+        if (applications == 1) {
+          expect(provider.apiKey, 'original-secret',
+              reason: 'credential edits are still a draft');
+        }
+      });
+      expect(saved, true);
+      expect(applications, applyDraft ? 2 : 1);
+      final provider =
+          loadTinaConfig(path: config.path, descriptors: descriptors)
+              .config
+              .providers['custom']!;
+      expect(provider.maxOutput, 16384);
+      expect(provider.apiKey, applyDraft ? 'draft-secret' : 'original-secret');
+    });
+  }
+
   test('Escape cancels the generation section without touching disk', () async {
     final original = config.readAsStringSync();
     final (saved, _) = await drive([
