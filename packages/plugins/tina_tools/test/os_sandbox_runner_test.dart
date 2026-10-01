@@ -386,6 +386,9 @@ void main() {
       // the spawn saw the bwrap argv, then the command verbatim.
       expect(spawn.starts.single.command, 'bwrap');
       final argv = spawn.starts.single.arguments;
+      expect(argv.first, startsWith('--'));
+      expect(argv, isNot(contains('bwrap')),
+          reason: 'bwrap is the executable, never its own first child command');
       expect(argv[argv.length - 3], '/bin/sh');
       expect(argv[argv.length - 2], '-c');
       expect(argv.last, 'echo x > /etc/hosts');

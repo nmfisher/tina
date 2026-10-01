@@ -28,7 +28,6 @@ void main() {
         childEnvironment: {'PATH': '/usr/bin:/bin'},
       );
       expect(argv, [
-        'bwrap',
         // System directories, read-only, in the layout's order.
         '--ro-bind', '/usr', '/usr',
         '--ro-bind', '/bin', '/bin',
@@ -108,7 +107,6 @@ void main() {
         childEnvironment: const {},
       );
       expect(argv, [
-        'bwrap',
         '--bind',
         '/w',
         '/w',

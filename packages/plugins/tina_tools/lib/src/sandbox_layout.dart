@@ -101,7 +101,7 @@ List<String> buildBwrapArguments({
   required bool isolateNetwork,
   required Map<String, String> childEnvironment,
 }) {
-  final args = <String>['bwrap'];
+  final args = <String>[];
   final bound = <String>{};
 
   void bind(String source, String target, {bool readOnly = false}) {
