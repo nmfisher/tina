@@ -289,10 +289,10 @@ MarkdownLine? _oneLine(ChatBlock block, int width) {
   final glyph = _glyph(block);
   final status = (block.status == null || block.status!.isEmpty)
       ? ''
-      : '  ${block.status}';
+      : '  ${_headerText(block.status!)}';
   final room = width - plainWidth(glyph) - plainWidth(status);
   if (room <= 0) return null;
-  final subject = _truncateHeadTail(block.subject, room);
+  final subject = _truncateHeadTail(_headerText(block.subject), room);
   return MarkdownLine(runs: [MarkdownRun('$glyph$subject$status', null)]);
 }
 
@@ -352,21 +352,26 @@ List<MarkdownRun> _headerRuns(ChatBlock block) {
       // Folded and expanded are told apart by the triangle alone, so the state
       // is legible without colour.
       runs.add(MarkdownRun(block.folded ? '▸ ' : '▾ ', null));
-      runs.add(MarkdownRun(block.subject, null));
+      runs.add(MarkdownRun(_headerText(block.subject), null));
     case ChatBlockKind.toolCall:
       runs.add(const MarkdownRun('→ ', null));
-      runs.add(MarkdownRun(block.subject, null));
+      runs.add(MarkdownRun(_headerText(block.subject), null));
     case ChatBlockKind.notice:
       if (block.notice != null) {
         runs.add(MarkdownRun('${block.notice} · ', null));
       }
-      runs.add(MarkdownRun(block.subject, null));
+      runs.add(MarkdownRun(_headerText(block.subject), null));
   }
   if (block.status != null && block.status!.isNotEmpty) {
-    runs.add(MarkdownRun('  ${block.status}', null));
+    runs.add(MarkdownRun('  ${_headerText(block.status!)}', null));
   }
   return runs;
 }
+
+// Signposts occupy one physical row. Shell heredocs, error descriptions and
+// plugin notices may contain source line breaks; they are text here, never
+// terminal cursor instructions. User/prose line breaks are laid out below.
+String _headerText(String text) => text.replaceAll(RegExp(r'[\r\n\t]+'), ' ');
 
 /// Prefix visual lines: [first] opens the block, [rest] continues it.
 ///
@@ -397,6 +402,28 @@ List<MarkdownLine> _prefixAll(
   return out;
 }
 
+/// Split source breaks before wrapping/prefixing, preserving inline styles.
+/// No rendered row may carry LF/CR/HT: on a PTY a raw newline starts at column
+/// zero, outside the chat surface, so its letters survive later redraws.
+Iterable<MarkdownLine> _sourceLines(MarkdownLine line) sync* {
+  var runs = <MarkdownRun>[];
+  for (final run in line.runs) {
+    final parts = run.text
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .replaceAll('\t', '    ')
+        .split('\n');
+    for (var i = 0; i < parts.length; i++) {
+      if (i > 0) {
+        yield MarkdownLine(bar: line.bar, runs: runs);
+        runs = [];
+      }
+      if (parts[i].isNotEmpty) runs.add(MarkdownRun(parts[i], run.code));
+    }
+  }
+  yield MarkdownLine(bar: line.bar, runs: runs);
+}
+
 /// Split [lines] into visual lines that fit [width] columns.
 ///
 /// Prose wraps at spaces so words survive; a row carrying a [MarkdownLine.bar]
@@ -406,7 +433,7 @@ List<MarkdownLine> _prefixAll(
 List<MarkdownLine> _wrap(List<MarkdownLine> lines, int width) {
   if (width <= 0) return lines;
   final out = <MarkdownLine>[];
-  for (final line in lines) {
+  for (final line in lines.expand(_sourceLines)) {
     if (line.isBlank) {
       out.add(const MarkdownLine.blank());
       continue;

@@ -67,4 +67,20 @@ void main() {
       expect(first, isFalse);
     }
   });
+
+  test('source breaks and tabs become bounded rows before gutters are added',
+      () {
+    final renderer =
+        TimestampChatRenderer(now: () => DateTime(2026, 9, 30, 3, 4));
+    final block = ChatBlock.user('first\nSECOND\r\nTHIRD\n\ttabbed');
+    final rows = renderer.render(
+        block, const RenderContext(width: 30, theme: Theme.defaults()));
+    final text = rows.map((row) => row.runs.map((r) => r.text).join()).toList();
+    expect(text,
+        ['03:04  first', '       SECOND', '       THIRD', '           tabbed']);
+    for (final row in text) {
+      expect(row, isNot(contains(RegExp(r'[\r\n\t]'))));
+      expect(plainWidth(row), lessThanOrEqualTo(30));
+    }
+  });
 }

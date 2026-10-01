@@ -628,6 +628,50 @@ void main() {
     chat.observe(const ToolOutput(call, 'late text'));
     expect(transcript(), isNot(contains('late text')));
   });
+
+  test('multiline shell headers cannot paint letters in the left margin', () {
+    const multiline = ToolUse(id: 'heredoc', name: 'bash', input: {
+      'command': "git commit -m \"\$(cat <<'EOF'\nMESSAGE\nEOF\n)\""
+    });
+    chat.observe(const ToolStarted(multiline));
+    chat.observe(const ToolFinished(multiline, ToolResult('committed')));
+    chat.writeNotice('Committed.');
+    chat.repaintConsole();
+
+    // PTYs with ONLCR translate a literal LF into CRLF. Every painted row
+    // must be addressed explicitly, or a heredoc body starts at column zero
+    // outside the chat surface and survives subsequent transcript redraws.
+    final vt = VirtualTerminal(width: 80, height: 24)
+      ..feed(io.output.toString().replaceAll('\n', '\r\n'));
+    for (var row = screen.chat.bounds.row;
+        row <= screen.chat.bounds.bottom;
+        row++) {
+      expect(vt.charAt(row, 0), ' ', reason: 'left margin at row $row');
+    }
+    expect(io.output.toString(), isNot(contains('\n')));
+    expect(transcript(), contains('MESSAGE'));
+    expect(visible(), contains('Committed.'));
+  });
+
+  test(
+      'replayed multiline user input keeps each row inside the timestamp gutter',
+      () {
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'restored',
+            message: Message(role: Role.user, content: [
+              TextBlock('first line\nSECOND LINE\nTHIRD LINE'),
+            ])),
+        LogEvent.replay);
+    chat.writeNotice('Resumed.');
+    chat.repaintConsole();
+    expect(io.output.toString(), isNot(contains('\n')));
+    for (final row in screen.chat.snapshotLines()) {
+      if (row.contains('SECOND LINE') || row.contains('THIRD LINE')) {
+        expect(row, startsWith('       '));
+      }
+    }
+  });
   test('prompt and timestamp layout fit small widths and both themes', () {
     for (final theme in [const Theme.dark(), const Theme.light()]) {
       for (final width in [1, 2, 10, 12, 20, 80, 120]) {

@@ -100,8 +100,9 @@ int clippedSurfaceColumns(Rect bounds, int relRow, int relCol, int columns) {
   return columns < remaining ? columns : remaining;
 }
 
-/// Clip [s] to a maximum of [maxCols] visible columns, preserving any embedded
-/// ANSI (CSI) escape sequences without counting them toward the budget.
+/// Clip one painted row to [maxCols] cells. Preserve SGR styling only: text
+/// cannot move the terminal cursor, erase another row or change terminal modes.
+/// Source line breaks and tabs degrade to spaces; layout belongs to the caller.
 ///
 /// The budget is terminal cells (wide runes 2, combining 0 — see
 /// term_width.dart), so a clipped string can never lay out wider than
@@ -117,24 +118,28 @@ String clipToVisibleColumns(String s, int maxCols) {
   final sb = StringBuffer();
   var i = 0;
   while (i < s.length) {
-    if (s[i] == '\x1b') {
-      sb.write(s[i]);
-      i++;
-      if (i < s.length && s[i] == '[') {
-        sb.write(s[i]);
-        i++;
-        while (i < s.length && !_isCsiFinal(s.codeUnitAt(i))) {
-          sb.write(s[i]);
-          i++;
-        }
-        if (i < s.length) {
-          sb.write(s[i]);
-          i++;
-        }
-      } else if (i < s.length) {
-        sb.write(s[i]);
-        i++;
+    final unit = s.codeUnitAt(i);
+    if (unit == 0x1b || (unit >= 0x80 && unit <= 0x9f)) {
+      final sgr = _rowSgr.matchAsPrefix(s, i);
+      if (sgr != null) {
+        sb.write(sgr.group(0));
+        i = sgr.end;
+      } else {
+        i = _skipControlSequence(s, i);
       }
+      continue;
+    }
+    if (unit < 0x20 || unit == 0x7f) {
+      if (unit == 0x09 || unit == 0x0a || unit == 0x0d) {
+        if (visible == maxCols) break;
+        sb.write(' ');
+        visible++;
+        // A CRLF is one source break.
+        if (unit == 0x0d && i + 1 < s.length && s.codeUnitAt(i + 1) == 0x0a) {
+          i++;
+        }
+      }
+      i++;
       continue;
     }
     final size = runeSizeAt(s, i);
@@ -147,6 +152,52 @@ String clipToVisibleColumns(String s, int maxCols) {
     i += size;
   }
   return sb.toString();
+}
+
+final _rowSgr = RegExp(r'\x1b\[[0-9;:]*m');
+
+/// Consume the whole sequence, including OSC/DCS payloads and charset escapes
+/// such as ESC ) B. Dropping only ESC would paint their trailing letters.
+int _skipControlSequence(String text, int start) {
+  var i = start;
+  var kind = text.codeUnitAt(i++);
+  if (kind == 0x1b) {
+    if (i == text.length) return i;
+    kind = text.codeUnitAt(i++);
+  }
+  if (kind == 0x5b || kind == 0x9b) {
+    // CSI
+    while (i < text.length) {
+      if (_isCsiFinal(text.codeUnitAt(i++))) break;
+    }
+  } else if (kind == 0x5d ||
+      kind == 0x9d || // OSC
+      kind == 0x50 ||
+      kind == 0x90 || // DCS
+      kind == 0x58 ||
+      kind == 0x98 || // SOS
+      kind == 0x5e ||
+      kind == 0x9e || // PM
+      kind == 0x5f ||
+      kind == 0x9f) {
+    // APC
+    while (i < text.length) {
+      final c = text.codeUnitAt(i++);
+      if (c == 0x9c || (c == 0x07 && (kind == 0x5d || kind == 0x9d))) break;
+      if (c == 0x1b && i < text.length && text.codeUnitAt(i) == 0x5c) {
+        i++;
+        break;
+      }
+    }
+  } else if (kind >= 0x20 && kind <= 0x2f) {
+    while (i < text.length &&
+        text.codeUnitAt(i) >= 0x20 &&
+        text.codeUnitAt(i) <= 0x2f) {
+      i++;
+    }
+    if (i < text.length) i++; // charset/designation final byte
+  }
+  return i;
 }
 
 bool _isCsiFinal(int c) => c >= 0x40 && c <= 0x7E;

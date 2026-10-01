@@ -10,6 +10,50 @@ import 'notcurses_backend_platform_test.dart' show RecordingPlatform;
 import 'virtual_terminal.dart';
 
 void main() {
+  group('painted row isolation', () {
+    test('keeps SGR but consumes complete cursor, string and charset controls',
+        () {
+      final text = '\x1b[31mred\x1b[0m\x1b[2J\x1b[1;1H'
+          '\x1b]0;title\x07\x1bPpayload\x1b\\\x1b)B'
+          '\u009b1;1H\u009dtitle\u009c\x1b7\x1b8 tail';
+      expect(clipToVisibleColumns(text, 80), '\x1b[31mred\x1b[0m tail');
+      expect(clipToVisibleColumns('ok\x1b[', 80), 'ok');
+      expect(clipToVisibleColumns('ok\x1b]unterminated', 80), 'ok');
+    });
+    test('source controls cannot escape row bounds on a surface or screen', () {
+      final io = FakeStdio();
+      final backend = AnsiBackend(io: io, ansi: AnsiCapable.yes);
+      final screen = Screen.withBackend(
+          backend: backend,
+          io: io,
+          layout: ScreenLayout.fromSize(80, 24, split: false));
+      const bounds = Rect(row: 2, col: 1, width: 20, height: 2);
+      final surface = backend.createSurface(bounds);
+      surface.putAt(
+          relRow: 0,
+          relCol: 0,
+          text: 'A\r\nB\tC\bD',
+          maxCols: 20,
+          moveCursor: false);
+      screen.putAtAbsolute(
+          row: 3,
+          col: 1,
+          text: '\x1b[1;1HHEADER\nM',
+          maxCols: 20,
+          moveCursor: false,
+          clipRect: bounds);
+      final output = io.written.toString();
+      expect(output, isNot(contains(RegExp(r'[\r\n\t\b]'))));
+      final vt = VirtualTerminal(width: 80, height: 24)..feed(output);
+      expect(vt.rowText(2).trim(), 'A B CD');
+      expect(vt.rowText(3).trim(), 'HEADER M');
+      expect(vt.charAt(2, 0), ' ');
+      expect(vt.charAt(3, 0), ' ');
+      expect(vt.rowText(0).trim(), isEmpty);
+      screen.dispose();
+      io.close();
+    });
+  });
   group('Backend contract (AnsiBackend)', () {
     late FakeStdio io;
     late AnsiBackend backend;
