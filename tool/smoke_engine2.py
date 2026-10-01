@@ -98,6 +98,11 @@ class ModelStub(BaseHTTPRequestHandler):
             ('different network example', 'exec', {'program': '/bin/echo',
                 'args': ['different-network-output'], 'network': True,
                 'network_reason': 'test exact network permission scope'}),
+            ('auto network example', 'exec', {'program': '/bin/echo',
+                'args': ['auto-network-output'], 'network': True,
+                'network_reason': 'test automatic network schema approval'}),
+            ('background poll example', 'bash', {'background': True, 'timeout': 120,
+                'command': 'echo background-live; while [ ! -f background-release ]; do sleep 0.1; done; echo background-finished'}),
         ]:
             if trigger in json.dumps(prompt):
                 events[1] = {"type": "content_block_start", "index": 0,
@@ -106,6 +111,30 @@ class ModelStub(BaseHTTPRequestHandler):
                 events[2] = {"type": "content_block_delta", "index": 0,
                              "delta": {"type": "input_json_delta", "partial_json": json.dumps(arguments)}}
                 events[4]['delta']['stop_reason'] = 'tool_use'
+        if 'check background job' in json.dumps(prompt):
+            job_id = re.search(r'Job ID: ([^ .\n]+)', json.dumps(request['messages'])).group(1)
+            events[1] = {'type': 'content_block_start', 'index': 0,
+                         'content_block': {'type': 'tool_use', 'id': 'background-status', 'name': 'process', 'input': {}}}
+            events[2] = {'type': 'content_block_delta', 'index': 0,
+                         'delta': {'type': 'input_json_delta', 'partial_json': json.dumps({
+                             'job_id': job_id, 'action': 'wait', 'wait_ms': 3000})}}
+            events[4]['delta']['stop_reason'] = 'tool_use'
+        # Native automatic approvals must reach the endpoint with their schema,
+        # through the same configuration and policy wrappers as agent requests.
+        output = request.get('output_config', {}).get('format')
+        if output is not None:
+            assert output == {'type': 'json_schema', 'schema': {
+                'type': 'object',
+                'properties': {'decision': {'type': 'string', 'enum': ['ALLOW', 'DENY']}},
+                'required': ['decision'], 'additionalProperties': False}}
+            evidence = json.loads(prompt[0]['text'])
+            assert evidence['required_permissions'] == ['execution', 'network']
+            assert evidence['arguments'] == ['auto-network-output']
+            events[1] = {'type': 'content_block_start', 'index': 0,
+                         'content_block': {'type': 'text', 'text': ''}}
+            events[2] = {'type': 'content_block_delta', 'index': 0,
+                         'delta': {'type': 'text_delta', 'text': '{"decision":"ALLOW"}'}}
+            events[4]['delta']['stop_reason'] = 'end_turn'
         def encode(items):
             return "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in items).encode()
         first = events[:2] + ([{"type": "content_block_delta", "index": 0,
@@ -214,6 +243,11 @@ def smoke(launcher, endpoint, columns, rows):
         workspace = root / 'workspace'
         workspace.mkdir()
         (workspace / 'preview.txt').write_text('before\n')
+        tickets = workspace / '.tickets'
+        tickets.mkdir()
+        for i in range(240):
+            (tickets / f'ticket-{i}.md').write_text('x\n')
+        (workspace / 'zz_file_target.dart').write_text('// completion target\n')
         ModelStub.approval_target = root / 'outside-the-workspace' / 'permission-target.txt'
         ModelStub.approval_target.parent.mkdir()
         store = root / "sessions.jsonl"
@@ -235,6 +269,14 @@ def smoke(launcher, endpoint, columns, rows):
                 assert cursor in terminal.output, 'hardware cursor did not follow the theme'
             terminal.expect("mode: ask")
             terminal.expect("update ⬆ v999.0.0 · /update")
+            start = terminal.send('inspect @zz_file_target')
+            terminal.expect('zz_file_target.dart', start)
+            terminal.send('\r')  # accept the suggestion beyond the old 200-file cap
+            time.sleep(0.1)
+            start = terminal.send('\r')
+            terminal.expect('smoke answer', start)
+            assert '@zz_file_target.dart' in json.dumps(ModelStub.requests[-1]['messages'][-1])
+            time.sleep(0.1)
             start = terminal.send("\x1b[Z")
             terminal.expect("mode: read-only", start)
             start = terminal.send("\x1b[Z")
@@ -353,8 +395,52 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_network + 2, 'denied network command did not finish'
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
+            start = terminal.send('/mode auto\r')
+            terminal.expect('mode: auto', start)
+            before_auto = len(ModelStub.requests)
+            start = terminal.send('auto network example\r')
+            terminal.expect('run command allowed by classifier', start)
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_auto + 3, 'automatic review did not use its own structured request'
+            terminal.expect('smoke answer', start)
+            assert 'output_config' in ModelStub.requests[before_auto + 1]
+            assert b'awaiting approval' not in terminal.output[start:], 'schema-valid ALLOW still prompted'
+            time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
             terminal.expect('mode: allow-edits', start)
+            before_background = len(ModelStub.requests)
+            start = terminal.send('background poll example\r')
+            terminal.expect('❯ [y] allow once', start)
+            start = terminal.send('y')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_background + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_background + 2, 'background start held the conversation'
+            messages = json.dumps(ModelStub.requests[-1]['messages'])
+            assert 'Job ID:' in messages, 'background process did not return an inspectable job'
+            terminal.expect('smoke answer', start)
+            time.sleep(0.1)
+            before_talk = len(ModelStub.requests)
+            start = terminal.send('talk while poller runs\r')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_talk + 1 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_talk + 1, 'new input was held by the background poller'
+            terminal.expect('smoke answer', start)
+            assert 'talk while poller runs' in json.dumps(ModelStub.requests[-1]['messages'][-1])
+            assert not (workspace / 'background-release').exists(), 'poller finished before the new input'
+            (workspace / 'background-release').write_text('finish')
+            before_status = len(ModelStub.requests)
+            start = terminal.send('check background job\r')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_status + 2 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_status + 2
+            assert 'background-finished' in json.dumps(ModelStub.requests[-1]['messages'])
+            terminal.expect('smoke answer', start)
+            time.sleep(0.1)
             start = terminal.send('run cancellable tool\r')
             terminal.expect('Run shell command', start)
             terminal.expect('❯ [y] allow once', start)
@@ -562,7 +648,6 @@ def smoke(launcher, endpoint, columns, rows):
             assert b'A approve' not in terminal.output[start:]
             assert b'R reject' not in terminal.output[start:]
             start = terminal.send('\x1b[A\x1b[B\x1b[C')
-            terminal.expect('▾', start)
             start = terminal.send('\x1b[6~' * 10)
             terminal.expect('PLAN_DETAILS_END', start)
             start = terminal.send('\x1b[B')
@@ -668,7 +753,7 @@ def smoke(launcher, endpoint, columns, rows):
             raise
         finally:
             terminal.close()
-        print(f"PASS {columns}x{rows}: prompt, completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation, approvals/network grants, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
+        print(f"PASS {columns}x{rows}: prompt, full file completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation/background jobs, approvals/network grants/JSON schema, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
 
 
 def smoke_cli(launcher):
@@ -713,8 +798,10 @@ def smoke_cli(launcher):
                 start = terminal.send('Generation\r')
                 terminal.expect('Output limit:', start)
                 if not reopen:
-                    start = terminal.send('16384')
-                    terminal.expect('16384', start)
+                    start = terminal.send('\x1b[200~16,380\x1b[201~')
+                    terminal.expect('16,380', start)
+                    start = terminal.send('\x1b[D\x1b[3~4')
+                    terminal.expect('16,384', start)
                     start = terminal.send('\x1b[B')
                     terminal.expect('←→ choose', start)
                     start = terminal.send('\x1b[C')
@@ -724,7 +811,7 @@ def smoke_cli(launcher):
                     start = terminal.send('\r')
                     terminal.expect('Settings', start)
                 else:
-                    terminal.expect('16384', start)
+                    terminal.expect('16,384', start)
                     terminal.expect('Thinking: Low', start)
                     terminal.send('\x1b')  # Cancel without changing the saved section.
                     time.sleep(0.2)
@@ -758,11 +845,15 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        assert 99 <= len(ModelStub.requests) <= 102, (
-            f"expected 99–102 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
+        # Each size adds nine requests: one file-completion turn, three for
+        # automatic network approval (agent/judge/result), and five for the
+        # background job (start/result, another message, inspect/result).
+        assert 126 <= len(ModelStub.requests) <= 129, (
+            f"expected 126–129 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)
+        print(f"PASS request accounting: {len(ModelStub.requests)} requests, configured model and credentials preserved")
     finally:
         server.shutdown()
         server.server_close()
