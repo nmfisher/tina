@@ -201,8 +201,11 @@ dart run bin/tina_tui.dart --cwd /path/to/project --resume SESSION_ID
 Use `--import-sessions PATH` to convert legacy files into the new store;
 `--dry-run` previews without writing. The source files remain unchanged.
 `--store`, resuming and continuing require persistence to be enabled.
-Bare `--resume` prints a numbered picker before loading the app; Enter/q
-cancels. `--continue` (or `-c`) resumes the last updated main session.
+Bare `--resume` opens a session picker before loading the app. Up/Down selects,
+Enter resumes, and Escape cancels. Each row shows its last saved date/time in
+local time and a short title or preview of its first user input. Piped input
+retains the numbered picker (Enter/q cancels). `--continue` (or `-c`) resumes
+the last updated main session.
 
 ## Verification
 

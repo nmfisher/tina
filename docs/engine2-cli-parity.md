@@ -8,9 +8,10 @@ to port the legacy command surface or enable deferred features.
 
 - `tina --continue` / `tina -c`: resume the most recently updated main session
   in the current workspace's `.tina/sessions.db` (or `--store FILE`).
-- `tina --resume`: print main sessions, newest activity first, and select by
-  number. Enter, `q` or EOF cancels without starting the app. Invalid numbers
-  prompt again. This also accepts a selection from piped input.
+- `tina --resume`: show main sessions, newest activity first, in a keyboard
+  picker. Up/Down selects, Enter resumes, Escape cancels. Rows show the last
+  committed save time (local time) and a title or first-input preview. With
+  piped input, a numbered list accepts a selection; Enter, `q` or EOF cancels.
 - `tina --resume ID` / `tina --resume=ID`: resume a known ID directly.
 - Missing or empty history reports an error (exit 66), without creating a new
   session. Child sessions are omitted from the picker and continue lookup;

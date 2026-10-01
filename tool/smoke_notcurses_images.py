@@ -88,8 +88,11 @@ def smoke(binary, endpoint, columns, rows):
         finally:
             terminal.close()
         # Persisted tool-result attachments must be painted on resume too.
-        resumed = Terminal(command + ['--continue'], env, columns, rows)
+        resumed = Terminal(command + ['--resume'], env, columns, rows)
         try:
+            resumed.expect('Resume session', wrapped=True)
+            resumed.expect('Enter resume', wrapped=True)
+            resumed.send('\r')
             resumed.expect('smoke > ')
             for _ in range(3):
                 resumed.send('\x1b[5~')
@@ -107,6 +110,14 @@ def smoke(binary, endpoint, columns, rows):
             raise
         finally:
             resumed.close()
+        if rows == 30:
+            cancelled = Terminal(command + ['--resume'], env, columns, rows)
+            try:
+                cancelled.expect('Enter resume', wrapped=True)
+                cancelled.send('\x1b')
+                cancelled.expect_clean_exit()
+            finally:
+                cancelled.close()
         print(f'PASS notcurses images {columns}x{rows}: MCP pixels, idle, resize, scroll, input, resume, clear, teardown')
 
 

@@ -61,6 +61,8 @@ final class StoredSession {
     this.title,
     this.model,
     this.details,
+    this.lastSavedAt,
+    this.summary,
   }) : lastActivityKey = lastActivityKey ?? registryKey;
 
   /// The session id the host started it with.
@@ -81,6 +83,13 @@ final class StoredSession {
   /// The title given at creation, when there was one.
   final String? title;
   final String? model;
+
+  /// Timestamp of the latest committed registry, metadata or entry row.
+  /// Derived from the existing SQLite log, so older stores need no migration.
+  final DateTime? lastSavedAt;
+
+  /// A short preview of the first user input, independent of generated output.
+  final String? summary;
 
   /// The session's counters (depth, children in flight, tokens spent)
   /// as the registry row carries them, or null when the row predates
@@ -295,11 +304,14 @@ final class SessionStore {
       final sessions = <String, StoredSession>{};
       final counts = <String, int>{};
       final latest = <String, int>{};
+      final savedAt = <String, DateTime?>{};
+      final summaries = <String, String>{};
       for (final row in _log.readAll()) {
         final payload = row.payload;
         if (_isMarker(payload)) {
           final id = payload['session_id'] as String;
           latest[id] = row.id;
+          savedAt[id] = DateTime.tryParse(row.at);
           final previous = sessions[id];
           final details = payload['details'];
           sessions[id] = StoredSession(
@@ -315,7 +327,29 @@ final class SessionStore {
         } else {
           final id = payload['slice'] as String;
           latest[id] = row.id;
+          savedAt[id] = DateTime.tryParse(row.at);
           counts[id] = (counts[id] ?? 0) + 1;
+          if (!summaries.containsKey(id)) {
+            String? text;
+            if (payload['type'] == InputRecordedEntry.kindName) {
+              text = payload['text'] as String?;
+            } else if (payload['type'] == MessageAppendedEntry.kindName) {
+              final message = payload['message'];
+              if (message is Map && message['role'] == 'user') {
+                final decoded =
+                    Message.fromJson(Map<String, dynamic>.from(message));
+                if (!decoded.isSynthetic)
+                  text = decoded.content
+                      .whereType<TextBlock>()
+                      .map((b) => b.text)
+                      .join('\n');
+              }
+            }
+            final summary = text?.replaceAll(RegExp(r'\s+'), ' ').trim();
+            if (summary != null && summary.isNotEmpty) {
+              summaries[id] = String.fromCharCodes(summary.runes.take(160));
+            }
+          }
         }
       }
       return [
@@ -328,6 +362,8 @@ final class SessionStore {
             title: session.title,
             model: session.model,
             details: session.details,
+            lastSavedAt: savedAt[session.id],
+            summary: summaries[session.id],
           )
       ];
     } on Object catch (e) {

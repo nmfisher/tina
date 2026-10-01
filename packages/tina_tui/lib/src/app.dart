@@ -8,11 +8,13 @@ import 'dart:io' as io;
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/notcurses.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_persistence/tina_persistence.dart';
 
 import 'settings_panel.dart';
 import 'completion_sources.dart';
 import 'tui_session.dart';
 import 'session_view.dart';
+import 'session_selection.dart';
 
 /// Run the app on [session] until the user quits or stdin ends.
 ///
@@ -27,13 +29,16 @@ Future<int> runApp(
   ConsoleContext Function(Screen, LineEditor)? consoleContextFor,
   Stream<ScreenLayout>? resizes,
   String backend = 'ansi',
+  StartupTerminal? startup,
 }) async {
   final terminal = session.terminal;
   if (terminal is! TuiTerminal) {
     throw ArgumentError('runApp requires a TuiTerminal');
   }
-  final s = screen ??
+  final s = startup?.screen ??
+      screen ??
       _newScreen(theme: resolveTheme(session.assembly.theme), backend: backend);
+  if (startup != null) s.setTheme(resolveTheme(session.assembly.theme));
   // UI plugins own presentation. The app only routes generic notices and
   // mounts console capabilities; headless output still uses TuiTerminal.
   final queued = Queue<String>();
@@ -42,13 +47,14 @@ Future<int> runApp(
   StreamSubscription<ScreenLayout>? resizeSubscription;
 
   // The editor owns the raw bytes; where its keys go is decided below.
-  late final LineEditor editor = editorFor != null
-      ? editorFor(s)
-      : LineEditor(
-          screen: s,
-          input: s.backend is NotcursesBackend
-              ? (s.backend as NotcursesBackend).createInputBackend()
-              : null);
+  late final LineEditor editor = startup?.editor ??
+      (editorFor != null
+          ? editorFor(s)
+          : LineEditor(
+              screen: s,
+              input: s.backend is NotcursesBackend
+                  ? (s.backend as NotcursesBackend).createInputBackend()
+                  : null));
   editor.restoreHistory(session.inputHistory);
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
@@ -130,8 +136,10 @@ Future<int> runApp(
     // test harness drives events by hand and has no tty to change. An
     // injected screen still renders (alt screen below), it just never
     // touches the process's tty.
-    ownsTty =
-        screen == null && s.io.hasTerminal && s.backend is! NotcursesBackend;
+    ownsTty = startup == null &&
+        screen == null &&
+        s.io.hasTerminal &&
+        s.backend is! NotcursesBackend;
     if (ownsTty) {
       try {
         previousEchoMode = io.stdin.echoMode;
@@ -254,9 +262,13 @@ Future<int> runApp(
     }
     // Restore modes before cancelling the direct stdin subscription: Dart
     // closes its descriptor when that subscription is cancelled.
-    editor.close(reportLatency: false);
-    s.dispose();
-    if (!s.passthrough) s.leaveAltScreen();
+    if (startup != null) {
+      startup.close();
+    } else {
+      editor.close(reportLatency: false);
+      s.dispose();
+      if (!s.passthrough) s.leaveAltScreen();
+    }
     editor.reportInputLatency();
     session.close();
   }
@@ -308,6 +320,69 @@ class _AppStdio extends LiveStdio {
   Stream<List<int>> get stdin => io.stdin;
 }
 
+/// One terminal owner from the startup picker through the resumed app. The
+/// same reader stays attached to stdin; native terminal initialization runs
+/// once. The CLI also closes this on cancellation or assembly failure.
+final class StartupTerminal {
+  StartupTerminal._(this.screen, this.editor, this._echo, this._line);
+  final Screen screen;
+  final LineEditor editor;
+  final bool? _echo;
+  final bool? _line;
+  bool _closed = false;
+
+  factory StartupTerminal.open({String backend = 'ansi'}) {
+    final screen = _newScreen(backend: backend);
+    final native = screen.backend is NotcursesBackend;
+    final editor = LineEditor(
+        screen: screen,
+        input: native
+            ? (screen.backend as NotcursesBackend).createInputBackend()
+            : null);
+    final terminal = StartupTerminal._(screen, editor,
+        native ? null : io.stdin.echoMode, native ? null : io.stdin.lineMode);
+    try {
+      if (!native) {
+        io.stdin.echoMode = false;
+        io.stdin.lineMode = false;
+      }
+      screen.enterAltScreen();
+      return terminal;
+    } catch (_) {
+      terminal.close();
+      rethrow;
+    }
+  }
+
+  Future<String?> pickSession(List<StoredSession> sessions) async {
+    await editor.input.ready;
+    final picker = SessionPicker(screen, editor, sessions);
+    final resize = io.ProcessSignal.sigwinch.watch().listen((_) {
+      screen.resize(ScreenLayout.fromSize(
+          io.stdout.terminalColumns, io.stdout.terminalLines,
+          split: false));
+      picker.repaint();
+    });
+    try {
+      return await picker.run();
+    } finally {
+      await resize.cancel();
+      editor.endKeyCaptureWindow();
+    }
+  }
+
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    // Restoring modes precedes closing stdin; Dart can release its descriptor.
+    if (_echo != null) io.stdin.echoMode = _echo;
+    if (_line != null) io.stdin.lineMode = _line;
+    editor.close(reportLatency: false);
+    screen.dispose();
+    screen.leaveAltScreen();
+  }
+}
+
 /// Merge explicit color overrides over the selected shipped variant.
 Theme resolveTheme(Map<String, dynamic> values) {
   final base = switch (values['variant']) {
@@ -329,25 +404,15 @@ Theme resolveTheme(Map<String, dynamic> values) {
 }
 
 /// Initial configuration has no model session and writes only on Save.
-Future<bool> runConfigEditor(String path, {String backend = 'ansi'}) async {
-  final screen = _newScreen(backend: backend);
-  final editor = LineEditor(
-      screen: screen,
-      input: screen.backend is NotcursesBackend
-          ? (screen.backend as NotcursesBackend).createInputBackend()
-          : null);
+Future<bool> runConfigEditor(String path,
+    {String backend = 'ansi', StartupTerminal? startup}) async {
+  final terminal = startup ?? StartupTerminal.open(backend: backend);
+  final screen = terminal.screen;
+  final editor = terminal.editor;
   final panel = SettingsPanel(screen, editor);
-  final native = screen.backend is NotcursesBackend;
-  final echo = native ? null : io.stdin.echoMode;
-  final line = native ? null : io.stdin.lineMode;
   StreamSubscription<io.ProcessSignal>? resize;
   try {
-    if (!native) {
-      io.stdin.echoMode = false;
-      io.stdin.lineMode = false;
-    }
-    screen.enterAltScreen();
-    if (native) await editor.input.ready;
+    await editor.input.ready;
     resize = io.ProcessSignal.sigwinch.watch().listen((_) {
       screen.resize(ScreenLayout.fromSize(
           io.stdout.terminalColumns, io.stdout.terminalLines,
@@ -362,10 +427,6 @@ Future<bool> runConfigEditor(String path, {String backend = 'ansi'}) async {
         validatePlugins: registry.validate);
   } finally {
     await resize?.cancel();
-    if (echo != null) io.stdin.echoMode = echo;
-    if (line != null) io.stdin.lineMode = line;
-    editor.close(reportLatency: false);
-    screen.dispose();
-    screen.leaveAltScreen();
+    terminal.close();
   }
 }

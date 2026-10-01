@@ -69,7 +69,7 @@ class ModelStub(BaseHTTPRequestHandler):
                                            "name": "bash", "input": {}}}
             events[2] = {"type": "content_block_delta", "index": 0,
                          "delta": {"type": "input_json_delta", "partial_json": json.dumps({
-                             "command": "(sleep 2; echo leaked > cancel-leak) & echo subprocess-live; wait"})}}
+                             "command": "(sleep 2; echo leaked > cancel-leak) &\necho subprocess-live\nwait"})}}
             events[4]['delta']['stop_reason'] = 'tool_use'
         if 'approve this' in json.dumps(prompt):
             events[1] = {"type": "content_block_start", "index": 0,
@@ -254,10 +254,13 @@ class Terminal:
 
     def quit(self):
         self.send("/quit\r")
+        self.expect_clean_exit()
+
+    def expect_clean_exit(self, exit_code=0):
         deadline = time.monotonic() + 8
         while self.process.poll() is None and time.monotonic() < deadline:
             self.read()
-        assert self.process.poll() == 0, "app did not exit cleanly with stdin still open"
+        assert self.process.poll() == exit_code, "app did not exit cleanly with stdin still open"
         self.read()
         assert b"\x1b[?1049l" in self.output, "alternate screen was not restored"
         restored = termios.tcgetattr(self.master)
@@ -581,6 +584,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
             start = terminal.send('run cancellable tool\r')
+            tool_paint_start = start
             terminal.expect('Run shell command', start)
             terminal.expect('❯ [y] allow once', start)
             terminal.resize(100, 30)
@@ -593,6 +597,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('Action: Run shell command', start)
             terminal.expect('Live output', start)
             terminal.expect('subprocess-live', start)
+            assert b'\n' not in terminal.output[tool_paint_start:], (
+                'multiline command leaked a raw newline outside its painted row')
             terminal.send('\x1bOS')
             time.sleep(0.05)
             start = terminal.send('\x1b')
@@ -830,8 +836,10 @@ def smoke(launcher, endpoint, columns, rows):
         terminal = Terminal(command + resume_args, env, columns, rows)
         try:
             if rows not in (10, 24):
-                terminal.expect("Select session")
-                terminal.send('1\r')
+                terminal.expect('Resume session')
+                terminal.expect('Enter resume')
+                # Arrow navigation selects rows, rather than typing a number.
+                terminal.send('\x1b[B\x1b[A\r')
             terminal.expect("smoke > ")
             start = terminal.send('\x1b[A')
             terminal.expect('finish plan example', start)
@@ -855,6 +863,14 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('Activity', start)
             terminal.expect('Delegate task', start)
             terminal.send('\x1bOS')
+            if rows not in (10, 24):
+                # The startup picker must hand stdin to the resumed app.
+                before_input = len(ModelStub.requests)
+                start = terminal.send('resume picker input\r')
+                terminal.wait_for(lambda: len(ModelStub.requests) == before_input + 1,
+                                  'resumed app did not submit input after the picker')
+                terminal.expect('smoke answer', start)
+                assert len(ModelStub.requests) == before_input + 1
             terminal.quit()
         except Exception as error:
             print(f'FAIL resume {columns}x{rows}: {error}', flush=True)
@@ -862,6 +878,27 @@ def smoke(launcher, endpoint, columns, rows):
             raise
         finally:
             terminal.close()
+        if rows == 30:
+            # Picker cancellation and assembly failure must release the one
+            # terminal reader too, with stdin still open in the parent.
+            before_picker = len(ModelStub.requests)
+            cancelled = Terminal(command + ['--resume'], env, columns, rows)
+            try:
+                cancelled.expect('Enter resume')
+                cancelled.send('\x1b')
+                cancelled.expect_clean_exit()
+            finally:
+                cancelled.close()
+            broken = root / 'invalid-config'
+            broken.write_text('[default]\nprovider="missing-provider"\nmodel="missing-model"\n')
+            failed = Terminal(command + ['--resume', '--config', str(broken)], env, columns, rows)
+            try:
+                failed.expect('Enter resume')
+                failed.send('\r')
+                failed.expect_clean_exit(exit_code=66)
+            finally:
+                failed.close()
+            assert len(ModelStub.requests) == before_picker, 'startup picker unexpectedly called a model'
         # Legacy conversion runs offline; resumed history must not execute its
         # unfinished tool call. The first new turn uses the ordinary loop/store.
         legacy = root / 'archive.jsonl'

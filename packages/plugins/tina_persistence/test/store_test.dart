@@ -55,6 +55,46 @@ void main() {
     again.close();
   });
 
+  test(
+      'list derives save time and preview from existing rows without a migration',
+      () {
+    final store = SessionStore.open(path);
+    store.createSession('s', model: 'provider/model');
+    store.append('s', turnEntries('first', 'Inspect\n\tthe mesh topology', 0));
+    store.append('s', turnEntries('second', 'continue', 5));
+    store.updateDetails('s', SessionDetails(tokensSpent: 12));
+    final raw = sqlite3.open(path);
+    final expectedTime = DateTime.parse(raw
+        .select('SELECT at FROM log_registry ORDER BY id DESC LIMIT 1')
+        .single['at'] as String);
+    raw.close();
+    store.close();
+
+    final reopened = SessionStore.open(path);
+    final session = reopened.list().single;
+    expect(session.summary, 'Inspect the mesh topology');
+    expect(session.lastSavedAt, expectedTime);
+    expect(session.model, 'provider/model');
+    expect(session.details!.tokensSpent, 12);
+    reopened.close();
+  });
+
+  test('summary falls back to user messages in old stores and bounds Unicode',
+      () {
+    final store = SessionStore.open(path);
+    store.createSession('old');
+    store.append('old', [
+      MessageAppendedEntry(
+              turnId: 't',
+              message:
+                  Message(role: Role.user, content: [TextBlock('界' * 200)]))
+          .withSeq(0),
+    ]);
+    expect(store.list().single.summary, '界' * 160);
+    expect(store.list().single.lastSavedAt, isNotNull);
+    store.close();
+  });
+
   test('round-trip: entries keep their payload bytes and their seq', () {
     final store = SessionStore.open(path);
     store.createSession('s-1');

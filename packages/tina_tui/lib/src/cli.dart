@@ -27,7 +27,8 @@ Permission modes and approval checks still apply; child environments remain filt
 --goal runs until its judge reports success; --max-goal-turns optionally bounds it.
 Headless approval requests are denied; the permission mode is never escalated.
 --configure edits global provider, model, plugin and request settings.
---resume lists main sessions and lets you select one; --resume ID reopens it directly.
+--resume shows saved sessions: Up/Down selects, Enter resumes, Escape cancels.
+Rows show last saved time and a short preview; --resume ID reopens it directly.
 --continue (-c) reopens the most recently updated main session in the workspace store.
 --import-sessions converts a legacy session root, directory, manifest or JSONL
 file into --store (default: the current workspace store). --dry-run writes nothing.
@@ -187,6 +188,7 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         'tina: use --continue or --resume ID when reading a prompt from stdin');
     return 64;
   }
+  StartupTerminal? startup;
   if (continueLatest || (resume && sessionId == null)) {
     try {
       final sessions = resumableSessions(
@@ -195,12 +197,21 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         stderr.writeln('tina: no main sessions to resume');
         return 66;
       }
-      sessionId = continueLatest
-          ? sessions.first.id
-          : pickSession(sessions,
-              readLine: stdin.readLineSync, writeLine: stdout.writeln);
-      if (sessionId == null) return 0;
+      if (continueLatest) {
+        sessionId = sessions.first.id;
+      } else if (!headless && stdin.hasTerminal && stdout.hasTerminal) {
+        startup = StartupTerminal.open(backend: backend);
+        sessionId = await startup.pickSession(sessions);
+      } else {
+        sessionId = pickSession(sessions,
+            readLine: stdin.readLineSync, writeLine: stdout.writeln);
+      }
+      if (sessionId == null) {
+        startup?.close();
+        return 0;
+      }
     } catch (e) {
+      startup?.close();
       stderr.writeln('tina: $e');
       return 66;
     }
@@ -234,7 +245,8 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
             'tina: configure a provider and model in $path, or run tina --configure in a terminal');
         return 78;
       }
-      final saved = await runConfigEditor(path, backend: backend);
+      final saved =
+          await runConfigEditor(path, backend: backend, startup: startup);
       stdout.writeln(
           saved ? 'Settings saved. Run tina to start.' : 'Settings unchanged.');
       return 0;
@@ -326,7 +338,7 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
     // Attach the renderer and approval dialog to the assembled session.
     final session = TuiSession.wrap(assembly);
     final terminalDevice = stdin.hasTerminal ? terminalDevicePath() : null;
-    final result = await runApp(session, backend: backend);
+    final result = await runApp(session, backend: backend, startup: startup);
     if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
     if (terminalDevice == null) throw StateError('restart requires a terminal');
@@ -345,7 +357,10 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         ],
         terminalDevice: terminalDevice);
   } catch (e) {
+    startup?.close();
     stderr.writeln('tina: $e');
     return 66;
+  } finally {
+    startup?.close();
   }
 }
