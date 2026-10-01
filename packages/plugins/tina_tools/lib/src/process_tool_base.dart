@@ -33,9 +33,11 @@ abstract class ProcessToolBase implements Tool {
   Future<ToolResult> runRequest(ProcessRequest request,
       {ProcessControl? control, Map<String, dynamic> input = const {}}) async {
     bool network;
+    bool background;
     String reason;
     try {
       network = optionalBool(input, 'network') ?? false;
+      background = optionalBool(input, 'background') ?? false;
       reason = network ? requiredString(input, 'network_reason') : '';
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
@@ -45,6 +47,7 @@ abstract class ProcessToolBase implements Tool {
       networkRequested: network,
       networkReason: reason,
       networkAllowed: false,
+      background: background,
     );
     final watch = Stopwatch()..start();
     final outcome = await runner.run(request, control: control);

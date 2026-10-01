@@ -55,10 +55,16 @@ class BashTool extends ProcessToolBase {
             'arguments. Each call is checked against the session\'s '
             'permissions before anything runs; a refusal arrives as this '
             'call\'s error result. New user input makes a running command yield '
-            'a job ID without stopping it; use process to inspect, wait or cancel.',
+            'a job ID without stopping it. Set background true for long-running work '
+            'to return a job ID as soon as it starts; use process to inspect, wait or cancel.',
         inputSchema: {
           'type': 'object',
           'properties': {
+            'background': {
+              'type': 'boolean',
+              'description':
+                  'Return a job ID after approval and startup; keep the process running while handling other work. Default false. Jobs stop when this session exits. The timeout still applies.',
+            },
             'network': {
               'type': 'boolean',
               'description':

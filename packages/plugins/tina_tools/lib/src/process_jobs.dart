@@ -6,7 +6,7 @@ import 'process_tool_base.dart';
 import 'tool.dart';
 import 'tool_input.dart';
 
-enum _Wake { input, cancelled, timer }
+enum _Wake { input, cancelled, timer, background }
 
 final class _Job {
   _Job(this.id);
@@ -85,6 +85,9 @@ final class ProcessJobs implements ProcessRunner {
       {Duration? duration}) async {
     if (job.outcome != null) return job.outcome!;
     final wake = <Future<Object?>>[job.done];
+    if (control?.background == true) {
+      wake.add(job.started.future.then((_) => _Wake.background));
+    }
     final pending = control?.whenInputPending;
     if (pending != null) {
       // Never call an awaiting permission decision a running process.
@@ -114,6 +117,7 @@ final class ProcessJobs implements ProcessRunner {
             cancelled: true);
       }
       if (result is RunOutcome) return result;
+      if (job.outcome != null) return job.outcome!;
       job.detached = true;
       return CommandRunning(job.id, job.output);
     } finally {

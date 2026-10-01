@@ -103,6 +103,7 @@ final class ProcessControl {
       this.whenCancelled,
       this.onOutput,
       this.whenInputPending,
+      this.background = false,
       this.onStarted});
   final bool networkRequested;
   final String? networkReason;
@@ -113,12 +114,16 @@ final class ProcessControl {
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;
   final Future<void>? whenInputPending;
+
+  /// Return a job ID after approval and process startup, without waiting.
+  final bool background;
   final void Function()? onStarted;
 
   ProcessControl copyWith({
     bool? networkRequested,
     String? networkReason,
     bool? networkAllowed,
+    bool? background,
   }) =>
       ProcessControl(
         networkRequested: networkRequested ?? this.networkRequested,
@@ -128,6 +133,7 @@ final class ProcessControl {
         whenCancelled: whenCancelled,
         onOutput: onOutput,
         whenInputPending: whenInputPending,
+        background: background ?? this.background,
         onStarted: onStarted,
       );
 }

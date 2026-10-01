@@ -252,5 +252,11 @@ final class HostPromptSection {
       'on exec or bash. Execution and network are reviewed together under the '
       'current permission mode. Network permission applies to the entire '
       'subprocess tree, while the filesystem sandbox stays active. Retrying '
-      'reruns the entire command; do not claim the user must run it manually.';
+      'reruns the entire command; do not claim the user must run it manually.\n\n'
+      'For long builds, servers and polling loops, set background: true on '
+      'exec or bash, and set an appropriate timeout in seconds (default 600). '
+      'This returns a job ID after approval and startup so you can handle other '
+      'work. Use process to check status, wait with wait_ms, or cancel. Never '
+      'restart a command that already has a live job. Background jobs stop '
+      'when this session exits.';
 }

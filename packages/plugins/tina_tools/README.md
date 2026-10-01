@@ -122,3 +122,12 @@ Waiting never reruns the original command. Closing the plugin cancels owned
 jobs; `ProcessJobs.close()` completes after their process cleanup. Job IDs are
 unique across plugin lifetimes; live jobs do not survive exit/resume. Completed
 detached results remain available during the owning session.
+
+For long builds, servers or polling loops, use `background: true` on `exec` or
+`bash` to return a job ID immediately after approval and process startup. This
+does not grant any permissions or detach a pending approval. Set an appropriate
+`timeout` in seconds; the default 600-second timeout still applies in the
+background. For example, `exec` with `program: "gh"`, `args: ["run", "watch",
+"12345", "--exit-status"]`, `network: true`, a `network_reason`,
+`background: true` and `timeout: 7200` watches a build without holding the
+conversation. Inspect it with `process` using its `job_id` and `action: "status"`.
