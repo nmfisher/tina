@@ -99,6 +99,16 @@ void main() {
     return List.generate(24, vt.rowText).join('\n');
   }
 
+  void previousRows(int count) {
+    chat.entry(
+        MessageAppendedEntry(
+            turnId: 'old',
+            message: Message(role: Role.assistant, content: [
+              TextBlock(List.generate(count, (i) => 'old row $i').join('\n')),
+            ])),
+        LogEvent.appended);
+  }
+
   test(
       'tool-owned descriptions label calls and structured failures read as text',
       () {
@@ -383,6 +393,88 @@ void main() {
     }
     expect(chat.blocks.where((b) => b.kind == ChatBlockKind.toolCall),
         hasLength(2));
+  });
+  test('streaming rewrites its own row after older scrollback is trimmed', () {
+    previousRows(2100);
+    const sentence = 'This sentence should appear once.';
+    const streamed = '$sentence\nSecond preview line.\nThird preview line.';
+    const text = '$streamed More detail.';
+    chat.watch(const SawText(streamed));
+    chat.watch(const SawText(' More detail.'));
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'new',
+            message: Message(role: Role.assistant, content: [TextBlock(text)])),
+        LogEvent.appended);
+    expect(sentence.allMatches(transcript()), hasLength(1));
+    expect(sentence.allMatches(visible()), hasLength(1));
+    chat.entry(const ContextClearedEntry(), LogEvent.appended);
+    chat.watch(const SawText('fresh paragraph'));
+    chat.watch(const SawText(' after clear'));
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'fresh',
+            message: Message(
+                role: Role.assistant,
+                content: [TextBlock('fresh paragraph after clear')])),
+        LogEvent.appended);
+    expect(transcript(), contains('fresh paragraph after clear'));
+    expect('fresh paragraph'.allMatches(transcript()), hasLength(1));
+    expect(transcript(), isNot(contains(sentence)));
+  });
+  test('a growing paragraph crosses the scrollback limit and survives resize',
+      () {
+    previousRows(1000);
+    const sentence = 'The beginning of this paragraph appears once.';
+    final streamed = [
+      sentence,
+      ...List.generate(1200, (i) => 'preview row $i'),
+    ].join('\n');
+    chat.watch(SawText(streamed));
+    chat.watch(const SawText(' and more'));
+    chat.entry(
+        MessageAppendedEntry(
+            turnId: 'new',
+            message: Message(
+                role: Role.assistant,
+                content: [TextBlock('$streamed and more')])),
+        LogEvent.appended);
+    expect(sentence.allMatches(transcript()), hasLength(1));
+    screen.resize(ScreenLayout.fromSize(60, 15, split: false));
+    chat.repaintConsole();
+    chat.watch(const SawText('After resizing, this sentence appears once.\n'
+        'Second line.\nThird line.'));
+    chat.watch(const SawText(' Fourth line.'));
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'resized',
+            message: Message(role: Role.assistant, content: [
+              TextBlock('After resizing, this sentence appears once.\n'
+                  'Second line.\nThird line. Fourth line.'),
+            ])),
+        LogEvent.appended);
+    expect('After resizing'.allMatches(transcript()), hasLength(1));
+    expect(sentence.allMatches(transcript()), hasLength(1));
+  });
+  test('fold navigation finds retained blocks after scrollback is trimmed',
+      () async {
+    previousRows(2100);
+    chat.observe(const ToolStarted(call));
+    chat.observe(const ToolFinished(call, ToolResult('retained output\n')));
+    for (var i = 0; i < 30; i++) chat.writeNotice('later notice $i');
+    final line = editor.readLine('unused');
+    await tick();
+    expect(visible(), isNot(contains('echo hello')));
+    io.feed('draft\x02');
+    await tick();
+    expect(visible(), contains('echo hello'));
+    io.feed('\r');
+    await tick();
+    expect(visible(), contains('retained output'));
+    io.feed('\x1b');
+    await tick();
+    io.feed(' intact\r');
+    expect(await line, 'draft intact');
   });
   test(
       'page keys and wheel reach resumed scrollback without changing the draft',

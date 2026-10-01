@@ -48,7 +48,10 @@ final class ChatTuiPlugin extends AgentPlugin
   final _calls = <String, ChatBlock>{};
   final _outputs = <String, String>{};
   final _finished = <String>{};
+  // Block positions use the full rendered transcript. The console retains a
+  // bounded suffix, so its row indices move whenever scrollback is trimmed.
   final _rows = <int>[];
+  int _renderedRows = 0, _trailingBlankRows = 0;
   final _responseBlocks = <ChatBlock>[];
   final _recordedInputs = <String>{};
   static const _speaker = ChatSpeaker(id: 'assistant', label: 'tina');
@@ -226,6 +229,7 @@ final class ChatTuiPlugin extends AgentPlugin
     if (entry is ContextClearedEntry) {
       _blocks.clear();
       _rows.clear();
+      _renderedRows = _trailingBlankRows = 0;
       _calls.clear();
       _finished.clear();
       _recordedInputs.clear();
@@ -414,9 +418,15 @@ final class ChatTuiPlugin extends AgentPlugin
     if (console != null) {
       console.screen.frame(() {
         final chat = console.chat;
-        if (_blocks.length > 1) chat.writeln();
-        _rows.add(chat.contentRows);
-        for (final line in _render(block)) {
+        if (_blocks.length > 1) {
+          chat.writeln();
+          _renderedRows++;
+        }
+        _rows.add(_renderedRows);
+        final lines = _render(block);
+        _renderedRows += lines.length;
+        _trailingBlankRows = _countTrailingBlanks(lines);
+        for (final line in lines) {
           chat.writeStyledLine(line.text, line.bar ?? _style.base);
         }
       });
@@ -451,7 +461,16 @@ final class ChatTuiPlugin extends AgentPlugin
     if (_blocks.isNotEmpty &&
         identical(_blocks.last, block) &&
         _rows.length == _blocks.length) {
-      _console!.chat.rewriteFrom(_rows.last, _render(block));
+      final chat = _console!.chat;
+      final oldContentRows = _renderedRows - _rows.last - _trailingBlankRows;
+      final from = chat.contentRows - oldContentRows;
+      final lines = _render(block);
+      _renderedRows = _rows.last + lines.length;
+      _trailingBlankRows = _countTrailingBlanks(lines);
+      // Locate the old block from the retained tail. A saved retained-row
+      // index becomes stale when appends trim history; using it would keep
+      // the old paragraph and append its updated text as a second copy.
+      chat.rewriteFrom(from, lines);
     } else {
       _rebuild();
     }
@@ -467,6 +486,8 @@ final class ChatTuiPlugin extends AgentPlugin
       _rows.add(lines.length);
       lines.addAll(_render(block));
     }
+    _renderedRows = lines.length;
+    _trailingBlankRows = _countTrailingBlanks(lines);
     _console!.chat.rewriteFrom(0, lines);
   }
 
@@ -562,7 +583,12 @@ final class ChatTuiPlugin extends AgentPlugin
   void _paintSelection() {
     _rebuild();
     if (_selected != null && _selected! < _rows.length) {
-      _console?.chat.scrollRowIntoView(_rows[_selected!]);
+      final chat = _console?.chat;
+      if (chat != null) {
+        final retainedStart =
+            _renderedRows - _trailingBlankRows - chat.contentRows;
+        chat.scrollRowIntoView(_rows[_selected!] - retainedStart);
+      }
     }
   }
 
@@ -629,6 +655,14 @@ final class ChatTuiPlugin extends AgentPlugin
     _handle = null;
     _loop = null;
   }
+}
+
+int _countTrailingBlanks(List<RegionLine> lines) {
+  var count = 0;
+  for (var i = lines.length - 1; i >= 0 && lines[i].text.isEmpty; i--) {
+    count++;
+  }
+  return count;
 }
 
 // Shortcut policy belongs to this UI plugin. Up/Down without Option/Alt
