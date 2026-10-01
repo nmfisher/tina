@@ -134,6 +134,15 @@ to the next provider request, including subagent requests; an existing stream
 finishes with its original settings. Model selection and token spend are
 preserved. Default provider/model changes remain preferences for future launches.
 
+The default model selector and `/model` share the original searchable picker:
+one search field, models grouped under provider headings, and arrows that skip
+the headings. Choosing a default model selects its provider too. `Providers and
+models` opens the expandable checkbox tree: Right expands, Left collapses,
+Space enables providers/models, and credentials and endpoints can be edited
+inline. Enter applies the tree draft; Save changes writes the global config.
+Escape cancels that draft. Advanced provider fields remain available under
+each provider's Advanced settings row.
+
 Provider pooling is rejected explicitly. Legacy rate limits, quotas, theme and
 reasoning settings are preserved on save but are not implemented by this editor
 or wired by the new assembly. Workflow configuration stays deferred.

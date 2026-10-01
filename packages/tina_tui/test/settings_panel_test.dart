@@ -75,11 +75,9 @@ enabled = []
       () async {
     final (saved, output) = await drive([
       down, down, enter, // providers
-      enter, // custom
-      down, down, down, enter, // API key
+      ArrowKey(ArrowDirection.right), down, // inline API key
       EditingKey(EditingAction.killToStart), CharInput('new-secret'), enter,
-      escape, escape, // back to root
-      down, down, down, down, enter, // save
+      CharInput('Save'), enter,
     ]);
     expect(saved, isTrue);
     expect(output, isNot(contains('original-secret')));
@@ -136,6 +134,73 @@ enabled = []
             .config
             .model,
         'next');
+  });
+
+  test('the default model picker chooses provider and model together',
+      () async {
+    config.writeAsStringSync('${config.readAsStringSync()}\n[providers.other]\n'
+        'wire = "openai"\nbase_url = "https://other.example/v1"\n'
+        'name = "Other Provider"\nmodels = ["org/model|Another model"]\n');
+    final (saved, output) = await drive([
+      CharInput('Default model'),
+      enter,
+      CharInput('Other Provider'),
+      enter,
+      CharInput('Save'),
+      enter,
+    ]);
+    expect(saved, true);
+    final loaded =
+        loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    expect(loaded.providerId, 'other');
+    expect(loaded.model, 'org/model');
+    expect(output, contains('Choose default model'));
+    expect(output, contains('org/model'));
+  });
+
+  test('provider tree checks models and preserves unrelated provider fields',
+      () async {
+    config.writeAsStringSync(config.readAsStringSync().replaceFirst(
+        '[providers.custom]',
+        '[providers.custom]\nrequests_per_minute = 7\n'
+            'auth_token = "token-secret"\nunknown_option = "keep"'));
+    final (saved, output) = await drive([
+      CharInput('Providers and models'), enter,
+      ArrowKey(ArrowDirection.right),
+      down, down, down, down, // Original (after key, URL, separator)
+      CharInput(' '), // disable Original
+      down, down, CharInput(' '), // enable Hidden
+      enter,
+      CharInput('Default model'), enter, CharInput('Next'), enter,
+      CharInput('Save'), enter,
+    ]);
+    expect(saved, true);
+    final document = ConfigDocument.open(config.path);
+    final provider = document.table('providers')['custom'] as Map;
+    expect(provider['disabled_models'], ['original']);
+    expect(provider['requests_per_minute'], 7);
+    expect(provider['unknown_option'], 'keep');
+    expect(provider['auth_token'], 'token-secret');
+    expect(output, isNot(contains('original-secret')));
+    expect(output, isNot(contains('token-secret')));
+    expect(output, contains('Providers & models'));
+  });
+
+  test('Escape discards credential and checkbox changes in the provider tree',
+      () async {
+    final before = config.readAsStringSync();
+    final (saved, _) = await drive([
+      CharInput('Providers and models'),
+      enter,
+      ArrowKey(ArrowDirection.right),
+      down,
+      EditingKey(EditingAction.killToStart),
+      PasteInput('replacement'),
+      escape,
+      escape,
+    ]);
+    expect(saved, false);
+    expect(config.readAsStringSync(), before);
   });
   test('plugin checkboxes filter namespaced IDs and save', () async {
     final (saved, _) = await drive([

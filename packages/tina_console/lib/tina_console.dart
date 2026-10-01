@@ -64,3 +64,4 @@ export 'src/console_contribution.dart';
 export 'src/console_workspace.dart';
 export 'src/settings_contribution.dart';
 export 'src/dialog_layout.dart';
+export 'src/model_search_picker.dart';

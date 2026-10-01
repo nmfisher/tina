@@ -163,12 +163,11 @@ void main() {
   test(
       'plugin saves preserve unsaved general settings and required plugins stay locked',
       () async {
+    config.writeAsStringSync('${config.readAsStringSync()}\n'
+        '[providers.anthropic]\nmodels = ["scripted", "next-model"]\n');
     final output = await drive([
       CharInput('Default model'),
       enter,
-      CharInput('Enter model'),
-      enter,
-      EditingKey(EditingAction.killToStart),
       CharInput('next-model'),
       enter,
       CharInput('Plugins'),

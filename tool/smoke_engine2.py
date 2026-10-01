@@ -526,7 +526,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('\x07\t\r')  # Ctrl+G, Tab, Enter: focus the root.
             time.sleep(0.1)
             before_root = len(ModelStub.requests)
-            start = terminal.send('root panel message\r')
+            pasted_root = 'root panel message\npaste second\npaste third'
+            start = terminal.send('\x1b[200~' + pasted_root + '\x1b[201~\r')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) == before_root and time.monotonic() < deadline:
                 terminal.read()
@@ -534,6 +535,10 @@ def smoke(launcher, endpoint, columns, rows):
             root_request = json.dumps(ModelStub.requests[-1]['messages'])
             assert 'root panel message' in root_request and 'child panel message' not in root_request
             time.sleep(0.1)
+            start = terminal.send('\x1b[A')
+            terminal.expect('paste second paste third', start)
+            assert b'\n' not in terminal.output[start:], 'recalled paste escaped the input row'
+            terminal.send('\x15')
             terminal.send('\x17\t\r')  # Ctrl+W also cycles.
             time.sleep(0.1)
             terminal.send('\x18')  # Ctrl+X closes the child and returns home.
@@ -684,16 +689,15 @@ def smoke_cli(launcher):
         try:
             terminal.expect('Settings')
             start = terminal.send('Default model\r')
-            terminal.expect('Default model', start)
-            start = terminal.send('Enter model\r')
-            terminal.expect('Model ID', start)
-            start = terminal.send('fixture-model\r')
-            terminal.expect('Default model: fixture-model', start)
+            terminal.expect('Choose default model', start)
+            terminal.expect('filter models', start)
+            start = terminal.send('claude-sonnet-4-6\r')
+            terminal.expect('Default model: claude-sonnet-4-6', start)
             start = terminal.send('Save\r')
             terminal.expect('Settings saved. Run tina to start.', start)
             assert terminal.process.wait(timeout=5) == 0
             assert termios.tcgetattr(terminal.master) == terminal.original_modes, 'setup left raw terminal modes'
-            assert 'fixture-model' in config.read_text()
+            assert 'claude-sonnet-4-6' in config.read_text()
             assert config.stat().st_mode & 0o777 == 0o600
             assert not (root / '.tina' / 'sessions.db').exists(), 'setup created a model session'
         except Exception:

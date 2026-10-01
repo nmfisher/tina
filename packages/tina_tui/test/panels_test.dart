@@ -376,8 +376,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         reason: 'unconfigured catalog providers should not clutter the picker');
     await keys('/model\r');
     await waitFor(() => editor.isReadingKey);
-    expect(io.written.toString(), contains('Local testing (local)'));
-    expect(io.written.toString(), contains('Other model · other'));
+    expect(io.written.toString(), contains('Local testing'));
+    expect(io.written.toString(), contains('filter models…'));
     await keys('local/other\r');
     await waitFor(
         () => !editor.isReadingKey && getFrame().label.endsWith('local/other'));
@@ -399,6 +399,41 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(session.host.session.loop.derive().messages, isEmpty);
     await keys('fresh draft');
     expect(editor.editState.buffer, 'fresh draft');
+  });
+
+  test(
+      'pasted multiline input survives recall and panel restore without stray cells',
+      () async {
+    final terminal = VirtualTerminal(width: 120, height: 24);
+    final text =
+        List.generate(8, (i) => 'Line $i\nSecond $i\rAnother $i').join('\n');
+    await keys('\x1b[200~$text\x1b[201~');
+    expect(editor.editState.buffer, text);
+    expect(screen.input.cursor, lessThanOrEqualTo(screen.input.buffer.length));
+    await keys('\r');
+    await waitFor(() => providers.first.requests.isNotEmpty);
+    expect(
+        providers.first.requests.single.last.content
+            .whereType<TextBlock>()
+            .single
+            .text,
+        text);
+    providers.first.answer(0, 'answer');
+    await waitFor(() => !session.host.session.loop.running);
+    await keys('\x1b[A');
+    expect(editor.editState.buffer, text);
+    await spawn('other');
+    await keys('\x07\t\r');
+    expect(editor.editState.buffer, text);
+    terminal.feed(io.written.toString());
+    // The root panel has a border while split. Its left rail must survive;
+    // a raw newline from the restored draft used to overwrite column zero.
+    final frame = getFrame();
+    for (var row = frame.bounds.row + 1; row < frame.bounds.bottom; row++) {
+      expect(terminal.charAt(row, frame.bounds.col), '│', reason: 'row $row');
+    }
+    await keys('\x15');
+    expect(editor.editState.buffer, isEmpty);
   });
 
   test('closing a spawned panel clears the complete bottom rail', () async {

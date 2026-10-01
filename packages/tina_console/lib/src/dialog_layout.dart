@@ -1,5 +1,40 @@
 import '../tina_console.dart';
 
+/// The original picker frame, clipped by terminal cells and sized for small
+/// terminals. SGR styling stays intact at the border and clipping boundaries.
+List<String> dialogBoxLines({
+  required int width,
+  required int height,
+  required String title,
+  required List<String> body,
+  required String footer,
+  required String Function(String) paint,
+}) {
+  if (width <= 0 || height <= 0) return [];
+  if (width < 4 || height < 4) {
+    return [title, ...body]
+        .take(height)
+        .map((line) => clipToVisibleColumns(line, width))
+        .toList();
+  }
+  String clipped(String text, int cells) => clipToVisibleColumns(text, cells);
+  final titleFit = clipped(' $title ', width - 2);
+  final inner = width - 4;
+  String row(String text) {
+    final fit = clipped(text, inner);
+    return '${paint('│')} $fit\x1b[0m${' ' * (inner - visibleWidth(fit))} ${paint('│')}';
+  }
+
+  final content = body.take(height - 4).toList();
+  return [
+    '${paint('┌')}${paint(titleFit)}${paint('─' * (width - 2 - visibleWidth(titleFit)))}${paint('┐')}',
+    for (final line in content) row(line),
+    for (var i = content.length; i < height - 3; i++) row(''),
+    row(footer),
+    '${paint('└')}${paint('─' * (width - 2))}${paint('┘')}',
+  ];
+}
+
 /// Modal space includes the input row while the modal owns the keyboard.
 Rect dialogArea(ScreenLayout layout) => Rect(
       row: layout.chat.row,

@@ -47,6 +47,9 @@ final class SessionControlsPlugin extends AgentPlugin
               }
               try {
                 switchModel(model);
+                _recentModels.remove(currentModel());
+                _recentModels.insert(0, currentModel());
+                if (_recentModels.length > 10) _recentModels.removeLast();
                 terminal.writeln('Model: ${currentModel()}');
                 _console?.refreshInput();
               } catch (error) {
@@ -61,107 +64,27 @@ final class SessionControlsPlugin extends AgentPlugin
               terminal.writeln('Conversation cleared.');
             }),
       ];
+  final _recentModels = <String>[];
+
   Future<String?> _pick(ConsoleContext console) async {
-    final overlay = OverlayRegion(console.screen, Rect.empty);
-    var query = '';
-    var selected = models.indexOf(currentModel()).clamp(0, models.length);
-    String providerOf(String ref) => ref.split('/').first;
-    String providerLabel(String ref) {
-      final id = providerOf(ref);
-      final name = providerNames[id];
-      return name == null || name == id ? id : '$name ($id)';
-    }
-
-    String modelLabel(String ref) {
-      final slash = ref.indexOf('/');
-      final id = slash < 0 ? ref : ref.substring(slash + 1);
-      final name = modelNames[ref];
-      return name == null || name == id ? id : '$name · $id';
-    }
-
+    final picker = ModelSearchPicker(
+      screen: console.screen,
+      modelRefs: models,
+      providerNames: providerNames,
+      modelNames: modelNames,
+      title: 'Switch model',
+      recentRefs: [
+        _recentModels,
+        [currentModel()]
+      ].expand((refs) => refs).toList(),
+      readEvent: () => console.input.readKey(acceptPaste: true),
+      accent: console.screen.theme.border.focus,
+    );
+    _paint = picker.repaint;
     try {
-      while (true) {
-        final matches = models
-            .where((m) => '$m ${providerLabel(m)} ${modelLabel(m)}'
-                .toLowerCase()
-                .contains(query.toLowerCase()))
-            .toList();
-        _paint = () {
-          final area = dialogArea(console.screen.layout);
-          final room = (area.height - 3).clamp(1, 10000);
-          if (matches.isNotEmpty)
-            selected = selected.clamp(0, matches.length - 1);
-          final rows = <String>[];
-          final rowForModel = <int>[];
-          String? previous;
-          for (var i = 0; i < matches.length; i++) {
-            final ref = matches[i];
-            final provider = providerOf(ref);
-            if (provider != previous) {
-              rows.add(console.screen.colorize('cyan', providerLabel(ref)));
-              previous = provider;
-            }
-            rowForModel.add(rows.length);
-            rows.add('${i == selected ? '▸' : ' '} ${modelLabel(ref)}'
-                '${ref == currentModel() ? ' (current)' : ''}');
-          }
-          var start = matches.isEmpty
-              ? 0
-              : (rowForModel[selected] - room + 1).clamp(0, rows.length);
-          // Repeat the provider header when scrolling into its model group.
-          if (start > 0 && matches.isNotEmpty && room > 1) {
-            start = (rowForModel[selected] - room + 2).clamp(0, rows.length);
-          }
-          final visible = rows.skip(start).take(room).toList();
-          if (start > 0 &&
-              matches.isNotEmpty &&
-              room > 1 &&
-              rowForModel.contains(start)) {
-            final index = rowForModel.indexOf(start);
-            visible.insert(0,
-                console.screen.colorize('cyan', providerLabel(matches[index])));
-          }
-          overlay.update(
-              bounds: area,
-              lines: [
-                'Model · ${currentModel()}',
-                'Find: $query',
-                if (matches.isEmpty) 'No matching models',
-                ...visible.take(room),
-                '↑↓ choose · type to filter · Enter select · Esc cancel',
-              ]
-                  .take(area.height)
-                  .map((line) => clipDialogText(line, area.width))
-                  .toList());
-        };
-        _paint!();
-        final event = await console.input.readKey(acceptPaste: true);
-        switch (event) {
-          case EscapeKey():
-          case ControlKey(code: ControlCode.ctrlC):
-            return null;
-          case ControlKey(code: ControlCode.enter):
-            if (matches.isNotEmpty) return matches[selected];
-          case ArrowKey(direction: ArrowDirection.up):
-            selected = (selected - 1).clamp(0, matches.length);
-          case ArrowKey(direction: ArrowDirection.down):
-            selected++;
-          case ControlKey(code: ControlCode.backspace):
-            if (query.isNotEmpty) {
-              query = query.substring(0, query.length - 1);
-              selected = 0;
-            }
-          case CharInput(:final text):
-          case PasteInput(:final text):
-            query += text.replaceAll(RegExp(r'[\r\n]'), '');
-            selected = 0;
-          default:
-            break;
-        }
-      }
+      return await picker.run();
     } finally {
       _paint = null;
-      overlay.hide();
       console.chat.repaint();
       console.refreshInput();
     }

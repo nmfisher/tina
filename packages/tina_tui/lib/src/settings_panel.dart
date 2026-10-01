@@ -4,6 +4,7 @@ import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
 import 'config_document.dart';
 import 'configured_provider.dart';
+import 'providers_panel.dart';
 import 'plugin_settings.dart';
 import 'package:tina_host/tina_host.dart';
 
@@ -128,35 +129,8 @@ final class SettingsPanel {
         }
         switch (selected) {
           case 0:
-            final providers = document.table('providers');
-            final ids =
-                {...descriptors.map((d) => d.id), ...providers.keys}.toList();
-            final index = await _menu('Default provider', ids);
-            if (index != null) defaults['provider'] = ids[index];
           case 1:
-            final id = defaults['provider'] as String? ?? 'anthropic';
-            final builtin = descriptorByIdFor(id, descriptors);
-            final values = document.table('providers')[id];
-            final settings = values is Map<String, dynamic>
-                ? ProviderSettings.parse(id, values)
-                : const ProviderSettings();
-            final models = <String, ModelInfo>{
-              ...?builtin?.models,
-              ...?settings.models,
-            }
-                .values
-                .where((m) => !settings.disabledModels.contains(m.id))
-                .toList();
-            final index = await _menu('Default model', [
-              for (final model in models) '${model.name} (${model.id})',
-              'Enter model ID…',
-            ]);
-            if (index == null) continue;
-            if (index < models.length) {
-              defaults['model'] = models[index].id;
-            } else {
-              await _field(defaults, 'model', 'Model ID');
-            }
+            await _defaultModel(document, descriptors);
           case 2:
             await _providers(document, descriptors, validatePlugins);
           case 3:
@@ -575,101 +549,191 @@ final class SettingsPanel {
     }
   }
 
+  Future<InputEvent> _formEvent() async {
+    while (!_cancelled) {
+      final event = await _nextEvent();
+      if (event != null) return event;
+    }
+    return EscapeKey();
+  }
+
+  Future<void> _defaultModel(
+      ConfigDocument document, List<ProviderDescriptor> descriptors) async {
+    final providers = document.table('providers');
+    final defaults = document.table('default');
+    final currentId = defaults['provider'] as String? ?? 'anthropic';
+    final ids = providers.isEmpty
+        ? {...descriptors.map((d) => d.id), currentId}.toList()
+        : {...providers.keys, currentId}.toList();
+    final refs = <String>[];
+    final names = <String, String>{};
+    final modelNames = <String, String>{};
+    for (final id in ids) {
+      final descriptor = descriptorByIdFor(id, descriptors);
+      final values = providers[id];
+      final settings = values is Map<String, dynamic>
+          ? ProviderSettings.parse(id, values)
+          : const ProviderSettings();
+      names[id] =
+          (values as Map?)?['name'] as String? ?? descriptor?.name ?? id;
+      final models = <String, ModelInfo>{
+        ...?descriptor?.models,
+        ...?settings.models
+      };
+      for (final model in models.values) {
+        if (settings.disabledModels.contains(model.id)) continue;
+        refs.add('$id/${model.id}');
+        modelNames['$id/${model.id}'] = model.name;
+      }
+      final current = defaults['model'] as String? ?? '';
+      if (id == currentId &&
+          current.isNotEmpty &&
+          !settings.disabledModels.contains(current) &&
+          !refs.contains('$id/$current')) refs.add('$id/$current');
+    }
+    final picker = ModelSearchPicker(
+        screen: screen,
+        modelRefs: refs,
+        providerNames: names,
+        modelNames: modelNames,
+        title: 'Choose default model',
+        readEvent: _formEvent,
+        accent: screen.theme.border.focus);
+    _overlay.hide();
+    _paint = picker.repaint;
+    try {
+      final chosen = await picker.run();
+      if (chosen != null) {
+        final slash = chosen.indexOf('/');
+        defaults['provider'] = chosen.substring(0, slash);
+        defaults['model'] = chosen.substring(slash + 1);
+      }
+    } finally {
+      _paint = null;
+    }
+  }
+
   Future<void> _providers(
       ConfigDocument document,
       List<ProviderDescriptor> descriptors,
       void Function(Iterable<String>)? validatePlugins) async {
+    final draft = document.fork();
+    late final ProvidersPanel panel;
+    panel = ProvidersPanel(
+        screen: screen,
+        readEvent: _formEvent,
+        providers: draft.table('providers'),
+        descriptors: descriptors,
+        editAdvanced: (id) => _providerFields(
+            draft, descriptors, validatePlugins, id,
+            generationDocument: document),
+        onShow: () => _paint = panel.repaint);
+    _overlay.hide();
+    try {
+      if (await panel.run())
+        document.values['providers'] = draft.table('providers');
+    } finally {
+      _paint = null;
+    }
+  }
+
+  Future<void> _providerFields(
+      ConfigDocument document,
+      List<ProviderDescriptor> descriptors,
+      void Function(Iterable<String>)? validatePlugins,
+      String id,
+      {ConfigDocument? generationDocument}) async {
+    final providers = document.table('providers');
+    final ids = {...descriptors.map((d) => d.id), ...providers.keys}.toList();
+    final values = providers.putIfAbsent(id, () => <String, dynamic>{})
+        as Map<String, dynamic>;
+    final builtin = descriptorByIdFor(id, descriptors);
     while (true) {
-      final providers = document.table('providers');
-      final ids = {...descriptors.map((d) => d.id), ...providers.keys}.toList();
-      final selected = await _menu('Providers', [...ids, 'Add provider…']);
-      if (selected == null) return;
-      String id;
-      if (selected == ids.length) {
-        final answer = await _edit('New provider ID', '');
-        if (answer == null) continue;
-        id = answer.trim();
-        if (!RegExp(r'^[a-zA-Z][a-zA-Z0-9_-]*$').hasMatch(id) ||
-            ids.contains(id)) {
-          await _menu(
-              'Use a unique provider ID (letters, digits, - or _)', ['Back']);
-          continue;
-        }
-        providers[id] = <String, dynamic>{'wire': 'openai'};
-      } else {
-        id = ids[selected];
-      }
-      final values = providers.putIfAbsent(id, () => <String, dynamic>{})
-          as Map<String, dynamic>;
-      final builtin = descriptorByIdFor(id, descriptors);
-      while (true) {
-        const fields = [
-          'name',
-          'wire',
-          'base_url',
-          'api_key',
-          'auth_token',
-          'models',
-          'disabled_models',
-          'members',
-          'requests_per_minute',
-          'min_request_interval_ms',
-          'generation',
-          'output_token_field'
-        ];
-        const labels = [
-          'Display name',
-          'Wire',
-          'Base URL',
-          'API key',
-          'Auth token',
-          'Models (id|label)',
-          'Disabled models',
-          'Pool members (provider or provider/model)',
-          'Requests per minute',
-          'Request spacing (ms)',
-          'Generation settings',
-          'Output token field'
-        ];
-        final choice = await _menu('Provider: $id', [
-          for (var i = 0; i < fields.length; i++)
-            fields[i] == 'generation'
-                ? labels[i]
-                : '${labels[i]}: ${_preview(fields[i], values[fields[i]])}',
-          'Back',
-        ]);
-        if (choice == null || choice == fields.length) break;
-        final field = fields[choice];
-        if (field == 'generation') {
-          await _generation(document, descriptors, validatePlugins,
-              provider: id);
-        } else if (field == 'wire') {
-          final wires = ['Provider default', 'openai', 'anthropic', 'gemini'];
-          final wire = await _menu('Wire protocol', wires);
-          if (wire != null) {
-            if (wire == 0) {
-              values.remove('wire');
-            } else {
-              values['wire'] = wires[wire];
-              // An explicit wire requires an explicit endpoint, even when unchanged.
-              if (builtin != null && !values.containsKey('base_url'))
-                values['base_url'] = builtin.baseUrl;
+      const fields = [
+        'name',
+        'wire',
+        'base_url',
+        'api_key',
+        'auth_token',
+        'models',
+        'disabled_models',
+        'members',
+        'requests_per_minute',
+        'min_request_interval_ms',
+        'generation',
+        'output_token_field'
+      ];
+      const labels = [
+        'Display name',
+        'Wire',
+        'Base URL',
+        'API key',
+        'Auth token',
+        'Models (id|label)',
+        'Disabled models',
+        'Pool members (provider or provider/model)',
+        'Requests per minute',
+        'Request spacing (ms)',
+        'Generation settings',
+        'Output token field'
+      ];
+      final choice = await _menu('Provider: $id', [
+        for (var i = 0; i < fields.length; i++)
+          fields[i] == 'generation'
+              ? labels[i]
+              : '${labels[i]}: ${_preview(fields[i], values[fields[i]])}',
+        'Back',
+      ]);
+      if (choice == null || choice == fields.length) break;
+      final field = fields[choice];
+      if (field == 'generation') {
+        final target = generationDocument ?? document;
+        await _generation(target, descriptors, validatePlugins, provider: id);
+        if (!identical(target, document)) {
+          // Generation saves immediately; keep its saved values when the
+          // provider tree later applies its independent credential/model draft.
+          for (final entry in target.table('providers').entries) {
+            final draft = providers[entry.key];
+            if (draft is! Map<String, dynamic> || entry.value is! Map) continue;
+            final saved = entry.value as Map;
+            for (final key in [
+              'max_output',
+              'reasoning_effort',
+              'thinking_budget'
+            ]) {
+              if (saved.containsKey(key))
+                draft[key] = saved[key];
+              else
+                draft.remove(key);
             }
           }
-        } else {
-          await _field(values, field, labels[choice],
-              secret: field == 'api_key' || field == 'auth_token',
-              list: ['models', 'disabled_models', 'members'].contains(field),
-              numeric: ['requests_per_minute', 'min_request_interval_ms']
-                  .contains(field),
-              suggestions: field == 'members'
-                  ? ids
-                  : field == 'output_token_field'
-                      ? ['max_tokens', 'max_completion_tokens']
-                      : ['models', 'disabled_models'].contains(field)
-                          ? (builtin?.models.keys.toList() ?? [])
-                          : const []);
         }
+      } else if (field == 'wire') {
+        final wires = ['Provider default', 'openai', 'anthropic', 'gemini'];
+        final wire = await _menu('Wire protocol', wires);
+        if (wire != null) {
+          if (wire == 0) {
+            values.remove('wire');
+          } else {
+            values['wire'] = wires[wire];
+            // An explicit wire requires an explicit endpoint, even when unchanged.
+            if (builtin != null && !values.containsKey('base_url'))
+              values['base_url'] = builtin.baseUrl;
+          }
+        }
+      } else {
+        await _field(values, field, labels[choice],
+            secret: field == 'api_key' || field == 'auth_token',
+            list: ['models', 'disabled_models', 'members'].contains(field),
+            numeric: ['requests_per_minute', 'min_request_interval_ms']
+                .contains(field),
+            suggestions: field == 'members'
+                ? ids
+                : field == 'output_token_field'
+                    ? ['max_tokens', 'max_completion_tokens']
+                    : ['models', 'disabled_models'].contains(field)
+                        ? (builtin?.models.keys.toList() ?? [])
+                        : const []);
       }
     }
   }
