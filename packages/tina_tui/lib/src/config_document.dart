@@ -46,6 +46,31 @@ final class ConfigDocument {
         path, copy(values) as Map<String, dynamic>, _original);
   }
 
+  /// Incorporate a plugin's independent saves where this panel has no draft.
+  /// Overlapping edits keep the stale baseline and are rejected at save time.
+  void refreshUneditedTables() {
+    final latest = ConfigDocument.open(path);
+    final original = _original == null
+        ? <String, dynamic>{}
+        : TomlDocument.parse(_original!).toMap();
+    final baseline = Map<String, dynamic>.from(original);
+    for (final key in {...original.keys, ...latest.values.keys}) {
+      if (jsonEncode(values[key]) == jsonEncode(original[key])) {
+        if (latest.values.containsKey(key)) {
+          values[key] = latest.values[key];
+          baseline[key] = latest.values[key];
+        } else {
+          values.remove(key);
+          baseline.remove(key);
+        }
+      }
+    }
+    // Preserve the exact latest bytes when all external changes were accepted.
+    _original = jsonEncode(baseline) == jsonEncode(latest.values)
+        ? latest._original
+        : TomlDocument.fromMap(baseline).toString();
+  }
+
   Map<String, dynamic> table(String name) =>
       values.putIfAbsent(name, () => <String, dynamic>{})
           as Map<String, dynamic>;

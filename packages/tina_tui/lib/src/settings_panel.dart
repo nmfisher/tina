@@ -127,6 +127,7 @@ final class SettingsPanel {
         }
         if (chosenSection != null) {
           await _section(sections!, chosenSection!);
+          document.refreshUneditedTables();
           continue;
         }
         switch (selected) {

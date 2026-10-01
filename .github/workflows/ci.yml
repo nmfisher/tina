@@ -878,3 +878,21 @@ jobs:
       - name: test (tina_mode)
         working-directory: packages/plugins/tina_mode
         run: dart test -j 4
+
+  tina_mcp:
+    name: tina_mcp (packages/plugins/tina_mcp)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_mcp)
+        working-directory: packages/plugins/tina_mcp
+        run: dart pub get
+      - name: analyze (tina_mcp)
+        working-directory: packages/plugins/tina_mcp
+        run: dart analyze
+      - name: test (tina_mcp)
+        working-directory: packages/plugins/tina_mcp
+        run: dart test -j 4

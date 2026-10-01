@@ -233,6 +233,17 @@ final class ChatCompletionsBuilder with WireBuilderState {
 /// becomes a `role:"tool"` message.
 List<Map<String, dynamic>> chatCompletionsMessages(List<Message> messages) {
   final out = <Map<String, dynamic>>[];
+  final pendingImages = <Map<String, dynamic>>[];
+  Map<String, dynamic> imagePart(ImageBlock image) => {
+        'type': 'image_url',
+        'image_url': {'url': 'data:${image.mimeType};base64,${image.data}'},
+      };
+  void flushImages() {
+    if (pendingImages.isEmpty) return;
+    out.add({'role': 'user', 'content': List.of(pendingImages)});
+    pendingImages.clear();
+  }
+
   for (final m in messages) {
     // Reasoning is private metadata; retain the message's answer/tool blocks.
     if (m.role == Role.user) {
@@ -244,6 +255,13 @@ List<Map<String, dynamic>> chatCompletionsMessages(List<Message> messages) {
             'tool_call_id': b.toolUseId,
             'content': b.content,
           });
+          if (b.images.isNotEmpty) {
+            pendingImages.add({
+              'type': 'text',
+              'text': 'Images from tool result ${b.toolUseId}:'
+            });
+            pendingImages.addAll(b.images.map(imagePart));
+          }
         }
       }
       final rest = [
@@ -251,15 +269,15 @@ List<Map<String, dynamic>> chatCompletionsMessages(List<Message> messages) {
           if (b is TextBlock) b.text,
       ];
       if (rest.isNotEmpty) {
+        flushImages();
         out.add({'role': 'user', 'content': rest.join('\n')});
       }
       final images = [
         for (final block in m.content)
           if (block is ImageBlock) block,
-        for (final block in m.content.whereType<ToolResultBlock>())
-          ...block.images,
       ];
       if (images.isNotEmpty) {
+        flushImages();
         out.add({
           'role': 'user',
           'content': [
@@ -279,6 +297,9 @@ List<Map<String, dynamic>> chatCompletionsMessages(List<Message> messages) {
       }
       continue;
     }
+    // All tool responses must precede any new user message, even when the
+    // caller supplied separate transcript messages for one parallel batch.
+    flushImages();
     // Assistant: the model's own words and its calls.
     final toolCalls = <Map<String, dynamic>>[];
     final textParts = <String>[];
@@ -303,6 +324,7 @@ List<Map<String, dynamic>> chatCompletionsMessages(List<Message> messages) {
       out.add({'role': 'assistant', 'content': textParts.join('\n')});
     }
   }
+  flushImages();
   return out;
 }
 

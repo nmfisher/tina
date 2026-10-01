@@ -5,6 +5,8 @@
 /// job: this package does not depend on any terminal.
 library;
 
+export 'src/process_tree.dart' show killProcessTree;
+
 export 'package:tina_core/tina_core.dart'
     show ToolResult, ToolSchema, ToolDescription;
 

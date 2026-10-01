@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:tina_mcp/tina_mcp.dart';
+import 'mcp_console_plugin.dart';
 import 'package:tina_grok_guard/tina_grok_guard.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
@@ -106,6 +108,17 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Optionally limits foreground model rounds per turn. Multiple tool calls in one response count as one round. Zero means unlimited; the numeric setting is global.',
             live: true),
         grokGuardDefinition<TuiPluginContext>(),
+        PluginDefinition.dependingOn<TuiPluginContext, ModePolicySource>(
+            'tina/mcp',
+            dependency: modePolicySource,
+            create: (c, source) => McpConsolePlugin(
+                store: McpConfigStore(c.configPath),
+                workingDirectory: c.workingDirectory,
+                terminal: c.terminal,
+                approve: source.modePolicy.request),
+            live: true,
+            description:
+                'Connects configured MCP servers, discovers their tools and resources, and routes calls through the current approval mode. Local server commands run with your account privileges.'),
         updateTuiDefinition<TuiPluginContext>(),
         updateDefinition<TuiPluginContext>(
             version: (c) => c.version,

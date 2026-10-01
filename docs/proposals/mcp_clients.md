@@ -1,6 +1,9 @@
 # MCP clients via the plugin architecture
 
-Status: proposal. Reference implementation: opencode's
+Status: superseded by the engine2 implementation in `packages/plugins/tina_mcp`.
+See [MCP configuration and supported surface](../engine2-mcp.md). The legacy
+package paths and service registry design below are historical, not the current
+architecture. Original reference implementation: opencode's
 [`packages/opencode/src/mcp/`](https://github.com/sst/opencode/tree/dev/packages/opencode/src/mcp)
 (`index.ts`, `catalog.ts`), adapted to tina's plugin runtime.
 

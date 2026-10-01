@@ -7,6 +7,7 @@ import 'dart:io' show File, Platform;
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_core/tina_core.dart' show validatePluginId;
 import 'package:toml/toml.dart';
+import 'package:tina_mcp/tina_mcp.dart' show McpServerConfig;
 import 'provider_config.dart';
 import 'package:tina_providers/tina_providers.dart';
 export 'provider_config.dart';
@@ -47,6 +48,7 @@ const defaultPluginIds = <String>[
   'tina/session-controls',
   'tina/panels-tui',
   'tina/activity-tui',
+  'tina/mcp',
   'tina/persistence',
   'tina/plans',
   'tina/goals',
@@ -199,6 +201,7 @@ TinaConfigResult parseTinaConfig(
   List<ProviderDescriptor> descriptors = builtinDescriptors,
 }) {
   final file = path;
+  McpServerConfig.parse(parsed['mcp']);
   final providers = <String, ProviderSettings>{};
   final resolvedDescriptors = {for (final d in descriptors) d.id: d};
   final providerTables = parsed['providers'];

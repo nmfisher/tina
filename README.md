@@ -53,6 +53,9 @@ Names use `publisher/name`, with `tina/` reserved for first-party plugins.
 UI plugins can register settings sections and other console contributions;
 see [UI contribution interfaces and lifecycle](docs/ui-contributions.md).
 
+MCP servers, including Blender Lab's official server, are supported by `tina/mcp`.
+Configure them in Settings → MCP servers; see [MCP setup](docs/engine2-mcp.md).
+
 See [configuration reference](docs/engine2-config.md) for pools, rates, token
 limits, reasoning/output controls, themes, credentials and completion.
 

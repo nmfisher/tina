@@ -48,6 +48,9 @@ class ChatView {
           for (final line in _wrap(text, width)) {
             rows.add(RenderLine(runs: [RenderRun(line, style)]));
           }
+        case ImageBlock(:final mimeType):
+          rows.add(
+              RenderLine(runs: [RenderRun('[Image: $mimeType]', chat.dim)]));
         case ToolUseBlock():
           final call = ToolUse.fromBlock(block);
           final result = results[block.id];

@@ -50,4 +50,19 @@ void main() {
       'inlineData': {'mimeType': 'image/png', 'data': 'aGVsbG8='}
     });
   });
+  test('OpenAI waits for every tool response before inserting image content',
+      () {
+    final wire = chatCompletionsMessages([
+      const Message(role: Role.assistant, content: [
+        ToolUseBlock(id: 'shot', name: 'screenshot', input: {}),
+        ToolUseBlock(id: 'info', name: 'scene', input: {}),
+      ]),
+      message,
+      const Message(
+          role: Role.user,
+          content: [ToolResultBlock(toolUseId: 'info', content: 'Scene data')]),
+    ]);
+    expect(wire.map((m) => m['role']), ['assistant', 'tool', 'tool', 'user']);
+    expect((wire.last['content'] as List).first['text'], contains('shot'));
+  });
 }

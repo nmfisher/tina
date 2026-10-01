@@ -32,7 +32,8 @@
     "tina_chat_tui",
     "tina_grok_guard",
     "tina_mode",
-    "tina_step_limit"
+    "tina_step_limit",
+    "tina_mcp"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -185,6 +186,10 @@
     "tina_mode": [
       "lib",
       "test"
+    ],
+    "tina_mcp": [
+      "lib",
+      "test"
     ]
   },
   "frontendRoots": [
@@ -328,7 +333,8 @@
     "tina_activity_tui": "packages/plugins/tina_activity_tui",
     "tina_chat_tui": "packages/plugins/tina_chat_tui",
     "tina_grok_guard": "packages/plugins/tina_grok_guard",
-    "tina_mode": "packages/plugins/tina_mode"
+    "tina_mode": "packages/plugins/tina_mode",
+    "tina_mcp": "packages/plugins/tina_mcp"
   },
   "runtimeDependencies": {
     "tina_step_limit": [
@@ -391,6 +397,15 @@
       "classification",
       "tina_engine_2",
       "tina_approvals"
+    ],
+    "tina_mcp": [
+      "crypto",
+      "path",
+      "toml",
+      "tina_core",
+      "tina_engine_2",
+      "tina_approvals",
+      "tina_tools"
     ]
   },
   "pluginFreePackages": [
