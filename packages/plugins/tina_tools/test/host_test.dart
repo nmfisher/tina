@@ -81,6 +81,45 @@ void main() {
     expect(plugin.mode, PermissionMode.readOnly);
   });
 
+  test('read-only tools run direct system ls and grep but still review edits',
+      () async {
+    final source = File('${ws.path}/mesh.py')
+      ..writeAsStringSync('head_neck_from_cage = True\n');
+    final plugin = ToolsPlugin(
+        workspaceRoot: ws.path,
+        tinaDir: tina,
+        mode: PermissionMode.readOnly,
+        osSandbox: false);
+    addTearDown(plugin.closeSession);
+    var asks = 0;
+    plugin.processRunner.commandApprover = (_, __) async {
+      asks++;
+      return Approval.no;
+    };
+    final exec = plugin.toolList.singleWhere((t) => t.schema.name == 'exec');
+    final listed = await exec.execute({
+      'program': 'ls',
+      'args': [ws.path]
+    });
+    expect(listed.isError, false, reason: listed.content);
+    expect(listed.content, contains('mesh.py'));
+    final searched = await exec.execute({
+      'program': 'grep',
+      'args': ['-rn', 'head_neck_from_cage', '--include=*.py', ws.path]
+    });
+    expect(searched.isError, false, reason: searched.content);
+    expect(searched.content, contains('head_neck_from_cage = True'));
+    expect(asks, 0);
+    final edited = await exec.execute({
+      'program': 'sed',
+      'args': ['-i', 's/True/False/', source.path]
+    });
+    expect(edited.isError, true);
+    expect(asks, 1);
+    expect(source.readAsStringSync(), 'head_neck_from_cage = True\n');
+    expect(plugin.mode, PermissionMode.readOnly);
+  });
+
   group('a turn runs end to end', () {
     test('closing a host releases only its own provider, once', () {
       final providers = <_ClosingProvider>[];

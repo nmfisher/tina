@@ -71,6 +71,7 @@ final class ToolsPlugin extends AgentPlugin
       inner: osRunner,
       mode: mode,
       writableDirectories: writable,
+      executableSearchPath: osPlan.childEnvironment['PATH'],
     );
     processJobs = ProcessJobs(processRunner);
     this.modePolicy.listen((value) {
@@ -236,7 +237,8 @@ final class HostPromptSection {
       '${switch (mode) {
         PermissionMode.ask => 'reads run; writes and commands require approval',
         PermissionMode.readOnly =>
-          'prefer reading; writes and commands require explicit user approval',
+          'reads and verified direct system ls/grep commands run; '
+              'writes and other commands require explicit user approval',
         PermissionMode.allowEdits =>
           'project edits run; commands and outside writes require approval',
         PermissionMode.auto =>

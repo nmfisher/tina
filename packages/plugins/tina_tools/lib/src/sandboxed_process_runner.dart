@@ -1,5 +1,6 @@
-/// Process boundary: execution requires approval or a matching human session
-/// grant in every mode. The mode plugin routes reviews
+/// Process boundary: certified system readers can run in read-only mode;
+/// other execution requires approval or a matching human session grant.
+/// The mode plugin routes reviews
 /// to a human or the automatic safety judge; OS confinement remains separate.
 library;
 
@@ -9,6 +10,7 @@ import 'dart:convert' show jsonEncode;
 import 'glob.dart' show fileGlobMatch;
 import 'permissions.dart';
 import 'process_runner.dart';
+import 'read_only_commands.dart';
 
 /// The session mode a [SandboxedProcessRunner] enforces. Re-exported from
 /// the permissions vocabulary so callers need one import less.
@@ -22,6 +24,9 @@ enum CommandRule {
 
   /// `readOnly`: commands require explicit human approval.
   readOnly,
+
+  /// A direct invocation of a verified system reader with supported options.
+  readOnlyReader,
 
   /// The command provably reads, or creates/edits/moves/deletes, nothing
   /// outside the session's writable directories, and shows no sign of
@@ -52,6 +57,8 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
       CommandRule.permissionMode => 'allow command (${request.command})?',
       CommandRule.readOnly =>
         'allow command in read-only mode (${request.command})?',
+      CommandRule.readOnlyReader =>
+        'read-only system command (${request.command})',
       CommandRule.insideWritableSet =>
         'command stays inside the session\'s writable directories '
             '(${request.command})',
@@ -218,6 +225,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
   /// Session grants remembered from "always" answers.
   final CommandGrants grants;
 
+  /// PATH used by the inner runner. Certified readers are pinned to their
+  /// verified absolute executable, while all reviewed commands stay verbatim.
+  final String? executableSearchPath;
+
   SandboxedProcessRunner({
     required this.inner,
     this.mode = PermissionMode.ask,
@@ -226,6 +237,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
     this.approver,
     this.commandApprover,
     CommandGrants? grants,
+    this.executableSearchPath,
   })  : writableDirectories = writableDirectories ?? WritableDirectories(),
         grants = grants ?? CommandGrants();
 
@@ -255,6 +267,9 @@ final class SandboxedProcessRunner implements ProcessRunner {
     // No OS confinement also means no OS network isolation. Ask for that
     // access explicitly rather than pretending the offline restriction holds.
     final network = (control?.networkRequested ?? false) || outsideSandbox;
+    final reader = mode == PermissionMode.readOnly
+        ? readOnlyExecutable(request, searchPath: executableSearchPath)
+        : null;
     final requiredPermissions = {
       ProcessPermission.execution,
       if (network) ProcessPermission.network,
@@ -262,12 +277,14 @@ final class SandboxedProcessRunner implements ProcessRunner {
     };
     final missing = requiredPermissions
         .where((permission) =>
+            !(permission == ProcessPermission.execution && reader != null) &&
             !grants.coversRequest(request, permission: permission))
         .toSet();
     final decision = decideCommand(request, mode,
         writableDirectories: writableDirectories,
         networkOff: networkOff,
-        grants: grants);
+        grants: grants,
+        certifiedReadOnly: reader != null);
     if (decision.verdict == ToolVerdict.deny) {
       return CommandRefused(decision.reason);
     }
@@ -322,7 +339,17 @@ final class SandboxedProcessRunner implements ProcessRunner {
     }
     final authorized = (control ?? const ProcessControl()).copyWith(
         networkAllowed: network, outsideSandboxAllowed: outsideSandbox);
-    return _completed(await inner.run(request, control: authorized), reason);
+    final spawned = reader == null
+        ? request
+        : (
+            command: reader,
+            arguments: request.arguments,
+            workingDirectory: request.workingDirectory,
+            environment: request.environment,
+            stdin: request.stdin,
+            timeout: request.timeout,
+          );
+    return _completed(await inner.run(spawned, control: authorized), reason);
   }
 
   /// The inner runner may refuse (a host-enforced seam) or report an
@@ -370,6 +397,7 @@ CommandDecision decideCommand(
   required WritableDirectories writableDirectories,
   required bool networkOff,
   CommandGrants? grants,
+  bool certifiedReadOnly = false,
 }) {
   if (grants?.coversRequest(request) == true) {
     return (
@@ -379,8 +407,10 @@ CommandDecision decideCommand(
   }
   if (mode == PermissionMode.readOnly) {
     return (
-      verdict: ToolVerdict.ask,
-      reason: commandReason(CommandRule.readOnly, request)
+      verdict: certifiedReadOnly ? ToolVerdict.allow : ToolVerdict.ask,
+      reason: commandReason(
+          certifiedReadOnly ? CommandRule.readOnlyReader : CommandRule.readOnly,
+          request)
     );
   }
   // A single unbreakable string (`sh -c <string>`, the bash-tool shape) can

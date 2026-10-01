@@ -26,20 +26,25 @@ Shift-Tab and the status label; no separate `tina/mode-tui` plugin is loaded.
 | Mode | Reads | Project writes | Commands / outside writes |
 | --- | --- | --- | --- |
 | `ask` (default) | allow | ask | ask |
-| `read-only` | allow | human approval | human approval |
+| `read-only` | allow | human approval | verified ls/grep run; others ask |
 | `allow-edits` | allow | allow | ask |
 | `auto` | allow | classifier review | classifier review |
 
 In `auto`, an exact completed ALLOW approves the operation once. DENY,
 timeout, missing classifier or invalid response falls back to the configured
-human approval channel. Read-only always uses human approval for unapproved
-writes and commands. Cancellation does not fall back to asking.
+human approval channel. Read-only uses human approval for writes and commands
+that are not certified direct system readers. Cancellation does not fall back to asking.
 Human “always” grants remain session-scoped; classifier approvals do not create
 persistent or session grants. Protected Tina paths and OS sandbox restrictions
 remain enforced in every mode. Ordinary approval does not disable the OS sandbox.
 
-Read-only asks before any command, including commands that merely read.
-An explicit approval allows the requested operation without changing the mode.
+In read-only mode, direct system `ls` and `grep` invocations with supported
+GNU/BSD options run without an execution approval. The runner verifies and pins
+the absolute system executable; a replacement on PATH, custom environment,
+unknown option or shell wrapper asks. Arguments remain unchanged. Network and
+outside-sandbox access still need their own approval. Other modes retain their
+existing command review policy. An explicit approval allows the requested
+operation without changing the mode.
 `WritableDirectories` and network heuristics explain why a command needs
 approval; they do not authorize it without review. `OsSandboxRunner` supplies
 OS confinement separately.

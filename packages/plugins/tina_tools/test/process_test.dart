@@ -78,7 +78,7 @@ void main() {
           timeout: null,
         );
 
-    test('readOnly asks for every unapproved command', () {
+    test('readOnly asks for every unverified, unapproved command', () {
       for (final line in ['git status', 'ls', 'echo hi', 'rm -rf /']) {
         final d = decideCommand(req(line), PermissionMode.readOnly,
             writableDirectories: WritableDirectories()..add('/'),
