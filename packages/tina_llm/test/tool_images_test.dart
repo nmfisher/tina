@@ -8,6 +8,28 @@ void main() {
     ToolResultBlock(
         toolUseId: 'shot', content: 'Blender screenshot', images: [image]),
   ]);
+  test('Gemini preserves MCP JSON Schema references and enum definitions', () {
+    const schema = {
+      'type': 'object',
+      '\$defs': {
+        'Area': {
+          'type': 'string',
+          'enum': ['VIEW_3D', 'IMAGE_EDITOR']
+        }
+      },
+      'properties': {
+        'area_ui_type': {'\$ref': '#/\$defs/Area'}
+      },
+      'required': ['area_ui_type'],
+      'additionalProperties': false,
+    };
+    final body = geminiBody(system: '', messages: [], tools: const [
+      ToolSchema(name: 'screenshot', description: '', inputSchema: schema),
+    ]);
+    final function = body['tools'][0]['functionDeclarations'][0] as Map;
+    expect(function.containsKey('parameters'), false);
+    expect(function['parametersJsonSchema'], schema);
+  });
   test('tool images survive transcript replay without changing legacy results',
       () {
     final restored = Message.fromJson(message.toJson());

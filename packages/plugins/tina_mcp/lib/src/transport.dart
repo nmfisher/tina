@@ -102,7 +102,9 @@ final class StdioMcpTransport extends McpTransport {
   Future<void> _close() async {
     _closed = true;
     try {
-      await process.stdin.close();
+      // A server that stops reading can leave an outstanding flush parked on
+      // a full pipe. Closing must still reach process-tree termination.
+      await process.stdin.close().timeout(const Duration(seconds: 1));
     } catch (_) {}
     await killProcessTree(process.pid);
     await _stdout.cancel();
@@ -128,6 +130,7 @@ final class HttpMcpTransport extends McpTransport {
   final _http = HttpClient()..connectionTimeout = const Duration(seconds: 15);
   final _messages = StreamController<RpcMessage>();
   bool _closed = false;
+  Future<void>? _closing;
   String? _session, _version;
   @override
   Stream<RpcMessage> get messages => _messages.stream;
@@ -234,8 +237,8 @@ final class HttpMcpTransport extends McpTransport {
   }
 
   @override
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() => _closing ??= _close();
+  Future<void> _close() async {
     _closed = true;
     if (_session != null) {
       try {

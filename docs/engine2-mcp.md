@@ -102,7 +102,10 @@ preserved. Binary audio results are explicitly reported as unsupported.
 Negotiated protocol revisions: `2025-11-25`, `2025-06-18`, `2025-03-26`,
 `2024-11-05` (stdio). Legacy separate SSE endpoints, OAuth login, MCPB bundle
 installation, server sampling/elicitation, task-augmented execution and resumable
-HTTP event streams are not implemented. Unsupported client methods return a
+HTTP event streams are not implemented. The standard subagent factory does not
+yet include MCP; foreground conversations and panels each own their connections.
+Resource/prompt replies are returned as JSON; native image delivery applies to
+tool image results. Unsupported client methods return a
 JSON-RPC error; capabilities are not advertised for them.
 
 Verification covers a real subprocess fixture, local HTTP/SSE server, provider

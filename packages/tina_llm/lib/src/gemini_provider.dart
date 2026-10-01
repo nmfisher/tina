@@ -115,7 +115,9 @@ Map<String, dynamic> geminiBody({
               {
                 'name': t.name,
                 'description': t.description,
-                'parameters': t.inputSchema,
+                // MCP schemas can contain $defs/$ref/default and other JSON
+                // Schema fields outside Gemini's older OpenAPI Schema type.
+                'parametersJsonSchema': t.inputSchema,
               },
           ],
         },

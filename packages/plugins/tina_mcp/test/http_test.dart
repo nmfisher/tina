@@ -115,6 +115,7 @@ void main() {
   });
   tearDown(() async {
     await client.close();
+    expect(deleted.isCompleted, true);
     await server.close(force: true);
   });
 

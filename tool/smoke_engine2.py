@@ -119,6 +119,18 @@ class ModelStub(BaseHTTPRequestHandler):
                          'delta': {'type': 'input_json_delta', 'partial_json': json.dumps({
                              'job_id': job_id, 'action': 'wait', 'wait_ms': 3000})}}
             events[4]['delta']['stop_reason'] = 'tool_use'
+        for trigger, mcp_tool, arguments in [
+            ('mcp mutate example', 'mutate', {'value': 'native-fixture-change'}),
+            ('mcp changed arguments example', 'mutate', {'value': 'native-fixture-different'}),
+            ('mcp screenshot example', 'screenshot', {}),
+        ]:
+            if trigger in json.dumps(prompt):
+                name = next(t['name'] for t in request['tools'] if t['description'] == '[MCP fixture] Fixture ' + mcp_tool)
+                events[1] = {'type': 'content_block_start', 'index': 0,
+                             'content_block': {'type': 'tool_use', 'id': 'mcp-native', 'name': name, 'input': {}}}
+                events[2] = {'type': 'content_block_delta', 'index': 0,
+                             'delta': {'type': 'input_json_delta', 'partial_json': json.dumps(arguments)}}
+                events[4]['delta']['stop_reason'] = 'tool_use'
         # Native automatic approvals must reach the endpoint with their schema,
         # through the same configuration and policy wrappers as agent requests.
         output = request.get('output_config', {}).get('format')
@@ -240,6 +252,11 @@ def smoke(launcher, endpoint, columns, rows):
                           f'base_url = "{endpoint}"\napi_key = "config-smoke-key"\n'
                           'models = ["smoke|Smoke model"]\n'
                           f'[theme]\nvariant = "{"dark" if rows == 10 else "light" if rows == 24 else "default"}"\n')
+        fixture = PACKAGE.parent / 'plugins/tina_mcp/test/fixtures/server.py'
+        mcp_events = root / 'mcp-events.jsonl'
+        with config.open('a') as file:
+            file.write('[mcp.servers.fixture]\ncommand = "python3"\n'
+                       f'args = [{json.dumps(str(fixture))}, {json.dumps(str(mcp_events))}]\n')
         workspace = root / 'workspace'
         workspace.mkdir()
         (workspace / 'preview.txt').write_text('before\n')
@@ -364,6 +381,31 @@ def smoke(launcher, endpoint, columns, rows):
             assert ModelStub.approval_target.read_text() == 'approved'
             terminal.resize(columns, rows)
             time.sleep(0.1)
+            # Native MCP discovery, readable approval, exact remembered grants,
+            # image wire encoding and cancellation through the normal input area.
+            for message, answer in [('mcp mutate example', 'a'),
+                                    ('mcp mutate example', None),
+                                    ('mcp changed arguments example', 'n'),
+                                    ('mcp screenshot example', 'y')]:
+                before_mcp = len(ModelStub.requests)
+                start = terminal.send(message + '\r')
+                if answer is not None:
+                    terminal.expect('fixture: ' + ('screenshot' if 'screenshot' in message else 'mutate'), start)
+                    terminal.expect('❯ [y] allow once', start)
+                    start = terminal.send(answer)
+                terminal.expect('smoke answer', start)
+                deadline = time.monotonic() + 10
+                while len(ModelStub.requests) < before_mcp + 2 and time.monotonic() < deadline:
+                    terminal.read()
+                assert len(ModelStub.requests) == before_mcp + 2, (
+                    f'{message}: expected {before_mcp + 2} model requests, got {len(ModelStub.requests)}; '
+                    f'MCP events: {[json.loads(line).get("method", "reply") for line in mcp_events.read_text().splitlines()[-8:]]}')
+                if 'screenshot' in message:
+                    results = [b for m in ModelStub.requests[-1]['messages'] for b in m['content'] if b['type'] == 'tool_result' and b['tool_use_id'] == 'mcp-native']
+                    assert results[-1]['content'][1] == {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'aGVsbG8='}}
+                time.sleep(0.15)  # The response request arriving is earlier than the turn's final repaint.
+            invocations = [json.loads(line) for line in mcp_events.read_text().splitlines() if json.loads(line).get('method') == 'tools/call']
+            assert len(invocations) == 3, 'MCP denial executed or remembered approval did not work'
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
@@ -753,7 +795,20 @@ def smoke(launcher, endpoint, columns, rows):
             raise
         finally:
             terminal.close()
-        print(f"PASS {columns}x{rows}: prompt, full file completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation/background jobs, approvals/network grants/JSON schema, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
+        # Every conversation/panel owns its MCP process. Exit and resume must
+        # not leave any of those servers alive after stdin closes.
+        server_pids = {json.loads(line)['fixture_pid'] for line in mcp_events.read_text().splitlines()}
+        def alive(pid):
+            try:
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+        deadline = time.monotonic() + 3
+        while any(alive(pid) for pid in server_pids) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not any(alive(pid) for pid in server_pids), 'MCP server survived conversation shutdown'
+        print(f"PASS {columns}x{rows}: prompt, full file completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation/background jobs, approvals/network grants/JSON schema, MCP discovery/exact grants/images/shutdown, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
 
 
 def smoke_cli(launcher):
@@ -848,8 +903,9 @@ def main():
         # Each size adds nine requests: one file-completion turn, three for
         # automatic network approval (agent/judge/result), and five for the
         # background job (start/result, another message, inspect/result).
-        assert 126 <= len(ModelStub.requests) <= 129, (
-            f"expected 126–129 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
+        # Four MCP tool turns add eight requests per terminal size.
+        assert 150 <= len(ModelStub.requests) <= 153, (
+            f"expected 150–153 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

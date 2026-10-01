@@ -419,7 +419,7 @@ void main() {
               {
                 'name': 'bash',
                 'description': 'run a command',
-                'parameters': {'type': 'object'},
+                'parametersJsonSchema': {'type': 'object'},
               },
             ],
           },

@@ -53,6 +53,7 @@ class McpPlugin extends AgentPlugin {
   Map<String, String> get serverStatus => Map.unmodifiable(_status);
   AgentLoop? _loop;
   bool _closed = false;
+  int _preparation = 0;
   Future<void>? _closing;
   @override
   String get id => 'tina/mcp';
@@ -70,6 +71,9 @@ class McpPlugin extends AgentPlugin {
 
   @override
   Future<void> prepareTurn(TurnContext context) async {
+    final preparation = ++_preparation;
+    bool abandoned() =>
+        _closed || context.cancelled || preparation != _preparation;
     final allConfigs = readServers();
     _status.removeWhere(
         (name, _) => !allConfigs.any((server) => server.name == name));
@@ -79,26 +83,28 @@ class McpPlugin extends AgentPlugin {
     final configs = allConfigs.where((s) => s.enabled).toList();
     final desired = {for (final config in configs) config.name: config};
     for (final name in _servers.keys.toList()) {
+      if (abandoned()) return;
       final server = _servers[name]!;
       if (server.client.closed ||
           desired[name]?.fingerprint != server.config.fingerprint) {
         _servers.remove(name);
         await server.client.close();
+        if (abandoned()) return;
         _grants.removeWhere((grant) => grant.startsWith('$name\n'));
       }
     }
     for (final config in configs) {
-      if (_closed || context.cancelled) return;
+      if (abandoned()) return;
       McpClient? connecting;
+      var server = _servers[config.name];
       try {
-        var server = _servers[config.name];
         if (server == null) {
           _status[config.name] = 'Connecting';
           final transport = await connect(config, workingDirectory);
           connecting = McpClient(transport,
               timeout: config.timeout,
               workspaceUri: Uri.directory(workingDirectory).toString());
-          if (_closed || context.cancelled) {
+          if (abandoned()) {
             await connecting.close();
             return;
           }
@@ -110,7 +116,7 @@ class McpPlugin extends AgentPlugin {
               _status[config.name] = 'Disconnected';
             }
           };
-          if (_closed || context.cancelled) {
+          if (abandoned()) {
             await connecting.close();
             return;
           }
@@ -120,14 +126,32 @@ class McpPlugin extends AgentPlugin {
           // Reset before discovery so a notification during the request is
           // retained for the next turn, rather than lost when it completes.
           server.dirty = false;
-          server.tools = server.client.capabilities.containsKey('tools')
+          final discovered = server.client.capabilities.containsKey('tools')
               ? await server.client.list('tools/list', 'tools',
                   whenCancelled: context.whenCancelled)
               : [];
+          if (abandoned()) {
+            if (identical(_servers[config.name], server)) server.dirty = true;
+            return;
+          }
+          server.tools = List<Map<String, dynamic>>.from(discovered);
         }
+        if (abandoned()) return;
         _status[config.name] = '${server.tools.length} tools connected';
       } catch (error) {
-        final server = _servers.remove(config.name);
+        if (abandoned()) {
+          // A cancelled hook may finish after a fresh turn has connected the
+          // same server. Clean up only resources that this attempt still owns.
+          if (connecting != null &&
+              !identical(_servers[config.name]?.client, connecting)) {
+            await connecting.close();
+          }
+          if (server != null && identical(_servers[config.name], server))
+            server.dirty = true;
+          return;
+        }
+        if (server != null && identical(_servers[config.name], server))
+          _servers.remove(config.name);
         await (server?.client ?? connecting)?.close();
         _status[config.name] = 'Unavailable';
         // Connection diagnostics never include credentials, env values or URLs.
@@ -135,7 +159,7 @@ class McpPlugin extends AgentPlugin {
             'MCP ${config.name}: unavailable (${error.runtimeType}). Check its configuration and server.');
       }
     }
-    if (_closed || context.cancelled) return;
+    if (abandoned()) return;
     _schemas.clear();
     _bindings.clear();
     for (final server in _servers.values) {

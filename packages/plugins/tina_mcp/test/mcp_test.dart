@@ -274,6 +274,29 @@ void main() {
     await process.exitCode.timeout(const Duration(seconds: 2));
   });
 
+  test('shutdown terminates a server even when a write is blocked on its stdin',
+      () async {
+    final transport = await connectMcp(
+        McpServerConfig('stalled', {
+          'command': 'python3',
+          'args': ['-c', 'import time; time.sleep(60)'],
+        }),
+        directory.path) as StdioMcpTransport;
+    addTearDown(transport.close);
+    final subscription =
+        transport.messages.listen((_) {}, onError: (Object _) {});
+    addTearDown(subscription.cancel);
+    final write = transport.send({
+      'jsonrpc': '2.0',
+      'method': 'fixture',
+      'params': {'text': 'x' * 1024 * 1024}
+    });
+    write.ignore();
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+    await transport.close().timeout(const Duration(seconds: 3));
+    await transport.process.exitCode.timeout(const Duration(seconds: 1));
+  });
+
   test('tool errors, resources and prompts round-trip', () async {
     final c = await client();
     final error = mcpToolResult(
@@ -388,5 +411,46 @@ void main() {
     expect(provider.requests.last, isEmpty);
     expect(plugin.serverStatus, {'fixture': 'Disabled'});
     await process!.exitCode.timeout(const Duration(seconds: 2));
+  });
+
+  test('a late cancelled connection failure cannot disconnect the next turn',
+      () async {
+    final entered = Completer<void>();
+    final firstConnect = Completer<McpTransport>();
+    var attempts = 0;
+    final plugin = McpPlugin(
+        workingDirectory: directory.path,
+        readServers: () => [config()],
+        connect: (configuration, workspace) {
+          if (++attempts == 1) {
+            entered.complete();
+            return firstConnect.future;
+          }
+          return connectMcp(configuration, workspace);
+        },
+        approve: (
+                {required operation,
+                required target,
+                required reason,
+                context = const {}}) async =>
+            ApprovalDecision.allow);
+    addTearDown(plugin.shutdown);
+    final provider = CallingProvider(null);
+    final loop = AgentLoop(provider: provider, plugins: [plugin]);
+    loop.mountPlugin(plugin);
+    final cancelled = loop.runTurn(const Input('first', id: 'one'));
+    await entered.future;
+    loop.cancel('escape');
+    expect((await cancelled).stopReason, StopReason.cancelled);
+    await loop.runTurn(const Input('second', id: 'two'));
+    expect(plugin.tools, hasLength(10));
+    firstConnect.completeError(StateError('late failure'));
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+    provider.next('screenshot');
+    final outcome = await loop.runTurn(const Input('third', id: 'three'));
+    expect(results(outcome).single.images, hasLength(1));
+    expect(attempts, 2,
+        reason: 'the working connection must survive late cleanup');
+    expect(plugin.serverStatus['fixture'], '5 tools connected');
   });
 }
