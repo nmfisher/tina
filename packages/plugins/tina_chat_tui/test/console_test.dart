@@ -10,6 +10,8 @@ import 'package:tina_console/testing.dart';
 class Updates implements UpdateStatusSource {
   final notifications = StreamController<void>.broadcast();
   @override
+  String get currentVersion => '0.9.0';
+  @override
   UpdateStatus status =
       const UpdateStatus(UpdatePhase.available, tag: 'v0.9.1');
   @override
@@ -137,6 +139,7 @@ void main() {
       unawaited(source.notifications.close());
     });
     await tick();
+    expect(visible(), contains('v0.9.0'));
     expect(visible(), contains('update ⬆ v0.9.1 · /update'));
     expect(visible(), contains('Σ 60 +~15 est / 100 · 75%'));
     chat.repaintConsole();
@@ -165,13 +168,16 @@ void main() {
     source.status = const UpdateStatus(UpdatePhase.failed, reason: 'HTTP 429');
     source.notifications.add(null);
     await tick();
+    expect(visible(), contains('v0.9.0'));
     expect(visible(), contains('update check failed — HTTP 429'));
     expect(visible(), contains('Σ 0'));
     source.status = const UpdateStatus(UpdatePhase.current);
     source.notifications.add(null);
     await tick();
     expect(visible(), isNot(contains('update check')));
+    expect(visible(), contains('v0.9.0'));
     update.detachConsole();
+    expect(visible(), isNot(contains('v0.9.0')));
     source.status = const UpdateStatus(UpdatePhase.available, tag: 'v9.0.0');
     source.notifications.add(null);
     await tick();

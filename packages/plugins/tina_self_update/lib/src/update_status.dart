@@ -12,6 +12,8 @@ final class UpdateStatus {
 /// Channel-independent release status. A frontend may start the once-per-load
 /// background probe; headless commands still check explicitly via /update.
 abstract interface class UpdateStatusSource {
+  /// Version of the running process, independent of update-check results.
+  String get currentVersion;
   UpdateStatus get status;
   Stream<void> get changes;
   Future<void> checkInBackground();

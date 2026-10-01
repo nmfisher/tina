@@ -10,7 +10,7 @@ PluginDefinition<C> updateTuiDefinition<C>() => PluginDefinition.dependingOn<C,
     live: true,
     create: (_, status) => UpdateTuiPlugin(status),
     description:
-        'Shows update availability and download progress in the status bar.');
+        'Shows the running version and update availability in the status bar.');
 
 /// Presentation subscribes to the updater's state, without coupling it to a
 /// terminal. Other channels can consume the same source.
@@ -54,12 +54,17 @@ final class UpdateTuiPlugin extends AgentPlugin implements ConsoleContribution {
       UpdatePhase.deferred =>
         'update check deferred${status.until == null ? '' : ' · retry ${_time(status.until!)}'}',
     };
-    if (text.isEmpty) return const [];
+    final version = source.currentVersion;
     return [
       RenderLine(runs: [
-        RenderRun(clean(text),
-            status.phase == UpdatePhase.available ? theme.yellow : theme.dim)
-      ])
+        RenderRun(
+            clean(version.startsWith('v') ? version : 'v$version'), theme.dim)
+      ]),
+      if (text.isNotEmpty)
+        RenderLine(runs: [
+          RenderRun(clean(text),
+              status.phase == UpdatePhase.available ? theme.yellow : theme.dim)
+        ])
     ];
   }
 

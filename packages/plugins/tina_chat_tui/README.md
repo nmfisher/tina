@@ -24,8 +24,11 @@ in Settings → Plugins at session, workspace or global scope.
 
 `tina/update-tui` is also enabled by default. It consumes the channel-independent
 status capability from `tina/update`, starts one cache-aware background check,
-and contributes a persistent `update ⬆ vX.Y.Z · /update` line. Checking, failed,
-and deferred checks are visible; up-to-date is quiet. The update indicator has
+and always shows the running version (`vX.Y.Z`), followed by
+`update ⬆ vX.Y.Z · /update` when a newer release is available. Checking, failed,
+and deferred checks are visible; up-to-date shows just the running version.
+The version remains visible when background checks are disabled or fail.
+The version and update indicators have
 priority over optional plan/goal/session text, while the token counter retains
 the right-hand slot. `ConsoleContext.bindStatus` gives each plugin ownership of
 its own lines, so unloading one does not erase the others. Unchecking

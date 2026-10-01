@@ -41,6 +41,7 @@ final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {
                 env: Platform.environment, currentVersion: currentVersion),
         _prepare = prepare ??
             ((release, notice) => prepareUpdate(release, notice: notice));
+  @override
   final String currentVersion;
   final Terminal terminal;
   final ApprovalRequester approvals;
