@@ -129,8 +129,10 @@ global plugin list and approval channel. Replacing the global list clears global
 per-ID overrides; workspace and session overrides remain independent. Credentials are masked. Save validates the draft, preserves
 unrelated legacy tables, detects external edits and atomically replaces the
 file with owner-only permissions on POSIX. TOML formatting/comments are
-normalized on save. Escape discards the draft. Saved generation options apply
-to the next provider request, including subagent requests; an existing stream
+normalized on save. Escape discards the draft. Saved providers and models appear
+immediately in `/model`, its completion and the model picker in every open panel.
+Endpoint, credential and generation changes apply to the next provider request,
+including subagent requests; an existing stream
 finishes with its original settings. Model selection and token spend are
 preserved. Default provider/model changes remain preferences for future launches.
 

@@ -25,22 +25,6 @@ final class ProviderSettings {
   final int? requestsPerMinute, minIntervalMs, maxOutput, thinkingBudget;
   final String? reasoningEffort, outputTokenField;
 
-  ProviderSettings withGeneration(ProviderSettings? saved) => ProviderSettings(
-      members: members,
-      requestsPerMinute: requestsPerMinute,
-      minIntervalMs: minIntervalMs,
-      name: name,
-      baseUrl: baseUrl,
-      wire: wire,
-      apiKey: apiKey,
-      authToken: authToken,
-      models: models,
-      disabledModels: disabledModels,
-      maxOutput: saved?.maxOutput,
-      reasoningEffort: saved?.reasoningEffort,
-      thinkingBudget: saved?.thinkingBudget,
-      outputTokenField: saved?.outputTokenField);
-
   factory ProviderSettings.parse(String id, Map<String, dynamic> values) {
     String? string(String key) {
       final value = values[key];

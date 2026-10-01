@@ -8,7 +8,7 @@ import 'providers_panel.dart';
 import 'plugin_settings.dart';
 import 'package:tina_host/tina_host.dart';
 
-/// Built-in fields edit global settings; generation can apply live. Plugin sections
+/// Built-in fields edit global settings; provider settings can apply live. Plugin sections
 /// supply their own controls and callbacks independently of that document.
 final class SettingsPanel {
   SettingsPanel(this.screen, this.editor, {this.readEvent});
@@ -19,7 +19,7 @@ final class SettingsPanel {
   late OverlayRegion _overlay;
   void Function()? _paint;
   bool _savedSection = false;
-  void Function()? _applyGeneration;
+  void Function()? _applyConfiguration;
   void repaint() => _paint?.call();
   Completer<void> _changed = Completer<void>();
   Future<InputEvent>? _pendingRead;
@@ -61,13 +61,13 @@ final class SettingsPanel {
       SettingsRegistry? sections,
       PluginSettings<dynamic>? pluginSettings,
       PluginManager<dynamic>? pluginManager,
-      void Function()? applyGeneration,
+      void Function()? applyConfiguration,
       Map<String, String> pluginDescriptions = const {},
       Iterable<String> pluginIds = const []}) async {
     _savedSection = false;
     _cancelled = false;
     _cancel = Completer<void>();
-    _applyGeneration = applyGeneration;
+    _applyConfiguration = applyConfiguration;
     descriptors ??= configuredDescriptors();
     final document = ConfigDocument.open(path);
     if (!document.existsOnDisk &&
@@ -143,7 +143,7 @@ final class SettingsPanel {
             try {
               document.save(
                   descriptors: descriptors, validatePlugins: validatePlugins);
-              _applyGeneration?.call();
+              _applyConfiguration?.call();
               return true;
             } catch (error) {
               // Parsing errors contain field names, never credential values.
@@ -365,7 +365,7 @@ final class SettingsPanel {
                 model);
             document.saveGeneration(id, fields,
                 descriptors: descriptors, validatePlugins: validatePlugins);
-            _applyGeneration?.call();
+            _applyConfiguration?.call();
             _savedSection = true;
             return;
           } catch (failure) {

@@ -63,7 +63,7 @@ Future<int> runApp(
         if (stopping) return;
         try {
           final saved = await settings.run(
-              applyGeneration: session.assembly.applySavedGeneration,
+              applyConfiguration: session.assembly.applySavedConfiguration,
               path: session.assembly.configPath,
               sections: console.settings,
               descriptors: session.assembly.descriptors,
@@ -74,7 +74,7 @@ Future<int> runApp(
               pluginSettings: session.assembly.pluginSettings,
               pluginManager: session.assembly.pluginManager);
           terminal.writeln(saved
-              ? 'Settings saved. Generation applies to the next request.'
+              ? 'Settings saved. Models are available now; provider settings apply to the next request.'
               : 'Settings closed.');
         } catch (_) {
           terminal.writeln(

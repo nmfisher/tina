@@ -85,7 +85,7 @@ final class SessionView
     session.assembly.openSettings = () => context.interact(() async {
           if (!context.isActive) return;
           final saved = await _settings!.run(
-              applyGeneration: session.assembly.applySavedGeneration,
+              applyConfiguration: session.assembly.applySavedConfiguration,
               path: session.assembly.configPath,
               sections: context.settings,
               descriptors: session.assembly.descriptors,
@@ -96,7 +96,7 @@ final class SessionView
               pluginSettings: session.assembly.pluginSettings,
               pluginManager: session.assembly.pluginManager);
           notice(saved
-              ? 'Settings saved. Generation applies to the next request.'
+              ? 'Settings saved. Models are available now; provider settings apply to the next request.'
               : 'Settings closed.');
           context.chat.repaint();
         });

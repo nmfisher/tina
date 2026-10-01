@@ -5,6 +5,7 @@ import 'dart:io' show Directory, File, stdout;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_chat_tui/tina_chat_tui.dart' show ModelCatalog;
 import 'tui_terminal.dart';
 import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 
@@ -157,8 +158,10 @@ final class TuiAssembly {
     required this.pluginSettings,
     required this.pluginManager,
     required this.newSession,
-    required this.applySavedGeneration,
-  }) : commands = host.commands;
+    required this.applySavedConfiguration,
+    required void Function() stopConfigurationUpdates,
+  })  : _stopConfigurationUpdates = stopConfigurationUpdates,
+        commands = host.commands;
 
   final Host host;
   final PluginSettings<TuiPluginContext> pluginSettings;
@@ -167,7 +170,8 @@ final class TuiAssembly {
   final List<ProviderDescriptor> descriptors;
   final void Function(Iterable<String>) validatePlugins;
   Future<void> Function()? openSettings;
-  final void Function() applySavedGeneration;
+  final void Function() applySavedConfiguration;
+  final void Function() _stopConfigurationUpdates;
 
   /// Tools expose mode/status to the frontend; approvals are loader-injected.
   final ToolsPlugin tools;
@@ -199,6 +203,24 @@ final class TuiAssembly {
     ProviderFactory? providerFactory,
     Terminal? terminal,
     AssemblyOptions options = const AssemblyOptions(),
+    List<ProviderDescriptor>? descriptors,
+    void Function(PluginRegistry<TuiPluginContext>)? registerPlugins,
+  }) =>
+      _start(
+          writer: writer,
+          providerFactory: providerFactory,
+          terminal: terminal,
+          options: options,
+          descriptors: descriptors,
+          registerPlugins: registerPlugins,
+          configurationUpdates: _ConfigurationUpdates());
+
+  static TuiAssembly _start({
+    required _ConfigurationUpdates configurationUpdates,
+    required AssemblyWriter writer,
+    ProviderFactory? providerFactory,
+    Terminal? terminal,
+    required AssemblyOptions options,
     List<ProviderDescriptor>? descriptors,
     void Function(PluginRegistry<TuiPluginContext>)? registerPlugins,
   }) {
@@ -285,27 +307,25 @@ final class TuiAssembly {
       switchModel: (next) => assembled!.host.switchModel(providerFactory == null
           ? canonicalModelReference(resolved, next)
           : next),
-      models: [
+      modelCatalog: () => ModelCatalog(models: [
         for (final descriptor in resolved.descriptors)
           if (resolved.providers.containsKey(descriptor.id) ||
               descriptor.id == resolved.providerId ||
               (resolved.providers.isEmpty && descriptor.id == 'anthropic') ||
-              model.startsWith('${descriptor.id}/'))
+              (assembled?.host.model ?? model).startsWith('${descriptor.id}/'))
             for (final name in descriptor.models.keys)
               if (!(resolved.providers[descriptor.id]?.disabledModels
                       .contains(name) ??
                   false))
                 '${descriptor.id}/$name'
-      ],
-      providerNames: {
+      ], providerNames: {
         for (final descriptor in resolved.descriptors)
           descriptor.id: descriptor.name,
-      },
-      modelNames: {
+      }, modelNames: {
         for (final descriptor in resolved.descriptors)
           for (final entry in descriptor.models.entries)
             '${descriptor.id}/${entry.key}': entry.value.name,
-      },
+      }),
       openStore: persists ? openStore : null,
     );
     final plugins = registry.build(selected, context);
@@ -335,6 +355,24 @@ final class TuiAssembly {
     final host = options.sessionId == null
         ? Host.start(hostConfig)
         : Host.resume(hostConfig, options.sessionId!);
+    final stopConfigurationUpdates = configurationUpdates.listen((next) {
+      // The session keeps its selected model, budgets and presentation. Replace
+      // the saved provider catalog and endpoint settings together, then let
+      // running clients rebuild before their next request.
+      resolved = TinaConfig(
+          model: resolved.model,
+          providerId: resolved.providerId,
+          limits: resolved.limits,
+          theme: resolved.theme,
+          plugins: resolved.plugins,
+          approvalChannel: resolved.approvalChannel,
+          descriptors: next.descriptors,
+          maxOutputTokens: next.maxOutputTokens,
+          reasoningEffort: next.reasoningEffort,
+          thinkingBudget: next.thinkingBudget,
+          providers: next.providers);
+      policy.refreshConfiguration();
+    });
     final assembly = TuiAssembly._(
       host: host,
       terminal: output,
@@ -348,36 +386,15 @@ final class TuiAssembly {
       pluginSettings: pluginSettings,
       pluginManager:
           PluginManager(host: host, registry: registry, context: context),
-      applySavedGeneration: () {
+      stopConfigurationUpdates: stopConfigurationUpdates,
+      applySavedConfiguration: () {
         final saved =
             loadTinaConfig(path: options.configPath, descriptors: descriptors);
         if (saved is TinaConfigProblem) throw FormatException(saved.problem);
-        // Keep launch-time routing, credentials and limits. Only generation
-        // options are reloaded into this session; default model changes remain
-        // preferences for future sessions.
-        final next = saved.config;
-        resolved = TinaConfig(
-            model: resolved.model,
-            providerId: resolved.providerId,
-            limits: resolved.limits,
-            theme: resolved.theme,
-            plugins: resolved.plugins,
-            approvalChannel: resolved.approvalChannel,
-            descriptors: resolved.descriptors,
-            maxOutputTokens: next.maxOutputTokens,
-            reasoningEffort: next.reasoningEffort,
-            thinkingBudget: next.thinkingBudget,
-            providers: {
-              for (final id in {
-                ...resolved.providers.keys,
-                ...next.providers.keys
-              })
-                id: (resolved.providers[id] ?? const ProviderSettings())
-                    .withGeneration(next.providers[id]),
-            });
-        policy.refreshConfiguration();
+        configurationUpdates.apply(saved.config);
       },
-      newSession: (model) => TuiAssembly.start(
+      newSession: (model) => TuiAssembly._start(
+          configurationUpdates: configurationUpdates,
           writer: writer,
           providerFactory: providerFactory,
           descriptors: descriptors,
@@ -457,7 +474,25 @@ final class TuiAssembly {
   }
 
   /// Close plugin resources and the session's provider through the host.
-  void close() => host.close();
+  void close() {
+    _stopConfigurationUpdates();
+    host.close();
+  }
+}
+
+/// Panels share saved global provider changes without sharing session state.
+final class _ConfigurationUpdates {
+  final _listeners = <void Function(TinaConfig)>{};
+  void Function() listen(void Function(TinaConfig) listener) {
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
+  void apply(TinaConfig config) {
+    for (final listener in _listeners.toList()) {
+      listener(config);
+    }
+  }
 }
 
 /// The assembly's writer when nobody handed one in: nowhere. Tests and

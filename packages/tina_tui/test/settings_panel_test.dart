@@ -41,7 +41,7 @@ enabled = []
 
   Future<(bool, String)> drive(List<InputEvent> keys,
       {List<ProviderDescriptor> providerDescriptors = descriptors,
-      void Function()? applyGeneration}) async {
+      void Function()? applyConfiguration}) async {
     final io = FakeIo();
     final screen = fakeScreen(io);
     screen.resize(ScreenLayout.fromSize(40, 8, split: false));
@@ -60,7 +60,7 @@ enabled = []
     });
     try {
       final saved = await panel.run(
-          applyGeneration: applyGeneration,
+          applyConfiguration: applyConfiguration,
           path: config.path,
           descriptors: providerDescriptors,
           pluginIds: ['tina/plans', 'tina/goals']);
@@ -231,7 +231,7 @@ enabled = []
       CharInput('16384'),
       enter,
       escape,
-    ], applyGeneration: () {
+    ], applyConfiguration: () {
       applications++;
       final loaded =
           loadTinaConfig(path: config.path, descriptors: descriptors).config;
@@ -275,7 +275,7 @@ enabled = []
           escape,
           escape
         ],
-      ], applyGeneration: () {
+      ], applyConfiguration: () {
         applications++;
         final provider =
             loadTinaConfig(path: config.path, descriptors: descriptors)

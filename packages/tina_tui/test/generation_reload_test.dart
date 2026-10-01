@@ -58,7 +58,7 @@ enabled = []
     expect(bodies.single['max_tokens'], 1000);
     expect(bodies.single['reasoning_effort'], 'low');
     save(2000, 'high', model: 'second');
-    assembly.applySavedGeneration();
+    assembly.applySavedConfiguration();
     await assembly.host.send('second question');
     expect(assembly.host.session.id, id);
     expect(assembly.host.model, 'local/first');
@@ -67,7 +67,7 @@ enabled = []
     expect(bodies.last['reasoning_effort'], 'high');
     expect((bodies.last['messages'] as List).length, greaterThan(2));
     save(3000, 'low');
-    assembly.applySavedGeneration();
+    assembly.applySavedConfiguration();
     await assembly.host.send('third question');
     expect(bodies.last['max_tokens'], 3000);
     expect(bodies.last['reasoning_effort'], 'low');
