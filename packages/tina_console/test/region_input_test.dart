@@ -38,6 +38,38 @@ void main() {
       expect(vt.cursorCol, layout.input.col + 5); // '> ' + 3 = col 5
     });
 
+    test('restored multiline input cannot write outside its input row', () {
+      final before = List.generate(24, vt.rowText);
+      const real = 'Left\nSecond\rAnother\x1b[1;1HCursor\x1b[2J';
+      screen.input.render(prompt: '> ', buffer: real, cursor: real.length);
+      vt.feed(io.written.toString());
+      for (var row = 0; row < 24; row++) {
+        if (row != layout.input.row) expect(vt.rowText(row), before[row]);
+      }
+      expect(vt.rowText(layout.input.row),
+          contains('> Left Second AnotherCursor'));
+      expect(vt.cursorRow, layout.input.row);
+      expect(vt.cursorCol,
+          layout.input.col + '> Left Second AnotherCursor'.length);
+      screen.input.clear();
+      vt.feed(io.written.toString());
+      for (var row = 0; row < 24; row++) {
+        expect(vt.charAt(row, 0), before[row][0]);
+      }
+    });
+
+    test('wide glyphs use terminal cells for scrolling and cursor placement',
+        () {
+      screen.input.render(prompt: '> ', buffer: '漢😀x', cursor: 3);
+      vt.feed(io.written.toString());
+      expect(vt.cursorCol, layout.input.col + 2 + 4);
+      final real = '漢😀' * 100;
+      screen.input.render(prompt: '> ', buffer: real, cursor: real.length);
+      vt.feed(io.written.toString());
+      expect(vt.cursorRow, layout.input.row);
+      expect(vt.cursorCol, lessThan(layout.input.col + layout.input.width));
+    });
+
     test('long buffer scrolls horizontally, cursor stays visible', () {
       final big = 'x' * (layout.input.width * 2 + 5);
       screen.input.render(prompt: '> ', buffer: big, cursor: big.length);

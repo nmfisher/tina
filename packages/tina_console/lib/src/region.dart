@@ -4,6 +4,7 @@ import 'package:meta/meta.dart';
 
 import 'backend/backend_surface.dart';
 import 'input_latency.dart';
+import 'input_display.dart';
 import 'rect.dart';
 import 'screen.dart';
 import 'styled_text.dart';
@@ -1785,19 +1786,27 @@ class InputRegion extends Region {
           return;
         }
 
-        // Pick a window into the buffer that keeps the cursor visible. The
-        // cursor's column relative to the window is (cursor - start); we want
-        // 0 <= (cursor - start) <= availForBuf - 1 so the cursor sits inside
-        // the row, even when it's "past the last char" at the end of buffer.
-        int start;
-        if (buffer.length <= availForBuf || cursor < availForBuf) {
-          start = 0;
-        } else {
-          start = cursor - availForBuf + 1;
+        // Direct draft restoration also calls this primitive. Keep real text
+        // in saved state, but flatten newlines and remove terminal controls
+        // before it reaches a terminal write. Count cells, not code units.
+        cursor = cursor.clamp(0, buffer.length);
+        final displayCursor =
+            inputDisplayText(buffer.substring(0, cursor)).length;
+        final display = inputDisplayText(buffer);
+        var start = 0;
+        var beforeCursor = plainWidth(display.substring(0, displayCursor));
+        while (beforeCursor >= availForBuf && start < displayCursor) {
+          beforeCursor -= runeWidth(codePointAt(display, start));
+          start += runeSizeAt(display, start);
         }
-        var end = start + availForBuf;
-        if (end > buffer.length) end = buffer.length;
-        final visibleBuf = buffer.substring(start, end);
+        var end = start, cells = 0;
+        while (end < display.length) {
+          final next = runeWidth(codePointAt(display, end));
+          if (cells + next > availForBuf) break;
+          cells += next;
+          end += runeSizeAt(display, end);
+        }
+        final visibleBuf = display.substring(start, end);
 
         final painted = prompt + visibleBuf;
         final sameGeometry = _paintedRow == bounds.row &&
@@ -1833,7 +1842,7 @@ class InputRegion extends Region {
           _paintedWidth = w;
         }
 
-        final cursorCol = bounds.col + promptCols + (cursor - start);
+        final cursorCol = bounds.col + promptCols + beforeCursor;
         screen.parkCursorAt(bounds.row, cursorCol);
       });
 

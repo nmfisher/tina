@@ -1,3 +1,5 @@
+import 'input_display.dart';
+
 /// Immutable single-line text model with cursor tracking and history
 /// navigation.
 ///
@@ -321,27 +323,34 @@ class TextLineInput {
 
   /// Rebuild [buffer] with each paste span's real text replaced by its
   /// display form — verbatim (whitespace flattened) or the placeholder chip,
-  /// per [_makeDisplay]. The result is a code-unit string whose display
-  /// segments have the same code-unit length as the real text they cover, so
-  /// column width tracks rune count exactly as the real text would.
+  /// per [_makeDisplay]. Recalled and restored text is flattened too, because
+  /// its original paste spans are no longer available.
   String toDisplay() {
-    if (pasteSpans.isEmpty) return buffer;
+    if (pasteSpans.isEmpty) return inputDisplayText(buffer);
     final sb = StringBuffer();
     var offset = 0;
     for (final span in pasteSpans) {
-      sb.write(buffer.substring(offset, span.start));
+      sb.write(inputDisplayText(buffer.substring(offset, span.start)));
       sb.write(span.display);
       offset = span.end;
     }
-    sb.write(buffer.substring(offset));
+    sb.write(inputDisplayText(buffer.substring(offset)));
     return sb.toString();
   }
 
-  /// Map a real-text [cursor] index into display space. Display segments are
-  /// the same code-unit length as the real text they cover, so the identity
-  /// map is exact — kept as a named function so the display projection has
-  /// one home.
-  int displayCursor(int cursor) => cursor;
+  /// Map the real cursor past compact paste chips and removed controls.
+  int displayCursor(int cursor) {
+    cursor = cursor.clamp(0, buffer.length);
+    var offset = 0, display = 0;
+    for (final span in pasteSpans) {
+      if (cursor <= span.start) break;
+      display += inputDisplayText(buffer.substring(offset, span.start)).length;
+      if (cursor < span.end) return display;
+      display += span.display.length;
+      offset = span.end;
+    }
+    return display + inputDisplayText(buffer.substring(offset, cursor)).length;
+  }
 
   // -- Paste span plumbing (all pure: return new lists) ----------------
 
@@ -444,7 +453,7 @@ class TextLineInput {
     final chip = '[Pasted text : ${text.runes.length} chars]';
     if (text.runes.length <= verbatimPasteLimit &&
         text.runes.length <= chip.length) {
-      return _flattenWhitespace(text);
+      return inputDisplayText(text);
     }
     return chip;
   }
@@ -453,22 +462,6 @@ class TextLineInput {
   /// the `[Pasted text : N chars]` chip. 24 == the chip's width for 1–2 digit
   /// counts, so anything at or below this is never wider shown than hidden.
   static const verbatimPasteLimit = 24;
-
-  /// Replace every whitespace code unit (newlines, tabs, and other control
-  /// spacing) with a plain space, preserving code-unit length exactly so the
-  /// display string stays index-aligned with the real buffer text.
-  static String _flattenWhitespace(String text) {
-    final sb = StringBuffer();
-    for (var i = 0; i < text.length; i++) {
-      final unit = text.codeUnitAt(i);
-      // ASCII whitespace + C1 control spacing: a lone surrogate half is left
-      // untouched so surrogate pairs survive intact.
-      sb.write(unit <= 0x20 || (unit >= 0x80 && unit <= 0x9F)
-          ? (unit == 0x20 ? text[i] : ' ')
-          : text[i]);
-    }
-    return sb.toString();
-  }
 }
 
 /// A range of [TextLineInput.buffer] that was pasted. The real text always

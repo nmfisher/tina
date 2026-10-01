@@ -265,17 +265,38 @@ void main() {
       expect(edit.toDisplay(), 'a[Pasted text : 30 chars]z');
     });
 
-    test('displayCursor is the identity: display length == real length', () {
+    test('display cursor follows the displayed text across paste chips', () {
       edit = edit.insert('a');
       edit = edit.addPaste('BCDE'); // verbatim span [1..5), cursor at 5
       expect(edit.toDisplay().length, edit.buffer.length);
       expect(edit.displayCursor(5), 5);
       expect(edit.displayCursor(1), 1);
-      // Same identity under a chip span: widths now differ, but the cursor
-      // index is expressed in real-buffer units in both spaces.
       edit = edit.addPaste('Z' * 40);
-      expect(edit.displayCursor(edit.cursor), edit.cursor);
+      expect(edit.displayCursor(edit.cursor), edit.toDisplay().length);
       expect(edit.toDisplay().length, isNot(edit.buffer.length));
+      edit = edit.insert(' after');
+      expect(edit.displayCursor(edit.cursor), edit.toDisplay().length);
+      expect(edit.displayCursor(5), 5);
+    });
+
+    test('recalled and restored multiline input is safe without paste spans',
+        () {
+      const real = 'Left\nSecond\rAnother\tColumn\x1b[2J\x1b]0;title\x07';
+      edit = edit.addHistory(real).historyUp();
+      expect(edit.pasteSpans, isEmpty);
+      expect(edit.toDisplay(), 'Left Second Another Column');
+      expect(edit.displayCursor(edit.cursor), edit.toDisplay().length);
+      expect(edit.buffer, real);
+      edit = edit.loadState(real, real.length);
+      expect(edit.toDisplay(), 'Left Second Another Column');
+      expect(edit.buffer, real);
+    });
+
+    test('pasted terminal escapes cannot move the display cursor', () {
+      edit = edit.addPaste('A\x1b[2JB\bC');
+      expect(edit.toDisplay(), 'ABC');
+      expect(edit.displayCursor(edit.cursor), 3);
+      expect(edit.buffer, 'A\x1b[2JB\bC');
     });
 
     test('moveLeft skips over a paste span as one unit', () {
