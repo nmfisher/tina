@@ -41,6 +41,14 @@ The host does not import this package. The frontend mounts generic
 `ConsoleContext` supplies scoped shortcuts and a live prompt binding. Approval
 readers and modal surfaces retain keyboard priority.
 
+The `tina/plans` console attachment is a read-only progress list. Focus it with
+Ctrl-G, Tab, Enter; Up/Down selects an item, Right expands its summary and
+subtasks, Left collapses, and Enter/Space toggles. Page Up/Down or the mouse
+wheel scrolls long summaries. Escape returns to the chat draft; Ctrl-P hides
+the panel. Browsing never approves/rejects a plan or changes item progress.
+The plan tool stores short titles and separate summaries in session state, so
+they survive resume. Older items without summaries still expand their full text.
+
 `tina/panels-tui` supplies `/spawn [provider/model]`, `/panels` and `/close`.
 It manages frames, focus, drafts, histories and per-panel submission queues
 through generic console session views; the application supplies session creation

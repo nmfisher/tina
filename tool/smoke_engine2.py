@@ -78,17 +78,17 @@ class ModelStub(BaseHTTPRequestHandler):
             events[4]['delta']['stop_reason'] = 'tool_use'
         for trigger, name, arguments in [
             ('start plan example', 'update_plan', {'items': [
-                {'text': 'inspect code', 'state': 'done'},
-                {'text': 'restore panel and verify that selecting this item reveals its entire explanation and nested tasks without sending a message or approving the plan. PLAN_DETAILS_END',
+                {'text': 'inspect code', 'state': 'done', 'summary': 'Read the relevant implementation and tests.'},
+                {'text': 'restore panel', 'summary': 'Verify that selecting this item reveals its entire explanation and nested tasks without sending a message or approving the plan. PLAN_DETAILS_END',
                  'state': 'in_progress', 'children': [
-                     {'text': 'check focused input routing', 'state': 'pending'},
-                     {'text': 'check full item details', 'state': 'pending'}]}]}),
+                     {'text': 'check focused input routing', 'state': 'pending', 'summary': 'Keep navigation separate from chat input. CHILD_SUMMARY_END'},
+                     {'text': 'check full item details', 'state': 'pending', 'summary': 'Reveal summaries and preserve item progress.'}]}]}),
             ('finish plan example', 'update_plan', {'items': [
-                {'text': 'inspect code', 'state': 'done'},
-                {'text': 'restore panel and verify that selecting this item reveals its entire explanation and nested tasks without sending a message or approving the plan. PLAN_DETAILS_END',
+                {'text': 'inspect code', 'state': 'done', 'summary': 'Read the relevant implementation and tests.'},
+                {'text': 'restore panel', 'summary': 'Verify that selecting this item reveals its entire explanation and nested tasks without sending a message or approving the plan. PLAN_DETAILS_END',
                  'state': 'done', 'children': [
-                     {'text': 'check focused input routing', 'state': 'done'},
-                     {'text': 'check full item details', 'state': 'done'}]}]}),
+                     {'text': 'check focused input routing', 'state': 'done', 'summary': 'Keep navigation separate from chat input. CHILD_SUMMARY_END'},
+                     {'text': 'check full item details', 'state': 'done', 'summary': 'Reveal summaries and preserve item progress.'}]}]}),
             ('edit example', 'edit', {'filePath': 'preview.txt', 'oldString': 'before', 'newString': 'after'}),
             ('conflict example', 'edit', {'filePath': 'preview.txt', 'oldString': 'missing text', 'newString': 'never applied'}),
             ('delegate example', 'spawn_subagent', {'prompt': 'child example'}),
@@ -190,9 +190,11 @@ class Terminal:
     def close(self):
         if self.process.poll() is None:
             self.process.kill()
-        self.process.wait()
+        # Release the PTY before reaping: macOS can otherwise stall a killed
+        # process in tty teardown while the parent still holds both ends.
         os.close(self.master)
         os.close(self.slave)
+        self.process.wait(timeout=5)
 
 
 def smoke(launcher, endpoint, columns, rows):
@@ -551,16 +553,19 @@ def smoke(launcher, endpoint, columns, rows):
             before_browse = len(ModelStub.requests)
             terminal.send('draft stays here')
             start = terminal.send('\x07\t\r')
-            terminal.expect('A approve', start)
-            start = terminal.send('\x1b[A\x1b[B\r')
+            terminal.expect('←→ fold', start)
+            assert b'A approve' not in terminal.output[start:]
+            assert b'R reject' not in terminal.output[start:]
+            start = terminal.send('\x1b[A\x1b[B\x1b[C')
             terminal.expect('▾', start)
             start = terminal.send('\x1b[6~' * 10)
             terminal.expect('PLAN_DETAILS_END', start)
             start = terminal.send('\x1b[B')
             terminal.expect('check focused input routing', start)
-            start = terminal.send('\r')
-            terminal.expect('check focused input routing', start)
-            start = terminal.send('\x1b[A\r')
+            start = terminal.send('\x1b[C')
+            terminal.send('\x1b[6~' * 10)
+            terminal.expect('CHILD_SUMMARY_END', start)
+            start = terminal.send('\x1b[A\x1b[D')
             terminal.expect('(+2)', start)
             start = terminal.send('\x1b')
             terminal.expect('draft stays here', start)
@@ -600,6 +605,14 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('\x1b[A')
             terminal.expect('finish plan example', start)
             terminal.send('\x1b[B')
+            start = terminal.send('\x07\t\r')
+            terminal.expect('←→ fold', start)
+            start = terminal.send('\x1b[B\x1b[C')
+            terminal.send('\x1b[6~' * 10)
+            terminal.expect('PLAN_DETAILS_END', start)
+            start = terminal.send('\x1b')
+            terminal.expect('smoke > ', start)
+            terminal.send('\x10')  # Hide the restored plan after returning to chat.
             # Restored rows are painted as a viewport, not printed through
             # stdout one by one. Scroll to inspect the retained first turn.
             terminal.send('\x1b[5~' * 80)
@@ -612,7 +625,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('Delegate task', start)
             terminal.send('\x1bOS')
             terminal.quit()
-        except Exception:
+        except Exception as error:
+            print(f'FAIL resume {columns}x{rows}: {error}', flush=True)
             print(terminal.output[-24000:].decode(errors="replace").replace("\x1b", "<ESC>"))
             raise
         finally:

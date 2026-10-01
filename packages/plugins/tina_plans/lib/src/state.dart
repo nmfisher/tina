@@ -2,22 +2,24 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 
 enum PlanApproval { none, requested, approved, rejected }
 
-/// One item of the session's plan, as the log carries it: the text and
-/// the state word. One nesting level — children must be childless; the
+/// One item of the session's plan: a short title, optional summary and
+/// state word. One nesting level — children must be childless; the
 /// writers validate that before appending, and [PlanChangedEntry.fromJson]
 /// re-enforces it so a corrupt row cannot smuggle deeper nesting in.
 final class PlanEntryItem {
   /// The state words: the same vocabulary the tool schema spells.
   static const stateWords = ['pending', 'in_progress', 'done'];
+  static const maxSummaryLength = 2000;
 
   final String text;
+  final String summary;
   final String state;
 
   /// Subtasks. One level: children of children are rejected.
   final List<PlanEntryItem> children;
 
   const PlanEntryItem(this.text,
-      {required this.state, this.children = const []});
+      {required this.state, this.summary = '', this.children = const []});
 
   /// The `update_plan` wire shape for [state], validated before an entry
   /// carries it. Throws on anything else — a state the tool never wrote
@@ -30,18 +32,23 @@ final class PlanEntryItem {
     return state;
   }
 
-  PlanEntryItem copyWith({String? state}) =>
-      PlanEntryItem(text, state: state ?? this.state, children: children);
+  PlanEntryItem copyWith({String? state, String? summary}) =>
+      PlanEntryItem(text,
+          state: state ?? this.state,
+          summary: summary ?? this.summary,
+          children: children);
 
   @override
   bool operator ==(Object other) =>
       other is PlanEntryItem &&
       text == other.text &&
+      summary == other.summary &&
       state == other.state &&
       _listEquals(children, other.children);
 
   @override
-  int get hashCode => Object.hash(text, state, Object.hashAll(children));
+  int get hashCode =>
+      Object.hash(text, summary, state, Object.hashAll(children));
 
   @override
   String toString() => 'PlanEntryItem($state, $text'
@@ -126,6 +133,7 @@ final class PlanChangedEntry extends PluginStateEntry {
   static Map<String, dynamic> _itemToJson(PlanEntryItem item) => {
         'text': item.text,
         'state': item.state,
+        if (item.summary.isNotEmpty) 'summary': item.summary,
         if (item.children.isNotEmpty)
           'children': [for (final c in item.children) _itemToJson(c)],
       };
@@ -168,8 +176,13 @@ final class PlanChangedEntry extends PluginStateEntry {
       {bool allowChildren = true}) {
     final text = j['text'];
     final state = j['state'];
+    final summary = j.containsKey('summary') ? j['summary'] : '';
     if (text is! String || state is! String) {
       throw const FormatException('plan item requires text and state');
+    }
+    if (summary is! String || summary.length > PlanEntryItem.maxSummaryLength) {
+      throw const FormatException(
+          'plan item summary must be a string of at most 2000 chars');
     }
     final rawChildren = j['children'];
     final children = <PlanEntryItem>[];
@@ -186,7 +199,9 @@ final class PlanChangedEntry extends PluginStateEntry {
       }
     }
     return PlanEntryItem(text,
-        state: PlanEntryItem.validateState(state), children: children);
+        state: PlanEntryItem.validateState(state),
+        summary: summary,
+        children: children);
   }
 
   @override

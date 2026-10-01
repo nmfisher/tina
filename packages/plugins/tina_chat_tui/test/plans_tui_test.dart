@@ -67,10 +67,13 @@ void main() {
     ]);
     plugin.repaintConsole();
     expect(visible(), contains('plan · 1/3'));
+    expect(visible(), isNot(contains('approve')));
+    expect(visible(), isNot(contains('reject')));
     expect(visible(), contains('(+2)'));
     plugin.overlay!.focus();
     plugin.overlay!.handleEvent(ControlKey(ControlCode.enter));
     expect(visible(), contains('· test'));
+    expect(visible(), isNot(contains('A approve')));
     plugin.overlay!.handleEvent(ControlKey(ControlCode.enter));
     expect(visible(), contains('(+2)'));
     plugin.store.update(loop, [const PlanEntryItem('finished', state: 'done')]);
@@ -174,7 +177,7 @@ void main() {
         'Read the entire long plan item, including this final detail END_OF_ITEM';
     plugin.store.update(loop, const [
       PlanEntryItem('first', state: 'pending'),
-      PlanEntryItem(long, state: 'pending')
+      PlanEntryItem('Inspect behavior', state: 'pending', summary: long)
     ]);
     plugin.repaintConsole();
     final prompt = editor.readLine('model > ');
@@ -183,13 +186,24 @@ void main() {
     final entries = loop.log.length;
     focusPlan();
     editor.inject(ArrowKey(ArrowDirection.down));
-    expect(plugin.overlay!.selectedItem!.text, long);
+    expect(plugin.overlay!.selectedItem!.text, 'Inspect behavior');
+    expect(visible(), isNot(contains('END_OF_ITEM')));
+    editor.inject(ArrowKey(ArrowDirection.right));
+    expect(visible(), contains('END_OF_ITEM'));
+    editor.inject(ArrowKey(ArrowDirection.right));
+    expect(visible(), contains('END_OF_ITEM'),
+        reason: 'Right expands rather than toggles');
+    editor.inject(ArrowKey(ArrowDirection.left));
     expect(visible(), isNot(contains('END_OF_ITEM')));
     editor.inject(ControlKey(ControlCode.enter));
     expect(visible(), contains('END_OF_ITEM'));
     expect(loop.log.length, entries);
     expect(plugin.store.state.approval, PlanApproval.none);
     editor.inject(CharInput('z'));
+    editor.inject(CharInput('a'));
+    editor.inject(CharInput('r'));
+    expect(loop.log.length, entries,
+        reason: 'letter keys cannot approve or reject');
     expect(editor.editState.buffer, 'my draft');
     editor.inject(EscapeKey());
     expect(focus.focused, same(chatPanel));
@@ -203,7 +217,7 @@ void main() {
         'A selected item with enough text to wrap and end in RETAINED_DETAIL';
     plugin.store.update(loop, const [
       PlanEntryItem('first', state: 'pending'),
-      PlanEntryItem(long, state: 'pending')
+      PlanEntryItem('Selected step', state: 'pending', summary: long)
     ]);
     plugin.repaintConsole();
     final prompt = editor.readLine('model > ');
@@ -214,11 +228,13 @@ void main() {
     plugin.store.update(loop, const [
       PlanEntryItem('inserted', state: 'pending'),
       PlanEntryItem('first', state: 'done'),
-      PlanEntryItem(long, state: 'in_progress')
+      PlanEntryItem('Selected step',
+          state: 'in_progress', summary: '$long UPDATED_SUMMARY')
     ]);
     plugin.repaintConsole();
-    expect(plugin.overlay!.selectedItem!.text, long);
+    expect(plugin.overlay!.selectedItem!.text, 'Selected step');
     expect(visible(), contains('RETAINED_DETAIL'));
+    expect(visible(), contains('UPDATED_SUMMARY'));
     editor.inject(EscapeKey());
     editor.inject(ControlKey(ControlCode.enter));
     await prompt;
@@ -227,8 +243,9 @@ void main() {
   test('small focused panels scroll the full plan and expanded text', () async {
     plugin.store.update(loop, [
       for (var i = 0; i < 20; i++)
-        PlanEntryItem(
-            'step $i has long details to read after expanding it END_STEP_$i',
+        PlanEntryItem('step $i',
+            summary:
+                'This step has long details to read after expanding it END_STEP_$i',
             state: i == 5 ? 'in_progress' : 'pending')
     ]);
     screen.resize(ScreenLayout.fromSize(40, 8, split: false));
@@ -242,8 +259,8 @@ void main() {
     expect(plugin.overlay!.selectedItem!.text, contains('step 19'));
     expect(visible(), contains('❯'));
     editor.inject(ControlKey(ControlCode.enter));
-    editor.inject(ArrowKey(ArrowDirection.pageDown));
-    editor.inject(ArrowKey(ArrowDirection.pageDown));
+    for (var i = 0; i < 10; i++)
+      editor.inject(ArrowKey(ArrowDirection.pageDown));
     expect(visible(), contains('END_STEP_19'));
     expect(plugin.overlay!.bounds.height,
         lessThanOrEqualTo(screen.chat.bounds.height));
@@ -255,6 +272,77 @@ void main() {
     editor.inject(EscapeKey());
     editor.inject(ControlKey(ControlCode.enter));
     await prompt;
+  });
+
+  test(
+      'focused plan is a browser for summaries and subtasks, with no mutations',
+      () async {
+    plugin.store.update(
+        loop,
+        const [
+          PlanEntryItem('Parent',
+              state: 'pending',
+              summary: 'Explain the parent work.',
+              children: [
+                PlanEntryItem('Child',
+                    state: 'pending', summary: 'Explain the child work.')
+              ])
+        ],
+        approval: PlanApproval.requested);
+    plugin.repaintConsole();
+    expect(visible(), isNot(contains('Explain the parent')));
+    final before = loop.log.length;
+    final prompt = editor.readLine('model > ');
+    await pumpEventQueue();
+    focusPlan();
+    expect(visible(), isNot(contains('approve')));
+    expect(visible(), isNot(contains('reject')));
+    for (final key in ['a', 'A', 'r', 'R']) editor.inject(CharInput(key));
+    editor.inject(CharInput(' '));
+    expect(visible(), contains('Explain the parent work.'));
+    editor.inject(ArrowKey(ArrowDirection.down));
+    expect(plugin.overlay!.selectedItem!.text, 'Child');
+    expect(visible(), isNot(contains('Explain the child work.')));
+    editor.inject(ArrowKey(ArrowDirection.right));
+    expect(visible(), contains('Explain the child work.'));
+    editor.inject(ArrowKey(ArrowDirection.left));
+    expect(visible(), isNot(contains('Explain the child work.')));
+    expect(loop.log.length, before);
+    expect(plugin.store.state.approval, PlanApproval.requested);
+    expect(plugin.store.state.items.single.children.single.state, 'pending');
+    editor.inject(EscapeKey());
+    editor.inject(ControlKey(ControlCode.enter));
+    await prompt;
+  });
+
+  test(
+      'summaries are hidden when folded, wrap safely and old items still expand',
+      () {
+    final plan = PlanState(items: const [
+      PlanEntryItem('Title',
+          state: 'pending',
+          summary:
+              'Summary first line\nSecond paragraph 長い explanation\x1b[2J END_SUMMARY')
+    ]);
+    List<String> render(PlanState plan, PlanOverlayUi ui) =>
+        renderPlanOverlayLines(
+            plan: plan, ui: ui, width: 28, paint: (text, _) => text);
+    expect(render(plan, const PlanOverlayUi()).join('\n'),
+        isNot(contains('Summary')));
+    final expanded = render(
+        plan, const PlanOverlayUi(expandedItems: {(0, null)}, focused: true));
+    expect(expanded.join('\n'), contains('Summary first line'));
+    expect(expanded.join('\n'), contains('END_SUMMARY'));
+    expect(expanded.join('\n'), isNot(contains('\x1b')));
+    for (final line in expanded)
+      expect(visibleWidth(line), lessThanOrEqualTo(28));
+    final old = render(
+        PlanState(items: const [
+          PlanEntryItem('An old detailed title that wraps OLD_DETAIL_END',
+              state: 'pending')
+        ]),
+        const PlanOverlayUi(expandedItems: {(0, null)}));
+    expect(old.join('\n'), contains('OLD_DETAIL_END'));
   });
 
   test('busy input capture still routes plan keys and preserves queued draft',

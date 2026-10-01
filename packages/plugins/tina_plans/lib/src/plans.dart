@@ -38,6 +38,7 @@ const _states = ['pending', 'in_progress', 'done'];
 /// validation — one vocabulary, both directions.
 const planMaxItems = 64;
 const planMaxTextLength = 240;
+const planMaxSummaryLength = PlanEntryItem.maxSummaryLength;
 
 /// The plan state as the plugin holds it between entries: the entry list
 /// replayed. The log is the truth; this is the running session's reading
@@ -79,6 +80,7 @@ class PlanState {
 
   static bool _itemContentEquals(PlanEntryItem a, PlanEntryItem b) {
     if (a.text.trim() != b.text.trim()) return false;
+    if (a.summary.trim() != b.summary.trim()) return false;
     if (a.children.length != b.children.length) return false;
     for (var i = 0; i < a.children.length; i++) {
       if (!_itemContentEquals(a.children[i], b.children[i])) return false;
@@ -129,6 +131,10 @@ class PlanStore {
       }
       if (text.length > planMaxTextLength) {
         throw ArgumentError('plan item text exceeds $planMaxTextLength chars');
+      }
+      if (item.summary.length > planMaxSummaryLength) {
+        throw ArgumentError(
+            'plan item summary exceeds $planMaxSummaryLength chars');
       }
       if (!PlanEntryItem.stateWords.contains(item.state)) {
         throw ArgumentError(
@@ -221,6 +227,8 @@ String planSection(PlanState plan) {
     'Keep exactly one item in_progress; move items to done only when their '
     'work is finished; call update_plan whenever the plan changes.\n',
   );
+  buffer.writeln('Use short item titles and provide a summary explaining the '
+      'work for each step and subtask. Preserve summaries when updating progress.');
   buffer.writeln(switch (plan.approval) {
     PlanApproval.none => 'Approval has not been requested for this plan.',
     PlanApproval.requested =>
@@ -238,8 +246,15 @@ String planSection(PlanState plan) {
       };
   for (final item in plan.items) {
     buffer.writeln('${box(item.state)} ${item.text}');
+    if (item.summary.trim().isNotEmpty) {
+      for (final line in item.summary.split('\n')) buffer.writeln('  $line');
+    }
     for (final child in item.children) {
       buffer.writeln('  ${box(child.state)} ${child.text}');
+      if (child.summary.trim().isNotEmpty) {
+        for (final line in child.summary.split('\n'))
+          buffer.writeln('    $line');
+      }
     }
   }
   buffer.writeln('</current-plan>');
@@ -301,7 +316,9 @@ class PlansPlugin extends AgentPlugin {
         description:
             'Replace this conversation\'s task plan. Pass the complete '
             'item list with each item\'s state (pending, in_progress, '
-            'done). An item may carry a flat `children` list of subtask '
+            'done). Use `text` as a short title and include a `summary` '
+            'explaining the work and intended outcome for each step and subtask. '
+            'Keep summaries when updating progress. An item may carry a flat `children` list of subtask '
             'items (one nesting level; children must not have children). '
             'Keep at most one item in_progress across the whole plan '
             '(children included). Use it to track multi-step work for '
@@ -335,7 +352,17 @@ class PlansPlugin extends AgentPlugin {
   static Map<String, dynamic> _itemSchema({required bool allowChildren}) => {
         'type': 'object',
         'properties': {
-          'text': {'type': 'string'},
+          'text': {
+            'type': 'string',
+            'description': 'Short step title.',
+            'maxLength': planMaxTextLength
+          },
+          'summary': {
+            'type': 'string',
+            'maxLength': planMaxSummaryLength,
+            'description':
+                'Explain what this step will do and its intended outcome. Shown when the user expands the item; preserve it on progress updates.',
+          },
           'state': {
             'type': 'string',
             'enum': _states,
@@ -349,7 +376,7 @@ class PlansPlugin extends AgentPlugin {
               'items': _itemSchema(allowChildren: false),
             },
         },
-        'required': ['text', 'state'],
+        'required': ['text', 'summary', 'state'],
       };
 
   @override
@@ -484,6 +511,12 @@ class PlansPlugin extends AgentPlugin {
       _ => throw ArgumentError(
           'plan item state must be pending, in_progress or done'),
     };
+    final summary = switch (raw) {
+      {'summary': String summary} => summary,
+      {'summary': _} =>
+        throw ArgumentError('plan item summary must be a string'),
+      _ => '',
+    };
     final children = <PlanEntryItem>[];
     final rawChildren = switch (raw) {
       {'children': final List rawChildren} => rawChildren,
@@ -498,7 +531,8 @@ class PlansPlugin extends AgentPlugin {
     for (final rawChild in rawChildren) {
       children.add(_decodeItem(rawChild, allowChildren: false));
     }
-    return PlanEntryItem(text, state: state, children: children);
+    return PlanEntryItem(text,
+        state: state, summary: summary, children: children);
   }
 
   @override
@@ -622,8 +656,16 @@ class PlansPlugin extends AgentPlugin {
         };
     for (final (i, item) in plan.items.indexed) {
       buffer.writeln('  ${i + 1}. ${box(item.state)} ${item.text}');
+      if (item.summary.trim().isNotEmpty) {
+        for (final line in item.summary.split('\n'))
+          buffer.writeln('      $line');
+      }
       for (final child in item.children) {
         buffer.writeln('      ${box(child.state)} ${child.text}');
+        if (child.summary.trim().isNotEmpty) {
+          for (final line in child.summary.split('\n'))
+            buffer.writeln('        $line');
+        }
       }
     }
     terminal.writeln(buffer.toString());

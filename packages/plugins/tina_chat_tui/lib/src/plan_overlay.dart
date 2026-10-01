@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_plans/tina_plans.dart';
 
 enum PlanOverlayMode { auto, manual, off }
@@ -94,9 +93,15 @@ List<(String, String?)> _itemLines(_Row row, PlanOverlayUi ui, int width,
   }
   final lines =
       wrapDialogWords(text, (width - visibleWidth(prefix)).clamp(1, width));
+  final summaryIndent = ' ' * visibleWidth(prefix).clamp(0, width - 1);
+  final summaryWidth = width - summaryIndent.length;
   return [
     for (final (i, line) in lines.indexed)
       ('${i == 0 ? prefix : ' ' * visibleWidth(prefix)}$line', kind),
+    if (row.item.summary.trim().isNotEmpty)
+      for (final paragraph in row.item.summary.split('\n'))
+        for (final line in wrapDialogWords(_safe(paragraph), summaryWidth))
+          ('$summaryIndent$line', null),
   ];
 }
 
@@ -111,13 +116,7 @@ List<String> renderPlanOverlayLines({
   final inner = width - 4;
   final all = plan.allItems.toList();
   final done = all.where((i) => i.state == 'done').length;
-  final approval = switch (plan.approval) {
-    PlanApproval.requested => ' · needs approval',
-    PlanApproval.approved => ' · approved',
-    PlanApproval.rejected => ' · rejected',
-    _ => '',
-  };
-  final title = _fit(' plan · $done/${all.length}$approval ', width - 2);
+  final title = _fit(' plan · $done/${all.length} ', width - 2);
   final border = ui.highlighted
       ? 'highlight'
       : ui.focused
@@ -128,7 +127,7 @@ List<String> renderPlanOverlayLines({
   final visible = body.skip(offset).take(ui.maxRows ?? body.length).toList();
   final hasMore = offset > 0 || offset + visible.length < body.length;
   final footer = ui.focused
-      ? '↑↓ select · Enter expand · Esc chat'
+      ? '↑↓ select · ←→ fold · Esc chat'
       : 'Ctrl+G, Tab, Enter focus · Ctrl+P hide';
   String box(String text, [String? kind]) {
     final shown = _fit(text, inner);
@@ -139,7 +138,6 @@ List<String> renderPlanOverlayLines({
   return [
     '${paint('┌', border)}$title${paint('─' * (width - 2 - visibleWidth(title)), border)}${paint('┐', border)}',
     for (final row in visible) box(row.$1, row.$2),
-    if (ui.focused) box('A approve · R reject · Space toggle', 'dim'),
     box(
         hasMore
             ? '${offset + 1}–${offset + visible.length}/${body.length} · PgUp/PgDn scroll'
@@ -160,27 +158,21 @@ int planOverlayContentHeight(Plan plan,
         : _visibleRows(plan, collapsedRoots: collapsedRoots).length) +
     1;
 
-/// A session-owned plan view. Browsing changes only view state; approval and
-/// progress changes require their explicit action keys.
+/// A session-owned plan browser. Selection and expansion change only view
+/// state; the panel never changes approval or item progress.
 class PlanOverlay implements PanelInputTarget {
   PlanOverlay({
     required this.screen,
     required this.store,
-    required this.loop,
     required this.context,
     this.focusManager,
     this.mode = PlanOverlayMode.auto,
-    this.onApprove,
-    this.onReject,
-    this.onSpace,
   });
   final Screen screen;
   final PlanStore store;
-  final AgentLoop loop;
   final ConsoleContext context;
   final FocusManager? focusManager;
   final PlanOverlayMode mode;
-  final void Function()? onApprove, onReject, onSpace;
   OverlayRegion? _region;
   StreamSubscription<void>? _sub;
   bool _started = false, _focused = false, _highlighted = false;
@@ -255,6 +247,10 @@ class PlanOverlay implements PanelInputTarget {
         _select((_selected ?? 0) - 1);
       case ArrowKey(direction: ArrowDirection.down):
         _select((_selected ?? -1) + 1);
+      case ArrowKey(direction: ArrowDirection.right):
+        _expandSelection(true);
+      case ArrowKey(direction: ArrowDirection.left):
+        _expandSelection(false);
       case ArrowKey(direction: ArrowDirection.pageUp):
         _scroll(-_room);
       case ArrowKey(direction: ArrowDirection.pageDown):
@@ -262,18 +258,8 @@ class PlanOverlay implements PanelInputTarget {
       case ScrollEvent(:final up):
         _scroll(up ? -3 : 3);
       case ControlKey(code: ControlCode.enter):
-        final row = _selectedRow;
-        if (row != null) {
-          if (!_expanded.remove(row.address)) _expanded.add(row.address);
-          _followSelection = true;
-          refresh();
-        }
-      case CharInput(text: 'a' || 'A'):
-        (onApprove ?? () => store.approve(loop))();
-      case CharInput(text: 'r' || 'R'):
-        (onReject ?? () => store.reject(loop))();
       case CharInput(text: ' '):
-        (onSpace ?? _toggleItem)();
+        _expandSelection();
       case EscapeKey():
         return false; // the generic focus ring returns to chat
       case ControlKey(code: ControlCode.ctrlC || ControlCode.ctrlD):
@@ -282,6 +268,18 @@ class PlanOverlay implements PanelInputTarget {
         break; // a read-only panel never edits the conversation draft
     }
     return true;
+  }
+
+  void _expandSelection([bool? expanded]) {
+    final row = _selectedRow;
+    if (row == null) return;
+    if (expanded ?? !_expanded.contains(row.address)) {
+      _expanded.add(row.address);
+    } else {
+      _expanded.remove(row.address);
+    }
+    _followSelection = true;
+    refresh();
   }
 
   void _select(int index) {
@@ -296,28 +294,6 @@ class PlanOverlay implements PanelInputTarget {
     _offset = (_offset + amount).clamp(0, _maxOffset);
     _followSelection = false;
     refresh();
-  }
-
-  void _toggleItem() {
-    final row = _selectedRow;
-    if (row == null) return;
-    final parent = store.state.items[row.rootIndex];
-    PlanItem flip(PlanItem item) =>
-        item.copyWith(state: item.state == 'done' ? 'pending' : 'done');
-    final updated = row.childIndex == null
-        ? flip(parent)
-        : PlanItem(
-            parent.text,
-            state: parent.state,
-            children: [
-              for (final (i, child) in parent.children.indexed)
-                i == row.childIndex ? flip(child) : child
-            ],
-          );
-    store.update(loop, [
-      for (final (i, item) in store.state.items.indexed)
-        i == row.rootIndex ? updated : item
-    ]);
   }
 
   /// Preserve item identity across progress ticks/reordering; remove view
@@ -384,7 +360,7 @@ class PlanOverlay implements PanelInputTarget {
     _syncItems();
     final width = chat.width.clamp(8, 44);
     // Even the smallest focusable viewport keeps one item and its controls.
-    final chrome = _focused && chat.height >= 5 ? 4 : 3;
+    const chrome = 3;
     final collapsed = !_focused && _rows.length + chrome > chat.height;
     final ui = PlanOverlayUi(
       collapsed: collapsed,
@@ -420,7 +396,6 @@ class PlanOverlay implements PanelInputTarget {
             maxRows: _room),
         width: width,
         paint: _themePaint);
-    if (lines.length > chat.height) lines.removeAt(lines.length - 3);
     final bounds = Rect(
         row: chat.row,
         col: chat.col + chat.width - width,

@@ -114,7 +114,18 @@ void main() {
     await started.session.loop.runTurn(const Input('plan it', id: 't1'));
     await _call(started.session.loop, startedPlugin, {
       'items': [
-        {'text': 'only step', 'state': 'in_progress'},
+        {
+          'text': 'only step',
+          'state': 'in_progress',
+          'summary': 'Implement the change and verify its outcome.',
+          'children': [
+            {
+              'text': 'verify',
+              'state': 'pending',
+              'summary': 'Run the focused regression checks.'
+            }
+          ]
+        },
       ],
       'approval': 'requested',
     });
@@ -138,6 +149,13 @@ void main() {
     final view = resumed.session.loop.derive();
     expect(view.plan, isNotNull);
     expect(view.plan!.items.single.text, 'only step');
+    expect(view.plan!.items.single.summary,
+        'Implement the change and verify its outcome.');
+    expect(view.plan!.items.single.children.single.summary,
+        'Run the focused regression checks.');
+    final resumedPlugin = resumed.plugins.whereType<PlansPlugin>().single;
+    expect(resumedPlugin.store.state.items.single.summary,
+        view.plan!.items.single.summary);
     expect(view.plan!.approval, PlanApproval.requested);
     resumed.close();
   });
@@ -242,8 +260,13 @@ void main() {
         {
           'text': 'parent',
           'state': 'in_progress',
+          'summary': 'Implement the parent change.',
           'children': [
-            {'text': 'child', 'state': 'pending'},
+            {
+              'text': 'child',
+              'state': 'pending',
+              'summary': 'Verify the child outcome.'
+            },
           ],
         },
         {'text': 'done one', 'state': 'done'},
@@ -255,6 +278,8 @@ void main() {
     expect(section, contains('update_plan'));
     expect(section, contains('[~] parent'));
     expect(section, contains('  [ ] child'));
+    expect(section, contains('  Implement the parent change.'));
+    expect(section, contains('    Verify the child outcome.'));
     expect(section, contains('[x] done one'));
     expect(section,
         contains('wait for their approval before doing the planned work'));
@@ -384,9 +409,13 @@ void main() {
       'the same plan', () {
     const entry = PlanChangedEntry(
       items: [
-        PlanEntryItem('parent', state: 'in_progress', children: [
-          PlanEntryItem('child', state: 'done'),
-        ]),
+        PlanEntryItem('parent',
+            state: 'in_progress',
+            summary: 'Parent step summary.',
+            children: [
+              PlanEntryItem('child',
+                  state: 'done', summary: 'Child step summary.'),
+            ]),
         PlanEntryItem('second', state: 'pending'),
       ],
       approval: PlanApproval.approved,
@@ -397,6 +426,9 @@ void main() {
     expect(back, isA<PlanChangedEntry>());
     final plan = back;
     expect(plan.items.first.children.single.text, 'child');
+    expect(plan.items.first.summary, 'Parent step summary.');
+    expect(plan.items.first.children.single.summary, 'Child step summary.');
+    expect(plan, entry);
     expect(plan.items.last.text, 'second');
     expect(plan.approval, PlanApproval.approved);
 
@@ -429,6 +461,84 @@ void main() {
               ],
             }),
         throwsA(isA<FormatException>()));
+  });
+
+  test('old plan entries without summaries remain readable', () {
+    final entry = PlanChangedEntry.fromJson({
+      'items': [
+        {
+          'text': 'old step',
+          'state': 'pending',
+          'children': [
+            {'text': 'old child', 'state': 'done'}
+          ]
+        }
+      ],
+      'approval': 'none'
+    }, '', 0);
+    expect(entry.items.single.summary, '');
+    expect(entry.items.single.children.single.summary, '');
+    expect(entry.value['items'].single.containsKey('summary'), false);
+  });
+
+  test('model schema requests a summary for every step and subtask', () {
+    final plugin = PlansPlugin();
+    addTearDown(plugin.closeSession);
+    final root = ((plugin.schema.inputSchema['properties'] as Map)['items']
+        as Map)['items'] as Map;
+    expect(root['required'], contains('summary'));
+    expect((root['properties'] as Map)['summary']['maxLength'],
+        planMaxSummaryLength);
+    final child =
+        ((root['properties'] as Map)['children'] as Map)['items'] as Map;
+    expect(child['required'], contains('summary'));
+  });
+
+  test('invalid summaries are refused without writing a plan entry', () async {
+    final (loop, plugin, _) = _wired();
+    addTearDown(plugin.closeSession);
+    final before = loop.log.length;
+    for (final invalid in [
+      null,
+      42,
+      ['not text'],
+      'x' * (planMaxSummaryLength + 1)
+    ]) {
+      final input = {
+        'items': [
+          {'text': 'step', 'state': 'pending', 'summary': invalid}
+        ]
+      };
+      final result = await plugin.execute(input);
+      expect(result.isError, true, reason: '$invalid');
+      expect(result.content, contains('summary'));
+      expect(loop.log.length, before);
+      expect(
+          () => PlanChangedEntry.fromJson(input, '', 0), throwsFormatException);
+    }
+  });
+
+  test('progress preserves summaries; changing summary changes plan content',
+      () {
+    final (loop, plugin, _) = _wired(terminal: _CaptureTerminal());
+    addTearDown(plugin.closeSession);
+    const step = PlanEntryItem('step',
+        state: 'pending',
+        summary: 'Inspect the existing behavior.',
+        children: [
+          PlanEntryItem('child',
+              state: 'pending', summary: 'Check the edge case.')
+        ]);
+    plugin.store.update(loop, [step], approval: PlanApproval.approved);
+    plugin.commands.single.handler('done 1');
+    expect(plugin.store.state.items.single.summary, step.summary);
+    expect(plugin.store.state.items.single.children.single.summary,
+        'Check the edge case.');
+    expect(plugin.store.state.approval, PlanApproval.approved);
+    plugin.store.update(
+        loop, [step.copyWith(summary: 'Replace the existing behavior.')]);
+    expect(plugin.store.state.approval, PlanApproval.none);
+    expect(step.copyWith(summary: 'Different detail.'), isNot(step));
   });
 }
 

@@ -1,5 +1,4 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_plans/tina_plans.dart';
 import 'plan_overlay.dart';
 
@@ -7,16 +6,9 @@ import 'plan_overlay.dart';
 final class PlansConsolePlugin extends PlansPlugin
     implements ConsoleContribution {
   PlansConsolePlugin({super.terminal, super.approver});
-  AgentLoop? _loop;
   ConsoleContext? _console;
   PlanOverlay? overlay;
   void Function()? _release;
-
-  @override
-  void mountOn(AgentLoop loop) {
-    _loop = loop;
-    super.mountOn(loop);
-  }
 
   @override
   void attachConsole(ConsoleContext context) {
@@ -25,7 +17,6 @@ final class PlansConsolePlugin extends PlansPlugin
     overlay = PlanOverlay(
         screen: context.screen,
         store: store,
-        loop: _loop!,
         context: context,
         focusManager: context.input.focusManager)
       ..start();
