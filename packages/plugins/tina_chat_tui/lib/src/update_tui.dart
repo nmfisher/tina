@@ -55,11 +55,22 @@ final class UpdateTuiPlugin extends AgentPlugin implements ConsoleContribution {
         'update check deferred${status.until == null ? '' : ' · retry ${_time(status.until!)}'}',
     };
     final version = source.currentVersion;
+    final versionRun = RenderRun(
+        clean(version.startsWith('v') ? version : 'v$version'), theme.dim);
+    // Treat an available update and the running version as one indicator.
+    // A second strip separator wastes enough space to hide the update when
+    // the token counter grows to four digits on an 80-column terminal.
+    if (status.phase == UpdatePhase.available) {
+      return [
+        RenderLine(runs: [
+          versionRun,
+          RenderRun(' · ', theme.dim),
+          RenderRun(clean(text), theme.yellow),
+        ])
+      ];
+    }
     return [
-      RenderLine(runs: [
-        RenderRun(
-            clean(version.startsWith('v') ? version : 'v$version'), theme.dim)
-      ]),
+      RenderLine(runs: [versionRun]),
       if (text.isNotEmpty)
         RenderLine(runs: [
           RenderRun(clean(text),

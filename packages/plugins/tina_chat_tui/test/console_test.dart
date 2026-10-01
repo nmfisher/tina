@@ -8,9 +8,10 @@ import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_console/testing.dart';
 
 class Updates implements UpdateStatusSource {
+  Updates({this.currentVersion = '0.9.0'});
   final notifications = StreamController<void>.broadcast();
   @override
-  String get currentVersion => '0.9.0';
+  final String currentVersion;
   @override
   UpdateStatus status =
       const UpdateStatus(UpdatePhase.available, tag: 'v0.9.1');
@@ -182,6 +183,29 @@ void main() {
     source.notifications.add(null);
     await tick();
     expect(visible(), isNot(contains('v9.0.0')));
+  });
+  test(
+      'version and update availability fit beside comma-formatted spend at 80 columns',
+      () async {
+    chat.closeSession();
+    chat = ChatTuiPlugin(
+        model: 'test',
+        sessionTokens: () => 58,
+        sessionEstimatedTokens: () => 8525);
+    chat.attachConsole(context);
+    await control.commands.single.handler('allow-edits');
+    modes.repaintConsole();
+    final source = Updates(currentVersion: '0.9.19')
+      ..status = const UpdateStatus(UpdatePhase.available, tag: 'v999.0.0');
+    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    addTearDown(() {
+      update.closeSession();
+      unawaited(source.notifications.close());
+    });
+    final rendered = visible();
+    expect(rendered, contains('v0.9.19 · update ⬆ v999.0.0 · /update'));
+    expect(rendered, contains('Σ 58 +~8,525 est'));
+    expect(rendered, contains('mode: allow-edits'));
   });
   test(
       'Shift-Tab cycles the command authority without submitting or losing a draft',
