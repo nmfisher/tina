@@ -42,6 +42,11 @@ class Mode implements ModeControl {
   PermissionMode mode = PermissionMode.ask;
 }
 
+class _Completions implements CompletionProvider {
+  @override
+  Future<List<String>> complete(String query) async => ['a.txt', 'b.txt'];
+}
+
 Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));
 const call = ToolUse(id: 'a', name: 'bash', input: {'command': 'echo hello'});
 
@@ -401,6 +406,101 @@ void main() {
     expect(io.output.toString(), contains('history row 39'));
     io.feed(' intact\r');
     expect(await line, 'draft intact');
+  });
+
+  test(
+      'Option/Alt scrolls one displayed row and leaves draft, cursor and history intact',
+      () async {
+    for (var i = 0; i < 40; i++) {
+      chat.watch(SawText('history row $i ${'wrapped text ' * 12}\n\n'));
+    }
+    final line = editor.readLine('unused');
+    await tick();
+    editor.restoreHistory(['previous input']);
+    io.feed('draft\x1b[D\x1b[D');
+    await tick();
+    final draft = editor.editState;
+    List<String> rows() => visible()
+        .split('\n')
+        .skip(screen.chat.bounds.row)
+        .take(screen.chat.usableHeight)
+        .toList();
+    var previousRows = rows();
+    for (final sequence in ['\x1b[1;3A', '\x1b[1;9A', '\x1b\x1b[A']) {
+      final offset = screen.chat.debugScrollOffset;
+      io.feed(sequence);
+      await tick();
+      expect(screen.chat.debugScrollOffset, offset + 1);
+      expect(editor.editState, draft);
+      expect(rows().skip(1), previousRows.take(previousRows.length - 1));
+      previousRows = rows();
+    }
+    for (final sequence in ['\x1b[1;3B', '\x1b[1;9B', '\x1b\x1b[B']) {
+      final offset = screen.chat.debugScrollOffset;
+      io.feed(sequence);
+      await tick();
+      expect(screen.chat.debugScrollOffset, offset - 1);
+      expect(editor.editState, draft);
+    }
+    io.feed('\x1b[A');
+    await tick();
+    expect(editor.editState.buffer, 'previous input');
+    expect(screen.chat.debugScrollOffset, 0);
+    io.feed('\x1b[B\r');
+    expect(await line, 'draft');
+  });
+
+  test(
+      'line scrolling holds the viewport through streamed output and resumes at the tail',
+      () async {
+    for (var i = 0; i < 40; i++) chat.writeNotice('history row $i');
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('draft\x1b[1;3A\x1b[1;3A\x1b[1;3A');
+    await tick();
+    final top = visible().split('\n')[screen.chat.bounds.row];
+    chat.watch(const SawText('streamed one\n\nstreamed two\n\n'));
+    await tick();
+    expect(screen.chat.isTailPinned, false);
+    expect(screen.chat.newWhileScrolled, greaterThan(0));
+    expect(visible().split('\n')[screen.chat.bounds.row], top);
+    expect(editor.editState.buffer, 'draft');
+    io.feed('\x1b[1;9B' * (screen.chat.debugScrollOffset + 2));
+    await tick();
+    expect(screen.chat.isTailPinned, true);
+    expect(screen.chat.newWhileScrolled, 0);
+    chat.watch(const SawText('streamed latest\n\n'));
+    await tick();
+    expect(visible(), contains('streamed latest'));
+    io.feed('\r');
+    expect(await line, 'draft');
+  });
+
+  test('completion and modal key reads retain priority over line scrolling',
+      () async {
+    for (var i = 0; i < 40; i++) chat.writeNotice('history row $i');
+    editor.completionProvider = _Completions();
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('@');
+    await tick();
+    expect(editor.isCompleting, true);
+    io.feed('\x1b[1;9B');
+    await tick();
+    expect(editor.isCompleting, true);
+    expect(screen.chat.debugScrollOffset, 0);
+    io.feed('\x1b');
+    await tick();
+    for (final global in [false, true]) {
+      final read = editor.readKey(globalKeys: global, panelNavigation: false);
+      await tick();
+      io.feed('\x1b[1;9A');
+      expect(await read, ArrowKey(ArrowDirection.up, hasAlt: true));
+      expect(screen.chat.debugScrollOffset, 0);
+      expect(editor.editState.buffer, '@');
+    }
+    io.feed('\r');
+    expect(await line, '@');
   });
 
   test('exec displays program with legacy executable fallback', () {

@@ -99,6 +99,10 @@ final class ChatTuiPlugin extends AgentPlugin
         width: context.screen.input.bounds.width,
         animationFrame: _frame));
     _unbindKey = context.bindShortcut((event) {
+      final lineRows = _lineScrollRows(event);
+      if (lineRows != 0 && context.input.focusManager?.isCycling == true) {
+        return false;
+      }
       final focused = context.input.focusManager?.focused;
       final panelOwnsNavigation = focused is PanelInputTarget &&
           focused.inputMode == PanelInputMode.commands;
@@ -109,7 +113,7 @@ final class ChatTuiPlugin extends AgentPlugin
           ArrowKey(direction: ArrowDirection.pageDown) =>
             context.chat.usableHeight,
           ScrollEvent(:final up) => up ? -3 : 3,
-          _ => 0,
+          _ => lineRows,
         };
         if (rows != 0) {
           context.chat.scrollBy(rows);
@@ -571,6 +575,12 @@ final class ChatTuiPlugin extends AgentPlugin
       _rebuild();
       return true;
     }
+    final lineRows = _lineScrollRows(event);
+    if (lineRows != 0) {
+      _console!.chat.scrollBy(lineRows);
+      _console!.refreshInput();
+      return true;
+    }
     final indexes = _foldable;
     var at = indexes.indexOf(_selected!);
     if (event is ArrowKey) {
@@ -620,6 +630,16 @@ final class ChatTuiPlugin extends AgentPlugin
     _loop = null;
   }
 }
+
+// Shortcut policy belongs to this UI plugin. Up/Down without Option/Alt
+// remains editor history, and Ctrl combinations retain their own meaning.
+int _lineScrollRows(InputEvent event) => switch (event) {
+      ArrowKey(direction: ArrowDirection.up, hasAlt: true, hasCtrl: false) =>
+        -1,
+      ArrowKey(direction: ArrowDirection.down, hasAlt: true, hasCtrl: false) =>
+        1,
+      _ => 0,
+    };
 
 final class _TranscriptModal extends ModalSurface {
   _TranscriptModal(this.owner);

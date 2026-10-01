@@ -161,13 +161,14 @@ void main() {
         RegionLine('d'),
       ]);
       _pump();
-      // usable height 4 reserves one row for the cursor, so the oldest row
-      // scrolls into history rather than the cursor landing on content.
-      expect(content(), ['b', 'c', 'd']);
+      // The write buffer reserves one row for the cursor and retains the
+      // oldest row in history. Painting fills the entire window from both,
+      // so reserving the cursor doesn't leave a gap in the visible content.
+      expect(content(), ['a', 'b', 'c', 'd']);
       expect(r.debugHistoryLength, 1);
       r.write('e\n');
       _pump();
-      expect(content(), ['c', 'd', 'e']);
+      expect(content(), ['b', 'c', 'd', 'e']);
     });
   });
 
@@ -183,7 +184,7 @@ void main() {
       ]);
       _pump();
       expect(r.contentRows, 5);
-      expect(content(), ['c', 'd', 'e']);
+      expect(content(), ['b', 'c', 'd', 'e']);
     });
 
     test('an offset past the new end is clamped back into range', () {

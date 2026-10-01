@@ -60,6 +60,9 @@ class ModelStub(BaseHTTPRequestHandler):
              "usage": {"output_tokens": 2}},
             {"type": "message_stop"},
         ]
+        if 'line scroll example' in json.dumps(prompt):
+            events[2]['delta']['text'] = '```text\n' + '\n'.join(
+                f'LINE_SCROLL_ROW_{i:03}' for i in range(120)) + '\n```'
         if 'run cancellable tool' in json.dumps(prompt):
             events[1] = {"type": "content_block_start", "index": 0,
                          "content_block": {"type": "tool_use", "id": "bash-smoke",
@@ -243,6 +246,12 @@ class Terminal:
             self.read()
         assert not self.output[start:], 'idle app kept redrawing selectable text'
 
+    def wait_for(self, predicate, description):
+        deadline = time.monotonic() + 10
+        while not predicate() and time.monotonic() < deadline:
+            self.read()
+        assert predicate(), description
+
     def quit(self):
         self.send("/quit\r")
         deadline = time.monotonic() + 8
@@ -321,6 +330,37 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             assert '@zz_file_target.dart' in json.dumps(ModelStub.requests[-1]['messages'][-1])
             time.sleep(0.1)
+            start = terminal.send('line scroll example\r')
+            terminal.expect('LINE_SCROLL_ROW_119', start)
+            terminal.expect_idle()
+            before_scroll = len(ModelStub.requests)
+            terminal.send('scroll draft')
+            def scroll_line(sequence):
+                start = terminal.send(sequence)
+                terminal.expect('LINE_SCROLL_ROW_', start)
+                # Read the complete repaint. A taller viewport can span
+                # several PTY reads after its first marker arrives.
+                terminal.expect_idle()
+                shown = ANSI.sub(b'', terminal.output[start:])
+                markers = [int(value) for value in re.findall(rb'LINE_SCROLL_ROW_(\d{3})', shown)]
+                assert markers, 'line scroll did not paint the transcript'
+                assert b'cancelled: escape' not in shown, 'Option key prefix cancelled the turn'
+                return min(markers)
+            first = scroll_line('\x1b[1;3A')
+            for sequence, expected, label in [
+                ('\x1b[1;9A', first - 1, 'Meta-Up'),
+                ('\x1b\x1b[A', first - 2, 'Option-Up'),
+                ('\x1b[1;3B', first - 1, 'Alt-Down'),
+                ('\x1b[1;9B', first, 'Meta-Down'),
+                ('\x1b\x1b[B', first + 1, 'Option-Down'),
+            ]:
+                actual = scroll_line(sequence)
+                assert actual == expected, f'{label}: expected row {expected}, got {actual}'
+            assert len(ModelStub.requests) == before_scroll, 'line scrolling submitted input'
+            start = terminal.send(' intact\r')
+            terminal.expect('draft answer', start)
+            assert 'scroll draft intact' in json.dumps(ModelStub.requests[-1]['messages'][-1]), 'line scrolling changed the draft'
+            time.sleep(0.1)
             start = terminal.send("\x1b[Z")
             terminal.expect("mode: read-only", start)
             start = terminal.send("\x1b[Z")
@@ -339,6 +379,11 @@ def smoke(launcher, endpoint, columns, rows):
             # The provider is blocked: text must be visible before completion.
             terminal.expect("streaming prefix", start)
             active_requests = len(ModelStub.requests)
+            start = terminal.send('\x1b\x1b[A\x1b[1;9B')
+            time.sleep(0.1)
+            terminal.read()
+            assert b'cancelled: escape' not in terminal.output[start:], 'Option scrolling cancelled generation'
+            assert len(ModelStub.requests) == active_requests, 'scrolling submitted a message during generation'
             start = terminal.send('/settings\r')
             terminal.expect('enter select · esc back', start)
             assert len(ModelStub.requests) == active_requests
@@ -363,7 +408,13 @@ def smoke(launcher, endpoint, columns, rows):
             ModelStub.release_stream.set()
             terminal.expect("smoke answer", start)
             time.sleep(0.2)
+            before_draft = len(ModelStub.requests)
             start = terminal.send('ft\r')
+            # The enlarged transcript may repaint an earlier draft answer.
+            # Wait for this submission, rather than treating old text as its
+            # response and checking the preceding request prematurely.
+            terminal.wait_for(lambda: len(ModelStub.requests) > before_draft,
+                              'preserved draft did not reach the provider')
             terminal.expect('draft answer', start)
             assert 'draft' in json.dumps(ModelStub.requests[-1]['messages'][-1])
             time.sleep(0.1)
@@ -395,7 +446,10 @@ def smoke(launcher, endpoint, columns, rows):
             assert not ModelStub.approval_target.exists()
             start = terminal.send('\x1b[B')
             terminal.expect('❯ [n] deny', start)
+            before_denial = len(ModelStub.requests)
             start = terminal.send('\r')
+            terminal.wait_for(lambda: len(ModelStub.requests) > before_denial,
+                              'denied write did not finish')
             terminal.expect('smoke answer', start)
             assert not ModelStub.approval_target.exists(), 'denied write landed'
             time.sleep(0.1)
@@ -403,7 +457,10 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('Write file', start)
             # A remembered grant covers the atomic write's temp/rename steps.
             terminal.expect('❯ [y] allow once', start)
+            before_approval = len(ModelStub.requests)
             start = terminal.send('a')
+            terminal.wait_for(lambda: len(ModelStub.requests) > before_approval,
+                              'approved write did not finish')
             terminal.expect('smoke answer', start)
             assert ModelStub.approval_target.read_text() == 'approved'
             terminal.resize(columns, rows)
@@ -942,12 +999,13 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        # Each size adds twelve requests: one file-completion turn, six for
+        # Each size adds fourteen requests: one file-completion turn, two for
+        # line scrolling/draft preservation, six for
         # automatic network approval/denial (agent/judge/result), and five for the
         # background job (start/result, another message, inspect/result).
         # Four MCP tool turns add eight requests per terminal size.
-        assert 159 <= len(ModelStub.requests) <= 162, (
-            f"expected 159–162 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
+        assert 165 <= len(ModelStub.requests) <= 168, (
+            f"expected 165–168 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

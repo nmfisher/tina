@@ -940,11 +940,13 @@ class ScrollingTextRegion extends Region {
       );
       return;
     }
-    if (redrawAll) {
-      // The bottom-alignment offset changed (content grew into a new row, or
-      // scrolling added a blank at the end). Every visible row shifted, so
-      // redraw all of them — partial updates would leave stale content at
-      // the old positions.
+    final historyShifted = touched.length >= _usableHeight &&
+        _history.isNotEmpty &&
+        _contentRowCount < _usableHeight;
+    if (redrawAll || historyShifted) {
+      // The bottom-alignment offset changed, or evicting a row shifted the
+      // history that fills the leading space. Redraw the full window so
+      // partial updates don't leave stale content at the old positions.
       _redrawAll();
       return;
     }
@@ -1065,10 +1067,10 @@ class ScrollingTextRegion extends Region {
   /// Full repaint of the frozen scrollback view: assembles a `usable`-row
   /// window out of `_history` (older) followed by the content rows of `_rows`
   /// (newer), offset back from the tail by [_scrollOffset]. Used only while
-  /// scrolled up — at offset 0 the normal [_redrawAll] path applies and is
-  /// byte-identical to the pre-scrollback behaviour. Scrollback redraws are
-  /// infrequent (only on PgUp/PgDn/resize-while-scrolled), so each row is a
-  /// full write with no snapshot diffing.
+  /// scrolled up — at offset 0 the normal [_redrawAll] path paints the same
+  /// combined window. Scrollback redraws are triggered by navigation or
+  /// resize while scrolled, so each row is a full write with no snapshot
+  /// diffing.
   void _redrawScrollback() => screen.frame(() {
         _ensureSurface();
         clearPaintSnapshots();
@@ -1201,12 +1203,34 @@ class ScrollingTextRegion extends Region {
         for (var i = 0; i < _rows.length; i++) {
           _rows[i].paintedText = null;
         }
-        // Clear the top rows that are now empty (stale content from a previous,
-        // smaller offset — e.g. after scrolling shifted content down). On the
-        // plane these rows belong to the surface; otherwise the standard plane.
+        // The write buffer keeps a blank cursor row after finished content.
+        // Fill the leading space from retained history before clearing it:
+        // the tail must show the same combined window as scrollback offset 0,
+        // or a one-row step back to the tail skips an extra content row.
         final offset = usable - _contentRowCount;
         final s = _surface;
         for (var r = 0; r < offset; r++) {
+          final historyIndex = _history.length - offset + r;
+          if (historyIndex >= 0) {
+            final text = _renderRowText(_history[historyIndex]);
+            if (s != null) {
+              s.putAt(
+                  relRow: r,
+                  relCol: 0,
+                  text: text,
+                  maxCols: bounds.width,
+                  moveCursor: false);
+            } else {
+              screen.putAtAbsolute(
+                  row: bounds.row + r,
+                  col: bounds.col,
+                  text: text,
+                  maxCols: bounds.width,
+                  moveCursor: false,
+                  clipRect: bounds);
+            }
+            continue;
+          }
           if (s != null) {
             s.eraseAt(relRow: r, relCol: 0, n: bounds.width, moveCursor: false);
           } else {

@@ -14,7 +14,10 @@ in Settings → Plugins at session, workspace or global scope.
   Tools show `→ name · arguments`, followed by `ok`/`failed` and measured timing.
 - Reasoning and tool output start collapsed. Ctrl-B selects foldable blocks;
   arrows select, Enter/space folds, Escape/Ctrl-B leaves. Drafts stay intact.
-  Page Up/Down and the mouse wheel scroll the transcript without editing input.
+  Alt-Up/Down scrolls the focused conversation one displayed line at a time
+  (Option-Up/Down on macOS). Plain Up/Down retains input history. Page Up/Down
+  and the mouse wheel also scroll without editing input. Scrolling back holds
+  the viewport while new output arrives; returning to the bottom resumes following.
   F4's activity browser remains available for full result details and edit diffs.
 - The status strip carries the mode, plan, goal, session ID and reported token
   spend, including the configured session cap. Unknown failed/cancelled request

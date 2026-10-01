@@ -500,6 +500,43 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     }
   });
 
+  test(
+      'line scrolling targets the focused conversation and preserves both drafts',
+      () async {
+    for (var i = 0; i < 40; i++)
+      session.terminal.writeln('main history row $i');
+    final mainChat = screen.chat;
+    await keys('main draft\x1b[1;3A');
+    expect(mainChat.debugScrollOffset, 1);
+    await spawn('other');
+    final otherChat = screen.chat;
+    await keys('child transcript\r');
+    await waitFor(() => providers.last.requests.length == 1);
+    providers.last.answer(
+        0, List.generate(40, (i) => 'child history row $i').join('\n\n'));
+    await waitFor(() => !getFrame().busy);
+    await keys('other draft\x1b[1;9A');
+    expect(otherChat.debugScrollOffset, 1);
+    expect(mainChat.debugScrollOffset, 1);
+    expect(editor.editState.buffer, 'other draft');
+    await keys('\x07');
+    await keys('\x1b[1;9A');
+    expect(otherChat.debugScrollOffset, 1,
+        reason: 'the focus ring owns arrows while cycling');
+    await keys('\t\r');
+    expect(screen.chat, same(mainChat));
+    expect(editor.editState.buffer, 'main draft');
+    await keys('\x1b\x1b[B');
+    expect(mainChat.debugScrollOffset, 0);
+    expect(otherChat.debugScrollOffset, 1);
+    expect(editor.editState.buffer, 'main draft');
+    await keys('\x07\t\r');
+    expect(screen.chat, same(otherChat));
+    expect(editor.editState.buffer, 'other draft');
+    await keys('\x1b[1;9B');
+    expect(otherChat.debugScrollOffset, 0);
+  });
+
   test('new input steers only the submitting session while another panel runs',
       () async {
     await keys('first\r');

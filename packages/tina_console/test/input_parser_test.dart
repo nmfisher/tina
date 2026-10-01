@@ -79,6 +79,41 @@ void main() {
           equals(ArrowKey(ArrowDirection.right, hasCtrl: true)));
     });
 
+    for (final prefix in {
+      'Alt': '\x1b[1;3',
+      'Meta': '\x1b[1;9',
+      'Escape-prefixed': '\x1b\x1b[',
+    }.entries) {
+      for (final arrow
+          in {'A': ArrowDirection.up, 'B': ArrowDirection.down}.entries) {
+        test('${prefix.key} ${arrow.value} decodes without Escape leakage', () {
+          for (final byte in prefix.value.codeUnits) {
+            expect(parser.feed(byte), isNull);
+          }
+          expect(parser.feed(arrow.key.codeUnitAt(0)),
+              ArrowKey(arrow.value, hasAlt: true));
+          expect(parser.feed(0x78), CharInput('x'));
+          for (final byte in '\x1b['.codeUnits) {
+            expect(parser.feed(byte), isNull);
+          }
+          expect(parser.feed(arrow.key.codeUnitAt(0)), ArrowKey(arrow.value));
+        });
+      }
+    }
+
+    test('Meta normalization preserves Ctrl combinations and word arrows', () {
+      InputEvent? parse(String sequence) {
+        InputEvent? result;
+        for (final byte in sequence.codeUnits) result = parser.feed(byte);
+        return result;
+      }
+
+      expect(parse('\x1b[1;13A'),
+          ArrowKey(ArrowDirection.up, hasAlt: true, hasCtrl: true));
+      expect(parse('\x1b[1;9D'), ArrowKey(ArrowDirection.left, hasAlt: true));
+      expect(parse('\x1b[1;9C'), ArrowKey(ArrowDirection.right, hasAlt: true));
+    });
+
     test('CSI 1;2A (Shift+Arrow) does NOT set hasCtrl', () {
       // Modifier 2 = shift only. Falls through to plain-arrow shape.
       parser.feed(0x1b);

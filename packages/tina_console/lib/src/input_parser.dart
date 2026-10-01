@@ -403,10 +403,9 @@ class InputParser {
         }
       }
       // CSI 1;<mod>{A,B,C,D} — modified arrow. Modifier byte encodes bits
-      // (shift=1, alt=2, ctrl=4) offset by 1: 5=Ctrl, 6=Shift+Ctrl,
-      // 7=Alt+Ctrl, 8=all. FocusManager only cares about hasCtrl; other
-      // modifiers pass through as a plain arrow so downstream editors
-      // still work.
+      // (shift=1, alt=2, ctrl=4, meta=8) offset by 1. macOS terminals can
+      // report Option as Alt or Meta; normalize both to hasAlt, including
+      // combinations with Ctrl. Shift alone stays a plain arrow.
       if (last == 0x41 || last == 0x42 || last == 0x43 || last == 0x44) {
         final s = String.fromCharCodes(params);
         final semi = s.indexOf(';');
@@ -420,7 +419,7 @@ class InputParser {
             _ => ArrowDirection.left,
           };
           _pendingEvent = ArrowKey(direction,
-              hasCtrl: (flags & 4) != 0, hasAlt: (flags & 2) != 0);
+              hasCtrl: (flags & 4) != 0, hasAlt: (flags & 10) != 0);
           return;
         }
       }

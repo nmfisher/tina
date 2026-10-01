@@ -52,8 +52,8 @@ class ScrollEvent extends InputEvent {
 
 /// An arrow key (CSI A/B/C/D). [hasCtrl] is true for Ctrl+Arrow (used by
 /// [FocusManager] to steer spatial navigation inside the focus ring);
-/// [hasAlt] is true for Alt+Arrow. When either modifier is set, the line
-/// editor moves by word instead of by character.
+/// [hasAlt] is true for Alt/Meta+Arrow (including macOS Option). When either
+/// modifier is set, the line editor moves by word instead of by character.
 class ArrowKey extends InputEvent {
   final ArrowDirection direction;
   final bool hasCtrl;

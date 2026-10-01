@@ -117,6 +117,41 @@ void main() {
       expect(found, isNot(contains('line 0')));
     });
 
+    test(
+        'one-row scrolling joins the live tail without a blank gap or extra jump',
+        () {
+      final chat = screen.chat;
+      for (var i = 0; i < chat.usableHeight + 10; i++) chat.writeln('line $i');
+      List<String> window() {
+        vt.feed(io.written.toString());
+        io.written.clear();
+        return List.generate(
+            chat.usableHeight,
+            (i) => vt
+                .rowText(chat.bounds.row + i)
+                .substring(chat.bounds.col, chat.bounds.col + chat.bounds.width)
+                .trim());
+      }
+
+      final tail = window();
+      expect(tail.every((line) => line.startsWith('line ')), true);
+      chat.scrollBy(-1);
+      expect(window().skip(1), tail.take(tail.length - 1));
+      chat.scrollBy(1);
+      expect(window(), tail);
+      chat.writeln('latest line');
+      final latest = window();
+      expect(latest.take(latest.length - 1), tail.skip(1));
+      expect(latest.last, 'latest line');
+      chat.write('partial line');
+      final partial = window();
+      expect(partial.take(partial.length - 1), latest.skip(1));
+      expect(partial.last, 'partial line');
+      chat.newline();
+      expect(window(), partial,
+          reason: 'finishing a partial row keeps its viewport position');
+    });
+
     test('shrink mid-stream keeps the most recent content (tin-4k8w)', () {
       // Regression for the mid-stream resize wipe: with a partially-filled
       // buffer (content top-aligned, blanks at the bottom), shrinking the
