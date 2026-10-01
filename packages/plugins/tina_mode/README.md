@@ -31,9 +31,15 @@ provider instance for the selected model. Reviews count toward the session's
 token ledger and limits. The request includes the full tool input, workspace,
 and operation being approved; no tools are available to the judge.
 
-Only an exact ALLOW in a completed response authorizes execution, once.
+Only a one-word ALLOW in a completed response authorizes execution, once.
+Whitespace, a trailing period, and Markdown wrapping around that one word are
+accepted. An explanation containing ALLOW is never interpreted as permission.
+The judge retries a completed malformed verdict once with a stricter prompt;
+both attempts share the same 30-second timeout and cancellation signal.
 DENY, missing configuration, timeout or malformed output asks the human through
 the ordinary approval service. Classifier approval creates no remembered grant.
+The fallback names the classifier model. Tab details show attempt count, answer
+and reasoning character counts, and completion status without storing raw output.
 Cancellation, shutdown or switching to read-only prevents a late ALLOW from
 executing. Changing to another mode reverts to human approval for that pending
 request. The judge stream is cancelled and its provider closed on completion.

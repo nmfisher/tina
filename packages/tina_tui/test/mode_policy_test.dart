@@ -37,8 +37,15 @@ void main() {
       await assembly.handleCommand('/mode auto');
       await assembly.host.send('run network commands');
       final automatic = answer == 'ALLOW';
-      expect(judgeRequests, hasLength(automatic ? 2 : 1),
+      expect(
+          judgeRequests, hasLength(automatic || answer == 'unreadable' ? 2 : 1),
           reason: 'automatic consent expires; human Always is a session grant');
+      if (answer == 'unreadable') {
+        expect(judgeRequests[1], judgeRequests[0],
+            reason: 'the retry reviews the same invocation and permissions');
+        expect(human.requests.single['auto_approval_classifier'],
+            containsPair('attempts', 2));
+      }
       final judged = jsonDecode(judgeRequests.first) as Map;
       expect(judged['required_permissions'], ['execution', 'network']);
       expect(judged['missing_permissions'], ['execution', 'network']);

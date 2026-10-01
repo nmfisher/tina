@@ -127,8 +127,8 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
           c.tools.modePolicy
             ..approvals = approvals
             ..terminal = c.terminal
-            ..classifier =
-                PermissionClassifier(() => models.mainProvider(c.model));
+            ..classifier = PermissionClassifier(
+                () => models.mainProvider(c.currentModel()));
           return c.tools;
         },
             description:

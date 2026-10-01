@@ -224,6 +224,37 @@ void main() {
   );
 
   test(
+    'classifier model and response counts follow the human fallback',
+    () async {
+      final human = Human();
+      const diagnostics = {
+        'model': 'provider/current-model',
+        'attempts': 2,
+        'answer_characters': 0,
+        'reasoning_characters': 1400,
+        'stop_reason': 'stop',
+      };
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: Judge(
+          Future.value(
+            const PermissionJudgment(null, 'returned no verdict', diagnostics),
+          ),
+        ),
+      );
+      expect(await request(mode), ApprovalDecision.allow);
+      expect(
+        human.lastReason,
+        contains('returned no verdict (provider/current-model)'),
+      );
+      expect(human.lastDetails['auto_approval_classifier'], diagnostics);
+      expect(human.calls, 1);
+      mode.closeSession();
+    },
+  );
+
+  test(
     'human receives full tool context and allow once expires with invocation',
     () async {
       final human = Human();

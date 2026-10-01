@@ -153,6 +153,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
       return _callApprovals[cacheKey]!;
     }
     String? autoFallback;
+    Map<String, Object?> autoDiagnostics = const {};
     if (mode == PermissionMode.auto && permission && !humanOnly) {
       final judge = classifier;
       final result = judge == null
@@ -173,6 +174,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
               ]),
             );
       if (invalid()) return ApprovalDecision.deny;
+      autoDiagnostics = result.diagnostics;
       if (mode == PermissionMode.auto && result.allow == true) {
         terminal?.writeln('$operation allowed by classifier: $target');
         // Classifier approvals apply once, never become human session grants.
@@ -186,6 +188,9 @@ class ModePlugin extends AgentPlugin implements ModeControl {
           : result.allow == false
           ? 'classifier recommends denial'
           : 'classifier ${result.failure ?? 'unavailable'}';
+      if (autoDiagnostics['model'] is String) {
+        autoFallback = '$autoFallback (${autoDiagnostics['model']})';
+      }
       terminal?.writeln('$autoFallback — asking you: $target');
     }
     final decision =
@@ -202,6 +207,8 @@ class ModePlugin extends AgentPlugin implements ModeControl {
               'tool': {'name': _call!.name, 'input': _call!.input},
             'mode': mode.name,
             if (autoFallback != null) 'auto_approval_fallback': autoFallback,
+            if (autoDiagnostics.isNotEmpty)
+              'auto_approval_classifier': autoDiagnostics,
           },
         ) ??
         ApprovalDecision.deny;

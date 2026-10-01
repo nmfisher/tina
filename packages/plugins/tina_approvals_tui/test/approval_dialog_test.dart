@@ -74,6 +74,28 @@ void main() {
     }
   });
 
+  test('classifier failure details identify its model and response status', () {
+    final dialog = ApprovalDialog(null,
+        ask: const ApprovalAskContext('run command', 'sed -n 1,10p file',
+            'classifier returned no verdict',
+            details: {
+              'mode': 'auto',
+              'auto_approval_classifier': {
+                'model': 'provider/model',
+                'attempts': 2,
+                'answer_characters': 0,
+                'reasoning_characters': 512,
+                'stop_reason': 'stop'
+              },
+            }));
+    dialog.handleKey(ApprovalKey.details);
+    final shown = dialog.rows(width: 100, height: 30).map(text).join('\n');
+    expect(shown, contains('Approval classifier: provider/model'));
+    expect(shown, contains('Classifier attempts: 2'));
+    expect(shown, contains('Classifier answer: 0 characters'));
+    expect(shown, contains('Classifier completion: stop'));
+  });
+
   test('human-only confirmations display the actual command and directory', () {
     final dialog = ApprovalDialog(null,
         ask: ApprovalAskContext('Allow network access?', 'git push',

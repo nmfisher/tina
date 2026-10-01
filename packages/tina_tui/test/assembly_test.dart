@@ -55,6 +55,28 @@ final class CapturedWriter implements AssemblyWriter {
 }
 
 void main() {
+  test('automatic approval follows model switches', () async {
+    final ws = Directory.systemTemp.createTempSync('tina_judge_model_');
+    addTearDown(() => ws.deleteSync(recursive: true));
+    final models = <String>[];
+    final app = TuiAssembly.start(
+      providerFactory: (model) {
+        models.add(model);
+        return ScriptedProvider([scriptedReply('ALLOW')], model: model);
+      },
+      options: AssemblyOptions(
+          configPath: '/nonexistent/tina/config', workingDirectory: ws.path),
+    );
+    addTearDown(app.close);
+    await app.handleCommand('/model switched-model');
+    models.clear();
+    final judgment =
+        await app.tools.modePolicy.classifier!.classify({'command': 'ls'});
+    expect(judgment.allow, true);
+    expect(models, ['switched-model']);
+    expect(judgment.diagnostics['model'], 'switched-model');
+  });
+
   test('restart handoff resumes saved activity and exits the requesting panel',
       () async {
     final ws = Directory.systemTemp.createTempSync('tina_restart_');

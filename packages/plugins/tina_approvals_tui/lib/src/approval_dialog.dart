@@ -229,6 +229,9 @@ class ApprovalDialog {
       ],
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',
+      if (_details && ask?.details['auto_approval_classifier'] is Map) ...[
+        ..._classifierDetails(ask!.details['auto_approval_classifier'] as Map),
+      ],
       if (_details && input.isNotEmpty) ...[
         'Tool: $name',
         'Arguments',
@@ -451,6 +454,19 @@ String _safe(String value) => value.replaceAllMapped(
 
 Iterable<String> _diff(String text, String prefix) =>
     text.split('\n').map((line) => '$prefix $line');
+
+Iterable<String> _classifierDetails(Map details) sync* {
+  if (details['model'] != null)
+    yield 'Approval classifier: ${details['model']}';
+  if (details['attempts'] != null)
+    yield 'Classifier attempts: ${details['attempts']}';
+  if (details['answer_characters'] != null)
+    yield 'Classifier answer: ${details['answer_characters']} characters';
+  if (details['reasoning_characters'] != null)
+    yield 'Classifier reasoning: ${details['reasoning_characters']} characters';
+  if (details['stop_reason'] != null)
+    yield 'Classifier completion: ${details['stop_reason']}';
+}
 
 String _argv(Map input, ApprovalAskContext? ask) {
   final executable =
