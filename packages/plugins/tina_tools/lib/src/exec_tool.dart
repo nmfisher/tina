@@ -51,6 +51,20 @@ class ExecTool extends ProcessToolBase {
         inputSchema: {
           'type': 'object',
           'properties': {
+            'outside_sandbox': {
+              'type': 'boolean',
+              'description':
+                  'Request running this exact command outside the OS sandbox. '
+                      'Requires human approval even in auto mode, or an exact '
+                      'human session grant. Grants host filesystem and network '
+                      'access to this subprocess tree only. Default false.',
+            },
+            'sandbox_reason': {
+              'type': 'string',
+              'description':
+                  'Required when outside_sandbox is true. Explain why this '
+                      'command needs access unavailable inside the sandbox.',
+            },
             'background': {
               'type': 'boolean',
               'description':
@@ -59,7 +73,7 @@ class ExecTool extends ProcessToolBase {
             'network': {
               'type': 'boolean',
               'description':
-                  'Request network access for this subprocess and its children. Reviewed with execution under the current permission mode; filesystem sandbox stays active.'
+                  'Request network access for this subprocess and its children. Reviewed with execution under the current permission mode; filesystem confinement is unchanged.'
             },
             'network_reason': {
               'type': 'string',

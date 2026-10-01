@@ -8,6 +8,63 @@ import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_approvals/tina_approvals.dart' as approvals;
 
 void main() {
+  test(
+      'auto routes outside-sandbox execution to human and remembers exact grant',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('tina-outside-human-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final judgeRequests = <String>[];
+    final human = _NetworkHuman();
+    final agent = ScriptedProvider([
+      scriptedReply('', calls: const [
+        ToolUseBlock(id: 'first', name: 'exec', input: {
+          'program': '/bin/echo',
+          'args': ['outside approved'],
+          'outside_sandbox': true,
+          'sandbox_reason': 'hidden host program',
+        }),
+        ToolUseBlock(id: 'repeat', name: 'exec', input: {
+          'program': '/bin/echo',
+          'args': ['outside approved'],
+          'outside_sandbox': true,
+          'sandbox_reason': 'hidden host program',
+        }),
+      ]),
+      scriptedReply('finished'),
+    ]);
+    var builds = 0;
+    final assembly = TuiAssembly.start(
+        options: AssemblyOptions(
+            configPath: '${dir.path}/missing', workingDirectory: dir.path),
+        providerFactory: (_) => builds++ == 0 ? agent : _Judge(judgeRequests));
+    addTearDown(assembly.close);
+    assembly.tools.modePolicy.approvals = human;
+    await assembly.handleCommand('/mode auto');
+    await assembly.host.send('run outside');
+    expect(judgeRequests, isEmpty);
+    expect(human.kinds.single, approvals.ApprovalKind.permission);
+    final details = human.requests.single;
+    expect(details['required_permissions'],
+        ['execution', 'network', 'unconfined']);
+    expect(details['sandbox_reason'], 'hidden host program');
+    expect(
+        (details['description'] as Map)['title'], contains('outside sandbox'));
+    expect(
+        (details['description'] as Map)['fields'],
+        containsPair(
+            'Access', 'Host filesystem and network for this subprocess tree'));
+    final results = assembly.host.session.loop.log
+        .whereType<MessageAppendedEntry>()
+        .expand((e) => e.message.content)
+        .whereType<ToolResultBlock>()
+        .toList();
+    expect(results, hasLength(2));
+    expect(
+        results
+            .every((r) => !r.isError && r.content.contains('outside approved')),
+        true);
+  });
+
   for (final answer in ['ALLOW', 'DENY', 'unreadable']) {
     test('auto reviews network with execution: $answer', () async {
       final dir = Directory.systemTemp.createTempSync('tina-auto-network-');

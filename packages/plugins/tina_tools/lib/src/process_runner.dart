@@ -22,7 +22,7 @@ typedef ProcessRequest = ({
 
 /// Permissions for a process invocation. Network opens access for the entire
 /// subprocess tree; it does not relax filesystem confinement.
-enum ProcessPermission { execution, network }
+enum ProcessPermission { execution, network, unconfined }
 
 /// What happened: the command ran to completion ([CommandCompleted]), the
 /// permission boundary refused it before a process existed
@@ -99,6 +99,9 @@ final class ProcessControl {
       {this.networkRequested = false,
       this.networkReason,
       this.networkAllowed = false,
+      this.outsideSandboxRequested = false,
+      this.sandboxReason,
+      this.outsideSandboxAllowed = false,
       this.isCancelled,
       this.whenCancelled,
       this.onOutput,
@@ -110,6 +113,12 @@ final class ProcessControl {
 
   /// Authorization supplied by the permission boundary, never by tool input.
   final bool networkAllowed;
+  final bool outsideSandboxRequested;
+  final String? sandboxReason;
+
+  /// Set by the permission boundary after explicit human authorization.
+  /// An execution or network approval alone never sets this.
+  final bool outsideSandboxAllowed;
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;
@@ -123,12 +132,20 @@ final class ProcessControl {
     bool? networkRequested,
     String? networkReason,
     bool? networkAllowed,
+    bool? outsideSandboxRequested,
+    String? sandboxReason,
+    bool? outsideSandboxAllowed,
     bool? background,
   }) =>
       ProcessControl(
         networkRequested: networkRequested ?? this.networkRequested,
         networkReason: networkReason ?? this.networkReason,
         networkAllowed: networkAllowed ?? this.networkAllowed,
+        outsideSandboxRequested:
+            outsideSandboxRequested ?? this.outsideSandboxRequested,
+        sandboxReason: sandboxReason ?? this.sandboxReason,
+        outsideSandboxAllowed:
+            outsideSandboxAllowed ?? this.outsideSandboxAllowed,
         isCancelled: isCancelled,
         whenCancelled: whenCancelled,
         onOutput: onOutput,
@@ -145,6 +162,13 @@ class IoProcessRunner implements ProcessRunner {
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
+    if (control?.outsideSandboxRequested == true &&
+        (control?.outsideSandboxAllowed != true ||
+            control?.networkAllowed != true)) {
+      return const CommandRefused(
+          'Outside-sandbox execution denied: explicit approval for host '
+          'filesystem and network access is required.');
+    }
     if (control?.networkRequested == true && control?.networkAllowed != true) {
       return const CommandRefused(
           'Network access denied: no permission boundary approved this command.');

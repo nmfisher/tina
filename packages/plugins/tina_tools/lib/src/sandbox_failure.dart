@@ -30,9 +30,25 @@ sealed class SandboxDenial {
   /// wider run, but a denied retry inside the same jail is never authorized
   /// by this evidence.
   String get recoveryInstructions => '$explanation\n'
-      'The operating system\'s sandbox stopped this. Ask the user whether '
-      'to run this exact command once outside the sandbox; do not work '
-      'around a denied retry.';
+      'The operating system\'s sandbox prevented this command from completing. '
+      'To request running this exact command outside the sandbox, call exec '
+      'or bash with outside_sandbox: true and sandbox_reason explaining this '
+      'failure. This requests separate human approval for host filesystem '
+      'and network access. Ordinary execution approval does not grant this. '
+      'Do not retry unchanged or switch shells as a workaround. Respect '
+      'denied or cancelled approvals.';
+}
+
+/// A host file the subprocess namespace never made visible.
+class PathHidden extends SandboxDenial {
+  PathHidden(this.hiddenPaths);
+  final List<String> hiddenPaths;
+  @override
+  String get explanation =>
+      'These files exist on the host but are not mounted inside the Linux '
+      'subprocess sandbox:\n${hiddenPaths.map((p) => '    $p').join('\n')}\n'
+      'Built-in file tools inspect the host filesystem, so stat/read success '
+      'does not prove a subprocess can access the same path.';
 }
 
 /// A write the kernel refused: the command reached a path outside the
@@ -99,7 +115,33 @@ SandboxDenial? classifySandboxFailure(
   CommandCompleted completed, {
   required List<String> writablePaths,
   required List<String> mountedPaths,
+  bool Function(String)? hostFileExists,
 }) {
+  if (completed.exitCode == 0 || completed.cancelled || completed.timedOut) {
+    return null;
+  }
+  // ENOENT can also mean a genuinely absent file or dynamic loader. Only
+  // name a hidden host path when existence and namespace exclusion agree.
+  if (hostFileExists != null) {
+    final hidden = <String>{};
+    for (final line in completed.stderr.split('\n')) {
+      if (!RegExp(r'(?:no such file or directory|not found)',
+              caseSensitive: false)
+          .hasMatch(line)) continue;
+      final match = RegExp(
+                  r'''["'](/[^"'\r\n]+)["']:\s*(?:[Nn]o such file or directory|not found)''')
+              .firstMatch(line) ??
+          RegExp(r'(?:execvp |: )(/[^:\r\n]+):\s*(?:[Nn]o such file or directory|not found)')
+              .firstMatch(line);
+      final p = match?.group(1);
+      if (p != null &&
+          !mountedPaths.any((m) => _under(p, m)) &&
+          hostFileExists(p)) {
+        hidden.add(p);
+      }
+    }
+    if (hidden.isNotEmpty) return PathHidden(hidden.toList());
+  }
   final output = '${completed.stderr}\n${completed.stdout}';
   final blocked = <String>{};
   final roots = <String>{};
@@ -159,7 +201,7 @@ SandboxDenial? classifySandboxFailure(
 }
 
 bool _under(String child, String parent) {
-  final c = child.endsWith('/') ? child : '$child/';
-  final par = parent.endsWith('/') ? parent : '$parent/';
-  return c == par || c.startsWith(par);
+  final c = path.normalize(child);
+  final p = path.normalize(parent);
+  return path.equals(c, p) || path.isWithin(p, c);
 }

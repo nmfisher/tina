@@ -301,6 +301,14 @@ void main() {
           startsWith('You are tina, a terminal coding agent.'));
       expect(request.systemPrompt, contains('Working directory: ${ws.path}'));
       expect(request.systemPrompt, contains('Mode: ask'));
+      expect(request.systemPrompt, contains('OS sandbox'));
+      expect(request.systemPrompt, contains('outside_sandbox: true'));
+      expect(request.systemPrompt, contains('This requests human approval'));
+      for (final tool
+          in request.tools.where((t) => t.name == 'exec' || t.name == 'bash')) {
+        expect((tool.inputSchema['properties'] as Map).keys,
+            containsAll(['outside_sandbox', 'sandbox_reason']));
+      }
     });
   });
 

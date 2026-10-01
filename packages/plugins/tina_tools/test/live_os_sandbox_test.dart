@@ -17,6 +17,129 @@ bool get _backendAvailable =>
     resolveSandboxBackend() != SandboxBackend.passThrough;
 
 void main() {
+  test('explicit outside approval and startup disable actually remove the jail',
+      tags: 'live-os-sandbox', () async {
+    if (!_backendAvailable) {
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    final root = Directory(Directory.systemTemp
+        .createTempSync('tina_unconfined_')
+        .resolveSymbolicLinksSync());
+    addTearDown(() => root.deleteSync(recursive: true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    var connections = 0;
+    server.listen((request) {
+      connections++;
+      request.response.write('outside works');
+      request.response.close();
+    });
+    final request = (
+      command: 'curl',
+      arguments: [
+        '--noproxy',
+        '*',
+        '--max-time',
+        '3',
+        '--fail',
+        '--silent',
+        'http://127.0.0.1:${server.port}'
+      ],
+      workingDirectory: root.path,
+      environment: null,
+      stdin: null,
+      timeout: null,
+    );
+    final jail = OsSandboxRunner(
+        inner: const IoProcessRunner(),
+        plan: SandboxPlan(workspaceRoot: root.path));
+    var approve = false;
+    final reviews = <CommandApproval>[];
+    final gate = SandboxedProcessRunner(
+        inner: jail,
+        commandApprover: (_, review) async {
+          reviews.add(review);
+          return approve ? Approval.always : Approval.no;
+        });
+    const outside = ProcessControl(
+        outsideSandboxRequested: true,
+        sandboxReason: 'contact host fixture outside the network namespace');
+    expect(await gate.run(request, control: outside), isA<CommandRefused>());
+    expect(connections, 0);
+    approve = true;
+    final allowed = await gate.run(request, control: outside);
+    expect(allowed, isA<CommandCompleted>());
+    expect((allowed as CommandCompleted).exitCode, 0, reason: allowed.stderr);
+    expect(allowed.stdout, 'outside works');
+    expect(connections, 1);
+    final normal = await gate.run(request);
+    expect(
+        normal is CommandBlocked ||
+            normal is CommandCompleted && normal.exitCode != 0,
+        true);
+    expect(connections, 1,
+        reason: 'exact outside grant cannot open normal calls');
+    expect(reviews, hasLength(2));
+    expect(reviews.last.requiredPermissions, {
+      ProcessPermission.execution,
+      ProcessPermission.network,
+      ProcessPermission.unconfined
+    });
+    final disabled = SandboxedProcessRunner(
+        inner: OsSandboxRunner(
+            inner: const IoProcessRunner(),
+            enabled: false,
+            plan: SandboxPlan(workspaceRoot: root.path)));
+    expect(await disabled.run(request), isA<CommandRefused>());
+    expect(connections, 1);
+    disabled.commandApprover = (_, __) async => Approval.yes;
+    final global = await disabled.run(request);
+    expect((global as CommandCompleted).exitCode, 0, reason: global.stderr);
+    expect(global.stdout, 'outside works');
+    expect(connections, 2);
+  });
+
+  test('Linux executes a hidden host script after separate outside approval',
+      tags: 'live-os-sandbox', () async {
+    if (resolveSandboxBackend() != SandboxBackend.bwrap) {
+      markTestSkipped('requires Linux with bwrap');
+      return;
+    }
+    final root = Directory.systemTemp.createTempSync('tina_hidden_host_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final workspace = Directory('${root.path}/project')..createSync();
+    final hidden = File('${root.path}/blender')
+      ..writeAsStringSync('#!/bin/sh\nprintf "host program ran"\n');
+    expect((await Process.run('chmod', ['+x', hidden.path])).exitCode, 0);
+    final jail = OsSandboxRunner(
+        inner: const IoProcessRunner(),
+        plan: SandboxPlan(workspaceRoot: workspace.path),
+        hostLayout: () => SandboxHostLayout.inspect(
+            readOnlyDirectories: kSandboxReadOnlyBinds,
+            temporaryDirectories: []));
+    final gate = SandboxedProcessRunner(
+        inner: jail, commandApprover: (_, __) async => Approval.yes);
+    final request = (
+      command: hidden.path,
+      arguments: <String>[],
+      workingDirectory: workspace.path,
+      environment: null,
+      stdin: null,
+      timeout: null
+    );
+    final confined = await gate.run(request);
+    expect(confined, isA<CommandBlocked>());
+    expect((confined as CommandBlocked).reason, contains(hidden.path));
+    final outside = await gate.run(request,
+        control: const ProcessControl(
+            outsideSandboxRequested: true,
+            sandboxReason: 'host script hidden from subprocess mounts'));
+    expect(outside, isA<CommandCompleted>());
+    expect((outside as CommandCompleted).exitCode, 0, reason: outside.stderr);
+    expect(outside.stdout, 'host program ran');
+  });
+
   test(
       'network approval reaches a local server while outside writes stay blocked',
       tags: 'live-os-sandbox', () async {

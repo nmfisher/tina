@@ -34,11 +34,24 @@ abstract class ProcessToolBase implements Tool {
       {ProcessControl? control, Map<String, dynamic> input = const {}}) async {
     bool network;
     bool background;
+    bool outsideSandbox;
     String reason;
+    String sandboxReason;
     try {
       network = optionalBool(input, 'network') ?? false;
       background = optionalBool(input, 'background') ?? false;
+      if (input.containsKey('outside_sandbox') &&
+          input['outside_sandbox'] is! bool) {
+        throw const ToolValidationException(
+            'outside_sandbox must be a boolean');
+      }
+      outsideSandbox = optionalBool(input, 'outside_sandbox') ?? false;
       reason = network ? requiredString(input, 'network_reason') : '';
+      sandboxReason =
+          outsideSandbox ? requiredString(input, 'sandbox_reason') : '';
+      if (outsideSandbox && sandboxReason.trim().isEmpty) {
+        throw const ToolValidationException('sandbox_reason is required');
+      }
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
     }
@@ -47,6 +60,9 @@ abstract class ProcessToolBase implements Tool {
       networkRequested: network,
       networkReason: reason,
       networkAllowed: false,
+      outsideSandboxRequested: outsideSandbox,
+      sandboxReason: sandboxReason,
+      outsideSandboxAllowed: false,
       background: background,
     );
     final watch = Stopwatch()..start();

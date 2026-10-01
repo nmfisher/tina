@@ -174,6 +174,7 @@ final class CommandApproval {
     required Set<ProcessPermission> requiredPermissions,
     required Set<ProcessPermission> missingPermissions,
     this.networkReason,
+    this.sandboxReason,
   })  : requiredPermissions = Set.unmodifiable(requiredPermissions),
         missingPermissions = Set.unmodifiable(missingPermissions);
 
@@ -181,6 +182,7 @@ final class CommandApproval {
   final Set<ProcessPermission> requiredPermissions;
   final Set<ProcessPermission> missingPermissions;
   final String? networkReason;
+  final String? sandboxReason;
 }
 
 /// A [ProcessRunner] that enforces the command × mode table before any
@@ -245,10 +247,18 @@ final class SandboxedProcessRunner implements ProcessRunner {
     if (control?.isCancelled?.call() == true) {
       return const CommandRefused('cancelled: command was not started');
     }
-    final network = control?.networkRequested ?? false;
+    final outsideSandbox = control?.outsideSandboxRequested ?? false;
+    if (outsideSandbox && (control?.sandboxReason?.trim().isEmpty ?? true)) {
+      return const CommandRefused(
+          'A sandbox_reason is required for outside-sandbox execution.');
+    }
+    // No OS confinement also means no OS network isolation. Ask for that
+    // access explicitly rather than pretending the offline restriction holds.
+    final network = (control?.networkRequested ?? false) || outsideSandbox;
     final requiredPermissions = {
       ProcessPermission.execution,
       if (network) ProcessPermission.network,
+      if (outsideSandbox) ProcessPermission.unconfined,
     };
     final missing = requiredPermissions
         .where((permission) =>
@@ -265,24 +275,31 @@ final class SandboxedProcessRunner implements ProcessRunner {
         decision.verdict == ToolVerdict.allow && missing.isNotEmpty
             ? 'allow network access for this command (${request.command})?'
             : decision.reason;
-    final reason = network
-        ? '$baseReason\nNetwork access: ${control?.networkReason ?? 'requested'}. '
-            'Access applies to this subprocess and its children. '
-            'Filesystem confinement remains active.'
-        : decision.reason;
+    final reason = outsideSandbox
+        ? 'Run this exact command outside the OS sandbox? '
+            '${control!.sandboxReason}\n'
+            'This grants host filesystem and network access to the command '
+            'and its subprocesses. Other calls keep their configured confinement.'
+        : network
+            ? '$baseReason\nNetwork access: ${control?.networkReason ?? 'requested'}. '
+                'Access applies to this subprocess and its children. '
+                'Filesystem confinement is unchanged.'
+            : decision.reason;
     if (missing.isNotEmpty) {
       final review = CommandApproval(
         reason: reason,
         requiredPermissions: requiredPermissions,
         missingPermissions: missing,
         networkReason: network ? control?.networkReason : null,
+        sandboxReason: outsideSandbox ? control?.sandboxReason : null,
       );
       final approve = commandApprover;
       final fileApprover = approver;
-      // A filesystem-only approver cannot authorize network access.
+      // A filesystem-only approver cannot authorize network or remove the jail.
       if (approve == null &&
           (fileApprover == null ||
-              missing.contains(ProcessPermission.network))) {
+              missing.contains(ProcessPermission.network) ||
+              missing.contains(ProcessPermission.unconfined))) {
         return CommandRefused(
             '$reason — denied: no approver is wired to approve it');
       }
@@ -303,8 +320,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
         grants.rememberRequest(request, permissions: missing);
       }
     }
-    final authorized =
-        (control ?? const ProcessControl()).copyWith(networkAllowed: network);
+    final authorized = (control ?? const ProcessControl()).copyWith(
+        networkAllowed: network, outsideSandboxAllowed: outsideSandbox);
     return _completed(await inner.run(request, control: authorized), reason);
   }
 

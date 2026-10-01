@@ -58,11 +58,14 @@ void attachModePolicy(ToolsPlugin plugin) {
   plugin.processRunner.commandApprover = (request, review) async {
     final network =
         review.requiredPermissions.contains(ProcessPermission.network);
+    final outsideSandbox =
+        review.requiredPermissions.contains(ProcessPermission.unconfined);
     final description = describeCommandRequest(request);
     final decision = await plugin.modePolicy.request(
       operation: 'run command',
       target: [request.command, ...request.arguments].join(' '),
       reason: review.reason,
+      humanOnly: outsideSandbox,
       context: {
         'workspace': plugin.workingDirectory,
         'executable': request.command,
@@ -77,15 +80,31 @@ void attachModePolicy(ToolsPlugin plugin) {
           for (final p in review.missingPermissions) p.name
         ],
         if (network) 'network_reason': review.networkReason,
-        'description': (network
+        if (outsideSandbox) 'sandbox_reason': review.sandboxReason,
+        'description': (outsideSandbox
                 ? ToolDescription(
-                    title: '${description.title} with network access',
+                    title: '${description.title} outside sandbox',
                     target: description.target,
-                    fields: description.fields)
-                : description)
+                    fields: {
+                        ...description.fields,
+                        'Access':
+                            'Host filesystem and network for this subprocess tree',
+                      })
+                : network
+                    ? ToolDescription(
+                        title: '${description.title} with network access',
+                        target: description.target,
+                        fields: description.fields)
+                    : description)
             .toJson(),
         'permission_scope': 'command',
-        if (network) ...{
+        if (outsideSandbox) ...{
+          'permission_scope_label': 'this exact command outside the sandbox',
+          'permission_scope_description':
+              'Session approval covers this exact command, directory, environment '
+                  'and input, including host filesystem and network access for '
+                  'its subprocess tree. Other calls keep their configured confinement.',
+        } else if (network) ...{
           'permission_scope_label': 'this command with network access',
           'permission_scope_description':
               'Session approval covers this exact command, directory, environment '

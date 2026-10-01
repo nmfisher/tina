@@ -14,11 +14,13 @@ const cliHelp =
             [--model PROVIDER/MODEL] [--models [PROVIDER]] [--prompt TEXT|-]
             [--goal TEXT [--max-goal-turns N]]
             [--configure] [--version] [--completion bash|zsh|fish]
-            [--backend ansi|notcurses]
+            [--backend ansi|notcurses] [--no-sandbox]
             [--import-sessions PATH [--dry-run]]
 
 Starts the engine2 terminal app. /help lists loaded commands.
 --backend notcurses enables inline images; ANSI is the default text renderer.
+--no-sandbox disables OS filesystem and network confinement for this run.
+Permission modes and approval checks still apply; child environments remain filtered.
 --model overrides the model for this run; resume otherwise restores its saved model.
 --models prints available models without starting a session.
 --prompt runs one turn without the TUI; use - to read the prompt from stdin.
@@ -36,6 +38,7 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
   String? configPath;
   String? model;
   var backend = 'ansi';
+  var osSandbox = true;
   String? prompt;
   String? goal;
   int? maxGoalTurns;
@@ -57,6 +60,8 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         stderr.writeln('tina: --backend must be ansi or notcurses');
         return 64;
       }
+    } else if (a == '--no-sandbox') {
+      osSandbox = false;
     } else if (a == '--model' && i + 1 < args.length) {
       model = args[++i];
     } else if (a == '--goal' && i + 1 < args.length) {
@@ -245,6 +250,7 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         storePath: storePath,
         sessionId: sessionId,
         model: model,
+        osSandbox: osSandbox,
         approvalChannel: headless ? 'tina/approvals-stream' : null,
         onRestart: headless
             ? null
@@ -333,6 +339,7 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
           path,
           '--backend',
           backend,
+          if (!osSandbox) '--no-sandbox',
           if (storePath != null) ...['--store', storePath],
           if (restartSession != null) ...['--resume', restartSession!],
         ],

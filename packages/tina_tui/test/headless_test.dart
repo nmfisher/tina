@@ -110,15 +110,18 @@ enabled = ["tina/persistence", "tina/session-controls"]
       root = root.parent;
     }
     final child = await Process.start(Platform.resolvedExecutable,
-        ['run', 'bin/tina.dart', ...args, '--prompt', '-'],
+        ['run', 'bin/tina.dart', ...args, '--no-sandbox', '--prompt', '-'],
         workingDirectory: root.path);
     final output = child.stdout.transform(utf8.decoder).join();
     final errors = child.stderr.transform(utf8.decoder).join();
     child.stdin.writeln('piped prompt');
     await child.stdin.close();
-    expect(await child.exitCode.timeout(const Duration(seconds: 30)), 0);
+    expect(await child.exitCode.timeout(const Duration(seconds: 30)), 0,
+        reason: await errors);
     expect(await output, contains('headless answer'));
     expect(await errors, isNot(contains('provider error')));
+    expect((requests.last['messages'] as List).first['content'],
+        contains('OS sandbox deliberately disabled'));
     fail = true;
     expect(await runCli([...args, '--prompt', 'fail']), 1);
     expect(await runCli([...args, '--prompt', '   ']), 64);

@@ -30,10 +30,9 @@ abstract interface class ToolSessionSource implements ModePolicySource {
 
 final class ToolsPlugin extends AgentPlugin
     implements ModeControl, ToolSessionSource {
-  /// Whether the OS jail layer was requested. The layer itself decides per
-  /// host whether a backend exists ([OsSandboxRunner.backend]); this flag
-  /// records the host's decision to have the layer at all — `false` is a
-  /// deliberate disable, `true` a degradation when no backend exists.
+  /// Whether OS confinement was requested. The wrapper decides whether a
+  /// backend exists ([OsSandboxRunner.backend]); false deliberately bypasses
+  /// the jail while preserving environment filtering and permission checks.
   final bool osSandbox;
 
   final ModePlugin modePolicy;
@@ -61,14 +60,13 @@ final class ToolsPlugin extends AgentPlugin
           mode: mode,
         ) {
     final writable = WritableDirectories(osPlan.writableLayout());
-    final ProcessRunner osRunner = osSandbox
-        ? OsSandboxRunner(
-            inner: const IoProcessRunner(),
-            plan: osPlan,
-            unavailableBehaviour: osUnavailable,
-            onWarn: (message) => stderr.writeln('tina: $message'),
-          )
-        : const IoProcessRunner();
+    final osRunner = OsSandboxRunner(
+      inner: const IoProcessRunner(),
+      plan: osPlan,
+      enabled: osSandbox,
+      unavailableBehaviour: osUnavailable,
+      onWarn: (message) => stderr.writeln('tina: $message'),
+    );
     processRunner = SandboxedProcessRunner(
       inner: osRunner,
       mode: mode,
@@ -94,7 +92,8 @@ final class ToolsPlugin extends AgentPlugin
     ];
     workingDirectory = workspaceRoot;
     attachModePolicy(this);
-    prompt = HostPromptSection(workingDirectory, () => sandbox.mode);
+    prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
+        sandboxDescription: osRunner.describeEnvironment);
   }
 
   /// The one configuration behind both the OS layout and the gate's
@@ -224,10 +223,12 @@ final class ToolsPlugin extends AgentPlugin
 /// works and what the current mode allows. The loop owns the join; this
 /// is one section, never a prompt.
 final class HostPromptSection {
-  HostPromptSection(this.workingDirectory, this.modeOf);
+  HostPromptSection(this.workingDirectory, this.modeOf,
+      {this.sandboxDescription});
 
   final String workingDirectory;
   final PermissionMode Function() modeOf;
+  final String Function()? sandboxDescription;
 
   /// The section for a given mode — the words the model reads.
   String sectionFor(PermissionMode mode) =>
@@ -241,6 +242,17 @@ final class HostPromptSection {
         PermissionMode.auto =>
           'reads run; a safety judge reviews writes and commands; uncertain decisions ask the user',
       }}.\n\n'
+      '${sandboxDescription?.call() ?? ''}\n\n'
+      'Ordinary command approval does not change the OS confinement described '
+      'above; it does not expose hidden paths or remove filesystem limits. '
+      'If this exact command needs unavailable access, set outside_sandbox: '
+      'true and sandbox_reason on exec or bash. This requests human approval '
+      'even in auto mode and grants host filesystem and network access only '
+      'to this invocation and its subprocess tree. An exact human session '
+      'grant may cover a later identical explicit request. The environment '
+      'remains filtered. Do not retry unchanged, switch shells, copy '
+      'executables or ask the user to run commands manually as a sandbox '
+      'workaround. Respect denied or cancelled approvals.\n\n'
       'Prefer dedicated file tools for listing, reading, searching paths and '
       'editing. When a command is needed, use exec to run programs such as '
       'ls, grep, sed and find directly with literal arguments. Avoid bash '
@@ -251,7 +263,8 @@ final class HostPromptSection {
       'For commands requiring network access, set network: true and network_reason '
       'on exec or bash. Execution and network are reviewed together under the '
       'current permission mode. Network permission applies to the entire '
-      'subprocess tree, while the filesystem sandbox stays active. Retrying '
+      'subprocess tree; when OS confinement is enabled the filesystem sandbox '
+      'stays active unless outside_sandbox was also explicitly approved. Retrying '
       'reruns the entire command; do not claim the user must run it manually.\n\n'
       'For long builds, servers and polling loops, set background: true on '
       'exec or bash, and set an appropriate timeout in seconds (default 600). '

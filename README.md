@@ -112,6 +112,12 @@ its console attachment. Auto reviews tool operations with a safety judge and
 asks you when the judge denies or cannot decide. See the
 [mode plugin](packages/plugins/tina_mode/README.md) for exact behavior.
 
+`tina --no-sandbox` disables OS filesystem and network confinement for that run,
+including new panels and subagents. Mode and approval checks still apply.
+The switch is not saved; add it again when resuming. Commands can also request
+separate human approval to run outside the sandbox for one invocation.
+See [engine2 sandbox behavior](docs/engine2-sandbox.md).
+
 `/update` checks for a release. `/update install` downloads, requires a matching
 SHA-256 checksum, validates the archive, then requests approval through the
 configured channel before replacing a marked private bundle. Restart afterward.

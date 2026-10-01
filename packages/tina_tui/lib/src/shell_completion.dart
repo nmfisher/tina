@@ -9,7 +9,7 @@ String shellCompletion(String shell) => switch (shell) {
     --backend) COMPREPLY=( $(compgen -W 'ansi notcurses' -- "$cur") ); return;;
     --resume) if [[ "$cur" != -* ]]; then return; fi;;
   esac
-  COMPREPLY=( $(compgen -W '--model --models --prompt --goal --max-goal-turns --config --cwd --store --resume --continue -c --configure --version --help --completion --import-sessions --dry-run --backend' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--model --models --prompt --goal --max-goal-turns --config --cwd --store --resume --continue -c --configure --version --help --completion --import-sessions --dry-run --backend --no-sandbox' -- "$cur") )
 }
 complete -F _tina_complete tina''',
       'zsh' => r'''#compdef tina
@@ -21,6 +21,7 @@ _tina() {
     '--continue[Continue latest session]' '-c[Continue latest session]' '--configure[Edit settings]' '--version[Print version]' \
     '--help[Usage]' '--completion[Shell completion]:shell:(bash zsh fish)' \
     '--backend[Terminal renderer]:backend:(ansi notcurses)' \
+    '--no-sandbox[Disable OS confinement for this run; keep approval checks]' \
     '--import-sessions[Import legacy sessions]:source:_files' '--dry-run[Preview import without writing]'
 }
 compdef _tina tina''',
@@ -44,6 +45,7 @@ complete -c tina -l models
 complete -c tina -l prompt -r
 complete -c tina -l configure
 complete -c tina -l backend -r -a 'ansi notcurses'
+complete -c tina -l no-sandbox -d 'Disable OS confinement; keep approval checks'
 complete -c tina -l version
 complete -c tina -l help
 complete -c tina -l completion -r -a 'bash zsh fish' ''',

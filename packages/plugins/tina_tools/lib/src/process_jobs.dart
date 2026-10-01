@@ -50,6 +50,9 @@ final class ProcessJobs implements ProcessRunner {
           networkRequested: control?.networkRequested ?? false,
           networkReason: control?.networkReason,
           networkAllowed: control?.networkAllowed ?? false,
+          outsideSandboxRequested: control?.outsideSandboxRequested ?? false,
+          sandboxReason: control?.sandboxReason,
+          outsideSandboxAllowed: control?.outsideSandboxAllowed ?? false,
           isCancelled: () => job.cancel.isCompleted,
           whenCancelled: job.cancel.future,
           onStarted: () {

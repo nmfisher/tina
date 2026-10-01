@@ -363,7 +363,7 @@ void main() {
           plan: const SandboxPlan(workspaceRoot: '/work/proj'),
           backend: SandboxBackend.bwrap,
           hostLayout: () => SandboxHostLayout(
-            readOnlyDirectories: const [],
+            readOnlyDirectories: const ['/bin'],
             temporaryDirectories: const ['/tmp'],
           ),
         ),

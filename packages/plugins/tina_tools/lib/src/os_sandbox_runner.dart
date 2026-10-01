@@ -25,6 +25,7 @@
 library;
 
 import 'dart:io';
+import 'package:path/path.dart' as path;
 
 import 'process_runner.dart';
 import 'sandbox_failure.dart';
@@ -212,6 +213,9 @@ final class OsSandboxRunner implements ProcessRunner {
   /// The one layout configuration (see [SandboxPlan]).
   final SandboxPlan plan;
 
+  /// An explicit per-launch choice; independent of backend availability.
+  final bool enabled;
+
   /// The backend resolved for this host. [SandboxBackend.passThrough]
   /// means the degradation path — see [unavailableBehaviour].
   final SandboxBackend backend;
@@ -235,14 +239,17 @@ final class OsSandboxRunner implements ProcessRunner {
   OsSandboxRunner({
     required this.inner,
     required this.plan,
+    this.enabled = true,
     SandboxBackend? backend,
     String? unavailableReason,
     this.unavailableBehaviour = UnavailableBehaviour.allow,
     this.hostLayout,
     this.onWarn,
-  })  : backend = backend ?? resolveSandboxBackend(),
-        passThroughReason =
-            _reason(backend ?? resolveSandboxBackend(), unavailableReason);
+  })  : backend = backend ??
+            (enabled ? resolveSandboxBackend() : SandboxBackend.passThrough),
+        passThroughReason = enabled
+            ? _reason(backend ?? resolveSandboxBackend(), unavailableReason)
+            : null;
 
   static String? _reason(SandboxBackend backend, String? override) {
     if (backend != SandboxBackend.passThrough) return null;
@@ -260,6 +267,25 @@ final class OsSandboxRunner implements ProcessRunner {
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
+    if (control?.outsideSandboxRequested == true &&
+        (control?.outsideSandboxAllowed != true ||
+            control?.networkAllowed != true)) {
+      return const CommandRefused(
+          'Outside-sandbox execution requires explicit approval for host '
+          'filesystem and network access.');
+    }
+    if (!enabled || control?.outsideSandboxRequested == true) {
+      // Keep provider credentials out of the process environment even when
+      // this exact invocation is explicitly allowed to run without a jail.
+      return inner.run((
+        command: request.command,
+        arguments: request.arguments,
+        workingDirectory: request.workingDirectory,
+        environment: plan.childEnvironment,
+        stdin: request.stdin,
+        timeout: request.timeout,
+      ), control: control);
+    }
     if (backend == SandboxBackend.passThrough) {
       _warnOnce();
       return switch (unavailableBehaviour) {
@@ -275,6 +301,18 @@ final class OsSandboxRunner implements ProcessRunner {
           readOnlyDirectories: kSandboxReadOnlyBinds,
           temporaryDirectories: defaultSandboxTempDirs(),
         );
+    final mounted = _mountedPaths(layout);
+    if (backend == SandboxBackend.bwrap && path.isAbsolute(request.command)) {
+      final file = File(request.command);
+      // Bind sources can be symlinks. Their resolved host paths need not be
+      // mounted by name: contents are exposed at the bind destination. Only
+      // diagnose names definitely absent from the subprocess namespace.
+      if (file.existsSync() &&
+          !mounted.any((m) => _under(request.command, m))) {
+        return CommandBlocked(
+            PathHidden([request.command]).recoveryInstructions);
+      }
+    }
     // The jailed argv wraps the requested command; the request keeps its
     // own program and arguments verbatim after the jail's own.
     final (String jail, List<String> jailArgs) = switch (backend) {
@@ -311,22 +349,83 @@ final class OsSandboxRunner implements ProcessRunner {
       stdin: request.stdin,
       timeout: request.timeout,
     ), control: control);
-    return completed is CommandCompleted ? _decode(completed) : completed;
+    return completed is CommandCompleted
+        ? _decode(completed, mounted)
+        : completed;
   }
 
   /// Translate the confined run's outcome: a zero exit is a normal
   /// completion; a failure the classifier blames on the kernel becomes
   /// [CommandBlocked]; anything else stays an ordinary completed run.
-  RunOutcome _decode(CommandCompleted completed) {
+  RunOutcome _decode(CommandCompleted completed, List<String> mounted) {
     if (completed.exitCode == 0 || completed.cancelled || completed.timedOut)
       return completed;
     final denial = classifySandboxFailure(
       completed,
       writablePaths: plan.writableLayout(),
-      mountedPaths: plan.mountedLayout(),
+      mountedPaths: mounted,
+      hostFileExists:
+          backend == SandboxBackend.bwrap ? (p) => File(p).existsSync() : null,
     );
     if (denial == null) return completed;
     return CommandBlocked(denial.recoveryInstructions);
+  }
+
+  List<String> _mountedPaths(SandboxHostLayout layout) => [
+        ...layout.readOnlyDirectories,
+        ...layout.temporaryDirectories,
+        plan.workspaceRoot,
+        ...plan.writablePaths,
+        if (plan.tinaDir != null) plan.tinaDir!,
+        if (layout.resolverTarget != null) layout.resolverTarget!,
+        '/dev',
+        '/proc',
+      ];
+
+  /// Describe the same backend and layout the runner actually uses.
+  String describeEnvironment() {
+    if (!enabled) {
+      return 'OS sandbox deliberately disabled for this run (--no-sandbox). '
+          'Commands have host filesystem and network access; network: false '
+          'cannot isolate them. Permission modes and approval checks still '
+          'apply. Child environments remain filtered.';
+    }
+    if (backend == SandboxBackend.passThrough) {
+      return 'OS sandbox unavailable (${passThroughReason ?? 'no backend'}): '
+          '${unavailableBehaviour == UnavailableBehaviour.allow ? 'approved commands run without OS confinement' : 'commands are refused'}. '
+          'The permission gate still applies.';
+    }
+    final network = plan.isolateNetwork
+        ? 'Network is isolated unless network access is approved.'
+        : 'Network isolation is disabled.';
+    if (backend == SandboxBackend.sandboxExec) {
+      return 'OS sandbox: sandbox-exec (macOS). Subprocesses can read the host '
+          'filesystem; writes are restricted to: ${plan.writableLayout().join(', ')}. '
+          '$network';
+    }
+    final layout = hostLayout?.call() ??
+        SandboxHostLayout.inspect(
+          readOnlyDirectories: kSandboxReadOnlyBinds,
+          temporaryDirectories: defaultSandboxTempDirs(),
+        );
+    final readOnly = [
+      ...layout.readOnlyDirectories,
+      if (plan.tinaDir != null) plan.tinaDir!,
+      if (layout.resolverTarget != null) layout.resolverTarget!,
+    ];
+    final writable = {
+      plan.workspaceRoot,
+      ...plan.writablePaths,
+      ...layout.temporaryDirectories
+    };
+    return 'OS sandbox: bwrap (Linux). Subprocess read-only mounts: '
+        '${readOnly.join(', ')}. Subprocess writable mounts: ${writable.join(', ')}. '
+        '/dev and /proc are provided by the sandbox. Host paths not listed '
+        'here are hidden; /home, /mnt and /media are only accessible where '
+        'covered by a listed mount. $network '
+        'Built-in file tools inspect the host filesystem under their own '
+        'permission policy. A successful stat/read does not prove exec or '
+        'bash can access that path. Both process tools use the same sandbox.';
   }
 
   void _warnOnce() {
@@ -340,4 +439,10 @@ final class OsSandboxRunner implements ProcessRunner {
         ?.call('OS sandbox unavailable (${passThroughReason ?? 'no backend'}): '
             '$runs. The permission gate still applies.');
   }
+}
+
+bool _under(String child, String parent) {
+  final c = path.normalize(child);
+  final p = path.normalize(parent);
+  return path.equals(c, p) || path.isWithin(p, c);
 }

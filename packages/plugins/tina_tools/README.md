@@ -36,7 +36,7 @@ human approval channel. Read-only always uses human approval for unapproved
 writes and commands. Cancellation does not fall back to asking.
 Human “always” grants remain session-scoped; classifier approvals do not create
 persistent or session grants. Protected Tina paths and OS sandbox restrictions
-remain enforced in every mode. Approval does not disable the OS sandbox.
+remain enforced in every mode. Ordinary approval does not disable the OS sandbox.
 
 Read-only asks before any command, including commands that merely read.
 An explicit approval allows the requested operation without changing the mode.
@@ -76,7 +76,7 @@ Grants are in memory, isolated between panels, and expire on exit/resume.
 Cancellation cannot create a late grant or start the command.
 
 Network access applies to the entire subprocess tree, without destination/domain
-restrictions. Filesystem confinement remains active. Even a stored network grant
+restrictions. Configured filesystem confinement is unchanged. Even a stored network grant
 does not open access unless that invocation requests it. Declining starts no
 process. There is no automatic retry: retrying executes the entire command again.
 Without the flag, the default network policy applies.
@@ -98,8 +98,28 @@ build.
 
 `ToolsPlugin` wraps `IoProcessRunner` with `OsSandboxRunner` (bubblewrap on Linux,
 `sandbox-exec` on macOS), then the outer permission gate. Sandbox availability
-and fallback policy remain explicit. `osSandbox: false` deliberately omits the
-OS wrapper, while retaining the permission gate.
+and fallback policy remain explicit. `tina --no-sandbox` (embedding option:
+`osSandbox: false`) bypasses OS confinement for that launch, including new panels
+and subagents. Permission modes and approval checks remain active. Child
+environments stay filtered. Without a jail, commands have host filesystem and
+network access even when `network` is false. The switch is not saved in config
+or a resumed session; an update restart carries it forward.
+
+Both process tools also accept `outside_sandbox: true` with a required
+`sandbox_reason` for a single invocation. This requests separate **human**
+approval, including in auto mode, for host filesystem and network access to
+the whole subprocess tree. Execution/network approvals alone cannot grant it.
+Always remembers the exact program, argv, cwd, environment and stdin for this
+session. Later calls still have to explicitly request `outside_sandbox`; ordinary
+calls retain their configured confinement. Declining or cancelling starts
+nothing. There is no automatic retry.
+
+The tools prompt describes the actual OS backend and mounts. On Linux, built-in
+file tools can see host paths hidden from subprocesses. An existing absolute
+executable outside the mounts produces a specific error before spawn; matching
+ENOENT diagnostics are also identified when the named file exists on the host.
+Recovery instructions describe the real outside-sandbox approval API rather
+than asking the user to move binaries or run commands manually.
 
 Executors receive cancellation and an output callback through the generic loop
 execution context. `ProcessControl` forwards these through both runner wrappers;

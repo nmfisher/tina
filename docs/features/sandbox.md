@@ -1,5 +1,8 @@
 # Tool Sandbox — OS-level confinement around exec and bash
 
+This document describes the legacy engine. For the current CLI, see
+[engine2 process sandbox](../engine2-sandbox.md).
+
 For the shared execution request, environment handling, and diagnostics, see
 [Process execution and approvals](process_execution.md).
 

@@ -61,6 +61,7 @@ final class AssemblyOptions {
     this.approvalChannel,
     this.version = '0.0.0',
     this.model,
+    this.osSandbox = true,
   });
 
   /// Explicit config file, else `~/.tina/config`.
@@ -86,6 +87,9 @@ final class AssemblyOptions {
   final String? approvalChannel;
   final String version;
   final String? model;
+
+  /// Per-launch OS confinement. Permission policy remains active when false.
+  final bool osSandbox;
 }
 
 /// Default store stays separate from legacy session files and is scoped to
@@ -217,6 +221,7 @@ final class TuiAssembly {
     final tools = ToolsPlugin(
       workspaceRoot: workingDirectory,
       tinaDir: Directory('$workingDirectory/.tina'),
+      osSandbox: options.osSandbox,
     );
     final policy = configuredPolicy(resolved,
         override: providerFactory, currentConfig: () => resolved);
@@ -380,6 +385,7 @@ final class TuiAssembly {
           options: AssemblyOptions(
               configPath: options.configPath,
               onRestart: options.onRestart,
+              osSandbox: options.osSandbox,
               workingDirectory: workingDirectory,
               storePath: options.storePath,
               plugins: pluginSettings.features,

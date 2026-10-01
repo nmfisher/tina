@@ -34,9 +34,11 @@ void main() {
   });
   test('informational flags need neither config nor a provider', () async {
     expect(await runCli(['--help']), 0);
+    expect(await runCli(['--no-sandbox', '--help']), 0);
     expect(await runCli(['--version'], version: '1.2.3'), 0);
     for (final shell in ['bash', 'zsh', 'fish']) {
       expect(shellCompletion(shell), contains('tina')); // shell-specific script
+      expect(shellCompletion(shell), contains('no-sandbox'));
     }
   });
   test('incomplete, unknown and conflicting CLI flags fail before startup',
