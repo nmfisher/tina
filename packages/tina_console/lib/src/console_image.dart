@@ -90,6 +90,30 @@ final class ImageRaster {
   final ImageCellSize cells;
   int get columns => (width + cells.width - 1) ~/ cells.width;
   int get rows => (height + cells.height - 1) ~/ cells.height;
+
+  /// Pack a visible pixel rectangle before handing it to a native blitter.
+  /// Keeping the visual's origin at zero avoids the core-only notcurses
+  /// cropping path resizing its buffer while retaining the old source offset.
+  Uint8List cropRgba(
+      {required int top, required int width, required int height}) {
+    if (top < 0 ||
+        width < 1 ||
+        height < 1 ||
+        width > this.width ||
+        top + height > this.height) {
+      throw ArgumentError('Invalid image crop');
+    }
+    if (width == this.width) {
+      return rgba.buffer.asUint8List(
+          rgba.offsetInBytes + top * this.width * 4, height * width * 4);
+    }
+    final cropped = Uint32List(width * height);
+    for (var row = 0; row < height; row++) {
+      cropped.setRange(
+          row * width, (row + 1) * width, rgba, (top + row) * this.width);
+    }
+    return cropped.buffer.asUint8List();
+  }
 }
 
 /// One retained transcript row of an image. Cropping happens at the viewport,

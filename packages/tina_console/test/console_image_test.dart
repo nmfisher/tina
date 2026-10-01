@@ -36,6 +36,35 @@ class ImagePlane implements NotcursesImagePlane {
 }
 
 void main() {
+  test('crops source rows and packs columns without reading adjacent pixels',
+      () {
+    // A subview with distinct values makes offsets, strides and accidental
+    // scaling of the full source visible in the expected pixel rectangle.
+    final storage = Uint32List.fromList([999, ...List.generate(20, (i) => i)]);
+    final image = ImageRaster(
+        rgba: Uint32List.sublistView(storage, 1),
+        width: 5,
+        height: 4,
+        cells: ImageCellSize.halfBlock);
+    final fullWidth = image.cropRgba(top: 2, width: 5, height: 2);
+    expect(Uint32List.sublistView(fullWidth),
+        [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+    final narrow = image.cropRgba(top: 1, width: 3, height: 2);
+    expect(Uint32List.sublistView(narrow), [5, 6, 7, 10, 11, 12]);
+    expect(Uint32List.sublistView(image.cropRgba(top: 3, width: 1, height: 1)),
+        [15]);
+    for (final crop in [
+      (top: -1, width: 5, height: 1),
+      (top: 3, width: 5, height: 2),
+      (top: 0, width: 6, height: 1),
+      (top: 0, width: 1, height: 0)
+    ]) {
+      expect(
+          () => image.cropRgba(
+              top: crop.top, width: crop.width, height: crop.height),
+          throwsArgumentError);
+    }
+  });
   test('16-bit and RGB images become 8-bit RGBA while preserving alpha', () {
     final highDepth = img.Image(
         width: 2, height: 2, format: img.Format.uint16, numChannels: 4)

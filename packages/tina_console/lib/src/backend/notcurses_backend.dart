@@ -817,10 +817,8 @@ class NotcursesBackend
         : cells.height == 2
             ? nc.Blitter.blit_2x1
             : nc.Blitter.blit_1x1;
-    final bytes = image.rgba.buffer
-        .asUint8List(image.rgba.offsetInBytes, image.width * image.height * 4);
-    final visual =
-        nc.Visual.fromRGBA(bytes, image.height, image.width * 4, image.width);
+    final bytes = image.cropRgba(top: beginY, width: width, height: height);
+    final visual = nc.Visual.fromRGBA(bytes, height, width * 4, width);
     try {
       if (!visual.initialized) return null;
       final child = visual.blit(
@@ -829,7 +827,7 @@ class NotcursesBackend
               plane: parent,
               y: y,
               x: x,
-              begy: beginY,
+              begy: 0,
               begx: 0,
               leny: height,
               lenx: width,
