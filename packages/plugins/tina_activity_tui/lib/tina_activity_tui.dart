@@ -175,8 +175,13 @@ final class ActivityTuiPlugin extends AgentPlugin
     for (var i = 0; i < model.records.length; i++) {
       final row = model.records[i];
       if (i == _selected) selectedLine = body.length;
+      final marker = i == _selected
+          ? '❯'
+          : row.expanded
+              ? '▾'
+              : '▸';
       body.add(
-          '${i == _selected ? '›' : ' '} ${row.expanded ? '▾' : '▸'} ${row.label} · ${row.state} ${row.duration} · ${row.target}');
+          '$marker ${row.label} · ${row.state} ${row.duration} · ${row.target}');
       if (row.expanded) {
         for (final text in row.details(technical: _technical)) {
           for (final line in text.split('\n')) {

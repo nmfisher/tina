@@ -253,7 +253,7 @@ final class ProvidersPanel {
         _Kind.search =>
           '  / ${_query.isEmpty && !focused ? '(type to filter providers)' : _query}${focused ? '▏' : ''}',
         _Kind.provider =>
-          '${_checked.contains(row.id) ? '☑' : '☐'} ${_expanded.contains(row.id) ? '▼' : '▸'} ${_name(row.id)}',
+          '${_checked.contains(row.id) ? '☑' : '☐'} ${_name(row.id)}',
         _Kind.key => _credential(row.id, focused),
         _Kind.url => _url(row.id, focused),
         _Kind.separator => '  ── models ──',
@@ -264,7 +264,14 @@ final class ProvidersPanel {
         _Kind.advanced => '  Advanced settings…',
         _Kind.addProvider => _adding == row ? '＋ $_entry▏' : '＋ add provider',
       };
-      final shown = '${focused ? '▸' : ' '} $text';
+      final marker = focused
+          ? '❯'
+          : row.kind == _Kind.provider
+              ? _expanded.contains(row.id)
+                  ? '▾'
+                  : '▸'
+              : ' ';
+      final shown = '$marker $text';
       lines.add(
           focused ? screen.colorize(screen.theme.border.focus, shown) : shown);
     }

@@ -55,7 +55,7 @@ List<_Row> _visibleRows(Plan plan, {Set<int> collapsedRoots = const {}}) => [
 List<(String, String?)> _body(Plan plan, PlanOverlayUi ui, int innerWidth) {
   if (ui.collapsed) {
     final active = plan.allItems.where((i) => i.state == 'in_progress');
-    return [for (final item in active) ('▸ ${item.text}', 'accent')];
+    return [for (final item in active) ('● ${item.text}', 'accent')];
   }
   final rows = _visibleRows(plan, collapsedRoots: ui.collapsedRoots);
   return [
@@ -70,11 +70,17 @@ List<(String, String?)> _itemLines(_Row row, PlanOverlayUi ui, int width,
   final indent = '  ' * row.depth;
   final state = switch (row.item.state) {
     'done' => '✓',
-    'in_progress' => '▸',
+    'in_progress' => '●',
     _ => '·',
   };
-  final prefix =
-      '$indent${selected ? '❯' : ' '} ${expanded ? '▾' : '▸'} $state ';
+  // Selection and disclosure share one column; progress uses a dot, not
+  // another arrow. The selected row must remain identifiable without color.
+  final marker = selected
+      ? '❯'
+      : expanded
+          ? '▾'
+          : '▸';
+  final prefix = '$indent$marker $state ';
   final kind = selected
       ? 'accent'
       : row.item.state == 'done'
