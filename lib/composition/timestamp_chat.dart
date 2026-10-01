@@ -4,7 +4,8 @@ import 'package:tina_chat_tui/tina_chat_tui.dart' show TimestampChatRenderer;
 export 'package:tina_chat_tui/tina_chat_tui.dart' show TimestampChatRenderer;
 
 /// Optional plugin that stamps each transcript block's first painted line with
-/// the time the block first appeared (`HH:mm:ss `, dim). Decorates rather than
+/// the time the block first appeared (`HH:mm `, dim). Continuations retain the
+/// same indentation. Decorates rather than
 /// replaces the built-in look: because the first registered renderer that
 /// handles a `ChatBlock` wins, this descriptor's id sorts before
 /// `tina.chat-renderer` (plain namespace, per the override recipe in

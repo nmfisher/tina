@@ -8,7 +8,7 @@ import 'package:tina/composition/timestamp_chat.dart';
 import 'package:tina/frontend/renderers.dart';
 import 'package:tina_engine/tina_engine.dart';
 
-const _stamp = '03:04:05 ';
+const _stamp = '03:04 ';
 
 const _speaker = ChatSpeaker(id: 'c1', label: 'main');
 
@@ -66,14 +66,15 @@ void main() {
     final runtime = _runtime(now: () => DateTime(2026, 1, 2, 3, 4, 5));
 
     final lines = _render(runtime, _prose(), 40);
-    final bare = const ChatRenderer().render(_prose(), _ctx(40 - 9));
+    final bare = const ChatRenderer().render(_prose(), _ctx(40 - 6));
     expect(lines.length, bare.length);
     for (var i = 0; i < lines.length; i++) {
       expect(lines[i].bar, bare[i].bar);
       expect(
         _text(lines[i]),
-        i == 0 ? '$_stamp${_text(bare[i])}' : _text(bare[i]),
-        reason: 'only the first row carries the stamp',
+        bare[i].isBlank ? '' : '${i == 0 ? _stamp : ' ' * 6}${_text(bare[i])}',
+        reason:
+            'only the first row carries the stamp; continuations keep the gutter',
       );
     }
   });
@@ -107,7 +108,7 @@ void main() {
 
     expect(
       _text(lines.first),
-      startsWith('09:09:09 '),
+      startsWith('09:09 '),
       reason: 'each block records its own first render, not one global time',
     );
   });
@@ -175,10 +176,10 @@ void main() {
   test('a width too narrow for the gutter degrades without overflowing', () {
     final runtime = _runtime(now: () => DateTime(2026, 1, 2, 3, 4, 5));
 
-    final lines = _render(runtime, _prose(), 10);
+    final lines = _render(runtime, _prose(), 8);
     expect(lines, isNotEmpty);
     for (final line in lines) {
-      expect(plainWidth(_text(line)), lessThanOrEqualTo(10));
+      expect(plainWidth(_text(line)), lessThanOrEqualTo(8));
     }
     expect(_text(lines.first), contains('hello'));
   });
