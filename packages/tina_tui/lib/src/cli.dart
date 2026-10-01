@@ -14,9 +14,11 @@ const cliHelp =
             [--model PROVIDER/MODEL] [--models [PROVIDER]] [--prompt TEXT|-]
             [--goal TEXT [--max-goal-turns N]]
             [--configure] [--version] [--completion bash|zsh|fish]
+            [--backend ansi|notcurses]
             [--import-sessions PATH [--dry-run]]
 
 Starts the engine2 terminal app. /help lists loaded commands.
+--backend notcurses enables inline images; ANSI is the default text renderer.
 --model overrides the model for this run; resume otherwise restores its saved model.
 --models prints available models without starting a session.
 --prompt runs one turn without the TUI; use - to read the prompt from stdin.
@@ -33,6 +35,7 @@ Each imported conversation gets its own ID, printed for --resume. Sources stay u
 Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
   String? configPath;
   String? model;
+  var backend = 'ansi';
   String? prompt;
   String? goal;
   int? maxGoalTurns;
@@ -48,7 +51,13 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
   var workingDirectory = Directory.current.path;
   for (var i = 0; i < args.length; i++) {
     final a = args[i];
-    if (a == '--model' && i + 1 < args.length) {
+    if (a == '--backend' && i + 1 < args.length) {
+      backend = args[++i];
+      if (backend != 'ansi' && backend != 'notcurses') {
+        stderr.writeln('tina: --backend must be ansi or notcurses');
+        return 64;
+      }
+    } else if (a == '--model' && i + 1 < args.length) {
       model = args[++i];
     } else if (a == '--goal' && i + 1 < args.length) {
       goal = args[++i];
@@ -220,7 +229,7 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
             'tina: configure a provider and model in $path, or run tina --configure in a terminal');
         return 78;
       }
-      final saved = await runConfigEditor(path);
+      final saved = await runConfigEditor(path, backend: backend);
       stdout.writeln(
           saved ? 'Settings saved. Run tina to start.' : 'Settings unchanged.');
       return 0;
@@ -311,7 +320,7 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
     // Attach the renderer and approval dialog to the assembled session.
     final session = TuiSession.wrap(assembly);
     final terminalDevice = stdin.hasTerminal ? terminalDevicePath() : null;
-    final result = await runApp(session);
+    final result = await runApp(session, backend: backend);
     if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
     if (terminalDevice == null) throw StateError('restart requires a terminal');
@@ -322,6 +331,8 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
           workingDirectory,
           '--config',
           path,
+          '--backend',
+          backend,
           if (storePath != null) ...['--store', storePath],
           if (restartSession != null) ...['--resume', restartSession!],
         ],

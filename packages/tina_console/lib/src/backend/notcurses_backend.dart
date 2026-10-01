@@ -7,6 +7,7 @@ import 'terminfo_environment.dart';
 import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 
 import '../rect.dart';
+import '../console_image.dart';
 import '../stdio.dart';
 import '../styled_text.dart';
 import '../term_width.dart';
@@ -18,6 +19,21 @@ import 'init_reply_guard.dart';
 import 'input_backend.dart';
 import 'notcurses_input_backend.dart';
 import 'terminal_backend.dart';
+
+/// Lifetime of a native image child plane. Injectable for backend tests.
+abstract interface class NotcursesImagePlane {
+  void raise();
+  void destroy();
+}
+
+final class _LiveImagePlane implements NotcursesImagePlane {
+  _LiveImagePlane(this.plane);
+  final nc.Plane plane;
+  @override
+  void raise() => plane.moveTop();
+  @override
+  void destroy() => plane.destroy();
+}
 
 /// The thin slice of notcurses API that [NotcursesBackend] depends on.
 ///
@@ -264,7 +280,11 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
 /// notcurses cell grid and are sent to the terminal on [flush] via
 /// [nc.NotCurses.render].
 class NotcursesBackend
-    implements TerminalBackend, BackendDiagnostics, CanvasBackend {
+    implements
+        TerminalBackend,
+        BackendDiagnostics,
+        CanvasBackend,
+        RetainedImageBackend {
   CanvasStyle _canvas = const CanvasStyle();
   String? _cursorColor;
 
@@ -335,6 +355,10 @@ class NotcursesBackend
   // context shutdown. In particular, editor overlays may be disposed after
   // an emergency terminal restore. Keep only live surfaces in this set.
   final Set<NotcursesBackendSurface> _surfaces = {};
+  final _images = <Object, List<_OwnedImage>>{};
+  final _legacyImageOwner = Object();
+  NotcursesImagePlane? Function(ImagePlacement, BackendSurface?)? _imagePainter;
+  ImageCellSize? _imageCells;
 
   NotcursesBackend._(this._io, this._platform);
 
@@ -355,8 +379,13 @@ class NotcursesBackend
   factory NotcursesBackend.forTesting({
     required Stdio io,
     required NotcursesPlatform platform,
+    NotcursesImagePlane? Function(ImagePlacement, BackendSurface?)?
+        imagePainter,
+    ImageCellSize? imageCells,
   }) =>
-      NotcursesBackend._(io, platform);
+      NotcursesBackend._(io, platform)
+        .._imagePainter = imagePainter
+        .._imageCells = imageCells;
 
   /// Build a paired [InputBackend] that polls the same notcurses context
   /// this backend owns. Throws after the backend has been stopped — callers
@@ -536,6 +565,9 @@ class NotcursesBackend
       } catch (_) {}
     }
     _inputBackends.clear();
+    for (final owner in _images.keys.toList()) {
+      clearImages(owner);
+    }
     // Destroy planes while their context is still alive. This also marks the
     // surface handles inert, so late writes/erases/destroy calls cannot reach
     // freed native memory. destroy removes itself from the live-surface set.
@@ -632,7 +664,22 @@ class NotcursesBackend
     if (surface is NotcursesBackendSurface) {
       surface._canvas = _canvas;
       surface._requestPresent = _surfaceMutated;
-      surface._onDestroy = () => _surfaces.remove(surface);
+      surface._onRaise = () {
+        for (final images in _images.values) {
+          for (final image in images) {
+            if (identical(image.surface, surface)) image.plane.raise();
+          }
+        }
+      };
+      surface._onDestroy = () {
+        for (final owner in _images.keys.toList()) {
+          if (_images[owner]!
+              .any((image) => identical(image.surface, surface))) {
+            clearImages(owner);
+          }
+        }
+        _surfaces.remove(surface);
+      };
       _surfaces.add(surface);
     }
     return surface;
@@ -648,38 +695,159 @@ class NotcursesBackend
     required int maxCols,
     BackendSurface? targetSurface,
   }) {
-    if (_stopped || width <= 0 || height <= 0) return;
-    // Parent the image onto the target chat plane when supplied (so the picture
-    // stacks above that panel's chat surface), else onto the standard plane.
-    final chatSurface =
-        targetSurface is NotcursesBackendSurface ? targetSurface : null;
-    final plane = chatSurface?._plane ?? _platform.plane;
-    final notc = chatSurface?._platform.notc ?? _platform.notc;
-    if (plane == null || notc == null) return; // recording fake / no pixel path
-    // Reinterpret the 32-bit RGBA pixels as a byte buffer for ncvisual_from_rgba.
-    final bytes = rgba.buffer.asUint8List(0, width * height * 4);
-    final visual = nc.Visual.fromRGBA(bytes, height, width * 4, width);
-    final vopts = nc.VisualOptions(
-      plane: plane,
-      y: row,
-      x: col,
-      blitter: _pixelBlitter(notc),
-      scaling: nc.Scale.none,
-      flags: nc.VisualOptionFlags.childplane,
-    );
-    visual.blit(notc, vopts);
-    visual.destroy();
-    _gridDirty = true;
+    if (_stopped || width <= 0 || height <= 0 || maxCols <= 0) return;
+    final raster = ImageRaster(
+        rgba: rgba, width: width, height: height, cells: imageCellSize);
+    updateImages(
+        _legacyImageOwner,
+        [
+          ImagePlacement(
+              image: raster,
+              row: row,
+              column: col,
+              sourceRow: 0,
+              rows: raster.rows,
+              columns: maxCols < raster.columns ? maxCols : raster.columns)
+        ],
+        targetSurface: targetSurface);
   }
 
-  /// Pick the best available blitter: pixel-accurate graphics when the terminal
-  /// supports them, else fall back through the rasterized-block ladder that
-  /// notcurses itself uses for NCBLIT_DEFAULT.
-  int _pixelBlitter(nc.NotCurses nc_) {
-    if (nc_.canPixel()) return nc.Blitter.pixel;
-    if (nc_.canHalfBlock()) return nc.Blitter.blit_3x2;
-    return nc.Blitter.blit_1x1;
+  @override
+  ImageCellSize get imageCellSize {
+    if (_imageCells != null) return _imageCells!;
+    if (_stopped) return ImageCellSize.halfBlock;
+    final notc = _platform.notc;
+    final plane = _platform.plane;
+    if (notc != null && plane != null) {
+      if (notc.canPixel()) {
+        final geometry = plane.pixelGeom(celldimx: true, celldimy: true);
+        if (geometry.celldimx > 0 && geometry.celldimy > 0) {
+          return ImageCellSize(geometry.celldimx, geometry.celldimy);
+        }
+      }
+      if (!notc.canHalfBlock()) return const ImageCellSize(1, 1);
+    }
+    return ImageCellSize.halfBlock;
   }
+
+  @override
+  bool updateImages(Object owner, List<ImagePlacement> images,
+      {BackendSurface? targetSurface}) {
+    if (_stopped) return false;
+    final previous = _images[owner] ?? const <_OwnedImage>[];
+    final next = <_OwnedImage>[];
+    var changed = false;
+    for (final placement in images) {
+      final existing = previous
+          .where((image) =>
+              image.placement == placement &&
+              identical(image.surface, targetSurface))
+          .firstOrNull;
+      if (existing != null) {
+        next.add(existing);
+        continue;
+      }
+      final plane = (_imagePainter ?? _blitImage)(placement, targetSurface);
+      if (plane != null) {
+        plane.raise();
+        next.add(_OwnedImage(placement, targetSurface, plane));
+        changed = true;
+      }
+    }
+    for (final image in previous) {
+      if (!next.contains(image)) {
+        image.plane.destroy();
+        changed = true;
+      }
+    }
+    if (next.isEmpty) {
+      _images.remove(owner);
+    } else {
+      _images[owner] = next;
+    }
+    if (changed) {
+      _gridDirty = true;
+      flush();
+    }
+    return changed;
+  }
+
+  @override
+  void clearImages(Object owner) {
+    final images = _images.remove(owner);
+    if (images == null) return;
+    for (final image in images) {
+      image.plane.destroy();
+    }
+    if (!_stopped) {
+      _gridDirty = true;
+      flush();
+    }
+  }
+
+  NotcursesImagePlane? _blitImage(
+      ImagePlacement placement, BackendSurface? surface) {
+    final chat = surface is NotcursesBackendSurface ? surface : null;
+    if (chat?._destroyed == true) return null;
+    final parent = chat?._plane ?? _platform.plane;
+    final notc = _platform.notc;
+    if (parent == null || notc == null) return null;
+    final image = placement.image;
+    final y = placement.row - (chat?.bounds.row ?? 0);
+    final x = placement.column - (chat?.bounds.col ?? 0);
+    if (x < 0 || y < 0 || x >= parent.dimx() || y >= parent.dimy()) return null;
+    final cells = image.cells;
+    final beginY = placement.sourceRow * cells.height;
+    final height = [
+      placement.rows * cells.height,
+      image.height - beginY,
+      (parent.dimy() - y) * cells.height
+    ].reduce((a, b) => a < b ? a : b);
+    final width = [
+      placement.columns * cells.width,
+      image.width,
+      (parent.dimx() - x) * cells.width
+    ].reduce((a, b) => a < b ? a : b);
+    if (beginY < 0 || height <= 0 || width <= 0) return null;
+    final pixel = notc.canPixel() &&
+        cells != ImageCellSize.halfBlock &&
+        cells != const ImageCellSize(1, 1);
+    final blitter = pixel
+        ? nc.Blitter.pixel
+        : cells.height == 2
+            ? nc.Blitter.blit_2x1
+            : nc.Blitter.blit_1x1;
+    final bytes = image.rgba.buffer
+        .asUint8List(image.rgba.offsetInBytes, image.width * image.height * 4);
+    final visual =
+        nc.Visual.fromRGBA(bytes, image.height, image.width * 4, image.width);
+    try {
+      if (!visual.initialized) return null;
+      final child = visual.blit(
+          notc,
+          nc.VisualOptions(
+              plane: parent,
+              y: y,
+              x: x,
+              begy: beginY,
+              begx: 0,
+              leny: height,
+              lenx: width,
+              blitter: blitter,
+              scaling: nc.Scale.none,
+              flags: nc.VisualOptionFlags.childplane));
+      return child == null ? null : _LiveImagePlane(child);
+    } finally {
+      visual.destroy();
+    }
+  }
+}
+
+final class _OwnedImage {
+  _OwnedImage(this.placement, this.surface, this.plane);
+  final ImagePlacement placement;
+  final BackendSurface? surface;
+  final NotcursesImagePlane plane;
 }
 
 /// [BackendSurface] backed by a real notcurses child plane.
@@ -698,6 +866,7 @@ class NotcursesBackendSurface implements BackendSurface {
   bool _destroyed = false;
   void Function()? _requestPresent;
   void Function()? _onDestroy;
+  void Function()? _onRaise;
 
   /// Whether [_plane.setScrolling] has been enabled. notcurses requires a
   /// plane to be a "scrolling plane" before [nc.Plane.scrollUp] succeeds
@@ -838,7 +1007,10 @@ class NotcursesBackendSurface implements BackendSurface {
 
   @override
   void raiseToTop() {
-    if (!_destroyed) _plane.moveTop();
+    if (!_destroyed) {
+      _plane.moveTop();
+      _onRaise?.call();
+    }
   }
 
   @override
@@ -851,11 +1023,12 @@ class NotcursesBackendSurface implements BackendSurface {
     if (_destroyed) return;
     _destroyed = true;
     _requestPresent = null;
+    _onRaise = null;
     try {
-      _plane.destroy();
-    } finally {
       _onDestroy?.call();
+    } finally {
       _onDestroy = null;
+      _plane.destroy();
     }
   }
 }

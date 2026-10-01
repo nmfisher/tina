@@ -60,7 +60,7 @@ for line in sys.stdin:
         if name == "screenshot":
             result(request, {"content": [
                 {"type": "text", "text": "Blender 📷"},
-                {"type": "image", "mimeType": "image/png", "data": "aGVsbG8="}],
+                {"type": "image", "mimeType": "image/png", "data": os.environ.get("TINA_MCP_FIXTURE_IMAGE", "aGVsbG8=")}],
                 "structuredContent": {"objects": 3}})
         elif name == "mutate":
             changed = True

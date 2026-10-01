@@ -62,7 +62,8 @@ final class ChatTuiPlugin extends AgentPlugin
   void Function()? _unbindPrompt, _unbindKey, _unbindModal;
   void Function()? _unbindStatus;
   Timer? _ticker;
-  int _frame = 0, _width = -1;
+  int _frame = 0, _width = -1, _height = -1;
+  ImageCellSize? _cells;
   bool _busy = false;
   int? _selected;
   String _streamed = '', _thinking = '';
@@ -71,6 +72,7 @@ final class ChatTuiPlugin extends AgentPlugin
   ChatBlock? _preview;
   bool _previewDirty = false;
   final _sources = Expando<String>('markdown-source');
+  final _images = Expando<ConsoleImage>('chat-image');
   MarkdownStyle get _style => MarkdownStyle.fromChatTheme(
       _console?.screen.theme.chat ?? const Theme.defaults().chat);
 
@@ -291,8 +293,17 @@ final class ChatTuiPlugin extends AgentPlugin
           _call(ToolUse.fromBlock(block), at: at);
         }
         if (block is ToolResultBlock) {
-          _finish(block.toolUseId,
-              ToolResult(block.content, isError: block.isError));
+          _finish(
+              block.toolUseId,
+              ToolResult(block.content,
+                  isError: block.isError, images: block.images),
+              at: at);
+        }
+        if (block is ImageBlock) {
+          _image(block,
+              speaker:
+                  message.role == Role.assistant ? _speaker : ChatSpeaker.you,
+              at: at);
         }
       }
     } else if (PlanChangedEntry.matches(entry)) {
@@ -368,7 +379,7 @@ final class ChatTuiPlugin extends AgentPlugin
     }
   }
 
-  void _finish(String id, ToolResult result) {
+  void _finish(String id, ToolResult result, {DateTime? at}) {
     if (!_finished.add(id)) return;
     final block = _calls[id];
     if (block == null) return;
@@ -401,6 +412,24 @@ final class ChatTuiPlugin extends AgentPlugin
     block.body =
         display.trim().isEmpty ? const [] : plainLines(_bound(display));
     _changed(block);
+    for (final image in result.images) {
+      _image(image, at: at);
+    }
+  }
+
+  void _image(ImageBlock image,
+      {ChatSpeaker speaker = _speaker, DateTime? at}) {
+    ConsoleImage? decoded;
+    try {
+      decoded = ConsoleImage.decode(base64Decode(image.data));
+    } catch (_) {/* A malformed attachment must not stop the turn. */}
+    final block = ChatBlock.notice(
+        speaker,
+        decoded == null
+            ? 'Image unavailable · ${_clean(image.mimeType)}'
+            : 'Image · ${_clean(image.mimeType)} · ${decoded.width}×${decoded.height}');
+    if (decoded != null) _images[block] = decoded;
+    _add(block, at: at);
   }
 
   @override
@@ -427,26 +456,48 @@ final class ChatTuiPlugin extends AgentPlugin
         _renderedRows += lines.length;
         _trailingBlankRows = _countTrailingBlanks(lines);
         for (final line in lines) {
-          chat.writeStyledLine(line.text, line.bar ?? _style.base);
+          chat.writeLine(RegionLine(line.text,
+              bar: line.bar ?? _style.base, image: line.image));
         }
       });
     }
   }
 
-  List<RegionLine> _render(ChatBlock block) => [
-        for (final line in renderer.render(
-            block,
-            RenderContext(
-                width: _console!.chat.bounds.width,
-                theme: _console!.screen.theme)))
-          if (line.isBlank)
-            const RegionLine('')
-          else
-            _serialize(
-                line,
-                identical(
-                    block, _selected == null ? null : _blocks[_selected!])),
-      ];
+  List<RegionLine> _render(ChatBlock block) {
+    final lines = <RegionLine>[
+      for (final line in renderer.render(
+          block,
+          RenderContext(
+              width: _console!.chat.bounds.width,
+              theme: _console!.screen.theme)))
+        if (line.isBlank)
+          const RegionLine('')
+        else
+          _serialize(line,
+              identical(block, _selected == null ? null : _blocks[_selected!])),
+    ];
+    final image = _images[block];
+    final console = _console!;
+    final cells = console.screen.imageCellSize;
+    if (image != null && cells != null) {
+      final width = console.chat.bounds.width;
+      final gutter = width > TimestampChatRenderer.stampWidth + 2
+          ? TimestampChatRenderer.stampWidth + 1
+          : 1;
+      if (width > gutter) {
+        final raster = image.fit(
+            columns: width - gutter,
+            rows: (console.chat.usableHeight - 2).clamp(1, 20),
+            cells: cells);
+        lines.addAll([
+          for (var row = 0; row < raster.rows; row++)
+            RegionLine(' ', image: ImageRow(raster, row, column: gutter)),
+        ]);
+      }
+    }
+    return lines;
+  }
+
   RegionLine _serialize(RenderLine line, bool selected) {
     final serialized =
         serializeLine(line, _style, styled: _console!.screen.ansi.useColor);
@@ -501,8 +552,12 @@ final class ChatTuiPlugin extends AgentPlugin
       _width = -1;
       return;
     }
-    if (_width != console.chat.bounds.width) {
+    if (_width != console.chat.bounds.width ||
+        _height != console.chat.usableHeight ||
+        _cells != console.screen.imageCellSize) {
       _width = console.chat.bounds.width;
+      _height = console.chat.usableHeight;
+      _cells = console.screen.imageCellSize;
       _rebuild();
     }
     _paintUsage();

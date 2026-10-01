@@ -6,6 +6,7 @@ import 'plugin_catalog.dart';
 import 'dart:io' as io;
 
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/notcurses.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
 import 'settings_panel.dart';
@@ -25,12 +26,14 @@ Future<int> runApp(
   LineEditor Function(Screen screen)? editorFor,
   ConsoleContext Function(Screen, LineEditor)? consoleContextFor,
   Stream<ScreenLayout>? resizes,
+  String backend = 'ansi',
 }) async {
   final terminal = session.terminal;
   if (terminal is! TuiTerminal) {
     throw ArgumentError('runApp requires a TuiTerminal');
   }
-  final s = screen ?? _newScreen(theme: resolveTheme(session.assembly.theme));
+  final s = screen ??
+      _newScreen(theme: resolveTheme(session.assembly.theme), backend: backend);
   // UI plugins own presentation. The app only routes generic notices and
   // mounts console capabilities; headless output still uses TuiTerminal.
   final queued = Queue<String>();
@@ -39,8 +42,13 @@ Future<int> runApp(
   StreamSubscription<ScreenLayout>? resizeSubscription;
 
   // The editor owns the raw bytes; where its keys go is decided below.
-  late final LineEditor editor =
-      editorFor != null ? editorFor(s) : LineEditor(screen: s);
+  late final LineEditor editor = editorFor != null
+      ? editorFor(s)
+      : LineEditor(
+          screen: s,
+          input: s.backend is NotcursesBackend
+              ? (s.backend as NotcursesBackend).createInputBackend()
+              : null);
   editor.restoreHistory(session.inputHistory);
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
@@ -122,7 +130,8 @@ Future<int> runApp(
     // test harness drives events by hand and has no tty to change. An
     // injected screen still renders (alt screen below), it just never
     // touches the process's tty.
-    ownsTty = screen == null && s.io.hasTerminal;
+    ownsTty =
+        screen == null && s.io.hasTerminal && s.backend is! NotcursesBackend;
     if (ownsTty) {
       try {
         previousEchoMode = io.stdin.echoMode;
@@ -132,6 +141,9 @@ Future<int> runApp(
       } catch (_) {}
     }
     if (!s.passthrough) s.enterAltScreen();
+    // Native capability-reply draining must finish before a visible prompt
+    // invites typing. Otherwise a quick first message can be discarded.
+    if (s.backend is NotcursesBackend) await editor.input.ready;
     final workspace =
         session.host.plugins.whereType<ConsoleWorkspace>().firstOrNull;
     if (workspace != null) {
@@ -250,27 +262,45 @@ Future<int> runApp(
   }
 }
 
-/// The real screen: size off the process's stdout, ANSI backend, no
+/// The real screen: size off the process's stdout, selected backend, no
 /// menu bar — one chat panel, one status row, one input row. Without a
 /// terminal there is no size to ask for (`terminalColumns` throws on a
 /// pipe), so debug and CI runs fall back to a conventional 80×24.
-Screen _newScreen({Theme? theme}) {
+Screen _newScreen({Theme? theme, String backend = 'ansi'}) {
   var columns = 80;
   var lines = 24;
   if (io.stdout.hasTerminal) {
     columns = io.stdout.terminalColumns;
     lines = io.stdout.terminalLines;
   }
+  final layout = ScreenLayout.fromSize(columns, lines, split: false);
+  if (backend == 'notcurses') {
+    if (!io.stdout.hasTerminal || !io.stdin.hasTerminal) {
+      throw StateError('--backend notcurses requires a terminal');
+    }
+    final native = NotcursesBackend.create(io: const _AppStdio());
+    try {
+      return Screen.withBackend(
+          backend: native,
+          io: const _AppStdio(),
+          theme: theme ?? const Theme.defaults(),
+          layout: layout);
+    } catch (_) {
+      native.enterAltScreen();
+      native.leaveAltScreen();
+      rethrow;
+    }
+  }
   return Screen(
     io: const _AppStdio(),
     theme: theme ?? const Theme.defaults(),
-    layout: ScreenLayout.fromSize(columns, lines, split: false),
+    layout: layout,
   );
 }
 
-/// This app has one input owner and performs no terminal probes. Let its
-/// input backend cancel the actual stdin subscription on shutdown; the
-/// shared LiveStdio relay deliberately outlives individual subscribers.
+/// ANSI input reads the process stream directly, so disposing its input
+/// backend releases that subscription. Notcurses owns its capability queries
+/// and input queue; its paired input backend is the sole reader on that path.
 class _AppStdio extends LiveStdio {
   const _AppStdio();
 
@@ -299,17 +329,25 @@ Theme resolveTheme(Map<String, dynamic> values) {
 }
 
 /// Initial configuration has no model session and writes only on Save.
-Future<bool> runConfigEditor(String path) async {
-  final screen = _newScreen();
-  final editor = LineEditor(screen: screen);
+Future<bool> runConfigEditor(String path, {String backend = 'ansi'}) async {
+  final screen = _newScreen(backend: backend);
+  final editor = LineEditor(
+      screen: screen,
+      input: screen.backend is NotcursesBackend
+          ? (screen.backend as NotcursesBackend).createInputBackend()
+          : null);
   final panel = SettingsPanel(screen, editor);
-  final echo = io.stdin.echoMode;
-  final line = io.stdin.lineMode;
+  final native = screen.backend is NotcursesBackend;
+  final echo = native ? null : io.stdin.echoMode;
+  final line = native ? null : io.stdin.lineMode;
   StreamSubscription<io.ProcessSignal>? resize;
   try {
-    io.stdin.echoMode = false;
-    io.stdin.lineMode = false;
+    if (!native) {
+      io.stdin.echoMode = false;
+      io.stdin.lineMode = false;
+    }
     screen.enterAltScreen();
+    if (native) await editor.input.ready;
     resize = io.ProcessSignal.sigwinch.watch().listen((_) {
       screen.resize(ScreenLayout.fromSize(
           io.stdout.terminalColumns, io.stdout.terminalLines,
@@ -324,8 +362,8 @@ Future<bool> runConfigEditor(String path) async {
         validatePlugins: registry.validate);
   } finally {
     await resize?.cancel();
-    io.stdin.echoMode = echo;
-    io.stdin.lineMode = line;
+    if (echo != null) io.stdin.echoMode = echo;
+    if (line != null) io.stdin.lineMode = line;
     editor.close(reportLatency: false);
     screen.dispose();
     screen.leaveAltScreen();

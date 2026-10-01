@@ -6,9 +6,10 @@ String shellCompletion(String shell) => switch (shell) {
     --cwd) COMPREPLY=(); while IFS= read -r item; do COMPREPLY+=("$item"); done < <(compgen -d -- "$cur"); return;;
     --config|--store|--import-sessions) COMPREPLY=(); while IFS= read -r item; do COMPREPLY+=("$item"); done < <(compgen -f -- "$cur"); return;;
     --completion) COMPREPLY=( $(compgen -W 'bash zsh fish' -- "$cur") ); return;;
+    --backend) COMPREPLY=( $(compgen -W 'ansi notcurses' -- "$cur") ); return;;
     --resume) if [[ "$cur" != -* ]]; then return; fi;;
   esac
-  COMPREPLY=( $(compgen -W '--model --models --prompt --goal --max-goal-turns --config --cwd --store --resume --continue -c --configure --version --help --completion --import-sessions --dry-run' -- "$cur") )
+  COMPREPLY=( $(compgen -W '--model --models --prompt --goal --max-goal-turns --config --cwd --store --resume --continue -c --configure --version --help --completion --import-sessions --dry-run --backend' -- "$cur") )
 }
 complete -F _tina_complete tina''',
       'zsh' => r'''#compdef tina
@@ -19,6 +20,7 @@ _tina() {
     '--goal[Headless goal]:goal:' '--max-goal-turns[Bound goal turns]:count:' \
     '--continue[Continue latest session]' '-c[Continue latest session]' '--configure[Edit settings]' '--version[Print version]' \
     '--help[Usage]' '--completion[Shell completion]:shell:(bash zsh fish)' \
+    '--backend[Terminal renderer]:backend:(ansi notcurses)' \
     '--import-sessions[Import legacy sessions]:source:_files' '--dry-run[Preview import without writing]'
 }
 compdef _tina tina''',
@@ -41,6 +43,7 @@ complete -c tina -l model -r
 complete -c tina -l models
 complete -c tina -l prompt -r
 complete -c tina -l configure
+complete -c tina -l backend -r -a 'ansi notcurses'
 complete -c tina -l version
 complete -c tina -l help
 complete -c tina -l completion -r -a 'bash zsh fish' ''',

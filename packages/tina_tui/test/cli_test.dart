@@ -42,6 +42,9 @@ void main() {
   test('incomplete, unknown and conflicting CLI flags fail before startup',
       () async {
     expect(await runCli(['--config']), 64);
+    expect(await runCli(['--backend']), 64);
+    expect(await runCli(['--backend', 'unknown']), 64);
+    expect(await runCli(['--backend', 'notcurses', '--help']), 0);
     expect(await runCli(['--unknown']), 64);
     expect(await runCli(['--sessions', '--resume', 'id']), 64);
     expect(await runCli(['--continue', '--resume']), 64);

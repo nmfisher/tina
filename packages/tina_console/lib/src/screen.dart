@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'console_image.dart';
 
 import 'ansi_capable.dart';
 import 'ansi_wrap.dart';
@@ -73,6 +74,7 @@ class Screen {
   BackendSurface? _inputSurface;
   BackendSurface? _activeChatSurface;
   final Set<BackendSurface> _chatSurfaces = {};
+  final Set<ScrollingTextRegion> _imageRegions = {};
   final List<BackendSurface> _overlaySurfaces = [];
 
   bool _inAltScreen = false;
@@ -272,6 +274,9 @@ class Screen {
       _frameDepth--;
       try {
         if (_frameDepth == 0) {
+          for (final region in _imageRegions.toList()) {
+            region.paintImages();
+          }
           _drainPendingBorderRepairs();
           // Deferred border repairs each reposition the cursor onto a border
           // cell; re-apply the body's last parked position so it survives as the
@@ -512,6 +517,9 @@ class Screen {
 
   /// Release timers owned by the frame coordinator.
   void dispose() {
+    for (final region in _imageRegions.toList()) {
+      retainImageRegion(region, false);
+    }
     _animationTimer?.cancel();
     _animationTimer = null;
     _animations.clear();
@@ -1159,6 +1167,34 @@ class Screen {
     // an internal buffer that only reaches io on flush, and the notcurses
     // backend's render() is idempotent, so this makes the image visible now.
     be.flush();
+  }
+
+  ImageCellSize? get imageCellSize => _backend is RetainedImageBackend
+      ? (_backend as RetainedImageBackend).imageCellSize
+      : null;
+
+  /// Regions own attachment lifetimes; the backend owns native image planes.
+  void retainImageRegion(ScrollingTextRegion region, bool retain) {
+    if (retain && imageCellSize != null) {
+      _imageRegions.add(region);
+    } else {
+      _imageRegions.remove(region);
+      final be = _backend;
+      if (be is RetainedImageBackend) {
+        (be as RetainedImageBackend).clearImages(region);
+      }
+    }
+  }
+
+  void paintRegionImages(ScrollingTextRegion owner, List<ImagePlacement> images,
+      BackendSurface? surface) {
+    final be = _backend;
+    if (be is! RetainedImageBackend) return;
+    if ((be as RetainedImageBackend)
+        .updateImages(owner, images, targetSurface: surface)) {
+      _raiseOverlays();
+      be!.flush();
+    }
   }
 
   // -- Internal helpers ----------------------------------------------------

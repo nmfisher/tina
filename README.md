@@ -99,6 +99,13 @@ intact; use `--import-sessions PATH` to convert them first (see the
 [import guide](docs/engine2-session-import.md)). The old session
 slash commands have deliberately not been ported.
 
+`tina --backend notcurses` displays message attachments and MCP tool-result
+images inline. Images scroll with the transcript, resize with the panel and
+survive session resume. Notcurses uses terminal pixel graphics when available,
+with colored block graphics as its fallback. The default ANSI renderer shows
+image captions. This presentation belongs to `tina/chat-tui`; the console
+backend owns graphics and the engine carries provider-neutral image content.
+
 Shift-Tab cycles **ask → read-only → allow-edits → auto**; `/mode NAME` selects
 one directly. The single `tina/mode` plugin owns both the permission policy and
 its console attachment. Auto reviews tool operations with a safety judge and
@@ -119,6 +126,7 @@ cd tina
 dart pub get
 ./tool/build_bundle.sh host
 python3 tool/smoke_engine2.py --binary build/cli/macos_arm64/bundle/bin/tina
+python3 tool/smoke_notcurses_images.py --binary build/cli/macos_arm64/bundle/bin/tina
 ```
 
 Requires Dart 3.12 or later. The build script also supports `linux-x64`,

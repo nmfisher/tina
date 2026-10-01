@@ -149,6 +149,9 @@ jobs:
       - name: Smoke-test engine2 turns, approvals, cancellation and resume
         run: python3 tool/smoke_engine2.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
 
+      - name: Smoke-test notcurses images, input, resume and teardown
+        run: python3 tool/smoke_notcurses_images.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
         env:

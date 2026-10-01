@@ -17,6 +17,7 @@
 library;
 
 export 'src/renderer.dart';
+export 'src/console_image.dart';
 export 'src/status_layout.dart';
 
 export 'src/backend/backend_factory.dart';

@@ -6,7 +6,7 @@ imports now re-export the same implementation. `tina/mode-tui`, in this package,
 owns Shift-Tab and the mode strip. Both are enabled by default and can be toggled
 in Settings → Plugins at session, workspace or global scope.
 
-- Chat rows have `HH:mm:ss` on the first line of each block. Recorded timestamps
+- Chat rows show `HH:mm` when the sender or minute changes. Recorded timestamps
   survive replay and resizing; imported messages without timestamps use the time
   they are first displayed, as the old renderer did.
 - The prompt is the model name, with the old busy spinner and unread-row badge.
@@ -19,6 +19,10 @@ in Settings → Plugins at session, workspace or global scope.
   and the mouse wheel also scroll without editing input. Scrolling back holds
   the viewport while new output arrives; returning to the bottom resumes following.
   F4's activity browser remains available for full result details and edit diffs.
+- Message and tool-result images appear with captions. With `--backend notcurses`,
+  decoded images occupy retained transcript rows and scroll, resize and replay
+  alongside text; graphics are clipped above the input area and below dialogs.
+  The ANSI renderer keeps captions without allocating empty picture rows.
 - The status strip carries the mode, plan, goal, session ID and reported token
   spend, including the configured session cap. Unknown failed/cancelled request
   spend appears separately as `+~N est`; measured plus estimated spend controls

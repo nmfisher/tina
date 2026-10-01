@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'console_image.dart';
 
 import 'package:meta/meta.dart';
 
@@ -526,6 +527,7 @@ class ScrollingTextRegion extends Region {
   /// Stop writing to the screen. Future [write] calls accumulate in an
   /// internal buffer. Call [attach] to replay them and resume live writes.
   void detach() {
+    screen.retainImageRegion(this, false);
     // Drop any coalesced chat paint the screen is still owed (the per-region
     // _paintTimer is gone — the screen-global coordinator owns timing now).
     screen.resetChatPresentation();
@@ -545,6 +547,7 @@ class ScrollingTextRegion extends Region {
     _detached = false;
     _reconcileRows();
     _ensureSurface();
+    _retainImages();
     _redraw();
     final buffered = _detachedBuffer.toString();
     _detachedBuffer.clear();
@@ -576,6 +579,7 @@ class ScrollingTextRegion extends Region {
   /// Used by [Screen.clearChat]. Resets the row buffer and write cursor;
   /// the screen has already erased the rows visually.
   void resetAfterClear() {
+    screen.retainImageRegion(this, false);
     for (var i = 0; i < _rows.length; i++) {
       _rows[i] = _StyledRow();
     }
@@ -685,6 +689,79 @@ class ScrollingTextRegion extends Region {
   /// The window's blank tail is not counted.
   int get contentRows => _history.length + _contentRowCount;
 
+  /// Append an already laid-out row, including an optional image slice.
+  void writeLine(RegionLine line) {
+    if (line.image == null ||
+        _detached ||
+        screen.passthrough ||
+        bounds.isEmpty) {
+      writeStyledLine(line.text, line.bar ?? '0');
+      return;
+    }
+    screen.frame(() {
+      if (_curCol != 0) writeln();
+      _rows[_curRow].image = line.image;
+      screen.retainImageRegion(this, true);
+      // A space counts as content even though image rows have no glyphs.
+      writeStyledLine(line.text.isEmpty ? ' ' : line.text, line.bar ?? '0');
+    });
+  }
+
+  void _retainImages() {
+    screen.retainImageRegion(
+        this,
+        !_detached &&
+            (_history.any((r) => r.image != null) ||
+                _rows.any((r) => r.image != null)));
+  }
+
+  /// Called at the end of a screen frame, after text and native scrolling.
+  /// Image children must follow the same retained viewport as their text rows.
+  void paintImages() {
+    if (_detached) return;
+    final usable = _usableHeight;
+    final total = contentRows;
+    final top = total - usable - _scrollOffset;
+    final images = <ImagePlacement>[];
+    for (var v = 0; v < usable; v++) {
+      final index = top + v;
+      if (index < 0 || index >= total) continue;
+      final row = index < _history.length
+          ? _history[index]
+          : _rows[index - _history.length];
+      final slice = row.image;
+      if (slice == null) continue;
+      var count = 1;
+      while (v + count < usable && index + count < total) {
+        final nextIndex = index + count;
+        final next = (nextIndex < _history.length
+                ? _history[nextIndex]
+                : _rows[nextIndex - _history.length])
+            .image;
+        if (next == null ||
+            !identical(next.image, slice.image) ||
+            next.index != slice.index + count ||
+            next.column != slice.column) {
+          break;
+        }
+        count++;
+      }
+      final columns =
+          (bounds.width - slice.column).clamp(0, slice.image.columns);
+      if (columns > 0) {
+        images.add(ImagePlacement(
+            image: slice.image,
+            row: bounds.row + v,
+            column: bounds.col + slice.column,
+            sourceRow: slice.index,
+            rows: count,
+            columns: columns));
+      }
+      v += count - 1;
+    }
+    screen.paintRegionImages(this, images, surface);
+  }
+
   /// Replace every retained row from [fromContentRow] onward with [lines], then
   /// repaint the viewport.
   ///
@@ -725,7 +802,8 @@ class ScrollingTextRegion extends Region {
         for (final line in lines)
           _StyledRow()
             ..append(line.text)
-            ..styleCode = line.bar,
+            ..styleCode = line.bar
+            ..image = line.image,
       ];
 
       // Keep one row free for the write cursor, so the next streamed line
@@ -746,6 +824,7 @@ class ScrollingTextRegion extends Region {
       while (_rows.length < bounds.height) {
         _rows.add(_StyledRow());
       }
+      _retainImages();
       _curRow = visible.length < usable ? visible.length : usable - 1;
       _curCol = 0;
 
@@ -1595,6 +1674,7 @@ class _StyledRow {
   final List<String> _segments = [];
   String? _flattened;
   String? styleCode;
+  ImageRow? image;
 
   /// Retained painted-row snapshot (Phase 2B): the last string emitted to the
   /// terminal for this row (post-SGR, post-padding), plus the absolute geometry
@@ -1628,6 +1708,7 @@ class _StyledRow {
   /// just to test emptiness — important because [_contentRowCount] scans every
   /// row on every paint.
   bool get isEmpty {
+    if (image != null) return false;
     for (final s in _segments) {
       if (s.isNotEmpty) return false;
     }
@@ -1663,7 +1744,7 @@ class _StyledRow {
 /// [text] carries any inline SGR runs verbatim, and [bar] is the row-level
 /// style (a code block's background, a user message's bar) or null for none.
 class RegionLine {
-  const RegionLine(this.text, {this.bar});
+  const RegionLine(this.text, {this.bar, this.image});
 
   /// The row's text, optionally carrying inline SGR runs. Must already fit the
   /// region: a rewritten row is not re-wrapped, because the caller's gutter
@@ -1672,6 +1753,7 @@ class RegionLine {
 
   /// The row-level style code, padded across the row's width by the emit path.
   final String? bar;
+  final ImageRow? image;
 }
 
 /// Random-access region for transient overlays (spinner, progress

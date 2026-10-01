@@ -15,6 +15,8 @@
 /// that shares the production width function shares its blind spots too.
 library;
 
+export 'src/backend/ansi_backend.dart' show AnsiBackend;
+
 /// A single cell in the virtual terminal.
 class _Cell {
   String char;
