@@ -2,9 +2,9 @@
 ///
 /// Parses the escape sequences emitted by SplitFrame, PanelRenderer,
 /// Spinner, and ProgressCounter, tracking cell state in a 2D grid.
-/// Does NOT handle: scrolling, tab stops, insert/delete lines, alternate
-/// screen buffer modes — none of those are needed for the rendering
-/// pipeline tests.
+/// Models full-screen scrolling on LF and autowrap so a row escaping the
+/// renderer's bounds cannot silently pass. Does NOT handle scroll regions,
+/// tab stops, insert/delete lines or alternate screen buffer modes.
 ///
 /// Glyph widths model a REAL terminal (tmux-class), not tina's own
 /// conservative table: wide glyphs occupy two cells (the second a
@@ -40,6 +40,10 @@ class VirtualTerminal {
   int _cursorCol = 0;
   bool _pendingWrap = false;
 
+  /// Whole-screen scrolls caused by an overflowing write, rather than the
+  /// renderer explicitly repainting its retained conversation rows.
+  int scrollCount = 0;
+
   int get cursorRow => _cursorRow;
   int get cursorCol => _cursorCol;
 
@@ -63,9 +67,8 @@ class VirtualTerminal {
         _pendingWrap = false;
         i++;
       } else if (ch == 0x0a) {
-        _cursorRow++;
+        _advanceRow();
         _pendingWrap = false;
-        if (_cursorRow >= height) _cursorRow = height - 1;
         i++;
       } else if (ch >= 0x20) {
         _putChar(String.fromCharCode(ch), _glyphWidth(ch));
@@ -154,6 +157,16 @@ class VirtualTerminal {
 
   // -- internals -----------------------------------------------------------
 
+  void _advanceRow() {
+    if (_cursorRow < height - 1) {
+      _cursorRow++;
+      return;
+    }
+    grid.removeAt(0);
+    grid.add(List.generate(width, (_) => _Cell()));
+    scrollCount++;
+  }
+
   /// Terminal-cell width of a code point, tmux-style: East Asian Wide and
   /// astral emoji occupy two cells, combining marks occupy none, VS16
   /// advances one (base+VS16 is the 2-cell emoji presentation), and ZWJ
@@ -180,9 +193,8 @@ class VirtualTerminal {
       // Deferred autowrap, or a wide glyph that cannot fit the last column:
       // the glyph starts the next row (what xterm/tmux do).
       _cursorCol = 0;
-      _cursorRow++;
+      _advanceRow();
       _pendingWrap = false;
-      if (_cursorRow >= height) _cursorRow = height - 1;
     }
     if (_cursorRow >= 0 &&
         _cursorRow < height &&

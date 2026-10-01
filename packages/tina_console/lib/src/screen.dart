@@ -617,7 +617,8 @@ class Screen {
         .where((l) => !l.isBlank)
         .map((line) {
           final text = line.runs.map((run) {
-            final text = run.text.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ');
+            final text =
+                run.text.replaceAll(RegExp(r'[\x00-\x1f\x7f-\x9f]'), ' ');
             return run.code == null ? text : colorize(run.code!, text);
           }).join();
           return line.bar == null ? text : colorize(line.bar!, text);
@@ -639,7 +640,7 @@ class Screen {
     // Erase first: a shorter status must never leave residue. The strip owns
     // its whole row (tin-q9w2) — the boxes stop one row above it, so unlike
     // the old border-row placement there is no border to re-assert here.
-    be.eraseCells(row, 1, inner);
+    be.eraseCells(row, 0, _layout.width);
     if (leftText.isEmpty && rightText.isEmpty) {
       be.restoreCursor();
       be.flush();

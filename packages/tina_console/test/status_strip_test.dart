@@ -56,6 +56,38 @@ void main() {
     expect(row, isNot(contains('mode: ask')));
   });
 
+  test('the bottom status row clears both margins without scrolling', () {
+    // Stray cells from an earlier bad paint must not survive a status update.
+    vt.feed('\x1b[${layout.stripRow + 1};1H\'');
+    vt.feed('\x1b[${layout.stripRow + 1};100Hp');
+    screen.setModeLabel('mode: auto');
+    screen.setStatusLines(const [
+      RenderLine(runs: [RenderRun('v0.9.25 · session test', null)])
+    ]);
+    vt.feed(io.written.toString());
+    expect(vt.charAt(layout.stripRow, 0), ' ');
+    expect(vt.charAt(layout.stripRow, 99), ' ');
+    expect(vt.rowText(layout.stripRow), contains('mode: auto'));
+    expect(vt.scrollCount, 0);
+    io.written.clear();
+    screen.setModeLabel(null);
+    screen.setStatusLines(const []);
+    vt.feed(io.written.toString());
+    expect(vt.rowText(layout.stripRow).trim(), isEmpty);
+    expect(vt.scrollCount, 0);
+  });
+
+  test('terminal harness detects bottom-row LF and delayed autowrap', () {
+    final terminal = VirtualTerminal(width: 4, height: 3);
+    terminal.feed('\x1b[3;1HMODE\r\nnext');
+    expect(terminal.rowText(1), 'MODE');
+    expect(terminal.scrollCount, 1);
+    terminal.feed('!');
+    expect(terminal.rowText(1), 'next');
+    expect(terminal.rowText(2), '!   ');
+    expect(terminal.scrollCount, 2);
+  });
+
   RenderLine _line(String text, {StatusAlign? align}) =>
       RenderLine(align: align, runs: [RenderRun(text, null)]);
 
