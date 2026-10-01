@@ -31,9 +31,11 @@ provider instance for the selected model. Reviews count toward the session's
 token ledger and limits. The request includes the full tool input, workspace,
 and operation being approved; no tools are available to the judge.
 
-Only a completed `{"decision":"ALLOW"}` response authorizes execution, once.
-The schema requires exactly one field and an ALLOW/DENY enum; the classifier
-validates it locally too. Prose, Markdown, extra fields, tool calls and partial
+Only a completed, schema-valid `ALLOW` verdict authorizes execution, once.
+The schema requires `decision` (an ALLOW/DENY enum) and `reason` (a string);
+ALLOW can use an empty reason. DENY includes a short explanation of the risk
+or uncertainty. The classifier validates it locally too. Prose, Markdown,
+extra fields, tool calls and partial
 responses never grant permission. Provider adapters request native constraints:
 [OpenAI strict JSON Schema](https://developers.openai.com/api/docs/guides/structured-outputs),
 [Anthropic output_config.format](https://platform.claude.com/docs/en/build-with-claude/structured-outputs),
@@ -47,7 +49,11 @@ The judge retries a completed malformed verdict once with a stricter prompt;
 both attempts share the same 30-second timeout and cancellation signal.
 DENY, missing configuration, timeout or malformed output asks the human through
 the ordinary approval service. Classifier approval creates no remembered grant.
-The fallback names the classifier model. Tab details show attempt count, answer
+The fallback names the classifier model and shows its denial reason at the top
+of the approval's preview, including on short terminals. Tab shows the complete
+permission reason. Other channels receive `auto_approval_denial_reason` in the
+approval details. Missing/blank denial reasons are invalid verdicts and fall back
+to human review. Tab details show attempt count, answer
 and reasoning character counts, and completion status without storing raw output.
 Cancellation, shutdown or switching to read-only prevents a late ALLOW from
 executing. Changing to another mode reverts to human approval for that pending

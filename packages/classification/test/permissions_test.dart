@@ -42,7 +42,10 @@ Stream<StreamEvent> completed(String text, {String reason = 'end_turn'}) =>
     );
 
 void main() {
-  for (final answer in ['{"decision":"ALLOW"}', ' { "decision": "DENY" }\n']) {
+  for (final answer in [
+    '{"decision":"ALLOW","reason":""}',
+    ' { "decision": "DENY", "reason": "Force pushing can overwrite remote history." }\n',
+  ]) {
     test('accepts a complete schema-valid JSON verdict: $answer', () async {
       final provider = Provider((_) => completed(answer));
       final result = await PermissionClassifier(
@@ -59,10 +62,17 @@ void main() {
             'type': 'string',
             'enum': ['ALLOW', 'DENY'],
           },
+          'reason': {'type': 'string'},
         },
-        'required': ['decision'],
+        'required': ['decision', 'reason'],
         'additionalProperties': false,
       });
+      expect(
+        result.reason,
+        result.allow == false
+            ? 'Force pushing can overwrite remote history.'
+            : null,
+      );
       expect(provider.closed, true);
     });
   }
@@ -71,7 +81,12 @@ void main() {
     '**ALLOW**',
     '{"decision":"allow"}',
     '{"decision":true}',
-    '{"decision":"ALLOW","reason":"safe"}',
+    '{"decision":"ALLOW"}',
+    '{"decision":"DENY"}',
+    '{"decision":"DENY","reason":"  "}',
+    '{"decision":"ALLOW","reason":null}',
+    '{"decision":"DENY","reason":false}',
+    '{"decision":"ALLOW","reason":"safe","extra":true}',
     '{}',
     '[{"decision":"ALLOW"}]',
     '{"decision":"ALLOW"',
@@ -108,7 +123,7 @@ void main() {
           (attempt) => completed(
             attempt == 1
                 ? 'This is safe, but I forgot the verdict.'
-                : '{"decision":"$verdict"}',
+                : '{"decision":"$verdict","reason":"Cannot verify the operation is within the project."}',
           ),
         );
         final request = {
@@ -131,6 +146,26 @@ void main() {
       },
     );
   }
+  test('denial explanations are bounded and safe to render', () async {
+    final provider = Provider(
+      (_) => completed(
+        '{"decision":"DENY","reason":"\\u001b[31mRisk\\n  of data loss.\\u001b[0m"}',
+      ),
+    );
+    final result = await PermissionClassifier(() => provider).classify({});
+    expect(result.allow, false);
+    expect(result.reason, 'Risk of data loss.');
+    expect(result.failure, isNull);
+    expect(result.diagnostics.toString(), isNot(contains('data loss')));
+
+    final longProvider = Provider(
+      (_) => completed('{"decision":"DENY","reason":"${'r' * 1000}"}'),
+    );
+    final long = await PermissionClassifier(() => longProvider).classify({});
+    expect(long.allow, false);
+    expect(long.reason!.length, 500);
+    expect(long.reason, endsWith('…'));
+  });
   test(
     'empty reasoning-only completions report the actual failure without logging content',
     () async {

@@ -153,6 +153,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
       return _callApprovals[cacheKey]!;
     }
     String? autoFallback;
+    String? autoDenialReason;
     Map<String, Object?> autoDiagnostics = const {};
     if (mode == PermissionMode.auto && permission && !humanOnly) {
       final judge = classifier;
@@ -175,6 +176,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
             );
       if (invalid()) return ApprovalDecision.deny;
       autoDiagnostics = result.diagnostics;
+      if (result.allow == false) autoDenialReason = result.reason;
       if (mode == PermissionMode.auto && result.allow == true) {
         terminal?.writeln('$operation allowed by classifier: $target');
         // Classifier approvals apply once, never become human session grants.
@@ -186,13 +188,18 @@ class ModePlugin extends AgentPlugin implements ModeControl {
       autoFallback = mode != PermissionMode.auto
           ? 'mode changed to ${mode.label}'
           : result.allow == false
-          ? 'classifier recommends denial'
+          ? 'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}'
           : 'classifier ${result.failure ?? 'unavailable'}';
       if (autoDiagnostics['model'] is String) {
         autoFallback = '$autoFallback (${autoDiagnostics['model']})';
       }
       terminal?.writeln('$autoFallback — asking you: $target');
     }
+    final fallbackSentence = autoFallback == null
+        ? null
+        : RegExp(r'[.!?]$').hasMatch(autoFallback)
+        ? autoFallback
+        : '$autoFallback.';
     final decision =
         await approvals?.request(
           operation: operation,
@@ -200,13 +207,15 @@ class ModePlugin extends AgentPlugin implements ModeControl {
           kind: kind,
           reason: autoFallback == null
               ? reason
-              : 'Auto approval: $autoFallback. $reason',
+              : 'Auto approval: $fallbackSentence $reason',
           details: {
             ...context,
             if (_call != null)
               'tool': {'name': _call!.name, 'input': _call!.input},
             'mode': mode.name,
             if (autoFallback != null) 'auto_approval_fallback': autoFallback,
+            if (autoDenialReason != null)
+              'auto_approval_denial_reason': autoDenialReason,
             if (autoDiagnostics.isNotEmpty)
               'auto_approval_classifier': autoDiagnostics,
           },

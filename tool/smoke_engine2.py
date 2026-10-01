@@ -101,6 +101,9 @@ class ModelStub(BaseHTTPRequestHandler):
             ('auto network example', 'exec', {'program': '/bin/echo',
                 'args': ['auto-network-output'], 'network': True,
                 'network_reason': 'test automatic network schema approval'}),
+            ('auto denied network example', 'exec', {'program': '/bin/echo',
+                'args': ['denied-network-output'], 'network': True,
+                'network_reason': 'test automatic denial explanation'}),
             ('background poll example', 'bash', {'background': True, 'timeout': 120,
                 'command': 'echo background-live; while [ ! -f background-release ]; do sleep 0.1; done; echo background-finished'}),
         ]:
@@ -137,15 +140,19 @@ class ModelStub(BaseHTTPRequestHandler):
         if output is not None:
             assert output == {'type': 'json_schema', 'schema': {
                 'type': 'object',
-                'properties': {'decision': {'type': 'string', 'enum': ['ALLOW', 'DENY']}},
-                'required': ['decision'], 'additionalProperties': False}}
+                'properties': {'decision': {'type': 'string', 'enum': ['ALLOW', 'DENY']},
+                               'reason': {'type': 'string'}},
+                'required': ['decision', 'reason'], 'additionalProperties': False}}
             evidence = json.loads(prompt[0]['text'])
             assert evidence['required_permissions'] == ['execution', 'network']
-            assert evidence['arguments'] == ['auto-network-output']
+            assert evidence['arguments'] in [['auto-network-output'], ['denied-network-output']]
+            denied = evidence['arguments'] == ['denied-network-output']
             events[1] = {'type': 'content_block_start', 'index': 0,
                          'content_block': {'type': 'text', 'text': ''}}
             events[2] = {'type': 'content_block_delta', 'index': 0,
-                         'delta': {'type': 'text_delta', 'text': '{"decision":"ALLOW"}'}}
+                         'delta': {'type': 'text_delta', 'text': json.dumps({
+                             'decision': 'DENY' if denied else 'ALLOW',
+                             'reason': 'Project data could be exposed.' if denied else ''})}}
             events[4]['delta']['stop_reason'] = 'end_turn'
         def encode(items):
             return "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in items).encode()
@@ -191,11 +198,19 @@ class Terminal:
                 if error.errno != errno.EIO:
                     raise
 
-    def expect(self, text, start=0):
+    def expect(self, text, start=0, *, wrapped=False):
+        expected = text.encode()
+        if wrapped:
+            expected = re.sub(rb'\s+', b'', expected)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             self.read()
-            if text.encode() in ANSI.sub(b"", self.output[start:]):
+            shown = ANSI.sub(b"", self.output[start:])
+            if wrapped:
+                # Dialog continuation rows may split a word and add a gutter.
+                # Still require every character of the expected description.
+                shown = re.sub(rb'\s+', b'', shown)
+            if expected in shown:
                 return
             if self.process.poll() is not None:
                 break
@@ -462,6 +477,19 @@ def smoke(launcher, endpoint, columns, rows):
             assert 'output_config' in ModelStub.requests[before_auto + 1]
             assert b'awaiting approval' not in terminal.output[start:], 'schema-valid ALLOW still prompted'
             time.sleep(0.1)
+            before_auto = len(ModelStub.requests)
+            start = terminal.send('auto denied network example\r')
+            terminal.expect('classifier recommends denial', start)
+            terminal.expect('Project data could be exposed.', start)
+            terminal.expect('Why:', start)
+            terminal.expect('❯ [y] allow once', start)
+            start = terminal.send('n')
+            deadline = time.monotonic() + 10
+            while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
+                terminal.read()
+            assert len(ModelStub.requests) == before_auto + 3, 'denial explanation did not use the structured judge'
+            terminal.expect('smoke answer', start)
+            time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
             terminal.expect('mode: allow-edits', start)
             before_background = len(ModelStub.requests)
@@ -588,7 +616,7 @@ def smoke(launcher, endpoint, columns, rows):
                     terminal.expect('Asks for Yes/No confirmation', selected)
                     about = terminal.send('?')
                     terminal.expect('About tina/grok-guard', about)
-                    terminal.expect('No cancels the message.', about)
+                    terminal.expect('No cancels the message.', about, wrapped=True)
                     back = terminal.send('\x1b')
                     # Wait for the popup to close before Space. On the ANSI
                     # backend ESC waits 150ms to distinguish an Alt sequence;
@@ -914,12 +942,12 @@ def main():
     try:
         for columns, rows in [(80, 10), (80, 24), (120, 30)]:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        # Each size adds nine requests: one file-completion turn, three for
-        # automatic network approval (agent/judge/result), and five for the
+        # Each size adds twelve requests: one file-completion turn, six for
+        # automatic network approval/denial (agent/judge/result), and five for the
         # background job (start/result, another message, inspect/result).
         # Four MCP tool turns add eight requests per terminal size.
-        assert 150 <= len(ModelStub.requests) <= 153, (
-            f"expected 150–153 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
+        assert 159 <= len(ModelStub.requests) <= 162, (
+            f"expected 159–162 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

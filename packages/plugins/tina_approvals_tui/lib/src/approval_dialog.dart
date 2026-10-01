@@ -176,6 +176,9 @@ class ApprovalDialog {
     RenderLine row(String text, [String? style]) => RenderLine(runs: [
           RenderRun(clipDialogText(_safe(text), width), style),
         ]);
+    final denialReason = ask?.details['auto_approval_denial_reason'];
+    final hasDenialReason =
+        denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
       if (ask?.confirmation == true) ...[
         ask!.reason,
@@ -188,6 +191,10 @@ class ApprovalDialog {
           if (ask.details['cwd'] != null) 'Directory: ${ask.details['cwd']}',
         ],
       ] else ...[
+        // Keep the classifier's concrete concern in the first preview row,
+        // even when a short terminal has room for only one context row.
+        // Tab still shows the full permission request and classifier details.
+        if (hasDenialReason && !_details) 'Why: $denialReason',
         if (name == 'bash' ||
             name == 'exec' ||
             description?.fields.containsKey('Command') == true) ...[
@@ -216,7 +223,7 @@ class ApprovalDialog {
                 (input['newString'] ?? input['new_string'] ?? '').toString()),
         ],
         if (call?.argumentsParseError != null) call!.argumentsParseError!,
-        if (ask != null) 'Why: ${ask.reason}',
+        if (ask != null && (_details || !hasDenialReason)) 'Why: ${ask.reason}',
         if (_hasAlways &&
             ask?.details['permission_scope_description'] is String)
           ask!.details['permission_scope_description'] as String

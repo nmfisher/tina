@@ -387,5 +387,5 @@ class _StructuredJudge extends LlmProvider implements StructuredOutputProvider {
           {required String system,
           required List<Message> messages,
           required JsonOutputSchema output}) =>
-      Stream.fromIterable(scriptedReply('{"decision":"ALLOW"}'));
+      Stream.fromIterable(scriptedReply('{"decision":"ALLOW","reason":""}'));
 }

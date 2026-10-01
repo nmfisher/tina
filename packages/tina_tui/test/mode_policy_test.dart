@@ -284,7 +284,12 @@ class _Judge extends LlmProvider implements StructuredOutputProvider {
         content: [
           TextBlock(answer == 'unreadable'
               ? answer
-              : jsonEncode({'decision': answer}))
+              : jsonEncode({
+                  'decision': answer,
+                  'reason': answer == 'DENY'
+                      ? 'This operation can delete project data.'
+                      : ''
+                }))
         ],
         stopReason: 'end_turn',
         usage: TokenUsage(inputTokens: 10, outputTokens: 7));

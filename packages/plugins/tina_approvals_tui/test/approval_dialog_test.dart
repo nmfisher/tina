@@ -115,6 +115,48 @@ void main() {
     expect(shown, isNot(contains('[a]')));
   });
 
+  test(
+      'automatic denial reason is visible before command details in a short terminal',
+      () {
+    const reason = 'Project data could be exposed.';
+    const requestReason =
+        'Auto approval: classifier recommends denial. This command needs network access.';
+    final dialog = ApprovalDialog(null,
+        ask: const ApprovalAskContext('run command', 'git push', requestReason,
+            details: {
+              'cwd': '/a/long/workspace/path/that/should/not/hide/the/denial',
+              'auto_approval_denial_reason': reason,
+              'tool': {
+                'name': 'exec',
+                'input': {
+                  'program': 'git',
+                  'args': ['push', 'origin', 'work']
+                }
+              }
+            }));
+    var rows = dialog.rows(width: 78, height: 7).map(text).toList();
+    expect(rows, hasLength(7));
+    expect(rows[1], '│ Why: $reason');
+    expect(rows[rows.length - 3], '❯ [y] allow once');
+    expect(rows[rows.length - 2], '  [n] deny');
+    expect(rows.last, '  [a] allow this command for this session');
+    final pages = <String>[];
+    for (var i = 0; i < 15; i++) {
+      pages.addAll(dialog.rows(width: 78, height: 7).map(text));
+      dialog.handleKey(ApprovalKey.pageDown);
+    }
+    expect(pages.join('\n'), contains('git push origin work'));
+    dialog.handleKey(ApprovalKey.details);
+    rows = dialog.rows(width: 120, height: 30).map(text).toList();
+    expect(rows.join('\n'), contains('Why: $requestReason'));
+    for (var height = 1; height <= 7; height++) {
+      final compact =
+          ApprovalDialog(null, ask: dialog.ask).rows(width: 30, height: height);
+      expect(compact.length, lessThanOrEqualTo(height));
+      expect(compact.map(text).join('\n'), contains('❯ [y]'));
+    }
+  });
+
   test('permission scope text is supplied by plugins, including network grants',
       () async {
     final dialog = ApprovalDialog(null,

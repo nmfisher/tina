@@ -255,6 +255,32 @@ void main() {
   );
 
   test(
+    'a classifier denial explains the risk and still asks the human',
+    () async {
+      const risk = 'Force pushing can overwrite remote history.';
+      final human = Human()..answer = ApprovalDecision.deny;
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: Judge(Future.value(const PermissionJudgment.denied(risk))),
+      );
+      expect(await request(mode), ApprovalDecision.deny);
+      expect(human.calls, 1);
+      expect(human.lastReason, contains('classifier recommends denial: $risk'));
+      expect(human.lastReason, isNot(contains('..')));
+      expect(human.lastDetails['auto_approval_denial_reason'], risk);
+      human.answer = ApprovalDecision.allow;
+      expect(await request(mode), ApprovalDecision.allow);
+      expect(
+        human.calls,
+        2,
+        reason: 'a DENY verdict cannot remember permission',
+      );
+      mode.closeSession();
+    },
+  );
+
+  test(
     'human receives full tool context and allow once expires with invocation',
     () async {
       final human = Human();
