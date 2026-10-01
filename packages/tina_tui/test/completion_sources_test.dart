@@ -1,5 +1,5 @@
 // The input line's completion: the `/` command source (registry names)
-// and the `@` file source (git ls-files, bounded walk fallback), plus
+// and the `@` file source (full git listing, directory walk fallback), plus
 // the buffer surgery the editor performs when a candidate is accepted.
 //
 // The picker machinery is `tina_console`'s and is tested there; what is
@@ -161,7 +161,7 @@ void main() {
         final source = GitFileCompletionSource(workingDir: repo.path);
         expect(await source.complete('main'), contains('lib/main.dart'));
         expect(await source.complete('READ'), ['README.md']);
-        // The bare trigger lists the whole (capped) candidate set.
+        // The bare trigger lists the full candidate set.
         final all = await source.complete('');
         expect(all, containsAll(['README.md', 'lib/main.dart']));
       } finally {
@@ -189,8 +189,7 @@ void main() {
       expect(await source.complete(''), isEmpty);
     });
 
-    test('outside a repository the bounded walk supplies the candidates',
-        () async {
+    test('outside a repository the walk supplies the candidates', () async {
       // A populated non-repo folder: the walk fallback enumerates it.
       File('${ws.path}/notes.txt').writeAsStringSync('x\n');
       Directory('${ws.path}/docs').createSync();
@@ -202,13 +201,179 @@ void main() {
       expect(await source.complete('guide'), contains('docs/guide.md'));
     });
 
-    test('the candidate list is capped', () async {
-      final files = [for (var i = 0; i < 12; i++) 'f$i.txt'];
+    test('bare @ and fuzzy searches retain every file beyond the old 200 cap',
+        () async {
+      final files = [
+        for (var i = 0; i < 550; i++) '.tickets/f$i.txt',
+        'lib/zzz_unique_target.dart',
+        'docs/guide.md',
+        'README.md'
+      ];
       final repo = gitRepoWith(files);
       try {
-        final source =
-            GitFileCompletionSource(workingDir: repo.path, maxCandidates: 5);
-        expect((await source.complete('')).length, 5);
+        final source = GitFileCompletionSource(workingDir: repo.path);
+        final all = await source.complete('');
+        expect(all.toSet(), files.toSet());
+        expect(
+            all.take(8),
+            containsAll(
+                ['lib/zzz_unique_target.dart', 'docs/guide.md', 'README.md']));
+        expect(await source.complete('unique_target'),
+            ['lib/zzz_unique_target.dart']);
+        expect(await source.complete('f549'), contains('.tickets/f549.txt'));
+        expect(await source.complete('tickets'), hasLength(550));
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+    test(
+        'git returns actual Unicode, whitespace and quoted filenames, honoring ignore rules',
+        () async {
+      final files = [
+        'docs/café 日本語.md',
+        'docs/white space.md',
+        'docs/quote"name.md',
+        'docs/tab\tname.md',
+        'docs/line\nbreak.md',
+        '.hidden',
+        'LICENSE',
+        '.gitignore',
+        'ignored.txt',
+        'tracked.txt'
+      ];
+      final repo = gitRepoWith(files);
+      try {
+        File('${repo.path}/.gitignore')
+            .writeAsStringSync('ignored.txt\ntracked.txt\n');
+        final add = Process.runSync('git', ['add', '-f', 'tracked.txt'],
+            workingDirectory: repo.path);
+        expect(add.exitCode, 0);
+        final source = GitFileCompletionSource(workingDir: repo.path);
+        expect((await source.complete('')).toSet(),
+            files.where((f) => f != 'ignored.txt').toSet());
+        expect(await source.complete('café'), ['docs/café 日本語.md']);
+        expect(await source.complete('white space'), ['docs/white space.md']);
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+    test('walk searches more than 200 files and deeper than eight directories',
+        () async {
+      for (var i = 0; i < 240; i++) {
+        File('${ws.path}/f$i.txt').writeAsStringSync('x');
+      }
+      final deep = '${List.filled(12, 'nested').join('/')}/deep_target.dart';
+      File('${ws.path}/$deep')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('x');
+      File('${ws.path}/build/generated.dart')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('x');
+      File('${ws.path}/.hidden')..writeAsStringSync('x');
+      File('${ws.path}/dist')..writeAsStringSync('a regular source file');
+      Link('${ws.path}/cycle').createSync(ws.path);
+      final source = GitFileCompletionSource(workingDir: ws.path);
+      final all = await source.complete('');
+      expect(all, hasLength(244)); // 240 + deep + hidden + file + symlink
+      expect(all, containsAll([deep, '.hidden', 'dist', 'cycle']));
+      expect(all, isNot(contains('build/generated.dart')));
+      expect(all.any((file) => file.startsWith('cycle/')), false);
+      expect(await source.complete('deep_target'), [deep]);
+    });
+    test(
+        'stale snapshots refresh and concurrent keystrokes share the fresh listing',
+        () async {
+      var now = DateTime(2026);
+      File('${ws.path}/old.dart').writeAsStringSync('x');
+      final source =
+          GitFileCompletionSource(workingDir: ws.path, clock: () => now);
+      expect(await source.complete(''), ['old.dart']);
+      File('${ws.path}/old.dart').renameSync('${ws.path}/new.dart');
+      now = now.add(const Duration(seconds: 1));
+      expect(await source.complete(''), ['old.dart']);
+      now = now.add(const Duration(seconds: 3));
+      final snapshots =
+          await Future.wait([source.complete(''), source.complete('new')]);
+      expect(snapshots, [
+        ['new.dart'],
+        ['new.dart']
+      ]);
+    });
+    test(
+        'initialized nested gitlinks list tracked and untracked files with local ignores',
+        () async {
+      final repo = gitRepoWith(['root.txt']);
+      try {
+        final child = Directory('${repo.path}/vendor/dependency')
+          ..createSync(recursive: true);
+        final nested = Directory('${child.path}/nested/module')
+          ..createSync(recursive: true);
+        void git(Directory directory, List<String> arguments) {
+          final result = Process.runSync('git', arguments,
+              workingDirectory: directory.path);
+          expect(result.exitCode, 0, reason: result.stderr.toString());
+        }
+
+        for (final directory in [nested, child]) {
+          git(directory, ['init']);
+          File('${directory.path}/tracked.dart').writeAsStringSync('x');
+          git(directory, ['add', 'tracked.dart']);
+          git(directory, [
+            '-c',
+            'user.name=Completion test',
+            '-c',
+            'user.email=test@example.test',
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '-m',
+            'fixture'
+          ]);
+        }
+        String head(Directory directory) =>
+            (Process.runSync('git', ['rev-parse', 'HEAD'],
+                        workingDirectory: directory.path)
+                    .stdout as String)
+                .trim();
+        git(child, [
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          '160000',
+          head(nested),
+          'nested/module'
+        ]);
+        git(repo, [
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          '160000',
+          head(child),
+          'vendor/dependency'
+        ]);
+        // Also exercise an uninitialized gitlink with an empty directory.
+        Directory('${repo.path}/empty')..createSync();
+        git(repo, [
+          'update-index',
+          '--add',
+          '--cacheinfo',
+          '160000',
+          head(child),
+          'empty'
+        ]);
+        File('${child.path}/.gitignore').writeAsStringSync('ignored.dart\n');
+        File('${child.path}/untracked.dart').writeAsStringSync('x');
+        File('${child.path}/ignored.dart').writeAsStringSync('x');
+        final source = GitFileCompletionSource(workingDir: repo.path);
+        expect((await source.complete('')).toSet(), {
+          'root.txt',
+          'vendor/dependency/.gitignore',
+          'vendor/dependency/tracked.dart',
+          'vendor/dependency/untracked.dart',
+          'vendor/dependency/nested/module/tracked.dart',
+        });
+        expect(await source.complete('nested/module/tracked'),
+            ['vendor/dependency/nested/module/tracked.dart']);
       } finally {
         repo.deleteSync(recursive: true);
       }
@@ -284,6 +449,11 @@ void main() {
       // A file for the @ source to find (the walk fallback supplies it —
       // the temp directory is not a git repository).
       File('${ws.path}/main.dart').writeAsStringSync('x\n');
+      for (var i = 0; i < 240; i++) {
+        File('${ws.path}/.tickets/ticket-$i.md')
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync('x');
+      }
       final provider = ScriptedProvider([scriptedReply('ack')]);
       final io = FlushIo();
       final session = TuiSession.start(

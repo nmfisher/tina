@@ -9,6 +9,7 @@
 /// console only supplies the picker machinery.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -47,90 +48,118 @@ final class CommandNameCompletionSource implements CompletionProvider {
   }
 }
 
-/// The `@` source: candidate paths for the token being typed, from `git
-/// ls-files` (fast, respects ignore rules) with a bounded directory walk
-/// outside a repository. Empty for any query when nothing is enumerable —
-/// outside a repository *and* an empty directory are empty lists, not
-/// errors.
+/// The `@` source searches the full file listing, with git ignore rules inside
+/// repositories and a directory walk elsewhere. Only the picker viewport is
+/// bounded; neither enumeration nor ranking may make a file undiscoverable.
 final class GitFileCompletionSource implements CompletionProvider {
   /// The directory completions are relative to: the working directory of
   /// the git invocation and the root of the walk fallback.
   final String workingDir;
 
-  /// Result cap: enumeration is bounded so a huge tree cannot flood the
-  /// picker.
-  final int maxCandidates;
-
-  /// Walk-only bound: how deep the fallback walk descends from
-  /// [workingDir] (git output is already repo-relative and flat).
-  final int maxDepth;
+  static const cacheTtl = Duration(seconds: 3);
+  final DateTime Function() clock;
 
   /// Cached snapshot (3s TTL). Enumeration is the expensive part and the
   /// picker refreshes once per keystroke; the cache bounds it. Never a
   /// permission boundary — everything here is read-only listing.
   List<String>? _cache;
   DateTime? _cacheAt;
+  Future<List<String>>? _loading;
 
   GitFileCompletionSource({
     required this.workingDir,
-    this.maxCandidates = 200,
-    this.maxDepth = 8,
-  });
+    DateTime Function()? clock,
+  }) : clock = clock ?? DateTime.now;
 
   @override
   Future<List<String>> complete(String query) async {
-    final now = DateTime.now();
-    final cached = _cache;
-    if (cached == null ||
-        _cacheAt == null ||
-        now.difference(_cacheAt!) > const Duration(seconds: 3)) {
-      _cache = await _enumerate();
-      _cacheAt = now;
-    }
-    final all = _cache ?? const <String>[];
-    if (query.isEmpty) return List.of(all);
+    final all = await _files();
+    if (query.isEmpty) return _spreadAcrossFolders(all);
     return rankFuzzy(query, all);
   }
 
-  /// One bounded snapshot of the candidate set, preferring git.
-  Future<List<String>> _enumerate() async {
-    final fromGit = await _gitFiles();
+  Future<List<String>> _files() {
+    if (_cache != null &&
+        _cacheAt != null &&
+        clock().difference(_cacheAt!) < cacheTtl) {
+      return Future.value(_cache!);
+    }
+    // Keystrokes share an in-flight scan. Timestamp the completed snapshot so
+    // a slow listing does not expire before the next query can use it.
+    return _loading ??= _enumerate(workingDir).then((files) {
+      _cache = files;
+      _cacheAt = clock();
+      _loading = null;
+      return files;
+    });
+  }
+
+  Future<List<String>> _enumerate(String directory) async {
+    final fromGit = await _gitFiles(directory);
     if (fromGit != null) return fromGit;
-    return _walk();
+    return _walk(directory);
   }
 
   /// `git ls-files --cached --others --exclude-standard` in [workingDir]:
   /// tracked plus untracked-but-not-ignored, repo-relative, depth-free.
   /// Null when git is absent, fails, or the directory is not inside a
   /// work tree — the walk takes over.
-  Future<List<String>?> _gitFiles() async {
+  Future<List<String>?> _gitFiles(String directory) async {
     try {
-      final r = await Process.run(
-          'git',
-          const [
-            'ls-files',
-            '--cached',
-            '--others',
-            '--exclude-standard',
-          ],
-          workingDirectory: workingDir);
+      final results = await Future.wait([
+        Process.run(
+            'git',
+            const [
+              'ls-files',
+              '--cached',
+              '--others',
+              '--exclude-standard',
+              '-z'
+            ],
+            workingDirectory: directory,
+            stdoutEncoding: utf8),
+        // Git lists submodules as directory entries, not their files. Identify
+        // the gitlinks explicitly, then enumerate initialized submodules using
+        // their own ignore rules (including untracked files).
+        Process.run('git', const ['ls-files', '--stage', '-z'],
+            workingDirectory: directory, stdoutEncoding: utf8),
+      ]);
+      final r = results.first;
       if (r.exitCode != 0) return null;
       final files = (r.stdout as String)
-          .split('\n')
+          .split('\u0000')
           .where((l) => l.isNotEmpty)
-          .take(maxCandidates)
-          .toList();
-      return files;
+          .toSet();
+      if (results.last.exitCode == 0) {
+        final submodules = <String>{};
+        for (final entry in (results.last.stdout as String).split('\u0000')) {
+          if (!entry.startsWith('160000 ')) continue;
+          final tab = entry.indexOf('\t');
+          if (tab >= 0) submodules.add(entry.substring(tab + 1));
+        }
+        for (final name in submodules) {
+          files.remove(name);
+          final path = p.join(directory, name);
+          if (await FileSystemEntity.isLink(path) ||
+              !await Directory(path).exists()) continue;
+          // A gitlink can be a plain/empty directory before initialization.
+          // Running git there would query the parent repo again.
+          final initialized =
+              await FileSystemEntity.type(p.join(path, '.git')) !=
+                  FileSystemEntityType.notFound;
+          files.addAll((await (initialized ? _enumerate(path) : _walk(path)))
+              .map((file) => '$name/$file'));
+        }
+      }
+      return files.toList()..sort();
     } catch (_) {
       return null; // no git on PATH, or the directory vanished
     }
   }
 
-  /// The fallback outside a repository: a bounded walk — [maxDepth]
-  /// levels deep, [maxCandidates] entries, links never followed, the
-  /// usual noise directories skipped. Sorted so ties between runs read
-  /// the same.
-  Future<List<String>> _walk() async {
+  /// Like the legacy source, skip generated/dependency directories outside
+  /// git. Do not impose a depth limit or follow directory symlinks.
+  Future<List<String>> _walk(String directory) async {
     const skip = {
       '.git',
       '.dart_tool',
@@ -146,8 +175,7 @@ final class GitFileCompletionSource implements CompletionProvider {
     };
     final out = <String>[];
 
-    Future<void> walk(Directory dir, String prefix, int depth) async {
-      if (depth > maxDepth || out.length >= maxCandidates) return;
+    Future<void> walk(Directory dir, String prefix) async {
       List<FileSystemEntity> entries;
       try {
         entries = await dir.list(followLinks: false).toList();
@@ -156,22 +184,53 @@ final class GitFileCompletionSource implements CompletionProvider {
       }
       entries.sort((a, b) => a.path.compareTo(b.path));
       for (final e in entries) {
-        if (out.length >= maxCandidates) return;
         final name = p.basename(e.path);
-        if (skip.contains(name)) continue;
+        if (name == '.git' || (e is Directory && skip.contains(name))) continue;
         final rel = prefix.isEmpty ? name : '$prefix/$name';
         // A symlink's linkTarget resolves lazily; treat every link as a
         // file candidate and never descend into one.
         if (e is Directory) {
-          out.add('$rel/');
-          await walk(e, rel, depth + 1);
+          await walk(e, rel);
         } else {
           out.add(rel);
         }
       }
     }
 
-    await walk(Directory(workingDir), '', 1);
+    await walk(Directory(directory), '');
     return out;
+  }
+
+  /// Restore the legacy bare-@ spread across top-level folders, but retain
+  /// every file so scrolling can reach the entire list. A large dot-directory
+  /// must not bury all source folders on the first screen.
+  List<String> _spreadAcrossFolders(List<String> files) {
+    final buckets = <String, List<String>>{};
+    for (final file in files) {
+      final slash = file.indexOf('/');
+      final key = slash < 0 ? '' : file.substring(0, slash);
+      (buckets[key] ??= []).add(file);
+    }
+    int priority(String key) => key.isEmpty
+        ? 1
+        : key.startsWith('.')
+            ? 2
+            : 0;
+    var keys = buckets.keys.toList()
+      ..sort((a, b) {
+        final rank = priority(a).compareTo(priority(b));
+        return rank == 0 ? a.compareTo(b) : rank;
+      });
+    final result = <String>[];
+    for (var round = 0; keys.isNotEmpty; round++) {
+      final next = <String>[];
+      for (final key in keys) {
+        final bucket = buckets[key]!;
+        result.add(bucket[round]);
+        if (round + 1 < bucket.length) next.add(key);
+      }
+      keys = next;
+    }
+    return result;
   }
 }

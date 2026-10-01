@@ -1,7 +1,9 @@
 import 'package:fuzzy_ranker/fuzzy_ranker.dart';
+import 'input_display.dart';
 import 'rect.dart';
 import 'region.dart';
 import 'screen.dart';
+import 'term_width.dart';
 
 /// Popup completion menu opened by typing `@` at a word boundary.
 ///
@@ -19,9 +21,8 @@ class CompletionPicker {
   /// Character code that opens the picker (default `@` = 0x40).
   final int trigger;
 
-  /// Maximum number of items the panel shows / navigates at once. Set high for
-  /// short static lists (e.g. the command palette) so every item is reachable,
-  /// since navigation wraps over `min(results, maxRows)` items.
+  /// Maximum visible rows. Navigation covers every result, scrolling the
+  /// viewport to keep the selected item visible, including on small terminals.
   final int maxRows;
 
   /// Reported to the LineEditor's `onError` if provider throws.
@@ -48,6 +49,7 @@ class CompletionPicker {
   List<String> _results = const [];
   String? _resultsQuery;
   int _selected = 0;
+  int _scroll = 0;
   int _queryGen = 0;
 
   CompletionPicker(
@@ -97,6 +99,7 @@ class CompletionPicker {
     _active = true;
     _anchor = anchor;
     _selected = 0;
+    _scroll = 0;
     _results = const [];
     _resultsQuery = null;
     _loading = true;
@@ -111,6 +114,7 @@ class CompletionPicker {
     _results = const [];
     _resultsQuery = null;
     _selected = 0;
+    _scroll = 0;
     _queryGen++;
     _overlay.hide();
   }
@@ -136,24 +140,28 @@ class CompletionPicker {
       results = const [];
     }
     if (gen != _queryGen || !_active) return false;
+    final changed = _resultsQuery != query;
     _results = results;
     _resultsQuery = query;
     _loading = false;
-    if (_selected >= _results.length) _selected = 0;
+    if (changed || _selected >= _results.length) {
+      _selected = 0;
+      _scroll = 0;
+    }
     _render();
     return true;
   }
 
   void navigateUp() {
     if (!_active || _results.isEmpty) return;
-    final n = _visibleCount();
+    final n = _results.length;
     _selected = (_selected - 1 + n) % n;
     _render();
   }
 
   void navigateDown() {
     if (!_active || _results.isEmpty) return;
-    final n = _visibleCount();
+    final n = _results.length;
     _selected = (_selected + 1) % n;
     _render();
   }
@@ -195,6 +203,9 @@ class CompletionPicker {
       _overlay.hide();
       return;
     }
+    if (_selected < _scroll) _scroll = _selected;
+    if (_selected >= _scroll + h) _scroll = _selected - h + 1;
+    _scroll = _scroll.clamp(0, (_results.length - h).clamp(0, _results.length));
     final topRow = bottomRow - h + 1;
     _overlay.update(
       bounds: Rect(
@@ -222,16 +233,27 @@ class CompletionPicker {
     if (_loading && _results.isEmpty) return [dim('  (loading…)')];
     if (_results.isEmpty) return [dim('  (no matches)')];
 
-    final visible =
-        _results.length > maxRows ? _results.sublist(0, maxRows) : _results;
+    final visible = _results.skip(_scroll).take(height);
     final maxLen = _screen.input.bounds.width - 2;
     final lines = <String>[];
-    for (var i = 0; i < visible.length && i < height; i++) {
-      final entry = visible[i];
-      final shown = (maxLen > 0 && entry.length > maxLen)
-          ? '…${entry.substring(entry.length - maxLen + 1)}'
-          : entry;
+    var i = _scroll;
+    for (final entry in visible) {
+      final display = inputDisplayText(entry
+          .replaceAll('\n', r'\n')
+          .replaceAll('\r', r'\r')
+          .replaceAll('\t', r'\t'));
+      var shown = display;
+      if (maxLen > 0 && plainWidth(display) > maxLen) {
+        final runes = display.runes.toList();
+        var start = runes.length;
+        var columns = 1; // leading ellipsis
+        while (start > 0 && columns + runeWidth(runes[start - 1]) <= maxLen) {
+          columns += runeWidth(runes[--start]);
+        }
+        shown = '…${String.fromCharCodes(runes.skip(start))}';
+      }
       lines.add(i == _selected ? hi('  $shown') : dim('  $shown'));
+      i++;
     }
     return lines;
   }

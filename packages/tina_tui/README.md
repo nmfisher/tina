@@ -154,6 +154,14 @@ paths. The selected approval channel handles permission requests. The default
 requests and `tina/tools` enforces decisions; application code mounts generic
 console contributions and does not wire sandbox callbacks.
 
+The file picker searches and scrolls through the full tracked/untracked listing,
+including initialized submodules. Git ignore rules apply; outside git, generated
+and dependency folders are skipped. Enumeration has no file-count or depth cap.
+Bare `@` spreads the initial results across source folders; Up/Down scroll through
+all results. Unicode and whitespace paths use Git's NUL-delimited output. A
+three-second snapshot cache refreshes moved/added files and shares scans between
+concurrent keystrokes.
+
 `[plugins].approval_channel` selects exactly one registered channel provider,
 independently of optional feature plugins. `enabled = []` still has approval
 handling. Missing, duplicate and cyclic capability dependencies fail before

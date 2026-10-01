@@ -101,6 +101,46 @@ void main() {
       expect(accepted?.text, '@y');
     });
 
+    test('navigation scrolls beyond eight rows and wraps over every result',
+        () async {
+      final files = [for (var i = 0; i < 25; i++) 'file_$i.dart'];
+      picker.provider = _StaticProvider(files);
+      picker.open(0);
+      await picker.refresh('@', 1);
+      for (var i = 1; i < files.length; i++) {
+        io.written.clear();
+        picker.navigateDown();
+        expect(picker.accept('@', 1)?.text, '@${files[i]}');
+        expect(io.written.toString(), contains(files[i]),
+            reason: 'selection must remain visible');
+      }
+      picker.navigateDown();
+      expect(picker.accept('@', 1)?.text, '@${files.first}');
+      io.written.clear();
+      picker.navigateUp();
+      expect(picker.accept('@', 1)?.text, '@${files.last}');
+      expect(io.written.toString(), contains(files.last));
+      await picker.refresh('@file_2', 7);
+      expect(picker.accept('@file_2', 7)?.text, '@${files.first}',
+          reason: 'a changed query resets selection and scroll');
+    });
+
+    test('short terminals keep every selected result visible after resize',
+        () async {
+      final files = [for (var i = 0; i < 12; i++) 'file_$i.dart'];
+      picker.provider = _StaticProvider(files);
+      picker.open(0);
+      await picker.refresh('@', 1);
+      for (var i = 0; i < 6; i++) picker.navigateDown();
+      screen.resize(ScreenLayout.fromSize(80, 6));
+      for (var i = 7; i < files.length; i++) {
+        io.written.clear();
+        picker.navigateDown();
+        expect(picker.accept('@', 1)?.text, '@${files[i]}');
+        expect(io.written.toString(), contains(files[i]));
+      }
+    });
+
     test('accept returns replacement range', () async {
       picker.provider = _StaticProvider(['lib/main.dart']);
       picker.open(0);
@@ -109,6 +149,20 @@ void main() {
       expect(r?.start, 0);
       expect(r?.end, 1);
       expect(r?.text, '@lib/main.dart');
+    });
+
+    test(
+        'filename controls cannot move the cursor; acceptance retains the path',
+        () async {
+      const file = 'folder/a\n\t\x1b[31m😀.dart';
+      picker.provider = _StaticProvider([file]);
+      picker.open(0);
+      io.written.clear();
+      await picker.refresh('@', 1);
+      expect(io.written.toString(), contains(r'a\n\t'));
+      expect(io.written.toString(), isNot(contains('a\n\t')));
+      expect(io.written.toString(), isNot(contains('\x1b[31m😀')));
+      expect(picker.accept('@', 1)?.text, '@$file');
     });
 
     test('onError fires when provider throws', () async {
@@ -194,17 +248,15 @@ void main() {
       p.dispose();
     });
 
-    test('every result is reachable when maxRows exceeds the result count',
+    test('commands scroll across every result even when maxRows is small',
         () async {
-      // 13 commands — more than the default maxRows of 8, so a low maxRows
-      // would strand items 8..12 (navigation wraps over min(count, maxRows)).
       final commands = [for (var i = 0; i < 13; i++) '/cmd$i'];
       final p = CompletionPicker(
         screen,
         trigger: 0x2f,
         shouldOpen: (_, __) => true,
         prependTriggerOnAccept: false,
-        maxRows: 32,
+        maxRows: 4,
         provider: _StaticProvider(commands),
       );
       p.open(0);
