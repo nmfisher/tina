@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import 'backend/backend_surface.dart';
+import 'backend/terminal_backend.dart';
 import 'input_latency.dart';
 import 'input_display.dart';
 import 'rect.dart';
@@ -1884,6 +1885,23 @@ class InputRegion extends Region {
 class OverlayRegion extends Region {
   Rect _bounds;
   bool _visible = false;
+  bool _painting = false;
+  bool _needsPaint = true;
+  List<String>? _paintedLines;
+
+  /// Shared-grid drawing can overwrite an overlay even when its own content
+  /// did not change. Keep such updates paintable without rewriting idle rows.
+  void invalidatePaint(Rect? damage) {
+    if (!_visible || _painting) return;
+    if (damage == null ||
+        (!damage.isEmpty &&
+            damage.row <= _bounds.bottom &&
+            damage.bottom >= _bounds.row &&
+            damage.col <= _bounds.right &&
+            damage.right >= _bounds.col)) {
+      _needsPaint = true;
+    }
+  }
 
   /// Phase 3: the overlay renders onto its own [BackendSurface] so it floats
   /// above chat child planes. On notcurses this is a real child plane raised
@@ -1923,14 +1941,36 @@ class OverlayRegion extends Region {
   /// same frame; unchanged bounds preserve the live surface.
   void update({required Rect bounds, required List<String> lines}) {
     final clipped = _clipToScreen(bounds, screen);
-    screen.frame(() {
-      if (!_sameRect(_bounds, clipped)) _hide();
-      _bounds = clipped;
-      _show(lines);
-    });
+    final painted = List<String>.generate(
+        clipped.height, (i) => i < lines.length ? lines[i] : '');
+    final canRetain = screen.backend is BackendDamageSource;
+    final previous = canRetain && !_needsPaint && _sameRect(_bounds, clipped)
+        ? _paintedLines
+        : null;
+    if (_visible && previous != null && _sameLines(previous, painted)) return;
+    _painting = true;
+    try {
+      screen.frame(() {
+        if (!_sameRect(_bounds, clipped)) _hide();
+        _bounds = clipped;
+        _show(painted, previous: previous);
+        _paintedLines = painted;
+        _needsPaint = false;
+      });
+    } finally {
+      _painting = false;
+    }
   }
 
   bool get isVisible => _visible;
+
+  static bool _sameLines(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   static bool _sameRect(Rect? a, Rect b) =>
       a != null &&
@@ -1945,7 +1985,7 @@ class OverlayRegion extends Region {
   /// Uses the same atomic update path as geometry-changing callers.
   void show(List<String> lines) => update(bounds: _bounds, lines: lines);
 
-  void _show(List<String> lines) {
+  void _show(List<String> lines, {List<String>? previous}) {
     if (_bounds.isEmpty) return;
     _visible = true;
     if (_surface != null && !_sameRect(_surfaceBounds, _bounds)) {
@@ -1971,11 +2011,13 @@ class OverlayRegion extends Region {
     if (surface == null) {
       // Backend declined (e.g. passthrough, or a throwing test fake) — fall
       // back to standard-plane writes.
-      _showViaStandardPlane(lines);
+      _showViaStandardPlane(lines, previous: previous);
       return;
     }
     final count = lines.length > _bounds.height ? _bounds.height : lines.length;
     for (var i = 0; i < count; i++) {
+      if (previous != null && i < previous.length && previous[i] == lines[i])
+        continue;
       surface.putAt(
         relRow: i,
         relCol: 0,
@@ -1995,9 +2037,11 @@ class OverlayRegion extends Region {
         List.generate(_bounds.height, (i) => _bounds.row + i));
   }
 
-  void _showViaStandardPlane(List<String> lines) {
+  void _showViaStandardPlane(List<String> lines, {List<String>? previous}) {
     final count = lines.length > _bounds.height ? _bounds.height : lines.length;
     for (var i = 0; i < count; i++) {
+      if (previous != null && i < previous.length && previous[i] == lines[i])
+        continue;
       screen.putAtAbsolute(
         row: _bounds.row + i,
         col: _bounds.col,
@@ -2022,6 +2066,8 @@ class OverlayRegion extends Region {
   void _hide() {
     if (!_visible) return;
     _visible = false;
+    _paintedLines = null;
+    _needsPaint = true;
     final s = _surface;
     if (s != null) {
       // Destroying the surface clears its plane. On ANSI the surface is an
@@ -2063,6 +2109,7 @@ class OverlayRegion extends Region {
   @override
   void handleResize() {
     // The caller positions the overlay; we just clip to the new screen.
+    _needsPaint = true;
     _bounds = _clipToScreen(_bounds, screen);
     if (_visible) {
       // Caller is expected to re-show with current content. Without

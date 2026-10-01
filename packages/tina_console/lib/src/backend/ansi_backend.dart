@@ -15,7 +15,11 @@ import 'canvas_style.dart';
 /// [Stdio] on [flush]. This matches the original Screen behavior of
 /// building one batched string per operation.
 class AnsiBackend
-    implements TerminalBackend, BackendDiagnostics, CanvasBackend {
+    implements
+        TerminalBackend,
+        BackendDiagnostics,
+        CanvasBackend,
+        BackendDamageSource {
   CanvasStyle _canvas = const CanvasStyle();
   bool _usedCanvas = false;
   String? _cursorColor;
@@ -47,6 +51,14 @@ class AnsiBackend
   /// Whether cells have changed since the last presentation. The buffer holds
   /// the pending writes, so a non-empty buffer is exactly "dirty".
   bool _gridDirty = false;
+
+  @override
+  void Function(Rect? bounds)? onDamage;
+
+  (int, int)? _cursor;
+  (int, int)? _savedCursor;
+  static final _sgr = RegExp(r'\x1b\[[0-9;:]*m');
+  static final _controls = RegExp(r'[\x00-\x1f\x7f-\x9f]');
 
   AnsiBackend({required Stdio io, required AnsiCapable ansi})
       : _io = io,
@@ -84,7 +96,9 @@ class AnsiBackend
 
   @override
   void moveCursor(int row, int col) {
+    if (_cursor == (row, col)) return;
     _buf.write('\x1b[${row + 1};${col + 1}H');
+    _cursor = (row, col);
   }
 
   @override
@@ -92,28 +106,50 @@ class AnsiBackend
 
   @override
   void eraseCells(int row, int col, int n) {
+    if (n <= 0) return;
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
     _gridDirty = true;
     _buf.write(_canvas.reset);
-    _buf.write('\x1b[${row + 1};${col + 1}H');
+    moveCursor(row, col);
     _buf.write('\x1b[${n}X');
+    onDamage?.call(Rect(row: row, col: col, width: n, height: 1));
   }
 
   @override
   void writeText(String text) {
+    if (text.isEmpty) return;
     if (OpCounters.enabled) OpCounters.instance.gridWrites++;
     _gridDirty = true;
     _buf.write(_canvas.apply(text));
+    // Do not guess the terminal's cursor advancement (wide glyphs, autowrap
+    // and control sequences differ between emulators). A save/restore pair
+    // recovers the known editing position after background drawing.
+    final plain = text.replaceAll(_sgr, '');
+    if (plain.isNotEmpty) {
+      final cursor = _cursor;
+      final columns = _io.terminalColumns;
+      onDamage?.call(
+          cursor != null && !plain.contains(_controls) && cursor.$2 < columns
+              ? Rect(
+                  row: cursor.$1,
+                  col: cursor.$2,
+                  width: columns - cursor.$2,
+                  height: 1)
+              : null);
+      _cursor = null;
+    }
   }
 
   @override
   void saveCursor() {
     _buf.write('\x1b7');
+    _savedCursor = _cursor;
   }
 
   @override
   void restoreCursor() {
     _buf.write('\x1b8');
+    _cursor = _savedCursor;
   }
 
   @override
@@ -141,6 +177,7 @@ class AnsiBackend
   @override
   void enterAltScreen() {
     _buf.write('\x1b[?1049h');
+    _cursor = _savedCursor = null;
   }
 
   @override
@@ -151,6 +188,7 @@ class AnsiBackend
     }
     if (_usedCanvas) _buf.write('\x1b[0m');
     _buf.write('\x1b[?1049l');
+    _cursor = _savedCursor = null;
   }
 
   // -- Bracketed paste ----------------------------------------------------
@@ -212,7 +250,7 @@ class AnsiBackend
     // placeholder cell so the method is total and headless/CI runs degrade
     // gracefully instead of throwing.  targetSurface is ignored — ANSI has no
     // child planes, so there is no surface to parent the image onto.
-    _buf.write('\x1b[${row + 1};${col + 1}H');
+    moveCursor(row, col);
     writeText('\x1b[2m▣\x1b[0m'); // dim placeholder glyph
   }
 

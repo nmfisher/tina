@@ -114,6 +114,22 @@ void main() {
     expect(plugin.overlay!.regionVisible, false);
   });
 
+  test('a visible idle plan does not redraw on the animation timer', () async {
+    plugin.store.update(
+        loop, [const PlanEntryItem('finished and selectable', state: 'done')]);
+    await pumpEventQueue();
+    io.output.clear();
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    expect(io.output.toString(), isEmpty,
+        reason: 'a completed plan must stay selectable while the app is idle');
+    screen.resize(ScreenLayout.fromSize(70, 20, split: false));
+    chatPanel.setOuter(screen.chat.bounds);
+    io.output.clear();
+    plugin.repaintConsole();
+    expect(io.output.toString(), contains('finished and selectable'),
+        reason: 'real resize damage still needs a plan repaint');
+  });
+
   test('live updates yield to an input-owning modal then restore the plan',
       () async {
     plugin.store

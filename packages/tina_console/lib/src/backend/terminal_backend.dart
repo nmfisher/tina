@@ -154,3 +154,12 @@ abstract interface class BackendDiagnostics {
   /// How many finished frames have actually reached the terminal.
   int get presentedFrames;
 }
+
+/// A backend whose surfaces share the terminal grid, without native layering.
+/// The screen uses synchronous damage reports to invalidate overlay snapshots.
+abstract interface class BackendDamageSource {
+  /// Null bounds mean the affected cells cannot be bounded safely. Cursor
+  /// positioning alone must not report damage.
+  void Function(Rect? bounds)? get onDamage;
+  set onDamage(void Function(Rect? bounds)? callback);
+}

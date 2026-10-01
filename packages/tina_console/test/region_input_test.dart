@@ -38,6 +38,27 @@ void main() {
       expect(vt.cursorCol, layout.input.col + 5); // '> ' + 3 = col 5
     });
 
+    test('unchanged input refresh does not move the terminal cursor', () {
+      screen.input.render(prompt: '> ', buffer: 'abcdef', cursor: 3);
+      vt.feed(io.written.toString());
+      io.written.clear();
+      for (var i = 0; i < 30; i++) {
+        screen.input.render(prompt: '> ', buffer: 'abcdef', cursor: 3);
+      }
+      expect(io.written.toString(), isEmpty,
+          reason: 'background refresh must not keep resetting cursor blink');
+      screen.status.writeAt(0, 'background status');
+      vt.feed(io.written.toString());
+      io.written.clear();
+      screen.input.render(prompt: '> ', buffer: 'abcdef', cursor: 3);
+      expect(io.written.toString(), isEmpty,
+          reason: 'save/restore must preserve the known editing position');
+      screen.input.render(prompt: '> ', buffer: 'abcdef', cursor: 4);
+      expect(io.written.toString(), isNotEmpty);
+      vt.feed(io.written.toString());
+      expect(vt.cursorCol, layout.input.col + 6);
+    });
+
     test('restored multiline input cannot write outside its input row', () {
       final before = List.generate(24, vt.rowText);
       const real = 'Left\nSecond\rAnother\x1b[1;1HCursor\x1b[2J';

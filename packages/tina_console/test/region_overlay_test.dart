@@ -12,7 +12,7 @@ void main() {
     late ScreenLayout layout;
 
     setUp(() {
-      io = _FrameStdio();
+      io = _FrameStdio()..columns = 100;
       layout = ScreenLayout.fromSize(100, 24);
       screen = Screen(io: io, layout: layout, ansi: AnsiCapable.yes);
       vt = VirtualTerminal(width: 100, height: 24);
@@ -44,6 +44,56 @@ void main() {
       expect(vt.rowText(5).substring(5, 17).trim(), isEmpty);
       expect(vt.rowText(6).substring(5, 17), '  new       ');
       expect(vt.rowText(7).substring(5, 17), '  last      ');
+    });
+
+    test('idle overlays emit nothing and update only changed rows', () {
+      final overlay = OverlayRegion(
+          screen, const Rect(row: 5, col: 5, width: 20, height: 3));
+      addTearDown(overlay.dispose);
+      overlay.show(['select this text', 'progress: 1', 'unchanged']);
+      io.frames.clear();
+      for (var i = 0; i < 30; i++) {
+        overlay.show(['select this text', 'progress: 1', 'unchanged']);
+      }
+      expect(io.frames, isEmpty,
+          reason: 'erase/rewrite of unchanged cells breaks terminal selection');
+      overlay.show(['select this text', 'progress: 2', 'unchanged']);
+      expect(io.frames, hasLength(1));
+      expect(io.frames.single, contains('progress: 2'));
+      expect(io.frames.single, isNot(contains('select this text')));
+      expect(io.frames.single, isNot(contains('unchanged')));
+    });
+
+    test('overlapping shared surface damage restores the cached overlay', () {
+      final overlay = OverlayRegion(
+          screen, const Rect(row: 5, col: 5, width: 20, height: 2));
+      addTearDown(overlay.dispose);
+      overlay.show(['overlay text', 'second line']);
+      final background = screen
+          .createSurface(const Rect(row: 5, col: 5, width: 20, height: 2));
+      background.putAt(
+          relRow: 0,
+          relCol: 0,
+          text: 'new chat',
+          maxCols: 20,
+          moveCursor: false);
+      io.frames.clear();
+      overlay.show(['overlay text', 'second line']);
+      expect(io.frames, hasLength(1));
+      expect(io.frames.single, contains('overlay text'));
+      io.frames.clear();
+      overlay.show(['overlay text', 'second line']);
+      expect(io.frames, isEmpty);
+
+      screen.input.render(prompt: 'model > ', buffer: 'a draft', cursor: 7);
+      io.frames.clear();
+      overlay.show(['overlay text', 'second line']);
+      expect(io.frames, isEmpty,
+          reason: 'input/status changes must not redraw selectable chat rows');
+      overlay.hide();
+      io.frames.clear();
+      overlay.show(['overlay text', 'second line']);
+      expect(io.frames, hasLength(1), reason: 'show after hide must repaint');
     });
 
     test('show and hide each present once and join an enclosing frame', () {

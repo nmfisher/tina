@@ -148,6 +148,14 @@ class Screen {
     _activeChat = ScrollingTextRegion(this);
     _status = StatusRegion(this);
     _input = InputRegion(this);
+    final damageSource = _backend;
+    if (damageSource is BackendDamageSource) {
+      (damageSource as BackendDamageSource).onDamage = (bounds) {
+        for (final overlay in _overlays) {
+          overlay.invalidatePaint(bounds);
+        }
+      };
+    }
     _configureCanvas();
   }
 
@@ -508,6 +516,10 @@ class Screen {
     _animationTimer = null;
     _animations.clear();
     resetChatPresentation();
+    final damageSource = _backend;
+    if (damageSource is BackendDamageSource) {
+      (damageSource as BackendDamageSource).onDamage = null;
+    }
   }
 
   /// Resize to a new layout. Repaints the frame and gives each region a

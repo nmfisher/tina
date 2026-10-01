@@ -216,6 +216,18 @@ class Terminal:
         os.kill(self.process.pid, signal.SIGWINCH)
         return start
 
+    def expect_idle(self):
+        # Let the final turn/layout paint settle, then require a quiet grid.
+        # Rewriting an unchanged plan every 40ms clears GNOME text selection.
+        deadline = time.monotonic() + 0.2
+        while time.monotonic() < deadline:
+            self.read()
+        start = len(self.output)
+        deadline = time.monotonic() + 0.35
+        while time.monotonic() < deadline:
+            self.read()
+        assert not self.output[start:], 'idle app kept redrawing selectable text'
+
     def quit(self):
         self.send("/quit\r")
         deadline = time.monotonic() + 8
@@ -683,6 +695,7 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             # The real input dispatcher must browse the plan without sending
             # the draft, granting approval, or losing it on return to chat.
+            terminal.expect_idle()
             before_browse = len(ModelStub.requests)
             terminal.send('draft stays here')
             start = terminal.send('\x07\t\r')
@@ -707,6 +720,7 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('finish plan example\r')
             terminal.expect('plan · 4/4', start)
             terminal.expect('smoke answer', start)
+            terminal.expect_idle()
             terminal.send('\x10')  # Ctrl+P hides the plan without changing it.
             time.sleep(0.1)
             start = terminal.send('\x10')
