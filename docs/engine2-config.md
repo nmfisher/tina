@@ -226,7 +226,12 @@ the variant picker; custom color tables remain editable in TOML.
 
 `tina/classification` is enabled by default. If `[plugins].enabled` is explicitly
 listed, add that ID or check it in Settings → Plugins → Global scope.
-It reports project question vs instruction, then Git operations for instructions.
+It classifies project questions, instructions and learned categories, then Git
+operations for instructions. An Other decision asks the active model to suggest
+a reusable category and question in a fresh context, then reclassifies once.
+Vocabularies allow 254 named categories plus Other; selection counters and learned
+definitions are shared globally in `~/.tina/classification/categories.json`
+(beside an explicit `--config` file). `/classification categories` lists them.
 Results appear in the status bar and `/classification`; they never change agent
 routing or permissions. Work runs in the background and stops on cancellation,
 superseding input, timeout or unload.
@@ -242,9 +247,10 @@ These keys are read by the classification plugin on each input. A nonempty saved
 key wins; otherwise `TYPESAFE_API_KEY` is used. `${VARIABLE}` resolves from the
 environment. No credential means unavailable classification and no HTTP request.
 This uses the Typesafe judgment API independently of the conversation provider.
-Requests have bounded input size and a 30-second total deadline. Their usage is
-not included in conversation token spend/caps yet. Repository indexing and
-Attractor remain disconnected.
+Requests have bounded input size. Classification and learning share a 90-second
+deadline, with a 60-second timeout for each isolated discovery. Typesafe usage is
+separate from conversation spend; discovery uses the normal conversation provider
+rates and token limits. Repository indexing and Attractor remain disconnected.
 
 ## Completion
 

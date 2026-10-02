@@ -1,13 +1,13 @@
 # Input classification
 
 `tina/classification` classifies the latest user input in the background:
-project question, agent instruction, unclear, or clearly neither. Only detected
+project question, agent instruction, a learned category, Other, or unclear. Only detected
 instructions proceed to Git classification: no Git request, unclear, or one or
 more subcommands (push, branch, checkout, commit, etc.).
 
 The plugin is informational: it never executes commands, changes permissions,
 rewrites input, or adds its predictions to the conversation. The status bar and
-`/classification` show the latest result. Each session owns its own state; new
+`/classification` show the latest result. Each session owns its latest result; new
 input supersedes pending work. Cancellation, timeout and unload close the service
 and prevent late results from changing the display. The last result is transient
 and is not restored from session storage.
@@ -18,13 +18,54 @@ disables it live. The Typesafe transport reads `[typesafe].api_key`, `model` and
 `endpoint` from the global config for each input. A stored key wins over
 `TYPESAFE_API_KEY`; a stored `${VARIABLE}` resolves from the environment. Missing
 credentials show unavailable, without making a network request. Chat generation
-continues independently. Classifier calls use their own bounded request budget
-and 30-second total timeout; their usage is not included in the conversation
-provider token counter/caps in this pass.
+continues independently. Classifier calls use their own bounded request budget.
+The configured plugin allows 90 seconds for classification and discovery together;
+each discovery has a 60-second timeout. Typesafe usage stays separate from the
+conversation provider's usage; discovery requests obey and charge normal provider policy.
+
+## Learning categories and questions
+
+The intent vocabulary starts with **project question** and **instruction**, plus
+**Other**. Selecting Other at the confidence threshold asks the active main model
+to propose the best reusable category in a fresh context. That request includes
+only the submitted input, the classification question and existing definitions.
+It has no conversation history or tools and uses its own provider client.
+
+Each category has a stable ID, label, description and a reusable membership
+question. The classifier sees these learned questions on later inputs. Existing
+categories can be reused; normalized duplicate labels are coalesced, and a
+conflicting ID cannot overwrite a definition. After learning, the current input
+is classified once more against the expanded vocabulary. There is at most one
+discovery/reclassification per question per input, so repeated Other decisions
+cannot create a loop. Git operation questions learn unlisted subcommands in the
+same way, while retaining multiple requested operations.
+
+Each question permits **254 named categories plus Other**. At capacity Other
+remains usable, but new discovery stops. Failed, malformed, incomplete or
+cancelled discovery cannot introduce a definition. Low-confidence and unclear
+decisions do not train the vocabulary. Request budgeting includes every category;
+an oversized vocabulary/input is reported instead of silently dropping choices.
+
+The vocabulary and selection counts are global, shared across workspaces and
+sessions, in `~/.tina/classification/categories.json`. With `--config FILE`, the
+catalog is `classification/categories.json` alongside that global config file.
+The plugin owns storage; atomic replacement, a process lock and an in-process
+queue protect simultaneous sessions. A corrupt catalog is reported and preserved,
+never silently reset. Its schema stores definitions and counters, with no input
+or conversation-history fields. Definitions and counters survive session close,
+restart and plugin reload.
+
+Every successful classifier selection increments its category's `selections`
+counter. Other has its own counter. Reclassification is another selection;
+proposing/admitting a category alone does not count as selecting it. Unselected
+categories start at zero. `/classification categories` lists definitions, their
+questions and counts. No pruning is implemented yet.
 
 Package API:
 
-- `utterance.dart`: the existing intent/Git judgments plus staged classification.
+- `utterance.dart`: adaptive classification, category definitions, storage and
+  learner interfaces, plus original intent/Git judgments for legacy callers.
+- `category_store.dart`: the plugin's atomic filesystem catalog adapter.
 - `plugin.dart`: the terminal-independent engine2 plugin, result/status stream,
   and owned classifier service lease.
 - `config.dart`: the existing Typesafe config reader.

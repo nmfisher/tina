@@ -155,12 +155,15 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         },
             description:
                 'Provides sandboxed file, search and shell tools with permission policy and approval routing.'),
-        PluginDefinition<TuiPluginContext>(
+        PluginDefinition.dependingOn<TuiPluginContext, ModelAccess>(
             'tina/classification',
-            (c) => ClassificationConsolePlugin.configured(
-                terminal: c.terminal, configPath: c.configPath),
+            dependency: modelAccess,
+            create: (c, models) => ClassificationConsolePlugin.configured(
+                terminal: c.terminal,
+                configPath: c.configPath,
+                createProvider: () => models.mainProvider(c.currentModel())),
             description:
-                'Identifies project questions, instructions and Git operations. Displays results without changing how the agent responds.',
+                'Classifies user input and Git operations, learns reusable categories from Other using the active model, and counts selections. Displays results without changing how the agent responds.',
             live: true),
         PluginDefinition<TuiPluginContext>(
             'tina/panels-tui', (c) => PanelsTuiPlugin(terminal: c.terminal),

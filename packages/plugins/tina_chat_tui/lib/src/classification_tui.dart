@@ -1,17 +1,22 @@
 import 'dart:async';
 import 'package:classification/plugin.dart';
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart' show Terminal;
+import 'package:tina_engine_2/tina_engine_2.dart' show Terminal, LlmProvider;
 
 /// Presentation adapter for the single tina/classification plugin. Inference
 /// remains in the terminal-independent classification package.
 final class ClassificationConsolePlugin extends ClassificationPlugin
     implements ConsoleContribution {
   ClassificationConsolePlugin.configured(
-      {required Terminal terminal, required String configPath})
+      {required Terminal terminal,
+      required String configPath,
+      required LlmProvider Function() createProvider})
       : super(
             terminal: terminal,
-            open: () => openConfiguredClassification(configPath));
+            open: () => openConfiguredClassification(configPath),
+            categories: openClassificationCategories(configPath),
+            learner: MainAgentCategoryLearner(createProvider),
+            timeout: const Duration(seconds: 90));
   ConsoleContext? _console;
   void Function()? _release;
   void Function()? _unsubscribe;
