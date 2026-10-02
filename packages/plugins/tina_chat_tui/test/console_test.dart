@@ -156,7 +156,7 @@ void main() {
     });
     await tick();
     expect(visible(), contains('v0.9.0'));
-    expect(visible(), contains('update ⬆ v0.9.1 · /update'));
+    expect(visible(), contains('update ⬆ v0.9.1'));
     expect(visible(), contains('Σ 60 +~15 est / 100 · 75%'));
     chat.repaintConsole();
     expect(visible(), contains('update ⬆ v0.9.1'));
@@ -218,9 +218,47 @@ void main() {
       unawaited(source.notifications.close());
     });
     final rendered = visible();
-    expect(rendered, contains('v0.9.19 · update ⬆ v999.0.0 · /update'));
+    expect(rendered, contains('v0.9.19 · update ⬆ v999.0.0'));
     expect(rendered, contains('Σ 58 +~8,525 est'));
     expect(rendered, contains('mode: allow-edits'));
+  });
+  test(
+      'backend, panels and update fit at 80 columns; wide bars retain the hint',
+      () {
+    context.bindStatus(
+        () => [
+              const RenderLine(runs: [RenderRun('notcurses', null)])
+            ],
+        priority: -20);
+    context.bindStatus(
+        () => [
+              const RenderLine(runs: [RenderRun('1 panel', null)])
+            ],
+        priority: -10);
+    final source = Updates(currentVersion: '0.9.29')
+      ..status = const UpdateStatus(UpdatePhase.available, tag: 'v999.0.0');
+    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    addTearDown(() {
+      update.closeSession();
+      unawaited(source.notifications.close());
+    });
+    final narrow = visible().split('\n').last;
+    for (final label in [
+      'mode: ask',
+      'notcurses',
+      '1 panel',
+      'v0.9.29',
+      'update ⬆ v999.0.0',
+      'Σ 0'
+    ]) {
+      expect(narrow, contains(label));
+    }
+    io.output.clear();
+    screen.resize(ScreenLayout.fromSize(120, 24, split: false));
+    update.repaintConsole();
+    final wide = VirtualTerminal(width: 120, height: 24)
+      ..feed(io.output.toString());
+    expect(wide.rowText(23), contains('update ⬆ v999.0.0 · /update'));
   });
   test(
       'Shift-Tab cycles the command authority without submitting or losing a draft',

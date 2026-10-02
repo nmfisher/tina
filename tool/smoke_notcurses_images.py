@@ -52,7 +52,8 @@ def smoke(binary, endpoint, columns, rows):
                'HOME': str(root), 'TERM': 'xterm-256color',
                'COLORTERM': 'truecolor', 'LANG': 'en_US.UTF-8',
                'COCOON_UPDATE_CHECK': '0'}
-        command = [str(binary), '--backend', 'notcurses', '--config', str(config),
+        # Images must work on a normal launch, without an explicit backend.
+        command = [str(binary), '--config', str(config),
                    '--cwd', str(workspace), '--store', str(root / 'sessions.db')]
         terminal = Terminal(command, env, columns, rows)
         try:

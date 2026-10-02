@@ -48,7 +48,8 @@ final class UpdateTuiPlugin extends AgentPlugin implements ConsoleContribution {
       UpdatePhase.current => '',
       UpdatePhase.checking =>
         'update check ${['|', '/', '-', '\\'][_frame % 4]}',
-      UpdatePhase.available => 'update ⬆ ${status.tag} · /update',
+      UpdatePhase.available => 'update ⬆ ${status.tag}'
+          '${_console!.screen.layout.width >= 100 ? ' · /update' : ''}',
       UpdatePhase.failed =>
         'update check failed — ${status.reason ?? 'unknown reason'}',
       UpdatePhase.deferred =>

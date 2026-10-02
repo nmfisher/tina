@@ -116,14 +116,17 @@ intact; use `--import-sessions PATH` to convert them first (see the
 [import guide](docs/engine2-session-import.md)). The old session
 slash commands have deliberately not been ported.
 
-`tina --backend notcurses` displays message attachments and MCP tool-result
+Normal interactive launches use notcurses to display attachments and MCP tool-result
 images inline. Images scroll with the transcript, resize with the panel and
 survive session resume. Notcurses uses terminal pixel graphics when available,
-with colored block graphics as its fallback. The default ANSI renderer shows
-image captions. This presentation belongs to `tina/chat-tui`; the console
+with colored block graphics as its fallback. If native initialization fails,
+Tina restores the terminal and uses ANSI, which shows image captions. The status
+bar shows the active backend. `--backend ansi` and `--backend notcurses` select
+an explicit renderer; `--backend auto` restores automatic selection.
+This presentation belongs to `tina/chat-tui`; the console
 backend owns graphics and the engine carries provider-neutral image content.
-An image caption confirms the attachment arrived; launch with
-`--backend notcurses` to view it, including when using `--resume`.
+An image caption confirms the attachment arrived; inline graphics are available
+on the notcurses backend, including when using `--resume`.
 
 Shift-Tab cycles **ask → read-only → allow-edits → auto**; `/mode NAME` selects
 one directly. The single `tina/mode` plugin owns both the permission policy and

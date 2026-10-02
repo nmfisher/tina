@@ -14,11 +14,13 @@ const cliHelp =
             [--model PROVIDER/MODEL] [--models [PROVIDER]] [--prompt TEXT|-]
             [--goal TEXT [--max-goal-turns N]]
             [--configure] [--version] [--completion bash|zsh|fish]
-            [--backend ansi|notcurses] [--no-sandbox]
+            [--backend auto|ansi|notcurses] [--no-sandbox]
             [--import-sessions PATH [--dry-run]]
 
 Starts the engine2 terminal app. /help lists loaded commands.
---backend notcurses enables inline images; ANSI is the default text renderer.
+Interactive launches default to notcurses with inline images, falling back to
+ANSI if native initialization fails. --backend selects an explicit renderer;
+auto restores the default. The status bar shows the active backend.
 --no-sandbox disables OS filesystem and network confinement for this run.
 Permission modes and approval checks still apply; child environments remain filtered.
 --model overrides the model for this run; resume otherwise restores its saved model.
@@ -40,7 +42,7 @@ Future<int> runCli(List<String> args,
     String? Function() locateTerminalDevice = terminalDevicePath}) async {
   String? configPath;
   String? model;
-  var backend = 'ansi';
+  var backend = 'auto';
   var osSandbox = true;
   String? prompt;
   String? goal;
@@ -59,8 +61,8 @@ Future<int> runCli(List<String> args,
     final a = args[i];
     if (a == '--backend' && i + 1 < args.length) {
       backend = args[++i];
-      if (backend != 'ansi' && backend != 'notcurses') {
-        stderr.writeln('tina: --backend must be ansi or notcurses');
+      if (backend != 'auto' && backend != 'ansi' && backend != 'notcurses') {
+        stderr.writeln('tina: --backend must be auto, ansi or notcurses');
         return 64;
       }
     } else if (a == '--no-sandbox') {
@@ -344,7 +346,14 @@ Future<int> runCli(List<String> args,
 
     // Attach the renderer and approval dialog to the assembled session.
     final session = TuiSession.wrap(assembly);
-    final result = await runApp(session, backend: backend, startup: startup);
+    final int result;
+    try {
+      result = await runApp(session, backend: backend, startup: startup);
+    } finally {
+      // Native startup can fail before runApp installs its teardown. Release
+      // the already assembled plugins/provider and configuration watcher too.
+      session.close();
+    }
     if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
     if (terminalDevice == null) {

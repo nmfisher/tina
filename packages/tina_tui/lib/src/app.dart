@@ -16,6 +16,7 @@ import 'completion_sources.dart';
 import 'tui_session.dart';
 import 'session_view.dart';
 import 'session_selection.dart';
+import 'terminal_startup.dart';
 
 /// Run the app on [session] until the user quits or stdin ends.
 ///
@@ -29,7 +30,7 @@ Future<int> runApp(
   LineEditor Function(Screen screen)? editorFor,
   ConsoleContext Function(Screen, LineEditor)? consoleContextFor,
   Stream<ScreenLayout>? resizes,
-  String backend = 'ansi',
+  String backend = 'auto',
   StartupTerminal? startup,
 }) async {
   final terminal = session.terminal;
@@ -46,6 +47,7 @@ Future<int> runApp(
   final commands = <Future<void>>{};
   var stopping = false;
   void Function()? releaseQueueStatus;
+  void Function()? releaseBackendStatus;
   int? queueStatusListener;
   StreamSubscription<ScreenLayout>? resizeSubscription;
 
@@ -165,6 +167,14 @@ Future<int> runApp(
       } catch (_) {}
     }
     if (!s.passthrough) s.enterAltScreen();
+    releaseBackendStatus = console.bindStatus(
+        () => [
+              RenderLine(runs: [
+                RenderRun(s.backend is NotcursesBackend ? 'notcurses' : 'ansi',
+                    s.theme.chat.dim)
+              ])
+            ],
+        priority: -20);
     // Native capability-reply draining must finish before a visible prompt
     // invites typing. Otherwise a quick first message can be discarded.
     if (s.backend is NotcursesBackend) await editor.input.ready;
@@ -276,6 +286,7 @@ Future<int> runApp(
     return 0;
   } finally {
     stopping = true;
+    releaseBackendStatus?.call();
     if (queueStatusListener case final listener?)
       session.host.session.loop.unsubscribe(listener);
     releaseQueueStatus?.call();
@@ -317,7 +328,7 @@ Future<int> runApp(
 /// menu bar — one chat panel, one status row, one input row. Without a
 /// terminal there is no size to ask for (`terminalColumns` throws on a
 /// pipe), so debug and CI runs fall back to a conventional 80×24.
-Screen _newScreen({Theme? theme, String backend = 'ansi'}) {
+Screen _newScreen({Theme? theme, String backend = 'auto'}) {
   var columns = 80;
   var lines = 24;
   if (io.stdout.hasTerminal) {
@@ -325,21 +336,31 @@ Screen _newScreen({Theme? theme, String backend = 'ansi'}) {
     lines = io.stdout.terminalLines;
   }
   final layout = ScreenLayout.fromSize(columns, lines, split: false);
-  if (backend == 'notcurses') {
-    if (!io.stdout.hasTerminal || !io.stdin.hasTerminal) {
-      throw StateError('--backend notcurses requires a terminal');
-    }
-    final native = NotcursesBackend.create(io: const _AppStdio());
+  final interactive = io.stdout.hasTerminal && io.stdin.hasTerminal;
+  if (backend == 'notcurses' && !interactive) {
+    throw StateError('--backend notcurses requires a terminal');
+  }
+  if (backend != 'ansi' && interactive) {
+    TerminalStartupSnapshot? snapshot;
+    NotcursesBackend? native;
     try {
+      snapshot = TerminalStartupSnapshot.capture();
+      native = NotcursesBackend.create(io: const _AppStdio());
       return Screen.withBackend(
           backend: native,
           io: const _AppStdio(),
           theme: theme ?? const Theme.defaults(),
           layout: layout);
     } catch (_) {
-      native.enterAltScreen();
-      native.leaveAltScreen();
-      rethrow;
+      try {
+        native?.enterAltScreen();
+        native?.leaveAltScreen();
+      } finally {
+        snapshot?.restore();
+      }
+      if (backend == 'notcurses') rethrow;
+    } finally {
+      snapshot?.dispose();
     }
   }
   return Screen(
@@ -370,7 +391,7 @@ final class StartupTerminal {
   final bool? _line;
   bool _closed = false;
 
-  factory StartupTerminal.open({String backend = 'ansi'}) {
+  factory StartupTerminal.open({String backend = 'auto'}) {
     final screen = _newScreen(backend: backend);
     final native = screen.backend is NotcursesBackend;
     final editor = LineEditor(
@@ -444,7 +465,7 @@ Theme resolveTheme(Map<String, dynamic> values) {
 
 /// Initial configuration has no model session and writes only on Save.
 Future<bool> runConfigEditor(String path,
-    {String backend = 'ansi', StartupTerminal? startup}) async {
+    {String backend = 'auto', StartupTerminal? startup}) async {
   final terminal = startup ?? StartupTerminal.open(backend: backend);
   final screen = terminal.screen;
   final editor = terminal.editor;

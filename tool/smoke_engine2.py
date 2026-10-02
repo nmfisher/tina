@@ -355,7 +355,7 @@ def smoke(launcher, endpoint, columns, rows):
                 cursor = b'\x1b]12;#d0d0d0\x07' if rows == 10 else b'\x1b]12;#080808\x07'
                 assert cursor in terminal.output, 'hardware cursor did not follow the theme'
             terminal.expect("mode: ask")
-            terminal.expect("update ⬆ v999.0.0 · /update")
+            terminal.expect("update ⬆ v999.0.0")
             start = terminal.send('inspect @zz_file_target')
             terminal.expect('zz_file_target.dart', start)
             terminal.send('\r')  # accept the suggestion beyond the old 200-file cap
@@ -1083,6 +1083,9 @@ def main():
     if not args.dart and not args.binary:
         parser.error("dart was not found on PATH")
     launcher = [str(args.binary.absolute())] if args.binary else [args.dart, "run", "bin/tina.dart"]
+    # This suite asserts ANSI writes; dedicated native/default suites replay
+    # the retained grid and verify images, fallback, input and resume.
+    launcher += ["--backend", "ansi"]
     smoke_cli(launcher)
     server = ThreadingHTTPServer(("127.0.0.1", 0), ModelStub)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

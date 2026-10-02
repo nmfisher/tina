@@ -7,6 +7,20 @@ Future<void> main() async {
     Uri.parse('package:tina_tui/tina_tui.dart'),
   ))!;
   final packageRoot = library.resolve('../');
+  test('default backend, ANSI fallback and status preserve resumed input',
+      () async {
+    final result = await Process.run('python3', [
+      packageRoot.resolve('../../tool/smoke_backend_selection.py').toFilePath(),
+      '--dart',
+      Platform.resolvedExecutable,
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    expect(result.stdout, contains('default / xterm-256color: notcurses'));
+    expect(result.stdout,
+        contains('default / tina-nonexistent-terminal-fixture: ansi'));
+    expect(result.stdout, contains('explicit notcurses failure is reported'));
+  }, skip: Platform.isWindows, timeout: const Timeout(Duration(minutes: 3)));
+
   test('missing restart pathname does not prevent launch or resume input',
       () async {
     final result = await Process.run('python3', [

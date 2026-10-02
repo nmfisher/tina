@@ -11,6 +11,7 @@ import time
 
 sys.dont_write_bytecode = True
 from smoke_engine2 import ANSI, ModelStub, Terminal, ThreadingHTTPServer
+from smoke_classification_panel import screen_text
 
 
 def main():
@@ -35,16 +36,25 @@ def main():
                 dict(os.environ, COCOON_UPDATE_CHECK='0', TERM='xterm-256color'), 80, 24)
             terminal.expect('smoke >')
             # Match the restarted prompt only, not the old app's final repaint.
-            start = terminal.send('/restart-test\r\r')
+            start = terminal.send('/restart-test')
+            terminal.expect_idle()
+            terminal.send('\r')
             terminal.expect('RESTART_PARENT_CLOSED', start)
             marker = b'RESTART_PARENT_CLOSED'
             start = terminal.output.index(marker, start) + len(marker)
-            terminal.expect('config:', start)
-            terminal.expect('smoke >', start)
+            terminal.wait_for(
+                lambda: 'config:' in screen_text(terminal.output[start:], 80, 24)
+                and 'smoke >' in screen_text(terminal.output[start:], 80, 24),
+                'restarted app did not show a ready prompt')
             time.sleep(0.2)
-            start = terminal.send('hello after restart\r')
-            terminal.expect('smoke answer', start)
-            assert any('hello after restart' in str(r) for r in ModelStub.requests)
+            start = terminal.send('hello after restart')
+            terminal.expect_idle()
+            terminal.send('\r')
+            terminal.wait_for(lambda: any('hello after restart' in str(r)
+                                         for r in ModelStub.requests),
+                              'restarted input did not reach the model')
+            terminal.wait_for(lambda: 'smoke answer' in screen_text(terminal.output, 80, 24),
+                              'restarted model reply did not appear')
             terminal.quit()
             print('PASS full restarted app input and model reply')
     except Exception:
