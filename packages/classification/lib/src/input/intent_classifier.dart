@@ -18,10 +18,21 @@ class IntentResult {
   /// input is clearly neither category (see the enum's doc comment).
   final IntentType? type;
   final double confidence;
-  const IntentResult({required this.type, required this.confidence});
+
+  /// The dynamic vocabulary's stable ID and presentation label. [type] is a
+  /// compatibility projection for the two original built-in categories.
+  final String? categoryId, categoryLabel;
+  const IntentResult({
+    required this.type,
+    required this.confidence,
+    this.categoryId,
+    this.categoryLabel,
+  });
   Map<String, Object?> toJson() => {
     'type': type?.name,
     'confidence': confidence,
+    if (categoryId != null) 'categoryId': categoryId,
+    if (categoryLabel != null) 'categoryLabel': categoryLabel,
   };
 }
 
@@ -42,6 +53,8 @@ final intentResultContract = DataContract<IntentResult>(
         ],
       },
       'confidence': {'type': 'number'},
+      'categoryId': {'type': 'string'},
+      'categoryLabel': {'type': 'string'},
     },
     'required': ['type', 'confidence'],
     'additionalProperties': false,
@@ -54,6 +67,8 @@ final intentResultContract = DataContract<IntentResult>(
           ? null
           : IntentType.values.byName(m['type'] as String),
       confidence: (m['confidence'] as num).toDouble(),
+      categoryId: m['categoryId'] as String?,
+      categoryLabel: m['categoryLabel'] as String?,
     );
   },
 );

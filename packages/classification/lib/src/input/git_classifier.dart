@@ -29,9 +29,12 @@ const gitCommands = [
 class GitIntent {
   final List<String> commands;
   final bool unknown;
-  GitIntent({Iterable<String> commands = const [], this.unknown = false})
-    : commands = List.unmodifiable(commands) {
-    if (this.commands.any((c) => !gitCommands.contains(c)) ||
+  GitIntent({
+    Iterable<String> commands = const [],
+    this.unknown = false,
+    Iterable<String> allowedCommands = gitCommands,
+  }) : commands = List.unmodifiable(commands) {
+    if (this.commands.any((c) => !allowedCommands.contains(c)) ||
         (unknown && this.commands.isNotEmpty))
       throw FormatException('Invalid Git intent');
   }

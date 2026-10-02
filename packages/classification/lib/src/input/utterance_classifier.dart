@@ -4,29 +4,38 @@ import 'git_classifier.dart';
 import 'intent_classifier.dart';
 
 final class UtteranceClassification {
-  const UtteranceClassification({required this.intent, this.git});
+  const UtteranceClassification({
+    required this.intent,
+    this.git,
+    this.learningFailed = false,
+  });
   final IntentResult intent;
 
   /// Absent when the utterance was not classified as an instruction.
   final GitIntent? git;
+  final bool learningFailed;
   Map<String, Object?> toJson() => {
     'intent': intent.toJson(),
     if (git != null) 'git': git!.toJson(),
+    if (learningFailed) 'learningFailed': true,
   };
   String get label {
-    final intentLabel = switch (intent.type) {
-      IntentType.projectQuestion => 'project question',
-      IntentType.agentInstruction => 'instruction',
-      IntentType.unclear => 'unclear',
-      null => 'neither question nor instruction',
-    };
+    final intentLabel =
+        intent.categoryLabel ??
+        switch (intent.type) {
+          IntentType.projectQuestion => 'project question',
+          IntentType.agentInstruction => 'instruction',
+          IntentType.unclear => 'unclear',
+          null => 'neither question nor instruction',
+        };
     final git = this.git;
-    if (git == null) return intentLabel;
+    final suffix = learningFailed ? ' · learning unavailable' : '';
+    if (git == null) return '$intentLabel$suffix';
     return '$intentLabel · git: ${git.unknown
         ? 'unclear'
         : git.commands.isEmpty
         ? 'no'
-        : git.commands.join(', ')}';
+        : git.commands.join(', ')}$suffix';
   }
 }
 

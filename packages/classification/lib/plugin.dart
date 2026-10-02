@@ -1,9 +1,19 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'config.dart';
 import 'judgments.dart';
 import 'typesafe_classifier.dart';
 import 'utterance.dart';
+import 'category_store.dart';
+export 'utterance.dart';
+
+InputCategoryStore openClassificationCategories(String configPath) =>
+    FileInputCategoryStore(
+      File(configPath).absolute.parent.uri
+          .resolve('classification/categories.json')
+          .toFilePath(),
+    );
 
 ClassificationLease? openConfiguredClassification(
   String configPath, {
@@ -19,7 +29,14 @@ ClassificationLease? openConfiguredClassification(
   );
 }
 
-enum ClassificationPhase { idle, checking, ready, unavailable, cancelled }
+enum ClassificationPhase {
+  idle,
+  checking,
+  learning,
+  ready,
+  unavailable,
+  cancelled,
+}
 
 final class ClassificationStatus {
   const ClassificationStatus(
@@ -35,6 +52,7 @@ final class ClassificationStatus {
   String get label => switch (phase) {
     ClassificationPhase.idle => 'no input classified yet',
     ClassificationPhase.checking => 'classifying…',
+    ClassificationPhase.learning => 'learning category…',
     ClassificationPhase.ready => result!.label,
     ClassificationPhase.unavailable => 'unavailable: $reason',
     ClassificationPhase.cancelled => 'cancelled',
@@ -60,20 +78,28 @@ class ClassificationPlugin extends AgentPlugin {
     required this.terminal,
     required this.open,
     this.timeout = const Duration(seconds: 30),
-  });
+    InputCategoryStore? categories,
+    this.learner,
+  }) : categories = categories ?? MemoryInputCategoryStore();
   factory ClassificationPlugin.configured({
     required Terminal terminal,
     required String configPath,
     Map<String, String>? environment,
+    required LlmProvider Function() createProvider,
   }) => ClassificationPlugin(
     terminal: terminal,
     open: () =>
         openConfiguredClassification(configPath, environment: environment),
+    categories: openClassificationCategories(configPath),
+    learner: MainAgentCategoryLearner(createProvider),
+    timeout: const Duration(seconds: 90),
   );
 
   final Terminal terminal;
   final ClassificationLease? Function() open;
   final Duration timeout;
+  final InputCategoryStore categories;
+  final CategoryLearner? learner;
   @override
   String get id => 'tina/classification';
   // Observe the accepted text after ordinary input guards and rewrites.
@@ -162,13 +188,25 @@ class ClassificationPlugin extends AgentPlugin {
         token.cancel();
       });
       final result = await Future.any<UtteranceClassification?>([
-        classifyUtterance(
+        classifyAdaptiveUtterance(
           id: input.id,
           text: input.text,
           history: history,
           service: lease.service,
           budget: lease.budget,
           cancellation: token,
+          store: categories,
+          learner: learner,
+          onLearning: (_) {
+            if (current() && !token.isCancelled) {
+              _publish(
+                ClassificationStatus(
+                  ClassificationPhase.learning,
+                  inputId: input.id,
+                ),
+              );
+            }
+          },
         ),
         stopped.future.then((_) => null),
       ]);
@@ -228,9 +266,28 @@ class ClassificationPlugin extends AgentPlugin {
     Command(
       name: 'classification',
       description: 'show the latest user intent and Git classification',
-      handler: (_) => terminal.writeln(
-        'Classification${status.inputId == null ? '' : ' (${status.inputId})'}: ${status.label}',
-      ),
+      handler: (arguments) async {
+        if (arguments.trim() == 'categories') {
+          for (final question in await categories.read()) {
+            terminal.writeln(
+              '${question.question} (${question.categories.length}/$maxInputCategories)',
+            );
+            final sorted = question.categories.toList()
+              ..sort((a, b) => b.selections.compareTo(a.selections));
+            for (final category in sorted) {
+              terminal.writeln(
+                '  ${category.id}: ${category.label} — ${category.selections} selections',
+              );
+              terminal.writeln('    ${category.question}');
+            }
+            terminal.writeln('  other: ${question.otherSelections} selections');
+          }
+        } else {
+          terminal.writeln(
+            'Classification${status.inputId == null ? '' : ' (${status.inputId})'}: ${status.label}',
+          );
+        }
+      },
     ),
   ];
 

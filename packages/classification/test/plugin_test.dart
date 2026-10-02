@@ -4,6 +4,7 @@ import 'package:classification/judgments.dart';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'utterance_test.dart' show answer;
+import 'adaptive_test.dart' show choose;
 
 class Output implements Terminal {
   final lines = <String?>[];
@@ -29,8 +30,19 @@ class Pending implements JudgmentService {
     return done.future;
   }
 
-  void complete(int index, Map<String, double> scores) =>
-      results[index].complete(answer(requests[index], scores));
+  void complete(int index, Map<String, double> scores) {
+    final request = requests[index];
+    if (request.questions['intent'] is ChoiceQuestion) {
+      final selected = scores.entries.reduce(
+        (a, b) => a.value > b.value ? a : b,
+      );
+      results[index].complete(
+        choose(request, selected.key, confidence: selected.value),
+      );
+    } else {
+      results[index].complete(answer(request, scores));
+    }
+  }
 }
 
 Future<void> pump() => Future<void>.delayed(const Duration(milliseconds: 10));
