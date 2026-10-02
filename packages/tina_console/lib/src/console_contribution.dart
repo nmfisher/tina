@@ -6,6 +6,8 @@ import 'renderer.dart';
 import 'region.dart';
 import 'console_workspace.dart';
 import 'settings_contribution.dart';
+import 'sidebar.dart';
+import 'rect.dart';
 
 /// A frontend contribution mounted by the application without feature knowledge.
 abstract interface class ConsoleContribution {
@@ -137,6 +139,26 @@ final class ConsoleContext {
     if (isActive) _editor.refresh();
   }
 
+  /// Register an inspector beside this view's chat. Its space and lifetime are
+  /// shared with other plugin panels, including panels loaded at runtime.
+  SidebarPanel bindSidebarPanel(void Function() repaint, {int priority = 100}) {
+    _checkOpen();
+    final region = chat;
+    final layout = _shared.sidebars.putIfAbsent(
+        region,
+        () => SidebarLayout(() => Rect(
+            row: region.bounds.row,
+            col: region.bounds.col,
+            width: region.bounds.width,
+            height: region.usableHeight)));
+    final panel = layout.register(repaint, priority: priority);
+    own(() {
+      panel.dispose();
+      if (layout.isEmpty) _shared.sidebars.remove(region);
+    });
+    return panel;
+  }
+
   /// Each contribution owns only its own lines. Lower priorities appear first
   /// and survive width pressure longer; right-aligned lines retain their slot.
   void Function() bindStatus(List<RenderLine> Function() read,
@@ -216,6 +238,7 @@ final class _ConsoleBindings {
   final String Function()? originalPrompt;
   final prompts = <Object, String? Function()>{};
   final status = <Object, ({int priority, List<RenderLine> Function() read})>{};
+  final sidebars = <ScrollingTextRegion, SidebarLayout>{};
   Future<void> interactions = Future.value();
   String prompt() {
     for (final build in prompts.values.toList().reversed) {

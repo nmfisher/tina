@@ -865,7 +865,7 @@ final class _OwnedImage {
 /// plane writes don't touch the tracked logical cursor). [raiseToTop]/
 /// [lowerToBottom] use real z-ordering. Visibility is handled at the
 /// [Panel]/[Screen] layer, not here (notcurses has no hide/show).
-class NotcursesBackendSurface implements BackendSurface {
+class NotcursesBackendSurface implements BackendSurface, LayeredBackendSurface {
   CanvasStyle _canvas = const CanvasStyle();
   final nc.Plane _plane;
   final NotcursesPlatform _platform;

@@ -197,6 +197,35 @@ class _LifecyclePlane implements nc.Plane {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _LayeredSurface implements BackendSurface, LayeredBackendSurface {
+  _LayeredSurface(this.bounds);
+  @override
+  final Rect bounds;
+  final writes = <String>[];
+  @override
+  void putAt(
+          {required int relRow,
+          required int relCol,
+          required String text,
+          required int maxCols,
+          required bool moveCursor,
+          int? clearCells}) =>
+      writes.add(text);
+  @override
+  void eraseAt(
+          {required int relRow,
+          required int relCol,
+          required int n,
+          required bool moveCursor}) =>
+      writes.add('erase');
+  @override
+  void raiseToTop() {}
+  @override
+  void destroy() {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   late RecordingPlatform plat;
   late NotcursesBackend backend;
@@ -339,6 +368,31 @@ void main() {
   });
 
   group('retained screen scheduling', () {
+    test('unchanged real overlay layers do not present or toggle the cursor',
+        () {
+      final layers = <_LayeredSurface>[];
+      plat.surfaceFactory = (bounds) {
+        final s = _LayeredSurface(bounds);
+        layers.add(s);
+        return s;
+      };
+      final screen = Screen.withBackend(
+          backend: backend, io: io, layout: ScreenLayout.fromSize(80, 24));
+      final overlay = OverlayRegion(
+          screen, const Rect(row: 5, col: 5, width: 20, height: 2));
+      addTearDown(overlay.dispose);
+      overlay.show(['request', 'reply']);
+      final layer =
+          layers.singleWhere((s) => s.bounds.row == 5 && s.bounds.col == 5);
+      layer.writes.clear();
+      plat.calls.clear();
+      for (var i = 0; i < 30; i++) overlay.show(['request', 'reply']);
+      expect(layer.writes, isEmpty);
+      expect(plat.calls, isEmpty,
+          reason: 'idle inspection must preserve selection and cursor');
+      overlay.show(['request', 'reply arrived']);
+      expect(layer.writes, ['reply arrived']);
+    });
     test('overlay fallback presents complete updates and dismissal once', () {
       // This platform declines child surfaces, exercising the overlay's
       // standard-plane fallback through the real backend frame machinery.

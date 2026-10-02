@@ -73,6 +73,15 @@ rules. Settings has its own typed registry because its entries differ from
 status lines and keyboard handlers. Future panels can expose their own typed
 registries through `ConsoleContext` using this same lifecycle.
 
+`context.bindSidebarPanel(repaint, priority: ...)` registers a session-owned
+inspector alongside the chat. Call its `requestSize(height: ..., width: ...,
+focused: ...)` and draw within its `bounds`. A zero height hides the slot. The
+frontend stacks registered panels, shares limited height, prioritizes a focused
+panel on small terminals, and requests peer repaints when slots change. This
+keeps the plan and classification panels independent, including during runtime
+loading and unloading. The attachment owns registration cleanup; panels still
+register with the generic focus manager and own their overlay/cursor resources.
+
 For resources such as an overlay or timer, use `context.own(overlay.hide)` or
 `context.own(timer.cancel)`. The returned callback releases the resource once;
 otherwise it is released automatically in reverse registration order.

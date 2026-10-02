@@ -87,6 +87,11 @@ abstract class BackendSurface {
   void destroy();
 }
 
+/// A real layer whose pixels survive drawing to other surfaces. Unlike a
+/// shared-grid offset, it can retain unchanged overlay rows without damage
+/// notifications from the rest of the screen.
+abstract interface class LayeredBackendSurface {}
+
 /// Limit a surface operation to its row, without allowing invalid origins.
 int clippedSurfaceColumns(Rect bounds, int relRow, int relCol, int columns) {
   if (columns <= 0 ||

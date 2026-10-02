@@ -2049,7 +2049,8 @@ class OverlayRegion extends Region {
     final clipped = _clipToScreen(bounds, screen);
     final painted = List<String>.generate(
         clipped.height, (i) => i < lines.length ? lines[i] : '');
-    final canRetain = screen.backend is BackendDamageSource;
+    final canRetain = screen.backend is BackendDamageSource ||
+        _surface is LayeredBackendSurface;
     final previous = canRetain && !_needsPaint && _sameRect(_bounds, clipped)
         ? _paintedLines
         : null;
