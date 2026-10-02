@@ -27,6 +27,14 @@ class Rect {
   bool containsCell(int r, int c) =>
       r >= row && r < row + height && c >= col && c < col + width;
 
+  bool overlaps(Rect other) =>
+      !isEmpty &&
+      !other.isEmpty &&
+      row <= other.bottom &&
+      bottom >= other.row &&
+      col <= other.right &&
+      right >= other.col;
+
   @override
   String toString() => 'Rect(row:$row col:$col w:$width h:$height)';
 }

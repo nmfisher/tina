@@ -75,6 +75,100 @@ LineEditor _editor(FakeStdio io,
 }
 
 void main() {
+  for (final scrolled in [false, true]) {
+    for (final dismiss in ['escape', 'backspace', 'accept']) {
+      test(
+          'command completion restores conversation on $dismiss (scrollback=$scrolled)',
+          () async {
+        final io = FakeStdio();
+        final ed = _editor(io,
+            commandProvider: _CommandProvider(['/help', '/quit', '/settings']));
+        addTearDown(ed.close);
+        final screen = ed.screen;
+        screen.redrawFrame();
+        for (var i = 0; i < 40; i++) {
+          screen.chat.writeln('retained conversation row $i');
+        }
+        if (scrolled) screen.chat.scrollBy(-6);
+        final terminal = VirtualTerminal(width: 80, height: 24);
+        final reading = ed.readLine('model > ');
+        await _flush();
+        terminal.feed(io.written.toString());
+        io.written.clear();
+        final chat = screen.layout.chat;
+        final before = [
+          for (var row = chat.row; row <= chat.bottom; row++)
+            terminal.rowText(row)
+        ];
+        io.feedBytes('/'.codeUnits);
+        await _flush();
+        terminal.feed(io.written.toString());
+        io.written.clear();
+        expect(terminal.rowText(screen.input.bounds.row - 1),
+            contains('/settings'));
+        switch (dismiss) {
+          case 'escape':
+            io.feedBytes([0x1b]);
+          case 'backspace':
+            io.feedBytes([0x7f]);
+          case 'accept':
+            io.feedBytes([0x0d]);
+        }
+        await _flush();
+        terminal.feed(io.written.toString());
+        expect([
+          for (var row = chat.row; row <= chat.bottom; row++)
+            terminal.rowText(row)
+        ], before,
+            reason:
+                'dismissing a popup must restore the actual terminal cells without new output');
+        if (dismiss == 'accept') {
+          expect(await reading, '/help ');
+        } else {
+          io.feedBytes([0x15, 0x0d]);
+          expect(await reading, '');
+        }
+      });
+    }
+  }
+
+  test('filtering command completion restores rows uncovered by a smaller list',
+      () async {
+    final io = FakeStdio();
+    final ed = _editor(io,
+        commandProvider: _CommandProvider(['/help', '/quit', '/settings']));
+    addTearDown(ed.close);
+    final screen = ed.screen;
+    screen.redrawFrame();
+    for (var i = 0; i < 40; i++) {
+      screen.chat.writeln('conversation row $i');
+    }
+    final reading = ed.readLine('model > ');
+    await _flush();
+    final terminal = VirtualTerminal(width: 80, height: 24)
+      ..feed(io.written.toString());
+    io.written.clear();
+    final inputRow = screen.input.bounds.row;
+    final covered = [
+      terminal.rowText(inputRow - 3),
+      terminal.rowText(inputRow - 2)
+    ];
+    io.feedBytes('/'.codeUnits);
+    await _flush();
+    terminal.feed(io.written.toString());
+    io.written.clear();
+    io.feedBytes('q'.codeUnits);
+    await _flush();
+    terminal.feed(io.written.toString());
+    expect(terminal.rowText(inputRow - 1), contains('/quit'));
+    expect([terminal.rowText(inputRow - 3), terminal.rowText(inputRow - 2)],
+        covered);
+    io.feedBytes([0x1b]);
+    await _flush();
+    io.feedBytes([0x15, 0x0d]);
+    expect(await reading, '');
+  });
+
   test('chained form reads retain a full burst and its Enter key', () async {
     final io = FakeStdio();
     final ed = _editor(io);

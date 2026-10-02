@@ -96,6 +96,61 @@ void main() {
       expect(io.frames, hasLength(1), reason: 'show after hide must repaint');
     });
 
+    test(
+        'every presented chat frame retains inspectors without an animation tick',
+        () {
+      for (var i = 0; i < 30; i++) screen.chat.writeln('conversation $i');
+      vt.feed(io.written.toString());
+      io.written.clear();
+      final overlay = OverlayRegion(
+          screen, const Rect(row: 5, col: 40, width: 20, height: 3));
+      addTearDown(overlay.dispose);
+      overlay.show(['plan step one', 'classification', 'stable inspector']);
+      vt.feed(io.written.toString());
+      io.frames.clear();
+      for (var i = 0; i < 6; i++) {
+        screen.chat.writeln('streaming update $i');
+        expect(io.frames, hasLength(1),
+            reason: 'background and overlay must present together');
+        vt.feed(io.frames.single);
+        expect(vt.rowText(5).substring(40, 60).trim(), 'plan step one');
+        expect(vt.rowText(6).substring(40, 60).trim(), 'classification');
+        expect(vt.rowText(7).substring(40, 60).trim(), 'stable inspector');
+        io.frames.clear();
+      }
+      overlay.show(['plan step one', 'classification', 'stable inspector']);
+      expect(io.frames, isEmpty,
+          reason: 'the next tick has no damage left to repair');
+    });
+
+    test(
+        'stacked overlays retain display order while chat streams and upper hides',
+        () {
+      final lower = OverlayRegion(
+          screen, const Rect(row: 6, col: 5, width: 20, height: 2));
+      final upper = OverlayRegion(
+          screen, const Rect(row: 6, col: 5, width: 20, height: 2));
+      addTearDown(lower.dispose);
+      addTearDown(upper.dispose);
+      // Showing order, not construction order, determines the top layer.
+      upper.show(['upper inspector', 'upper second']);
+      lower.show(['lower inspector', 'lower second']);
+      io.frames.clear();
+      screen.chat.writeln('streamed background');
+      expect(io.frames, hasLength(1));
+      vt.feed(io.frames.single);
+      expect(vt.rowText(6).substring(5, 25).trim(), 'lower inspector');
+      io.frames.clear();
+      lower.hide();
+      expect(io.frames, hasLength(1));
+      vt.feed(io.frames.single);
+      expect(vt.rowText(6).substring(5, 25).trim(), 'upper inspector');
+      io.frames.clear();
+      upper.show(['upper inspector', 'upper second']);
+      expect(io.frames, isEmpty,
+          reason: 'upper painting must not perpetually dirty the layer below');
+    });
+
     test('show and hide each present once and join an enclosing frame', () {
       final overlay = OverlayRegion(
           screen, const Rect(row: 5, col: 5, width: 12, height: 3));

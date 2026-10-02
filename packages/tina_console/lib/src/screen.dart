@@ -65,6 +65,8 @@ class Screen {
   late final StatusRegion _status;
   late final InputRegion _input;
   final List<OverlayRegion> _overlays = [];
+  final Set<ScrollingTextRegion> _chatRegions = {};
+  OverlayRegion? _paintingOverlay;
 
   /// Surfaces that must stay above chat planes in the z-order, managed
   /// centrally so a focused chat plane being raised never buries the input
@@ -149,8 +151,13 @@ class Screen {
     final damageSource = _backend;
     if (damageSource is BackendDamageSource) {
       (damageSource as BackendDamageSource).onDamage = (bounds) {
+        // Painting a higher layer does not damage layers beneath it. Only
+        // underlying shared-grid writes invalidate overlays above their owner.
+        final owner = _paintingOverlay;
+        var aboveOwner = owner == null;
         for (final overlay in _overlays) {
-          overlay.invalidatePaint(bounds);
+          if (aboveOwner) overlay.invalidatePaint(bounds);
+          if (identical(overlay, owner)) aboveOwner = true;
         }
       };
     }
@@ -267,11 +274,16 @@ class Screen {
     try {
       return body();
     } finally {
-      _frameDepth--;
       try {
-        if (_frameDepth == 0) {
+        if (_frameDepth == 1) {
           for (final region in _imageRegions.toList()) {
             region.paintImages();
+          }
+          _drainPendingBorderRepairs();
+          // Compose shared-grid overlays before presenting this frame. A
+          // later animation tick must never be needed to cover streaming text.
+          for (final overlay in _overlays.toList()) {
+            overlay.repaintIfDamaged();
           }
           _drainPendingBorderRepairs();
           // Drawing and border repairs cannot take the editing cursor away
@@ -279,6 +291,7 @@ class Screen {
           _applyCursor(flush: false);
         }
       } finally {
+        _frameDepth--;
         // ALWAYS close the backend's frame, even when a border repair throws. A
         // skipped endFrame leaves the backend's frame count above zero forever;
         // every later flush is then deferred and never presented, so the screen
@@ -1102,6 +1115,49 @@ class Screen {
 
   void unregisterOverlay(OverlayRegion o) {
     _overlays.remove(o);
+  }
+
+  /// Retained conversations whose text is currently on screen. Shared-grid
+  /// backends need them to restore cells exposed when an overlay disappears.
+  void retainChatRegion(ScrollingTextRegion region, bool visible) {
+    if (visible) {
+      _chatRegions.add(region);
+    } else {
+      _chatRegions.remove(region);
+    }
+  }
+
+  /// Restore exposed cells from current retained content, rather than an old
+  /// terminal snapshot (the conversation may have streamed under the popup).
+  /// Layered surfaces reveal their underlying planes without this repair.
+  void restoreUnderlay(Rect area) {
+    for (final region in _chatRegions.toList()) {
+      region.repaint(area: area);
+    }
+    if (area.overlaps(_input.bounds)) _input.handleResize();
+    if (area.row <= _layout.stripRow && area.bottom >= _layout.stripRow) {
+      _renderStrip();
+    }
+    // A conversation repaint can intersect another visible inspector. Restore
+    // damaged overlays in their display order, above the retained text.
+    for (final overlay in _overlays.toList()) {
+      overlay.repaintIfDamaged();
+    }
+  }
+
+  void raiseOverlay(OverlayRegion overlay) {
+    _overlays.remove(overlay);
+    _overlays.add(overlay);
+  }
+
+  T paintOverlay<T>(OverlayRegion overlay, T Function() body) {
+    final previous = _paintingOverlay;
+    _paintingOverlay = overlay;
+    try {
+      return body();
+    } finally {
+      _paintingOverlay = previous;
+    }
   }
 
   // -- Z-order (Phase 3) ----------------------------------------------------

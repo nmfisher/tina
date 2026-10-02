@@ -246,7 +246,9 @@ class ScrollingTextRegion extends Region {
         _rows = List.generate(
             (bounds ?? screen.layout.chat).height, (_) => _StyledRow(),
             growable: true),
-        super(screen);
+        super(screen) {
+    screen.retainChatRegion(this, true);
+  }
 
   @override
   Rect get bounds =>
@@ -527,6 +529,7 @@ class ScrollingTextRegion extends Region {
   /// Stop writing to the screen. Future [write] calls accumulate in an
   /// internal buffer. Call [attach] to replay them and resume live writes.
   void detach() {
+    screen.retainChatRegion(this, false);
     screen.retainImageRegion(this, false);
     // Drop any coalesced chat paint the screen is still owed (the per-region
     // _paintTimer is gone — the screen-global coordinator owns timing now).
@@ -545,6 +548,7 @@ class ScrollingTextRegion extends Region {
   /// current bounds before redrawing.
   void attach() {
     _detached = false;
+    screen.retainChatRegion(this, true);
     _reconcileRows();
     _ensureSurface();
     _retainImages();
@@ -1150,8 +1154,8 @@ class ScrollingTextRegion extends Region {
   /// combined window. Scrollback redraws are triggered by navigation or
   /// resize while scrolled, so each row is a full write with no snapshot
   /// diffing.
-  void _redrawScrollback() => screen.frame(() {
-        _ensureSurface();
+  void _redrawScrollback({Rect? area}) => screen.frame(() {
+        if (area == null) _ensureSurface();
         clearPaintSnapshots();
         final usable = _usableHeight;
         final total = _history.length + _contentRowCount;
@@ -1161,6 +1165,10 @@ class ScrollingTextRegion extends Region {
         final top = total - usable - _scrollOffset;
         final s = _surface;
         for (var v = 0; v < usable; v++) {
+          if (area != null &&
+              (bounds.row + v < area.row || bounds.row + v > area.bottom)) {
+            continue;
+          }
           final idx = top + v;
           if (idx < 0 || idx >= total) {
             // Blank visual row (content shorter than the window at this offset).
@@ -1204,6 +1212,10 @@ class ScrollingTextRegion extends Region {
         // Clear the reserved bottom-inset row(s) — same as _redrawAll.
         if (!keepBottomInset) {
           for (var r = usable; r < bounds.height; r++) {
+            if (area != null &&
+                (bounds.row + r < area.row || bounds.row + r > area.bottom)) {
+              continue;
+            }
             screen.eraseAtAbsolute(
               row: bounds.row + r,
               col: bounds.col,
@@ -1220,8 +1232,15 @@ class ScrollingTextRegion extends Region {
   /// blanked the screen over this region — e.g. a full-screen overlay scrim
   /// on backends without real z-order. No-op while detached (attaching
   /// replays).
-  void repaint() {
-    if (!_detached) _redraw();
+  void repaint({Rect? area}) {
+    if (_detached) return;
+    if (area == null) {
+      _redraw();
+    } else if (bounds.overlaps(area)) {
+      // This combined history/tail window also describes the view at offset
+      // zero. Repair only exposed rows so untouched text stays selectable.
+      _redrawScrollback(area: area);
+    }
   }
 
   /// Fully render a row's text with its SGR style and background padding, the
@@ -2060,7 +2079,7 @@ class OverlayRegion extends Region {
       screen.frame(() {
         if (!_sameRect(_bounds, clipped)) _hide();
         _bounds = clipped;
-        _show(painted, previous: previous);
+        screen.paintOverlay(this, () => _show(painted, previous: previous));
         _paintedLines = painted;
         _needsPaint = false;
       });
@@ -2094,6 +2113,7 @@ class OverlayRegion extends Region {
 
   void _show(List<String> lines, {List<String>? previous}) {
     if (_bounds.isEmpty) return;
+    if (!_visible) screen.raiseOverlay(this);
     _visible = true;
     if (_surface != null && !_sameRect(_surfaceBounds, _bounds)) {
       _surface!.destroy();
@@ -2170,12 +2190,18 @@ class OverlayRegion extends Region {
   /// Erase every row of the overlay. Marks invisible.
   void hide() => screen.frame(_hide);
 
+  void repaintIfDamaged() {
+    final lines = _paintedLines;
+    if (_visible && _needsPaint && lines != null) show(lines);
+  }
+
   void _hide() {
     if (!_visible) return;
     _visible = false;
     _paintedLines = null;
     _needsPaint = true;
     final s = _surface;
+    final sharedGrid = s is! LayeredBackendSurface;
     if (s != null) {
       // Destroying the surface clears its plane. On ANSI the surface is an
       // offset wrapper over the shared buffer, so also erase the cells to
@@ -2194,6 +2220,7 @@ class OverlayRegion extends Region {
       _surfaceBounds = null;
       screen.scheduleBorderRepairs(
           List.generate(_bounds.height, (i) => _bounds.row + i));
+      if (sharedGrid) screen.restoreUnderlay(_bounds);
       return;
     }
     if (_bounds.isEmpty) return;
@@ -2205,6 +2232,7 @@ class OverlayRegion extends Region {
         moveCursor: false,
       );
     }
+    screen.restoreUnderlay(_bounds);
   }
 
   /// Release the overlay's screen registration. Hides first.
