@@ -94,7 +94,8 @@ show the selected panel.
   Escape cancels navigation.
 - Ctrl+O toggles the selected panel between full width and the split layout.
 - Ctrl+X or `/close` closes the focused panel and cancels its running turn.
-- The status bar shows the panel count and how many are hidden. Focus it with
+- With multiple conversations or hidden panels, the status bar shows their
+  count. Focus it with
   Ctrl+G then Down/Tab and Enter; press Enter again to open panel controls.
   Up/Down selects, Enter restores, M minimizes, and X toggles maximization.
 - `/quit` exits the whole application.

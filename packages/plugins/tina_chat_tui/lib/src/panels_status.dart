@@ -31,6 +31,12 @@ final class PanelsStatus implements PanelInputTarget {
   List<RenderLine> status() {
     final panels = choices();
     final hidden = panels.where((p) => p.hidden).length;
+    // A single visible conversation needs no inventory label. Keep controls
+    // discoverable while cycling/focused, and report even one hidden panel.
+    // This leaves room for update and token indicators on narrow terminals.
+    if (panels.length <= 1 && hidden == 0 && !_focused && !_highlighted) {
+      return const [];
+    }
     final count = '${panels.length} ${panels.length == 1 ? 'panel' : 'panels'}';
     return [
       RenderLine(runs: [
