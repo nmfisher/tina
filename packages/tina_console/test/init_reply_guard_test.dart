@@ -9,6 +9,7 @@ class FakeReplyGuardOs implements ReplyGuardOs {
   FakeReplyGuardOs({
     this.terminals = const {0: true, 1: true},
     this.replyArrives = false,
+    this.probeReply = '\x1b]10;rgb:ffff/ffff/ffff\x1b\\',
     this.rawModeOk = true,
     this.detourOk = true,
     this.masterOnDetour = true,
@@ -19,6 +20,8 @@ class FakeReplyGuardOs implements ReplyGuardOs {
 
   /// Whether the probe reply shows up within the timeout.
   final bool replyArrives;
+  final String probeReply;
+  bool _probeRead = false;
 
   /// Whether [enterRawMode] can capture and change the mode.
   final bool rawModeOk;
@@ -110,6 +113,10 @@ class FakeReplyGuardOs implements ReplyGuardOs {
   @override
   Uint8List readBytes(int fd, int maxBytes) {
     calls.add('readBytes($fd,$maxBytes)');
+    if (fd == 0 && replyArrives && !_probeRead) {
+      _probeRead = true;
+      return utf8Bytes(probeReply);
+    }
     return Uint8List(0); // no data available by default
   }
 
@@ -171,7 +178,7 @@ void main() {
             'raw(0)',
             'write(1,${TerminalReplyGuard.probeQuery.length})',
             'poll(0,${TerminalReplyGuard.probeTimeoutMs})',
-            'drain(0,4096)',
+            'readBytes(0,4096)',
             'unraw(0,saved)'
           ]));
       // Nothing may touch fd 0's identity on the normal path.
@@ -184,6 +191,26 @@ void main() {
       final guard = TerminalReplyGuard(os: os)..prepare();
       guard.finishInit();
       expect(os.calls.any((c) => c == 'beginBridgedSession()'), isFalse);
+    });
+
+    test('a user Enter does not masquerade as a capability reply', () {
+      final os = FakeReplyGuardOs(replyArrives: true, probeReply: '\r');
+      final guard = TerminalReplyGuard(os: os);
+      addTearDown(guard.shutdown);
+      expect(guard.prepare(), isTrue,
+          reason: 'native startup must stay bounded on a mute terminal');
+      expect(os.detourReply, TerminalReplyGuard.fallbackReply);
+      expect(
+          os.calls.indexOf('unraw(0,saved)'),
+          lessThan(os.calls
+              .indexOf('detour(${TerminalReplyGuard.fallbackReply.length})')));
+    });
+
+    test('fragmented OSC capability replies are recognized', () {
+      final os = _ChunkedProbeOs(['\x1b]1', '0;rgb:ffff/ffff/ffff\x1b\\']);
+      final guard = TerminalReplyGuard(os: os);
+      expect(guard.prepare(), isFalse);
+      expect(os.calls.any((c) => c.startsWith('detour')), isFalse);
     });
 
     test('no terminal on stdio: does not probe at all', () {
@@ -457,6 +484,14 @@ void main() {
       expect(guard.bridge.running, isFalse);
     });
   });
+}
+
+final class _ChunkedProbeOs extends FakeReplyGuardOs {
+  _ChunkedProbeOs(this.chunks) : super(replyArrives: true);
+  final List<String> chunks;
+  @override
+  Uint8List readBytes(int fd, int maxBytes) =>
+      chunks.isEmpty ? Uint8List(0) : utf8Bytes(chunks.removeAt(0));
 }
 
 Uint8List utf8Bytes(String s) => Uint8List.fromList(s.codeUnits);

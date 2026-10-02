@@ -133,12 +133,19 @@ class TerminalReplyGuard {
     try {
       if (savedMode == null) return false;
       _os.write(1, probeQuery);
-      if (_os.pollReadable(0, probeTimeoutMs)) {
-        // Consume the reply so it is neither echoed after raw mode comes
-        // off nor mistaken for a keystroke later. notcurses re-queries
-        // everything itself, so losing it costs nothing.
-        _os.drain(0, drainLimit);
-        return false;
+      final wait = Stopwatch()..start();
+      var received = '';
+      while (received.length < drainLimit) {
+        final remaining = probeTimeoutMs - wait.elapsedMilliseconds;
+        if (remaining <= 0 || !_os.pollReadable(0, remaining)) break;
+        final bytes = _os.readBytes(0, drainLimit - received.length);
+        if (bytes.isEmpty) break;
+        received += String.fromCharCodes(bytes);
+        // A user key (including an Enter left during restart) is not a
+        // capability reply. Treating any readable byte as a reply disables
+        // the bounded detour and lets native initialization hang forever.
+        // Retain fragmented replies until their OSC header can be recognized.
+        if (RegExp('\x1b\\](?:10|11);').hasMatch(received)) return false;
       }
     } finally {
       _os.restoreMode(0, savedMode);

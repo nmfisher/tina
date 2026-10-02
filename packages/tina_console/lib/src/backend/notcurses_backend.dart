@@ -156,6 +156,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
     // real terminal its mode back before the context is freed
     // (tin-DEAD-KEYBOARD).
     final guard = TerminalReplyGuard()..prepare();
+    nc.NotCurses? initialized;
     try {
       final nc_ = nc.NotCurses(nc.CursesOptions(
         loglevel: Platform.environment['COCOON_DEBUG'] == '1'
@@ -166,6 +167,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
       if (nc_.notInitialized) {
         throw StateError('Failed to initialize notcurses');
       }
+      initialized = nc_;
       // Deliver mouse-button events (scroll wheel included) as key events, so
       // the wheel can scroll the chat scrollback instead of falling through to
       // the terminal's wheel→arrow translation (which the editor would treat
@@ -185,7 +187,14 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
     } catch (_) {
       // No live platform owns the guard on this path, so nothing would ever
       // stop its bridge timer; end it here before the error escapes.
-      guard.shutdown();
+      try {
+        guard.shutdown();
+      } finally {
+        // A failure after context creation (for example during plane setup)
+        // must release its input thread before the host restores stdin and
+        // tries another backend.
+        initialized?.stop();
+      }
       rethrow;
     } finally {
       guard.finishInit();
