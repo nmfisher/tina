@@ -16,6 +16,8 @@
 library;
 
 export 'src/backend/ansi_backend.dart' show AnsiBackend;
+export 'src/backend/notcurses_input_backend.dart'
+    show NotcursesInputBackend, KeySource, NcKeyEvent;
 
 /// A single cell in the virtual terminal.
 class _Cell {

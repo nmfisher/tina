@@ -269,10 +269,8 @@ class NotcursesInputBackend implements InputBackend {
     if (OpCounters.enabled) {
       OpCounters.instance.dartCallbackBatches++;
     }
-    // tin-w8dl: batch cadence is the delivery-stall signal. A >30ms hole
-    // between consecutive batch lines mid-paste means the Dart event loop
-    // stalled between native drains — exactly the lie that splits one paste
-    // into detector "bursts" (the detector stamps arrival with delivery time).
+    // Batch cadence reveals delivery stalls. Capture timestamps keep those
+    // stalls from changing how the paste detector groups the native records.
     if (PasteAudit.enabled && recordCount > 0) {
       PasteAudit.log('batch n=$recordCount');
     }
@@ -432,7 +430,9 @@ class NotcursesInputBackend implements InputBackend {
       return;
     }
     InputLatency.begin(event, monotonicNanos);
-    _handleEvent(event);
+    // Use native capture times: a backlog of typed keys must not become a
+    // paste just because rendering delayed delivery of the batch to Dart.
+    _handleEvent(event, timestampMicros: monotonicNanos ~/ 1000);
   }
 
   /// Arm the release for an ESC the reply filter is holding. A genuine lone
@@ -546,22 +546,21 @@ class NotcursesInputBackend implements InputBackend {
   /// burst and returns the events to emit now — usually empty (the burst is
   /// still forming) unless this event's gap from the previous one exceeded the
   /// join window, in which case the previous burst is flushed first.
-  void _handleEvent(InputEvent event) {
+  void _handleEvent(InputEvent event, {int? timestampMicros}) {
     final detector = _burstDetector;
     if (detector == null) {
       _emit(event);
       return;
     }
-    final emitted = detector.add(event, _nowMicros);
+    final emitted = detector.add(event, timestampMicros ?? _nowMicros);
     for (final e in emitted) {
       _emit(e);
     }
     // On the pump path there is no poll tick to expire a burst that stopped
     // forming. Re-arm a short timer so the final flush lands just past
     // joinWindow after the last event — otherwise a paste sits buffered until
-    // the next keystroke. +1ms: PasteBurstDetector.expire() uses a strict `>`
-    // gap check, so a timer armed at exactly joinWindow could fire with the gap
-    // == joinWindow (== is not >) and fail to flush.
+    // the next keystroke. The idle timer measures time since delivery; native
+    // capture timestamps determine whether those events were typing or paste.
     if (detector.hasPending) {
       _armBurstFlushTimer(
           detector.joinWindow + const Duration(milliseconds: 1));
@@ -583,7 +582,10 @@ class NotcursesInputBackend implements InputBackend {
     if (PasteAudit.enabled) {
       PasteAudit.log('flush-timer fired (joinWindow after last pending)');
     }
-    final expired = detector.expire(_nowMicros);
+    // Native timestamps and the polling clock have different origins. This
+    // timer was armed after the last delivered event and rearmed on every later
+    // event, so its expiry alone establishes the idle boundary.
+    final expired = detector.flush();
     if (expired.isEmpty) return;
     // A flush from a Timer callback is its own "tick": emit the first
     // synchronously and the rest via microtask, matching _emit's per-batch

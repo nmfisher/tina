@@ -33,7 +33,10 @@ def send_line(terminal, text):
 
 def smoke(binary, endpoint, columns, rows):
     with tempfile.TemporaryDirectory(prefix='tina-native-image-') as directory:
-        root = Path(directory)
+        # Seatbelt matches canonical paths (/private/var on macOS).
+        root = Path(directory).resolve()
+        workspace = root / 'workspace'
+        workspace.mkdir()
         config = root / 'config'
         fixture = PACKAGE.parent / 'plugins/tina_mcp/test/fixtures/server.py'
         config.write_text(
@@ -50,7 +53,7 @@ def smoke(binary, endpoint, columns, rows):
                'COLORTERM': 'truecolor', 'LANG': 'en_US.UTF-8',
                'COCOON_UPDATE_CHECK': '0'}
         command = [str(binary), '--backend', 'notcurses', '--config', str(config),
-                   '--cwd', str(root), '--store', str(root / 'sessions.db')]
+                   '--cwd', str(workspace), '--store', str(root / 'sessions.db')]
         terminal = Terminal(command, env, columns, rows)
         try:
             terminal.expect('smoke > ')
@@ -81,11 +84,50 @@ def smoke(binary, endpoint, columns, rows):
                               'image rendering broke Enter submission')
             terminal.expect('smoke answer', start, wrapped=True)
             terminal.expect_idle()
+            if rows == 24:
+                # Exercise Escape through the real native input pump, then
+                # submit another message while the cancelled server is held.
+                ModelStub.release_cancelled.clear()
+                start = send_line(terminal, 'cancel this')
+                terminal.expect('cancel pending', start, wrapped=True)
+                terminal.send('\x1b')
+                terminal.expect('cancelled: escape', start, wrapped=True)
+                before = len(ModelStub.requests)
+                start = send_line(terminal, 'after cancel')
+                terminal.wait_for(lambda: len(ModelStub.requests) > before,
+                                  'Enter did not send after response cancellation')
+                assert 'after cancel' in json.dumps(ModelStub.requests[-1]['messages'][-1])
+                terminal.expect('smoke answer', start, wrapped=True)
+                ModelStub.release_cancelled.set()
+                terminal.expect_idle()
+                # Cancellation of a live subprocess must also release input
+                # and kill descendants before the next instruction starts.
+                start = send_line(terminal, 'run cancellable tool')
+                terminal.expect('[y] allow once', start, wrapped=True)
+                terminal.send('y')
+                # The command text in the approval preview also contains the
+                # output marker. Wait for actual execution, not that preview.
+                terminal.wait_for(lambda: (workspace / 'subprocess-ready').exists(),
+                                  'approved subprocess did not start')
+                terminal.send('\x1b')
+                terminal.expect('cancelled: escape', start, wrapped=True)
+                before = len(ModelStub.requests)
+                start = send_line(terminal, 'after tool cancellation')
+                terminal.wait_for(lambda: len(ModelStub.requests) > before,
+                                  'Enter did not send after subprocess cancellation')
+                assert 'after tool cancellation' in json.dumps(ModelStub.requests[-1]['messages'][-1])
+                terminal.expect('smoke answer', start, wrapped=True)
+                time.sleep(2.3)
+                assert not (workspace / 'cancel-leak').exists(), 'cancelled child survived'
+                terminal.expect_idle()
             terminal.quit()
         except Exception:
             print(terminal.output.decode(errors='replace')[-12000:])
+            if ModelStub.requests:
+                print('Last model input:', json.dumps(ModelStub.requests[-1]['messages'][-1]))
             raise
         finally:
+            ModelStub.release_cancelled.set()
             terminal.close()
         # Persisted tool-result attachments must be painted on resume too.
         resumed = Terminal(command + ['--resume'], env, columns, rows)

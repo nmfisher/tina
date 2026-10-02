@@ -39,6 +39,55 @@ final class ControlledProvider implements LlmProvider {
 }
 
 void main() {
+  for (final burst in [false, true]) {
+    test('single-view Escape cancellation accepts next input (burst=$burst)',
+        () async {
+      final directory =
+          Directory.systemTemp.createTempSync('tina_escape_single_');
+      final config = File('${directory.path}/config')
+        ..writeAsStringSync(
+            '[default]\nmodel="controlled"\n[plugins]\nenabled=["tina/chat-tui"]\n');
+      final provider = ControlledProvider();
+      final session = TuiSession.start(
+          providerFactory: (_) => provider,
+          workingDirectory: directory.path,
+          configPath: config.path);
+      final io = FakeIo();
+      late LineEditor editor;
+      final app = runApp(session,
+          screen: fakeScreen(io),
+          editorFor: (screen) => editor =
+              LineEditor(screen: screen, escapeTimeout: Duration.zero));
+      addTearDown(() async {
+        session.host.session.loop.cancel('cleanup');
+        io.closeInput();
+        await app.timeout(const Duration(seconds: 3));
+        directory.deleteSync(recursive: true);
+      });
+      await waitFor(() => editor.isEditing);
+      io.feedBytes('first\r'.codeUnits);
+      await waitFor(() => provider.requests.length == 1);
+      if (burst) {
+        editor.inject(EscapeKey());
+        editor.inject(CharInput('replacement'));
+        editor.inject(ControlKey(ControlCode.enter));
+      } else {
+        io.feedBytes([27]);
+        await waitFor(() => !session.host.session.loop.running);
+        io.feedBytes('replacement\r'.codeUnits);
+      }
+      await waitFor(() => provider.requests.length == 2);
+      expect(session.inputHistory, ['first', 'replacement']);
+      provider.requests.last.add(const MessageComplete(
+          content: [TextBlock('new answer')], stopReason: 'end_turn'));
+      await provider.requests.last.close();
+      await waitFor(() => !session.host.session.loop.running);
+      await waitFor(() => editor.isEditing);
+      io.feedBytes('/quit\r'.codeUnits);
+      await app.timeout(const Duration(seconds: 3));
+    });
+  }
+
   test('settings opens during a request without the workspace plugin',
       () async {
     final directory =

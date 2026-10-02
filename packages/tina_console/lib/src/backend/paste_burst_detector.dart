@@ -72,16 +72,16 @@ class PasteBurstDetector {
   /// burst that has stopped forming is flushed after [joinWindow] elapses —
   /// otherwise the last burst's events sit buffered until the next keypress.
   List<InputEvent> add(InputEvent event, int nowMicros) {
-    // Quit/cancel keys are latency-critical and must NEVER join a burst: a
-    // Ctrl+C folded into a paste-sized burst was dropped by _pasteText (or
-    // sat buffered for the join window), leaving the user with no exit while
-    // input was coalescing. Flush whatever burst is forming, then emit the
-    // key immediately — Ctrl+D (EOF/exit) rides the same path.
-    if (event is ControlKey &&
-        (event.code == ControlCode.ctrlC || event.code == ControlCode.ctrlD)) {
+    // Only text, Enter and Tab can form a paste. Escape, editing/navigation
+    // keys and every other control are boundaries and must reach their owner.
+    // Dropping Escape from a large burst leaves a running turn uncancelled.
+    final textEvent = event is CharInput ||
+        event is ControlKey &&
+            (event.code == ControlCode.enter || event.code == ControlCode.tab);
+    if (!textEvent) {
       if (_pending.isEmpty) return [event];
       onAudit?.call(
-        'detector urgent-flush (ctrl key): pending=${_pending.length} '
+        'detector key-boundary flush: pending=${_pending.length} '
         'burstChars=$_burstChars',
       );
       final drained = _drain('urgent');
@@ -199,10 +199,7 @@ class PasteBurstDetector {
       if (e.code == ControlCode.enter) return '\n';
       if (e.code == ControlCode.tab) return '\t';
     }
-    // Non-text events inside a burst (arrows, function keys) are rare in a
-    // paste but possible; preserve nothing rather than emit junk. They don't
-    // count toward [_burstChars] either, so they can't inflate a short burst
-    // into a paste.
+    // Non-text keys are emitted separately by add().
     return '';
   }
 }

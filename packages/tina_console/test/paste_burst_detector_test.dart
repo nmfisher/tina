@@ -149,24 +149,35 @@ void main() {
       expect(emitted.whereType<CharInput>(), hasLength(10));
     });
 
-    test('non-text events inside a burst are dropped, not counted', () {
-      // An arrow key mid-paste shouldn't break the paste or inflate the char
-      // count. It contributes nothing to the joined text. 8 chars clear the
-      // threshold; the arrow adds 0, so the burst still qualifies as a paste.
+    test('non-text keys split a burst and remain usable', () {
       final d = PasteBurstDetector(minPasteChars: 8);
-      d.add(CharInput('a'), 1000);
-      d.add(CharInput('b'), 1010);
-      d.add(ArrowKey(ArrowDirection.left), 1020);
-      d.add(CharInput('c'), 1030);
-      d.add(CharInput('d'), 1040);
-      d.add(CharInput('e'), 1050);
-      d.add(CharInput('f'), 1060);
-      d.add(CharInput('g'), 1070);
-      d.add(CharInput('h'), 1080);
-      d.add(CharInput('i'), 1090);
-      final flushed = d.flush();
-      expect(flushed, hasLength(1));
-      expect((flushed.first as PasteInput).text, 'abcdefghi');
+      final emitted = <InputEvent>[];
+      emitted.addAll(d.add(CharInput('a'), 1000));
+      emitted.addAll(d.add(CharInput('b'), 1010));
+      emitted.addAll(d.add(ArrowKey(ArrowDirection.left), 1020));
+      for (final (index, char) in 'cdefghi'.split('').indexed) {
+        emitted.addAll(d.add(CharInput(char), 1030 + index * 10));
+      }
+      emitted.addAll(d.flush());
+      expect(emitted, [
+        CharInput('a'),
+        CharInput('b'),
+        ArrowKey(ArrowDirection.left),
+        for (final char in 'cdefghi'.split('')) CharInput(char)
+      ]);
+    });
+
+    test('Escape after a large paste is preserved immediately', () {
+      final d = PasteBurstDetector();
+      for (var i = 0; i < 12; i++) {
+        d.add(CharInput('x'), i * 20);
+      }
+      final escape = EscapeKey();
+      final emitted = d.add(escape, 250);
+      expect(emitted, [PasteInput('x' * 12), same(escape)]);
+      expect(d.hasPending, false);
+      expect(d.add(ControlKey(ControlCode.enter), 100000), isEmpty);
+      expect(d.flush(), [ControlKey(ControlCode.enter)]);
     });
 
     test('two separate pastes with a typing gap between them', () {

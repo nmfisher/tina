@@ -126,6 +126,67 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
 
   PanelFrame getFrame() => editor.focusManager!.focused as PanelFrame;
 
+  for (final burst in [false, true]) {
+    test('Escape cancels a response and the next Enter sends (burst=$burst)',
+        () async {
+      await keys('first request\r');
+      final provider = providers.first;
+      await waitFor(() => provider.requests.length == 1);
+      if (burst) {
+        editor.inject(EscapeKey());
+        editor.inject(CharInput('replacement'));
+        editor.inject(ControlKey(ControlCode.enter));
+      } else {
+        await keys('\x1b');
+        await waitFor(() => !session.host.session.loop.running);
+        await keys('replacement\r');
+      }
+      await waitFor(() => provider.requests.length == 2);
+      expect(
+          provider.requests.last.last.content
+              .whereType<TextBlock>()
+              .single
+              .text,
+          'replacement');
+      provider.answer(1, 'new answer');
+      await waitFor(() => !session.host.session.loop.running);
+    });
+
+    test('Escape dismisses an approval and the next Enter sends (burst=$burst)',
+        () async {
+      await session.commands['mode']!.handler('read-only');
+      await keys('first request\r');
+      final provider = providers.first;
+      await waitFor(() => provider.requests.length == 1);
+      provider.streams[0].add(const ToolCallStart(id: 'write', name: 'write'));
+      provider.streams[0].add(const MessageComplete(content: [
+        ToolUseBlock(id: 'write', name: 'write', input: {
+          'filePath': 'escape-denied.txt',
+          'content': 'must not be written'
+        })
+      ], stopReason: 'tool_use'));
+      await provider.streams[0].close();
+      await waitFor(() => approvalUi(session).asker!.current != null);
+      if (burst) {
+        editor.inject(EscapeKey());
+        editor.inject(CharInput('replacement'));
+        editor.inject(ControlKey(ControlCode.enter));
+      } else {
+        await keys('\x1b');
+        await waitFor(() => approvalUi(session).asker!.current == null);
+        await keys('replacement\r');
+      }
+      // A replacement submitted during approval cleanup must start a new turn
+      // immediately, without needing an additional Enter or provider response.
+      await waitFor(() => provider.requests.any((messages) => messages.any(
+          (message) => message.content
+              .whereType<TextBlock>()
+              .any((block) => block.text == 'replacement'))));
+      provider.answer(provider.requests.length - 1, 'new answer');
+      await waitFor(() => !session.host.session.loop.running);
+    });
+  }
+
   test('commands opt into concurrent dispatch through their live registration',
       () async {
     var concurrent = false, queued = false;

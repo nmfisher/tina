@@ -69,7 +69,7 @@ class ModelStub(BaseHTTPRequestHandler):
                                            "name": "bash", "input": {}}}
             events[2] = {"type": "content_block_delta", "index": 0,
                          "delta": {"type": "input_json_delta", "partial_json": json.dumps({
-                             "command": "(sleep 2; echo leaked > cancel-leak) &\necho subprocess-live\nwait"})}}
+                             "command": "(sleep 2; echo leaked > cancel-leak) &\necho subprocess-live\n: > subprocess-ready\nwait"})}}
             events[4]['delta']['stop_reason'] = 'tool_use'
         if 'approve this' in json.dumps(prompt):
             events[1] = {"type": "content_block_start", "index": 0,
@@ -279,7 +279,8 @@ class Terminal:
 
 def smoke(launcher, endpoint, columns, rows):
     with tempfile.TemporaryDirectory(prefix="tina-engine2-smoke-") as directory:
-        root = Path(directory)
+        # Seatbelt matches canonical paths (/private/var on macOS).
+        root = Path(directory).resolve()
         config = root / "config"
         # Exercise the real background status without contacting GitHub.
         release_cache = root / '.tina' / 'cache' / 'latest_release.json'
