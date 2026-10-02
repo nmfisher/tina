@@ -1,4 +1,5 @@
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_settings/tina_settings.dart';
 
 /// A capability is a typed constructor dependency, resolved once at load time.
 /// It is not a global registry available to running plugins.
@@ -13,13 +14,14 @@ final class PluginDefinition<C> {
   PluginDefinition(this.id, AgentPlugin Function(C) create,
       {required String description,
       this.provides = const [],
+      this.settings = const [],
       this.live = false})
       : description = _description(description),
         requires = const [],
         _create = ((context, _) => create(context));
 
   PluginDefinition._(this.id, String description, this.requires, this.provides,
-      this._create, this.live)
+      this._create, this.live, this.settings)
       : description = _description(description);
 
   static PluginDefinition<C> dependingOn<C, D extends Object>(String id,
@@ -27,6 +29,7 @@ final class PluginDefinition<C> {
           required PluginCapability<D> dependency,
           required AgentPlugin Function(C, D) create,
           List<PluginCapability<Object>> provides = const [],
+          List<SettingDefinition<Object>> settings = const [],
           bool live = false}) =>
       PluginDefinition._(
           id,
@@ -34,7 +37,8 @@ final class PluginDefinition<C> {
           [dependency],
           provides,
           (context, dependencies) => create(context, dependencies.single as D),
-          live);
+          live,
+          settings);
 
   static PluginDefinition<C>
       dependingOn2<C, A extends Object, B extends Object>(String id,
@@ -43,6 +47,7 @@ final class PluginDefinition<C> {
               required PluginCapability<B> second,
               required AgentPlugin Function(C, A, B) create,
               List<PluginCapability<Object>> provides = const [],
+              List<SettingDefinition<Object>> settings = const [],
               bool live = false}) =>
           PluginDefinition._(
               id,
@@ -51,7 +56,8 @@ final class PluginDefinition<C> {
               provides,
               (context, values) =>
                   create(context, values[0] as A, values[1] as B),
-              live);
+              live,
+              settings);
 
   /// Opt-in: resources and background work support between-turn detach/reload.
   final bool live;
@@ -59,6 +65,7 @@ final class PluginDefinition<C> {
 
   /// User-facing explanation available without constructing the plugin.
   final String description;
+  final List<SettingDefinition<Object>> settings;
 
   static String _description(String value) {
     final text = value.trim();

@@ -7,6 +7,8 @@ environment:
   sdk: ^3.0.0
 
 dependencies:
+  tina_settings:
+    path: ../libraries/tina_settings
   image: ^4.5.0
   ffi: ^2.1.0
   fuzzy_ranker:

@@ -1,4 +1,5 @@
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_settings/tina_settings.dart';
 import 'plugin_definition.dart';
 
 typedef PluginFactory<C> = AgentPlugin Function(C context);
@@ -24,6 +25,11 @@ final class PluginRegistry<C> {
 
   void _add(PluginDefinition<C> definition) {
     validatePluginId(definition.id);
+    for (final setting in definition.settings) {
+      if (!setting.id.startsWith('${definition.id}/')) {
+        throw ArgumentError('${definition.id} cannot declare ${setting.id}');
+      }
+    }
     if (_definitions.containsKey(definition.id)) {
       throw ArgumentError('duplicate plugin id: ${definition.id}');
     }
@@ -37,9 +43,11 @@ final class PluginRegistry<C> {
       _ordered(ids).map((d) => d.id).toList();
 
   void register(String id, PluginFactory<C> factory,
-          {required String description, bool live = false}) =>
-      registerDefinition(
-          PluginDefinition(id, factory, description: description, live: live));
+          {required String description,
+          bool live = false,
+          List<SettingDefinition<Object>> settings = const []}) =>
+      registerDefinition(PluginDefinition(id, factory,
+          description: description, live: live, settings: settings));
 
   void registerDefinition(PluginDefinition<C> definition) {
     if (definition.id.startsWith('tina/')) {

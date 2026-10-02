@@ -33,7 +33,8 @@
     "tina_grok_guard",
     "tina_mode",
     "tina_step_limit",
-    "tina_mcp"
+    "tina_mcp",
+    "tina_settings"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -190,6 +191,10 @@
     "tina_mcp": [
       "lib",
       "test"
+    ],
+    "tina_settings": [
+      "lib",
+      "test"
     ]
   },
   "frontendRoots": [
@@ -247,6 +252,7 @@
     "packages/tina_app/lib/src/project/"
   ],
   "pureFiles": [
+    "packages/libraries/tina_settings/lib/tina_settings.dart",
     "packages/classification/lib/src/judgments/models.dart",
     "packages/classification/lib/src/judgments/service.dart",
     "packages/classification/lib/src/judgments/request_budget.dart",
@@ -334,12 +340,14 @@
     "tina_chat_tui": "packages/plugins/tina_chat_tui",
     "tina_grok_guard": "packages/plugins/tina_grok_guard",
     "tina_mode": "packages/plugins/tina_mode",
-    "tina_mcp": "packages/plugins/tina_mcp"
+    "tina_mcp": "packages/plugins/tina_mcp",
+    "tina_settings": "packages/libraries/tina_settings"
   },
   "runtimeDependencies": {
     "tina_step_limit": [
       "tina_engine_2",
-      "toml"
+      "toml",
+      "tina_settings"
     ],
     "tina_grok_guard": [
       "tina_engine_2",
@@ -351,7 +359,8 @@
     ],
     "tina_host": [
       "tina_core",
-      "tina_engine_2"
+      "tina_engine_2",
+      "tina_settings"
     ],
     "tina_approvals": [
       "tina_engine_2",
@@ -366,7 +375,8 @@
     ],
     "tina_providers": [
       "tina_engine_2",
-      "tina_host"
+      "tina_host",
+      "tina_settings"
     ],
     "tina_activity_tui": [
       "tina_core",
@@ -384,7 +394,8 @@
       "classification",
       "tina_mode",
       "tina_plans",
-      "tina_goals"
+      "tina_goals",
+      "tina_settings"
     ],
     "classification": [
       "crypto",
@@ -396,7 +407,8 @@
     "tina_mode": [
       "classification",
       "tina_engine_2",
-      "tina_approvals"
+      "tina_approvals",
+      "tina_settings"
     ],
     "tina_mcp": [
       "crypto",
@@ -406,7 +418,8 @@
       "tina_engine_2",
       "tina_approvals",
       "tina_tools"
-    ]
+    ],
+    "tina_settings": []
   },
   "pluginFreePackages": [
     "tina_host",

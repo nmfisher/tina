@@ -1,0 +1,8 @@
+name: tina_settings
+description: Typed scoped settings, inheritance and change subscriptions.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dev_dependencies:
+  test: ^1.25.0

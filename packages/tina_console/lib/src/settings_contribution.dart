@@ -1,16 +1,33 @@
 import 'dart:async';
+import 'package:tina_settings/tina_settings.dart';
 
 /// UI descriptions and callbacks only. Plugins own their values and storage.
 sealed class SettingControl {
-  const SettingControl({required this.id, required this.label});
+  const SettingControl({required this.id, required this.label, this.scopes});
   final String id;
   final String label;
+
+  /// Null denotes a custom control outside configuration inheritance.
+  final Set<SettingScope>? scopes;
+}
+
+/// A plugin can bind a typed scoped value to the standard settings editor.
+/// Actions and temporary UI controls keep their existing callback contracts.
+final class ScopedSettingControl extends SettingControl {
+  ScopedSettingControl({required this.definition, required this.settings})
+      : super(
+            id: definition.id,
+            label: definition.label,
+            scopes: definition.scopes);
+  final SettingDefinition<Object> definition;
+  final ScopedSettings settings;
 }
 
 final class SettingToggle extends SettingControl {
   const SettingToggle(
       {required super.id,
       required super.label,
+      super.scopes,
       required this.read,
       required this.change});
   final bool Function() read;
@@ -21,6 +38,7 @@ final class SettingText extends SettingControl {
   const SettingText(
       {required super.id,
       required super.label,
+      super.scopes,
       required this.read,
       required this.change,
       this.secret = false});
@@ -33,6 +51,7 @@ final class SettingChoice extends SettingControl {
   const SettingChoice(
       {required super.id,
       required super.label,
+      super.scopes,
       required this.read,
       required this.change,
       required this.options});

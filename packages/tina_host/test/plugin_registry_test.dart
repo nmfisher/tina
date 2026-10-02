@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
+import 'package:tina_settings/tina_settings.dart';
 
 final class NamedPlugin extends AgentPlugin {
   const NamedPlugin(this.id);
@@ -24,6 +25,30 @@ const service = PluginCapability<Service>('acme/service');
 const other = PluginCapability<AgentPlugin>('acme/other');
 
 void main() {
+  test(
+      'setting definitions are available without building plugins and enforce ownership',
+      () {
+    final setting = SettingDefinition<int>(
+        id: 'acme/example/limit',
+        label: 'Limit',
+        description: 'Maximum work',
+        defaultValue: 0,
+        kind: SettingKind.integer);
+    var builds = 0;
+    final registry = PluginRegistry<void>();
+    registry.register('acme/example', (_) {
+      builds++;
+      return const NamedPlugin('acme/example');
+    }, description: 'Example', settings: [setting]);
+    expect(registry.definition('acme/example').settings.single, same(setting));
+    expect(builds, 0);
+    expect(
+        () => registry.register(
+            'other/example', (_) => const NamedPlugin('other/example'),
+            description: 'Other', settings: [setting]),
+        throwsArgumentError);
+    expect(builds, 0);
+  });
   test(
       'two typed dependencies and application roles resolve before construction',
       () {

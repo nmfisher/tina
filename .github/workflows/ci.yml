@@ -308,6 +308,24 @@ jobs:
         working-directory: packages/libraries/attractor
         run: dart test -j 4
 
+  tina_settings:
+    name: tina_settings (packages/libraries/tina_settings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_settings)
+        working-directory: packages/libraries/tina_settings
+        run: dart pub get
+      - name: analyze (tina_settings)
+        working-directory: packages/libraries/tina_settings
+        run: dart analyze
+      - name: test (tina_settings)
+        working-directory: packages/libraries/tina_settings
+        run: dart test -j 4
+
   fuzzy_ranker:
     name: fuzzy_ranker (packages/libraries/fuzzy_ranker)
     runs-on: ubuntu-latest
