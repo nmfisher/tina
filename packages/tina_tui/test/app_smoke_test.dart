@@ -25,4 +25,22 @@ void main() {
     ]);
     expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
   }, skip: Platform.isWindows ? 'requires a POSIX PTY' : null);
+  test('PTY classifier requests, replies, hierarchy, focus and resize',
+      () async {
+    var root = Directory.current;
+    while (
+        !File('${root.path}/tool/smoke_classification_panel.py').existsSync()) {
+      if (root.parent.path == root.path)
+        throw StateError('tina repository not found');
+      root = root.parent;
+    }
+    final result = await Process.run('python3', [
+      '${root.path}/tool/smoke_classification_panel.py',
+      '--dart',
+      Platform.resolvedExecutable,
+      '--backend',
+      'ansi'
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+  }, skip: Platform.isWindows ? 'requires a POSIX PTY' : null);
 }

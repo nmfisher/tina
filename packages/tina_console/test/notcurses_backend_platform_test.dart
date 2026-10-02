@@ -202,6 +202,7 @@ class _LayeredSurface implements BackendSurface, LayeredBackendSurface {
   @override
   final Rect bounds;
   final writes = <String>[];
+  int raises = 0;
   @override
   void putAt(
           {required int relRow,
@@ -219,7 +220,10 @@ class _LayeredSurface implements BackendSurface, LayeredBackendSurface {
           required bool moveCursor}) =>
       writes.add('erase');
   @override
-  void raiseToTop() {}
+  void raiseToTop() {
+    raises++;
+  }
+
   @override
   void destroy() {}
   @override
@@ -368,6 +372,22 @@ void main() {
   });
 
   group('retained screen scheduling', () {
+    test('late chat and input surfaces keep existing overlays above them', () {
+      final screen = Screen.withBackend(
+          backend: backend, io: io, layout: ScreenLayout.fromSize(80, 24));
+      final overlay =
+          _LayeredSurface(const Rect(row: 5, col: 5, width: 20, height: 2));
+      screen.adoptOverlaySurface(overlay);
+      final initial = overlay.raises;
+      final chat = _LayeredSurface(screen.chat.bounds);
+      screen.adoptChatSurface(chat);
+      expect(overlay.raises, initial + 1);
+      final input = _LayeredSurface(screen.input.bounds);
+      screen.adoptInputSurface(input);
+      expect(input.raises, 1);
+      expect(overlay.raises, initial + 2);
+      screen.releaseOverlaySurface(overlay);
+    });
     test('unchanged real overlay layers do not present or toggle the cursor',
         () {
       final layers = <_LayeredSurface>[];

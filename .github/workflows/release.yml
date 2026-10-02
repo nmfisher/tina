@@ -152,6 +152,9 @@ jobs:
       - name: Smoke-test notcurses images, input, resume and teardown
         run: python3 tool/smoke_notcurses_images.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
 
+      - name: Smoke-test live classification panel and hierarchy on both backends
+        run: python3 tool/smoke_classification_panel.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
         env:

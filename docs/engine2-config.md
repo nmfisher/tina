@@ -232,8 +232,18 @@ a reusable category and question in a fresh context, then reclassifies once.
 Vocabularies allow 254 named categories plus Other; selection counters and learned
 definitions are shared globally in `~/.tina/classification/categories.json`
 (beside an explicit `--config` file). `/classification categories` lists them.
-Results appear in the status bar and `/classification`; they never change agent
-routing or permissions. Work runs in the background and stops on cancellation,
+Results appear in a live classification panel rather than the status bar.
+`/classification` opens it; `/classification hierarchy` opens the execution tree.
+F6 hides or shows it. Use Ctrl+G, Tab, Enter to focus, ↑↓ to select a stage or
+question, → or Enter to inspect its request/reply, ← to return, and `h` to switch
+between exchanges and hierarchy. The hierarchy includes all evaluated choices
+and Git questions, probabilities, category discovery and dependent retries.
+Payloads, partial discovery replies and failures update without blocking the main
+agent. The panel shares sidebar space with the plan and yields to dialogs.
+The last 32 exchanges are kept in memory for the session; each displayed body is
+limited to 65,536 characters. Transport credentials are not recorded. Headless
+`/classification` still prints the latest result.
+Results never change agent routing or permissions. Work runs in the background and stops on cancellation,
 superseding input, timeout or unload.
 
 ```toml

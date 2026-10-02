@@ -247,14 +247,31 @@ endpoint = "http://127.0.0.1:${server.port}/judge"
       // Classification does not hold up the ordinary agent response.
       await waitFor(() => session.host.session.turns.isNotEmpty);
       expect(classifier.status.phase, ClassificationPhase.checking);
+      expect(classifier.trace.exchanges.single.phase,
+          ClassificationExchangePhase.pending);
+      expect(jsonDecode(classifier.trace.exchanges.single.request),
+          requests.single);
+      expect(io.written.toString(), contains('classification'));
+      expect(io.written.toString(), isNot(contains('intent: classifying')));
       release.complete();
       await waitFor(() => classifier.status.phase == ClassificationPhase.ready);
       expect(requests, hasLength(2));
+      expect(classifier.trace.exchanges, hasLength(2));
+      expect(classifier.trace.exchanges.last.parentId,
+          classifier.trace.exchanges.first.id);
+      expect(
+          jsonDecode(classifier.trace.exchanges.last.request), requests.last);
+      expect(
+          jsonDecode(classifier.trace.exchanges.last.response)['answers']
+              ['push']['noul'],
+          .98);
       expect(classifier.status.result!.git!.commands,
           ['push', 'branch', 'checkout']);
       expect(io.written.toString(), contains('instruction'));
       await session.assembly.handleCommand('/classification');
-      expect(io.written.toString(), contains('git: push, branch, checkout'));
+      expect(
+          classifier.status.label, 'instruction · git: push, branch, checkout');
+      expect(io.written.toString(), contains('Git operations'));
       final transcript = session.host.session.loop.log
           .whereType<MessageAppendedEntry>()
           .map((e) => e.message)

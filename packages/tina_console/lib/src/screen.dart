@@ -1119,6 +1119,9 @@ class Screen {
   void adoptChatSurface(BackendSurface s) {
     _chatSurfaces.add(s);
     if (_activeChatSurface == null) _activeChatSurface = s;
+    // A newly created native plane starts above existing siblings. Chat can
+    // create/recreate its surface after an inspector has already appeared.
+    _raiseOverlays();
   }
 
   /// Raise [s] above other chat surfaces, then re-raise the input and overlay
@@ -1133,7 +1136,7 @@ class Screen {
   /// InputRegion first creates its plane.
   void adoptInputSurface(BackendSurface s) {
     _inputSurface = s;
-    s.raiseToTop();
+    _raiseOverlays();
   }
 
   /// Register an overlay surface (shown) and raise it above everything.

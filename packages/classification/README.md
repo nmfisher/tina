@@ -6,8 +6,13 @@ instructions proceed to Git classification: no Git request, unclear, or one or
 more subcommands (push, branch, checkout, commit, etc.).
 
 The plugin is informational: it never executes commands, changes permissions,
-rewrites input, or adds its predictions to the conversation. The status bar and
-`/classification` show the latest result. Each session owns its latest result; new
+rewrites input, or adds its predictions to the conversation. The console's live
+classification panel shows request/reply bodies and learning progress. Open it
+with `/classification`, or use `/classification hierarchy` for all evaluated
+questions/options and dependent stages. F6 toggles visibility; focus through
+Ctrl+G, Tab, Enter, then use ↑↓ to select, → for details, ← to return and `h`
+to toggle the hierarchy. Headless `/classification` prints the latest result.
+Each session owns its latest result and a bounded, in-memory exchange history; new
 input supersedes pending work. Cancellation, timeout and unload close the service
 and prevent late results from changing the display. The last result is transient
 and is not restored from session storage.

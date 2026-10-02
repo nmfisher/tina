@@ -180,6 +180,7 @@ class PlanOverlay implements PanelInputTarget {
   final FocusManager? focusManager;
   final PlanOverlayMode mode;
   OverlayRegion? _region;
+  SidebarPanel? _slot;
   ScreenCursor? _cursor;
   StreamSubscription<void>? _sub;
   bool _started = false, _focused = false, _highlighted = false;
@@ -343,6 +344,7 @@ class PlanOverlay implements PanelInputTarget {
   void start() {
     if (_started) return;
     _started = true;
+    _slot = context.bindSidebarPanel(refresh, priority: 10);
     focusManager?.register(this);
     _sub = store.changes.listen((_) => refresh());
     refresh();
@@ -364,14 +366,31 @@ class PlanOverlay implements PanelInputTarget {
         !(_userOverride ?? mode == PlanOverlayMode.auto) ||
         chat.width < 8 ||
         chat.height < 4) {
+      _slot?.requestSize(height: 0);
       _hide();
       return;
     }
     _syncItems();
-    final width = chat.width.clamp(8, 44);
+    _slot?.requestSize(
+        height: (_body(
+                        plan,
+                        PlanOverlayUi(
+                            collapsedRoots: _collapsedRoots,
+                            expandedItems: _expanded),
+                        chat.width.clamp(8, 44) - 4)
+                    .length +
+                3)
+            .clamp(4, chat.height),
+        focused: _focused);
+    final area = _slot!.bounds;
+    if (area.isEmpty) {
+      _hide();
+      return;
+    }
+    final width = area.width;
     // Even the smallest focusable viewport keeps one item and its controls.
     const chrome = 3;
-    final collapsed = !_focused && _rows.length + chrome > chat.height;
+    final collapsed = !_focused && _rows.length + chrome > area.height;
     final ui = PlanOverlayUi(
       collapsed: collapsed,
       collapsedRoots: _collapsedRoots,
@@ -381,7 +400,7 @@ class PlanOverlay implements PanelInputTarget {
       focused: _focused,
     );
     final body = _body(plan, ui, width - 4);
-    _room = (chat.height - chrome).clamp(1, body.isEmpty ? 1 : body.length);
+    _room = (area.height - chrome).clamp(1, body.isEmpty ? 1 : body.length);
     _maxOffset = (body.length - _room).clamp(0, body.length);
     _offset = _offset.clamp(0, _maxOffset);
     if (_focused && _followSelection && _selected != null) {
@@ -406,11 +425,8 @@ class PlanOverlay implements PanelInputTarget {
             maxRows: _room),
         width: width,
         paint: _themePaint);
-    final bounds = Rect(
-        row: chat.row,
-        col: chat.col + chat.width - width,
-        width: width,
-        height: lines.length);
+    final bounds =
+        Rect(row: area.row, col: area.col, width: width, height: lines.length);
     final region = _region ??= OverlayRegion(screen, bounds);
     if (region.isVisible &&
         (region.bounds.row != bounds.row ||
@@ -456,6 +472,8 @@ class PlanOverlay implements PanelInputTarget {
     _cursor?.release();
     _cursor = null;
     _started = false;
+    _slot?.dispose();
+    _slot = null;
     if (identical(focusManager?.focused, this)) focusManager?.returnHome();
     focusManager?.unregister(this);
     unawaited(_sub?.cancel());
