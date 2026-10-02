@@ -218,6 +218,34 @@ class JudgmentResult {
 
   JudgmentResult._(this.model, this.answers, this.usage, this._questions);
 
+  Map<String, Object?> toJson() => {
+    'model': model,
+    'answers': answers.map(
+      (id, answer) => MapEntry(id, switch (answer) {
+        ChoiceAnswer() => {
+          'type': 'choice',
+          'choice': answer.choice,
+          'confidence': answer.confidence,
+          'probabilities': answer.probabilities,
+        },
+        ScoreAnswer() => {
+          'type': 'score',
+          'score': answer.score,
+          'confidence': answer.confidence,
+          'legend': answer.legend.map((k, v) => MapEntry('$k', v)),
+          'probabilities': answer.probabilities.map(
+            (k, v) => MapEntry('$k', v),
+          ),
+        },
+        NoulAnswer() => {'type': 'noul', 'noul': answer.noul},
+      }),
+    ),
+    'usage': {
+      'input_tokens': usage.inputTokens,
+      'output_tokens': usage.outputTokens,
+    },
+  };
+
   /// Validate the entire batch before exposing any answer to action policy.
   /// Unknown metadata fields are tolerated; missing/extra answers are not.
   factory JudgmentResult.fromJson(

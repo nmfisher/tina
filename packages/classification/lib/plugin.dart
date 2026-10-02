@@ -111,6 +111,7 @@ class ClassificationPlugin extends AgentPlugin {
   ClassificationStatus get status => _status;
   final _changes = StreamController<ClassificationStatus>.broadcast(sync: true);
   Stream<ClassificationStatus> get changes => _changes.stream;
+  final trace = ClassificationTrace();
   JudgmentCancellation? _active;
   void Function()? _closeActive;
   bool _closed = false;
@@ -185,6 +186,11 @@ class ClassificationPlugin extends AgentPlugin {
       _closeActive = close;
       timer = Timer(timeout, () {
         timedOut = true;
+        for (final exchange in trace.exchanges.where(
+          (e) => e.inputId == input.id,
+        )) {
+          exchange.fail('timeout');
+        }
         token.cancel();
       });
       final result = await Future.any<UtteranceClassification?>([
@@ -192,11 +198,18 @@ class ClassificationPlugin extends AgentPlugin {
           id: input.id,
           text: input.text,
           history: history,
-          service: lease.service,
+          service: _TracedJudgments(
+            lease.service,
+            lease.budget.model,
+            trace,
+            input.id,
+          ),
           budget: lease.budget,
           cancellation: token,
           store: categories,
-          learner: learner,
+          learner: learner == null
+              ? null
+              : _TracedLearner(learner!, trace, input.id),
           onLearning: (_) {
             if (current() && !token.isCancelled) {
               _publish(
@@ -256,6 +269,7 @@ class ClassificationPlugin extends AgentPlugin {
   void _stop() {
     final token = _active;
     _active = null;
+    if (status.inputId case final id?) trace.cancelPending(id);
     token?.cancel();
     _closeActive?.call();
     _closeActive = null;
@@ -296,6 +310,141 @@ class ClassificationPlugin extends AgentPlugin {
     if (_closed) return;
     _closed = true;
     _stop();
+    trace.close();
     unawaited(_changes.close());
+  }
+}
+
+final class _TracedJudgments implements JudgmentService {
+  _TracedJudgments(this.service, this.model, this.trace, this.inputId);
+  final JudgmentService service;
+  final String model, inputId;
+  final ClassificationTrace trace;
+
+  @override
+  Future<JudgmentResult> evaluate(
+    JudgmentRequest request, {
+    JudgmentCancellation? cancellation,
+  }) async {
+    if (cancellation?.isCancelled == true)
+      throw const JudgmentException(
+        JudgmentFailure.cancelled,
+        attempted: false,
+      );
+    final intent = request.questions.containsKey('intent');
+    final previous = trace.exchanges
+        .where((e) => e.inputId == inputId)
+        .toList();
+    final parent = previous.isEmpty ? null : previous.last.id;
+    final exchange = trace.begin(
+      inputId: inputId,
+      title: intent ? 'Intent' : 'Git operations',
+      parentId: parent,
+      questions: request.questions.map((id, q) => MapEntry(id, q.toJson())),
+      request: request.toJson(
+        model: service is TypeSafeJudgmentService
+            ? (service as TypeSafeJudgmentService).config.model
+            : model,
+      ),
+    );
+    final unsubscribe = cancellation?.listen(
+      () => exchange.fail('cancelled', cancelled: true),
+    );
+    try {
+      final actual = service;
+      final result = actual is TypeSafeJudgmentService
+          ? await actual.evaluate(
+              request,
+              cancellation: cancellation,
+              onResponse: exchange.receive,
+            )
+          : await actual.evaluate(request, cancellation: cancellation);
+      exchange.recordAnswers(
+        result.toJson()['answers'] as Map<String, Object?>,
+      );
+      exchange.complete(exchange.response.isEmpty ? result.toJson() : null);
+      return result;
+    } catch (error) {
+      exchange.fail(
+        error is JudgmentException
+            ? error.toString()
+            : 'invalid classifier response',
+      );
+      rethrow;
+    } finally {
+      unsubscribe?.call();
+    }
+  }
+}
+
+final class _TracedLearner implements CategoryLearner {
+  _TracedLearner(this.learner, this.trace, this.inputId);
+  final CategoryLearner learner;
+  final ClassificationTrace trace;
+  final String inputId;
+  @override
+  Future<CategoryProposal> propose({
+    required CategoryQuestion question,
+    required String input,
+    required JudgmentCancellation cancellation,
+  }) async {
+    final previous = trace.exchanges
+        .where((e) => e.inputId == inputId)
+        .toList();
+    final parent = previous.isEmpty ? null : previous.last.id;
+    final actual = learner;
+    if (actual is MainAgentCategoryLearner)
+      return actual.propose(
+        question: question,
+        input: input,
+        cancellation: cancellation,
+        trace: trace,
+        inputId: inputId,
+        parentId: parent,
+      );
+    final exchange = trace.begin(
+      inputId: inputId,
+      parentId: parent,
+      title: 'Learn category · ${question.id}',
+      request: {
+        'question': question.question,
+        'input': input,
+        'categories': [
+          for (final c in question.categories)
+            {'id': c.id, 'question': c.question},
+        ],
+      },
+    );
+    final unsubscribe = cancellation.listen(
+      () => exchange.fail('cancelled', cancelled: true),
+    );
+    try {
+      final proposal = await actual.propose(
+        question: question,
+        input: input,
+        cancellation: cancellation,
+      );
+      exchange.complete({
+        'existing_category': proposal.existingId,
+        'category': proposal.category == null
+            ? null
+            : {
+                'id': proposal.category!.id,
+                'label': proposal.category!.label,
+                'description': proposal.category!.description,
+                'question': proposal.category!.question,
+              },
+      });
+      return proposal;
+    } catch (error) {
+      exchange.fail(
+        error is JudgmentException
+            ? error.toString()
+            : 'invalid category proposal',
+      );
+      rethrow;
+    } finally {
+      unsubscribe();
+    }
   }
 }

@@ -264,6 +264,7 @@
     "packages/classification/lib/src/shared/range_packer.dart"
   ],
   "noDirectIoFiles": [
+    "packages/classification/lib/src/input/classification_trace.dart",
     "packages/classification/lib/src/input/category_catalog.dart",
     "packages/classification/lib/src/input/category_learner.dart",
     "packages/classification/lib/src/input/adaptive_classifier.dart",

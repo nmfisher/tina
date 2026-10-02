@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:tina_core/tina_core.dart';
 import '../../judgments.dart';
 import 'category_catalog.dart';
+import 'classification_trace.dart';
 
 final class CategoryProposal {
   const CategoryProposal.existing(String id) : existingId = id, category = null;
@@ -37,13 +38,21 @@ final class MainAgentCategoryLearner implements CategoryLearner {
     required CategoryQuestion question,
     required String input,
     required JudgmentCancellation cancellation,
+    ClassificationTrace? trace,
+    String? inputId,
+    int? parentId,
   }) async {
     if (cancellation.isCancelled)
       throw const JudgmentException(JudgmentFailure.cancelled);
     LlmProvider? provider;
     StreamSubscription<StreamEvent>? subscription;
     final done = Completer<CategoryProposal>();
+    ClassificationExchange? exchange;
     void fail(JudgmentFailure failure) {
+      exchange?.fail(
+        failure.name,
+        cancelled: failure == JudgmentFailure.cancelled,
+      );
       if (!done.isCompleted) done.completeError(JudgmentException(failure));
     }
 
@@ -90,6 +99,24 @@ final class MainAgentCategoryLearner implements CategoryLearner {
           ],
         ),
       ];
+      exchange = trace?.begin(
+        inputId: inputId ?? '',
+        parentId: parentId,
+        title: 'Learn category · ${question.id}',
+        request: {
+          'model': provider.model,
+          'system': system,
+          'messages': [
+            {
+              'role': 'user',
+              'content': (messages.single.content.single as TextBlock).text,
+            },
+          ],
+          'tools': [],
+          if (provider is StructuredOutputProvider)
+            'output_schema': _proposalSchema.schema,
+        },
+      );
       final stream = provider is StructuredOutputProvider
           ? (provider as StructuredOutputProvider).sendStructured(
               system: system,
@@ -102,6 +129,7 @@ final class MainAgentCategoryLearner implements CategoryLearner {
         (event) {
           if (done.isCompleted) return;
           if (event is TextDelta) {
+            exchange?.append(event.text);
             characters += event.text.length;
             if (characters > 16384) fail(JudgmentFailure.responseTooLarge);
           } else if (event is ToolCallStart || event is StreamError) {
@@ -117,12 +145,15 @@ final class MainAgentCategoryLearner implements CategoryLearner {
                 .whereType<TextBlock>()
                 .map((b) => b.text)
                 .join();
+            exchange?.receive(text);
             if (text.length > 16384) {
               fail(JudgmentFailure.responseTooLarge);
               return;
             }
             try {
-              done.complete(_decode(text));
+              final proposal = _decode(text);
+              exchange?.complete();
+              done.complete(proposal);
             } catch (_) {
               fail(JudgmentFailure.invalidResponse);
             }
@@ -132,6 +163,11 @@ final class MainAgentCategoryLearner implements CategoryLearner {
         onDone: () => fail(JudgmentFailure.invalidResponse),
       );
       return await done.future;
+    } catch (error) {
+      exchange?.fail(
+        error is JudgmentException ? error.failure.name : 'unavailable',
+      );
+      rethrow;
     } finally {
       timer.cancel();
       unsubscribe();

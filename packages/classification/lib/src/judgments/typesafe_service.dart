@@ -78,6 +78,7 @@ class TypeSafeJudgmentService implements JudgmentService {
   Future<JudgmentResult> evaluate(
     JudgmentRequest request, {
     JudgmentCancellation? cancellation,
+    void Function(String body)? onResponse,
   }) async {
     if (_closed) {
       throw const JudgmentException(JudgmentFailure.closed, attempted: false);
@@ -104,7 +105,10 @@ class TypeSafeJudgmentService implements JudgmentService {
     );
     final timer = Timer(config.timeout, () => stop(JudgmentFailure.timeout));
     try {
-      return await Future.any([_send(client, body, request), stopped.future]);
+      return await Future.any([
+        _send(client, body, request, onResponse),
+        stopped.future,
+      ]);
     } on JudgmentException {
       rethrow;
     } on FormatException {
@@ -127,6 +131,7 @@ class TypeSafeJudgmentService implements JudgmentService {
     http.Client client,
     String body,
     JudgmentRequest request,
+    void Function(String body)? onResponse,
   ) async {
     final message = http.Request('POST', config.endpoint)
       ..followRedirects = false
@@ -157,10 +162,12 @@ class TypeSafeJudgmentService implements JudgmentService {
       }
       bytes.add(chunk);
     }
-    return JudgmentResult.fromJson(
-      jsonDecode(utf8.decode(bytes.takeBytes())),
-      request: request,
-    );
+    final text = utf8.decode(bytes.takeBytes());
+    // Diagnostic observers cannot change evaluation or receive auth headers.
+    try {
+      onResponse?.call(text);
+    } catch (_) {}
+    return JudgmentResult.fromJson(jsonDecode(text), request: request);
   }
 
   Duration? _retryAfter(String? value) {
