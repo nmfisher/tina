@@ -119,6 +119,8 @@ survive session resume. Notcurses uses terminal pixel graphics when available,
 with colored block graphics as its fallback. The default ANSI renderer shows
 image captions. This presentation belongs to `tina/chat-tui`; the console
 backend owns graphics and the engine carries provider-neutral image content.
+An image caption confirms the attachment arrived; launch with
+`--backend notcurses` to view it, including when using `--resume`.
 
 Shift-Tab cycles **ask → read-only → allow-edits → auto**; `/mode NAME` selects
 one directly. The single `tina/mode` plugin owns both the permission policy and

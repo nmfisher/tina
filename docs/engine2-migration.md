@@ -82,6 +82,13 @@ the active tools plugin's sandbox suite on macOS and Linux instead of testing
 the deleted engine. Linux execution remains a CI check. Restart PTY fixtures
 resolve from the package rather than assuming the caller's working directory.
 
+The rebuilt executable passes the full terminal smoke at 80×10, 80×24 and
+120×30, including offline legacy import and continued input after cancellation.
+Native image checks pass at those sizes; the classification panel passes on
+both backends at 80×10, 100×24 and 160×40. The plugin-menu scope assertion checks
+the visible Settings scope before entering the submenu, since an unchanged
+header no longer needs to be redrawn.
+
 ## UI follow-ups
 
 - [x] Make tool activity and approvals easier to read: lead with a plain-language

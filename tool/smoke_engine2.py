@@ -717,9 +717,12 @@ def smoke(launcher, endpoint, columns, rows):
                 time.sleep(0.1)
                 start = terminal.send('/settings\r')
                 terminal.expect('enter select · esc back', start)
+                terminal.expect('Scope: [session]', start)
                 time.sleep(0.1)
                 start = terminal.send('Plugins\r')
-                terminal.expect('Scope: [session]', start)
+                # Stable menu bounds preserve the unchanged scope row, so
+                # entering this submenu need not emit that text again.
+                terminal.expect('Plugins (toggles save immediately)', start)
                 if scope != 'session':
                     start = terminal.send('\t' * (1 if scope == 'workspace' else 2))
                     terminal.expect('[' + scope + ']', start)
