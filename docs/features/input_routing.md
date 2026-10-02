@@ -1,5 +1,10 @@
 # Input processors and status plugins
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 Plugins can inspect, transform, route or consume submitted user prompts before
 those prompts enter the agent queue. They use the existing plugin registry.
 

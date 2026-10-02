@@ -1,5 +1,10 @@
 # Agent middleware
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 Plugins control agent input and model requests through `AgentMiddleware` in
 `tina_engine`. The agent loop has no special AGENTS.md or skill loading branch.
 

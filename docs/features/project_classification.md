@@ -1,5 +1,10 @@
 # Project classification
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 `/index` classifies languages, frameworks and tooling, from the leaves of the directory
 tree back to the root. `/index status` validates/restores saved results without
 model calls or writes. `/index refresh` reruns classification. The same commands

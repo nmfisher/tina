@@ -1,5 +1,10 @@
 # Session attach/detach via tmux — the thin integration
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 **Status:** Implemented
 **Date:** 2026-08-28
 **Ticket:** tin-f5xt

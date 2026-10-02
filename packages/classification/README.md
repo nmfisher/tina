@@ -78,9 +78,9 @@ Package API:
 - `classification.dart`, `judgments.dart`, `exploration.dart`: retained library
   APIs for legacy callers. Repository indexing/exploration is not activated.
 
-The thin status renderer is in the existing `tina_chat_tui` package; it adapts the
-same plugin ID and keeps terminal imports out of classification. Legacy
-`tina_app` intent/Git exports delegate here, with only a message-type adapter.
+The live classification panel is in `tina_chat_tui`; its console contribution
+keeps terminal imports out of classification. See
+[the panel guide](../../docs/engine2-config.md#input-classification).
 
 # Structured judgments and repository classification
 
@@ -132,8 +132,9 @@ final record = await ClassificationOrchestrator(
 ```
 
 `catalogSource`, `categoryClassifier`, `store`, and `executor` above are
-application-owned implementations. Repository-specific adapters and the project
-classification recipe live in `tina_app`, not this API.
+application-owned implementations. The former application's repository-specific
+adapters were retired; repository indexing/exploration remains disconnected
+pending redesign.
 
 ## Context and reduction
 

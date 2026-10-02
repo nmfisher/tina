@@ -155,6 +155,7 @@ terminal smoke tests against each built target before packaging.
 
 Input classification is supplied by `tina/classification` (see the configuration
 reference). Repository classification and indexing remain deferred. Workflows/Attractor remain
-available as packages for legacy callers, disconnected from engine2. See
+available as standalone packages, disconnected from the app. The legacy
+`tina_app`, `tina_engine` and root application sources have been removed. See
 [migration status](docs/engine2-migration.md), [package architecture](ARCHITECTURE.md)
 and the [legacy CLI reference](docs/legacy-cli.md).

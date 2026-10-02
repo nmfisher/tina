@@ -1,5 +1,10 @@
 # The manager loop — the main agent launches workflows as child runs
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 **Status:** Implemented (this branch); **agent surface disabled 2026-09-25**
 (see Current state below).
 **Date:** 2026-08-08

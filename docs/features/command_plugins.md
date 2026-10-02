@@ -1,5 +1,10 @@
 # Command plugins
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 Slash commands are plugin contributions. Both the interactive frontend and
 headless `--prompt` dispatch through `CommandRegistry`, exported by `tina_app`.
 The registry also supplies help and completion names, so adding or removing a

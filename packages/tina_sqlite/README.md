@@ -4,8 +4,7 @@ The one SQLite seam for tina: a versioned **open-or-create** step, a generic
 append-only **entry log**, and a generic **key-value table**, each wrapped in
 the same poison-pill guard.
 
-Extracted from the pattern `tina_app`'s `SqliteClassificationStore` was the
-first to need: a `schema()` that no-ops on the current `user_version`, throws
+Feature stores share a `schema()` that no-ops on the current `user_version`, throws
 on anything newer, and creates + stamps in one transaction; `PRAGMA
 foreign_keys=ON` / `busy_timeout` / `journal_mode=WAL` at open; and the
 finding that a store whose database dies mid-session must never come back
@@ -15,8 +14,7 @@ half-alive.
 
 ### `openTinaDatabase`
 
-Opens (or creates) a database file and runs the versioned schema work
-exactly as `SqliteClassificationStore` does today:
+Opens (or creates) a database file and runs the versioned schema work:
 
 - `PRAGMA foreign_keys=ON`, `busy_timeout`, `journal_mode=WAL` at open;
 - `user_version == current` → return, nothing to do;

@@ -1,5 +1,10 @@
 # Goal mode (`--goal`) — headless loop-to-achieved
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 `tina --goal "<text>"` runs tina with **no user present** and no expectation
 of input: it seeds the goal tracker with the text, runs agent turns until the
 goal judge rules the goal **achieved**, and exits. It is the headless sibling

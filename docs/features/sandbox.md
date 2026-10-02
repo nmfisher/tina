@@ -1,5 +1,10 @@
 # Tool Sandbox — OS-level confinement around exec and bash
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 This document describes the legacy engine. For the current CLI, see
 [engine2 process sandbox](../engine2-sandbox.md).
 

@@ -1,5 +1,10 @@
 # Plan approval
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 Tina has two approval mechanisms. They look similar and are different in kind.
 
 **Tool approval** asks "may I run this?". It lives in the engine's permission

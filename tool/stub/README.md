@@ -3,8 +3,7 @@
 A small local HTTP server that plays the role of the LLM provider: it
 replays canned OpenAI-compatible SSE responses so tina runs
 deterministically — zero spend, no real model, no tina code changes. It
-speaks the same wire as `OpenAiCompatibleAdapter`
-(`packages/tina_engine/lib/src/llm/openai_compatible.dart`), i.e. the
+speaks the same wire as the OpenAI-compatible provider in `tina_llm`, i.e. the
 `api.deepseek.com` `/v1/chat/completions` SSE shape.
 
 Part of the UI sweep loop (`docs/ui-sweep-loop.md`, provider mode 2).

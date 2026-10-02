@@ -1,5 +1,10 @@
 # Skill registry
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 `tina_engine` provides a skill registry through the plugin system. The default
 execution profile includes `skillsPlugin()`, which exposes `skillsServiceKey`.
 Middleware can use this registry to choose when to load and supply instructions

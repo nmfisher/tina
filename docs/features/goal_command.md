@@ -1,5 +1,10 @@
 # The /goal command
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 `/goal` sets a per-conversation session goal — the thing this conversation is
 supposed to achieve. A judge reviews the transcript after every goal-active
 turn and announces when the goal is achieved. The feature mirrors the plan

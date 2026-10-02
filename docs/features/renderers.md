@@ -1,5 +1,10 @@
 # UI renderers
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 `Renderer<T>` turns a typed UI value into `RenderLine`s. It is not restricted to
 messages: a renderer may accept a transcript block, a status value, or another
 type supplied by a UI surface. The shared types live in `tina_console` and do

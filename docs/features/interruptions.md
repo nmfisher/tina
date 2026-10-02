@@ -1,5 +1,10 @@
 # Components, invocations, and interruptions
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 A component is an identifiable capability: an agent, classifier, or input
 handler. An invocation is one call to it. The same component can have several
 invocations at once. Plugins register components and own their dependencies;

@@ -1,5 +1,10 @@
 # Interactive terminal panel — remaining implementation
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 Status: specification, updated against v0.6.30 on 2026-09-16. The generic
 [panel host](panel_architecture.md) and native [PTY backend](pty_backend.md)
 are implemented. This plan contains only the work required to turn those

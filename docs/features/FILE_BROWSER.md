@@ -1,5 +1,10 @@
 # Plan: standalone directory/file browser (`/browse`)
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 ## Context
 
 Today the only file-selection UI is the flat, fuzzy `@` picker (`GitFileCompletionProvider`)

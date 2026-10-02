@@ -1,5 +1,10 @@
 # Session persistence and cancellation
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 `JsonlSessionStore` is the shipped session backend, but the persistence
 contract is backend-neutral: it is defined by the `SessionStore` interface
 (`packages/tina_engine/lib/src/persistence/session_store.dart`) and proven

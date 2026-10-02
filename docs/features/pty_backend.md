@@ -1,5 +1,10 @@
 # PTY backend (terminal panel phase 1)
 
+> Historical implementation reference. The app/engine sources described here
+> were retired by engine2; source paths remain in Git history. See the
+> [current architecture](../../ARCHITECTURE.md) and
+> [migration status](../engine2-migration.md).
+
 Implemented and released in v0.6.30. This is an API reference and usage example,
 not a list of outstanding tasks. See the [remaining terminal implementation
 plan](terminal_panel_plan.md) for the emulator, rendering, input, and UI work.

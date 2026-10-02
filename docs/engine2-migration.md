@@ -2,10 +2,12 @@
 
 The root executable now runs engine2. `bin/tina.dart` imports `tina_tui` and the
 generated version constant; the root runtime manifest depends only on
-`tina_tui`. Legacy source remains for reference and regression tests, with its
-dependencies moved to `dev_dependencies`. Import-closure checks prevent the
-executable from reaching legacy app/engine, workflows, Attractor or repository indexing. The loop still depends only on `tina_core`, and the host on core
-and engine2; concrete packages live under `packages/plugins`.
+`tina_tui`. The legacy `tina_app`, `tina_engine` and root application sources
+and tests have been removed. Import-closure checks prevent the executable from
+reaching retired packages, workflows, Attractor or repository indexing. The loop
+still depends only on `tina_core`, and the host on core, engine2 and generic
+settings; concrete plugin packages live under `packages/plugins`, with the
+classification plugin in `packages/classification`.
 
 ## Replacement coverage
 
@@ -25,7 +27,8 @@ and engine2; concrete packages live under `packages/plugins`.
   bash/zsh/fish flag/path completion.
 - Self-update in `tina_self_update`: explicit check/install, checksum and archive
   verification, generic-channel approval, private-bundle ownership checks,
-  rollback and cleanup. No update check runs automatically on startup.
+  rollback and cleanup. The status contribution also checks for updates in the
+  background and displays the installed version.
 - Root `--help`, `--version`, `--configure`, session flags and release builds
   use the same CLI implementation.
 
@@ -46,27 +49,38 @@ Regular macOS CI also exercises the launcher symlink layout.
 Locally validated: source/root CLI and compiled macOS arm64 bundle at 80×10,
 80×24 and 120×30, plus focused package, wire, config, update and architecture
 tests. Linux builds are left to CI because the local Docker daemon is unavailable.
-No release version was bumped, tag pushed, or release published in this cutover.
 A real-provider visual acceptance pass remains useful; the PTY tests are not a
 complete visual usability review.
 
 ## Remaining work and intentional exclusions
 
 User-input classification is wired through `tina/classification` in
-`packages/classification`: intent first, then Git subcommands for instructions.
-It reports predictions without routing or permission changes. Repository
-classification and indexing remain disconnected pending redesign. Attractor remains available to the
-workflow plugin and legacy consumers; the workflow plugin is not loaded by the
-new app. The deferred legacy session slash commands have not been ported.
+`packages/classification`, with intent and dependent Git questions, global learned
+categories and selection counts. Its live panel shows requests, replies and the
+executed hierarchy. It reports predictions without routing or permission changes.
+Repository classification and indexing remain disconnected pending redesign.
+Attractor remains available to the retained workflow plugin, which is not loaded
+by the app. The deferred legacy session slash commands have not been ported.
 Clarifications use the ordinary conversation, with no separate free-text plugin
 question channel.
 
 Old session files can be converted with `--import-sessions`; see the
 [import guide](engine2-session-import.md) for dry runs, missing-file handling,
-resume IDs and the metadata that remains archival. Legacy app/engine
-source, tests and their architecture exceptions can be retired in a separate
-cleanup after acceptance. Preserve the existing modified `dart_notcurses`
-submodule; it is not part of that deletion.
+resume IDs and the metadata that remains archival. The importer does not use
+legacy application code. Retirement removed the old packages, root implementation,
+tests, dependency declarations, CI jobs and obsolete architecture exceptions.
+`tina_console`, `dart_notcurses`, active plugins and the explicitly retained
+standalone packages remain. The root `lib/` retains only `version.g.dart`.
+
+## Retirement validation
+
+All 33 retained owned-package suites pass (2,539 tests), as do root architecture
+checks and whole-repository analysis. The macOS arm64 CLI rebuild succeeds with
+only the current native assets. Real macOS sandbox checks cover network grants,
+explicit outside execution, write confinement and git device access. CI now runs
+the active tools plugin's sandbox suite on macOS and Linux instead of testing
+the deleted engine. Linux execution remains a CI check. Restart PTY fixtures
+resolve from the package rather than assuming the caller's working directory.
 
 ## UI follow-ups
 
@@ -132,7 +146,7 @@ Pending approvals have no timeout by default, deny on turn cancellation,
 channel failure or shutdown, and reject duplicate/late replies. The stream
 adapter has one subscriber and denies on disconnect. Requests are not persisted;
 SMS delivery/authentication remains the responsibility of a future channel
-adapter. Sandbox grant policy and the legacy app are unchanged.
+adapter. Sandbox grant policy remains owned by the tools and mode plugins.
 
 ## Scoped and live plugin management
 
