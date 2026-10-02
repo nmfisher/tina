@@ -35,7 +35,9 @@ file into --store (default: the current workspace store). --dry-run writes nothi
 Each imported conversation gets its own ID, printed for --resume. Sources stay unchanged.
 ''';
 
-Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
+Future<int> runCli(List<String> args,
+    {String version = '0.0.0',
+    String? Function() locateTerminalDevice = terminalDevicePath}) async {
   String? configPath;
   String? model;
   var backend = 'ansi';
@@ -188,6 +190,11 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
         'tina: use --continue or --resume ID when reading a prompt from stdin');
     return 64;
   }
+  // Capture restart state before a startup picker, configuration editor or
+  // native backend can take ownership of stdin. Missing pathname information
+  // affects only automatic restart, never an otherwise usable terminal.
+  final terminalDevice =
+      !headless && stdin.hasTerminal ? locateTerminalDevice() : null;
   StartupTerminal? startup;
   if (continueLatest || (resume && sessionId == null)) {
     try {
@@ -337,11 +344,14 @@ Future<int> runCli(List<String> args, {String version = '0.0.0'}) async {
 
     // Attach the renderer and approval dialog to the assembled session.
     final session = TuiSession.wrap(assembly);
-    final terminalDevice = stdin.hasTerminal ? terminalDevicePath() : null;
     final result = await runApp(session, backend: backend, startup: startup);
     if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
-    if (terminalDevice == null) throw StateError('restart requires a terminal');
+    if (terminalDevice == null) {
+      stderr.writeln('tina: update installed; automatic restart could not '
+          'find the terminal device. Run tina --continue to reopen it.');
+      return result;
+    }
     return await restartInTerminal(
         '$restartRoot/bin/tina',
         [

@@ -4,7 +4,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import '../../lib/src/restart.dart';
 
 Future<void> main(List<String> args) async {
-  final device = terminalDevicePath();
+  final device = terminalDevicePath()!;
   final assembly = TuiAssembly.start(
       providerFactory: (_) =>
           ScriptedProvider([scriptedReply('before restart')]),

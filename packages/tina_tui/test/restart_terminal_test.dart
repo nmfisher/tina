@@ -7,6 +7,18 @@ Future<void> main() async {
     Uri.parse('package:tina_tui/tina_tui.dart'),
   ))!;
   final packageRoot = library.resolve('../');
+  test('missing restart pathname does not prevent launch or resume input',
+      () async {
+    final result = await Process.run('python3', [
+      packageRoot.resolve('../../tool/smoke_resume_terminal.py').toFilePath(),
+      '--dart',
+      Platform.resolvedExecutable,
+    ]);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    expect(result.stdout, contains('cancel (ansi)'));
+    expect(result.stdout, contains('cancel (notcurses)'));
+  }, skip: Platform.isWindows, timeout: const Timeout(Duration(minutes: 2)));
+
   test('full restarted Tina sends input and receives a model reply', () async {
     final result = await Process.run('python3', [
       packageRoot.resolve('../../tool/smoke_restart.py').toFilePath(),

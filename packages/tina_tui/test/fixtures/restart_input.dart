@@ -16,7 +16,7 @@ Future<void> main(List<String> args) async {
     }
     return;
   }
-  final device = terminalDevicePath();
+  final device = terminalDevicePath()!;
   final subscription = stdin.listen((_) {});
   await subscription.cancel();
   exitCode = await restartInTerminal(
