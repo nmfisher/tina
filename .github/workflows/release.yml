@@ -155,6 +155,9 @@ jobs:
       - name: Smoke-test live classification panel and hierarchy on both backends
         run: python3 tool/smoke_classification_panel.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
 
+      - name: Smoke-test popup restoration and status panel controls on both backends
+        run: python3 tool/smoke_panel_paint.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
         env:

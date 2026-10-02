@@ -806,7 +806,7 @@ def smoke(launcher, endpoint, columns, rows):
             child_request = json.dumps(ModelStub.requests[-1]['messages'])
             assert 'child panel message' in child_request and 'terminal smoke' not in child_request
             time.sleep(0.1)
-            terminal.send('\x07\t\r')  # Ctrl+G, Tab, Enter: focus the root.
+            terminal.send('\x07\t\t\r')  # Skip status controls and focus the root.
             time.sleep(0.1)
             before_root = len(ModelStub.requests)
             pasted_root = 'root panel message\npaste second\npaste third'

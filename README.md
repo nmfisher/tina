@@ -94,7 +94,10 @@ show the selected panel.
   Escape cancels navigation.
 - Ctrl+O toggles the selected panel between full width and the split layout.
 - Ctrl+X or `/close` closes the focused panel and cancels its running turn.
-- `/panels` lists open panels; `/quit` exits the whole application.
+- The status bar shows the panel count and how many are hidden. Focus it with
+  Ctrl+G then Down/Tab and Enter; press Enter again to open panel controls.
+  Up/Down selects, Enter restores, M minimizes, and X toggles maximization.
+- `/quit` exits the whole application.
 
 This is supplied by the default `tina/panels-tui` UI plugin. If your config has
 an explicit enabled-plugin list, add it and restart. Saved conversations can

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'panels_status.dart';
 
 /// UI-only workspace: session creation/execution is supplied by the app.
 final class PanelsTuiPlugin extends AgentPlugin
@@ -19,14 +20,6 @@ final class PanelsTuiPlugin extends AgentPlugin
             description: 'open a conversation panel [/spawn provider/model]',
             handler: (argument) async => _panels
                 ?.spawn(argument.trim().isEmpty ? null : argument.trim())),
-        Command(
-            name: 'panels',
-            description: 'list conversation panels (Ctrl+G / Ctrl+W cycles)',
-            handler: (_) {
-              for (final line in _panels?.describe() ?? const <String>[]) {
-                terminal.writeln(line);
-              }
-            }),
         Command(
             name: 'close',
             description: 'close the focused panel (Ctrl+X)',
@@ -75,7 +68,7 @@ final class _View {
   final commands = <Future<void>>{};
   Future<void>? task;
   void Function()? unbindQueueStatus;
-  bool closed = false;
+  bool closed = false, minimized = false;
 }
 
 final class _Workspace implements ConsolePanels {
@@ -92,12 +85,39 @@ final class _Workspace implements ConsolePanels {
   bool painting = false, stopped = false, maximized = false;
   int width = -1, height = -1, visibleIndex = 0;
   int _nextPanel = 1;
+  late final PanelsStatus panelStatus = PanelsStatus(
+      context: context,
+      choices: () => [
+            for (final view in views)
+              PanelChoice(
+                  view.frame.label,
+                  view.minimized
+                      ? 'minimized'
+                      : view.frame.isParked
+                          ? 'hidden'
+                          : maximized
+                              ? 'maximized'
+                              : 'visible',
+                  hidden: view.minimized || view.frame.isParked)
+          ],
+      restore: (index) {
+        final view = views[index];
+        view.minimized = false;
+        focus.focusPanel(view.frame);
+      },
+      minimize: _minimize,
+      maximize: _maximize,
+      onDismiss: () {
+        for (final view in views) view.frame.render();
+      });
   LineEditor get editor => context.input;
   Screen get screen => context.screen;
 
   Future<int> run() async {
     final previousFocus = editor.focusManager;
     final removeKey = context.bindShortcut(_key);
+    final releasePanelStatus =
+        context.bindStatus(panelStatus.status, priority: -10);
     editor.focusManager = focus;
     try {
       _add(initial, screen.chat);
@@ -105,6 +125,9 @@ final class _Workspace implements ConsolePanels {
       return 0;
     } finally {
       stopped = true;
+      focus.unregister(panelStatus);
+      panelStatus.dispose();
+      releasePanelStatus();
       removeKey();
       editor.focusManager = previousFocus;
       for (final view in views) {
@@ -140,10 +163,6 @@ final class _Workspace implements ConsolePanels {
     switch (parts.first) {
       case '/spawn':
         unawaited(spawn(parts.length > 1 ? parts.skip(1).join(' ') : null));
-      case '/panels':
-        for (final description in describe()) {
-          target.session.notice(description);
-        }
       case '/close':
         unawaited(closeFocused());
       default:
@@ -220,6 +239,9 @@ final class _Workspace implements ConsolePanels {
     try {
       // Install scoped bindings before focus so the new model owns its prompt.
       session.attachConsole(view.context);
+      // Keep status controls after conversation/plugin views in the ring.
+      focus.unregister(panelStatus);
+      focus.register(panelStatus);
       _layout();
       focus.home ??= frame;
       focus.focusPanel(frame);
@@ -244,6 +266,7 @@ final class _Workspace implements ConsolePanels {
 
   void _focus(_View view) {
     if (stopped || view.closed) return;
+    view.minimized = false;
     final old = active;
     if (old != null && !identical(old, view) && editor.isEditing) {
       final draft = editor.editState;
@@ -274,8 +297,11 @@ final class _Workspace implements ConsolePanels {
         final layout = screen.layout;
         width = layout.width;
         height = layout.height;
-        final slots = views.length > 1 && width >= 100 && !maximized ? 2 : 1;
-        final first = visibleIndex.clamp(0, views.length - 1) ~/ slots * slots;
+        final shown = views.where((v) => !v.minimized).toList();
+        final slots = shown.length > 1 && width >= 100 && !maximized ? 2 : 1;
+        final preview = views[visibleIndex.clamp(0, views.length - 1)];
+        final first =
+            shown.indexOf(preview).clamp(0, shown.length) ~/ slots * slots;
         for (final view in views) {
           view.chat.detach();
         }
@@ -287,7 +313,8 @@ final class _Workspace implements ConsolePanels {
         }
         for (var i = 0; i < views.length; i++) {
           final view = views[i];
-          final visible = i >= first && i < first + slots;
+          final slot = shown.indexOf(view);
+          final visible = slot >= first && slot < first + slots;
           final columnWidth = width ~/ slots;
           final rect = views.length == 1
               ? Rect(
@@ -297,12 +324,13 @@ final class _Workspace implements ConsolePanels {
                   height: layout.inputRow - layout.chat.row + 1)
               : Rect(
                   row: layout.chat.row,
-                  col: (i - first) * columnWidth,
-                  width: i == first + slots - 1
+                  col: (slot - first) * columnWidth,
+                  width: slot == first + slots - 1
                       ? width - columnWidth * (slots - 1)
                       : columnWidth,
                   height: layout.stripRow - layout.chat.row);
           view.frame.setBorder(views.length > 1 && height >= 8);
+          view.frame.cycleWhenParked = !view.minimized;
           view.frame.setOuter(rect, parked: !visible);
           view.frame.setReservesInput(true);
           ChatRegionPanelContent(view.chat)
@@ -318,7 +346,7 @@ final class _Workspace implements ConsolePanels {
           view.session.repaintConsole();
           view.frame.render();
         }
-        context.refreshStatus();
+        panelStatus.refresh();
         context.refreshInput();
       });
     } finally {
@@ -330,6 +358,28 @@ final class _Workspace implements ConsolePanels {
     if (painting || stopped) return;
     if (width != screen.layout.width || height != screen.layout.height)
       _layout();
+  }
+
+  void _minimize(int index) {
+    final view = views[index];
+    view.minimized = true;
+    if (identical(view, active)) {
+      final replacement = views.where((v) => !v.minimized).firstOrNull;
+      if (replacement != null) {
+        _focus(replacement);
+        return;
+      }
+    }
+    _layout();
+  }
+
+  void _maximize(int index) {
+    final view = views[index];
+    final wasMaximized =
+        maximized && identical(view, active) && !view.minimized;
+    maximized = !wasMaximized;
+    view.minimized = false;
+    _focus(view);
   }
 
   bool _key(InputEvent event) {

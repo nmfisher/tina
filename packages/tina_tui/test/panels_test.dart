@@ -133,6 +133,124 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
 
   PanelFrame getFrame() => editor.focusManager!.focused as PanelFrame;
 
+  Future<void> panelControls() async {
+    await keys('\x07\x1b[B\r'); // cycle down to the status bar and focus it
+    await keys('\r'); // open the panel controls
+  }
+
+  test('panel controls replace the slash command and preserve drafts',
+      () async {
+    expect(session.commands['panels'], isNull);
+    final main = getFrame();
+    await keys('main draft');
+    await spawn('other');
+    await keys('child draft');
+    await spawn('main');
+    final third = getFrame();
+    final terminal = VirtualTerminal(width: 120, height: 24)
+      ..feed(io.written.toString());
+    io.written.clear();
+    expect(terminal.rowText(screen.layout.stripRow),
+        contains('3 panels (2 hidden)'));
+    await panelControls();
+    terminal.feed(io.written.toString());
+    io.written.clear();
+    expect(terminal.rowText(screen.layout.stripRow), contains('Enter panels'));
+    expect(terminal.cursorVisible, false);
+    await keys('m'); // minimize the first conversation
+    expect(main.canFocus, false);
+    expect(editor.focusManager!.focused, isNot(isA<PanelFrame>()));
+    await keys('\r'); // restore the first conversation and focus its draft
+    expect(getFrame(), same(main));
+    expect(main.canFocus, true);
+    expect(editor.editState.buffer, 'main draft');
+    await panelControls();
+    await keys('\x1b[B\x1b[Bx'); // maximize the third (currently hidden) panel
+    expect(screen.chat.bounds.width, greaterThan(100));
+    await keys('x'); // toggle back to split
+    expect(screen.chat.bounds.width, lessThan(70));
+    await keys('\r');
+    expect(getFrame(), same(third));
+    expect(editor.editState.buffer, isEmpty);
+    expect(providers.every((p) => p.requests.isEmpty), true,
+        reason: 'status/panel selection must never submit chat input');
+  });
+
+  test('minimizing the last panel can be undone from status controls',
+      () async {
+    final frame = getFrame();
+    await keys('saved draft');
+    await panelControls();
+    await keys('m');
+    expect(screen.input.bounds.isEmpty, true);
+    expect(frame.canFocus, false);
+    await keys('\r');
+    expect(getFrame(), same(frame));
+    expect(screen.input.bounds.isEmpty, false);
+    expect(editor.editState.buffer, 'saved draft');
+  });
+
+  test('minimizing the active split panel preserves both drafts', () async {
+    await keys('main draft');
+    await spawn('other');
+    final child = getFrame();
+    await keys('child draft');
+    await panelControls();
+    await keys('\x1b[Bm');
+    expect(child.canFocus, false);
+    expect(editor.editState.buffer, 'main draft');
+    await keys('\r');
+    expect(getFrame(), same(child));
+    expect(editor.editState.buffer, 'child draft');
+  });
+
+  test('status controls do not cancel a running panel and Escape restores chat',
+      () async {
+    final frame = getFrame();
+    await keys('running request\r');
+    await waitFor(() => providers.first.requests.length == 1);
+    await keys('unsent draft');
+    await panelControls();
+    await keys('m');
+    expect(session.host.session.loop.running, true);
+    expect(providers.first.closed, false);
+    await keys('\x1b');
+    expect(getFrame(), same(frame));
+    expect(editor.editState.buffer, 'unsent draft');
+    providers.first.answer(0, 'completed while minimized');
+    await waitFor(() => !frame.busy);
+    expect(screen.chat.snapshotLines().join('\n'),
+        contains('completed while minimized'));
+  });
+
+  test('dismissing slash completion restores the idle app transcript cells',
+      () async {
+    await keys('conversation before popup\r');
+    await waitFor(() => providers.first.requests.length == 1);
+    providers.first.answer(
+        0, List.generate(30, (i) => 'retained answer row $i').join('\n'));
+    await waitFor(() => !getFrame().busy);
+    final terminal = VirtualTerminal(width: 120, height: 24)
+      ..feed(io.written.toString());
+    io.written.clear();
+    final chat = screen.chat.bounds;
+    final before = [
+      for (var row = chat.row; row < screen.input.bounds.row; row++)
+        terminal.rowText(row)
+    ];
+    await keys('/');
+    terminal.feed(io.written.toString());
+    io.written.clear();
+    expect(editor.isCompleting, true);
+    await keys('\x1b');
+    terminal.feed(io.written.toString());
+    expect(editor.isCompleting, false);
+    expect([
+      for (var row = chat.row; row < screen.input.bounds.row; row++)
+        terminal.rowText(row)
+    ], before);
+  });
+
   for (final cancelFirst in [false, true]) {
     test(
         'queued messages remain visible until cleanup delivers them (cancel=$cancelFirst)',
@@ -567,7 +685,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('\x1b[A');
     expect(editor.editState.buffer, text);
     await spawn('other');
-    await keys('\x07\t\r');
+    await keys('\x07\t\t\r');
     expect(editor.editState.buffer, text);
     terminal.feed(io.written.toString());
     // The root panel has a border while split. Its left rail must survive;
@@ -607,7 +725,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(getFrame().label, contains('other'));
     expect(screen.input.bounds.col, greaterThan(50));
     await keys('other draft');
-    await keys('\x07\t\r'); // Ctrl+G, Tab, Enter
+    await keys('\x07\t\t\r'); // skip status controls to reach the root
     expect(getFrame().conversationId, mainId);
     expect(editor.editState.buffer, 'main draft');
     await keys('\x17\t\r'); // Ctrl+W follows the same focus ring
@@ -617,7 +735,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await Future<void>.delayed(const Duration(milliseconds: 35));
     expect(screen.input.bounds.col, lessThan(3));
     expect(editor.editState.buffer, 'other draft');
-    await keys('\x07\t\r');
+    await keys('\x07\t\t\r');
     expect(editor.editState.buffer, 'main draft');
     await keys('\x07\t\r');
     await keys('\r');
@@ -667,7 +785,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('\x1b[1;9A');
     expect(otherChat.debugScrollOffset, 1,
         reason: 'the focus ring owns arrows while cycling');
-    await keys('\t\r');
+    await keys('\t\t\r');
     expect(screen.chat, same(mainChat));
     expect(editor.editState.buffer, 'main draft');
     await keys('\x1b\x1b[B');
@@ -695,7 +813,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(editor.editState.buffer, 'child draft');
     providers.last.answer(0, 'child answer');
     providers.first.answer(1, 'main second answer');
-    await keys('\x07\t\r');
+    await keys('\x07\t\t\r');
     expect(editor.editState.buffer, 'main draft');
     expect(
         screen.chat.snapshotLines().join('\n'), contains('main second answer'));
@@ -745,13 +863,13 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await spawn('third');
     final thirdId = getFrame().conversationId;
     await keys('third draft');
-    await keys('\x07\t'); // preview the offscreen first panel
+    await keys('\x07\t\t'); // skip status and preview the offscreen first panel
     expect(screen.input.bounds.isEmpty, true);
     await keys('\x1b'); // cancel the preview
     expect(getFrame().conversationId, thirdId);
     expect(screen.input.bounds.isEmpty, false);
     expect(editor.editState.buffer, 'third draft');
-    await keys('\x07\t\r');
+    await keys('\x07\t\t\r');
     expect(getFrame().conversationId, mainId);
     expect(editor.editState.buffer, 'main draft');
     await keys('\x07\t\r');
