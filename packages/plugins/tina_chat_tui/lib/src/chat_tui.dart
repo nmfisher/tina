@@ -18,6 +18,7 @@ final class ChatTuiPlugin extends AgentPlugin
   ChatTuiPlugin(
       {required this.model,
       this.tokenCap = 0,
+      this.currentTokenCap,
       this.sessionTokens,
       this.sessionEstimatedTokens,
       this.showSessionId = true,
@@ -26,6 +27,7 @@ final class ChatTuiPlugin extends AgentPlugin
         renderer = TimestampChatRenderer(now: now ?? DateTime.now);
   final String model;
   final int tokenCap;
+  final int Function()? currentTokenCap;
   final int Function()? sessionTokens;
   final int Function()? sessionEstimatedTokens;
   final bool showSessionId;
@@ -70,7 +72,9 @@ final class ChatTuiPlugin extends AgentPlugin
   bool _sawThinking = false;
   MarkdownStreamSplitter? _markdown;
   ChatBlock? _preview;
+  ChatBlock? _thinkingPreview;
   bool _previewDirty = false;
+  bool _thinkingDirty = false;
   final _sources = Expando<String>('markdown-source');
   final _images = Expando<ConsoleImage>('chat-image');
   MarkdownStyle get _style => MarkdownStyle.fromChatTheme(
@@ -117,7 +121,6 @@ final class ChatTuiPlugin extends AgentPlugin
             -context.chat.usableHeight,
           ArrowKey(direction: ArrowDirection.pageDown) =>
             context.chat.usableHeight,
-          ScrollEvent(:final up) => up ? -3 : 3,
           _ => lineRows,
         };
         if (rows != 0) {
@@ -136,6 +139,11 @@ final class ChatTuiPlugin extends AgentPlugin
     _unbindModal = context.addModal(_TranscriptModal(this));
     _ticker = Timer.periodic(const Duration(milliseconds: 160), (_) {
       if (!_busy) return;
+      if (_thinkingDirty && _thinkingPreview != null) {
+        _thinkingDirty = false;
+        _thinkingPreview!.updateReasoning(_clean(_thinking), ongoing: true);
+        _changed(_thinkingPreview!);
+      }
       if (_previewDirty && _preview != null) {
         _previewDirty = false;
         _changed(_preview!);
@@ -156,10 +164,19 @@ final class ChatTuiPlugin extends AgentPlugin
         _streamed += text;
         _pushMarkdown(text);
       case SawThinking(:final text, :final startsBlock):
-        if (startsBlock) _flushThinking();
+        if (startsBlock) _flushThinking(complete: false);
         _flushMarkdown();
+        if (text.isEmpty) break;
         _thinking += text;
         _sawThinking = true;
+        if (_thinkingPreview == null) {
+          final block =
+              ChatBlock.reasoning(_speaker, _clean(_thinking), ongoing: true);
+          _thinkingPreview = block;
+          _add(block);
+        } else {
+          _thinkingDirty = true;
+        }
       case SawThinkingEnd(:final complete):
         _flushThinking(complete: complete);
       case SawNotice(:final text):
@@ -219,7 +236,16 @@ final class ChatTuiPlugin extends AgentPlugin
 
   void _flushThinking({bool complete = true}) {
     if (_thinking.isEmpty) return;
-    _add(ChatBlock.reasoning(_speaker, _clean(_thinking), complete: complete));
+    final preview = _thinkingPreview;
+    _thinkingPreview = null;
+    _thinkingDirty = false;
+    if (preview == null) {
+      _add(
+          ChatBlock.reasoning(_speaker, _clean(_thinking), complete: complete));
+    } else {
+      preview.updateReasoning(_clean(_thinking), complete: complete);
+      _changed(preview);
+    }
     _thinking = '';
   }
 
@@ -237,8 +263,13 @@ final class ChatTuiPlugin extends AgentPlugin
       _recordedInputs.clear();
       _responseBlocks.clear();
       _thinking = '';
+      _thinkingPreview = null;
+      _thinkingDirty = false;
+      _sawThinking = false;
       _streamed = '';
       _preview = null;
+      _previewDirty = false;
+      _markdown = null;
       _console?.chat.resetAfterClear();
       _console?.chat.repaint();
     } else if (entry is TurnStartedEntry) {
@@ -574,6 +605,7 @@ final class ChatTuiPlugin extends AgentPlugin
     final tokens = sessionTokens?.call() ?? _tokens;
     final estimated = sessionEstimatedTokens?.call() ?? 0;
     final theme = console.screen.theme.chat;
+    final tokenCap = currentTokenCap?.call() ?? this.tokenCap;
     final fraction = tokenCap > 0 ? (tokens + estimated) / tokenCap : 0.0;
     final plan = _plan;
     final items = plan?.items ?? const <PlanEntryItem>[];
@@ -723,6 +755,7 @@ int _countTrailingBlanks(List<RegionLine> lines) {
 // Shortcut policy belongs to this UI plugin. Up/Down without Option/Alt
 // remains editor history, and Ctrl combinations retain their own meaning.
 int _lineScrollRows(InputEvent event) => switch (event) {
+      ScrollEvent(:final up) => up ? -1 : 1,
       ArrowKey(direction: ArrowDirection.up, hasAlt: true, hasCtrl: false) =>
         -1,
       ArrowKey(direction: ArrowDirection.down, hasAlt: true, hasCtrl: false) =>

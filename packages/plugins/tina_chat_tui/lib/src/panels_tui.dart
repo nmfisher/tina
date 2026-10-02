@@ -74,6 +74,7 @@ final class _View {
   final history = <String>[];
   final commands = <Future<void>>{};
   Future<void>? task;
+  void Function()? unbindQueueStatus;
   bool closed = false;
 }
 
@@ -119,6 +120,7 @@ final class _Workspace implements ConsolePanels {
       ]);
       for (final view in views.reversed) {
         view.session.detachConsole();
+        view.unbindQueueStatus?.call();
         view.chat.detach();
         view.frame.dispose();
         if (!identical(view.session, initial)) view.session.close();
@@ -159,11 +161,16 @@ final class _Workspace implements ConsolePanels {
             return;
           }
         }
+        final busy = target.task != null;
         if (!line.trimLeft().startsWith('/') &&
             target.task != null &&
             receiver is ConsoleInputReceiver &&
-            (receiver as ConsoleInputReceiver).offerInput(line)) return;
+            (receiver as ConsoleInputReceiver).offerInput(line)) {
+          _queued(target);
+          return;
+        }
         target.queue.add(line);
+        if (busy) _queued(target);
         target.task ??= _drain(target);
     }
   }
@@ -185,6 +192,18 @@ final class _Workspace implements ConsolePanels {
           if (!view.closed && !stopped) focus.focusPanel(frame);
         },
         panels: this);
+    view.unbindQueueStatus = view.context.bindStatus(() {
+      final count = _pending(view);
+      return count == 0
+          ? []
+          : [
+              RenderLine(align: StatusAlign.right, runs: [
+                RenderRun(
+                    '$count ${count == 1 ? 'message' : 'messages'} queued',
+                    screen.theme.chat.yellow)
+              ])
+            ];
+    }, priority: 0);
     frame.onFocus = () => _focus(view);
     frame.onHighlight = () {
       visibleIndex = views.indexOf(view);
@@ -210,6 +229,7 @@ final class _Workspace implements ConsolePanels {
       views.remove(view);
       focus.unregister(frame);
       session.detachConsole();
+      view.unbindQueueStatus?.call();
       chat.detach();
       frame.dispose();
       active = previous;
@@ -351,7 +371,9 @@ final class _Workspace implements ConsolePanels {
     view.frame.setBusy(true);
     try {
       while (!stopped && !view.closed && view.queue.isNotEmpty) {
-        await view.session.submit(view.queue.removeFirst());
+        final line = view.queue.removeFirst();
+        context.refreshStatus();
+        await view.session.submit(line);
         if (view.session.quitRequested) {
           if (!done.isCompleted) done.complete();
           break;
@@ -366,13 +388,25 @@ final class _Workspace implements ConsolePanels {
     }
   }
 
+  int _pending(_View view) =>
+      view.queue.length +
+      (view.session is ConsolePendingInput
+          ? (view.session as ConsolePendingInput).pendingInputCount
+          : 0);
+
+  void _queued(_View view) {
+    view.session.notice('Message queued; waiting for current work.');
+    context.refreshStatus();
+    context.refreshInput();
+  }
+
   @override
   Future<void> spawn([String? model]) {
     final source = active;
     final operation = _spawns.then((_) async {
       if (stopped) return;
       try {
-        final session = await createSession(model ?? source?.session.label);
+        final session = await createSession(model);
         if (stopped) {
           session.close();
           return;
@@ -419,6 +453,7 @@ final class _Workspace implements ConsolePanels {
         ...view.commands,
       ]);
       view.session.detachConsole();
+      view.unbindQueueStatus?.call();
       if (!identical(view.session, initial)) view.session.close();
     }();
     closing.add(close);

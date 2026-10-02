@@ -831,10 +831,20 @@ class LineEditor {
     KeyHandledBy who;
     try {
       who = _onEventInner(event);
+      // An Escape already used to dismiss or cancel is not an Alt/Option
+      // prefix. Keep the separate timestamp for the double-Escape gesture.
+      if (event is EscapeKey &&
+          (who != KeyHandledBy.chatBox || onEscape != null)) {
+        _lastEsc = null;
+      }
     } finally {
       InputLatency.complete(event);
     }
     InputLog.key(event, who, currentState);
+    if (PasteAudit.enabled && event is ControlKey) {
+      PasteAudit.log(
+          'control=${event.code.name} routed=${who.name} readingKey=$isReadingKey');
+    }
   }
 
   /// Handle [event] and report where it ended up: the chat input, a panel, a
@@ -990,13 +1000,13 @@ class LineEditor {
       _scheduleHeldPasteDelivery();
       return KeyHandledBy.openPrompt;
     }
-    // Overflow CharInput from a paste burst that arrived before readKey
-    // could re-arm _keyCompleter.
+    // A screen-owning form must retain controls as well as text between key
+    // reads. Slow rendering can batch a filter and its next navigation/reset
+    // key together; dropping that control leaves a visible menu unresponsive.
+    // Approval reads still queue only text, never a later approval answer.
     if (_burstTimer != null &&
-        (event is CharInput ||
-            (_burstForm &&
-                (event is PasteInput ||
-                    event is ControlKey && event.code == ControlCode.enter)))) {
+        event is! EscapeKey &&
+        (event is CharInput || _burstForm)) {
       _pending.add(event);
       if (PasteAudit.enabled && _pending.length == 1) {
         PasteAudit.log(

@@ -110,12 +110,12 @@ void main() {
 
     test('reasoning is a count until expanded', () {
       final block = ChatBlock.reasoning(_main, 'x' * 412);
-      expect(_render([block]), ' ▸ reasoning  412 chars');
+      expect(_render([block]), ' ▸ reasoning  ~103 tokens · 412 chars');
 
       block.folded = false;
       final expanded = _render([block]);
       final lines = expanded.split('\n');
-      expect(lines.first, ' ▾ reasoning  412 chars');
+      expect(lines.first, ' ▾ reasoning  ~103 tokens · 412 chars');
       expect(
         lines.length,
         greaterThan(1),
@@ -136,7 +136,7 @@ void main() {
     test('the folded count tracks the text, so it cannot lie', () {
       expect(
         _render([ChatBlock.reasoning(_main, 'abcde')]),
-        ' ▸ reasoning  5 chars',
+        ' ▸ reasoning  ~2 tokens · 5 chars',
       );
     });
 

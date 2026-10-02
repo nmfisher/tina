@@ -25,6 +25,7 @@ class InputParser {
 
   final List<int> _escBuf = [];
   final List<int> _utf8Pending = [];
+  List<int>? _mouseReport;
 
   /// True between a `ESC[200~` start marker and its `ESC[201~` end marker.
   /// While collecting, bytes route into [_pasteBuf] instead of being decoded
@@ -107,6 +108,19 @@ class InputParser {
     // multi-byte sequence, not standalone.
     _escTimer?.cancel();
     _escTimer = null;
+
+    // Legacy X10 mouse reports carry three bytes after CSI M. Consume the
+    // whole report, including clicks/releases, so coordinates never type text.
+    final mouse = _mouseReport;
+    if (mouse != null) {
+      mouse.add(b);
+      if (mouse.length < 3) return null;
+      _mouseReport = null;
+      final button = (mouse.first - 32) & ~28;
+      return mouse[1] > 32 && mouse[2] > 32 && (button == 64 || button == 65)
+          ? ScrollEvent(up: button == 64)
+          : null;
+    }
 
     // Mid-OSC discard: consume bytes until the terminator (BEL or ST).
     // An ESC mid-sequence might be the lead byte of the ST terminator
@@ -306,7 +320,8 @@ class InputParser {
         _dispatchCsi(second, _escBuf.sublist(2));
         return true;
       }
-      if (_escBuf.length > 8) {
+      final sgrMouse = second == 0x5b && _escBuf[2] == 0x3c;
+      if (_escBuf.length > (sgrMouse ? 32 : 8)) {
         // Overlong CSI — terminal query responses (DA2, XTVERSION, palette)
         // can be 14–100+ bytes. Instead of aborting and leaking the remaining
         // bytes as visible characters, swallow until a CSI final byte arrives.
@@ -374,8 +389,30 @@ class InputParser {
     final last = rest.last;
     final params = rest.sublist(0, rest.length - 1);
     if (introducer == 0x5b) {
+      // SGR mouse reports: only vertical wheel presses have input semantics.
+      // Ignore clicks, movement and release reports rather than leaking them
+      // into the conversation draft or scrolling twice for one notch.
+      if (params.isNotEmpty && params.first == 0x3c) {
+        final values = String.fromCharCodes(params.skip(1)).split(';');
+        if (last == 0x4d && values.length == 3) {
+          final button = int.tryParse(values[0]);
+          final x = int.tryParse(values[1]);
+          final y = int.tryParse(values[2]);
+          if (button != null && x != null && y != null && x > 0 && y > 0) {
+            // Shift/Alt/Ctrl modifiers do not change the wheel's direction.
+            final base = button & ~28;
+            if (base == 64 || base == 65) {
+              _pendingEvent = ScrollEvent(up: base == 64);
+            }
+          }
+        }
+        return;
+      }
       if (params.isEmpty) {
         switch (last) {
+          case 0x4d:
+            _mouseReport = [];
+            return;
           case 0x41:
             _pendingEvent = ArrowKey(ArrowDirection.up);
             return;

@@ -6,6 +6,7 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'mode.dart';
 export 'mode.dart';
+export 'settings.dart';
 export 'package:classification/permissions.dart';
 
 /// Owns permission mode and approval routing. Tools enforce its decisions;

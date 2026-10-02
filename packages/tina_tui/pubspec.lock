@@ -571,6 +571,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_settings:
+    dependency: "direct main"
+    description:
+      path: "../libraries/tina_settings"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_sqlite:
     dependency: transitive
     description:
@@ -579,7 +586,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_step_limit:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../plugins/tina_step_limit"
       relative: true

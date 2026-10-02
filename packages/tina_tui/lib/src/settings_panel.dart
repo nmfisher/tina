@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
@@ -7,9 +8,13 @@ import 'configured_provider.dart';
 import 'providers_panel.dart';
 import 'plugin_settings.dart';
 import 'package:tina_host/tina_host.dart';
+import 'package:tina_settings/tina_settings.dart';
+import 'package:tina_chat_tui/tina_chat_tui.dart'
+    show themeSetting, defaultModelSetting;
+import 'scoped_config.dart';
+import 'settings_catalog.dart';
 
-/// Built-in fields edit global settings; provider settings can apply live. Plugin sections
-/// supply their own controls and callbacks independently of that document.
+/// Shared scope editor plus specialized provider forms and plugin UI actions.
 final class SettingsPanel {
   SettingsPanel(this.screen, this.editor, {this.readEvent});
   final Screen screen;
@@ -25,6 +30,19 @@ final class SettingsPanel {
   Future<InputEvent>? _pendingRead;
   Completer<void> _cancel = Completer<void>();
   bool _cancelled = false;
+  SettingScope _scope = SettingScope.session;
+  bool _usingScopes = false;
+  Set<SettingScope> _availableScopes = {...SettingScope.values};
+  Future<void> _withinScopes(
+      Set<SettingScope> scopes, Future<void> Function() edit) async {
+    final previous = _availableScopes;
+    _availableScopes = scopes;
+    try {
+      await edit();
+    } finally {
+      _availableScopes = previous;
+    }
+  }
 
   /// Release a live key reader before its session or frontend is torn down.
   void cancel() {
@@ -61,10 +79,15 @@ final class SettingsPanel {
       SettingsRegistry? sections,
       PluginSettings<dynamic>? pluginSettings,
       PluginManager<dynamic>? pluginManager,
+      ScopedSettings? scopedSettings,
+      ConfigSettingsBackend? settingsBackend,
       void Function()? applyConfiguration,
       Map<String, String> pluginDescriptions = const {},
       Iterable<String> pluginIds = const []}) async {
     _savedSection = false;
+    _usingScopes = scopedSettings != null;
+    _scope = SettingScope.session;
+    _availableScopes = {...SettingScope.values};
     _cancelled = false;
     _cancel = Completer<void>();
     _applyConfiguration = applyConfiguration;
@@ -79,9 +102,20 @@ final class SettingsPanel {
             acceptPaste: true, cancelSignal: _cancel.future);
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
+    final stopSettings = scopedSettings?.listen(_refresh);
     _overlay =
         OverlayRegion(screen, const Rect(row: 0, col: 0, width: 1, height: 1));
     try {
+      if (scopedSettings != null && settingsBackend != null) {
+        return await _scopedRun(scopedSettings, settingsBackend,
+            document: document,
+            descriptors: descriptors,
+            sections: sections,
+            pluginSettings: pluginSettings,
+            pluginManager: pluginManager,
+            validatePlugins: validatePlugins,
+            descriptions: pluginDescriptions);
+      }
       while (true) {
         if (_cancelled) return _savedSection;
         final defaults = document.table('default');
@@ -190,6 +224,7 @@ final class SettingsPanel {
       }
     } finally {
       unlisten?.call();
+      stopSettings?.call();
       _paint = null;
       if (!_cancel.isCompleted) _cancel.complete();
       await _pendingRead;
@@ -197,6 +232,336 @@ final class SettingsPanel {
       _overlay.hide();
       editor.endKeyCaptureWindow();
       editor.handleResize();
+    }
+  }
+
+  Future<bool> _scopedRun(
+      ScopedSettings settings, ConfigSettingsBackend backend,
+      {required ConfigDocument document,
+      required List<ProviderDescriptor> descriptors,
+      SettingsRegistry? sections,
+      PluginSettings<dynamic>? pluginSettings,
+      PluginManager<dynamic>? pluginManager,
+      void Function(Iterable<String>)? validatePlugins,
+      Map<String, String> descriptions = const {}}) async {
+    while (!_cancelled) {
+      var owners = <String>[];
+      var custom = <SettingsSection>[];
+      List<String> items() {
+        owners = settings.catalog.definitions
+            .map((d) => d.owner)
+            .toSet()
+            .where((id) =>
+                !id.startsWith('tina/providers') &&
+                id != 'tina/chat-tui' &&
+                id != 'tina/session-controls' &&
+                settings.catalog.definitions
+                    .any((d) => d.owner == id && !d.id.endsWith('/enabled')))
+            .toList()
+          ..sort();
+        custom = sections?.sections ?? [];
+        return [
+          'Default provider and model',
+          'Providers and models (Global only)',
+          'Plugins',
+          'Request and token limits',
+          'Generation settings',
+          'Theme (Global only)',
+          for (final id in owners) _sectionTitle(id),
+          for (final section in custom) section.title
+        ];
+      }
+
+      final choice = await _menu(
+          settings.applicationErrors.isEmpty
+              ? 'Settings'
+              : 'Settings · changes need attention',
+          items(),
+          itemsNow: items,
+          descriptionFor: (_) => settings.applicationErrors.values.join('\n'));
+      if (choice == null) return _savedSection;
+      try {
+        switch (choice) {
+          case 0:
+            if (!await _allowedScope(defaultModelSetting)) continue;
+            final draft = backend.draft(settings, _scope);
+            await _withinScopes(defaultModelSetting.scopes,
+                () => _defaultModel(draft, descriptors));
+            if (draft.hasChanges) {
+              draft.save(
+                  descriptors: descriptors, validatePlugins: validatePlugins);
+              _savedSection = true;
+            }
+          case 1:
+            // Provider identities and credentials are global configuration.
+            if (_scope != SettingScope.global) {
+              final enter = await _menu('Provider catalog is Global only',
+                  ['Edit Global providers', 'Back']);
+              if (enter != 0) continue;
+              _scope = SettingScope.global;
+            }
+            final global = ConfigDocument.open(backend.globalPath);
+            await _withinScopes({SettingScope.global},
+                () => _providers(global, descriptors, validatePlugins));
+            if (global.hasChanges) {
+              global.save(
+                  descriptors: descriptors, validatePlugins: validatePlugins);
+              _applyConfiguration?.call();
+              settings.reload();
+              refreshProviderDefinitions(
+                  settings.catalog,
+                  ConfigDocument.validateValues(backend.effectiveDocument(),
+                      descriptors: descriptors));
+              _savedSection = true;
+            }
+          case 2:
+            await _scopedPlugins(
+                settings, pluginSettings, pluginManager, descriptions);
+          case 3:
+            await _definitions(
+                settings,
+                'Request and token limits',
+                () => settings.catalog.definitions
+                    .where((d) => d.configPath.first == 'limits')
+                    .toList());
+          case 4:
+            // Composite thinking definitions expose their provider through the ID.
+            final providers = settings.catalog.definitions
+                .where((d) => d.id.endsWith('/thinking'))
+                .map((d) => d.id.split('/')[2])
+                .toList();
+            final selected = await _menu('Generation settings', providers);
+            if (selected != null) {
+              await _generation(
+                  backend.draft(settings, _scope), descriptors, validatePlugins,
+                  provider: providers[selected]);
+            }
+          case 5:
+            await _scopedValue(settings, themeSetting);
+          default:
+            final index = choice - 6;
+            if (index < owners.length) {
+              final owner = owners[index];
+              await _definitions(
+                  settings,
+                  _sectionTitle(owner),
+                  () => settings.catalog.definitions
+                      .where(
+                          (d) => d.owner == owner && !d.id.endsWith('/enabled'))
+                      .toList());
+            } else {
+              await _section(sections!, custom[index - owners.length]);
+              document.refreshUneditedTables();
+              _applyConfiguration?.call();
+            }
+        }
+      } catch (error) {
+        await _menu('Could not apply setting', [
+          error is FormatException
+              ? error.message.toString()
+              : error is ArgumentError
+                  ? error.message.toString()
+                  : error is StateError
+                      ? error.message.toString()
+                      : 'Check configuration and file permissions.',
+          'Back'
+        ]);
+      }
+    }
+    return _savedSection;
+  }
+
+  String _sectionTitle(String id) => switch (id) {
+        'tina/step-limit' => 'Step limit',
+        'tina/subagents' => 'Subagents',
+        'tina/mode' => 'Mode and auto approval',
+        _ => id,
+      };
+  String _settingValue(SettingDefinition<Object> definition, Object? value) =>
+      definition.secret
+          ? (value == null ? 'unset' : '••••')
+          : value == null
+              ? 'Inherit'
+              : value is int
+                  ? formatInteger(value)
+                  : value is bool
+                      ? (value ? 'On' : 'Off')
+                      : value is Map || value is List
+                          ? jsonEncode(value)
+                          : value.toString();
+  String _settingRow(
+      ScopedSettings settings, SettingDefinition<Object> definition) {
+    final state = settings.read(definition, scope: _scope);
+    return '${definition.label}: ${_settingValue(definition, state.value)} · ${state.source == _scope ? 'set here' : 'inherited from ${state.sourceLabel}'}${definition.scopes.contains(_scope) ? '' : ' · ${definition.scopes.map((s) => s.name).join('/')} only'}';
+  }
+
+  Future<bool> _allowedScope(SettingDefinition<Object> definition) async {
+    if (definition.scopes.contains(_scope)) return true;
+    final scopes =
+        SettingScope.values.where(definition.scopes.contains).toList();
+    final choice = await _menu(
+        '${definition.label} · ${definition.scopeReason}',
+        [for (final scope in scopes) 'Edit ${scope.name}', 'Back']);
+    if (choice == null || choice >= scopes.length) return false;
+    _scope = scopes[choice];
+    return true;
+  }
+
+  Future<void> _definitions(ScopedSettings settings, String title,
+      List<SettingDefinition<Object>> Function() definitions) async {
+    while (true) {
+      var fields = definitions();
+      List<String> items() {
+        fields = definitions();
+        return fields.map((d) => _settingRow(settings, d)).toList();
+      }
+
+      final choice = await _menu(title, items(),
+          itemsNow: items, descriptionFor: (i) => fields[i].description);
+      if (choice == null) return;
+      await _scopedValue(settings, fields[choice]);
+    }
+  }
+
+  Future<void> _scopedValue(
+      ScopedSettings settings, SettingDefinition<Object> definition,
+      {bool Function()? valid}) async {
+    if (!await _allowedScope(definition)) return;
+    await _withinScopes(definition.scopes,
+        () => _editScopedValue(settings, definition, valid: valid));
+  }
+
+  Future<void> _editScopedValue(
+      ScopedSettings settings, SettingDefinition<Object> definition,
+      {bool Function()? valid}) async {
+    final choice = await _menu(
+        definition.label, ['Set value', 'Use inherited value', 'Back'],
+        valid: valid,
+        descriptionFor: (_) => '${definition.description}\n${[
+              for (final scope in SettingScope.values)
+                '${scope.name}: ${_settingValue(definition, settings.override(definition, scope))}',
+              'Default: ${_settingValue(definition, definition.defaultValue)}',
+              'Effective here: ${_settingValue(definition, settings.read(definition).value)} (${settings.read(definition).sourceLabel})',
+              'Applies: ${_applyLabel(definition.applyAt)}',
+              if (settings.applicationErrors[definition.id] != null)
+                settings.applicationErrors[definition.id]!,
+            ].join('\n')}');
+    if (choice != 0 && choice != 1) return;
+    if (valid?.call() == false) return;
+    if (!await _allowedScope(definition)) return;
+    if (choice == 1) {
+      settings.removeOverride(definition, _scope);
+      _savedSection = true;
+      return;
+    }
+    final current = settings.read(definition, scope: _scope).value;
+    final Object? value;
+    if (definition.kind == SettingKind.choice ||
+        definition.kind == SettingKind.toggle) {
+      final options = definition.kind == SettingKind.toggle
+          ? ['Off', 'On']
+          : definition.choices;
+      final selected = await _menu(definition.label, options,
+          valid: valid,
+          initialSelected: definition.kind == SettingKind.toggle
+              ? (current == true ? 1 : 0)
+              : options
+                  .indexOf(current.toString())
+                  .clamp(0, options.length - 1));
+      if (selected == null) return;
+      value = definition.kind == SettingKind.toggle
+          ? selected == 1
+          : options[selected];
+    } else {
+      final text = await _edit(
+          definition.label,
+          definition.kind == SettingKind.object
+              ? jsonEncode(current)
+              : current.toString(),
+          numeric: definition.kind == SettingKind.integer,
+          secret: definition.secret,
+          valid: valid);
+      if (text == null) return;
+      value = definition.kind == SettingKind.integer
+          ? int.tryParse(text.replaceAll(',', ''))
+          : definition.kind == SettingKind.object
+              ? jsonDecode(text)
+              : text;
+    }
+    if (valid?.call() == false) return;
+    settings.set(definition, definition.checked(value), _scope);
+    _savedSection = true;
+  }
+
+  String _applyLabel(ApplyAt timing) => switch (timing) {
+        ApplyAt.immediately => 'immediately',
+        ApplyAt.nextRequest => 'next request',
+        ApplyAt.whenIdle => 'when idle',
+        ApplyAt.newSession => 'new conversations',
+        ApplyAt.restart => 'after restart',
+      };
+  Future<void> _scopedPlugins(
+      ScopedSettings settings,
+      PluginSettings<dynamic>? plugins,
+      PluginManager<dynamic>? manager,
+      Map<String, String> descriptions) async {
+    final fields = settings.catalog.definitions
+        .where(
+            (d) => d.id.endsWith('/enabled') && d.configPath.first == 'plugins')
+        .toList()
+      ..sort((a, b) => a.owner.compareTo(b.owner));
+    final delivery = settings.catalog['tina/approvals/channel'];
+    var query = '';
+    var selected = 0;
+    while (true) {
+      var reset = false;
+      var about = false;
+      List<String> items() => [
+            _settingRow(settings, delivery),
+            for (final field in fields)
+              '[${plugins?.requiredIds.contains(field.owner) == true || settings.read(field, scope: _scope).value == true ? 'x' : ' '}] ${field.owner}'
+          ];
+      final choice = await _menu('Plugins (toggles save immediately)', items(),
+          itemsNow: items,
+          checkboxes: true,
+          initialSelected: selected,
+          initialQuery: query,
+          onQuery: (value) => query = value,
+          onReset: () => reset = true,
+          onAbout: () => about = true,
+          descriptionFor: (i) => i == 0
+              ? delivery.description
+              : descriptions[fields[i - 1].owner] ?? fields[i - 1].description,
+          detailFor: (i) => i == 0
+              ? 'Selected delivery plugin · opens with conversation'
+              : plugins?.requiredIds.contains(fields[i - 1].owner) == true
+                  ? plugins!.blockingReasons[fields[i - 1].owner]!.join('; ')
+                  : '${settings.read(fields[i - 1], scope: _scope).sourceLabel} · ${manager == null ? _applyLabel(fields[i - 1].applyAt) : plugins!.changeStatus(fields[i - 1].owner, manager)}');
+      if (choice == null) return;
+      selected = choice;
+      if (about) {
+        final id = choice == 0 ? delivery.owner : fields[choice - 1].owner;
+        final blurb = choice == 0
+            ? delivery.description
+            : descriptions[id] ?? fields[choice - 1].description;
+        List<String> lines() =>
+            wrapDialogText(blurb, dialogArea(screen.layout).width - 2);
+        await _menu('About $id', lines(), itemsNow: lines);
+        continue;
+      }
+      if (choice == 0) {
+        await _scopedValue(settings, delivery);
+        continue;
+      }
+      final field = fields[choice - 1];
+      if (plugins?.requiredIds.contains(field.owner) == true) continue;
+      if (reset) {
+        settings.removeOverride(field, _scope);
+      } else {
+        settings.set(
+            field, settings.read(field, scope: _scope).value != true, _scope);
+      }
+      _savedSection = true;
     }
   }
 
@@ -536,6 +901,8 @@ final class SettingsPanel {
                 '${control.label}: ${control.secret ? '••••' : control.read()}',
               SettingChoice() => '${control.label}: ${control.read()}',
               SettingAction() => control.label,
+              ScopedSettingControl() =>
+                _settingRow(control.settings, control.definition),
             }
         ];
       }
@@ -547,26 +914,43 @@ final class SettingsPanel {
           onSelected: (index) => chosen = controls[index]);
       if (selected == null || !registry.contains(section)) return;
       final control = chosen!;
+      if (_usingScopes &&
+          control.scopes != null &&
+          !control.scopes!.contains(_scope)) {
+        final scopes =
+            SettingScope.values.where(control.scopes!.contains).toList();
+        final selectedScope = await _menu(
+            '${control.label} · choose a supported scope',
+            [for (final scope in scopes) 'Edit ${scope.name}', 'Back']);
+        if (selectedScope == null || selectedScope >= scopes.length) continue;
+        _scope = scopes[selectedScope];
+      }
       // Unloading while an editor is open invalidates its callback.
       bool available() =>
           registry.contains(section) &&
           section.build().any((c) => c.id == control.id);
       try {
-        switch (control) {
-          case SettingToggle():
-            if (available()) await control.change(!control.read());
-          case SettingText():
-            final value = await _edit(control.label, control.read(),
-                secret: control.secret, valid: available);
-            if (value != null && available()) await control.change(value);
-          case SettingChoice():
-            final index =
-                await _menu(control.label, control.options, valid: available);
-            if (index != null && available())
-              await control.change(control.options[index]);
-          case SettingAction():
-            if (available()) await control.invoke();
-        }
+        await _withinScopes(control.scopes ?? _availableScopes, () async {
+          switch (control) {
+            case SettingToggle():
+              if (available()) await control.change(!control.read());
+            case SettingText():
+              final value = await _edit(control.label, control.read(),
+                  secret: control.secret, valid: available);
+              if (value != null && available()) await control.change(value);
+            case SettingChoice():
+              final index =
+                  await _menu(control.label, control.options, valid: available);
+              if (index != null && available())
+                await control.change(control.options[index]);
+            case SettingAction():
+              if (available()) await control.invoke();
+            case ScopedSettingControl():
+              if (available())
+                await _scopedValue(control.settings, control.definition,
+                    valid: available);
+          }
+        });
       } catch (_) {
         if (registry.contains(section))
           await _menu('Could not apply setting', ['Back'],
@@ -805,7 +1189,16 @@ final class SettingsPanel {
 
   void _show(List<String> lines, {(int, int)? cursor}) {
     final area = dialogArea(screen.layout);
-    final visible = lines
+    final shown = [
+      if (_usingScopes)
+        'Scope: ${[
+          for (final scope
+              in SettingScope.values.where(_availableScopes.contains))
+            scope == _scope ? '[${scope.name}]' : scope.name,
+        ].join('  ')}',
+      ...lines
+    ];
+    final visible = shown
         .take(area.height)
         .map((v) => clipDialogText(v, area.width))
         .toList();
@@ -813,7 +1206,10 @@ final class SettingsPanel {
     screen.frame(() {
       _overlay.update(bounds: bounds, lines: visible);
       if (cursor != null && bounds.height > 0 && bounds.width > 0) {
-        screen.parkCursorAt(bounds.row + cursor.$1.clamp(0, bounds.height - 1),
+        screen.parkCursorAt(
+            bounds.row +
+                (cursor.$1 + (_usingScopes ? 1 : 0))
+                    .clamp(0, bounds.height - 1),
             bounds.col + cursor.$2.clamp(0, bounds.width - 1));
       }
     });
@@ -860,7 +1256,8 @@ final class SettingsPanel {
       final description =
           blurb.isEmpty ? <String>[] : wrapDialogText(blurb, area.width);
       final descriptionRoom =
-          (area.height - (query.isEmpty ? 4 : 5)).clamp(0, description.length);
+          (area.height - (query.isEmpty ? 4 : 5) - (_usingScopes ? 1 : 0))
+              .clamp(0, description.length);
       final descriptionLines = description.take(descriptionRoom).toList();
       if (descriptionLines.isNotEmpty && descriptionRoom < description.length) {
         descriptionLines[descriptionLines.length - 1] =
@@ -869,6 +1266,7 @@ final class SettingsPanel {
       final room = (area.height -
               descriptionLines.length -
               (query.isEmpty ? 2 : 3) -
+              (_usingScopes ? 1 : 0) -
               (detailFor == null ? 0 : 1))
           .clamp(1, filtered.length);
       final start = (selected - room + 1).clamp(0, filtered.length - room);
@@ -880,8 +1278,8 @@ final class SettingsPanel {
         ...descriptionLines,
         if (detailFor != null) detailFor(filtered[selected]),
         checkboxes
-            ? 'space toggle · ^R inherit · ? about · esc'
-            : '↑↓ move · type to find · enter select · esc back'
+            ? '${_usingScopes ? 'Tab scope · ' : ''}space toggle · ^R inherit · ? about · esc'
+            : '${_usingScopes ? 'Tab scope · ' : ''}↑↓ move · type to find · enter select · esc back'
       ]);
     };
     while (true) {
@@ -894,6 +1292,10 @@ final class SettingsPanel {
       repaint();
       final filtered = matches();
       switch (event) {
+        case ControlKey(code: ControlCode.tab) when _usingScopes:
+          final scopes =
+              SettingScope.values.where(_availableScopes.contains).toList();
+          _scope = scopes[(scopes.indexOf(_scope) + 1) % scopes.length];
         case EscapeKey():
           return null;
         case ControlKey(code: ControlCode.ctrlC):

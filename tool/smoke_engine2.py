@@ -36,6 +36,8 @@ class ModelStub(BaseHTTPRequestHandler):
     approval_target = None
     release_stream = threading.Event()
     release_cancelled = threading.Event()
+    advance_reasoning = threading.Event()
+    release_reasoning = threading.Event()
 
     def log_message(self, *args):
         pass
@@ -47,6 +49,7 @@ class ModelStub(BaseHTTPRequestHandler):
         prompt = request['messages'][-1]['content']
         streaming = 'terminal smoke' in json.dumps(prompt)
         cancelling = 'cancel this' in json.dumps(prompt)
+        reasoning = 'stream reasoning example' in json.dumps(prompt)
         prefix = 'streaming prefix ' if streaming else 'cancel pending ' if cancelling else ''
         events = [
             {"type": "message_start", "message": {"id": "smoke", "role": "assistant",
@@ -162,9 +165,18 @@ class ModelStub(BaseHTTPRequestHandler):
         first = events[:2] + ([{"type": "content_block_delta", "index": 0,
                   "delta": {"type": "text_delta", "text": prefix}}] if prefix else [])
         first_bytes, last_bytes = encode(first), encode(events[2:])
+        middle_bytes = b''
+        if reasoning:
+            first_bytes = encode([events[0],
+                {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'thinking', 'thinking': ''}},
+                {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'thinking_delta', 'thinking': 'first thought'}},
+            ])
+            middle_bytes = encode([{'type': 'content_block_delta', 'index': 0,
+                'delta': {'type': 'thinking_delta', 'thinking': ' and more'}}])
+            last_bytes = encode(events[3:])
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Content-Length", str(len(first_bytes) + len(last_bytes)))
+        self.send_header("Content-Length", str(len(first_bytes) + len(middle_bytes) + len(last_bytes)))
         self.end_headers()
         try:
             self.wfile.write(first_bytes)
@@ -173,6 +185,11 @@ class ModelStub(BaseHTTPRequestHandler):
                 assert self.release_stream.wait(30), 'stream was never released'
             if cancelling:
                 assert self.release_cancelled.wait(30), 'cancelled stream was never released'
+            if reasoning:
+                assert self.advance_reasoning.wait(30), 'reasoning was never advanced'
+                self.wfile.write(middle_bytes)
+                self.wfile.flush()
+                assert self.release_reasoning.wait(30), 'reasoning was never released'
             self.wfile.write(last_bytes)
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
@@ -316,6 +333,8 @@ def smoke(launcher, endpoint, columns, rows):
         request_start = len(ModelStub.requests)
         ModelStub.release_stream.clear()
         ModelStub.release_cancelled.clear()
+        ModelStub.advance_reasoning.clear()
+        ModelStub.release_reasoning.clear()
         terminal = Terminal(command, env, columns, rows)
         try:
             terminal.expect("smoke > ")
@@ -357,6 +376,8 @@ def smoke(launcher, endpoint, columns, rows):
                 ('\x1b[1;3B', first - 1, 'Alt-Down'),
                 ('\x1b[1;9B', first, 'Meta-Down'),
                 ('\x1b\x1b[B', first + 1, 'Option-Down'),
+                ('\x1b[<64;10;5M', first, 'Wheel-Up'),
+                ('\x1b[<65;10;5M', first + 1, 'Wheel-Down'),
             ]:
                 actual = scroll_line(sequence)
                 assert actual == expected, f'{label}: expected row {expected}, got {actual}'
@@ -364,6 +385,16 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send(' intact\r')
             terminal.expect('draft answer', start)
             assert 'scroll draft intact' in json.dumps(ModelStub.requests[-1]['messages'][-1]), 'line scrolling changed the draft'
+            time.sleep(0.1)
+            start = terminal.send('stream reasoning example\r')
+            terminal.expect('reasoning (ongoing)', start)
+            terminal.expect('~4 tokens', start)
+            assert not ModelStub.release_reasoning.is_set()
+            ModelStub.advance_reasoning.set()
+            terminal.expect('~6 tokens', start)
+            ModelStub.release_reasoning.set()
+            terminal.expect('▸ reasoning  ~6 tokens', start)
+            terminal.expect_idle()
             time.sleep(0.1)
             start = terminal.send("\x1b[Z")
             terminal.expect("mode: read-only", start)
@@ -432,6 +463,8 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send("after cancel\r")
             terminal.expect("smoke answer", start)
             ModelStub.release_cancelled.set()
+            ModelStub.advance_reasoning.set()
+            ModelStub.release_reasoning.set()
             time.sleep(0.1)
             start = terminal.send('/mode read-only\r')
             terminal.expect('mode: read-only', start)
@@ -669,12 +702,10 @@ def smoke(launcher, endpoint, columns, rows):
                 terminal.expect('enter select · esc back', start)
                 time.sleep(0.1)
                 start = terminal.send('Plugins\r')
-                terminal.expect('Scope: global', start)
-                if scope != 'global':
-                    terminal.send('\r')
-                    time.sleep(0.1)
-                    start = terminal.send(('\x1b[B' * (1 if scope == 'workspace' else 2)) + '\r')
-                    terminal.expect('Scope: ' + scope, start)
+                terminal.expect('Scope: [session]', start)
+                if scope != 'session':
+                    start = terminal.send('\t' * (1 if scope == 'workspace' else 2))
+                    terminal.expect('[' + scope + ']', start)
                 selected = terminal.send(plugin_id)
                 if plugin_id == 'tina/grok-guard' and checked:
                     terminal.expect('Asks for Yes/No confirmation', selected)
@@ -693,7 +724,7 @@ def smoke(launcher, endpoint, columns, rows):
                 terminal.send('\x1b')
                 time.sleep(0.1)
                 closed = terminal.send('\x1b')
-                terminal.expect('Settings closed.', closed)
+                terminal.expect('Settings saved.', closed)
                 time.sleep(0.1)
                 return start
 
@@ -827,6 +858,8 @@ def smoke(launcher, endpoint, columns, rows):
         finally:
             ModelStub.release_stream.set()
             ModelStub.release_cancelled.set()
+            ModelStub.advance_reasoning.set()
+            ModelStub.release_reasoning.set()
             terminal.close()
 
         listing = subprocess.run(launcher + ["--store", str(store),
@@ -1042,8 +1075,8 @@ def main():
         # automatic network approval/denial (agent/judge/result), and five for the
         # background job (start/result, another message, inspect/result).
         # Four MCP tool turns add eight requests per terminal size.
-        assert 165 <= len(ModelStub.requests) <= 168, (
-            f"expected 165–168 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
+        assert 168 <= len(ModelStub.requests) <= 171, (
+            f"expected 168–171 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

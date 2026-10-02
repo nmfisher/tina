@@ -2,6 +2,7 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'plugin_catalog.dart';
 import 'dart:io' as io;
 
@@ -44,6 +45,8 @@ Future<int> runApp(
   final queued = Queue<String>();
   final commands = <Future<void>>{};
   var stopping = false;
+  void Function()? releaseQueueStatus;
+  int? queueStatusListener;
   StreamSubscription<ScreenLayout>? resizeSubscription;
 
   // The editor owns the raw bytes; where its keys go is decided below.
@@ -59,10 +62,21 @@ Future<int> runApp(
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
   final settings = SettingsPanel(s, editor);
+  var appliedTheme = jsonEncode(session.assembly.theme);
+  session.assembly.onSettingsChanged = () {
+    final next = jsonEncode(session.assembly.theme);
+    if (next != appliedTheme) {
+      appliedTheme = next;
+      s.setTheme(resolveTheme(session.assembly.theme));
+    }
+    settings.repaint();
+  };
   session.assembly.openSettings = () => console.interact(() async {
         if (stopping) return;
         try {
           final saved = await settings.run(
+              scopedSettings: session.assembly.settings,
+              settingsBackend: session.assembly.settingsBackend,
               applyConfiguration: session.assembly.applySavedConfiguration,
               path: session.assembly.configPath,
               sections: console.settings,
@@ -74,7 +88,9 @@ Future<int> runApp(
               pluginSettings: session.assembly.pluginSettings,
               pluginManager: session.assembly.pluginManager);
           terminal.writeln(saved
-              ? 'Settings saved. Models are available now; provider settings apply to the next request.'
+              ? session.assembly.settings.applicationErrors.isEmpty
+                  ? 'Settings saved. Request settings affect the next request; plugin changes may wait for idle or restart.'
+                  : 'Settings saved, but some changes could not apply. Reopen Settings for details.'
               : 'Settings closed.');
         } catch (_) {
           terminal.writeln(
@@ -175,6 +191,22 @@ Future<int> runApp(
     for (final contribution in contributions) {
       attached[contribution] = ConsoleAttachment.attach(contribution, console);
     }
+    releaseQueueStatus = console.bindStatus(() {
+      final count = queued.length + session.host.session.loop.pendingInputCount;
+      return count == 0
+          ? []
+          : [
+              RenderLine(align: StatusAlign.right, runs: [
+                RenderRun(
+                    '$count ${count == 1 ? 'message' : 'messages'} queued',
+                    s.theme.chat.yellow)
+              ])
+            ];
+    }, priority: 0);
+    queueStatusListener = session.host.session.loop.subscribe((entry, _) {
+      if (entry is InputRecordedEntry || entry is TurnEndedEntry)
+        console.refreshStatus();
+    });
 
     // First paint: what the assembly already knows — the config note it
     // read, the resumed log it seeded — then the status strip and the
@@ -213,6 +245,7 @@ Future<int> runApp(
       final line =
           queued.isEmpty ? await editor.readLine('› ') : queued.removeFirst();
       if (line == null) break; // stdin closed
+      console.refreshStatus();
       if (line.isEmpty) continue;
       editor.beginCancelMonitor(() {
         if (session.assembly.watchingTurn)
@@ -229,6 +262,8 @@ Future<int> runApp(
         }
         if (text.trimLeft().startsWith('/') || !session.host.offerInput(text))
           queued.addLast(text);
+        terminal.writeln('Message queued; waiting for current work.');
+        console.refreshStatus();
       }, queueCount: queued.length);
       try {
         await session.runLine(line, renderReply: false);
@@ -241,7 +276,11 @@ Future<int> runApp(
     return 0;
   } finally {
     stopping = true;
+    if (queueStatusListener case final listener?)
+      session.host.session.loop.unsubscribe(listener);
+    releaseQueueStatus?.call();
     settings.cancel();
+    session.assembly.onSettingsChanged = null;
     await Future.wait(commands.toList());
     await resizeSubscription?.cancel();
     session.assembly.openSettings = null;

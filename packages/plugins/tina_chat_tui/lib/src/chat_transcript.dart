@@ -24,6 +24,7 @@
 /// to it already fits and its own wrap becomes a no-op.
 library;
 
+import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 
 import 'markdown_renderer.dart';
@@ -117,14 +118,28 @@ class ChatBlock {
     ChatSpeaker speaker,
     String text, {
     bool complete = true,
+    bool ongoing = false,
   }) =>
       ChatBlock(
         speaker: speaker,
         kind: ChatBlockKind.reasoning,
-        body: plainLines(text),
-        subject: complete ? 'reasoning' : 'reasoning (partial)',
-        status: '${formatInteger(text.length)} chars',
-      );
+      )..updateReasoning(text, complete: complete, ongoing: ongoing);
+
+  /// Keep a streaming thought's identity, timestamp and expanded state.
+  /// Providers generally supply usage at completion, not for each delta;
+  /// the byte-based token estimate is explicitly approximate.
+  void updateReasoning(String text,
+      {bool complete = true, bool ongoing = false}) {
+    body = plainLines(text);
+    subject = ongoing
+        ? 'reasoning (ongoing)'
+        : complete
+            ? 'reasoning'
+            : 'reasoning (partial)';
+    final estimatedTokens = (utf8.encode(text).length / 4).ceil();
+    status =
+        '~${formatInteger(estimatedTokens)} tokens · ${formatInteger(text.length)} chars';
+  }
 
   /// A tool call. [subject] is the one-line description (`bash · grep -rn …`),
   /// [status] its outcome (`ok · 41ms`, `failed · 1.4s`); [body] is the output,
@@ -170,8 +185,9 @@ class ChatBlock {
   List<MarkdownLine> body;
 
   /// The one-line form's text: the user's message, a tool call's description,
-  /// or a notice's text. Prose carries its content in [body] instead.
-  final String subject;
+  /// or a notice's text. A thought updates its phase while streaming. Prose
+  /// carries its content in [body] instead.
+  String subject;
 
   /// Optional trailing detail for the one-line form (`ok · 41ms`). Mutable for
   /// the same reason as [body]: a tool call's outcome is not known when its

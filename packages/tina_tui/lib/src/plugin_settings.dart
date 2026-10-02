@@ -3,8 +3,9 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
 import 'config_document.dart';
+import 'package:tina_settings/tina_settings.dart';
 
-enum PluginScope { session, workspace, global }
+typedef PluginScope = SettingScope;
 
 /// Per-ID precedence: session, workspace, global, built-in defaults. Global
 /// `enabled` remains a replacement baseline; overrides never copy that list.
@@ -25,6 +26,14 @@ final class PluginSettings<C> {
   final List<String>? sessionBaseline;
   final String? channelOverride;
   final _session = <String, bool>{};
+  Map<String, bool> get sessionOverrides => Map.unmodifiable(_session);
+  void restoreSessionOverrides(Map<String, bool> values) {
+    _validate(_global, _workspace, values);
+    _session
+      ..clear()
+      ..addAll(values);
+  }
+
   late ConfigDocument _global;
   late ConfigDocument _workspace;
 

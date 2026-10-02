@@ -97,13 +97,13 @@ void main() {
     test('enterAltScreen emits escape', () {
       backend.enterAltScreen();
       backend.flush();
-      expect(io.written.toString(), '\x1b[?1049h');
+      expect(io.written.toString(), '\x1b[?1049h\x1b[?1000h\x1b[?1006h');
     });
 
     test('leaveAltScreen emits escape', () {
       backend.leaveAltScreen();
       backend.flush();
-      expect(io.written.toString(), '\x1b[?1049l');
+      expect(io.written.toString(), '\x1b[?1000l\x1b[?1006l\x1b[?1049l');
     });
 
     test('enableBracketedPaste emits DECSET 2004', () {

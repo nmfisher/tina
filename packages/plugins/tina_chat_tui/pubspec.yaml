@@ -5,6 +5,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_settings:
+    path: ../../libraries/tina_settings
   tina_goals:
     path: ../tina_goals
   tina_step_limit:

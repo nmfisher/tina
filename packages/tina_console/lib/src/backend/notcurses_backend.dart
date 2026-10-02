@@ -174,9 +174,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
       //
       // There is no wheel-only reporting mode: enabling this routes button-1
       // click-drags to the app too, so native text selection then needs
-      // Option/Alt (macOS Terminal) or Shift (most terminals) held. Off by
-      // default — plain drag-select wins; users who prefer wheel-scroll set
-      // `[tui] mouse_wheel = true`.
+      // Option/Alt (macOS Terminal) or Shift (most terminals) held.
       if (mouseWheel) nc_.miceEnable(nc.MiceEvents.buttonEvent);
       // macOS' line discipline eats 0x0F (Ctrl+O, the VDISCARD toggle)
       // before it reaches the input pump; unbind it so the byte arrives.
@@ -364,12 +362,12 @@ class NotcursesBackend
 
   /// Create and return a [NotcursesBackend] backed by libnotcurses.
   ///
-  /// [mouseWheel] (default false) enables mouse-button reporting so the wheel
+  /// [mouseWheel] (default true) enables mouse-button reporting so the wheel
   /// scrolls the chat scrollback; false (off) keeps the terminal's native
   /// click-drag text selection.
   ///
   /// Throws if the notcurses library cannot be initialized.
-  static NotcursesBackend create({required Stdio io, bool mouseWheel = false}) {
+  static NotcursesBackend create({required Stdio io, bool mouseWheel = true}) {
     return NotcursesBackend._(
         io, _LiveNotcursesPlatform.init(mouseWheel: mouseWheel));
   }

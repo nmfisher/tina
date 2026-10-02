@@ -1,6 +1,8 @@
 library;
 
 import 'dart:io' show Directory, File, stdout;
+import 'dart:async';
+import 'dart:convert';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
@@ -14,6 +16,10 @@ import 'configured_provider.dart';
 import 'plugin_catalog.dart';
 import 'plugin_settings.dart';
 import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_settings/tina_settings.dart';
+import 'scoped_config.dart';
+import 'settings_catalog.dart';
+import 'config_document.dart';
 
 /// Where an entry point's lines go. One seam for everything the
 /// assembly itself prints; injectable so a test captures it.
@@ -150,22 +156,28 @@ final class TuiAssembly {
     required this.terminal,
     required this.writer,
     required this.configNote,
-    required this.theme,
+    required Map<String, dynamic> theme,
     required this.tools,
     required this.configPath,
     required this.descriptors,
     required this.validatePlugins,
     required this.pluginSettings,
     required this.pluginManager,
+    required this.settings,
+    required this.settingsBackend,
     required this.newSession,
     required this.applySavedConfiguration,
     required void Function() stopConfigurationUpdates,
   })  : _stopConfigurationUpdates = stopConfigurationUpdates,
+        _theme = theme,
         commands = host.commands;
 
   final Host host;
   final PluginSettings<TuiPluginContext> pluginSettings;
   final PluginManager<TuiPluginContext> pluginManager;
+  final ScopedSettings settings;
+  final ConfigSettingsBackend settingsBackend;
+  void Function()? onSettingsChanged;
   final String configPath;
   final List<ProviderDescriptor> descriptors;
   final void Function(Iterable<String>) validatePlugins;
@@ -184,7 +196,8 @@ final class TuiAssembly {
   /// The config status line read at start (never printed by the
   /// assembly — a front end decides whether a banner shows it).
   final String? configNote;
-  final Map<String, dynamic> theme;
+  Map<String, dynamic> _theme;
+  Map<String, dynamic> get theme => _theme;
 
   /// The session's published commands.
   final Commands commands;
@@ -240,13 +253,6 @@ final class TuiAssembly {
     }
     final workingDirectory = options.workingDirectory ?? Directory.current.path;
     final output = terminal ?? TuiTerminal();
-    final tools = ToolsPlugin(
-      workspaceRoot: workingDirectory,
-      tinaDir: Directory('$workingDirectory/.tina'),
-      osSandbox: options.osSandbox,
-    );
-    final policy = configuredPolicy(resolved,
-        override: providerFactory, currentConfig: () => resolved);
     final registry = firstPartyPlugins();
     registerPlugins?.call(registry);
     final pluginSettings = PluginSettings<TuiPluginContext>(
@@ -257,6 +263,41 @@ final class TuiAssembly {
       sessionBaseline: options.plugins,
       channelOverride: options.approvalChannel,
     );
+    final catalog = createSettingsCatalog(registry, resolved);
+    final settingsBackend = ConfigSettingsBackend(
+        catalog: catalog,
+        globalPath: options.configPath ?? defaultConfigPath(),
+        workspacePath: '$workingDirectory/.tina/config',
+        descriptors: descriptors,
+        validateSelection: (values) {
+          final parsed =
+              parseTinaConfig(values, descriptors: descriptors!).config;
+          if (parsePluginOverrides(values['plugins'])[parsed.approvalChannel] ==
+              false) {
+            throw ArgumentError(
+                '${parsed.approvalChannel} is the selected approval channel');
+          }
+          registry.validate({...parsed.plugins, parsed.approvalChannel});
+        },
+        onChanged: configurationUpdates.changed);
+    final settings = ScopedSettings(catalog: catalog, backend: settingsBackend);
+    resolved = ConfigDocument.validateValues(
+        settingsBackend.effectiveDocument(),
+        descriptors: descriptors);
+    model = options.model ??
+        (providerFactory == null
+            ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
+            : resolved.model);
+    if (providerFactory == null && options.model != null) {
+      model = canonicalModelReference(resolved, model);
+    }
+    final tools = ToolsPlugin(
+      workspaceRoot: workingDirectory,
+      tinaDir: Directory('$workingDirectory/.tina'),
+      osSandbox: options.osSandbox,
+    );
+    final policy = configuredPolicy(resolved,
+        override: providerFactory, currentConfig: () => resolved);
     final enabled = pluginSettings.features;
     final selected = pluginSettings.selected;
     registry.validate(selected);
@@ -271,12 +312,27 @@ final class TuiAssembly {
     }
 
     TuiAssembly? assembled;
-    if (options.sessionId != null && options.model == null) {
+    if (options.sessionId != null) {
       final stored = openStore();
       try {
-        model =
-            stored.list().singleWhere((s) => s.id == options.sessionId).model ??
-                model;
+        PersistencePlugin.restoreSettings(
+            settings, stored.readEntries(options.sessionId!));
+        resolved = ConfigDocument.validateValues(
+            settingsBackend.effectiveDocument(),
+            descriptors: descriptors);
+        policy.updateLimits(resolved.limits);
+        pluginSettings.restoreSessionOverrides({
+          for (final id in registry.ids)
+            if (settings.layer(SettingScope.session)['$id/enabled']
+                case final bool enabled)
+              id: enabled,
+        });
+        if (options.model == null)
+          model = stored
+                  .list()
+                  .singleWhere((s) => s.id == options.sessionId)
+                  .model ??
+              model;
       } finally {
         stored.close();
       }
@@ -289,6 +345,8 @@ final class TuiAssembly {
       providerFactory: policy.childProvider,
       providerPolicy: policy,
       limits: resolved.limits,
+      settings: settings,
+      readLimits: () => resolved.limits,
       version: options.version,
       restart: options.onRestart == null
           ? null
@@ -328,7 +386,7 @@ final class TuiAssembly {
       }),
       openStore: persists ? openStore : null,
     );
-    final plugins = registry.build(selected, context);
+    final plugins = registry.build(pluginSettings.selected, context);
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     final hostConfig = HostConfig(
       providerFactory: (model) => _ObservedProvider(factory(model), () {
@@ -355,23 +413,36 @@ final class TuiAssembly {
     final host = options.sessionId == null
         ? Host.start(hostConfig)
         : Host.resume(hostConfig, options.sessionId!);
-    final stopConfigurationUpdates = configurationUpdates.listen((next) {
-      // The session keeps its selected model, budgets and presentation. Replace
-      // the saved provider catalog and endpoint settings together, then let
-      // running clients rebuild before their next request.
-      resolved = TinaConfig(
-          model: resolved.model,
-          providerId: resolved.providerId,
-          limits: resolved.limits,
-          theme: resolved.theme,
-          plugins: resolved.plugins,
-          approvalChannel: resolved.approvalChannel,
-          descriptors: next.descriptors,
-          maxOutputTokens: next.maxOutputTokens,
-          reasoningEffort: next.reasoningEffort,
-          thinkingBudget: next.thinkingBudget,
-          providers: next.providers);
-      policy.refreshConfiguration();
+    var previousConfiguration = jsonEncode(settingsBackend.effectiveDocument());
+    final stopConfigurationUpdates = configurationUpdates.listen(() {
+      try {
+        final values = settingsBackend.effectiveDocument();
+        final encoded = jsonEncode(values);
+        settings.reload();
+        if (encoded == previousConfiguration) return;
+        final next =
+            ConfigDocument.validateValues(values, descriptors: descriptors);
+        refreshProviderDefinitions(catalog, next);
+        settings.reload();
+        pluginSettings.reload();
+        pluginSettings.restoreSessionOverrides({
+          for (final id in registry.ids)
+            if (settings.layer(SettingScope.session)['$id/enabled']
+                case final bool enabled)
+              id: enabled,
+        });
+        resolved = next;
+        previousConfiguration = encoded;
+        policy.updateLimits(next.limits);
+        policy.refreshConfiguration();
+        assembled?._theme = next.theme;
+        assembled?.pluginManager.select(pluginSettings.selected);
+        settings.applicationErrors.remove('configuration');
+        assembled?.onSettingsChanged?.call();
+      } catch (_) {
+        settings.applicationErrors['configuration'] =
+            'Saved configuration could not be applied; check Settings.';
+      }
     });
     final assembly = TuiAssembly._(
       host: host,
@@ -384,6 +455,8 @@ final class TuiAssembly {
       descriptors: descriptors,
       validatePlugins: registry.validate,
       pluginSettings: pluginSettings,
+      settings: settings,
+      settingsBackend: settingsBackend,
       pluginManager:
           PluginManager(host: host, registry: registry, context: context),
       stopConfigurationUpdates: stopConfigurationUpdates,
@@ -391,7 +464,7 @@ final class TuiAssembly {
         final saved =
             loadTinaConfig(path: options.configPath, descriptors: descriptors);
         if (saved is TinaConfigProblem) throw FormatException(saved.problem);
-        configurationUpdates.apply(saved.config);
+        configurationUpdates.changed();
       },
       newSession: (model) => TuiAssembly._start(
           configurationUpdates: configurationUpdates,
@@ -405,10 +478,10 @@ final class TuiAssembly {
               osSandbox: options.osSandbox,
               workingDirectory: workingDirectory,
               storePath: options.storePath,
-              plugins: pluginSettings.features,
-              approvalChannel: pluginSettings.channel,
+              plugins: options.plugins,
+              approvalChannel: options.approvalChannel,
               version: options.version,
-              model: model ?? host.model)),
+              model: model)),
     );
     assembled = assembly;
     // Built-ins are the assembly's, registered by the assembly — the
@@ -422,7 +495,7 @@ final class TuiAssembly {
     ));
     host.commands.publish(Command(
       name: 'settings',
-      description: 'edit global configuration',
+      description: 'edit session, workspace and global settings',
       allowWhileRunning: true,
       handler: (_) async {
         final open = assembly.openSettings;
@@ -477,20 +550,29 @@ final class TuiAssembly {
   void close() {
     _stopConfigurationUpdates();
     host.close();
+    settings.close();
   }
 }
 
 /// Panels share saved global provider changes without sharing session state.
 final class _ConfigurationUpdates {
-  final _listeners = <void Function(TinaConfig)>{};
-  void Function() listen(void Function(TinaConfig) listener) {
+  final _listeners = <void Function()>{};
+  Timer? _timer;
+  void Function() listen(void Function() listener) {
     _listeners.add(listener);
-    return () => _listeners.remove(listener);
+    _timer ??= Timer.periodic(const Duration(seconds: 1), (_) => changed());
+    return () {
+      _listeners.remove(listener);
+      if (_listeners.isEmpty) {
+        _timer?.cancel();
+        _timer = null;
+      }
+    };
   }
 
-  void apply(TinaConfig config) {
+  void changed() {
     for (final listener in _listeners.toList()) {
-      listener(config);
+      listener();
     }
   }
 }

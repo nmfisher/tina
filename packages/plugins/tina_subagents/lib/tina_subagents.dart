@@ -15,3 +15,4 @@ library;
 export 'src/child_assembly.dart';
 export 'src/spawn_tool.dart';
 export 'src/subagents_plugin.dart';
+export 'src/settings.dart';

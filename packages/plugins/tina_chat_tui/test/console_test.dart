@@ -283,7 +283,7 @@ void main() {
     chat.observe(const ToolFinished(
         call, ToolResult('hello\n', elapsed: Duration(milliseconds: 41))));
     expect(transcript(), contains('03:04  hello'));
-    expect(transcript(), contains('▸ reasoning  13 chars'));
+    expect(transcript(), contains('▸ reasoning  ~4 tokens · 13 chars'));
     expect(transcript(), contains('→ bash · echo hello  ok · 41ms'));
     expect(transcript(), contains('Answer'));
     expect(transcript(), isNot(contains('**bold**')));
@@ -302,6 +302,68 @@ void main() {
             .first
             .text,
         '03:04 ');
+  });
+
+  test('reasoning appears immediately and grows in place while expanded',
+      () async {
+    chat.entry(const TurnStartedEntry(turnId: 'stream'), LogEvent.appended);
+    chat.watch(const SawThinking('first thought', startsBlock: true));
+    final block = chat.blocks.single;
+    expect(block.subject, 'reasoning (ongoing)');
+    expect(transcript(), contains('~4 tokens · 13 chars'));
+    block.folded = false;
+    chat.repaintConsole();
+    chat.watch(const SawThinking(' and more'));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(chat.blocks.single, same(block));
+    expect(block.folded, false);
+    expect(transcript(), contains('first thought and more'));
+    expect(transcript(), contains('~6 tokens · 22 chars'));
+    chat.watch(const SawThinkingEnd(complete: true));
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'stream',
+            message: Message(
+                role: Role.assistant,
+                content: [TextBlock('answer')],
+                reasoning: [ReasoningBlock('first thought and more')])),
+        LogEvent.appended);
+    chat.entry(
+        const TurnEndedEntry(turnId: 'stream', reason: TurnStopReason.complete),
+        LogEvent.appended);
+    expect(
+        chat.blocks.where((b) => b.kind == ChatBlockKind.reasoning), [block]);
+    expect(block.subject, 'reasoning');
+    expect(block.folded, false);
+    expect(transcript(), isNot(contains('ongoing')));
+    expect('first thought and more'.allMatches(transcript()), hasLength(1));
+    io.output.clear();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(io.output.toString(), isEmpty,
+        reason: 'completed reasoning must not keep repainting');
+  });
+
+  test('reasoning retries and cancellation finalize each visible block once',
+      () {
+    chat.watch(const SawThinking('interrupted', startsBlock: true));
+    final first = chat.blocks.single;
+    chat.watch(const SawThinkingEnd(complete: false));
+    expect(first.subject, 'reasoning (partial)');
+    chat.watch(const SawThinking('retry', startsBlock: true));
+    final retry = chat.blocks.last;
+    expect(retry.subject, 'reasoning (ongoing)');
+    chat.entry(
+        const TurnEndedEntry(
+            turnId: 'stream', reason: TurnStopReason.cancelled),
+        LogEvent.appended);
+    expect(chat.blocks, [first, retry]);
+    expect(retry.subject, 'reasoning (partial)');
+    chat.entry(const ContextClearedEntry(), LogEvent.appended);
+    expect(chat.blocks, isEmpty);
+    chat.watch(const SawThinking('new thought', startsBlock: true));
+    chat.watch(const SawThinkingEnd(complete: true));
+    expect(chat.blocks.single.subject, 'reasoning');
+    expect(transcript(), isNot(contains('interrupted')));
   });
   test(
       'Ctrl-B expands actual output in place, preserves draft, and yields to approval',
@@ -518,7 +580,12 @@ void main() {
         .take(screen.chat.usableHeight)
         .toList();
     var previousRows = rows();
-    for (final sequence in ['\x1b[1;3A', '\x1b[1;9A', '\x1b\x1b[A']) {
+    for (final sequence in [
+      '\x1b[1;3A',
+      '\x1b[1;9A',
+      '\x1b\x1b[A',
+      '\x1b[<64;10;5M'
+    ]) {
       final offset = screen.chat.debugScrollOffset;
       io.feed(sequence);
       await tick();
@@ -527,7 +594,12 @@ void main() {
       expect(rows().skip(1), previousRows.take(previousRows.length - 1));
       previousRows = rows();
     }
-    for (final sequence in ['\x1b[1;3B', '\x1b[1;9B', '\x1b\x1b[B']) {
+    for (final sequence in [
+      '\x1b[1;3B',
+      '\x1b[1;9B',
+      '\x1b\x1b[B',
+      '\x1b[<65;10;5M'
+    ]) {
       final offset = screen.chat.debugScrollOffset;
       io.feed(sequence);
       await tick();

@@ -9,6 +9,14 @@ import 'configured_provider.dart';
 /// is loaded. Validation and stale-file detection happen before replacement.
 final class ConfigDocument {
   ConfigDocument._(this.path, this.values, this._original);
+  factory ConfigDocument.draft(
+      Map<String, dynamic> values, void Function(Map<String, dynamic>) save) {
+    final document =
+        ConfigDocument._('', values, TomlDocument.fromMap(values).toString());
+    document._saveDraft = save;
+    return document;
+  }
+  void Function(Map<String, dynamic>)? _saveDraft;
   final String path;
   final Map<String, dynamic> values;
   String? _original;
@@ -43,7 +51,8 @@ final class ConfigDocument {
           _ => value,
         };
     return ConfigDocument._(
-        path, copy(values) as Map<String, dynamic>, _original);
+        path, copy(values) as Map<String, dynamic>, _original)
+      .._saveDraft = _saveDraft;
   }
 
   /// Incorporate a plugin's independent saves where this panel has no draft.
@@ -120,6 +129,21 @@ final class ConfigDocument {
       {required List<ProviderDescriptor> descriptors,
       void Function(Iterable<String>)? validatePlugins}) {
     const keys = ['max_output', 'reasoning_effort', 'thinking_budget'];
+    if (_saveDraft != null) {
+      final next = fork();
+      final target = next.table('providers').putIfAbsent(
+          provider, () => <String, dynamic>{}) as Map<String, dynamic>;
+      for (final key in keys) {
+        target.remove(key);
+      }
+      target.addAll(fields);
+      next.save(descriptors: descriptors, validatePlugins: validatePlugins);
+      values
+        ..clear()
+        ..addAll(next.values);
+      _original = next._original;
+      return;
+    }
     final saved = ConfigDocument._(
         path,
         _original == null
@@ -150,6 +174,14 @@ final class ConfigDocument {
   TinaConfig validate(
       {List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins}) {
+    return validateValues(values,
+        path: path, descriptors: descriptors, validatePlugins: validatePlugins);
+  }
+
+  static TinaConfig validateValues(Map<String, dynamic> values,
+      {String path = '',
+      List<ProviderDescriptor>? descriptors,
+      void Function(Iterable<String>)? validatePlugins}) {
     final result = parseTinaConfig(values,
         path: path, descriptors: descriptors ?? configuredDescriptors());
     if (result is TinaConfigProblem) throw FormatException(result.problem);
@@ -159,6 +191,9 @@ final class ConfigDocument {
     ]);
     return result.config;
   }
+
+  /// The scoped adapter validates the complete resolved config before writing.
+  void saveScoped() => _write();
 
   void save(
       {List<ProviderDescriptor>? descriptors,
@@ -175,6 +210,11 @@ final class ConfigDocument {
 
   void _write() {
     final encoded = TomlDocument.fromMap(values).toString();
+    if (_saveDraft != null) {
+      _saveDraft!(values);
+      _original = encoded;
+      return;
+    }
     final requested = File(path);
     final file = File(
         requested.existsSync() ? requested.resolveSymbolicLinksSync() : path);

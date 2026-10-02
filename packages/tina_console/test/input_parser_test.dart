@@ -8,6 +8,32 @@ void main() {
 
     setUp(() => parser = InputParser());
 
+    test('SGR wheel presses become scroll events, clicks/releases stay inert',
+        () {
+      List<InputEvent> decode(String bytes) => [
+            for (final byte in bytes.codeUnits)
+              if (parser.feed(byte) case final InputEvent event) event,
+          ];
+      expect(decode('\x1b[<64;10;5M'), [ScrollEvent(up: true)]);
+      expect(decode('\x1b[<65;10;5M'), [ScrollEvent(up: false)]);
+      expect(decode('\x1b[<80;10;5M'), [ScrollEvent(up: true)]);
+      expect(decode('\x1b[M${String.fromCharCodes([96, 42, 37])}'),
+          [ScrollEvent(up: true)]);
+      expect(decode('\x1b[M${String.fromCharCodes([97, 42, 37])}'),
+          [ScrollEvent(up: false)]);
+      expect(decode('\x1b[M${String.fromCharCodes([32, 42, 37])}'), isEmpty);
+      for (final report in [
+        '\x1b[<0;10;5M',
+        '\x1b[<64;10;5m',
+        '\x1b[<66;10;5M',
+        '\x1b[<64;0;5M',
+        '\x1b[<64;;5M'
+      ]) {
+        expect(decode(report), isEmpty);
+      }
+      expect(decode('x\r'), [CharInput('x'), ControlKey(ControlCode.enter)]);
+    });
+
     test('ASCII printable characters produce CharInput', () {
       final event = parser.feed(0x41); // 'A'
       expect(event, isA<CharInput>());

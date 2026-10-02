@@ -131,7 +131,7 @@ void main() {
     backend.writeText(backend.colorize('31', 'plain'));
     backend.leaveAltScreen();
     backend.flush();
-    expect(io.written.toString(), 'plain\x1b[?1049l');
+    expect(io.written.toString(), 'plain\x1b[?1000l\x1b[?1006l\x1b[?1049l');
   });
 
   test('switching back to terminal defaults clears the application canvas', () {

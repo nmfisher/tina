@@ -30,7 +30,7 @@ class SafetyProvider extends LlmProvider implements StructuredOutputProvider {
       {required String system,
       required List<Message> messages,
       required JsonOutputSchema output}) async* {
-    yield* Stream.fromIterable(scriptedReply('{"decision":"ALLOW"}'));
+    yield* Stream.fromIterable(scriptedReply('{"decision":"ALLOW","reason":""}'));
   }
 }
 

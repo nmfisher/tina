@@ -150,8 +150,7 @@ enabled = ["tina/providers", "tina/session-controls"]
       await waitFor(() => editor.isReadingKey);
       expect(io.written.toString(), contains('org/new-model'));
       editor.inject(PasteInput('Live custom model'));
-      await waitFor(
-          () => io.written.toString().contains('Live custom model'));
+      await waitFor(() => io.written.toString().contains('Live custom model'));
       editor.inject(enter);
       await pick;
       expect(assembly.host.model, 'custom/org/new-model');
@@ -195,7 +194,9 @@ enabled = ["tina/providers", "tina/session-controls"]
     final newPanel = assembly.newSession(null);
     try {
       expect(await completions(newPanel), contains('custom/org/new-model'));
-      expect(newPanel.host.model, 'custom/org/new-model');
+      expect(newPanel.host.model, 'local/main',
+          reason:
+              'New conversations use the configured default; /model switches only this conversation');
     } finally {
       newPanel.close();
     }

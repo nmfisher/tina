@@ -1,5 +1,7 @@
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'dart:convert';
+import 'app.dart' show resolveTheme;
 import 'completion_sources.dart';
 import 'settings_panel.dart';
 import 'plugin_catalog.dart';
@@ -11,6 +13,7 @@ final class SessionView
     implements
         ConsoleSessionView,
         ConsoleInputReceiver,
+        ConsolePendingInput,
         ConsoleInputHistory,
         ConsoleCommandReceiver {
   SessionView(this.session, {this.showConfig = false});
@@ -18,6 +21,7 @@ final class SessionView
   final bool showConfig;
   final _attached = <ConsoleContribution, ConsoleAttachment>{};
   ConsoleContext? _context;
+  int? _inputStatusListener;
   SettingsPanel? _settings;
   @override
   String get id => session.host.session.id;
@@ -42,6 +46,9 @@ final class SessionView
   bool offerInput(String text) => session.host.offerInput(text);
 
   @override
+  int get pendingInputCount => session.host.session.loop.pendingInputCount;
+
+  @override
   Future<void>? offerCommand(String text) => session.offerCommand(text);
 
   @override
@@ -64,6 +71,11 @@ final class SessionView
   @override
   void attachConsole(ConsoleContext context) {
     _context = context;
+    _inputStatusListener = session.host.session.loop.subscribe((entry, event) {
+      if (entry is InputRecordedEntry || entry is TurnEndedEntry) {
+        context.refreshStatus();
+      }
+    });
     final terminal = session.terminal as TuiTerminal;
     terminal.onLine = notice;
     void attach(AgentPlugin plugin) {
@@ -82,9 +94,20 @@ final class SessionView
       attach(plugin);
     }
     _settings = SettingsPanel(context.screen, context.input);
+    var appliedTheme = jsonEncode(session.assembly.theme);
+    session.assembly.onSettingsChanged = () {
+      final next = jsonEncode(session.assembly.theme);
+      if (next != appliedTheme) {
+        appliedTheme = next;
+        context.screen.setTheme(resolveTheme(session.assembly.theme));
+      }
+      _settings?.repaint();
+    };
     session.assembly.openSettings = () => context.interact(() async {
           if (!context.isActive) return;
           final saved = await _settings!.run(
+              scopedSettings: session.assembly.settings,
+              settingsBackend: session.assembly.settingsBackend,
               applyConfiguration: session.assembly.applySavedConfiguration,
               path: session.assembly.configPath,
               sections: context.settings,
@@ -96,7 +119,9 @@ final class SessionView
               pluginSettings: session.assembly.pluginSettings,
               pluginManager: session.assembly.pluginManager);
           notice(saved
-              ? 'Settings saved. Models are available now; provider settings apply to the next request.'
+              ? session.assembly.settings.applicationErrors.isEmpty
+                  ? 'Settings saved. Request settings affect the next request; plugin changes may wait for idle or restart.'
+                  : 'Settings saved, but some changes could not apply. Reopen Settings for details.'
               : 'Settings closed.');
           context.chat.repaint();
         });
@@ -116,8 +141,13 @@ final class SessionView
 
   @override
   void detachConsole() {
+    if (_inputStatusListener case final listener?) {
+      session.host.session.loop.unsubscribe(listener);
+      _inputStatusListener = null;
+    }
     _settings?.cancel();
     session.assembly.openSettings = null;
+    session.assembly.onSettingsChanged = null;
     session.assembly.pluginManager.onLoaded = null;
     session.assembly.pluginManager.onUnloading = null;
     for (final attachment in _attached.values.toList().reversed) {

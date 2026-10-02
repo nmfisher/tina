@@ -5,6 +5,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_settings:
+    path: ../../libraries/tina_settings
   tina_engine_2:
     path: ../../tina_engine_2
   toml: ^0.16.0

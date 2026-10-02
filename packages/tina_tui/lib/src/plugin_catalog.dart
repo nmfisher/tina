@@ -18,6 +18,8 @@ import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_subagents/tina_subagents.dart';
 import 'package:tina_file_resources/tina_file_resources.dart';
+import 'package:tina_settings/tina_settings.dart';
+import 'package:tina_step_limit/tina_step_limit.dart';
 
 /// Explicit dependencies available to factories in the application assembly.
 final class TuiPluginContext {
@@ -36,6 +38,8 @@ final class TuiPluginContext {
     this.providerPolicy,
     required this.configPath,
     this.limits = const RequestLimits(),
+    this.settings,
+    this.readLimits,
   });
   final String workingDirectory;
   final String configPath;
@@ -43,6 +47,9 @@ final class TuiPluginContext {
   final void Function(String)? restart;
   final ProviderPolicyPlugin? providerPolicy;
   final RequestLimits limits;
+  final ScopedSettings? settings;
+  final RequestLimits Function()? readLimits;
+  RequestLimits get currentLimits => readLimits?.call() ?? limits;
   final Terminal terminal;
   final ToolsPlugin tools;
   final ProviderFactory providerFactory;
@@ -60,11 +67,13 @@ List<PluginDefinition<TuiPluginContext>> basePluginDefinitions() => [
           description:
               'Supplies the agent identity and base instructions for conversations.'),
       PluginDefinition('tina/providers', (c) => c.providerPolicy!,
+          settings: providerLimitSettings,
           provides: [modelAccess],
           description:
               'Connects configured models and providers and enforces request and token limits.'),
       PluginDefinition.dependingOn<TuiPluginContext, ModePolicySource>(
           'tina/mode',
+          settings: [classifierInstructionSetting],
           dependency: modePolicySource,
           create: (c, source) => ModeTuiPlugin(policy: source.modePolicy),
           live: true,
@@ -93,13 +102,17 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 currentModel: c.currentModel,
                 switchModel: c.switchModel,
                 modelCatalog: c.modelCatalog),
+            settings: [defaultModelSetting],
             description:
                 'Switches the active conversation model and clears its context and display.',
             live: true),
-        PluginDefinition<TuiPluginContext>('tina/step-limit',
-            (c) => StepLimitConsolePlugin(configPath: c.configPath),
+        PluginDefinition<TuiPluginContext>(
+            'tina/step-limit',
+            (c) => StepLimitConsolePlugin(
+                configPath: c.configPath, settings: c.settings),
+            settings: [stepLimitSetting],
             description:
-                'Optionally limits foreground model rounds per turn. Multiple tool calls in one response count as one round. Zero means unlimited; the numeric setting is global.',
+                'Optionally limits foreground model rounds per turn. Multiple tool calls in one response count as one round. Zero means unlimited.',
             live: true),
         grokGuardDefinition<TuiPluginContext>(),
         PluginDefinition.dependingOn<TuiPluginContext, ModePolicySource>(
@@ -135,7 +148,9 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             ..approvals = approvals
             ..terminal = c.terminal
             ..classifier = PermissionClassifier(
-                () => models.mainProvider(c.currentModel()));
+                () => models.mainProvider(c.currentModel()),
+                readInstruction: () =>
+                    c.settings?.read(classifierInstructionSetting).value ?? '');
           return c.tools;
         },
             description:
@@ -157,6 +172,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             (c) => ChatTuiPlugin(
                 model: c.model,
                 tokenCap: c.limits.sessionTokens,
+                currentTokenCap: () => c.currentLimits.sessionTokens,
                 showSessionId: c.openStore != null,
                 sessionTokens: c.providerPolicy == null
                     ? null
@@ -164,6 +180,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 sessionEstimatedTokens: c.providerPolicy == null
                     ? null
                     : () => c.providerPolicy!.sessionEstimatedTokens),
+            settings: [themeSetting],
             description:
                 'Displays conversation history, model responses, tool calls, timestamps and token spend.',
             live: true),
@@ -174,8 +191,10 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             description:
                 'Shows tool progress, results, file diffs and subagent activity in the activity browser.',
             live: true),
-        PluginDefinition<TuiPluginContext>('tina/persistence',
-            (c) => PersistencePlugin(openStore: c.openStore!),
+        PluginDefinition<TuiPluginContext>(
+            'tina/persistence',
+            (c) => PersistencePlugin(
+                openStore: c.openStore!, settings: c.settings),
             description:
                 'Saves conversation history in SQLite so sessions can be listed and resumed.',
             live: false),
@@ -214,10 +233,15 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 ModelAccess>('tina/subagents',
             first: toolProvider,
             second: modelAccess,
+            settings: subagentSettings,
             create: (c, parentTools, models) => SubagentsPlugin(
                   config: SubagentsConfig(
                       maxDepth: c.limits.childDepth,
                       maxConcurrency: c.limits.childConcurrency,
+                      tokenBudget: 0),
+                  configFor: () => SubagentsConfig(
+                      maxDepth: c.currentLimits.childDepth,
+                      maxConcurrency: c.currentLimits.childConcurrency,
                       tokenBudget: 0),
                   sessionFactory: standardChildFactory(
                     parentTools: parentTools,

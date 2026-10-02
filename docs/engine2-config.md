@@ -2,7 +2,9 @@
 
 The root CLI and `tina_tui` share the same reader. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
-edit it, preserving unknown legacy tables. Saving is atomic, uses mode 0600,
+edit it, preserving unknown legacy tables. Live `/settings` also supports Session
+and Workspace scopes; Tab switches scope in menus. See [scoped settings](engine2-settings.md).
+Saving is atomic, uses mode 0600,
 and rejects externally changed files. Generation settings has two controls: **Output limit** (Automatic or a number)
 and **Thinking** (choices for the selected model). GLM-5.3 offers Automatic,
 Low, High and Max; it cannot turn thinking off. Use arrows to select,
@@ -19,10 +21,11 @@ same control. Other unsaved settings still offer Save, Discard or Keep editing.
 settings apply to the next model request; the current request continues with its
 original values. Theme changes apply immediately. The hardware text cursor follows
 the theme's foreground color, and the terminal-profile cursor color is restored
-on exit or when returning to the default theme. Other startup settings apply
-on the next launch.
+on exit or when returning to the default theme. Default-model changes apply to
+new conversations; restart-only plugin changes remain marked pending. Session
+overrides are restored with their saved session.
 **Plugins** in `/settings` applies supported plugin changes between turns.
-Choose Global, Workspace or Session scope. Space/Enter toggles a checkbox;
+Press Tab to choose Session, Workspace or Global scope. Space/Enter toggles a checkbox;
 Ctrl-R restores inheritance. Toggles save immediately, even if you leave settings
 without saving other fields. The checkbox reflects the chosen scope; each row
 also shows its source, active state and any pending restart. Required plugins

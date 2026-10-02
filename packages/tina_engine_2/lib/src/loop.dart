@@ -248,6 +248,8 @@ final class AgentLoop {
   }
 
   final _inputs = Queue<Input>();
+  /// Inputs accepted during a turn, awaiting their own transcript turn.
+  int get pendingInputCount => _inputs.length;
   Completer<void> _inputPending = Completer<void>();
 
   /// Accept input while work is running. Only the loop writes it to the log,

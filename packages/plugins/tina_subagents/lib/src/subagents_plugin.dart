@@ -124,8 +124,10 @@ final class SubagentsPlugin extends AgentPlugin implements SubagentSpawner {
     this.order = 40,
     required ChildSessionFactory sessionFactory,
     PluginSession? parent,
-    this.config = const SubagentsConfig(),
+    SubagentsConfig config = const SubagentsConfig(),
+    this.configFor,
   })  : _sessionFactory = sessionFactory,
+        _config = config,
         _parent = parent,
         budget = SubagentsBudget(limit: config.tokenBudget);
 
@@ -153,7 +155,9 @@ final class SubagentsPlugin extends AgentPlugin implements SubagentSpawner {
   }
 
   /// The limits.
-  final SubagentsConfig config;
+  final SubagentsConfig _config;
+  final SubagentsConfig Function()? configFor;
+  SubagentsConfig get config => configFor?.call() ?? _config;
 
   /// The shared token gate.
   final SubagentsBudget budget;

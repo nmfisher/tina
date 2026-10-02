@@ -1,4 +1,5 @@
 library;
+export 'src/settings.dart';
 
 export 'src/step_limit_tui.dart';
 

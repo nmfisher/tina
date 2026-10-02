@@ -58,6 +58,26 @@ def smoke(binary, endpoint, columns, rows):
         try:
             terminal.expect('smoke > ')
             terminal.expect_idle()
+            ModelStub.advance_reasoning.clear()
+            ModelStub.release_reasoning.clear()
+            start = send_line(terminal, 'stream reasoning example')
+            terminal.expect('reasoning (ongoing)', start, wrapped=True)
+            terminal.expect('~4 tokens', start, wrapped=True)
+            assert not ModelStub.release_reasoning.is_set()
+            start = terminal.send('\x02\r')  # expand the live reasoning block
+            # Retained rendering may reuse unchanged cells from the folded
+            # header. Require the newly painted body word before advancing.
+            terminal.expect('thought', start, wrapped=True)
+            start = len(terminal.output)
+            ModelStub.advance_reasoning.set()
+            # Native retained updates write only changed cells: expect the
+            # new body suffix, not the unchanged words around a changed digit.
+            terminal.expect('more', start, wrapped=True)
+            assert not ModelStub.release_reasoning.is_set()
+            ModelStub.release_reasoning.set()
+            terminal.expect_idle()
+            terminal.send('\x1b')  # leave fold navigation, return to typing
+            terminal.expect_idle()
             start = send_line(terminal, 'mcp screenshot example')
             terminal.expect('[y] allow once', start, wrapped=True)
             start = terminal.send('y')
@@ -77,6 +97,10 @@ def smoke(binary, endpoint, columns, rows):
             start = terminal.send('\x1b[1;3A')
             terminal.expect_idle()
             terminal.send('\x1b[1;3B')
+            terminal.expect_idle()
+            terminal.send('\x1b[<64;10;5M')
+            terminal.expect_idle()
+            terminal.send('\x1b[<65;10;5M')
             terminal.expect_idle()
             # Images and their plane teardown must leave the editor usable.
             start = send_line(terminal, 'after screenshot')
@@ -127,6 +151,8 @@ def smoke(binary, endpoint, columns, rows):
                 print('Last model input:', json.dumps(ModelStub.requests[-1]['messages'][-1]))
             raise
         finally:
+            ModelStub.advance_reasoning.set()
+            ModelStub.release_reasoning.set()
             ModelStub.release_cancelled.set()
             terminal.close()
         # Persisted tool-result attachments must be painted on resume too.

@@ -7,6 +7,12 @@ abstract interface class ConsoleInputReceiver {
   bool offerInput(String text);
 }
 
+/// Read-only delivery state for input already accepted by the session.
+/// The workspace combines this with its own queue without knowing the engine.
+abstract interface class ConsolePendingInput {
+  int get pendingInputCount;
+}
+
 /// Optional delivery of commands that their owners allow during a running
 /// turn. Null leaves the line on the ordinary queue; a future owns its lifetime.
 abstract interface class ConsoleCommandReceiver {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_settings/tina_settings.dart';
 
 import 'store.dart';
 
@@ -9,7 +10,28 @@ typedef SessionStoreOpener = SessionStore Function();
 /// Owns the session store and its log subscription. The application assembly
 /// supplies an opener for the chosen location, including :memory: in tests.
 final class PersistencePlugin extends AgentPlugin {
-  PersistencePlugin({required this.openStore});
+  PersistencePlugin({required this.openStore, this.settings});
+  final ScopedSettings? settings;
+  void Function()? _stopSettings;
+  String? _lastSettings;
+
+  /// Interpret this plugin's own opaque snapshot before factories are built.
+  static void restoreSettings(
+      ScopedSettings settings, Iterable<SessionEntry> log) {
+    PluginStateEntry? snapshot;
+    for (final entry in log) {
+      if (entry is PluginStateEntry &&
+          entry.pluginId == 'tina/persistence' &&
+          entry.stateKey == 'settings') snapshot = entry;
+    }
+    if (snapshot == null) return;
+    if (snapshot.schemaVersion != 1)
+      throw const FormatException('Unsupported session settings version');
+    final values = snapshot.value?['overrides'] as Map? ?? {};
+    settings.backend
+        .write(SettingScope.session, Map<String, Object?>.from(values));
+    settings.reload();
+  }
 
   @override
   String get id => 'tina/persistence';
@@ -59,6 +81,23 @@ final class PersistencePlugin extends AgentPlugin {
   @override
   void mountOn(AgentLoop loop) {
     _loop = loop;
+    final scoped = settings;
+    if (scoped != null) {
+      _lastSettings = jsonEncode(scoped.layer(SettingScope.session));
+      final record = loop.stateWriter(id);
+      _stopSettings = scoped.listen(() {
+        final overrides = scoped.layer(SettingScope.session);
+        final encoded = jsonEncode(overrides);
+        if (_lastSettings == encoded) return;
+        _lastSettings = encoded;
+        record(PluginStateEntry.snapshot(
+            pluginId: id,
+            stateKey: 'settings',
+            schemaVersion: 1,
+            value: {'overrides': overrides},
+            at: DateTime.now().toUtc().toIso8601String()));
+      });
+    }
     // Runtime enablement also saves activity already recorded in memory.
     if (!_saved && loop.log.isNotEmpty) {
       _saveSession();
@@ -93,6 +132,8 @@ final class PersistencePlugin extends AgentPlugin {
 
   @override
   void closeSession() {
+    _stopSettings?.call();
+    _stopSettings = null;
     final subscription = _subscription;
     if (subscription != null) _loop?.unsubscribe(subscription);
     _subscription = null;

@@ -21,7 +21,8 @@ symlink at `~/.local/bin/tina`. `--dir` and `--bundle-dir` override these locati
 
 The first launch without config opens settings. Choose a provider and model,
 supply credentials in settings or the provider's environment variable, save,
-then launch Tina. `/settings` edits global settings for the next launch.
+then launch Tina. `/settings` edits Session, Workspace or Global settings, with
+supported changes applied immediately or on the next request.
 
 ## Configuration and plugins
 
@@ -41,23 +42,36 @@ enabled = ["tina/persistence", "tina/plans", "tina/goals",
 ```
 
 Open `/settings` → **Plugins** to enable or disable plugins with checkboxes.
-Choose Global, Workspace or Session scope; Space/Enter toggles, Ctrl-R restores
+Press Tab to choose Session, Workspace or Global scope; Space/Enter toggles, Ctrl-R restores
 inheritance. Changes save immediately and supported plugins load/unload live.
 Required plugins are locked; restart-only changes are marked pending restart.
 
-Session overrides take precedence over workspace, then global. Workspace config
-is `<workspace>/.tina/config`, with per-ID `[plugins.overrides]`; provider/model
-settings stay global. Config chooses registered plugins, not downloaded code.
+Session overrides take precedence over workspace, then global and plugin defaults.
+Workspace config is `<workspace>/.tina/config`. Request limits, generation settings
+and plugin preferences support all three scopes; provider credentials/catalogs and
+terminal theme are Global only. Session overrides are saved by `tina/persistence`
+and restored on resume. Config chooses registered plugins, not downloaded code.
 Names use `publisher/name`, with `tina/` reserved for first-party plugins.
 
 UI plugins can register settings sections and other console contributions;
 see [UI contribution interfaces and lifecycle](docs/ui-contributions.md).
+See [scoped settings](docs/engine2-settings.md) for the plugin API and scope rules.
+
+In `/settings` → **Mode and auto approval**, edit **Auto-approval classifier
+instruction** to supply permission preferences. The default Session scope saves
+that instruction with the conversation and prepends it to each classifier request.
 
 MCP servers, including Blender Lab's official server, are supported by `tina/mcp`.
 Configure them in Settings → MCP servers; see [MCP setup](docs/engine2-mcp.md).
 
 See [configuration reference](docs/engine2-config.md) for pools, rates, token
 limits, reasoning/output controls, themes, credentials and completion.
+
+Messages submitted during work show a queued confirmation and a pending count
+until delivery. Reasoning appears immediately as an ongoing block with a live
+estimated token count (`~`), then finishes in place. The mouse wheel scrolls
+conversation history one displayed line per notch; use Shift-drag to select
+terminal text (Option-drag in macOS Terminal).
 
 ## Input, commands and sessions
 
@@ -70,7 +84,7 @@ subprocess output. Approval dialogs use the selected approval-channel plugin.
 Tab offers argument completions supplied by each plugin. `@` completes files.
 Settings menus filter as you type, and Tab completes supported text fields.
 
-`/spawn` opens an independent conversation panel using the current model;
+`/spawn` opens an independent conversation panel using the configured default model;
 `/spawn provider/model` selects a different model. Each panel keeps its own
 draft, input history, queued messages and saved session. Panels can run turns
 concurrently. Wide terminals show two panels side by side; narrow terminals

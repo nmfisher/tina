@@ -31,7 +31,7 @@ final class ProviderPolicyPlugin extends AgentPlugin implements ModelAccess {
                     microseconds: (60000000 / limits.requestsPerMinute).ceil()),
             maxConcurrent: 0);
   final List<ProviderTarget> Function(String model) targets;
-  final RequestLimits limits;
+  RequestLimits limits;
   final _gates = <String, LaunchGate>{};
   final LaunchGate _globalGate;
   final _main = _Spend();
@@ -42,6 +42,17 @@ final class ProviderPolicyPlugin extends AgentPlugin implements ModelAccess {
   /// Rebuild endpoint clients before their next request without losing spend
   /// or interrupting an existing response. The targets callback reads config.
   void refreshConfiguration() => _configurationRevision++;
+
+  /// Update policy without resetting spend, active requests or queued work.
+  void updateLimits(RequestLimits next) {
+    limits = next;
+    _globalGate.configure(
+        interval: next.requestsPerMinute == 0
+            ? Duration.zero
+            : Duration(
+                microseconds: (60000000 / next.requestsPerMinute).ceil()),
+        maxConcurrent: 0);
+  }
 
   /// Reported provider spend, including calls in the current turn.
   int get sessionTokens => _main.total;
@@ -285,6 +296,9 @@ final class _PolicyProvider extends LlmProvider
               () => LaunchGate(
                   interval: target.minInterval,
                   maxConcurrent: target.maxConcurrent));
+          gate.configure(
+              interval: target.minInterval,
+              maxConcurrent: target.maxConcurrent);
           if (gate.waiting)
             output.add(StreamNotice('Waiting for ${target.id} request slot…'));
           release = await gate.acquire(cancelled.future);
@@ -455,17 +469,31 @@ final class _PolicyProvider extends LlmProvider
 /// FIFO start spacing and concurrency. Cancelled waiters never start work.
 final class LaunchGate {
   LaunchGate({this.interval = Duration.zero, this.maxConcurrent = 4});
-  final Duration interval;
-  final int maxConcurrent;
+  Duration interval;
+  int maxConcurrent;
   final _waiting = <Completer<void Function()?>>[];
   var _active = 0;
   var _next = DateTime.fromMillisecondsSinceEpoch(0);
+  var _lastStart = DateTime.fromMillisecondsSinceEpoch(0);
+  var _cooldownUntil = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _timer;
   bool _closed = false;
   bool get waiting =>
       _waiting.isNotEmpty ||
       DateTime.now().isBefore(_next) ||
       (maxConcurrent > 0 && _active >= maxConcurrent);
+  void configure({required Duration interval, required int maxConcurrent}) {
+    if (this.interval == interval && this.maxConcurrent == maxConcurrent)
+      return;
+    this.interval = interval;
+    this.maxConcurrent = maxConcurrent;
+    _next = _lastStart.add(interval);
+    if (_cooldownUntil.isAfter(_next)) _next = _cooldownUntil;
+    _timer?.cancel();
+    _timer = null;
+    _pump();
+  }
+
   Future<void Function()?> acquire(Future<void> cancelled) {
     if (_closed) return Future.value(null);
     final entry = Completer<void Function()?>();
@@ -485,6 +513,7 @@ final class LaunchGate {
     final until = DateTime.now()
         .add(Duration(milliseconds: math.min(delay.inMilliseconds, 60000)));
     if (until.isAfter(_next)) _next = until;
+    if (until.isAfter(_cooldownUntil)) _cooldownUntil = until;
     _timer?.cancel();
     _timer = null;
     _pump();
@@ -504,7 +533,8 @@ final class LaunchGate {
     }
     final entry = _waiting.removeAt(0);
     _active++;
-    _next = DateTime.now().add(interval);
+    _lastStart = DateTime.now();
+    _next = _lastStart.add(interval);
     var released = false;
     entry.complete(() {
       if (released) return;

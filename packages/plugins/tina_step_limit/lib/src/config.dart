@@ -1,5 +1,16 @@
 import 'dart:io';
 import 'package:toml/toml.dart';
+import 'package:tina_settings/tina_settings.dart';
+
+final stepLimitSetting = SettingDefinition<int>(
+    id: 'tina/step-limit/max_steps_per_turn',
+    label: 'Model rounds per turn',
+    description:
+        'Foreground model rounds per turn; tool calls within a response count as one round. 0 means unlimited.',
+    defaultValue: 0,
+    kind: SettingKind.integer,
+    minimum: 0,
+    applyAt: ApplyAt.nextRequest);
 
 /// Global-only numeric policy. Plugin enablement is separately scoped by host.
 final class StepLimitConfig {

@@ -49,6 +49,13 @@ class AttachCheck extends AgentPlugin implements ConsoleContribution {
   @override
   String get id => 'acme/attach-check';
   @override
+  List<ToolSchema> get tools => const [
+        ToolSchema(
+            name: 'wait_cleanup',
+            description: 'Hold cleanup for input delivery testing',
+            inputSchema: {})
+      ];
+  @override
   void attachConsole(ConsoleContext context) {
     context.settings.registerSection(
         id: 'acme/attach-check', title: model, build: () => []);
@@ -126,7 +133,76 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
 
   PanelFrame getFrame() => editor.focusManager!.focused as PanelFrame;
 
+  for (final cancelFirst in [false, true]) {
+    test(
+        'queued messages remain visible until cleanup delivers them (cancel=$cancelFirst)',
+        () async {
+      final started = Completer<void>(), release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      session.host.session.loop.registerContextExecutor('wait_cleanup',
+          (_, context) async {
+        started.complete();
+        await release.future;
+        return const ToolResult('cleanup finished');
+      });
+      await keys('first request\r');
+      final provider = providers.first;
+      await waitFor(() => provider.requests.length == 1);
+      provider.streams[0]
+          .add(const ToolCallStart(id: 'wait', name: 'wait_cleanup'));
+      provider.streams[0].add(const MessageComplete(
+          content: [ToolUseBlock(id: 'wait', name: 'wait_cleanup', input: {})],
+          stopReason: 'tool_use'));
+      await provider.streams[0].close();
+      await started.future;
+      if (cancelFirst) await keys('\x1b');
+      io.written.clear();
+      await keys('replacement one\rreplacement two\r');
+      expect(provider.requests, hasLength(1),
+          reason: 'cleanup has not released input yet');
+      expect(screen.chat.snapshotLines().join('\n'),
+          contains('Message queued; waiting for current work.'));
+      final vt = VirtualTerminal(width: 120, height: 24)
+        ..feed(io.written.toString());
+      expect(vt.rowText(screen.layout.stripRow), contains('2 messages queued'));
+      expect(editor.editState.buffer, isEmpty,
+          reason: 'Enter accepted both messages');
+      expect(
+          session.host.session.loop.log
+              .whereType<InputRecordedEntry>()
+              .map((e) => e.text),
+          ['first request']);
+      release.complete();
+      await waitFor(() => provider.requests.length == 2);
+      provider.answer(1, 'first replacement answer');
+      if (cancelFirst) {
+        await waitFor(() => provider.requests.length == 3);
+        provider.answer(2, 'second replacement answer');
+      } else {
+        // Steering coalesces accepted inputs into one request, retaining both
+        // user entries. The UI must not claim one is still queued afterward.
+        expect(
+            provider.requests.last
+                .expand((m) => m.content)
+                .whereType<TextBlock>()
+                .map((b) => b.text),
+            containsAll(['replacement one', 'replacement two']));
+      }
+      await waitFor(() => !session.host.session.loop.running);
+      expect(
+          session.host.session.loop.log
+              .whereType<InputRecordedEntry>()
+              .map((e) => e.text),
+          ['first request', 'replacement one', 'replacement two']);
+      vt.feed(io.written.toString());
+      expect(vt.rowText(screen.layout.stripRow), isNot(contains('queued')));
+    });
+  }
+
   for (final burst in [false, true]) {
+    const replacement = 'fresh request';
     test('Escape cancels a response and the next Enter sends (burst=$burst)',
         () async {
       await keys('first request\r');
@@ -134,12 +210,13 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
       await waitFor(() => provider.requests.length == 1);
       if (burst) {
         editor.inject(EscapeKey());
-        editor.inject(CharInput('replacement'));
+        editor.inject(CharInput('f'));
+        editor.inject(CharInput('resh request'));
         editor.inject(ControlKey(ControlCode.enter));
       } else {
         await keys('\x1b');
         await waitFor(() => !session.host.session.loop.running);
-        await keys('replacement\r');
+        await keys('$replacement\r');
       }
       await waitFor(() => provider.requests.length == 2);
       expect(
@@ -147,7 +224,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
               .whereType<TextBlock>()
               .single
               .text,
-          'replacement');
+          replacement);
       provider.answer(1, 'new answer');
       await waitFor(() => !session.host.session.loop.running);
     });
@@ -169,19 +246,20 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
       await waitFor(() => approvalUi(session).asker!.current != null);
       if (burst) {
         editor.inject(EscapeKey());
-        editor.inject(CharInput('replacement'));
+        editor.inject(CharInput('f'));
+        editor.inject(CharInput('resh request'));
         editor.inject(ControlKey(ControlCode.enter));
       } else {
         await keys('\x1b');
         await waitFor(() => approvalUi(session).asker!.current == null);
-        await keys('replacement\r');
+        await keys('$replacement\r');
       }
       // A replacement submitted during approval cleanup must start a new turn
       // immediately, without needing an additional Enter or provider response.
       await waitFor(() => provider.requests.any((messages) => messages.any(
           (message) => message.content
               .whereType<TextBlock>()
-              .any((block) => block.text == 'replacement'))));
+              .any((block) => block.text == replacement))));
       provider.answer(provider.requests.length - 1, 'new answer');
       await waitFor(() => !session.host.session.loop.running);
     });
@@ -222,7 +300,9 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(io.written.toString(), contains('Generation settings'));
     expect(session.host.session.loop.running, true);
     expect(provider.closed, false);
-    await keys('Generation\r');
+    // Global scope is explicit; the default Session scope must not edit config.
+    await keys('\t\tGeneration\r');
+    await keys('local\r');
     await keys('2048\r');
     expect(File('${dir.path}/config').readAsStringSync(),
         contains('max_output = 2048'));
@@ -259,17 +339,20 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(editor.editState.buffer, 'still editable');
   });
 
-  test('shutdown releases settings even with an unsaved draft', () async {
+  test('shutdown releases settings even with an unconfirmed field', () async {
     await keys('keep working\r');
     final provider = providers.first;
     await waitFor(() => provider.requests.length == 1);
     await keys('/quit\r/settings\r');
     await waitFor(() => editor.isReadingKey);
-    await keys('Theme\r');
-    await keys('dark\r');
-    expect(io.written.toString(), contains('unsaved changes'));
+    final before = File('${dir.path}/config').readAsStringSync();
+    await keys('Mode and auto approval\r');
+    await keys('classifier instruction\r\r');
+    await keys('unconfirmed instruction');
+    expect(io.written.toString(), contains('unconfirmed instruction'));
     provider.answer(0, 'finished');
     expect(await app.timeout(const Duration(seconds: 3)), 0);
+    expect(File('${dir.path}/config').readAsStringSync(), before);
   });
 
   test('settings and a background read-only edit share one dialog owner',
@@ -693,9 +776,9 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(screen.chat.snapshotLines().join('\n'),
         contains('Could not open panel'));
     await spawn('other');
-    await keys('/spawn\r'); // inherit the focused model, not the launch model
-    expect(getFrame().label, endsWith(': other'));
-    expect(providers.last.model, 'other');
+    await keys('/spawn\r'); // use the current configured conversation default
+    expect(getFrame().label, endsWith(': main'));
+    expect(providers.last.model, 'main');
     expect(providers, hasLength(4));
   });
 }

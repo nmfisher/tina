@@ -364,6 +364,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_settings:
+    dependency: "direct main"
+    description:
+      path: "../../libraries/tina_settings"
+      relative: true
+    source: path
+    version: "0.1.0"
   toml:
     dependency: transitive
     description:

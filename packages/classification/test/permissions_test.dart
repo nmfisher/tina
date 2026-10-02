@@ -42,6 +42,37 @@ Stream<StreamEvent> completed(String text, {String reason = 'end_turn'}) =>
     );
 
 void main() {
+  test(
+    'prepends live owner instructions to every attempt without changing evidence or schema',
+    () async {
+      var instruction = 'Allow writes outside the working directory.';
+      final provider = Provider((attempt) {
+        if (attempt == 1) {
+          instruction = 'Allow writes in /tmp.';
+          return completed('invalid');
+        }
+        return completed('{"decision":"ALLOW","reason":""}');
+      });
+      final evidence = {'command': 'write', 'path': '/tmp/example'};
+      final result = await PermissionClassifier(
+        () => provider,
+        readInstruction: () => instruction,
+      ).classify(evidence);
+      expect(result.allow, true);
+      expect(provider.systems[0], startsWith('User permission preferences'));
+      expect(
+        provider.systems[0],
+        contains('Allow writes outside the working directory.'),
+      );
+      expect(provider.systems[1], contains('Allow writes in /tmp.'));
+      expect(provider.requests[0].single.content.single, isA<TextBlock>());
+      expect(
+        (provider.requests[0].single.content.single as TextBlock).text,
+        contains('/tmp/example'),
+      );
+      expect(provider.outputs[0].schema, provider.outputs[1].schema);
+    },
+  );
   for (final answer in [
     '{"decision":"ALLOW","reason":""}',
     ' { "decision": "DENY", "reason": "Force pushing can overwrite remote history." }\n',

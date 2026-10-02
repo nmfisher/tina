@@ -861,6 +861,34 @@ void main() {
           ed.editState.buffer, 'Read packages/core/lib/src/naive_cache.dart');
     });
 
+    test('form overflow retains reset, navigation and Enter from one raw batch',
+        () async {
+      final io = FakeStdio();
+      final ed = _editor(io);
+      addTearDown(() {
+        ed.close();
+        ed.screen.dispose();
+        io.close();
+      });
+      final first = ed.readKey();
+      await _flush();
+      io.feedBytes('ab\x12\t\x1b[B\r'.codeUnits);
+      expect(await first, CharInput('a'));
+      // Repainting a menu happens between reads. The remaining events must
+      // retain their order rather than reach the conversation editor.
+      await _flush();
+      for (final expected in <InputEvent>[
+        CharInput('b'),
+        ControlKey(ControlCode.ctrlR),
+        ControlKey(ControlCode.tab),
+        ArrowKey(ArrowDirection.down),
+        ControlKey(ControlCode.enter)
+      ]) {
+        expect(await ed.readKey(), expected);
+      }
+      ed.endKeyCaptureWindow();
+      expect(ed.editState.buffer, isEmpty);
+    });
     test('a paste answers a non-global (overlay) readKey, not the buffer',
         () async {
       // Screen-owning overlays (settings, prompts, model search) read keys

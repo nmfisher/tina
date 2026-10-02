@@ -244,12 +244,11 @@ class PanelFrame implements Focusable, PanelInputTarget {
         }
       }
     }
-    // Mouse wheel: 3 rows per notch — finer than a page, so the user can
-    // scroll back through a long turn. Wheel up = back into history.
+    // One displayed row per wheel notch. Never command-history navigation.
     if (event is ScrollEvent) {
       final cb = onWheel;
       if (cb != null) {
-        cb(event.up ? -3 : 3);
+        cb(event.up ? -1 : 1);
         return true;
       }
     }

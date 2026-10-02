@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_mcp/tina_mcp.dart';
+import 'package:tina_settings/tina_settings.dart';
 
 /// UI attachment; the MCP protocol plugin remains usable without a terminal.
 final class McpConsolePlugin extends McpPlugin implements ConsoleContribution {
@@ -21,6 +22,7 @@ final class McpConsolePlugin extends McpPlugin implements ConsoleContribution {
         build: () => [
               SettingText(
                   id: 'add_server',
+                  scopes: const {SettingScope.global},
                   label: 'Add local server (name)',
                   read: () => '',
                   change: (text) {
@@ -35,6 +37,7 @@ final class McpConsolePlugin extends McpPlugin implements ConsoleContribution {
                   }),
               SettingText(
                   id: 'add_http_server',
+                  scopes: const {SettingScope.global},
                   label: 'Add HTTP server (name)',
                   read: () => '',
                   change: (text) {
@@ -50,6 +53,7 @@ final class McpConsolePlugin extends McpPlugin implements ConsoleContribution {
               for (final server in store.read()) ...[
                 SettingToggle(
                     id: '${server.name}/enabled',
+                    scopes: const {SettingScope.global},
                     label: server.name,
                     read: () => server.enabled,
                     change: (enabled) {
@@ -87,6 +91,7 @@ final class McpConsolePlugin extends McpPlugin implements ConsoleContribution {
                 ],
                 SettingText(
                     id: '${server.name}/timeout_ms',
+                    scopes: const {SettingScope.global},
                     label:
                         '${server.name} timeout in milliseconds (0 = unlimited)',
                     read: () =>
@@ -108,6 +113,7 @@ final class McpConsolePlugin extends McpPlugin implements ConsoleContribution {
           String label, String value) =>
       SettingText(
           id: '${server.name}/$key',
+          scopes: const {SettingScope.global},
           label: '${server.name} $label',
           read: () => value,
           change: (text) {
@@ -119,6 +125,7 @@ final class McpConsolePlugin extends McpPlugin implements ConsoleContribution {
           {bool secret = false}) =>
       SettingText(
           id: '${server.name}/$key',
+          scopes: const {SettingScope.global},
           label: '${server.name} $label',
           read: () => jsonEncode(value),
           secret: secret,

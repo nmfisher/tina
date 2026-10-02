@@ -71,6 +71,73 @@ ProviderTarget target(String id, Stub p, {int concurrency = 4}) =>
     ProviderTarget(id: id, create: () => p, maxConcurrent: concurrency);
 
 void main() {
+  test('live rate changes release queued requests without resetting spend',
+      () async {
+    final member = Stub(() => Stream.value(answer));
+    final policy = ProviderPolicyPlugin(
+        limits: const RequestLimits(requestsPerMinute: 1),
+        targets: (_) => [target('same', member)]);
+    addTearDown(policy.closeSession);
+    final main = policy.mainProvider('x');
+    await request(main).drain<void>();
+    final pending = request(policy.childProvider('x')).toList();
+    await tick();
+    expect(member.calls, 1);
+    expect(policy.sessionTokens, 5);
+    policy.updateLimits(const RequestLimits());
+    expect(await pending.timeout(const Duration(seconds: 2)), contains(answer));
+    expect(member.calls, 2);
+    expect(member.closed, false);
+    expect(policy.sessionTokens, 5);
+    expect(policy.globalTokens, 10);
+    policy.updateLimits(const RequestLimits(sessionTokens: 5));
+    expect((await request(main).toList()).whereType<StreamError>().single.error,
+        contains('budget exhausted'));
+    expect(member.calls, 2);
+  });
+  test('live gate changes retain active requests and honor lowered concurrency',
+      () async {
+    final cancelled = Completer<void>();
+    final gate = LaunchGate(maxConcurrent: 1);
+    addTearDown(gate.close);
+    final first = (await gate.acquire(cancelled.future))!;
+    var launched = false;
+    final second = gate.acquire(cancelled.future).then((release) {
+      launched = true;
+      return release!;
+    });
+    await tick();
+    expect(launched, false);
+    gate.configure(interval: Duration.zero, maxConcurrent: 2);
+    final releaseSecond = await second;
+    gate.configure(interval: Duration.zero, maxConcurrent: 1);
+    var thirdLaunched = false;
+    final third = gate.acquire(cancelled.future).then((release) {
+      thirdLaunched = true;
+      return release!;
+    });
+    first();
+    await tick();
+    expect(thirdLaunched, false);
+    releaseSecond();
+    (await third)();
+  });
+  test('live spacing changes preserve a provider cooldown', () async {
+    final cancelled = Completer<void>();
+    final gate = LaunchGate(interval: const Duration(seconds: 20));
+    addTearDown(gate.close);
+    (await gate.acquire(cancelled.future))!();
+    gate.cooldown(const Duration(milliseconds: 150));
+    var launched = false;
+    final pending = gate.acquire(cancelled.future).then((release) {
+      launched = true;
+      return release!;
+    });
+    gate.configure(interval: Duration.zero, maxConcurrent: 4);
+    await tick();
+    expect(launched, false);
+    (await pending.timeout(const Duration(seconds: 2)))();
+  });
   test(
       'structured requests preserve schema across failover and configuration refresh',
       () async {

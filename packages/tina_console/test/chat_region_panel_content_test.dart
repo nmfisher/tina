@@ -428,14 +428,14 @@ void main() {
       expect(pages, [-1, 1]);
     });
 
-    test('the mouse wheel calls onWheel — 3 rows per notch, never the editor',
+    test('the mouse wheel calls onWheel — one row per notch, never the editor',
         () {
       final (frame, _, _) = panel();
       final rows = <int>[];
       frame.onWheel = rows.add;
       expect(frame.handleEvent(ScrollEvent(up: true)), isTrue);
       expect(frame.handleEvent(ScrollEvent(up: false)), isTrue);
-      expect(rows, [-3, 3]);
+      expect(rows, [-1, 1]);
     });
 
     test('an unwired wheel falls through (not consumed by the panel)', () {

@@ -177,11 +177,15 @@ class AnsiBackend
   @override
   void enterAltScreen() {
     _buf.write('\x1b[?1049h');
+    // Receive wheel reports instead of terminal-generated history arrows.
+    // Button reporting leaves text selection available with Shift/Option.
+    _buf.write('\x1b[?1000h\x1b[?1006h');
     _cursor = _savedCursor = null;
   }
 
   @override
   void leaveAltScreen() {
+    _buf.write('\x1b[?1000l\x1b[?1006l');
     if (_cursorColor != null) {
       _buf.write(CanvasStyle.cursorSequence(null));
       _cursorColor = null;
