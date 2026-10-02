@@ -1,10 +1,22 @@
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/testing.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_tui/src/plugin_catalog.dart' show pluginDescriptions;
-import 'app_test.dart' show FakeIo, fakeScreen;
+import 'app_test.dart' show FakeIo;
+
+class _TrackingBackend extends AnsiBackend {
+  _TrackingBackend(Stdio io) : super(io: io, ansi: AnsiCapable.yes);
+  final surfaces = <BackendSurface>[];
+  @override
+  BackendSurface createSurface(Rect bounds) {
+    final surface = super.createSurface(bounds);
+    surfaces.add(surface);
+    return surface;
+  }
+}
 
 void main() {
   late Directory root;
@@ -36,9 +48,17 @@ void main() {
   final reset = ControlKey(ControlCode.ctrlR);
   final down = ArrowKey(ArrowDirection.down);
 
-  Future<String> drive(List<Object> steps) async {
+  Future<String> drive(List<Object> steps,
+      {bool resizeEachKey = true,
+      bool scoped = false,
+      void Function(Screen, _TrackingBackend)? onReady}) async {
     final io = FakeIo();
-    final screen = fakeScreen(io);
+    final backend = _TrackingBackend(io);
+    final screen = Screen.withBackend(
+        io: io,
+        backend: backend,
+        layout: ScreenLayout.fromSize(100, 24, split: false));
+    onReady?.call(screen, backend);
     final editor = LineEditor(screen: screen);
     var index = 0;
     late SettingsPanel panel;
@@ -47,8 +67,10 @@ void main() {
         (steps[index++] as void Function())();
       }
       if (index >= steps.length) fail('unexpected key read');
-      screen.resize(
-          ScreenLayout.fromSize(index.isEven ? 40 : 100, 8, split: false));
+      if (resizeEachKey) {
+        screen.resize(
+            ScreenLayout.fromSize(index.isEven ? 40 : 100, 8, split: false));
+      }
       panel.repaint();
       return steps[index++] as InputEvent;
     });
@@ -58,7 +80,9 @@ void main() {
           pluginIds: app.pluginSettings.registry.ids,
           pluginDescriptions: pluginDescriptions(app.pluginSettings.registry),
           pluginSettings: app.pluginSettings,
-          pluginManager: app.pluginManager);
+          pluginManager: app.pluginManager,
+          scopedSettings: scoped ? app.settings : null,
+          settingsBackend: scoped ? app.settingsBackend : null);
       expect(index, steps.length);
       return io.written.toString();
     } finally {
@@ -66,6 +90,57 @@ void main() {
       screen.dispose();
       io.closeInput();
     }
+  }
+
+  for (final scoped in [false, true]) {
+    test(
+        'plugin menu keeps its bounds across toggles, filtering and scopes ($scoped)',
+        () async {
+      late _TrackingBackend backend;
+      late Screen screen;
+      late String original;
+      late int creations;
+      void stable() {
+        expect(backend.surfaces.last.bounds.toString(), original);
+        expect(backend.surfaces.length, creations,
+            reason: 'content changes must retain the menu surface');
+      }
+
+      await drive([
+        CharInput('Plugins'), enter,
+        () {
+          original = backend.surfaces.last.bounds.toString();
+          creations = backend.surfaces.length;
+        },
+        down, stable, // selection changes description
+        CharInput('tina/goals'), stable,
+        space, stable,
+        space, stable,
+        reset, stable,
+        if (scoped) ...[ControlKey(ControlCode.tab), stable],
+        CharInput('no-such-plugin'), stable,
+        for (var i = 0; i < 'no-such-plugin'.length; i++)
+          ControlKey(ControlCode.backspace),
+        stable,
+        () => screen.resize(ScreenLayout.fromSize(40, 8, split: false)),
+        down,
+        () {
+          final bounds = backend.surfaces.last.bounds;
+          final area = dialogArea(screen.layout);
+          expect(bounds.width, lessThanOrEqualTo(area.width));
+          expect(bounds.height, lessThanOrEqualTo(area.height));
+          expect(bounds.right, lessThanOrEqualTo(area.right));
+          expect(bounds.bottom, lessThanOrEqualTo(area.bottom));
+          expect(bounds.toString(), isNot(original));
+          original = bounds.toString();
+          creations = backend.surfaces.length;
+        },
+        space, stable, escape, escape,
+      ], resizeEachKey: false, scoped: scoped, onReady: (s, b) {
+        screen = s;
+        backend = b;
+      });
+    });
   }
 
   test(
@@ -92,6 +167,22 @@ void main() {
     }) {
       expect(metadata[id], isNotEmpty, reason: id);
     }
+  });
+
+  test('About wraps the full plugin description within the menu width',
+      () async {
+    final output = await drive([
+      CharInput('Plugins'),
+      enter,
+      CharInput('acme/notes'),
+      CharInput('?'),
+      escape,
+      escape,
+      escape,
+    ], resizeEachKey: false);
+    expect(output, contains('About acme/notes'));
+    expect(output, contains('Summarizes release notes'));
+    expect(output, contains('the next release.'));
   });
 
   test(

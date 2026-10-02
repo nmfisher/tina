@@ -82,6 +82,15 @@ keeps the plan and classification panels independent, including during runtime
 loading and unloading. The attachment owns registration cleanup; panels still
 register with the generic focus manager and own their overlay/cursor resources.
 
+Panel bounds are allocated before painting; text is clipped or scrolled inside
+them. Settings menus use `dialogBounds` with a preferred width of 88 cells and
+height of at most 24 rows, based on the complete menu. Search, descriptions and
+load status have reserved rows, so filtering, selecting or toggling a checkbox
+does not resize the container. The terminal's `dialogArea` supplies the hard
+maximum and excludes the status row. Terminal resizing recomputes the bounds.
+`centeredDialog` remains available for dialogs that intentionally fit their text.
+`OverlayRegion` paints a supplied rectangle; it does not choose the dimensions.
+
 For resources such as an overlay or timer, use `context.own(overlay.hide)` or
 `context.own(timer.cancel)`. The returned callback releases the resource once;
 otherwise it is released automatically in reverse registration order.

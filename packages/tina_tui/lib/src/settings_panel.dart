@@ -34,6 +34,10 @@ final class SettingsPanel {
   SettingScope _scope = SettingScope.session;
   bool _usingScopes = false;
   Set<SettingScope> _availableScopes = {...SettingScope.values};
+  static const _menuWidth = 88, _menuMaxHeight = 24;
+  int get _aboutWidth =>
+      (dialogArea(screen.layout).width.clamp(0, _menuWidth) - 2)
+          .clamp(1, _menuWidth - 2);
   Future<void> _withinScopes(
       Set<SettingScope> scopes, Future<void> Function() edit) async {
     final previous = _availableScopes;
@@ -550,8 +554,7 @@ final class SettingsPanel {
         final blurb = choice == 0
             ? delivery.description
             : descriptions[id] ?? fields[choice - 1].description;
-        List<String> lines() =>
-            wrapDialogText(blurb, dialogArea(screen.layout).width - 2);
+        List<String> lines() => wrapDialogWords(blurb, _aboutWidth);
         await _menu('About $id', lines(), itemsNow: lines);
         continue;
       }
@@ -826,8 +829,8 @@ final class SettingsPanel {
         if (about) {
           if (choice > 0 && choice <= ids.length) {
             final id = ids[choice - 1];
-            List<String> lines() => wrapDialogText(
-                description(id), dialogArea(screen.layout).width - 2);
+            List<String> lines() =>
+                wrapDialogWords(description(id), _aboutWidth);
             await _menu('About $id', lines(), itemsNow: lines);
           }
           continue;
@@ -1193,8 +1196,8 @@ final class SettingsPanel {
     }
   }
 
-  void _show(List<String> lines, {(int, int)? cursor}) {
-    final area = dialogArea(screen.layout);
+  void _show(List<String> lines, {(int, int)? cursor, Rect? bounds}) {
+    final area = bounds ?? dialogArea(screen.layout);
     final shown = [
       if (_usingScopes)
         'Scope: ${[
@@ -1208,15 +1211,16 @@ final class SettingsPanel {
         .take(area.height)
         .map((v) => clipDialogText(v, area.width))
         .toList();
-    final bounds = centeredDialog(screen.layout, visible);
+    bounds ??= centeredDialog(screen.layout, visible);
+    final target = bounds;
     screen.frame(() {
-      _overlay.update(bounds: bounds, lines: visible);
-      if (cursor != null && bounds.height > 0 && bounds.width > 0) {
+      _overlay.update(bounds: target, lines: visible);
+      if (cursor != null && target.height > 0 && target.width > 0) {
         _cursor.place(
-            bounds.row +
+            target.row +
                 (cursor.$1 + (_usingScopes ? 1 : 0))
-                    .clamp(0, bounds.height - 1),
-            bounds.col + cursor.$2.clamp(0, bounds.width - 1));
+                    .clamp(0, target.height - 1),
+            target.col + cursor.$2.clamp(0, target.width - 1));
       } else {
         _cursor.hide();
       }
@@ -1247,9 +1251,47 @@ final class SettingsPanel {
         ];
     _paint = () {
       items = itemsNow?.call() ?? items;
+      // Size from the complete menu, never from selected text, filtered rows,
+      // or a checkbox's changing load status. Registered/removed menu entries
+      // can change the preference; checkbox save/reopen retains it.
+      final preferredHeight = (items.length +
+              3 + // title, search, footer
+              (_usingScopes ? 1 : 0) +
+              (detailFor == null ? 0 : 1) +
+              (descriptionFor == null ? 0 : 3))
+          .clamp(1, _menuMaxHeight);
       final filtered = matches();
+      final bounds = dialogBounds(screen.layout,
+          preferredWidth: _menuWidth, preferredHeight: preferredHeight);
+      final height =
+          (bounds.height - (_usingScopes ? 1 : 0)).clamp(0, _menuMaxHeight);
+      final titleRows = height >= 2 ? 1 : 0;
+      final footerRows = height >= 3 ? 1 : 0;
+      final searchRows = height >= 4 ? 1 : 0;
+      final detailRows = detailFor != null && height >= 5 ? 1 : 0;
+      final descriptionRoom = descriptionFor == null
+          ? 0
+          : (height - titleRows - footerRows - searchRows - detailRows - 1)
+              .clamp(0, 3);
+      final room = (height -
+              titleRows -
+              footerRows -
+              searchRows -
+              detailRows -
+              descriptionRoom)
+          .clamp(0, items.length > 0 ? items.length : 1);
+      final footer = checkboxes
+          ? '${_usingScopes ? 'Tab scope · ' : ''}space toggle · ^R inherit · ? about · esc'
+          : '${_usingScopes ? 'Tab scope · ' : ''}↑↓ move · type to find · enter select · esc back';
       if (filtered.isEmpty) {
-        _show([title, 'Find: $query', 'No matches · backspace to edit']);
+        _show([
+          if (titleRows > 0) title,
+          if (searchRows > 0) 'Find: $query',
+          if (room > 0) 'No matches · backspace to edit',
+          for (var i = 1; i < room; i++) '',
+          for (var i = 0; i < descriptionRoom + detailRows; i++) '',
+          if (footerRows > 0) footer,
+        ], bounds: bounds);
         return;
       }
       selected = selected.clamp(0, filtered.length - 1);
@@ -1259,36 +1301,28 @@ final class SettingsPanel {
         if (previous >= 0) selected = previous;
       }
       selectedKey = keys[filtered[selected]];
-      final area = dialogArea(screen.layout);
       final blurb = descriptionFor?.call(filtered[selected]) ?? '';
       final description =
-          blurb.isEmpty ? <String>[] : wrapDialogText(blurb, area.width);
-      final descriptionRoom =
-          (area.height - (query.isEmpty ? 4 : 5) - (_usingScopes ? 1 : 0))
-              .clamp(0, description.length);
+          blurb.isEmpty ? <String>[] : wrapDialogWords(blurb, bounds.width);
       final descriptionLines = description.take(descriptionRoom).toList();
       if (descriptionLines.isNotEmpty && descriptionRoom < description.length) {
         descriptionLines[descriptionLines.length - 1] =
-            clipDialogText('${descriptionLines.last} …', area.width);
+            clipDialogText('${descriptionLines.last} …', bounds.width);
       }
-      final room = (area.height -
-              descriptionLines.length -
-              (query.isEmpty ? 2 : 3) -
-              (_usingScopes ? 1 : 0) -
-              (detailFor == null ? 0 : 1))
-          .clamp(1, filtered.length);
-      final start = (selected - room + 1).clamp(0, filtered.length - room);
+      final shownRows = room.clamp(0, filtered.length);
+      final start =
+          (selected - shownRows + 1).clamp(0, filtered.length - shownRows);
       _show([
-        title,
-        if (query.isNotEmpty) 'Find: $query',
-        for (var i = start; i < start + room; i++)
+        if (titleRows > 0) title,
+        if (searchRows > 0) 'Find: $query',
+        for (var i = start; i < start + shownRows; i++)
           '${selected == i ? '›' : ' '} ${items[filtered[i]]}',
+        for (var i = shownRows; i < room; i++) '',
         ...descriptionLines,
-        if (detailFor != null) detailFor(filtered[selected]),
-        checkboxes
-            ? '${_usingScopes ? 'Tab scope · ' : ''}space toggle · ^R inherit · ? about · esc'
-            : '${_usingScopes ? 'Tab scope · ' : ''}↑↓ move · type to find · enter select · esc back'
-      ]);
+        for (var i = descriptionLines.length; i < descriptionRoom; i++) '',
+        if (detailRows > 0) detailFor!(filtered[selected]),
+        if (footerRows > 0) footer,
+      ], bounds: bounds);
     };
     while (true) {
       if (_cancelled) return null;

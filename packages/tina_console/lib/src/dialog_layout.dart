@@ -44,11 +44,20 @@ Rect dialogArea(ScreenLayout layout) => Rect(
     );
 
 Rect centeredDialog(ScreenLayout layout, List<String> lines) {
+  final width = lines.fold(
+      0, (n, line) => visibleWidth(line) > n ? visibleWidth(line) : n);
+  return dialogBounds(layout,
+      preferredWidth: width, preferredHeight: lines.length);
+}
+
+/// Allocate a centered modal rectangle independently of its current content.
+/// Owners choose preferred dimensions; the viewport supplies the hard maximum.
+/// Reuse the dimensions while editing and wrap/scroll within the returned bounds.
+Rect dialogBounds(ScreenLayout layout,
+    {required int preferredWidth, required int preferredHeight}) {
   final area = dialogArea(layout);
-  final width = lines
-      .fold(0, (n, line) => visibleWidth(line) > n ? visibleWidth(line) : n)
-      .clamp(0, area.width);
-  final height = lines.length.clamp(0, area.height);
+  final width = preferredWidth.clamp(0, area.width);
+  final height = preferredHeight.clamp(0, area.height);
   return Rect(
       row: area.row + (area.height - height) ~/ 2,
       col: area.col + (area.width - width) ~/ 2,
