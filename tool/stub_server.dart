@@ -11,7 +11,7 @@ import 'package:path/path.dart' as p;
 /// provider `base_url` override (a `[providers.stub]` block in `~/.tina/config`)
 /// — no tina code changes are needed, because this server speaks the same wire
 /// format as `OpenAiCompatibleAdapter` (see
-/// `packages/tina_engine/lib/src/llm/openai_compatible.dart`).
+/// `packages/tina_llm/lib/src/openai_compatible_provider.dart`).
 ///
 /// Usage:
 ///

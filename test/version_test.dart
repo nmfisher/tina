@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 /// update, since `/update` compares against this constant.
 Future<void> main() async {
   test('lib/version.g.dart matches pubspec.yaml version', () async {
-    // Other suites change cwd (resolve_session_test, tui_coordinator_test) and
+    // Other suites can change cwd and
     // `dart test` runs files concurrently in one process, so a relative path
     // here would be resolved against whatever directory happens to be current
     // at that instant — a race that fails as `Cannot open file, path =

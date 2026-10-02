@@ -10,14 +10,15 @@ import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 
 Future<void> main() async {
+  // Resolve from the one retained root library; this is independent of cwd.
+  final versionUri = (await Isolate.resolvePackageUri(
+    Uri.parse('package:tina/version.g.dart'),
+  ))!;
+  final repository = versionUri.resolve('../');
   test(
     'owned sources and manifests obey architecture policy and exact baseline',
     () async {
-      // Other suites change cwd; package resolution is independent of that state.
-      final uri = await Isolate.resolvePackageUri(
-        Uri.parse('package:tina/config/runtime_config.dart'),
-      );
-      final root = p.dirname(p.dirname(p.dirname(uri!.toFilePath())));
+      final root = repository.toFilePath();
       final policy = ArchitecturePolicy.read(
         p.join(root, 'tool/architecture/policy.json'),
       );
@@ -37,10 +38,6 @@ Future<void> main() async {
       expect(result.files, greaterThan(0));
     },
   );
-  final runtimeUri = (await Isolate.resolvePackageUri(
-    Uri.parse('package:tina/config/user_config.dart'),
-  ))!;
-  final repository = runtimeUri.resolve('../../');
   final configFile = repository.resolve('.dart_tool/package_config.json');
   final config = jsonDecode(File.fromUri(configFile).readAsStringSync()) as Map;
   final packages = <String, Uri>{
@@ -138,9 +135,9 @@ Future<void> main() async {
       );
     },
   );
-  test('persisted configuration has no transitive terminal dependency', () {
+  test('configuration reader has no transitive terminal dependency', () {
     expect(
-      violations('lib/config/user_config.dart', {
+      violations('packages/tina_tui/lib/src/config_document.dart', {
         'tina_console',
         'dart_notcurses',
       }),
@@ -148,9 +145,3 @@ Future<void> main() async {
     );
   });
 }
-
-/// Residual root-side boundary check (A06): the TOML user-config loader stays
-/// in the root package beside the CLI, and its own closure must stay free of
-/// terminal packages. The application closure itself is guarded by
-/// packages/tina_app/test/config/runtime_boundary_test.dart and by the A07
-/// graph checker (tool/architecture).

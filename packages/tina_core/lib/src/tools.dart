@@ -1,8 +1,5 @@
-/// Tool value types, copied from `packages/tina_engine/lib/src/tools/tool.dart`
-/// — same names, same members. The `Tool` base class, `ToolOutputCallback`,
-/// `LocalControlTool`, `ToolRegistry` and the `ToolEvent` family are NOT
-/// copied: they are runtime machinery, not value types, and the brief scopes
-/// this package to the values a provider and a loop exchange.
+/// Tool schemas and results exchanged by providers and the loop.
+/// Executors, registries and tool policy belong to their plugins.
 library;
 
 import 'message.dart';

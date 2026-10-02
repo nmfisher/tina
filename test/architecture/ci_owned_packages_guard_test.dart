@@ -25,12 +25,12 @@ import 'package:yaml/yaml.dart';
 void main() {
   test('every owned package in the policy has a CI job', () async {
     // Other suites change cwd; package resolution is independent of that.
-    // Anchor inside lib/ (pubspec.yaml is outside the package root and does
-    // not resolve), then walk up: <root>/lib/config/x.dart -> repo root.
+    // Anchor inside the retained root library, then walk up:
+    // <root>/lib/version.g.dart -> repo root.
     final uri = await Isolate.resolvePackageUri(
-      Uri.parse('package:tina/config/user_config.dart'),
+      Uri.parse('package:tina/version.g.dart'),
     );
-    final root = path.dirname(path.dirname(path.dirname(uri!.toFilePath())));
+    final root = path.dirname(path.dirname(uri!.toFilePath()));
 
     final policyFile = File(path.join(root, 'tool/architecture/policy.json'));
     final policy =
@@ -86,7 +86,7 @@ void main() {
           'Owned packages with no CI job: $missing\n'
           'Their tests would never run on CI, and nothing else would notice. '
           'Add a job for each in .github/workflows/ci.yml — copy the shape of '
-          'attractor or fuzzy_ranker for a terminal-free package, engine or '
+          'attractor or fuzzy_ranker for a terminal-free package, tina_tui or '
           'console for one with native dependencies — or remove the package '
           'from ownedPackages in tool/architecture/policy.json. '
           'Coverage seen by this test: $coverage',

@@ -1,10 +1,6 @@
-/// Shared value types and the model-provider interface, copied from
-/// `tina_engine` (`lib/src/llm/message.dart`, `lib/src/llm/provider.dart`,
-/// `lib/src/tools/tool.dart`) so a provider package and a loop package can
-/// both depend on this without depending on each other.
-///
-/// First copy for review; removing the originals from `tina_engine` is a
-/// later step. This package depends on nothing — standard library only.
+/// Shared value types, session log contracts and the model-provider interface.
+/// Providers, the loop and the host depend on these contracts without
+/// depending on each other. Standard library only; no feature policy or UI.
 library;
 
 export 'src/message.dart';

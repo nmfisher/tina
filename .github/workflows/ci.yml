@@ -1,10 +1,5 @@
-# Continuous integration for tina: `dart analyze` + `dart test` for the root
-# package and the seven owned packages, on every PR to main and every push to
-# main. (tina_index joined the matrix when log item #39 — its seedQuery
-# pre-existing failure — shipped; attractor and fuzzy_ranker joined with A08;
-# tina_app joined with A06; classifier joined with the classifier-extract PR.
-# engine 775 + console 811 + root 758 + tina_index 56 + attractor 89 +
-# fuzzy_ranker 11 + tina_app 359 tests gate here.)
+# CI for the engine2 executable and every owned package.
+# Retired app/engine packages are not part of the build or test matrix.
 #
 # Owned-package inventory (A08): tool/architecture/policy.json lists the owned
 # packages plus the vendored dart_notcurses submodule exception. The root job's
@@ -73,11 +68,11 @@ jobs:
       - name: Check native keyboard decoding
         timeout-minutes: 4
         run: python3 tool/altkey_pty_driver.py
-      - name: Test native PTY lifecycle on macOS
-        working-directory: packages/tina_engine
+      - name: Test active tools against the macOS sandbox
+        working-directory: packages/plugins/tina_tools
         run: |
           dart pub get
-          dart test test/terminal/ --concurrency=2
+          dart test --tags live-os-sandbox --run-skipped
       - name: Build native CLI
         run: dart build cli --target bin/tina.dart
       - name: Open first-load picker and quit at small and normal sizes
@@ -152,16 +147,6 @@ jobs:
         working-directory: .
         run: dart analyze
 
-      # The summary tests do real `git commit`s in temp repos; a GitHub
-      # runner has NO git identity configured, and every one of them dies
-      # with `ProcessException: Author identity unknown` (17 failures on
-      # live run 32648223073 — invisible locally, where a dev machine
-      # always has user.name/user.email).
-      - name: Configure git identity (summary tests commit in temp repos)
-        run: |
-          git config --global user.name "tina-ci"
-          git config --global user.email "tina-ci@example.com"
-
       - name: test (root)
         working-directory: .
         run: |
@@ -174,51 +159,6 @@ jobs:
 
       - name: Check native keyboard decoding
         run: python3 tool/altkey_pty_driver.py
-
-  engine:
-    name: engine (packages/tina_engine)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: stable
-
-      - name: pub get (engine)
-        working-directory: packages/tina_engine
-        run: dart pub get
-
-      # Engine gates on zero issues (verified baseline: "No issues found!").
-      - name: analyze (engine)
-        working-directory: packages/tina_engine
-        run: dart analyze
-
-      - name: test (engine)
-        working-directory: packages/tina_engine
-        run: dart test -j 4
-
-      - name: Install Linux sandbox backend
-        run: sudo apt-get update -q && sudo apt-get install -y bubblewrap
-
-      - name: Verify real Linux sandbox resolver mounts
-        working-directory: packages/tina_engine
-        env:
-          TINA_REQUIRE_SANDBOX_TESTS: '1'
-        run: |
-          # Hosted Ubuntu runners restrict unprivileged user namespaces via
-          # AppArmor, independently of the userns kernel knobs. Enable them
-          # only for this required integration check on the disposable runner;
-          # the test still runs as the ordinary runner user inside bubblewrap.
-          # Restore the host setting even when the test fails.
-          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
-            tina_userns_original=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)
-            trap 'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns="$tina_userns_original"' EXIT
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-          dart test test/tools/execution_sandbox_integration_test.dart
 
   console:
     name: console (packages/tina_console)
@@ -348,42 +288,6 @@ jobs:
         working-directory: packages/libraries/fuzzy_ranker
         run: dart test -j 4
 
-  # tina_app (A06): the frontend-independent application layer. Terminal-free
-  # like attractor/fuzzy_ranker — no submodule checkout, no native deps — so
-  # its job doubles as the live proof that the application closure never grew
-  # a terminal dependency back.
-  tina_app:
-    name: tina_app (packages/tina_app)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: stable
-
-      - name: pub get (tina_app)
-        working-directory: packages/tina_app
-        run: dart pub get
-
-      # The sidecar tests commit in their temporary repositories through the
-      # product's own SidecarSummaryRepo paths, which inherit the runner's git
-      # identity — a fresh runner has none (Author identity unknown, 19
-      # failures on live run 34207745591). Mirrors the root job's identity
-      # step; confined to this ephemeral runner.
-      - name: Configure git identity (sidecar tests commit in temp repos)
-        run: |
-          git config --global user.name "tina-ci"
-          git config --global user.email "tina-ci@example.com"
-
-      - name: analyze (tina_app)
-        working-directory: packages/tina_app
-        run: dart analyze
-
-      - name: test (tina_app)
-        working-directory: packages/tina_app
-        run: dart test -j 4
-
   # Classification: user intent/Git plugin, structured judgments and retained
   # repository exploration APIs. Terminal-free and native-free — plain checkout.
   # Its judgments half is additionally
@@ -487,6 +391,22 @@ jobs:
       - name: test (tina_tools)
         working-directory: packages/plugins/tina_tools
         run: dart test -j 4
+
+      - name: Install Linux sandbox backend
+        run: sudo apt-get update -q && sudo apt-get install -y bubblewrap
+
+      - name: Test active tools against the Linux sandbox
+        working-directory: packages/plugins/tina_tools
+        run: |
+          # Hosted Ubuntu restricts user namespaces through AppArmor. Restore
+          # the setting after this explicit integration check on the runner.
+          command -v bwrap
+          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            tina_userns_original=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)
+            trap 'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns="$tina_userns_original"' EXIT
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          dart test --tags live-os-sandbox --run-skipped
 
   tina_engine_2:
     name: tina_engine_2 (packages/tina_engine_2)

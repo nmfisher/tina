@@ -2,8 +2,7 @@ name: tina_sqlite
 description: >-
   The one SQLite seam for tina: a versioned open-or-create step, a generic
   append-only entry log, and a generic key-value table — each wrapped in
-  the same poison-pill guard. Extracted from the pattern
-  tina_app's classification store was the first to need.
+  the same poison-pill guard. Feature stores own their schemas.
 publish_to: none
 version: 0.1.0
 

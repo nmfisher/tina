@@ -1,7 +1,5 @@
-/// The model-provider interface, copied from
-/// `packages/tina_engine/lib/src/llm/provider.dart` — same signature, same
-/// members, with one deliberate difference: `model` is immutable here (see
-/// below). The event and usage types it streams live in `stream.dart`.
+/// The model-provider interface. The provider's model is immutable; stream
+/// event and usage types live in `stream.dart`.
 library;
 
 import 'message.dart';

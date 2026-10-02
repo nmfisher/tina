@@ -1,7 +1,5 @@
-/// Messages and content blocks, copied verbatim from
-/// `packages/tina_engine/lib/src/llm/message.dart` — same names, same members,
-/// same JSON keys. The helper functions that operate on transcripts come along
-/// because they are part of the type's contract.
+/// Provider-neutral messages, content blocks and transcript helpers.
+/// JSON keys remain compatible with historical messages used by the importer.
 library;
 
 /// Who authored a message.

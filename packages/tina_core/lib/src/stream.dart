@@ -1,6 +1,4 @@
-/// Stream events and usage metrics, copied verbatim from
-/// `packages/tina_engine/lib/src/llm/provider.dart` — same names, same
-/// members. Everything here is what a `LlmProvider.send` stream yields.
+/// Stream events and usage metrics yielded by `LlmProvider.send`.
 library;
 
 import 'message.dart';

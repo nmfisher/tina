@@ -1,8 +1,6 @@
 {
   "ownedPackages": [
     "tina",
-    "tina_app",
-    "tina_engine",
     "tina_console",
     "tina_index",
     "attractor",
@@ -57,14 +55,6 @@
       "bin",
       "test",
       "tool"
-    ],
-    "tina_app": [
-      "lib",
-      "test"
-    ],
-    "tina_engine": [
-      "lib",
-      "test"
     ],
     "tina_console": [
       "lib",
@@ -199,58 +189,13 @@
   },
   "frontendRoots": [
     "bin/",
-    "lib/chat/",
-    "lib/frontend/",
-    "lib/host/",
-    "lib/pipeline/",
-    "lib/tui/",
-    "test/chat/",
-    "test/composition/",
-    "test/config/",
-    "test/host/",
-    "test/tui/",
-    "tool/"
+    "tool/",
+    "test/tools/"
   ],
-  "frontendFiles": [
-    "lib/config.dart",
-    "lib/config/terminal_config.dart",
-    "lib/config/theme_mapper.dart",
-    "lib/config/resolved_launch.dart",
-    "lib/tui_coordinator.dart",
-    "test/tui_coordinator_test.dart",
-    "test/config_test.dart",
-    "test/cli_session_flags_test.dart",
-    "test/permissions/config_test.dart",
-    "test/helpers/fake_stdio.dart",
-    "test/helpers/markdown_line_matchers.dart",
-    "test/helpers/overlay_fixtures.dart",
-    "test/tools/nc_key_dump.dart"
-  ],
-  "assemblyRoots": [
-    "lib/composition/",
-    "packages/tina_app/lib/src/composition/"
-  ],
-  "finalComposition": [
-    "packages/tina_app/lib/src/composition/app_composition.dart",
-    "packages/tina_app/lib/src/composition/execution_runtime.dart",
-    "packages/tina_app/lib/src/composition/workspace_services.dart",
-    "lib/tui_coordinator.dart",
-    "lib/config.dart"
-  ],
-  "serviceRoots": [
-    "packages/tina_app/lib/src/session/",
-    "packages/tina_app/lib/src/execution/",
-    "packages/tina_app/lib/src/commands/",
-    "packages/tina_app/lib/src/config/",
-    "packages/tina_app/lib/src/platform/",
-    "packages/tina_app/lib/src/persistence/",
-    "packages/tina_app/lib/src/summaries/",
-    "packages/tina_app/lib/src/classification/",
-    "packages/tina_app/lib/src/workflows/",
-    "packages/tina_app/lib/src/exploration/",
-    "packages/tina_app/lib/src/regions/",
-    "packages/tina_app/lib/src/project/"
-  ],
+  "frontendFiles": [],
+  "assemblyRoots": [],
+  "finalComposition": [],
+  "serviceRoots": [],
   "pureFiles": [
     "packages/libraries/tina_settings/lib/tina_settings.dart",
     "packages/classification/lib/src/judgments/models.dart",
@@ -258,8 +203,6 @@
     "packages/classification/lib/src/judgments/request_budget.dart",
     "packages/classification/lib/src/judgments/request_packer.dart",
     "packages/classification/lib/src/judgments/batch_runner.dart",
-    "packages/tina_app/lib/src/summaries/summary_repository.dart",
-    "packages/tina_app/lib/src/summaries/summary_models.dart",
     "packages/classification/lib/src/shared/fingerprint.dart",
     "packages/classification/lib/src/shared/range_packer.dart"
   ],
@@ -274,11 +217,6 @@
     "packages/classification/lib/src/exploration/repository_ranker.dart",
     "packages/classification/lib/src/exploration/file_chunker.dart",
     "packages/classification/lib/src/exploration/exploration_workflow.dart",
-    "packages/tina_app/lib/src/exploration/explore_project_tool.dart",
-    "packages/tina_app/lib/src/exploration/metered_judgment_service.dart",
-    "packages/tina_app/lib/src/summaries/summary_index.dart",
-    "packages/tina_app/lib/src/summaries/summary_repository.dart",
-    "packages/tina_app/lib/src/summaries/summary_runner.dart",
     "packages/classification/lib/src/classification/judgments.dart",
     "packages/classification/lib/src/classification/local.dart",
     "packages/classification/lib/src/classification/orchestrator.dart",
@@ -287,9 +225,6 @@
     "packages/classification/lib/src/classification/evidence.dart",
     "packages/classification/lib/src/classification/store.dart",
     "packages/classification/lib/src/classification/planning.dart",
-    "packages/tina_app/lib/src/classification/project_classifiers.dart",
-    "packages/tina_app/lib/src/classification/project_classification_workflow.dart",
-    "packages/tina_app/lib/src/classification/repository_text_source.dart",
     "packages/classification/lib/src/classification/tree.dart"
   ],
   "baseline": "baseline.json",
@@ -297,24 +232,18 @@
     "tina": [
       "examples",
       "spikes"
-    ],
-    "tina_engine": [
-      "hook"
     ]
   },
   "deferredPackages": {
     "attractor": [
-      "tina",
-      "tina_app",
       "tina_workflows"
     ],
-    "tina_workflows": []
+    "tina_workflows": [],
+    "tina_index": []
   },
   "packagePaths": {
     "tina_step_limit": "packages/plugins/tina_step_limit",
     "tina": ".",
-    "tina_app": "packages/tina_app",
-    "tina_engine": "packages/tina_engine",
     "tina_console": "packages/tina_console",
     "tina_index": "packages/plugins/tina_index",
     "attractor": "packages/libraries/attractor",
@@ -423,7 +352,10 @@
       "tina_approvals",
       "tina_tools"
     ],
-    "tina_settings": []
+    "tina_settings": [],
+    "tina": [
+      "tina_tui"
+    ]
   },
   "pluginFreePackages": [
     "tina_host",

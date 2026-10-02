@@ -144,7 +144,7 @@ void main() {
             ..setContent(['two']);
 
       // `home` establishes the initial focus (p1), exactly as the app sets
-      // `focusManager.home = chat` (lib/tui_coordinator.dart). Without it
+      // `focusManager.home = chat`. Without it
       // engage() is a no-op — nothing is focused to cycle from. (The older
       // engage-jumps-to-the-next-panel semantics were replaced by
       // engage-highlights-the-current-focus; see commits 2dda859 / 89c88d6.)

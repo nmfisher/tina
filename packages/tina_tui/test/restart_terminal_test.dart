@@ -1,10 +1,15 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:test/test.dart';
 
-void main() {
+Future<void> main() async {
+  final library = (await Isolate.resolvePackageUri(
+    Uri.parse('package:tina_tui/tina_tui.dart'),
+  ))!;
+  final packageRoot = library.resolve('../');
   test('full restarted Tina sends input and receives a model reply', () async {
     final result = await Process.run('python3', [
-      'tool/smoke_restart.py',
+      packageRoot.resolve('../../tool/smoke_restart.py').toFilePath(),
       '--dart',
       Platform.resolvedExecutable,
     ]);
@@ -14,9 +19,8 @@ void main() {
 
   test('restart accepts terminal input after old stdin subscription closes',
       () async {
-    final fixture = File('packages/tina_tui/test/fixtures/restart_input.dart')
-        .absolute
-        .path;
+    final fixture =
+        packageRoot.resolve('test/fixtures/restart_input.dart').toFilePath();
     final result = await Process.run('python3', [
       '-c',
       r'''
