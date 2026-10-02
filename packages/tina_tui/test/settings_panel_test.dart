@@ -515,6 +515,7 @@ enabled = []
       final rows = List.generate(vt.height, vt.rowText);
       final row = rows.indexWhere((line) => line.contains(visible));
       expect(row, greaterThanOrEqualTo(0));
+      expect(vt.cursorVisible, isTrue);
       expect(vt.cursorRow, row);
       expect(vt.cursorCol, rows[row].indexOf(visible) + offset);
     }
@@ -523,11 +524,24 @@ enabled = []
     await settle();
     await key(CharInput('preserved draft'));
     final run = panel.run(path: config.path, descriptors: descriptors);
+    void menuCursorHidden() {
+      final vt = VirtualTerminal(
+          width: screen.layout.width, height: screen.layout.height)
+        ..feed(io.written.toString());
+      expect(vt.cursorVisible, isFalse);
+    }
+
     try {
       await settle();
+      menuCursorHidden();
+      screen.chat.writeln('Background output while settings are open');
+      screen.input.repaint();
+      panel.repaint();
+      menuCursorHidden();
       await key(CharInput('Request and token limits'));
       await key(enter);
       await key(CharInput('Turn token'));
+      menuCursorHidden();
       await key(enter);
       io.feedBytes('\x1b[200~1,234,567\x1b[201~'.codeUnits);
       await settle();
@@ -547,9 +561,16 @@ enabled = []
       panel.repaint();
       cursorAt('1,934,567', 3);
       await key(enter);
+      menuCursorHidden();
       await key(CharInput('Save'));
       await key(enter);
       expect(await run.timeout(const Duration(seconds: 3)), true);
+      expect(
+          (VirtualTerminal(
+                  width: screen.layout.width, height: screen.layout.height)
+                ..feed(io.written.toString()))
+              .cursorVisible,
+          isTrue);
       expect(
           ConfigDocument.open(config.path).table('limits')['max_turn_tokens'],
           1934567);

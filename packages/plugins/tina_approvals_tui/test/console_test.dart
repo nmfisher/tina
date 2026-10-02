@@ -76,6 +76,12 @@ void main() {
       expect(all(), contains('❯ [y] Yes'));
       expect(input(), isNot(contains('test-model')));
       expect(input(), isNot(contains('draft')));
+      expect(visible().cursorVisible, isFalse);
+      screen.chat.writeln('Background update while awaiting an answer');
+      screen.input.repaint();
+      ui.repaintConsole();
+      expect(visible().cursorVisible, isFalse,
+          reason: 'background output must not reveal the chat cursor');
       final vt = visible();
       final above =
           List.generate(screen.input.bounds.row, vt.rowText).join('\n');
@@ -89,6 +95,8 @@ void main() {
       await tick();
       expect(input(), contains('test-model > draft'));
       final restored = visible();
+      expect(restored.cursorVisible, isTrue);
+      expect(restored.cursorRow, screen.input.bounds.row);
       expect(List.generate(screen.layout.height, restored.rowText).join('\n'),
           contains('Previous conversation'));
       expect(editor.editState.buffer, 'draft');
@@ -123,6 +131,7 @@ void main() {
     expect(await decision, ApprovalDecision.deny);
     await tick();
     expect(input(), isNot(contains('[x]')));
+    expect(visible().cursorVisible, isTrue);
   });
 
   test('queued questions replace each other and close restores the draft',
@@ -141,6 +150,7 @@ void main() {
     expect(await second, ApprovalDecision.deny);
     await tick();
     expect(input(), contains('test-model > draft'));
+    expect(visible().cursorVisible, isTrue);
     io.feed('\r');
     expect(await line, 'draft');
   });

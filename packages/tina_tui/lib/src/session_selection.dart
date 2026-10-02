@@ -121,6 +121,7 @@ class SessionPicker {
   Future<String?> run() async {
     if (sessions.isEmpty) return null;
     _overlay = OverlayRegion(screen, Rect.empty);
+    final cursor = screen.claimCursor();
     final next = readEvent ?? editor.captureKeyReader();
     try {
       repaint();
@@ -153,6 +154,7 @@ class SessionPicker {
       _overlay!.hide();
       _overlay!.dispose();
       _overlay = null;
+      cursor.release();
     }
   }
 }

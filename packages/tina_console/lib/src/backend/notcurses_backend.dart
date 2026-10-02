@@ -281,6 +281,7 @@ class NotcursesBackend
     implements
         TerminalBackend,
         BackendDiagnostics,
+        CursorBackend,
         CanvasBackend,
         RetainedImageBackend {
   CanvasStyle _canvas = const CanvasStyle();
@@ -319,6 +320,8 @@ class NotcursesBackend
   /// Hardware cursor target. Drawing operations never mutate this state.
   int _parkRow = 0;
   int _parkCol = 0;
+  bool _cursorVisible = true;
+  bool? _lastCursorVisible;
 
   int _frameDepth = 0;
   bool _flushPending = false;
@@ -448,6 +451,12 @@ class NotcursesBackend
   }
 
   @override
+  void setCursorVisible(bool visible) {
+    if (_stopped) return;
+    _cursorVisible = visible;
+  }
+
+  @override
   void eraseCells(int row, int col, int n) {
     if (_stopped) return;
     // Write n spaces at (row, col). This clears the cells in the retained
@@ -511,7 +520,8 @@ class NotcursesBackend
   void _flushNow() {
     if (_stopped) return;
     final parkRowChanged = _parkRow != _lastParkRow;
-    if (parkRowChanged) {
+    if ((_cursorVisible && parkRowChanged) ||
+        (!_cursorVisible && _lastCursorVisible != false)) {
       // Hiding first asks the terminal to restore the cell under the old
       // hardware cursor. This avoids the dropped-border artifact without a
       // full-screen notcurses_refresh().
@@ -524,7 +534,8 @@ class NotcursesBackend
       _gridDirty = false;
     }
     _lastParkRow = _parkRow;
-    _platform.cursorEnable(_parkRow, _parkCol);
+    _lastCursorVisible = _cursorVisible;
+    if (_cursorVisible) _platform.cursorEnable(_parkRow, _parkCol);
     InputLatency.stage(LatencyStage.flushCompleted);
   }
 

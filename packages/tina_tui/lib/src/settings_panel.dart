@@ -22,6 +22,7 @@ final class SettingsPanel {
   final Future<InputEvent> Function()? readEvent;
   late Future<InputEvent> Function() _read;
   late OverlayRegion _overlay;
+  late ScreenCursor _cursor;
   void Function()? _paint;
   bool _savedSection = false;
   void Function()? _applyConfiguration;
@@ -105,6 +106,7 @@ final class SettingsPanel {
     final stopSettings = scopedSettings?.listen(_refresh);
     _overlay =
         OverlayRegion(screen, const Rect(row: 0, col: 0, width: 1, height: 1));
+    _cursor = screen.claimCursor();
     try {
       if (scopedSettings != null && settingsBackend != null) {
         return await _scopedRun(scopedSettings, settingsBackend,
@@ -223,15 +225,19 @@ final class SettingsPanel {
         }
       }
     } finally {
-      unlisten?.call();
-      stopSettings?.call();
-      _paint = null;
-      if (!_cancel.isCompleted) _cancel.complete();
-      await _pendingRead;
-      _pendingRead = null;
-      _overlay.hide();
-      editor.endKeyCaptureWindow();
-      editor.handleResize();
+      try {
+        unlisten?.call();
+        stopSettings?.call();
+        _paint = null;
+        if (!_cancel.isCompleted) _cancel.complete();
+        await _pendingRead;
+        _pendingRead = null;
+        _overlay.hide();
+        editor.endKeyCaptureWindow();
+        editor.handleResize();
+      } finally {
+        _cursor.release();
+      }
     }
   }
 
@@ -1206,11 +1212,13 @@ final class SettingsPanel {
     screen.frame(() {
       _overlay.update(bounds: bounds, lines: visible);
       if (cursor != null && bounds.height > 0 && bounds.width > 0) {
-        screen.parkCursorAt(
+        _cursor.place(
             bounds.row +
                 (cursor.$1 + (_usingScopes ? 1 : 0))
                     .clamp(0, bounds.height - 1),
             bounds.col + cursor.$2.clamp(0, bounds.width - 1));
+      } else {
+        _cursor.hide();
       }
     });
   }

@@ -18,6 +18,7 @@ final class ActivityTuiPlugin extends AgentPlugin
   String get id => 'tina/activity-tui';
   ConsoleContext? _console;
   OverlayRegion? _overlay;
+  void Function()? _releaseCursor;
   _ActivityModal? _modal;
   void Function()? _removeModal, _removeShortcut;
   StreamSubscription<ToolActivity>? _subscription;
@@ -136,6 +137,8 @@ final class ActivityTuiPlugin extends AgentPlugin
     _ticker?.cancel();
     _ticker = null;
     _overlay?.hide();
+    _releaseCursor?.call();
+    _releaseCursor = null;
     visibleLines = const [];
   }
 
@@ -164,10 +167,13 @@ final class ActivityTuiPlugin extends AgentPlugin
     // It never inherits a key intended to expand or scroll a tool result.
     if (console.isReadingKey || !console.isActive) {
       _overlay?.hide();
+      _releaseCursor?.call();
+      _releaseCursor = null;
       return;
     }
     final area = dialogArea(console.screen.layout);
     if (area.width < 1 || area.height < 1) return;
+    _releaseCursor ??= console.own(console.screen.claimCursor().release);
     _selected = _selected.clamp(
         0, model.records.isEmpty ? 0 : model.records.length - 1);
     final body = <String>[];

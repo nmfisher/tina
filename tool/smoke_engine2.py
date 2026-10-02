@@ -269,6 +269,17 @@ class Terminal:
             self.read()
         assert predicate(), description
 
+    def expect_cursor(self, visible):
+        # Read DECTCEM from the real PTY, including background redraws.
+        deadline = time.monotonic() + 0.15
+        while time.monotonic() < deadline:
+            self.read()
+        state = True
+        for modes, action in re.findall(rb'\x1b\[\?([0-9;]+)([hl])', self.output):
+            if b'25' in modes.split(b';'):
+                state = action == b'h'
+        assert state == visible, f'hardware cursor visible={state}, expected {visible}'
+
     def quit(self):
         self.send("/quit\r")
         self.expect_clean_exit()
@@ -421,10 +432,12 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == active_requests, 'scrolling submitted a message during generation'
             start = terminal.send('/settings\r')
             terminal.expect('enter select · esc back', start)
+            terminal.expect_cursor(False)
             assert len(ModelStub.requests) == active_requests
             assert not ModelStub.release_stream.is_set()
             closed = terminal.send('\x1b')
             terminal.expect('Settings closed.', closed)
+            terminal.expect_cursor(True)
             start = terminal.resize(100, 20)
             terminal.expect("streaming prefix", start)
             # Submitted input must reach a fresh request before the stalled
@@ -473,11 +486,14 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('approve this\r')
             terminal.expect('Write file', start)
             terminal.expect('❯ [y] allow once', start)
+            terminal.expect_cursor(False)
             start = terminal.send('\t')
             terminal.expect('Details', start)
+            terminal.expect_cursor(False)
             start = terminal.resize(40, 8)
             terminal.expect('Details', start)
             # Enter in details returns to choices; it must not approve.
+            terminal.expect_cursor(False)
             start = terminal.send('\r')
             terminal.expect('❯ [y] allow once', start)
             assert not ModelStub.approval_target.exists()
@@ -489,6 +505,7 @@ def smoke(launcher, endpoint, columns, rows):
                               'denied write did not finish')
             terminal.expect('smoke answer', start)
             assert not ModelStub.approval_target.exists(), 'denied write landed'
+            terminal.expect_cursor(True)
             time.sleep(0.1)
             start = terminal.send('approve this\r')
             terminal.expect('Write file', start)

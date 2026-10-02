@@ -115,6 +115,7 @@ class ModelSearchPicker {
     _filtered = _computeFiltered();
 
     _overlay = OverlayRegion(_screen, Rect.empty);
+    final cursor = _screen.claimCursor();
     _open = true;
     try {
       _render();
@@ -129,6 +130,7 @@ class ModelSearchPicker {
       _open = false;
       _overlay.hide();
       _overlay.dispose();
+      cursor.release();
     }
   }
 

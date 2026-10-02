@@ -12,6 +12,7 @@ class ConfirmDialog {
   late OverlayRegion _overlay;
 
   bool _confirmQuit = false;
+  ScreenCursor? _cursor;
 
   ConfirmDialog(this._screen) {
     _overlay = OverlayRegion(_screen, _defaultBounds(_screen));
@@ -24,6 +25,7 @@ class ConfirmDialog {
   bool trigger() {
     if (_confirmQuit) return true;
     _confirmQuit = true;
+    _cursor = _screen.claimCursor();
     render();
     return false;
   }
@@ -33,11 +35,12 @@ class ConfirmDialog {
     if (!_confirmQuit) return;
     _confirmQuit = false;
     _overlay.hide();
+    _cursor?.release();
+    _cursor = null;
   }
 
   void reset() {
-    _confirmQuit = false;
-    _overlay.hide();
+    dismiss();
   }
 
   void render() {
@@ -46,6 +49,7 @@ class ConfirmDialog {
   }
 
   void dispose() {
+    dismiss();
     _overlay.dispose();
   }
 

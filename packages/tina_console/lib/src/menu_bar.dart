@@ -21,6 +21,7 @@ class MenuBar implements Focusable {
   // Navigation state.
   bool _active = false; // bar has focus
   bool _open = false; // a dropdown is expanded
+  ScreenCursor? _cursor;
   int _selectedMenu = 0; // index into _menus
   int _selectedItem = 0; // index into current menu's items
 
@@ -242,6 +243,8 @@ class MenuBar implements Focusable {
 
   /// Release the overlay.
   void dispose() {
+    _cursor?.release();
+    _cursor = null;
     _dropdown.dispose();
   }
 
@@ -259,6 +262,12 @@ class MenuBar implements Focusable {
   }
 
   void _renderBar() {
+    if (isActive && _screen.layout.hasMenuBar) {
+      _cursor ??= _screen.claimCursor();
+    } else {
+      _cursor?.release();
+      _cursor = null;
+    }
     if (!_screen.layout.hasMenuBar) return;
     final row = _screen.layout.menuBarRow;
     if (row < 0) return;

@@ -41,6 +41,7 @@ class VirtualTerminal {
   int _cursorRow = 0;
   int _cursorCol = 0;
   bool _pendingWrap = false;
+  bool cursorVisible = true;
 
   /// Whole-screen scrolls caused by an overflowing write, rather than the
   /// renderer explicitly repainting its retained conversation rows.
@@ -238,7 +239,8 @@ class VirtualTerminal {
 
   int _handleCsi(String s, List<int> runes, int start) {
     var j = start + 2;
-    if (j < runes.length && runes[j] == 0x3f) j++; // ? prefix
+    final privateMode = j < runes.length && runes[j] == 0x3f;
+    if (privateMode) j++;
     final buf = StringBuffer();
     while (j < runes.length) {
       final ch = runes[j];
@@ -312,6 +314,9 @@ class VirtualTerminal {
         break;
       case 0x68: // h — set mode (consumed)
       case 0x6c: // l — reset mode (consumed)
+        if (privateMode && paramList.contains('25')) {
+          cursorVisible = cmd == 0x68;
+        }
         break;
     }
     return j;

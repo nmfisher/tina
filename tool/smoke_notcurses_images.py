@@ -58,6 +58,17 @@ def smoke(binary, endpoint, columns, rows):
         try:
             terminal.expect('smoke > ')
             terminal.expect_idle()
+            start = send_line(terminal, '/settings')
+            terminal.expect('enter select', start, wrapped=True)
+            terminal.expect_cursor(False)
+            start = terminal.resize(columns - 8, rows + 2)
+            terminal.expect_cursor(False)
+            start = terminal.send('\x1b')
+            # Retained rendering can reuse letters from the previous frame.
+            terminal.expect('closed.', start, wrapped=True)
+            terminal.expect_cursor(True)
+            terminal.resize(columns, rows)
+            terminal.expect_idle()
             ModelStub.advance_reasoning.clear()
             ModelStub.release_reasoning.clear()
             start = send_line(terminal, 'stream reasoning example')
@@ -80,9 +91,11 @@ def smoke(binary, endpoint, columns, rows):
             terminal.expect_idle()
             start = send_line(terminal, 'mcp screenshot example')
             terminal.expect('[y] allow once', start, wrapped=True)
+            terminal.expect_cursor(False)
             start = terminal.send('y')
             terminal.expect('24×32', start)
             terminal.expect('smoke answer', start, wrapped=True)
+            terminal.expect_cursor(True)
             terminal.wait_for(lambda: red_present(terminal, start),
                               'notcurses did not paint decoded image pixels')
             print(f'PASS notcurses {columns}x{rows}: decoded screenshot painted')
@@ -128,6 +141,7 @@ def smoke(binary, endpoint, columns, rows):
                 # and kill descendants before the next instruction starts.
                 start = send_line(terminal, 'run cancellable tool')
                 terminal.expect('[y] allow once', start, wrapped=True)
+                terminal.expect_cursor(False)
                 terminal.send('y')
                 # The command text in the approval preview also contains the
                 # output marker. Wait for actual execution, not that preview.
@@ -160,8 +174,10 @@ def smoke(binary, endpoint, columns, rows):
         try:
             resumed.expect('Resume session', wrapped=True)
             resumed.expect('Enter resume', wrapped=True)
+            resumed.expect_cursor(False)
             resumed.send('\r')
             resumed.expect('smoke > ')
+            resumed.expect_cursor(True)
             for _ in range(3):
                 resumed.send('\x1b[5~')
                 time.sleep(0.05)

@@ -180,6 +180,7 @@ class PlanOverlay implements PanelInputTarget {
   final FocusManager? focusManager;
   final PlanOverlayMode mode;
   OverlayRegion? _region;
+  ScreenCursor? _cursor;
   StreamSubscription<void>? _sub;
   bool _started = false, _focused = false, _highlighted = false;
   bool? _userOverride;
@@ -220,6 +221,7 @@ class PlanOverlay implements PanelInputTarget {
 
   @override
   void focus() {
+    _cursor ??= screen.claimCursor();
     _focused = true;
     _highlighted = false;
     _selected ??= firstActionableIndex;
@@ -229,6 +231,8 @@ class PlanOverlay implements PanelInputTarget {
 
   @override
   void blur() {
+    _cursor?.release();
+    _cursor = null;
     _focused = false;
     refresh();
   }
@@ -431,6 +435,8 @@ class PlanOverlay implements PanelInputTarget {
   }
 
   void _hide() {
+    _cursor?.release();
+    _cursor = null;
     final wasFocused = _focused;
     final wasHighlighted = _highlighted;
     _focused = false;
@@ -447,6 +453,8 @@ class PlanOverlay implements PanelInputTarget {
   }
 
   void dispose() {
+    _cursor?.release();
+    _cursor = null;
     _started = false;
     if (identical(focusManager?.focused, this)) focusManager?.returnHome();
     focusManager?.unregister(this);

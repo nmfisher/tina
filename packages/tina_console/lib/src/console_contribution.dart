@@ -107,10 +107,12 @@ final class ConsoleContext {
       _activate?.call();
       final focus = _editor.focusManager;
       _editor.focusManager = null;
+      final cursor = screen.claimCursor();
       try {
         return await action();
       } finally {
         _editor.focusManager = focus;
+        cursor.release();
         refreshInput();
       }
     });

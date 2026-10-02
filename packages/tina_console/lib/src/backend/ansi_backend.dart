@@ -18,6 +18,7 @@ class AnsiBackend
     implements
         TerminalBackend,
         BackendDiagnostics,
+        CursorBackend,
         CanvasBackend,
         BackendDamageSource {
   CanvasStyle _canvas = const CanvasStyle();
@@ -57,6 +58,7 @@ class AnsiBackend
 
   (int, int)? _cursor;
   (int, int)? _savedCursor;
+  bool _cursorVisible = true;
   static final _sgr = RegExp(r'\x1b\[[0-9;:]*m');
   static final _controls = RegExp(r'[\x00-\x1f\x7f-\x9f]');
 
@@ -103,6 +105,13 @@ class AnsiBackend
 
   @override
   void parkCursor(int row, int col) => moveCursor(row, col);
+
+  @override
+  void setCursorVisible(bool visible) {
+    if (_cursorVisible == visible) return;
+    _cursorVisible = visible;
+    _buf.write(visible ? '\x1b[?25h' : '\x1b[?25l');
+  }
 
   @override
   void eraseCells(int row, int col, int n) {
@@ -185,6 +194,7 @@ class AnsiBackend
 
   @override
   void leaveAltScreen() {
+    setCursorVisible(true);
     _buf.write('\x1b[?1000l\x1b[?1006l');
     if (_cursorColor != null) {
       _buf.write(CanvasStyle.cursorSequence(null));

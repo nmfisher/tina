@@ -91,6 +91,7 @@ final class ProvidersPanel {
 
   Future<bool> run() async {
     _overlay = OverlayRegion(screen, Rect.empty);
+    final cursor = screen.claimCursor();
     _open = true;
     try {
       while (true) {
@@ -225,6 +226,7 @@ final class ProvidersPanel {
       _open = false;
       _overlay.hide();
       _overlay.dispose();
+      cursor.release();
     }
   }
 

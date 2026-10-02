@@ -103,13 +103,9 @@ class Screen {
 
   final Set<int> _pendingBorderRepairRows = {};
 
-  /// The cursor position the body most recently requested via [parkCursorAt]
-  /// during the current outermost frame, if any. Border repairs run in the
-  /// frame's [finally] (after the body), and each repair repositions the cursor
-  /// onto a border cell; without re-parking, the body's requested cursor would
-  /// be clobbered. Re-applied at the end of [_drainPendingBorderRepairs].
-  int? _parkedRow;
-  int? _parkedCol;
+  (int, int)? _inputCursor;
+  final List<ScreenCursor> _cursorOwners = [];
+  bool _cursorStopped = false;
 
   /// Which box is the focused (input) panel — cyan border — and which is the
   /// cycling highlight — yellow border. Mutually exclusive per box. Driven by
@@ -278,16 +274,9 @@ class Screen {
             region.paintImages();
           }
           _drainPendingBorderRepairs();
-          // Deferred border repairs each reposition the cursor onto a border
-          // cell; re-apply the body's last parked position so it survives as the
-          // frame's final positioning command.
-          final pr = _parkedRow;
-          final pc = _parkedCol;
-          if (pr != null && pc != null) {
-            be.parkCursor(pr, pc);
-          }
-          _parkedRow = null;
-          _parkedCol = null;
+          // Drawing and border repairs cannot take the editing cursor away
+          // from the current owner, or reveal it over a choice dialog.
+          _applyCursor(flush: false);
         }
       } finally {
         // ALWAYS close the backend's frame, even when a border repair throws. A
@@ -376,6 +365,7 @@ class Screen {
     if (passthrough) return;
     if (_inAltScreen) return;
     _inAltScreen = true;
+    _cursorStopped = false;
     _backend!.enterAltScreen();
     _backend!.enableBracketedPaste();
     redrawFrame();
@@ -388,6 +378,8 @@ class Screen {
     if (passthrough) return;
     if (!_inAltScreen) return;
     _inAltScreen = false;
+    _cursorStopped = true;
+    _cursorOwners.clear();
     _backend!.disableBracketedPaste();
     _backend!.leaveAltScreen();
     _backend!.flush();
@@ -517,6 +509,8 @@ class Screen {
 
   /// Release timers owned by the frame coordinator.
   void dispose() {
+    _cursorStopped = true;
+    _cursorOwners.clear();
     for (final region in _imageRegions.toList()) {
       retainImageRegion(region, false);
     }
@@ -845,10 +839,37 @@ class Screen {
   /// regions (mainly [InputRegion]) when they want the user's cursor visible
   /// at a specific spot.
   void parkCursorAt(int row, int col) {
-    _parkedRow = row;
-    _parkedCol = col;
-    _backend!.parkCursor(row, col);
-    _backend!.flush();
+    _inputCursor = (row, col);
+    _applyCursor();
+  }
+
+  /// Claim the editing cursor for an interaction. It starts hidden; text
+  /// fields call [ScreenCursor.place] to show it at their editing position.
+  /// Releasing restores the previous owner or the latest conversation draft.
+  ScreenCursor claimCursor() {
+    final owner = ScreenCursor._(this);
+    _cursorOwners.add(owner);
+    _applyCursor();
+    return owner;
+  }
+
+  void _applyCursor({bool flush = true}) {
+    if (passthrough || _cursorStopped) return;
+    final owner = _cursorOwners.lastOrNull;
+    final position = owner == null ? _inputCursor : owner._position;
+    final visible = owner == null || position != null;
+    final backend = _backend!;
+    if (backend is CursorBackend) {
+      (backend as CursorBackend).setCursorVisible(visible);
+    }
+    if (visible &&
+        position != null &&
+        _layout.width > 0 &&
+        _layout.height > 0) {
+      backend.parkCursor(position.$1.clamp(0, _layout.height - 1),
+          position.$2.clamp(0, _layout.width - 1));
+    }
+    if (flush) backend.flush();
   }
 
   /// Create a [BackendSurface] occupying [bounds], for an independent,
@@ -1245,6 +1266,34 @@ class Screen {
 
   String _clipToVisibleCols(String s, int maxCols) =>
       clipToVisibleColumns(s, maxCols);
+}
+
+/// One interaction's cursor, stacked above the conversation input. A hidden
+/// owner stays hidden across background output, status refreshes and resizes.
+final class ScreenCursor {
+  ScreenCursor._(this._screen);
+  final Screen _screen;
+  (int, int)? _position;
+  bool _released = false;
+
+  void place(int row, int col) {
+    if (_released) return;
+    _position = (row, col);
+    _screen._applyCursor();
+  }
+
+  void hide() {
+    if (_released) return;
+    _position = null;
+    _screen._applyCursor();
+  }
+
+  void release() {
+    if (_released) return;
+    _released = true;
+    _screen._cursorOwners.remove(this);
+    _screen._applyCursor();
+  }
 }
 
 /// Pulled in by [Screen.putAtAbsolute] for word-aware wrapping when the

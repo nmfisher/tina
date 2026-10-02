@@ -77,6 +77,16 @@ For resources such as an overlay or timer, use `context.own(overlay.hide)` or
 `context.own(timer.cancel)`. The returned callback releases the resource once;
 otherwise it is released automatically in reverse registration order.
 
+`context.interact(action)` serializes an interaction with other dialogs and
+hides the conversation cursor until the action finishes. A custom interactive
+overlay can use `screen.claimCursor()` and register its `release` callback with
+`context.own`. The claim starts hidden; `place(row, col)` shows the caret in an
+editable field, and `hide()` hides it when returning to choices. Claims nest:
+the newest owner controls the cursor, including during background output and
+resizing. Releasing it restores the previous owner or the conversation draft.
+Completion suggestions keep the conversation cursor because they still edit
+that draft.
+
 Live loading still follows the plugin registry's policy: only definitions marked
 `live` load/unload without restarting, and changes are applied between turns.
 The UI only exposes contributions from loaded plugins.

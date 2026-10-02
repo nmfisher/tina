@@ -129,6 +129,12 @@ abstract class TerminalBackend {
   bool get coalescesPaints;
 }
 
+/// Hardware cursor visibility, independent of drawing and cursor position.
+/// Screen coordinates ownership; backends preserve this state across renders.
+abstract interface class CursorBackend {
+  void setCursorVisible(bool visible);
+}
+
 /// A backend that can report how its drawing is going.
 ///
 /// Optional on purpose: only the real backends implement it, so test fakes and
