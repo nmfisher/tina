@@ -251,6 +251,34 @@ void main() {
     expect(ended.turnId, 'i3');
   });
 
+  test('a failed end listener keeps one end entry and permits the next turn',
+      () async {
+    final loop = AgentLoop(
+        provider: ScriptedProvider([
+          scriptedReply('first'),
+          scriptedReply('second'),
+        ]),
+        plugins: []);
+    final sentinel = StateError('end listener sentinel');
+    final listener = loop.subscribe((entry, event) {
+      if (event == LogEvent.appended && entry is TurnEndedEntry) {
+        throw sentinel;
+      }
+    });
+
+    await expectLater(loop.runTurn(const Input('first', id: 'end-failure')),
+        throwsA(same(sentinel)));
+    expect(loop.log.whereType<TurnEndedEntry>(), hasLength(1));
+    expect(loop.running, isFalse);
+    expect(loop.inTurn, isFalse);
+
+    loop.unsubscribe(listener);
+    final outcome = await loop.runTurn(const Input('second', id: 'next'));
+    expect(outcome.stopReason, StopReason.complete);
+    expect(outcome.detail, 'second');
+    expect(loop.log.whereType<TurnEndedEntry>(), hasLength(2));
+  });
+
   test('state writer binds its owner and cannot forge another namespace', () {
     final loop =
         AgentLoop(provider: ScriptedProvider([]), plugins: [const _Echo()]);

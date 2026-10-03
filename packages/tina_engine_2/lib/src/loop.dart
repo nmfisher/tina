@@ -248,6 +248,7 @@ final class AgentLoop {
   }
 
   final _inputs = Queue<Input>();
+
   /// Inputs accepted during a turn, awaiting their own transcript turn.
   int get pendingInputCount => _inputs.length;
   Completer<void> _inputPending = Completer<void>();
@@ -376,6 +377,12 @@ final class AgentLoop {
   /// write are suppressed (the original error is what must surface; a
   /// second throw here would hide it), but the write itself happens.
   void _appendCrashEnd(String turnId, EntryUsage usage) {
+    // Appending commits before notifying listeners. A failed end listener
+    // must not cause a second end entry for the same turn.
+    for (final entry in _log.reversed) {
+      if (entry is TurnEndedEntry && entry.turnId == turnId) return;
+      if (entry is TurnStartedEntry && entry.turnId == turnId) break;
+    }
     final entry = TurnEndedEntry(
         turnId: turnId, reason: TurnStopReason.error, usage: usage, at: _now());
     try {
@@ -599,7 +606,7 @@ final class AgentLoop {
     try {
       ctx = await _phase(ctx, 'prepareTurn', (p, c) => p.prepareTurn(c));
       if (_cancel.cancelled) {
-        return finish(StopReason.cancelled, _cancel.reason);
+        return await finish(StopReason.cancelled, _cancel.reason);
       }
       for (final plugin in _inOrder()) {
         for (final tool in plugin.tools) {
@@ -615,7 +622,7 @@ final class AgentLoop {
       // silently missing from a sent request.
       ctx = await _phase(ctx, 'onPrompt', (p, c) => p.onPrompt(c));
       if (_cancel.cancelled)
-        return finish(StopReason.cancelled, _cancel.reason);
+        return await finish(StopReason.cancelled, _cancel.reason);
       final baseSections = List.of(ctx.promptSections);
 
       // Input phase. A rewrite is an assignment to `c.input`; the last
@@ -641,7 +648,7 @@ final class AgentLoop {
         },
       );
       if (_cancel.cancelled)
-        return finish(StopReason.cancelled, _cancel.reason);
+        return await finish(StopReason.cancelled, _cancel.reason);
       final user =
           Message(role: Role.user, content: [TextBlock(ctx.input.text)]);
       _append(MessageAppendedEntry(turnId: turnId, message: user, at: _now()));
@@ -653,10 +660,12 @@ final class AgentLoop {
       // ------------------------------------------------------------------
       while (true) {
         if (_inputs.isNotEmpty) {
-          return finish(StopReason.cancelled, 'continuing with new input');
+          return await finish(
+              StopReason.cancelled, 'continuing with new input');
         }
         if (_cancel.cancelled) {
-          return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
+          return await finish(
+              StopReason.cancelled, 'cancelled: ${_cancel.reason}');
         }
 
         // Step 2: build the request. The conversation is derived from the
@@ -676,9 +685,10 @@ final class AgentLoop {
         ctx = await _phase(
             ctx, 'beforeModelCall', (p, c) => p.beforeModelCall(c));
         if (_inputs.isNotEmpty)
-          return finish(StopReason.cancelled, 'continuing with new input');
+          return await finish(
+              StopReason.cancelled, 'continuing with new input');
         if (_cancel.cancelled)
-          return finish(StopReason.cancelled, _cancel.reason);
+          return await finish(StopReason.cancelled, _cancel.reason);
         var request = Request(
             systemPrompt: _joinSections(ctx.promptSections),
             messages: List.of(ctx.messages),
@@ -799,22 +809,25 @@ final class AgentLoop {
         // provider error or as a complete short reply.
         if (_cancel.cancelled) {
           recordPartialText();
-          return finish(StopReason.cancelled, 'cancelled: ${_cancel.reason}');
+          return await finish(
+              StopReason.cancelled, 'cancelled: ${_cancel.reason}');
         }
         if (_inputs.isNotEmpty) {
           if (completion == null) {
             recordPartialText();
-            return finish(StopReason.cancelled, 'continuing with new input');
+            return await finish(
+                StopReason.cancelled, 'continuing with new input');
           }
           // A completed response's tool calls still need paired results below.
         }
         if (failure != null) {
           recordPartialText();
-          return finish(StopReason.error, 'provider error: ${failure.error}');
+          return await finish(
+              StopReason.error, 'provider error: ${failure.error}');
         }
         if (thrown != null) {
           recordPartialText();
-          return finish(StopReason.error, 'provider error: $thrown');
+          return await finish(StopReason.error, 'provider error: $thrown');
         }
         // A call announced by [ToolCallStart] whose block never arrived via
         // [MessageComplete] has no [ToolUseBlock] in the log: there
@@ -830,7 +843,7 @@ final class AgentLoop {
             if (!blocksById.containsKey(s.id)) s
         ];
         if (orphans.isNotEmpty) {
-          return finish(
+          return await finish(
               StopReason.error,
               'provider stream ended before tool call '
               '${[for (final s in orphans) s.id].join(', ')} completed');
@@ -853,8 +866,9 @@ final class AgentLoop {
         responses.add(reply);
         if (toolCalls.isEmpty) {
           if (_inputs.isNotEmpty)
-            return finish(StopReason.cancelled, 'continuing with new input');
-          return finish(StopReason.complete, replyText);
+            return await finish(
+                StopReason.cancelled, 'continuing with new input');
+          return await finish(StopReason.complete, replyText);
         }
 
         // Step 4: run the tool calls. Liveness first: a plugin that left
@@ -1015,11 +1029,11 @@ final class AgentLoop {
             for (final t in p.tools) t.name
         };
         if (now.length != livePinned.length || !now.containsAll(livePinned)) {
-          return finish(StopReason.error, 'tools-changed mid-turn');
+          return await finish(StopReason.error, 'tools-changed mid-turn');
         }
       }
     } on _PhaseFailed catch (failure) {
-      return finish(StopReason.error, failure.failure.toString());
+      return await finish(StopReason.error, failure.failure.toString());
     } catch (e) {
       // No path may leave a started turn open in the log, this one
       // included: end it as an error and let the caller see the throw.

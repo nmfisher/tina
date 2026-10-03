@@ -1,6 +1,9 @@
 // The real entry point on a controlling PTY, including a localhost HTTP turn.
 // Run: dart test --tags tty --run-skipped test/app_smoke_test.dart
-@Timeout(Duration(minutes: 3))
+// The full CLI smoke now covers three terminal sizes and 169 requests, with
+// repeated JIT startups. Each terminal wait is bounded inside the driver;
+// this outer budget must also accommodate compilation on CI runners.
+@Timeout(Duration(minutes: 10))
 @Tags(['tty'])
 library;
 
