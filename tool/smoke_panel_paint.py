@@ -10,7 +10,7 @@ import threading
 
 sys.dont_write_bytecode = True
 from smoke_engine2 import ModelStub, Terminal
-from smoke_classification_panel import screen_text
+from smoke_classification_panel import terminal_grid
 
 
 def smoke(binary, endpoint, backend, columns, rows):
@@ -30,7 +30,7 @@ def smoke(binary, endpoint, backend, columns, rows):
         terminal = Terminal(command, env, columns, rows)
 
         def grid():
-            return screen_text(terminal.output, columns, rows)
+            return terminal_grid(terminal, columns, rows)
 
         def visible(text):
             terminal.wait_for(lambda: text in grid(), f'grid does not contain {text!r}',

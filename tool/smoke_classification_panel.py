@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Live classifier inspection on a controlling PTY, with local model fixtures."""
 import argparse
+import codecs
 import json
 import os
 from pathlib import Path
@@ -16,20 +17,34 @@ sys.dont_write_bytecode = True
 from smoke_engine2 import ModelStub, Terminal
 
 
-def screen_text(output, columns, rows, initial=None):
+def screen_text(output, columns, rows, initial=None, _state=None):
     """Replay the terminal grid, including native writes that reuse old letters."""
-    grid = [[' '] * columns for _ in range(rows)]
-    if initial:
-        for y, line in enumerate(initial[:rows]):
-            for x, char in enumerate(line[:columns]): grid[y][x] = char
-    row = col = 0
-    saved = (0, 0)
-    previous = ' '
+    state = {} if _state is None else _state
+    if 'grid' not in state:
+        grid = [[' '] * columns for _ in range(rows)]
+        if initial:
+            for y, line in enumerate(initial[:rows]):
+                for x, char in enumerate(line[:columns]): grid[y][x] = char
+        state.update(grid=grid, row=0, col=0, saved=(0, 0), previous=' ',
+                     pending='', decoder=codecs.getincrementaldecoder('utf-8')('replace'))
+    grid = state['grid']
+    row, col = state['row'], state['col']
+    saved, previous = state['saved'], state['previous']
+    decoded = state['pending'] + state['decoder'].decode(bytes(output))
+    state['pending'] = ''
+    last_end = 0
     tokens = re.finditer(
         r'\x1b(?:\[[0-?]*[ -/]*[@-~]|[\]PX^_].*?(?:\x07|\x1b\\)|[ -/]+[@-~]|.)|[^\x1b]',
-        output.decode(errors='replace'), re.S)
+        decoded, re.S)
     for token in tokens:
         text = token.group()
+        # Retain fragmented control sequences for the next read. Treating
+        # their prefix as printable text corrupts incremental native grids.
+        if len(text) == 2 and text[0] == '\x1b' and (
+                text[1] in '[]PX^_' or ' ' <= text[1] <= '/'):
+            state['pending'] = decoded[token.start():]
+            break
+        last_end = token.end()
         if text.startswith('\x1b['):
             action = text[-1]
             params = text[2:-1]
@@ -83,11 +98,31 @@ def screen_text(output, columns, rows, initial=None):
             grid.pop(0)
             grid.append([' '] * columns)
             row = rows - 1
+    else:
+        # A trailing standalone ESC has no complete token yet.
+        state['pending'] = decoded[last_end:]
+    state.update(row=row, col=col, saved=saved, previous=previous)
     return '\n'.join(''.join(line) for line in grid)
 
 
+def terminal_grid(terminal, columns, rows):
+    """Replay each byte once so grid assertions do not backpressure the app."""
+    cache = getattr(terminal, '_grid_cache', None)
+    if cache is None or cache['size'] != (columns, rows) or cache['offset'] > len(terminal.output):
+        cache = {'size': (columns, rows), 'offset': 0, 'state': {}}
+        terminal._grid_cache = cache
+    end = len(terminal.output)
+    result = screen_text(terminal.output[cache['offset']:end], columns, rows,
+                         _state=cache['state'])
+    cache['offset'] = end
+    return result
+
+
 def expect_grid(terminal, text, columns, rows, start=0, initial=None):
-    terminal.wait_for(lambda: text in screen_text(terminal.output[start:], columns, rows, initial),
+    def grid():
+        return terminal_grid(terminal, columns, rows) if start == 0 and initial is None else (
+            screen_text(terminal.output[start:], columns, rows, initial))
+    terminal.wait_for(lambda: text in grid(),
                       f'visible grid does not contain {text!r}')
 
 
