@@ -33,7 +33,8 @@ def smoke(binary, endpoint, backend, columns, rows):
             return screen_text(terminal.output, columns, rows)
 
         def visible(text):
-            terminal.wait_for(lambda: text in grid(), f'grid does not contain {text!r}')
+            terminal.wait_for(lambda: text in grid(), f'grid does not contain {text!r}',
+                              timeout=30)
 
         def line(text):
             terminal.send(text)

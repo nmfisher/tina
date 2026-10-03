@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Exercise retained image rendering on a real notcurses PTY, offline."""
 import argparse
+from contextlib import closing
 import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import tempfile
 import threading
 import time
@@ -29,6 +31,13 @@ def send_line(terminal, text):
     time.sleep(0.1)
     terminal.send('\r')
     return start
+
+
+def cancelled_turn_count(store):
+    with closing(sqlite3.connect(f'file:{store}?mode=ro', uri=True)) as connection:
+        return sum(entry.get('type') == 'turn_ended' and entry.get('reason') == 'cancelled'
+                   for (payload,) in connection.execute('SELECT payload FROM log_registry')
+                   for entry in [json.loads(payload)])
 
 
 def smoke(binary, endpoint, columns, rows):
@@ -128,7 +137,11 @@ def smoke(binary, endpoint, columns, rows):
                 ModelStub.release_cancelled.clear()
                 start = send_line(terminal, 'cancel this')
                 terminal.expect('cancel pending', start, wrapped=True)
+                cancelled_before = cancelled_turn_count(root / 'sessions.db')
                 terminal.send('\x1b')
+                terminal.wait_for(
+                    lambda: cancelled_turn_count(root / 'sessions.db') > cancelled_before,
+                    'Escape did not cancel the active response')
                 terminal.expect('cancelled: escape', start, wrapped=True)
                 before = len(ModelStub.requests)
                 start = send_line(terminal, 'after cancel')
@@ -148,7 +161,13 @@ def smoke(binary, endpoint, columns, rows):
                 # output marker. Wait for actual execution, not that preview.
                 terminal.wait_for(lambda: (workspace / 'subprocess-ready').exists(),
                                   'approved subprocess did not start')
+                cancelled_before = cancelled_turn_count(root / 'sessions.db')
                 terminal.send('\x1b')
+                # A repaint can emit a previous cancellation message. Wait for
+                # this turn's durable cancellation before typing another key.
+                terminal.wait_for(
+                    lambda: cancelled_turn_count(root / 'sessions.db') > cancelled_before,
+                    'Escape did not cancel the active subprocess')
                 terminal.expect('cancelled: escape', start, wrapped=True)
                 before = len(ModelStub.requests)
                 start = send_line(terminal, 'after tool cancellation')

@@ -211,12 +211,24 @@ class Terminal:
         )
 
     def read(self):
-        if select.select([self.master], [], [], 0.05)[0]:
+        if not select.select([self.master], [], [], 0.05)[0]:
+            return
+        # Linux PTYs can return only a few KiB per read even with a larger
+        # buffer. Drain ready data before expensive VT replay; otherwise the
+        # reader backpressures a healthy renderer on slower CI runners.
+        deadline = time.monotonic() + 0.05
+        while True:
             try:
-                self.output.extend(os.read(self.master, 65536))
+                chunk = os.read(self.master, 65536)
             except OSError as error:
                 if error.errno != errno.EIO:
                     raise
+                return
+            if not chunk:
+                return
+            self.output.extend(chunk)
+            if time.monotonic() >= deadline or not select.select([self.master], [], [], 0)[0]:
+                return
 
     def expect(self, text, start=0, *, wrapped=False):
         expected = text.encode()
@@ -263,8 +275,8 @@ class Terminal:
             self.read()
         assert not self.output[start:], 'idle app kept redrawing selectable text'
 
-    def wait_for(self, predicate, description):
-        deadline = time.monotonic() + 10
+    def wait_for(self, predicate, description, *, timeout=10):
+        deadline = time.monotonic() + timeout
         while not predicate() and time.monotonic() < deadline:
             self.read()
         assert predicate(), description
