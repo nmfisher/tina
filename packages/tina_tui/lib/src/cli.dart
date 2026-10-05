@@ -20,7 +20,9 @@ const cliHelp =
 Starts the engine2 terminal app. /help lists loaded commands.
 Interactive launches default to notcurses with inline images, falling back to
 ANSI if native initialization fails. --backend selects an explicit renderer;
-auto restores the default. The status bar shows the active backend.
+auto restores the default. The status bar shows the active backend. Inside
+tmux, auto picks ANSI because notcurses renders unpredictably there; the
+status bar says when that happened, and --backend notcurses overrides it.
 --no-sandbox disables OS filesystem and network confinement for this run.
 Permission modes and approval checks still apply; child environments remain filtered.
 --model overrides the model for this run; resume otherwise restores its saved model.

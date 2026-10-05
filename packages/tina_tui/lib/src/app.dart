@@ -32,14 +32,23 @@ Future<int> runApp(
   Stream<ScreenLayout>? resizes,
   String backend = 'auto',
   StartupTerminal? startup,
+  Map<String, String>? environment,
 }) async {
   final terminal = session.terminal;
   if (terminal is! TuiTerminal) {
     throw ArgumentError('runApp requires a TuiTerminal');
   }
+  final selection = resolveBackendSelection(backend, environment: environment);
   final s = startup?.screen ??
       screen ??
-      _newScreen(theme: resolveTheme(session.assembly.theme), backend: backend);
+      _newScreen(
+          theme: resolveTheme(session.assembly.theme),
+          backend: selection.backend);
+  if (startup != null) s.setTheme(resolveTheme(session.assembly.theme));
+  // Where the notice comes from: an opened StartupTerminal resolved with the
+  // real environment (and may have demoted auto to ANSI before this call);
+  // an injected screen resolves here so tests can drive the fallback.
+  final tmuxNotice = startup?.tmuxNotice ?? selection.tmuxNotice;
   if (startup != null) s.setTheme(resolveTheme(session.assembly.theme));
   // UI plugins own presentation. The app only routes generic notices and
   // mounts console capabilities; headless output still uses TuiTerminal.
@@ -171,7 +180,12 @@ Future<int> runApp(
         () => [
               RenderLine(runs: [
                 RenderRun(s.backend is NotcursesBackend ? 'notcurses' : 'ansi',
-                    s.theme.chat.dim)
+                    s.theme.chat.dim),
+                // The tmux fallback fired this startup: say so next to the
+                // backend label. One dim segment, dropped when an explicit
+                // --backend suppressed the notice or the shell isn't tmux.
+                if (tmuxNotice != null)
+                  RenderRun('  ·  $tmuxNotice', s.theme.chat.dim),
               ])
             ],
         priority: -20);
@@ -324,11 +338,34 @@ Future<int> runApp(
   }
 }
 
+/// The resolved `--backend` selection: the renderer to construct and, when
+/// tmux demoted `auto` to ANSI, the one-line notice the status bar shows.
+///
+/// Inside tmux (`$TMUX` set) `auto` selects ANSI: notcurses renders
+/// unpredictably there — its glyph layout disagrees with tmux's raster
+/// (tin-q4vz, tin-p8k2), its DA1 reply confuses the vendored input automaton,
+/// and a detached session needs the reply-guard detour that surrenders
+/// colour detection (tin-r2vd). An explicit `--backend` always wins and
+/// silences the notice; outside tmux nothing changes.
+({String backend, String? tmuxNotice}) resolveBackendSelection(String backend,
+    {Map<String, String>? environment}) {
+  if (backend != 'auto') return (backend: backend, tmuxNotice: null);
+  final insideTmux =
+      ((environment ?? io.Platform.environment)['TMUX'] ?? '').isNotEmpty;
+  if (!insideTmux) return (backend: backend, tmuxNotice: null);
+  return (
+    backend: 'ansi',
+    tmuxNotice: 'tmux: --backend ansi renders more predictably than notcurses',
+  );
+}
+
 /// The real screen: size off the process's stdout, selected backend, no
 /// menu bar — one chat panel, one status row, one input row. Without a
 /// terminal there is no size to ask for (`terminalColumns` throws on a
-/// pipe), so debug and CI runs fall back to a conventional 80×24.
-Screen _newScreen({Theme? theme, String backend = 'auto'}) {
+/// pipe), so debug and CI runs fall back to a conventional 80×24. The
+/// caller resolves the selection first ([resolveBackendSelection]); this
+/// constructor only honours the name it is given.
+Screen _newScreen({Theme? theme, required String backend}) {
   var columns = 80;
   var lines = 24;
   if (io.stdout.hasTerminal) {
@@ -384,15 +421,28 @@ class _AppStdio extends LiveStdio {
 /// same reader stays attached to stdin; native terminal initialization runs
 /// once. The CLI also closes this on cancellation or assembly failure.
 final class StartupTerminal {
-  StartupTerminal._(this.screen, this.editor, this._echo, this._line);
+  StartupTerminal._(this.screen, this.editor, this._echo, this._line,
+      {String? tmuxNotice})
+      : _tmuxNotice = tmuxNotice;
   final Screen screen;
   final LineEditor editor;
+
+  /// Non-null when startup resolved `auto` inside tmux and demoted it to
+  /// ANSI; runApp binds it into the status bar. Never set for an explicit
+  /// `--backend` or a shell outside tmux.
+  final String? _tmuxNotice;
+
+  /// The fallback notice this terminal was opened with, if any.
+  String? get tmuxNotice => _tmuxNotice;
   final bool? _echo;
   final bool? _line;
   bool _closed = false;
 
-  factory StartupTerminal.open({String backend = 'auto'}) {
-    final screen = _newScreen(backend: backend);
+  factory StartupTerminal.open(
+      {String backend = 'auto', Map<String, String>? environment}) {
+    final selection = resolveBackendSelection(backend,
+        environment: environment ?? io.Platform.environment);
+    final screen = _newScreen(backend: selection.backend);
     final native = screen.backend is NotcursesBackend;
     final editor = LineEditor(
         screen: screen,
@@ -400,7 +450,8 @@ final class StartupTerminal {
             ? (screen.backend as NotcursesBackend).createInputBackend()
             : null);
     final terminal = StartupTerminal._(screen, editor,
-        native ? null : io.stdin.echoMode, native ? null : io.stdin.lineMode);
+        native ? null : io.stdin.echoMode, native ? null : io.stdin.lineMode,
+        tmuxNotice: selection.tmuxNotice);
     try {
       if (!native) {
         io.stdin.echoMode = false;
