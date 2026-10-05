@@ -1,3 +1,4 @@
+// Historical test snapshot; its runtime and helpers have been retired.
 import 'dart:convert';
 import 'dart:io';
 

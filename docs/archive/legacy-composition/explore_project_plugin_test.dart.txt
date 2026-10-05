@@ -1,3 +1,4 @@
+// Historical test snapshot; its runtime and helpers have been retired.
 import 'package:tina/composition/explore_project.dart';
 import 'package:tina/composition/git_input.dart';
 import 'package:tina/composition/intent_input.dart';

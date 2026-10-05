@@ -1,5 +1,11 @@
 # Plugins
 
+This is a historical record of the retired `tina_app` / `tina_engine`
+runtime. Its plugin IDs, launcher paths and implementation status describe
+that runtime. For current plugins, see [packages/plugins](../packages/plugins/README.md)
+and [engine2 architecture](../packages/tina_engine_2/README.md). The old composition
+examples and tests are preserved in [the archive](archive/legacy-composition/README.md).
+
 One document for tina's plugin system: how it works, what ships as
 plugins today, and the implementation record of the proposals that
 produced it. It consolidates and replaces the former proposal series —
@@ -123,7 +129,7 @@ The canonical inventory — real ids and the files that define them.
 | `tina.chat-renderer` | root `lib/composition/chat_renderer.dart` — default transcript renderer |
 | `example.timestamp-chat` | root `lib/composition/timestamp_chat.dart` — time gutter; id sorts first, delegates back |
 | `tina.git-input` / `tina.intent-input` | tina_app `execution/` — git-state and input-intent classification; inert headless |
-| `tina.tool.explore-project` | root `lib/composition/explore_project.dart` — repo-exploration tool; fails closed without Typesafe config |
+| `tina.tool.explore-project` | [archived `explore_project.dart`](archive/legacy-composition/explore_project.dart.txt) — former repo-exploration tool; failed closed without Typesafe config |
 | `tina.plan` / `tina.goal` | tina_app `plans/` `goals/` (stores) + root `lib/composition/` (strip sources, renderers, commands) |
 | `tina.token-status` | root `lib/composition/token_status.dart` — token-spend counter |
 | `tina.index-status` | root `lib/composition/index_status.dart` — indexing line on the strip |
@@ -242,12 +248,11 @@ items are open.
   remote-answerable approvals Part 3+:** no ask store, no `/approve`,
   no daemon.
 
-## Live obligations
+## Historical obligations
 
-- `test/composition/agent_surface_golden_test.dart` pins the default
+- [Archived `agent_surface_golden_test.dart`](archive/legacy-composition/agent_surface_golden_test.dart.txt) pinned the default
   tool list and permission decisions byte-for-byte. Any PT1/PT2-style
-  refactor must reproduce them; change a golden only with an
+  refactor was required to reproduce them; a golden change required an
   intentional-change note (per the test's own failure message).
-- When work from this document lands, update the relevant section here
-  in the same commit — this file is the single status of record for the
-  plugin system.
+- Current implementation status belongs in the engine2 and package plugin
+  documentation linked above.

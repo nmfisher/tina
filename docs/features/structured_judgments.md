@@ -46,8 +46,11 @@ The saved key takes precedence over `TYPESAFE_API_KEY`. Clearing it restores
 the environment fallback if one is set. It never creates a chat provider or
 changes the active conversation's model. Other settings preserve this section.
 
-Application composition can call `createConfiguredTypeSafeService` from
-`lib/composition/typesafe.dart`, supplying the launch environment. It reads the
+The retired launcher called `createConfiguredTypeSafeService` from
+`lib/composition/typesafe.dart`, supplying the launch environment. That code is
+now an [archived snapshot](../archive/legacy-composition/typesafe.dart.txt);
+the composition and `/explore` integration described here are historical,
+not engine2 frontend commands. The old service read the
 latest config on each construction and returns null when no key is available.
 Existing service instances retain their configuration. The exploration tool
 creates and closes one service per invocation, so saved credential changes apply
