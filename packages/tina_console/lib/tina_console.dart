@@ -25,6 +25,7 @@ export 'src/backend/backend_surface.dart';
 export 'src/backend/input_backend.dart';
 export 'src/backend/notcurses_probe.dart';
 export 'src/backend/terminal_backend.dart';
+export 'src/backend/terminal_modes.dart' show disableMouseReporting;
 export 'src/ansi_capable.dart';
 export 'src/ansi_wrap.dart';
 export 'package:fuzzy_ranker/fuzzy_ranker.dart';

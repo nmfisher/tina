@@ -1,6 +1,7 @@
 import 'dart:ffi';
 import 'dart:io';
 import 'package:ffi/ffi.dart';
+import 'package:tina_console/tina_console.dart' show disableMouseReporting;
 
 /// Preserve stdin before native initialization can replace it with a PTY or
 /// change its modes. An ANSI fallback needs the original descriptor as well
@@ -31,8 +32,8 @@ final class TerminalStartupSnapshot {
       throw StateError('Could not restore terminal input after native startup');
     }
     // Undo any terminal reporting/alternate-screen state left by partial init.
-    stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l'
-        '\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m');
+    stdout.write(
+        disableMouseReporting + '\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m');
   }
 
   void dispose() {

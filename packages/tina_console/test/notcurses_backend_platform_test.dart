@@ -624,7 +624,35 @@ void main() {
     test('enterAltScreen + leaveAltScreen calls stop exactly once', () {
       backend.enterAltScreen();
       backend.leaveAltScreen();
-      expect(plat.calls, ['stop']);
+      expect(plat.calls.where((c) => c == 'stop'), hasLength(1));
+      expect(plat.calls.last, 'stop');
+    });
+
+    test('resets mouse and paste reporting directly before native stop', () {
+      backend.enterAltScreen();
+      // Direct backend shutdown also needs to restore paste without a Screen.
+      backend.enableBracketedPaste();
+      backend.leaveAltScreen();
+      for (final mode in [1000, 1002, 1003, 1006, 1016, 2004]) {
+        expect(plat.rawTtyWrites.join(), contains('\x1b[?${mode}l'));
+      }
+      expect(plat.calls.last, 'stop');
+      final resetCount = plat.rawTtyWrites.length;
+      backend.leaveAltScreen();
+      expect(plat.rawTtyWrites, hasLength(resetCount));
+    });
+
+    test('a throwing native stop still leaves mouse reporting disabled', () {
+      backend.enterAltScreen();
+      plat.stopThrows = true;
+      expect(backend.leaveAltScreen, throwsStateError);
+      for (final mode in [1000, 1002, 1003, 1006, 1016]) {
+        expect(plat.rawTtyWrites.join(), contains('\x1b[?${mode}l'));
+      }
+      plat.calls.clear();
+      backend.leaveAltScreen();
+      backend.flush();
+      expect(plat.calls, isEmpty);
     });
 
     test('leaveAltScreen without enter is a no-op', () {
@@ -644,9 +672,10 @@ void main() {
       backend.flush();
       plat.calls.clear();
       backend.leaveAltScreen();
+      final afterLeave = List.of(plat.calls);
       backend.flush();
-      // Only stop should appear; no render or cursorEnable after.
-      expect(plat.calls, ['stop']);
+      expect(plat.calls, afterLeave,
+          reason: 'no render or cursorEnable after terminal cleanup and stop');
     });
 
     test('every terminal-touching method is guarded after stop', () {

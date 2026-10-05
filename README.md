@@ -70,8 +70,13 @@ limits, reasoning/output controls, themes, credentials and completion.
 Messages submitted during work show a queued confirmation and a pending count
 until delivery. Reasoning appears immediately as an ongoing block with a live
 estimated token count (`~`), then finishes in place. The mouse wheel scrolls
-conversation history one displayed line per notch; use Shift-drag to select
-terminal text (Option-drag in macOS Terminal).
+conversation history one displayed line per notch. To select terminal text,
+use your terminal's mouse-reporting override: **Fn-drag** in macOS Terminal,
+**Option-drag** in iTerm2, or usually **Shift-drag** elsewhere. Keep mouse
+reporting enabled so the wheel still scrolls Tina when the modifier is released.
+If your keyboard has no Fn key, macOS Terminal also lets you toggle
+**View → Allow Mouse Reporting** with **⌘R**. While reporting is off, use
+Page Up/Down to scroll conversation history.
 
 ## Input, commands and sessions
 

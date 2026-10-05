@@ -303,6 +303,12 @@ class Terminal:
         assert self.process.poll() == exit_code, "app did not exit cleanly with stdin still open"
         self.read()
         assert b"\x1b[?1049l" in self.output, "alternate screen was not restored"
+        mouse_modes = {1000: False, 1002: False, 1003: False, 1006: False, 1016: False}
+        for modes, action in re.findall(rb'\x1b\[\?([0-9;]+)([hl])', self.output):
+            for mode in map(int, modes.split(b';')):
+                if mode in mouse_modes:
+                    mouse_modes[mode] = action == b'h'
+        assert not any(mouse_modes.values()), f"mouse reporting survived exit: {mouse_modes}"
         restored = termios.tcgetattr(self.master)
         modes = termios.ECHO | termios.ICANON
         assert restored[3] & modes == self.original_modes[3] & modes, "echo/line mode changed"

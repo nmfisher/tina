@@ -7,6 +7,7 @@ import '../stdio.dart';
 import '../input_latency.dart';
 import 'backend_surface.dart';
 import 'terminal_backend.dart';
+import 'terminal_modes.dart';
 import 'canvas_style.dart';
 
 /// ANSI escape sequence implementation of [TerminalBackend].
@@ -187,7 +188,8 @@ class AnsiBackend
   void enterAltScreen() {
     _buf.write('\x1b[?1049h');
     // Receive wheel reports instead of terminal-generated history arrows.
-    // Button reporting leaves text selection available with Shift/Option.
+    // Native selection uses the terminal's override: Fn-drag in macOS
+    // Terminal, Option-drag in iTerm2, or Shift-drag in most other terminals.
     _buf.write('\x1b[?1000h\x1b[?1006h');
     _cursor = _savedCursor = null;
   }
@@ -195,7 +197,7 @@ class AnsiBackend
   @override
   void leaveAltScreen() {
     setCursorVisible(true);
-    _buf.write('\x1b[?1000l\x1b[?1006l');
+    _buf.write(disableMouseReporting);
     if (_cursorColor != null) {
       _buf.write(CanvasStyle.cursorSequence(null));
       _cursorColor = null;

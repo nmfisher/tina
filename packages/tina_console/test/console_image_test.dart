@@ -29,10 +29,14 @@ class ImageBackend extends AnsiBackend implements RetainedImageBackend {
 
 class ImagePlane implements NotcursesImagePlane {
   int raises = 0, destroys = 0;
+  bool throwOnDestroy = false;
   @override
   void raise() => raises++;
   @override
-  void destroy() => destroys++;
+  void destroy() {
+    destroys++;
+    if (throwOnDestroy) throw StateError('image cleanup failed');
+  }
 }
 
 void main() {
@@ -221,5 +225,35 @@ void main() {
     backend.clearImages(other);
     backend.updateImages(owner, [placement]);
     expect(planes, hasLength(3));
+  });
+
+  test('failed image cleanup still restores mouse reporting and stops', () {
+    final io = FakeStdio();
+    addTearDown(() {
+      io.close();
+    });
+    final platform = RecordingPlatform();
+    final imagePlane = ImagePlane()..throwOnDestroy = true;
+    final backend = NotcursesBackend.forTesting(
+        io: io,
+        platform: platform,
+        imagePainter: (placement, surface) => imagePlane);
+    backend.enterAltScreen();
+    final image = ConsoleImage.decode(base64Decode(redPng))!
+        .fit(columns: 10, rows: 4, cells: backend.imageCellSize);
+    backend.updateImages(Object(), [
+      ImagePlacement(
+          image: image, row: 2, column: 3, sourceRow: 0, rows: 4, columns: 6)
+    ]);
+    expect(backend.leaveAltScreen, returnsNormally);
+    expect(imagePlane.destroys, 1);
+    expect(platform.stopped, isTrue);
+    for (final mode in [1000, 1002, 1003, 1006, 1016]) {
+      expect(platform.rawTtyWrites.join(), contains('\x1b[?${mode}l'));
+    }
+    platform.calls.clear();
+    backend.writeText('late');
+    backend.flush();
+    expect(platform.calls, isEmpty);
   });
 }

@@ -19,6 +19,7 @@ import 'init_reply_guard.dart';
 import 'input_backend.dart';
 import 'notcurses_input_backend.dart';
 import 'terminal_backend.dart';
+import 'terminal_modes.dart';
 
 /// Lifetime of a native image child plane. Injectable for backend tests.
 abstract interface class NotcursesImagePlane {
@@ -175,8 +176,9 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
       // support leaves the wheel unhandled rather than mis-routed.
       //
       // There is no wheel-only reporting mode: enabling this routes button-1
-      // click-drags to the app too, so native text selection then needs
-      // Option/Alt (macOS Terminal) or Shift (most terminals) held.
+      // click-drags to the app too. Native selection uses Fn-drag in macOS
+      // Terminal, Option-drag in iTerm2, or Shift-drag in most other terminals.
+      // Terminal also offers View > Allow Mouse Reporting (Cmd+R).
       if (mouseWheel) nc_.miceEnable(nc.MiceEvents.buttonEvent);
       // macOS' line discipline eats 0x0F (Ctrl+O, the VDISCARD toggle)
       // before it reaches the input pump; unbind it so the byte arrives.
@@ -571,39 +573,52 @@ class NotcursesBackend
     // Guard reentrant and late writes even if a cleanup or platform stop
     // throws. Screen.leaveAltScreen also flushes after this method returns.
     _stopped = true;
-    // Join every input pump thread BEFORE freeing the context it polls
-    // (tin-j3mk: a live pump thread inside notcurses_get_nblock during
-    // notcurses_stop was the teardown SIGSEGV in notcurses_stdplane).
-    // dispose() is idempotent, so the normal path — which already disposed
-    // the editor's backend — pays nothing here. A dispose that throws must
-    // not block the platform stop: the terminal stays raw until stop runs.
-    for (final input in _inputBackends) {
-      try {
-        input.dispose();
-      } catch (_) {}
-    }
-    _inputBackends.clear();
-    for (final owner in _images.keys.toList()) {
-      clearImages(owner);
-    }
-    // Destroy planes while their context is still alive. This also marks the
-    // surface handles inert, so late writes/erases/destroy calls cannot reach
-    // freed native memory. destroy removes itself from the live-surface set.
-    for (final surface in _surfaces.toList()) {
-      try {
-        surface.destroy();
-      } catch (_) {
-        // Restore the terminal even when an individual surface fails cleanup.
-        // Its handle is already invalidated; stop frees any remaining planes.
-      }
-    }
     try {
-      if (_cursorColor != null) {
-        _platform.writeRawToTty(CanvasStyle.cursorSequence(null));
-        _cursorColor = null;
+      // Join every input pump thread BEFORE freeing the context it polls
+      // (tin-j3mk: a live pump thread inside notcurses_get_nblock during
+      // notcurses_stop was the teardown SIGSEGV in notcurses_stdplane).
+      // dispose() is idempotent, so the normal path — which already disposed
+      // the editor's backend — pays nothing here. A dispose that throws must
+      // not block the platform stop: the terminal stays raw until stop runs.
+      for (final input in _inputBackends) {
+        try {
+          input.dispose();
+        } catch (_) {}
+      }
+      _inputBackends.clear();
+      for (final owner in _images.keys.toList()) {
+        try {
+          clearImages(owner);
+        } catch (_) {
+          // stop() frees remaining image planes; continue restoring the tty.
+        }
+      }
+      // Destroy planes while their context is still alive. This also marks the
+      // surface handles inert, so late writes/erases/destroy calls cannot reach
+      // freed native memory. destroy removes itself from the live-surface set.
+      for (final surface in _surfaces.toList()) {
+        try {
+          surface.destroy();
+        } catch (_) {
+          // Restore the terminal even when an individual surface fails cleanup.
+          // Its handle is already invalidated; stop frees any remaining planes.
+        }
       }
     } finally {
-      _platform.stop();
+      try {
+        // Use the controlling tty directly: the input descriptor may already
+        // be closed, so notcurses_stop's mouse reset can fail. Also reset modes
+        // left by a child process, independently of notcurses' tracked mode.
+        _platform.writeRawToTty(disableMouseReporting);
+        _platform.writeRawToTty('\x1b[?2004l');
+        _bracketedPasteEnabled = false;
+        if (_cursorColor != null) {
+          _platform.writeRawToTty(CanvasStyle.cursorSequence(null));
+          _cursorColor = null;
+        }
+      } finally {
+        _platform.stop();
+      }
     }
   }
 
