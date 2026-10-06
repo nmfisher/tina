@@ -36,16 +36,20 @@ final class TuiSession {
 
   /// The registry the command plugins published into.
   final Commands commands;
-  Command? _activeCommand;
+  final _activeCommands = <Command>[];
 
-  bool get canCancel => _activeCommand?.cancel != null || assembly.watchingTurn;
+  bool get canCancel =>
+      _activeCommands.any((command) => command.cancel != null) ||
+      assembly.watchingTurn;
 
   void cancel() {
-    _activeCommand?.cancel?.call();
-    host.session.loop.cancel('escape');
+    for (final command in _activeCommands.toSet()) {
+      command.cancel?.call();
+    }
+    if (host.session.loop.running) host.session.loop.cancel('escape');
   }
 
-  /// Commands stay on the frontend's queue, even while a model turn runs.
+  /// Only plain messages may enter the model input queue.
   bool offerInput(String text) =>
       dispatchLine(commands, text) is PlainLine && host.offerInput(text);
 
@@ -109,13 +113,8 @@ final class TuiSession {
   /// rendered run and a headless `handleCommand` run agree.
   Future<bool> runLine(String line, {bool renderReply = true}) async {
     switch (dispatchLine(commands, line)) {
-      case RunCommand(:final command, :final argument):
-        _activeCommand = command;
-        try {
-          await command.handler(argument);
-        } finally {
-          _activeCommand = null;
-        }
+      case final RunCommand decision:
+        await _runCommand(decision);
       case UnknownCommand(:final name):
         terminal.writeln('unknown command: /$name');
       case PlainLine(:final text) when text.isEmpty:
@@ -139,9 +138,18 @@ final class TuiSession {
   Future<void>? offerCommand(String line) {
     final decision = dispatchLine(commands, line);
     if (decision is RunCommand && decision.command.allowWhileRunning) {
-      return decision.run();
+      return _runCommand(decision);
     }
     return null;
+  }
+
+  Future<void> _runCommand(RunCommand decision) async {
+    _activeCommands.add(decision.command);
+    try {
+      await decision.run();
+    } finally {
+      _activeCommands.remove(decision.command);
+    }
   }
 
   /// Close the host. The terminal's pending asks resolve with the empty

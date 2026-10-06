@@ -33,7 +33,7 @@ void main() {
   test('command declares its prefix and cancellation without model tools', () {
     expect(plugin.commands.single.inputPrefix, '!');
     expect(plugin.commands.single.cancel, isNotNull);
-    expect(plugin.commands.single.allowWhileRunning, isFalse);
+    expect(plugin.commands.single.allowWhileRunning, isTrue);
     expect(plugin.tools, isEmpty);
   });
   test('empty command shows usage without launching a process', () async {

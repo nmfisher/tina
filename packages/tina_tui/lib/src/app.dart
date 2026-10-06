@@ -286,7 +286,9 @@ Future<int> runApp(
         if (!session.offerInput(text)) queued.addLast(text);
         terminal.writeln('Message queued; waiting for current work.');
         console.refreshStatus();
-      }, queueCount: queued.length);
+      },
+          queueCountProvider: () =>
+              queued.length + session.host.session.loop.pendingInputCount);
       try {
         await session.runLine(line, renderReply: false);
       } finally {
@@ -298,6 +300,7 @@ Future<int> runApp(
     return 0;
   } finally {
     stopping = true;
+    session.cancel();
     releaseBackendStatus?.call();
     if (queueStatusListener case final listener?)
       session.host.session.loop.unsubscribe(listener);

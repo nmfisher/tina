@@ -98,6 +98,7 @@ class LineEditor {
   ({String buffer, int cursor})? _capturedDraft;
   void Function(String)? _onQueueSubmit;
   int _qCount = 0;
+  int Function()? _queueCountProvider;
   bool _queueModeActive = false;
 
   /// Optional menu bar that intercepts Alt+letter and F10 keys.
@@ -544,10 +545,13 @@ class LineEditor {
   /// single-byte ESC press (not the prefix of an escape sequence) fires
   /// [onCancel]. When [onQueueSubmit] is provided, keystrokes during agent
   /// processing are echoed in the input region and submitted on Enter.
+  /// [queueCountProvider] reports the actual queue size when submissions can
+  /// also execute immediately instead of entering the queue.
   void beginCancelMonitor(
     void Function() onCancel, {
     void Function(String)? onQueueSubmit,
     int queueCount = 0,
+    int Function()? queueCountProvider,
   }) {
     _monitorGeneration++;
     _cancelHandler = onCancel;
@@ -560,6 +564,7 @@ class LineEditor {
       _qEdit = const TextLineInput();
     }
     _qCount = queueCount;
+    _queueCountProvider = queueCountProvider;
     _queueModeActive = onQueueSubmit != null;
     if (_queueModeActive) _renderQueueDisplay();
     _ensureListening();
@@ -573,6 +578,7 @@ class LineEditor {
     _onQueueSubmit = null;
     _qEdit = const TextLineInput();
     _qCount = 0;
+    _queueCountProvider = null;
   }
 
   /// While a slow command dispatch runs (e.g. `/compact` summarizing through
@@ -1851,14 +1857,15 @@ class LineEditor {
   }
 
   void _renderQueueDisplay() {
+    final queueCount = _queueCountProvider?.call() ?? _qCount;
     if (_qEdit.buffer.isNotEmpty) {
       screen.input.render(
           prompt: _currentPrompt, buffer: _qEdit.buffer, cursor: _qEdit.cursor);
-    } else if (_qCount > 0) {
+    } else if (queueCount > 0) {
       final useColor = screen.ansi.useColor;
       final label = useColor
-          ? screen.colorize(screen.theme.lineEditor.dim, '[$_qCount queued]')
-          : '[$_qCount queued]';
+          ? screen.colorize(screen.theme.lineEditor.dim, '[$queueCount queued]')
+          : '[$queueCount queued]';
       screen.input.render(prompt: label, buffer: '', cursor: 0);
     } else {
       // An empty capture window (e.g. a slow /compact still summarizing) must

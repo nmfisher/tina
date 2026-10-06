@@ -85,6 +85,80 @@ void main() {
     expect(provider.calls, 1);
   });
 
+  for (final prefix in ['!', '/shell ']) {
+    test('$prefix runs immediately during a busy model turn', () async {
+      final ready = Completer<void>();
+      final release = Completer<void>();
+      final provider = _WaitingProvider(ready, release);
+      final session = TuiSession.start(
+          configPath: '/nonexistent/tina/config',
+          providerFactory: (_) => provider,
+          workingDirectory: ws.path);
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+        session.close();
+      });
+      final turn = session.runLine('normal message');
+      await ready.future;
+      final shell = session.offerCommand('${prefix}echo immediate > executed');
+      expect(shell, isNotNull);
+      await shell!.timeout(const Duration(seconds: 3));
+      expect(
+          File('${ws.path}/executed').readAsStringSync().trim(), 'immediate');
+      expect(release.isCompleted, isFalse,
+          reason: 'the shell finishes before the model turn is released');
+      expect(session.host.session.loop.pendingInputCount, 0);
+      expect(provider.calls, 1);
+      release.complete();
+      await turn;
+    }, skip: Platform.isWindows);
+  }
+
+  test('an immediate shell remains cancellable after the model turn finishes',
+      () async {
+    final ready = Completer<void>();
+    final release = Completer<void>();
+    final provider = _WaitingProvider(ready, release);
+    final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
+        providerFactory: (_) => provider,
+        workingDirectory: ws.path);
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+      session.close();
+    });
+    final turn = session.runLine('normal message');
+    await ready.future;
+    final shell = session
+        .offerCommand('!echo ready > started; while :; do sleep 0.05; done');
+    expect(shell, isNotNull);
+    final started = File('${ws.path}/started');
+    final deadline = Stopwatch()..start();
+    while (!started.existsSync() &&
+        deadline.elapsed < const Duration(seconds: 3)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(started.existsSync(), isTrue);
+    await session.offerCommand('/shell echo duplicate > duplicate');
+    expect(File('${ws.path}/duplicate').existsSync(), isFalse);
+    expect((session.terminal as TuiTerminal).lines.map((l) => l.text),
+        contains('A shell command is already running in this session.'));
+    release.complete();
+    await turn;
+    expect(session.canCancel, isTrue,
+        reason: 'finishing another command or turn must not lose the shell');
+    session.cancel();
+    await shell!.timeout(const Duration(seconds: 3));
+    expect(session.canCancel, isFalse);
+    expect(
+        (session.terminal as TuiTerminal).lines.map((l) => l.text).join('\n'),
+        contains('cancelled: command stopped'));
+    expect(provider.calls, 1);
+    await session.runLine('next message');
+    expect(provider.calls, 2,
+        reason: 'cancelling the shell must not cancel the next model turn');
+  }, skip: Platform.isWindows);
+
   test('update runs immediately during a busy model turn', () async {
     final ready = Completer<void>();
     final release = Completer<void>();

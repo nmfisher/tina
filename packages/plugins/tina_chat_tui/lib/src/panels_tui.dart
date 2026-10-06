@@ -407,7 +407,7 @@ final class _Workspace implements ConsolePanels {
     if (event is EscapeKey &&
         !editor.isCompleting &&
         identical(focus.focused, active?.frame) &&
-        active?.task != null) {
+        (active?.task != null || active?.commands.isNotEmpty == true)) {
       if (editor.editState.buffer.isNotEmpty)
         editor.loadEditState('', 0);
       else

@@ -37,6 +37,7 @@ final class ShellPlugin extends AgentPlugin {
               'Run !command with your shell permissions, without a model call',
           handler: run,
           cancel: cancel,
+          allowWhileRunning: true,
         ),
       ];
 

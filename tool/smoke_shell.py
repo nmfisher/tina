@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 
 sys.dont_write_bytecode = True
 from smoke_engine2 import ModelStub, Terminal
@@ -41,11 +42,16 @@ def smoke(launcher, endpoint, backend, panels):
                 lambda: text in screen_text(terminal.output, 120, 28),
                 f'{backend}: shell display does not contain {text!r}', timeout=20)
 
-        def submit(command):
+        def submit(command, *, busy=False):
             terminal.send(command)
             # Native input can coalesce a long command as pasted text. Enter
             # must arrive after that burst has settled to submit it.
-            terminal.expect_idle()
+            if busy:
+                deadline = time.monotonic() + 0.35
+                while time.monotonic() < deadline:
+                    terminal.read()
+            else:
+                terminal.expect_idle()
             terminal.send('\r')
 
         try:
@@ -68,13 +74,49 @@ def smoke(launcher, endpoint, backend, panels):
             terminal.send('\x1b')
             visible('cancelled: command stopped')
             assert len(ModelStub.requests) == before, 'shell cancellation called the model'
+            ModelStub.release_stream.clear()
+            submit('terminal smoke')
+            visible('streaming prefix')
+            submit('!echo immediate > busy_shell', busy=True)
+            terminal.wait_for(lambda: (root / 'busy_shell').exists(),
+                              '! command waited for the active model turn')
+            submit("/shell trap 'echo stopped > busy_stopped; exit' TERM; "
+                   "echo ready > busy_started; while :; do sleep 0.1; done", busy=True)
+            terminal.wait_for(lambda: (root / 'busy_started').exists(),
+                              '/shell command waited for the active model turn')
+            assert not ModelStub.release_stream.is_set(), 'model turn finished before shell dispatch'
+            assert len(ModelStub.requests) == before + 1, 'busy shell called the model'
+            display = screen_text(terminal.output, 120, 28)
+            assert 'queued]' not in display, 'immediate shell is shown as queued'
+            assert 'Message queued' not in display, 'immediate shell emitted a queue notice'
+            ModelStub.release_stream.set()
+            visible('smoke answer')
+            terminal.expect_idle()
+            terminal.send('\x1b\x1b')
+            terminal.wait_for(lambda: (root / 'busy_stopped').exists(),
+                              'shell could not be cancelled after the model finished')
+            ModelStub.release_stream.clear()
+            submit('terminal smoke draft')
+            terminal.wait_for(lambda: len(ModelStub.requests) == before + 2,
+                              'model turn for quit check did not start')
+            submit("!trap 'echo stopped > quit_stopped; exit' TERM; "
+                   "echo ready > quit_started; while :; do sleep 0.1; done", busy=True)
+            terminal.wait_for(lambda: (root / 'quit_started').exists(),
+                              'shell command for quit check did not start')
+            ModelStub.release_stream.set()
+            terminal.expect_idle()
+            terminal.wait_for(
+                lambda: 'draft answer' in screen_text(terminal.output, 120, 28),
+                'model turn for quit check did not finish')
             terminal.quit()
-            print(f'PASS shell {backend}, panels={panels}: output, exit code, no model, cancellation',
+            assert (root / 'quit_stopped').exists(), 'quit did not stop the shell process'
+            print(f'PASS shell {backend}, panels={panels}: output, exit code, immediate dispatch, cancellation after model turn, shutdown',
                   flush=True)
         except Exception:
             print(screen_text(terminal.output, 120, 28), flush=True)
             raise
         finally:
+            ModelStub.release_stream.set()
             terminal.close()
 
 
