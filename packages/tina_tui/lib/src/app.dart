@@ -258,8 +258,8 @@ Future<int> runApp(
       settings.repaint();
     });
     editor.onDoubleEscape = () {
-      if (!session.assembly.watchingTurn) return false;
-      session.host.session.loop.cancel('escape');
+      if (!session.canCancel) return false;
+      session.cancel();
       return true;
     };
 
@@ -272,8 +272,7 @@ Future<int> runApp(
       console.refreshStatus();
       if (line.isEmpty) continue;
       editor.beginCancelMonitor(() {
-        if (session.assembly.watchingTurn)
-          session.host.session.loop.cancel('escape');
+        if (session.canCancel) session.cancel();
       }, onQueueSubmit: (text) {
         final command = session.offerCommand(text);
         if (command != null) {
@@ -284,8 +283,7 @@ Future<int> runApp(
           commands.add(task);
           return;
         }
-        if (text.trimLeft().startsWith('/') || !session.host.offerInput(text))
-          queued.addLast(text);
+        if (!session.offerInput(text)) queued.addLast(text);
         terminal.writeln('Message queued; waiting for current work.');
         console.refreshStatus();
       }, queueCount: queued.length);

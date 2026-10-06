@@ -525,13 +525,19 @@ final class TuiAssembly {
   /// this after each command; the assembly has no loop of its own.
   bool get quitRequested => _quit;
 
-  /// Dispatch one `/word` line through the registry: a published command
+  /// Dispatch one `/word` or registered prefix alias through the registry:
+  /// a published command
   /// runs its handler (which reports through whatever [Terminal] is in
   /// the slot), an unpublished word is refused. Returns false when the
   /// front end should stop ([quitRequested] after `/quit`). An empty or
   /// non-command line is nothing to this method.
   Future<bool> handleCommand(String line) async {
     final trimmed = line.trim();
+    final prefixed = commands.matchPrefix(trimmed);
+    if (prefixed != null) {
+      await prefixed.command.handler(prefixed.argument);
+      return !_quit;
+    }
     if (!trimmed.startsWith('/')) return true;
     final rest = trimmed.substring(1);
     final split = RegExp(r'\s').firstMatch(rest);

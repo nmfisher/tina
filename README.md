@@ -89,6 +89,13 @@ subprocess output. Approval dialogs use the selected approval-channel plugin.
 Tab offers argument completions supplied by each plugin. `@` completes files.
 Settings menus filter as you type, and Tab completes supported text fields.
 
+With `tina/shell` enabled (the default), `!command` or `/shell command` runs
+directly with your normal shell permissions, without a model request or tool
+approval. Each command starts a fresh noninteractive shell in the session's
+working directory. Stdout, stderr and the exit code appear in the conversation
+panel through the renderer. Escape with an empty draft cancels the command;
+commands entered while the panel is busy wait in its queue.
+
 `/spawn` opens an independent conversation panel using the configured default model;
 `/spawn provider/model` selects a different model. Each panel keeps its own
 draft, input history, queued messages and saved session. Panels can run turns

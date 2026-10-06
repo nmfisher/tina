@@ -51,8 +51,13 @@ final class PlainLine extends CommandDecision {
 /// the first word (the command) and the rest (the argument, trimmed); a
 /// published word runs, an unpublished one is unknown; anything else is
 /// a plain line.
+/// A registered prefix alias passes all text after its prefix as the argument.
 CommandDecision dispatchLine(Commands commands, String line) {
   final trimmed = line.trim();
+  final prefixed = commands.matchPrefix(trimmed);
+  if (prefixed != null) {
+    return RunCommand(prefixed.command, prefixed.argument);
+  }
   if (!trimmed.startsWith('/')) {
     return PlainLine(trimmed);
   }

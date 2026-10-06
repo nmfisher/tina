@@ -35,12 +35,7 @@ final class Host {
     var addedToLoop = false;
     try {
       final declared = plugin.commands;
-      final names = <String>{};
-      for (final command in declared) {
-        if (commands[command.name] != null || !names.add(command.name)) {
-          throw StateError('command "${command.name}" is already published');
-        }
-      }
+      commands.validate(declared);
       final seed = plugin.openSession(context);
       if (seed != null)
         throw StateError('history restoration requires a new session');

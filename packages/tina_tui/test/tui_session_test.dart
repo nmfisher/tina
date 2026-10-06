@@ -20,7 +20,8 @@ void main() {
   late TuiSession tui;
   setUp(() async {
     ws = await Directory.systemTemp.createTemp('tina_tui_session_');
-    tui = TuiSession.start(configPath: '/nonexistent/tina/config',
+    tui = TuiSession.start(
+      configPath: '/nonexistent/tina/config',
       providerFactory: (_) => ScriptedProvider([scriptedReply('echo reply')]),
       workingDirectory: ws.path,
     );
@@ -47,6 +48,62 @@ void main() {
     expect(tui.host.session.loop.log, isEmpty,
         reason: 'the refusal is not a turn');
   });
+
+  test('manual shell output is captured without a model turn or tool approval',
+      () async {
+    await tui.runLine('/mode read-only');
+    final before = tui.host.session.loop.log.toList();
+    await tui
+        .runLine('!printf "manual stdout"; printf "manual stderr" >&2; exit 7');
+    final output =
+        (tui.terminal as TuiTerminal).lines.map((l) => l.text).join('\n');
+    expect(output, contains('manual stdout'));
+    expect(output, contains('manual stderr'));
+    expect(output, contains('exit code: 7'));
+    expect(tui.host.session.loop.log, before,
+        reason: 'manual execution never enters the model loop');
+    expect(tui.host.session.lastReply, isNull);
+    expect(tui.canCancel, isFalse);
+  }, skip: Platform.isWindows);
+
+  test('manual shell commands do not enter a busy model input queue', () async {
+    final ready = Completer<void>();
+    final release = Completer<void>();
+    final provider = _WaitingProvider(ready, release);
+    final session = TuiSession.start(
+        configPath: '/nonexistent/tina/config',
+        providerFactory: (_) => provider,
+        workingDirectory: ws.path);
+    addTearDown(session.close);
+    final turn = session.runLine('normal message');
+    await ready.future;
+    expect(session.offerInput('!echo local'), isFalse);
+    expect(session.offerInput('/shell echo local'), isFalse);
+    expect(session.host.session.loop.pendingInputCount, 0);
+    release.complete();
+    await turn;
+    expect(provider.calls, 1);
+  });
+
+  test('session cancellation reaches the active manual shell command',
+      () async {
+    final pending =
+        tui.runLine('!echo ready > started; while :; do sleep 0.05; done');
+    final started = File('${ws.path}/started');
+    final deadline = Stopwatch()..start();
+    while (!started.existsSync() &&
+        deadline.elapsed < const Duration(seconds: 3)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(started.existsSync(), isTrue);
+    expect(tui.canCancel, isTrue);
+    tui.cancel();
+    await pending.timeout(const Duration(seconds: 3));
+    expect(tui.canCancel, isFalse);
+    expect((tui.terminal as TuiTerminal).lines.map((l) => l.text).join('\n'),
+        contains('cancelled: command stopped'));
+    expect(tui.host.session.loop.log, isEmpty);
+  }, skip: Platform.isWindows);
 
   test('/quit flags the loop to stop', () async {
     expect(await tui.runLine('/quit'), isTrue);
@@ -90,7 +147,8 @@ void main() {
 
   test('a handed-in terminal is used; a default one is built otherwise', () {
     final handed = TuiTerminal();
-    final t = TuiSession.start(configPath: '/nonexistent/tina/config',
+    final t = TuiSession.start(
+      configPath: '/nonexistent/tina/config',
       providerFactory: (_) => ScriptedProvider(const []),
       workingDirectory: ws.path,
       terminal: handed,
@@ -98,11 +156,28 @@ void main() {
     expect(t.terminal, same(handed));
     t.close();
 
-    final fresh = TuiSession.start(configPath: '/nonexistent/tina/config',
+    final fresh = TuiSession.start(
+      configPath: '/nonexistent/tina/config',
       providerFactory: (_) => ScriptedProvider(const []),
       workingDirectory: ws.path,
     );
     expect(fresh.terminal, isNot(same(handed)));
     fresh.close();
   });
+}
+
+final class _WaitingProvider extends LlmProvider {
+  _WaitingProvider(this.ready, this.release) : super('waiting');
+  final Completer<void> ready, release;
+  int calls = 0;
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) async* {
+    calls++;
+    if (!ready.isCompleted) ready.complete();
+    await release.future;
+    yield* Stream.fromIterable(scriptedReply('done'));
+  }
 }

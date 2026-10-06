@@ -24,6 +24,21 @@ void main() {
     ));
 
   group('dispatchLine: the pure function', () {
+    test('a plugin prefix alias passes the complete shell command', () {
+      final commands = Commands()
+        ..publish(Command(
+            name: 'shell',
+            description: 'shell',
+            inputPrefix: '!',
+            handler: (_) {}));
+      final d =
+          dispatchLine(commands, '  !printf "one two" | cat  ') as RunCommand;
+      expect(d.command.name, 'shell');
+      expect(d.argument, 'printf "one two" | cat');
+      expect((dispatchLine(commands, '/shell echo hi') as RunCommand).argument,
+          'echo hi');
+      expect(dispatchLine(Commands(), '!echo hi'), const PlainLine('!echo hi'));
+    });
     test('a command line maps to the right command with its argument', () {
       final d = dispatchLine(registry, '/mode read-only');
       expect(d, isA<RunCommand>());

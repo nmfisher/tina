@@ -161,6 +161,9 @@ jobs:
       - name: Smoke-test default native backend, ANSI fallback and resumed input
         run: python3 tool/smoke_backend_selection.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
 
+      - name: Smoke-test manual shell output and cancellation on both backends
+        run: python3 tool/smoke_shell.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
         env:

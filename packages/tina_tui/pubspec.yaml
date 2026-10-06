@@ -10,6 +10,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_shell:
+    path: ../plugins/tina_shell
   tina_settings:
     path: ../libraries/tina_settings
   tina_step_limit:

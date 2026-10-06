@@ -12,6 +12,7 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_tools/tina_tools.dart';
+import 'package:tina_shell/tina_shell.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_goals/tina_goals.dart';
@@ -95,6 +96,13 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
       requiredCapabilities: [modelAccess],
       definitions: [
         ...basePluginDefinitions(),
+        PluginDefinition<TuiPluginContext>(
+            'tina/shell',
+            (c) => ShellPlugin(
+                terminal: c.terminal, workingDirectory: c.workingDirectory),
+            description:
+                'Runs !command or /shell command with your shell permissions, without sending it to a model.',
+            live: true),
         PluginDefinition<TuiPluginContext>(
             'tina/session-controls',
             (c) => SessionControlsPlugin(

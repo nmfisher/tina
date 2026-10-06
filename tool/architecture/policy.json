@@ -10,6 +10,7 @@
     "tina_core",
     "tina_llm",
     "tina_tools",
+    "tina_shell",
     "tina_engine_2",
     "tina_host",
     "tina_sqlite",
@@ -75,6 +76,10 @@
       "test"
     ],
     "tina_tools": [
+      "lib",
+      "test"
+    ],
+    "tina_shell": [
       "lib",
       "test"
     ],
@@ -242,6 +247,7 @@
     "tina_index": []
   },
   "packagePaths": {
+    "tina_shell": "packages/plugins/tina_shell",
     "tina_step_limit": "packages/plugins/tina_step_limit",
     "tina": ".",
     "tina_console": "packages/tina_console",
@@ -277,6 +283,11 @@
     "tina_settings": "packages/libraries/tina_settings"
   },
   "runtimeDependencies": {
+    "tina_shell": [
+      "tina_core",
+      "tina_engine_2",
+      "tina_tools"
+    ],
     "tina_step_limit": [
       "tina_engine_2",
       "toml",

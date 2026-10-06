@@ -578,6 +578,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_shell:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_shell"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_sqlite:
     dependency: transitive
     description:

@@ -23,11 +23,21 @@ final class Command {
   /// keep it queued. Interactive handlers still share the frontend input owner.
   final bool allowWhileRunning;
 
+  /// An optional prefix alias: the text after it is the entire argument.
+  /// For example, `!echo hi` can invoke `/shell echo hi`. Slash commands
+  /// continue to use [name]; plugins own their other input prefixes.
+  final String? inputPrefix;
+
+  /// Cancel this command's active work, when it supports cancellation.
+  final void Function()? cancel;
+
   const Command({
     required this.name,
     required this.description,
     required this.handler,
     this.complete,
     this.allowWhileRunning = false,
+    this.inputPrefix,
+    this.cancel,
   });
 }

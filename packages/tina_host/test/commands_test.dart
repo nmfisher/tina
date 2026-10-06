@@ -6,6 +6,55 @@ import 'package:test/test.dart';
 
 void main() {
   group('Commands', () {
+    test('prefix aliases reject duplicates and disappear with their owner', () {
+      final c = Commands();
+      final shell = Command(
+          name: 'shell',
+          description: 'shell',
+          inputPrefix: '!',
+          handler: (_) {});
+      c.publish(shell, owner: 'test/shell');
+      expect(c.matchPrefix('!echo one')?.command, same(shell));
+      expect(c.matchPrefix('!echo one')?.argument, 'echo one');
+      expect(
+          () => c.publish(Command(
+              name: 'other',
+              description: 'other',
+              inputPrefix: '!',
+              handler: (_) {})),
+          throwsStateError);
+      expect(c['other'], isNull);
+      c.removeOwner('test/shell');
+      expect(c.matchPrefix('!echo one'), isNull);
+      expect(c['shell'], isNull);
+      c.publish(shell);
+    });
+    test('prefix matching prefers the most specific registered prefix', () {
+      final c = Commands()
+        ..publish(Command(
+            name: 'one', description: 'one', inputPrefix: '!', handler: (_) {}))
+        ..publish(Command(
+            name: 'two',
+            description: 'two',
+            inputPrefix: '!!',
+            handler: (_) {}));
+      expect(c.matchPrefix('!!argument')?.command.name, 'two');
+      expect(c.matchPrefix('!!argument')?.argument, 'argument');
+      expect(c.matchPrefix('ordinary text'), isNull);
+    });
+    test('invalid prefix aliases fail before publishing the command', () {
+      for (final prefix in ['', '/', '/shell', '! ']) {
+        final c = Commands();
+        expect(
+            () => c.publish(Command(
+                name: 'bad',
+                description: 'bad',
+                inputPrefix: prefix,
+                handler: (_) {})),
+            throwsArgumentError);
+        expect(c.all, isEmpty);
+      }
+    });
     test('publish and look up by name', () {
       final written = <String>[];
       final c = Commands()..publish(_echoCommand(written, name: 'mode'));

@@ -375,6 +375,24 @@ jobs:
         working-directory: packages/tina_llm
         run: dart test -j 4
 
+  tina_shell:
+    name: tina_shell (packages/plugins/tina_shell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_shell)
+        working-directory: packages/plugins/tina_shell
+        run: dart pub get
+      - name: analyze (tina_shell)
+        working-directory: packages/plugins/tina_shell
+        run: dart analyze
+      - name: test (tina_shell)
+        working-directory: packages/plugins/tina_shell
+        run: dart test -j 4
+
   tina_tools:
     name: tina_tools (packages/plugins/tina_tools)
     runs-on: ubuntu-latest
@@ -552,7 +570,7 @@ jobs:
         run: dart pub get
       - name: PTY startup, HTTP turn and resume (tina_tui)
         working-directory: packages/tina_tui
-        run: dart test --tags tty --run-skipped test/app_smoke_test.dart
+        run: dart test --tags tty --run-skipped test/app_smoke_test.dart test/shell_terminal_test.dart
 
   tina_system_instruction:
     name: tina_system_instruction (packages/plugins/tina_system_instruction)

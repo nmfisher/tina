@@ -43,7 +43,7 @@ final class SessionView
   }
 
   @override
-  bool offerInput(String text) => session.host.offerInput(text);
+  bool offerInput(String text) => session.offerInput(text);
 
   @override
   int get pendingInputCount => session.host.session.loop.pendingInputCount;
@@ -54,7 +54,7 @@ final class SessionView
   @override
   void cancel() {
     _settings?.cancel();
-    session.host.session.loop.cancel('escape');
+    session.cancel();
   }
 
   @override

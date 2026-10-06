@@ -36,6 +36,18 @@ final class TuiSession {
 
   /// The registry the command plugins published into.
   final Commands commands;
+  Command? _activeCommand;
+
+  bool get canCancel => _activeCommand?.cancel != null || assembly.watchingTurn;
+
+  void cancel() {
+    _activeCommand?.cancel?.call();
+    host.session.loop.cancel('escape');
+  }
+
+  /// Commands stay on the frontend's queue, even while a model turn runs.
+  bool offerInput(String text) =>
+      dispatchLine(commands, text) is PlainLine && host.offerInput(text);
 
   /// Raw submitted messages in transcript order, including inputs before
   /// compaction or clear. Legacy logs without input records use user text.
@@ -98,7 +110,12 @@ final class TuiSession {
   Future<bool> runLine(String line, {bool renderReply = true}) async {
     switch (dispatchLine(commands, line)) {
       case RunCommand(:final command, :final argument):
-        await command.handler(argument);
+        _activeCommand = command;
+        try {
+          await command.handler(argument);
+        } finally {
+          _activeCommand = null;
+        }
       case UnknownCommand(:final name):
         terminal.writeln('unknown command: /$name');
       case PlainLine(:final text) when text.isEmpty:

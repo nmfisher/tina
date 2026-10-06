@@ -43,6 +43,7 @@ List<String> pluginBaseline(List<String> ids, {int selectionVersion = 1}) => [
 
 const defaultPluginIds = <String>[
   ...legacyProfilePlugins,
+  'tina/shell',
   'tina/classification',
   'tina/chat-tui',
   'tina/session-controls',
