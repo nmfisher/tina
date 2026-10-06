@@ -29,6 +29,26 @@ TurnContext context(CancelToken token) => TurnContext(token,
     pinnedTools: []);
 
 void main() {
+  test('read directory grants must have been offered by the requester',
+      () async {
+    final channel = CapturingChannel();
+    final service = ApprovalsPlugin(channel: channel);
+    addTearDown(service.closeSession);
+    final absent = ask(service);
+    await Future<void>.delayed(Duration.zero);
+    expect(channel.tickets.last.respond(ApprovalDecision.allowReadsInDirectory),
+        isFalse);
+    expect(await absent, ApprovalDecision.deny);
+    final offered = service.request(
+        operation: 'run command',
+        target: 'grep',
+        reason: 'read external directory',
+        details: {'read_directory': '/external'});
+    await Future<void>.delayed(Duration.zero);
+    expect(channel.tickets.last.respond(ApprovalDecision.allowReadsInDirectory),
+        isTrue);
+    expect(await offered, ApprovalDecision.allowReadsInDirectory);
+  });
   test('default approval schedules no expiry and accepts a later answer',
       () async {
     final channel = CapturingChannel();

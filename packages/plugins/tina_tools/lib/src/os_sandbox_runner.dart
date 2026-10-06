@@ -28,6 +28,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import 'process_runner.dart';
+import 'read_directories.dart';
 import 'sandbox_failure.dart';
 import 'sandbox_layout.dart';
 
@@ -160,6 +161,8 @@ class SandboxPlan {
   /// binds read-write. Normally empty: the workspace is the writability.
   final List<String> writablePaths;
 
+  final ReadOnlyDirectories? readDirectories;
+
   /// Network off unless the session says otherwise.
   final bool isolateNetwork;
 
@@ -177,6 +180,7 @@ class SandboxPlan {
     required this.workspaceRoot,
     this.tinaDir,
     this.writablePaths = const [],
+    this.readDirectories,
     this.isolateNetwork = true,
     this.childEnvironment = const {
       'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -198,6 +202,7 @@ class SandboxPlan {
   List<String> mountedLayout() => [
         ...writableLayout(),
         ...kSandboxReadOnlyBinds,
+        ...?readDirectories?.existingPaths,
         if (tinaDir != null) tinaDir!,
       ];
 }
@@ -319,11 +324,7 @@ final class OsSandboxRunner implements ProcessRunner {
       }
       return outcome;
     }
-    final layout = hostLayout?.call() ??
-        SandboxHostLayout.inspect(
-          readOnlyDirectories: kSandboxReadOnlyBinds,
-          temporaryDirectories: defaultSandboxTempDirs(),
-        );
+    final layout = _layout();
     final mounted = _mountedPaths(layout);
     if (backend == SandboxBackend.bwrap && path.isAbsolute(request.command)) {
       final file = File(request.command);
@@ -405,6 +406,22 @@ final class OsSandboxRunner implements ProcessRunner {
         '/proc',
       ];
 
+  SandboxHostLayout _layout() {
+    final base = hostLayout?.call() ??
+        SandboxHostLayout.inspect(
+          readOnlyDirectories: kSandboxReadOnlyBinds,
+          temporaryDirectories: defaultSandboxTempDirs(),
+        );
+    return SandboxHostLayout(
+      readOnlyDirectories: {
+        ...base.readOnlyDirectories,
+        ...?plan.readDirectories?.existingPaths,
+      },
+      temporaryDirectories: base.temporaryDirectories,
+      resolverTarget: base.resolverTarget,
+    );
+  }
+
   /// Describe the same backend and layout the runner actually uses.
   String describeEnvironment() {
     if (!enabled) {
@@ -426,11 +443,7 @@ final class OsSandboxRunner implements ProcessRunner {
           'filesystem; writes are restricted to: ${plan.writableLayout().join(', ')}. '
           '$network';
     }
-    final layout = hostLayout?.call() ??
-        SandboxHostLayout.inspect(
-          readOnlyDirectories: kSandboxReadOnlyBinds,
-          temporaryDirectories: defaultSandboxTempDirs(),
-        );
+    final layout = _layout();
     final readOnly = [
       ...layout.readOnlyDirectories,
       if (plan.tinaDir != null) plan.tinaDir!,

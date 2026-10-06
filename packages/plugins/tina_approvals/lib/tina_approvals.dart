@@ -6,7 +6,13 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 
 /// No channel, UI or filesystem types appear in the request protocol.
-enum ApprovalDecision { allow, allowAlways, deny }
+enum ApprovalDecision {
+  allow,
+  allowAlways,
+  deny,
+  allowReadsInDirectory,
+  allowAlwaysAndReadsInDirectory
+}
 
 /// A confirmation has only Yes/No; it cannot grant future requests.
 enum ApprovalKind { permission, confirmation }
@@ -117,13 +123,19 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       ticket._active = false;
       _pending.remove(request.id);
       timer?.cancel();
-      result.complete(invalid
+      final directoryGrant =
+          decision == ApprovalDecision.allowReadsInDirectory ||
+              decision == ApprovalDecision.allowAlwaysAndReadsInDirectory;
+      final invalidScope = directoryGrant &&
+          (request.kind != ApprovalKind.permission ||
+              request.details['read_directory'] is! String);
+      result.complete(invalid || invalidScope
           ? ApprovalDecision.deny
           : request.kind == ApprovalKind.confirmation &&
                   decision == ApprovalDecision.allowAlways
               ? ApprovalDecision.allow
               : decision);
-      return !invalid;
+      return !invalid && !invalidScope;
     }, result.future);
     _pending[request.id] = ticket;
     final deadline = timeout;

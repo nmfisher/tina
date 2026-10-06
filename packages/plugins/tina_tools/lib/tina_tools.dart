@@ -28,6 +28,7 @@ export 'src/process_runner.dart';
 export 'src/process_jobs.dart';
 export 'src/process_tool_base.dart';
 export 'src/read_tool.dart';
+export 'src/read_directories.dart';
 export 'src/sandbox_failure.dart';
 export 'src/sandbox_layout.dart';
 export 'src/sandboxed_file_system.dart';

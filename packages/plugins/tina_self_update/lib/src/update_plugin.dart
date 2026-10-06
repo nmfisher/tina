@@ -112,6 +112,7 @@ final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {
   List<Command> get commands => [
         Command(
             name: 'update',
+            allowWhileRunning: true,
             description:
                 'Check for an update, or /update install to prepare and approve installation.',
             complete: (prefix) => ['check', 'install']

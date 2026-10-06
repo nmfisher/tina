@@ -295,6 +295,7 @@ final class TuiAssembly {
       workspaceRoot: workingDirectory,
       tinaDir: Directory('$workingDirectory/.tina'),
       osSandbox: options.osSandbox,
+      settings: settings,
     );
     final policy = configuredPolicy(resolved,
         override: providerFactory, currentConfig: () => resolved);

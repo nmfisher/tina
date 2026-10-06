@@ -21,6 +21,7 @@ import 'dart:async';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
+import 'package:tina_settings/tina_settings.dart';
 
 abstract interface class ToolSessionSource implements ModePolicySource {
   PermissionMode get mode;
@@ -47,18 +48,20 @@ final class ToolsPlugin extends AgentPlugin
     this.osSandbox = true,
     UnavailableBehaviour osUnavailable = UnavailableBehaviour.allow,
     bool osIsolateNetwork = true,
+    this.settings,
   })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
-        osPlan = SandboxPlan(
-          workspaceRoot: workspaceRoot,
-          tinaDir: tinaDir.path,
-          isolateNetwork: osIsolateNetwork,
-        ),
         sandbox = SandboxedFileSystem(
           const IoFileSystem(),
           workspaceRoot: workspaceRoot,
           tinaDir: tinaDir,
           mode: mode,
         ) {
+    osPlan = SandboxPlan(
+      workspaceRoot: workspaceRoot,
+      tinaDir: tinaDir.path,
+      isolateNetwork: osIsolateNetwork,
+      readDirectories: readDirectories,
+    );
     final writable = WritableDirectories(osPlan.writableLayout());
     final osRunner = OsSandboxRunner(
       inner: const IoProcessRunner(),
@@ -71,6 +74,8 @@ final class ToolsPlugin extends AgentPlugin
       mode: mode,
       writableDirectories: writable,
       executableSearchPath: osPlan.childEnvironment['PATH'],
+      readDirectories: readDirectories,
+      workspaceRoot: workspaceRoot,
     );
     processJobs = ProcessJobs(processRunner);
     this.modePolicy.listen((value) {
@@ -91,6 +96,9 @@ final class ToolsPlugin extends AgentPlugin
       ProcessJobTool(processJobs),
     ];
     workingDirectory = workspaceRoot;
+    _stopReadSettings = settings?.watch(readOnlyDirectoriesSetting,
+        (value) => readDirectories.replace(value.value),
+        fireImmediately: true);
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
         sandboxDescription: osRunner.describeEnvironment);
@@ -99,7 +107,10 @@ final class ToolsPlugin extends AgentPlugin
   /// The one configuration behind both the OS layout and the gate's
   /// writable directories. Exposed so a session report can name the plan;
   /// the plugin owns it, the host never touches it.
-  final SandboxPlan osPlan;
+  late final SandboxPlan osPlan;
+  final ScopedSettings? settings;
+  final ReadOnlyDirectories readDirectories = ReadOnlyDirectories();
+  void Function()? _stopReadSettings;
   late final SandboxedProcessRunner processRunner;
   late final ProcessJobs processJobs;
 
@@ -122,6 +133,17 @@ final class ToolsPlugin extends AgentPlugin
   /// [mountOn].
   late final List<Tool> toolList;
   ToolUse? _activeCall;
+
+  void rememberReadDirectory(String directory) {
+    final paths = {...readDirectories.paths, directory}.toList();
+    if (settings case final ScopedSettings settings) {
+      final scope = settings.read(readOnlyDirectoriesSetting).source ??
+          SettingScope.global;
+      settings.set(readOnlyDirectoriesSetting, paths, scope);
+    } else {
+      readDirectories.replace(paths);
+    }
+  }
 
   ToolDescription describeFileRequest(String operation, String path) {
     final call = _activeCall;
@@ -197,6 +219,7 @@ final class ToolsPlugin extends AgentPlugin
 
   @override
   void closeSession() {
+    _stopReadSettings?.call();
     unawaited(processJobs.close());
     modePolicy.closeSession();
   }
@@ -215,8 +238,18 @@ final class ToolsPlugin extends AgentPlugin
   }
 
   @override
-  void onPrompt(TurnContext c) =>
-      c.promptSections.add(prompt.sectionFor(sandbox.mode));
+  void onPrompt(TurnContext c) {
+    c.promptSections.add(prompt.sectionFor(sandbox.mode));
+    if (readDirectories.paths.isNotEmpty) {
+      c.promptSections.add('User-configured read-only directories: '
+          '${readDirectories.paths.join(', ')}. Use dedicated file tools or '
+          'exec with ls, grep, cat, head or tail and literal arguments to read '
+          'these directories without repeated execution approval. These '
+          'directories do not grant writes. A single literal reader command '
+          'also works through bash; scripts, expansions, redirects and pipes '
+          'still need approval.');
+    }
+  }
 }
 
 /// The prompt section the tools plugin contributes: where the session

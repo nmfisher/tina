@@ -7,6 +7,77 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
 
+  test(
+      'read checkbox is explicit, reversible and independent of command Always',
+      () async {
+    ApprovalDialog dialog() => ApprovalDialog(null,
+        ask: const ApprovalAskContext(
+            'run command', 'grep needle /external/file', 'approval required',
+            details: {
+              'read_directory': '/external',
+              'permission_scope': 'command'
+            }));
+    final unchecked = dialog();
+    expect(unchecked.rows().map(text).join('\n'),
+        contains('[ ] Allow all reads in this directory'));
+    expect(unchecked.rows().map(text).join('\n'),
+        contains('Read directory: /external'));
+    expect(
+        (await unchecked.awaitDecision(ScriptedKeySource([ApprovalKey.allow])))
+            .decision,
+        ApprovalDecision.allow);
+    final checked = dialog();
+    checked.handleKey(ApprovalKey.toggleReadDirectory);
+    expect(
+        checked.rows().map(text).join('\n'), contains('[x] Allow all reads'));
+    expect(
+        (await checked.awaitDecision(ScriptedKeySource([ApprovalKey.allow])))
+            .decision,
+        ApprovalDecision.allowReadsInDirectory);
+    final always = dialog();
+    expect(
+        (await always.awaitDecision(ScriptedKeySource(
+                [ApprovalKey.toggleReadDirectory, ApprovalKey.always])))
+            .decision,
+        ApprovalDecision.allowAlwaysAndReadsInDirectory);
+    final cancel = dialog();
+    expect(
+        (await cancel.awaitDecision(ScriptedKeySource(
+                [ApprovalKey.toggleReadDirectory, ApprovalKey.cancel])))
+            .decision,
+        ApprovalDecision.deny);
+    final toggled = dialog();
+    expect(
+        (await toggled.awaitDecision(ScriptedKeySource([
+          ApprovalKey.toggleReadDirectory,
+          ApprovalKey.toggleReadDirectory,
+          ApprovalKey.allow
+        ])))
+            .decision,
+        ApprovalDecision.allow);
+    final focused = dialog();
+    expect(
+        (await focused.awaitDecision(ScriptedKeySource([
+          ApprovalKey.down,
+          ApprovalKey.down,
+          ApprovalKey.down,
+          ApprovalKey.confirm,
+          ApprovalKey.up,
+          ApprovalKey.up,
+          ApprovalKey.up,
+          ApprovalKey.confirm
+        ])))
+            .decision,
+        ApprovalDecision.allowReadsInDirectory);
+    expect(
+        ApprovalDialog(null,
+                ask: const ApprovalAskContext('write', '/file', 'ask'))
+            .rows()
+            .map(text)
+            .join('\n'),
+        isNot(contains('Allow all reads')));
+  });
+
   test('permission cards render quoted commands and colored edit previews', () {
     final command = ApprovalDialog(null,
         ask: const ApprovalAskContext('run command', 'git', 'ask mode',

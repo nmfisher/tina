@@ -66,6 +66,58 @@ approval_channel = "acme/messages"
         false);
   });
 
+  test('directory read approval is saved and reused by a newly opened session',
+      () async {
+    final external = Directory('${root.path}/external')..createSync();
+    final source = File('${external.path}/source')
+      ..writeAsStringSync('needle\n');
+    TuiAssembly open(StreamApprovalChannel channel) => TuiAssembly.start(
+        options: AssemblyOptions(
+            configPath: config.path, workingDirectory: workspace.path),
+        registerPlugins: (registry) => registry.registerDefinition(
+            PluginDefinition<TuiPluginContext>(channel.id, (_) => channel,
+                provides: [approvalChannel],
+                description: 'Test approval channel.')),
+        providerFactory: (_) => ScriptedProvider([]));
+    final channel = StreamApprovalChannel(id: 'acme/messages');
+    final requests = <ApprovalRequest>[];
+    final subscription = channel.requests.listen((request) {
+      requests.add(request);
+      channel.respond(request.id, ApprovalDecision.allowReadsInDirectory);
+    });
+    final first = open(channel);
+    addTearDown(first.close);
+    final read =
+        first.tools.toolList.singleWhere((tool) => tool.schema.name == 'bash');
+    final input = {'command': "grep -n 'needle' '${source.path}'"};
+    final outcome = await read.execute(input);
+    expect(outcome.isError, isFalse, reason: outcome.content);
+    expect(outcome.content, contains('1:needle'));
+    expect(requests.single.details['read_directory'],
+        external.resolveSymbolicLinksSync());
+    expect(first.tools.processRunner.grants.isEmpty, isTrue);
+    expect(first.commands['read-dir'], isNull);
+    first.close();
+    await subscription.cancel();
+    final secondChannel = StreamApprovalChannel(id: 'acme/messages');
+    final secondRequests = <ApprovalRequest>[];
+    final secondSub = secondChannel.requests.listen((request) {
+      secondRequests.add(request);
+      secondChannel.respond(request.id, ApprovalDecision.deny);
+    });
+    final second = open(secondChannel);
+    addTearDown(() async {
+      second.close();
+      await secondSub.cancel();
+    });
+    final secondRead =
+        second.tools.toolList.singleWhere((tool) => tool.schema.name == 'bash');
+    final again = await secondRead.execute(input);
+    expect(again.isError, isFalse, reason: again.content);
+    expect(again.content, contains('1:needle'));
+    expect(secondRequests, isEmpty);
+  }, skip: Platform.isWindows);
+
   test(
       'cancelling a turn awaiting remote approval returns and prevents a late write',
       () async {

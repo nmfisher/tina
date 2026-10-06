@@ -85,6 +85,35 @@ void main() {
     expect(provider.calls, 1);
   });
 
+  test('update runs immediately during a busy model turn', () async {
+    final ready = Completer<void>();
+    final release = Completer<void>();
+    final provider = _WaitingProvider(ready, release);
+    final session = TuiSession.start(
+        configPath: '${ws.path}/config',
+        providerFactory: (_) => provider,
+        workingDirectory: ws.path);
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+      session.close();
+    });
+    final turn = session.runLine('normal message');
+    await ready.future;
+    final update = session.offerCommand('/update unknown');
+    expect(update, isNotNull, reason: 'update runs without entering the queue');
+    await update;
+    expect(
+        (session.terminal as TuiTerminal)
+            .lines
+            .map((line) => line.text)
+            .join('\n'),
+        contains('usage: /update'));
+    expect(provider.calls, 1);
+    expect(release.isCompleted, isFalse);
+    release.complete();
+    await turn;
+  });
+
   test('session cancellation reaches the active manual shell command',
       () async {
     final pending =

@@ -9,6 +9,7 @@ const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
 /// the loader supplies the approval capability, never a particular channel.
 PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/tools',
+        settings: [readOnlyDirectoriesSetting],
         dependency: approvalRequester,
         provides: [toolProvider, modePolicySource],
         create: (context, approvals) {
@@ -26,6 +27,9 @@ Approver requesterApprover(ApprovalRequester approvals) =>
       return switch (decision) {
         ApprovalDecision.allow => Approval.yes,
         ApprovalDecision.allowAlways => Approval.always,
+        ApprovalDecision.allowReadsInDirectory ||
+        ApprovalDecision.allowAlwaysAndReadsInDirectory =>
+          Approval.no,
         ApprovalDecision.deny =>
           throw SandboxViolation('$reason — approval denied or cancelled'),
       };
@@ -35,6 +39,9 @@ Approval _answer(ApprovalDecision decision, String reason) =>
     switch (decision) {
       ApprovalDecision.allow => Approval.yes,
       ApprovalDecision.allowAlways => Approval.always,
+      ApprovalDecision.allowReadsInDirectory ||
+      ApprovalDecision.allowAlwaysAndReadsInDirectory =>
+        Approval.no,
       ApprovalDecision.deny =>
         throw SandboxViolation('$reason — approval denied or cancelled'),
     };
@@ -98,6 +105,8 @@ void attachModePolicy(ToolsPlugin plugin) {
                     : description)
             .toJson(),
         'permission_scope': 'command',
+        if (review.readDirectory != null)
+          'read_directory': review.readDirectory,
         if (outsideSandbox) ...{
           'permission_scope_label': 'this exact command outside the sandbox',
           'permission_scope_description':
@@ -112,9 +121,18 @@ void attachModePolicy(ToolsPlugin plugin) {
         },
       },
     );
+    if ((decision == ApprovalDecision.allowReadsInDirectory ||
+            decision == ApprovalDecision.allowAlwaysAndReadsInDirectory) &&
+        review.readDirectory != null) {
+      plugin.rememberReadDirectory(review.readDirectory!);
+    }
     return switch (decision) {
       ApprovalDecision.allow => Approval.yes,
       ApprovalDecision.allowAlways => Approval.always,
+      ApprovalDecision.allowReadsInDirectory =>
+        review.readDirectory != null ? Approval.yes : Approval.no,
+      ApprovalDecision.allowAlwaysAndReadsInDirectory =>
+        review.readDirectory != null ? Approval.always : Approval.no,
       ApprovalDecision.deny => Approval.no,
     };
   };

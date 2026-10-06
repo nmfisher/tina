@@ -58,6 +58,7 @@ void main() {
     var calls = 0;
     final p = plugin(MockClient(
         (_) async => ++calls == 1 ? await response.future : release('v0.9.0')));
+    expect(p.commands.single.allowWhileRunning, isTrue);
     final pending = p.checkInBackground();
     expect(p.status.phase, UpdatePhase.checking);
     expect(identical(pending, p.checkInBackground()), true);

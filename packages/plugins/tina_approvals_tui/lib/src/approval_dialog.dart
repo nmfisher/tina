@@ -29,7 +29,8 @@ enum ApprovalKey {
   details,
   allow,
   deny,
-  always
+  always,
+  toggleReadDirectory
 }
 
 /// Where keys come from. The dialog [ApprovalDialog.awaitDecision]s until a
@@ -100,6 +101,14 @@ class ApprovalDialog {
   int _previewOffset = 0;
   int _maxPreviewOffset = 0;
   int _pageSize = 1;
+  bool _rememberReads = false;
+  String? get _readDirectory => ask?.confirmation != true &&
+          _hasAlways &&
+          ask?.details['read_directory'] is String
+      ? ask!.details['read_directory'] as String
+      : null;
+  bool get _onReadCheckbox =>
+      _readDirectory != null && _selected == _choices.length - 1;
 
   /// The pending tool call, when the question came from one. A permission
   /// ask straight from the sandbox has no call — only [ask].
@@ -120,13 +129,25 @@ class ApprovalDialog {
           'allow',
           'deny',
           if (_hasAlways) 'allow always',
+          if (_readDirectory != null) 'read directory',
         ];
 
-  ApprovalDecision decisionFor(int index) => switch (_choices[index]) {
+  ApprovalDecision _withReadScope(ApprovalDecision decision) {
+    if (!_rememberReads || _readDirectory == null) return decision;
+    return switch (decision) {
+      ApprovalDecision.allow => ApprovalDecision.allowReadsInDirectory,
+      ApprovalDecision.allowAlways =>
+        ApprovalDecision.allowAlwaysAndReadsInDirectory,
+      _ => decision,
+    };
+  }
+
+  ApprovalDecision decisionFor(int index) =>
+      _withReadScope(switch (_choices[index]) {
         'allow always' => ApprovalDecision.allowAlways,
         'allow' || 'Yes' => ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
-      };
+      });
 
   /// Input-anchored rows: context and navigation above the answer selector.
   /// The last row replaces the text input. On narrow screens the selected
@@ -180,6 +201,7 @@ class ApprovalDialog {
     final hasDenialReason =
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
+      if (_readDirectory != null) 'Read directory: $_readDirectory',
       if (ask?.confirmation == true) ...[
         ask!.reason,
         if (description != null) ...[
@@ -285,6 +307,8 @@ class ApprovalDialog {
             '[y] allow once',
             '[n] deny',
             if (_hasAlways) '[a] $alwaysLabel',
+            if (_readDirectory != null)
+              '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
           ];
     RenderLine choice(int i, {bool compact = false}) => row(
         '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
@@ -326,6 +350,12 @@ class ApprovalDialog {
 
   /// Apply one navigation key; returns true when the selection changed.
   bool handleKey(ApprovalKey key) {
+    if (_readDirectory != null &&
+        (key == ApprovalKey.toggleReadDirectory ||
+            key == ApprovalKey.confirm && _onReadCheckbox && !_details)) {
+      _rememberReads = !_rememberReads;
+      return true;
+    }
     if ({
       ApprovalKey.pageUp,
       ApprovalKey.pageDown,
@@ -364,6 +394,7 @@ class ApprovalDialog {
       case ApprovalKey.deny:
       case ApprovalKey.always:
       case ApprovalKey.details:
+      case ApprovalKey.toggleReadDirectory:
         return false;
       case ApprovalKey.up:
         if (_selected > 0) {
@@ -396,12 +427,13 @@ class ApprovalDialog {
       final key = await keys.next();
       switch (key) {
         case ApprovalKey.allow:
-          return const ApprovalOutcome(ApprovalDecision.allow);
+          return ApprovalOutcome(_withReadScope(ApprovalDecision.allow));
         case ApprovalKey.deny:
           return const ApprovalOutcome(ApprovalDecision.deny);
         case ApprovalKey.always:
           if (ask?.confirmation != true && _hasAlways) {
-            return const ApprovalOutcome(ApprovalDecision.allowAlways);
+            return ApprovalOutcome(
+                _withReadScope(ApprovalDecision.allowAlways));
           }
         case ApprovalKey.pageUp:
         case ApprovalKey.pageDown:
@@ -410,10 +442,11 @@ class ApprovalDialog {
         case ApprovalKey.up:
         case ApprovalKey.down:
         case ApprovalKey.details:
+        case ApprovalKey.toggleReadDirectory:
           handleKey(key!);
           onKey?.call();
         case ApprovalKey.confirm:
-          if (_details) {
+          if (_details || _onReadCheckbox) {
             handleKey(key!);
             onKey?.call();
           } else {

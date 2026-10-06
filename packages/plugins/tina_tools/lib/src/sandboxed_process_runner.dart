@@ -11,6 +11,7 @@ import 'glob.dart' show fileGlobMatch;
 import 'permissions.dart';
 import 'process_runner.dart';
 import 'read_only_commands.dart';
+import 'read_directories.dart';
 
 /// The session mode a [SandboxedProcessRunner] enforces. Re-exported from
 /// the permissions vocabulary so callers need one import less.
@@ -45,7 +46,8 @@ enum CommandRule {
   /// A single collapsed shell string (`/bin/sh -c <string>`, the bash-tool
   /// shape). What the string does cannot be proven from argv — it may read,
   /// write, or reach the network anywhere — so it never rides the writable
-  /// directories; it asks, always.
+  /// directories. Only separately certified literal readers may reuse a
+  /// directory read grant; other strings ask.
   shellString,
 }
 
@@ -182,6 +184,7 @@ final class CommandApproval {
     required Set<ProcessPermission> missingPermissions,
     this.networkReason,
     this.sandboxReason,
+    this.readDirectory,
   })  : requiredPermissions = Set.unmodifiable(requiredPermissions),
         missingPermissions = Set.unmodifiable(missingPermissions);
 
@@ -190,6 +193,7 @@ final class CommandApproval {
   final Set<ProcessPermission> missingPermissions;
   final String? networkReason;
   final String? sandboxReason;
+  final String? readDirectory;
 }
 
 /// A [ProcessRunner] that enforces the command × mode table before any
@@ -228,6 +232,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
   /// PATH used by the inner runner. Certified readers are pinned to their
   /// verified absolute executable, while all reviewed commands stay verbatim.
   final String? executableSearchPath;
+  final ReadOnlyDirectories? readDirectories;
+  final String? workspaceRoot;
 
   SandboxedProcessRunner({
     required this.inner,
@@ -238,6 +244,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
     this.commandApprover,
     CommandGrants? grants,
     this.executableSearchPath,
+    this.readDirectories,
+    this.workspaceRoot,
   })  : writableDirectories = writableDirectories ?? WritableDirectories(),
         grants = grants ?? CommandGrants();
 
@@ -267,8 +275,16 @@ final class SandboxedProcessRunner implements ProcessRunner {
     // No OS confinement also means no OS network isolation. Ask for that
     // access explicitly rather than pretending the offline restriction holds.
     final network = (control?.networkRequested ?? false) || outsideSandbox;
-    final reader = mode == PermissionMode.readOnly
-        ? readOnlyExecutable(request, searchPath: executableSearchPath)
+    final literal = literalShellRequest(request);
+    final readerRequest = literal ?? request;
+    final candidate =
+        readOnlyExecutable(readerRequest, searchPath: executableSearchPath);
+    final reader = candidate != null &&
+            (mode == PermissionMode.readOnly && literal == null ||
+                readDirectories != null &&
+                    readsGrantedDirectories(
+                        readerRequest, readDirectories!, workspaceRoot))
+        ? candidate
         : null;
     final requiredPermissions = {
       ProcessPermission.execution,
@@ -309,6 +325,9 @@ final class SandboxedProcessRunner implements ProcessRunner {
         missingPermissions: missing,
         networkReason: network ? control?.networkReason : null,
         sandboxReason: outsideSandbox ? control?.sandboxReason : null,
+        readDirectory: candidate != null
+            ? readDirectoryForRequest(readerRequest, workspaceRoot)
+            : null,
       );
       final approve = commandApprover;
       final fileApprover = approver;
@@ -343,7 +362,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         ? request
         : (
             command: reader,
-            arguments: request.arguments,
+            arguments: readerRequest.arguments,
             workingDirectory: request.workingDirectory,
             environment: request.environment,
             stdin: request.stdin,
@@ -411,6 +430,12 @@ CommandDecision decideCommand(
       reason: commandReason(
           certifiedReadOnly ? CommandRule.readOnlyReader : CommandRule.readOnly,
           request)
+    );
+  }
+  if (certifiedReadOnly) {
+    return (
+      verdict: ToolVerdict.allow,
+      reason: commandReason(CommandRule.readOnlyReader, request)
     );
   }
   // A single unbreakable string (`sh -c <string>`, the bash-tool shape) can
