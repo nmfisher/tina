@@ -12,6 +12,8 @@ Each directory is a Dart package with its own public API and tests.
 | `tina_tools` | File/process tools, sandbox permissions, `ToolsPlugin`, `/mode` |
 | `tina_system_instruction` | Agent identity prompt section |
 | `tina_compaction` | Context summarization and compaction |
+| `tina_context` | Opt-in agent-managed context, persisted snapshots and editable mirror |
+| `tina_context_tui` | Optional `/context` viewer for accepted messages, file status and latest edits |
 | `tina_plans` | Plan state, `update_plan`, `/plan` |
 | `tina_goals` | Goal state, judging, `/goal` |
 | `tina_subagents` | Child-session scheduling, spawn tool and child assembly |
@@ -37,7 +39,8 @@ rule for trusted plugins, not a sandbox for arbitrary Dart code.
 
 The global `~/.tina/config` selects feature plugins through `[plugins].enabled`.
 The TUI defaults to `tina/persistence`, `tina/plans`, `tina/goals`,
-`tina/auto-compact`, `tina/subagents` and `tina/update`; `tina/file-resources` is opt-in.
+`tina/auto-compact`, `tina/subagents` and `tina/update`; `tina/file-resources`
+and experimental `tina/context` are opt-in.
 System instruction, provider policy, tools and mode are selected by default.
 Requirements come from declared capabilities rather than fixed plugin IDs. Config selects registered
 factories; it does not download or dynamically import Dart packages.

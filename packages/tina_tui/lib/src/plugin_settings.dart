@@ -104,13 +104,66 @@ final class PluginSettings<C> {
       : _state(id, _global, _workspace, _session);
 
   ({bool enabled, String source}) scopedState(String id, PluginScope scope) =>
-      requiredIds.contains(id)
-          ? (enabled: true, source: 'required')
-          : _state(id, _global, _workspace, _session, scope: scope);
+      _state(id, _global, _workspace, _session, scope: scope);
 
   void apply(
       String id, bool? enabled, PluginScope scope, PluginManager<C> manager) {
     change(id, enabled, scope);
+    manager.select(selected);
+  }
+
+  bool? overrideValue(String id, PluginScope scope) {
+    if (scope == PluginScope.session) return _session[id];
+    final document = scope == PluginScope.global ? _global : _workspace;
+    final explicit = parsePluginOverrides(document.values['plugins']);
+    if (explicit.containsKey(id)) return explicit[id];
+    if (scope == PluginScope.global &&
+        (document.values['plugins'] as Map?)?['enabled'] != null)
+      return _state(id, _global, _workspace, const {}, scope: scope).enabled;
+    return null;
+  }
+
+  void applyAll(String id, bool? enabled, PluginManager<C> manager) {
+    reload();
+    if (_sameFile)
+      throw StateError(
+          'Global and workspace config are the same file; choose a single scope');
+    if (requiredIds.contains(id) &&
+        (enabled != true ||
+            PluginScope.values
+                .every((scope) => scopedState(id, scope).enabled)))
+      throw ArgumentError('$id: ${blockingReasons[id]!.join('; ')}');
+    if (!registry.ids.contains(id)) throw ArgumentError('unknown plugin: $id');
+    final global = _global.fork(), workspace = _workspace.fork();
+    final session = Map<String, bool>.of(_session);
+    for (final document in [global, workspace]) {
+      final table = document.table('plugins');
+      if (document == global && table['selection_version'] != 2) {
+        table['enabled'] = pluginBaseline(
+            (table['enabled'] as List?)?.cast<String>() ?? defaultPluginIds);
+        table['selection_version'] = 2;
+      }
+      final overrides =
+          Map<String, dynamic>.from(table['overrides'] as Map? ?? {});
+      if (enabled == null) {
+        overrides.remove(id);
+      } else {
+        overrides[id] = enabled;
+      }
+      table['overrides'] = overrides;
+    }
+    if (enabled == null) {
+      session.remove(id);
+    } else {
+      session[id] = enabled;
+    }
+    _validate(global, workspace, session);
+    ConfigDocument.saveScopedBatch([global, workspace]);
+    _global = global;
+    _workspace = workspace;
+    _session
+      ..clear()
+      ..addAll(session);
     manager.select(selected);
   }
 
@@ -173,7 +226,8 @@ final class PluginSettings<C> {
   /// and atomic writes are shared with /settings. Null removes an override.
   void change(String id, bool? enabled, PluginScope scope) {
     reload();
-    if (requiredIds.contains(id))
+    if (requiredIds.contains(id) &&
+        (enabled != true || scopedState(id, scope).enabled))
       throw ArgumentError('$id: ${blockingReasons[id]!.join('; ')}');
     if (!registry.ids.contains(id)) throw ArgumentError('unknown plugin: $id');
     final global = _global.fork(), workspace = _workspace.fork();

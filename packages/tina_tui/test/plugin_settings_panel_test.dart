@@ -94,6 +94,208 @@ void main() {
 
   for (final scoped in [false, true]) {
     test(
+        'workspace context can be promoted to All while its viewer requires it ($scoped)',
+        () async {
+      app.pluginSettings.apply(
+          'tina/context', true, PluginScope.workspace, app.pluginManager);
+      app.pluginSettings.apply(
+          'tina/context-tui', true, PluginScope.session, app.pluginManager);
+      app.settings.reload();
+      // Use the production settings path for its session override too.
+      if (scoped)
+        app.settings.set(app.settings.catalog['tina/context-tui/enabled'], true,
+            PluginScope.session);
+      await drive([
+        CharInput('Plugins'),
+        enter,
+        CharInput('tina/context'),
+        scoped ? ArrowKey(ArrowDirection.left) : ArrowKey(ArrowDirection.right),
+        space,
+        if (!scoped) escape, // live viewer awaits the context plugin's restart
+        escape,
+        escape,
+      ], resizeEachKey: false, scoped: scoped);
+      expect(
+          app.pluginSettings.overrideValue('tina/context', PluginScope.global),
+          true);
+      await drive([
+        CharInput('Plugins'),
+        enter,
+        CharInput('tina/context-tui'),
+        scoped ? ArrowKey(ArrowDirection.left) : ArrowKey(ArrowDirection.right),
+        space,
+        if (!scoped) escape,
+        escape,
+        escape,
+      ], resizeEachKey: false, scoped: scoped);
+      for (final id in ['tina/context', 'tina/context-tui']) {
+        for (final scope in PluginScope.values) {
+          expect(app.pluginSettings.overrideValue(id, scope), true,
+              reason: '$id ${scope.name}');
+        }
+      }
+      app.close();
+      app = TuiAssembly.start(
+          options: AssemblyOptions(
+              configPath: config.path, workingDirectory: root.path),
+          providerFactory: (_) => ScriptedProvider([]),
+          registerPlugins: (registry) => registry.register(
+              'acme/notes',
+              (_) => throw StateError(
+                  'Viewing metadata must not load this plugin'),
+              description: 'Release notes'));
+      for (final id in ['tina/context', 'tina/context-tui']) {
+        expect(app.host.plugins.any((p) => p.id == id), true, reason: id);
+        expect(app.pluginSettings.scopedState(id, PluginScope.global).enabled,
+            true);
+        expect(
+            app.pluginSettings.scopedState(id, PluginScope.workspace).enabled,
+            true);
+        expect(app.pluginSettings.scopedState(id, PluginScope.session).enabled,
+            true);
+      }
+      expect(app.commands['context'], isNotNull);
+      final other = Directory('${root.path}/other-workspace')..createSync();
+      final independent = TuiAssembly.start(
+          options: AssemblyOptions(
+              configPath: config.path, workingDirectory: other.path),
+          providerFactory: (_) => ScriptedProvider([]),
+          registerPlugins: (registry) => registry.register(
+              'acme/notes', (_) => throw StateError('Disabled'),
+              description: 'Release notes'));
+      try {
+        expect(independent.commands['context'], isNotNull);
+        expect(
+            independent.host.plugins.any((p) => p.id == 'tina/context'), true);
+      } finally {
+        independent.close();
+      }
+    });
+
+    test(
+        'All enables mixed overrides even when every scope inherits on ($scoped)',
+        () async {
+      final goals = app.settings.catalog['tina/goals/enabled'];
+      if (scoped) {
+        app.settings.set(goals, true, PluginScope.global);
+      } else {
+        app.pluginSettings
+            .apply('tina/goals', true, PluginScope.global, app.pluginManager);
+      }
+      await drive([
+        CharInput('Plugins'),
+        enter,
+        CharInput('tina/goals'),
+        scoped ? ArrowKey(ArrowDirection.left) : ArrowKey(ArrowDirection.right),
+        space,
+        escape,
+        escape,
+      ], resizeEachKey: false, scoped: scoped);
+      for (final scope in PluginScope.values) {
+        expect(
+            scoped
+                ? app.settings.override(goals, scope)
+                : app.pluginSettings.overrideValue('tina/goals', scope),
+            true);
+      }
+    });
+
+    test('narrow plugin grid retains all four columns ($scoped)', () async {
+      final output = await drive([
+        CharInput('Plugins'),
+        enter,
+        CharInput('tina/goals'),
+        if (scoped)
+          ArrowKey(ArrowDirection.left)
+        else
+          ArrowKey(ArrowDirection.right),
+        space,
+        escape,
+        escape,
+      ], resizeEachKey: false, scoped: scoped, onReady: (screen, _) {
+        screen.resize(ScreenLayout.fromSize(40, 8, split: false));
+      });
+      expect(output, matches(RegExp(r'Sess\s+Work\s+Glob\s+All')));
+      expect(output, contains('>[x]'));
+      expect(app.pluginSettings.state('tina/goals').enabled, true);
+    });
+
+    test('four plugin columns edit individual layers and All ($scoped)',
+        () async {
+      bool? override(PluginScope scope) => scoped
+          ? app.settings.override(
+              app.settings.catalog['tina/goals/enabled'], scope) as bool?
+          : app.pluginSettings.overrideValue('tina/goals', scope);
+      final right = ArrowKey(ArrowDirection.right);
+      final output = await drive([
+        CharInput('Plugins'),
+        enter,
+        if (!scoped) ...[
+          ArrowKey(ArrowDirection.left),
+          ArrowKey(ArrowDirection.left)
+        ],
+        CharInput('tina/goals'),
+        space,
+        () {
+          expect(override(PluginScope.session), true);
+          expect(override(PluginScope.workspace), null);
+          expect(override(PluginScope.global), false);
+        },
+        right,
+        space,
+        () {
+          expect(override(PluginScope.workspace), true);
+          expect(override(PluginScope.global), false);
+        },
+        right,
+        space,
+        () => expect(PluginScope.values.map(override), [true, true, true]),
+        right,
+        space,
+        () {
+          expect(PluginScope.values.map(override), [false, false, false]);
+          expect(app.commands['goal'], isNull);
+        },
+        space,
+        () {
+          expect(PluginScope.values.map(override), [true, true, true]);
+          expect(app.commands['goal'], isNotNull);
+        },
+        reset,
+        () {
+          expect(override(PluginScope.session), null);
+          expect(override(PluginScope.workspace), null);
+          expect(config.readAsStringSync(), isNot(contains("'tina/goals' =")));
+          expect(File('${root.path}/.tina/config').readAsStringSync(),
+              isNot(contains('enabled =')));
+        },
+        escape,
+        escape,
+      ], resizeEachKey: false, scoped: scoped);
+      expect(output, matches(RegExp(r'Session\s+Workspace\s+Global\s+All')));
+      expect(output, contains('[~]'));
+      expect(output, contains('[-]'));
+    });
+
+    for (final narrow in [false, true]) {
+      test(
+          'selected plugin description is visible without help ($scoped, $narrow)',
+          () async {
+        final output = await drive([
+          CharInput('Plugins'),
+          enter,
+          CharInput('acme/notes'),
+          escape,
+          escape,
+        ], resizeEachKey: narrow, scoped: scoped);
+        expect(output, contains('Summarizes release notes'));
+        expect(output, isNot(contains('About acme/notes')));
+        expect(app.host.plugins.any((p) => p.id == 'acme/notes'), false);
+        if (!narrow) expect(output, contains('release.'));
+      });
+    }
+
+    test(
         'plugin menu keeps its bounds across toggles, filtering and scopes ($scoped)',
         () async {
       late _TrackingBackend backend;
@@ -257,8 +459,8 @@ void main() {
       escape,
       escape,
     ]);
-    expect(output, contains('[x] tina/goals'));
-    expect(output, contains('[ ] tina/goals'));
+    expect(output, matches(RegExp(r'tina/goals[^\n]*\[x\]')));
+    expect(output, matches(RegExp(r'tina/goals[^\n]*\[ \]')));
     expect(app.commands['plugins'], isNull);
     expect(app.commands.all.any((command) => command.name == 'plugins'), false);
   });
@@ -269,7 +471,7 @@ void main() {
     app.pluginSettings
         .apply('tina/goals', true, PluginScope.global, app.pluginManager);
     await drive([
-      CharInput('Plugins'), enter, enter, down, enter, // workspace
+      CharInput('Plugins'), enter, ArrowKey(ArrowDirection.left), // workspace
       CharInput('tina/goals'), space,
       () {
         expect(app.commands['goal'], isNull);
@@ -281,7 +483,8 @@ void main() {
     final persisted = workspace.readAsStringSync();
     expect(persisted, isNot(contains('enabled =')));
     await drive([
-      CharInput('Plugins'), enter, enter, down, down, enter, // session
+      CharInput('Plugins'), enter, ArrowKey(ArrowDirection.left),
+      ArrowKey(ArrowDirection.left), // session
       CharInput('tina/goals'), space,
       () {
         expect(app.commands['goal'], isNotNull);
@@ -344,6 +547,6 @@ void main() {
     // Full status is available even when the small terminal clips a row.
     expect(app.pluginSettings.status('tina/persistence', app.pluginManager),
         contains('pending restart'));
-    expect(output, contains('[x] tina/persistence'));
+    expect(output, matches(RegExp(r'tina/persiste[^\n]*\[x\]')));
   });
 }

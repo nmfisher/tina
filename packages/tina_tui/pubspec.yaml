@@ -66,6 +66,10 @@ dependencies:
     path: ../plugins/tina_goals
   tina_compaction:
     path: ../plugins/tina_compaction
+  tina_context:
+    path: ../plugins/tina_context
+  tina_context_tui:
+    path: ../plugins/tina_context_tui
   tina_subagents:
     path: ../plugins/tina_subagents
   tina_file_resources:

@@ -358,7 +358,7 @@ final class SettingsPanel {
           category: 'Plugins',
           label: 'Enabled plugins',
           open: () => _scopedPlugins(
-              settings, pluginSettings, pluginManager, descriptions)
+              settings, backend, pluginSettings, pluginManager, descriptions)
         ),
         (
           category: 'General',
@@ -657,6 +657,7 @@ final class SettingsPanel {
       };
   Future<void> _scopedPlugins(
       ScopedSettings settings,
+      ConfigSettingsBackend backend,
       PluginSettings<dynamic>? plugins,
       PluginManager<dynamic>? manager,
       Map<String, String> descriptions) async {
@@ -668,6 +669,7 @@ final class SettingsPanel {
     final delivery = settings.catalog['tina/approvals/channel'];
     var query = '';
     var selected = 0;
+    var column = _scope.index;
     while (true) {
       var reset = false;
       var about = false;
@@ -676,9 +678,24 @@ final class SettingsPanel {
             for (final field in fields)
               '[${plugins?.requiredIds.contains(field.owner) == true || settings.read(field, scope: _scope).value == true ? 'x' : ' '}] ${field.owner}'
           ];
-      final choice = await _menu('Plugins (toggles save immediately)', items(),
+      final choice = await _menu('Plugins · [-] inherit · [~] mixed', items(),
           itemsNow: items,
           checkboxes: true,
+          contextLine: _pluginColumnsHeader,
+          onHorizontal: (delta) {
+            column = (column + delta) % 4;
+            if (column < 3) _scope = SettingScope.values[column];
+          },
+          rowFor: (i) => i == 0
+              ? _settingRow(settings, delivery)
+              : _pluginColumnsRow(
+                  '${fields[i - 1].owner}${plugins?.requiredIds.contains(fields[i - 1].owner) == true ? ' · required' : ''}',
+                  [
+                    for (final scope in SettingScope.values)
+                      settings.override(fields[i - 1], scope) as bool?,
+                  ],
+                  column),
+          showDescription: true,
           initialSelected: selected,
           initialQuery: query,
           onQuery: (value) => query = value,
@@ -691,7 +708,7 @@ final class SettingsPanel {
               ? 'Selected delivery plugin · opens with conversation'
               : plugins?.requiredIds.contains(fields[i - 1].owner) == true
                   ? plugins!.blockingReasons[fields[i - 1].owner]!.join('; ')
-                  : '${settings.read(fields[i - 1], scope: _scope).sourceLabel} · ${manager == null ? _applyLabel(fields[i - 1].applyAt) : plugins!.changeStatus(fields[i - 1].owner, manager)}');
+                  : '${column == 3 ? 'All: toggle session, workspace and global' : '${_scope.name}: ${settings.hasOverride(fields[i - 1], _scope) ? 'set here' : 'inherited from ${settings.read(fields[i - 1], scope: _scope).sourceLabel}'}'} · ${manager == null ? _applyLabel(fields[i - 1].applyAt) : plugins!.changeStatus(fields[i - 1].owner, manager)}');
       if (choice == null) return;
       selected = choice;
       if (about) {
@@ -708,14 +725,34 @@ final class SettingsPanel {
         continue;
       }
       final field = fields[choice - 1];
-      if (plugins?.requiredIds.contains(field.owner) == true) continue;
-      if (reset) {
-        settings.removeOverride(field, _scope);
-      } else {
-        settings.set(
-            field, settings.read(field, scope: _scope).value != true, _scope);
+      final required = plugins?.requiredIds.contains(field.owner) == true;
+      // A dependency requires the plugin in the effective conversation, not
+      // necessarily in every scope. Allow promotion to missing scopes.
+      if (required &&
+          (reset ||
+              (column == 3
+                  ? SettingScope.values.every((scope) =>
+                      settings.read(field, scope: scope).value == true)
+                  : settings.read(field, scope: _scope).value == true)))
+        continue;
+      try {
+        if (column == 3) {
+          final allEnabled = SettingScope.values
+              .every((scope) => settings.override(field, scope) == true);
+          backend.setPluginInAllScopes(
+              settings, field, reset ? null : !allEnabled);
+        } else if (reset) {
+          settings.removeOverride(field, _scope);
+        } else {
+          settings.set(
+              field,
+              required || settings.read(field, scope: _scope).value != true,
+              _scope);
+        }
+        _savedSection = true;
+      } catch (error) {
+        await _menu('Could not change plugin', ['$error', 'Back']);
       }
-      _savedSection = true;
     }
   }
 
@@ -908,13 +945,13 @@ final class SettingsPanel {
       Map<String, String> descriptions,
       {Future<void> Function()? commit}) async {
     var scope = PluginScope.global;
+    var column = scope.index;
     var selected = 0;
     var query = '';
     settings?.reload();
     Set<String> requiredIds() => settings?.requiredIds ?? {};
     ids = {...ids, ...requiredIds()}.toList()..sort();
     bool enabled(String id) {
-      if (requiredIds().contains(id)) return true;
       if (settings != null) return settings.scopedState(id, scope).enabled;
       final table = document.table('plugins');
       return parsePluginOverrides(table)[id] ??
@@ -934,27 +971,42 @@ final class SettingsPanel {
       var reset = false;
       var about = false;
       final rows = [
-        'Scope: ${scope.name}',
+        'Approval channel: ${document.table('plugins')['approval_channel'] ?? defaultApprovalChannel}',
         for (final id in ids)
           '${enabled(id) ? '[x]' : '[ ]'} $id${requiredIds().contains(id) ? ' · required' : ''}',
-        'Approval channel: ${document.table('plugins')['approval_channel'] ?? defaultApprovalChannel}',
       ];
-      final choice = await _menu(
-          settings == null
-              ? 'Plugins (toggles save immediately)'
-              : 'Plugins (toggles save immediately)',
-          rows,
+      final choice = await _menu('Plugins · [-] inherit · [~] mixed', rows,
           initialSelected: selected,
           initialQuery: query,
           onQuery: (value) => query = value,
           checkboxes: true,
+          contextLine: _pluginColumnsHeader,
+          onHorizontal: (delta) {
+            column = (column + delta) % 4;
+            if (column < 3) scope = PluginScope.values[column];
+          },
+          rowFor: (index) => index == 0
+              ? rows.first
+              : _pluginColumnsRow(
+                  '${ids[index - 1]}${requiredIds().contains(ids[index - 1]) ? ' · required' : ''}',
+                  [
+                    for (final candidate in PluginScope.values)
+                      settings != null
+                          ? settings.overrideValue(ids[index - 1], candidate)
+                          : candidate == PluginScope.global
+                              ? enabled(ids[index - 1])
+                              : null,
+                  ],
+                  column),
+          showDescription: true,
           onReset: () => reset = true,
           onAbout: () => about = true,
           descriptionFor: (index) => index > 0 && index <= ids.length
               ? description(ids[index - 1])
               : '',
           detailFor: (index) {
-            if (index == 0) return 'Choose where changes apply';
+            if (index == 0)
+              return 'Approval delivery · Global · restart required';
             if (index > ids.length) return 'Global · restart required';
             final id = ids[index - 1];
             if (requiredIds().contains(id))
@@ -963,7 +1015,7 @@ final class SettingsPanel {
             if (settings == null) return 'Global · saves immediately';
             final active =
                 manager!.host.plugins.any((plugin) => plugin.id == id);
-            return '${settings.changeStatus(id, manager)} · active ${active ? 'on' : 'off'} · ${settings.scopedState(id, scope).source}';
+            return '${column == 3 ? 'All: toggle session, workspace and global' : '${scope.name}: ${settings.overrideValue(id, scope) == null ? 'inherited' : 'set here'}'} · ${settings.changeStatus(id, manager)} · active ${active ? 'on' : 'off'}';
           });
       if (choice == null) return;
       selected = choice;
@@ -978,22 +1030,34 @@ final class SettingsPanel {
           continue;
         }
         if (choice == 0) {
-          if (settings == null) continue;
-          final chosen =
-              await _menu('Plugin scope', ['Global', 'Workspace', 'Session']);
-          if (chosen != null)
-            scope = [
-              PluginScope.global,
-              PluginScope.workspace,
-              PluginScope.session
-            ][chosen];
+          final table = document.table('plugins');
+          final value = await _edit('Approval channel (restart required)',
+              table['approval_channel'] as String? ?? defaultApprovalChannel,
+              suggestions: ids.where((id) => id.contains('approval')).toList());
+          if (value != null) {
+            table['approval_channel'] = value.trim();
+            await commit?.call();
+          }
         } else if (choice <= ids.length) {
           final id = ids[choice - 1];
-          if (requiredIds().contains(id)) continue;
+          final required = requiredIds().contains(id);
+          if (required &&
+              (reset ||
+                  (column == 3
+                      ? PluginScope.values.every((scope) =>
+                          settings?.scopedState(id, scope).enabled ?? true)
+                      : enabled(id)))) continue;
           if (settings != null) {
-            settings.apply(id, reset ? null : !enabled(id), scope, manager!);
+            if (column == 3) {
+              final allEnabled = PluginScope.values
+                  .every((scope) => settings.overrideValue(id, scope) == true);
+              settings.applyAll(id, reset ? null : !allEnabled, manager!);
+            } else {
+              settings.apply(
+                  id, reset ? null : required || !enabled(id), scope, manager!);
+            }
             _savedSection = true;
-            if (scope == PluginScope.global) {
+            if (scope == PluginScope.global || column == 3) {
               final channel = document.table('plugins')['approval_channel'];
               document.refreshTable('plugins');
               if (channel != null)
@@ -1003,6 +1067,9 @@ final class SettingsPanel {
               await _menu(
                   'Plugin change pending', [manager.lastError!, 'Back']);
           } else {
+            if (column != PluginScope.global.index)
+              throw StateError(
+                  'Only Global scope is available without a plugin settings backend');
             final table = document.table('plugins');
             final overrides =
                 Map<String, dynamic>.from(table['overrides'] as Map? ?? {});
@@ -1012,15 +1079,6 @@ final class SettingsPanel {
               overrides[id] = !enabled(id);
             }
             table['overrides'] = overrides;
-            await commit?.call();
-          }
-        } else {
-          final table = document.table('plugins');
-          final value = await _edit('Approval channel (restart required)',
-              table['approval_channel'] as String? ?? defaultApprovalChannel,
-              suggestions: ids.where((id) => id.contains('approval')).toList());
-          if (value != null) {
-            table['approval_channel'] = value.trim();
             await commit?.call();
           }
         }
@@ -1369,14 +1427,14 @@ final class SettingsPanel {
     return true;
   }
 
-  void _show(List<String> lines, {(int, int)? cursor}) {
+  void _show(List<String> lines, {(int, int)? cursor, String? contextLine}) {
     final target = _frame;
     if (lines.isEmpty) return;
     final boxed = target.width >= 4 && target.height >= 4;
     final scopeRows = boxed && target.height >= 6 ? 1 : 0;
     final title = _title(lines.first);
     final body = [
-      if (scopeRows > 0) _scopeLine,
+      if (scopeRows > 0) contextLine ?? _scopeLine,
       ...lines.skip(1).take((lines.length - 2).clamp(0, lines.length))
     ];
     final visible = boxed
@@ -1414,13 +1472,45 @@ final class SettingsPanel {
     return '$name${' ' * (column - visibleWidth(name))}$value';
   }
 
+  int get _pluginCellWidth => _contentWidth >= 60 ? 10 : 5;
+  int get _pluginNameWidth =>
+      (_contentWidth - 2 - 4 * _pluginCellWidth).clamp(1, _menuWidth);
+  String _pluginCell(String text) =>
+      clipDialogText(text, _pluginCellWidth).padRight(_pluginCellWidth);
+  String _pluginName(String name) =>
+      clipDialogText(name, _pluginNameWidth).padRight(_pluginNameWidth);
+  String _pluginColumnsHeader() => '  ${_pluginName('Plugin')}${[
+        for (final name in _contentWidth >= 60
+            ? ['Session', 'Workspace', 'Global', 'All']
+            : ['Sess', 'Work', 'Glob', 'All'])
+          _pluginCell(name),
+      ].join()}';
+  String _pluginColumnsRow(String id, List<bool?> values, int column) {
+    final all = values.every((v) => v == true)
+        ? 'x'
+        : values.every((v) => v == false)
+            ? ' '
+            : values.every((v) => v == null)
+                ? '-'
+                : '~';
+    return '${_pluginName(id)}${[
+      for (var i = 0; i < 4; i++)
+        _pluginCell(
+            '${column == i ? '>' : ' '}[${i == 3 ? all : values[i] == null ? '-' : values[i] == true ? 'x' : ' '}]'),
+    ].join()}';
+  }
+
   Future<int?> _menu(String title, List<String> items,
       {int initialSelected = 0,
       String initialQuery = '',
       void Function(String)? onQuery,
       bool checkboxes = false,
+      String Function()? contextLine,
+      String Function(int)? rowFor,
+      void Function(int)? onHorizontal,
       String Function(int)? detailFor,
       String Function(int)? descriptionFor,
+      bool showDescription = false,
       void Function()? onAbout,
       void Function()? onReset,
       List<String> Function()? itemsNow,
@@ -1450,22 +1540,33 @@ final class SettingsPanel {
       final titleRows = 1;
       final footerRows = 1;
       final searchRows = bodyHeight >= 2 ? 1 : 0;
-      // Status has one reserved row on every menu; descriptions live behind ?.
-      final detailRows = bodyHeight >= 3 ? 1 : 0;
-      final room =
-          (bodyHeight - searchRows - detailRows).clamp(1, _menuMaxHeight);
-      final footer = checkboxes
-          ? '${_usingScopes ? 'Tab scope · ' : ''}space toggle · ^R inherit · ? about · esc'
-          : '${_usingScopes ? 'Tab scope · ' : ''}↑↓ move · ${canToggle != null ? 'space toggle · ' : ''}enter select · esc back${descriptionFor != null ? ' · ? help' : ''}';
+      // Reserve a stable description area in plugin selectors. On short
+      // screens it takes precedence over status, with at least one item left
+      // visible. The full text remains available through ?.
+      final inlineDescription = showDescription && descriptionFor != null;
+      final detailRows =
+          bodyHeight >= 3 && (!inlineDescription || bodyHeight >= 5) ? 1 : 0;
+      final descriptionRows = inlineDescription
+          ? (bodyHeight - searchRows - detailRows - 1).clamp(0, 3)
+          : 0;
+      final room = (bodyHeight - searchRows - detailRows - descriptionRows)
+          .clamp(1, _menuMaxHeight);
+      final footer = onHorizontal != null
+          ? '←→/Tab column · space toggle · ^R inherit · ? about · esc'
+          : checkboxes
+              ? '${_usingScopes ? 'Tab scope · ' : ''}space toggle · ^R inherit · ? about · esc'
+              : '${_usingScopes ? 'Tab scope · ' : ''}↑↓ move · ${canToggle != null ? 'space toggle · ' : ''}enter select · esc back${descriptionFor != null ? ' · ? help' : ''}';
       if (filtered.isEmpty) {
         _show([
-          if (titleRows > 0) title,
+          if (titleRows > 0)
+            contextLine != null && bounds.height < 6 ? contextLine() : title,
           if (searchRows > 0) 'Find: $query',
           if (room > 0) 'No matches · backspace to edit',
           for (var i = 1; i < room; i++) '',
           for (var i = 0; i < detailRows; i++) '',
+          for (var i = 0; i < descriptionRows; i++) '',
           if (footerRows > 0) footer,
-        ]);
+        ], contextLine: contextLine?.call());
         return;
       }
       selected = selected.clamp(0, filtered.length - 1);
@@ -1478,15 +1579,30 @@ final class SettingsPanel {
       final shownRows = room.clamp(0, filtered.length);
       final start =
           (selected - shownRows + 1).clamp(0, filtered.length - shownRows);
+      final description = descriptionRows == 0
+          ? const <String>[]
+          : wrapDialogWords(descriptionFor!(filtered[selected]), _contentWidth);
       _show([
-        if (titleRows > 0) title,
+        if (titleRows > 0)
+          contextLine != null && bounds.height < 6 ? contextLine() : title,
         if (searchRows > 0) 'Find: $query',
         for (var i = start; i < start + shownRows; i++)
-          '${selected == i ? '›' : ' '} ${_compactRow(items[filtered[i]])}',
+          '${selected == i ? '›' : ' '} ${rowFor?.call(filtered[i]) ?? _compactRow(items[filtered[i]])}',
         for (var i = shownRows; i < room; i++) '',
         if (detailRows > 0) detailFor?.call(filtered[selected]) ?? '',
-        if (footerRows > 0) footer,
-      ]);
+        for (var i = 0; i < descriptionRows; i++)
+          if (i < description.length)
+            i == descriptionRows - 1 && description.length > descriptionRows
+                ? '${clipDialogText(description[i], (_contentWidth - 1).clamp(0, _contentWidth))}…'
+                : description[i]
+          else
+            '',
+        if (footerRows > 0)
+          inlineDescription && descriptionRows == 0
+              ? clipDialogText(
+                  descriptionFor(filtered[selected]), _contentWidth)
+              : footer,
+      ], contextLine: contextLine?.call());
     };
     while (true) {
       if (_cancelled) return null;
@@ -1498,6 +1614,13 @@ final class SettingsPanel {
       repaint();
       final filtered = matches();
       switch (event) {
+        case ControlKey(code: ControlCode.tab) when onHorizontal != null:
+          onHorizontal(1);
+        case ArrowKey(direction: ArrowDirection.left) when onHorizontal != null:
+          onHorizontal(-1);
+        case ArrowKey(direction: ArrowDirection.right)
+            when onHorizontal != null:
+          onHorizontal(1);
         case ControlKey(code: ControlCode.tab) when _usingScopes:
           final scopes =
               SettingScope.values.where(_availableScopes.contains).toList();

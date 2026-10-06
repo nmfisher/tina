@@ -1,0 +1,15 @@
+name: tina_context_tui
+description: Read-only working-context and edit viewer for the console.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_console:
+    path: ../../tina_console
+  tina_context:
+    path: ../tina_context
+dev_dependencies:
+  test: ^1.25.0

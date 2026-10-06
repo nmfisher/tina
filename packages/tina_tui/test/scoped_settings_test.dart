@@ -70,6 +70,85 @@ unknown = "preserve me"
   SettingDefinition<Object> field(String id) => app.settings.catalog[id];
   final enter = ControlKey(ControlCode.enter), escape = EscapeKey();
 
+  test(
+      'masked saves refresh plugin scope metadata without changing the active plugin',
+      () {
+    final goals = field('tina/goals/enabled');
+    app.settings.set(goals, true, SettingScope.session);
+    expect(app.commands['goal'], isNotNull);
+    app.settings.set(goals, true, SettingScope.global);
+    expect(
+        app.pluginSettings
+            .scopedState('tina/goals', PluginScope.global)
+            .enabled,
+        true);
+    expect(app.pluginSettings.overrideValue('tina/goals', PluginScope.global),
+        true);
+    app.settings.set(goals, false, SettingScope.global);
+    expect(
+        app.pluginSettings
+            .scopedState('tina/goals', PluginScope.global)
+            .enabled,
+        false);
+    expect(
+        app.pluginSettings
+            .scopedState('tina/goals', PluginScope.session)
+            .enabled,
+        true);
+    expect(app.commands['goal'], isNotNull);
+    app.settings.removeOverride(goals, SettingScope.session);
+    expect(app.commands['goal'], isNull);
+  });
+
+  test('All plugin scopes validate hidden consumers before writing any layer',
+      () {
+    app.settings.set(field('tina/context/enabled'), true, SettingScope.global);
+    app.settings
+        .set(field('tina/context-tui/enabled'), true, SettingScope.global);
+    app.settings
+        .set(field('tina/context-tui/enabled'), false, SettingScope.workspace);
+    final beforeGlobal = global.readAsStringSync();
+    final local = File(app.settingsBackend.workspacePath);
+    final beforeWorkspace = local.readAsStringSync();
+    final beforeSession = Map.of(app.settings.layer(SettingScope.session));
+    expect(
+        () => app.settingsBackend.setPluginInAllScopes(
+            app.settings, field('tina/context/enabled'), false),
+        throwsArgumentError);
+    expect(global.readAsStringSync(), beforeGlobal);
+    expect(local.readAsStringSync(), beforeWorkspace);
+    expect(app.settings.layer(SettingScope.session), beforeSession);
+  });
+
+  test('All plugin scopes preserve unrelated settings and reject aliased files',
+      () {
+    final goals = field('tina/goals/enabled');
+    app.settingsBackend.setPluginInAllScopes(app.settings, goals, true);
+    expect(
+        SettingScope.values.map((scope) => app.settings.override(goals, scope)),
+        [true, true, true]);
+    expect(global.readAsStringSync(), contains('preserve me'));
+    expect(app.settings.read(field('tina/providers/requests_per_minute')).value,
+        0);
+    // An explicit config path can point at the workspace config itself.
+    final same = TuiAssembly.start(
+        providerFactory: (model) => Judge(model),
+        options: AssemblyOptions(
+            configPath: '${directory.path}/.tina/config',
+            workingDirectory: directory.path));
+    addTearDown(same.close);
+    final original = global.readAsStringSync();
+    expect(
+        () => same.settingsBackend.setPluginInAllScopes(
+            same.settings, same.settings.catalog['tina/goals/enabled'], true),
+        throwsStateError);
+    expect(global.readAsStringSync(), original);
+    expect(
+        same.settings.hasOverride(
+            same.settings.catalog['tina/goals/enabled'], SettingScope.session),
+        false);
+  });
+
   test('terminal alerts persist globally and update existing sibling sessions',
       () {
     final alerts = field('tina/chat-tui/terminal_alerts');
@@ -279,7 +358,7 @@ unknown = "preserve me"
           app.settings
               .hasOverride(field('tina/goals/enabled'), SettingScope.session),
           false);
-      expect(io.written.toString(), contains('[x] tina/goals'));
+      expect(io.written.toString(), matches(RegExp(r'tina/goals[^\n]*\[x\]')));
     } finally {
       input.close();
       screen.dispose();

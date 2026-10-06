@@ -198,6 +198,34 @@ final class ConfigDocument {
   /// The scoped adapter validates the complete resolved config before writing.
   void saveScoped() => _write();
 
+  /// Preflight every file, then roll back completed writes if a later save
+  /// fails. Application callbacks run only after the caller commits the batch.
+  static void saveScopedBatch(List<ConfigDocument> documents) {
+    for (final document in documents) {
+      document._checkUnchanged();
+    }
+    final originals = {for (final d in documents) d: d._original};
+    final saved = <ConfigDocument>[];
+    try {
+      for (final document in documents) {
+        document.saveScoped();
+        saved.add(document);
+      }
+    } catch (error) {
+      for (final document in saved.reversed) {
+        final original = originals[document];
+        document._checkUnchanged();
+        if (original == null) {
+          File(document.path).deleteSync();
+          document._original = null;
+        } else {
+          document._write(encodedOverride: original);
+        }
+      }
+      rethrow;
+    }
+  }
+
   void save(
       {List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins}) {
@@ -211,8 +239,16 @@ final class ConfigDocument {
     _write();
   }
 
-  void _write() {
-    final encoded = TomlDocument.fromMap(values).toString();
+  void _checkUnchanged() {
+    final requested = File(path);
+    final current =
+        requested.existsSync() ? requested.readAsStringSync() : null;
+    if (current != _original)
+      throw StateError('Config changed on disk; close settings and reopen it.');
+  }
+
+  void _write({String? encodedOverride}) {
+    final encoded = encodedOverride ?? TomlDocument.fromMap(values).toString();
     if (_saveDraft != null) {
       _saveDraft!(values);
       _original = encoded;
@@ -221,15 +257,7 @@ final class ConfigDocument {
     final requested = File(path);
     final file = File(
         requested.existsSync() ? requested.resolveSymbolicLinksSync() : path);
-    void checkUnchanged() {
-      final current =
-          requested.existsSync() ? requested.readAsStringSync() : null;
-      if (current != _original)
-        throw StateError(
-            'Config changed on disk; close settings and reopen it.');
-    }
-
-    checkUnchanged();
+    _checkUnchanged();
     file.parent.createSync(recursive: true);
     final staging = file.parent.createTempSync('.tina-config-');
     final pending = File('${staging.path}/config');
@@ -241,7 +269,7 @@ final class ConfigDocument {
           throw FileSystemException('Cannot secure config permissions', path);
       }
       pending.writeAsStringSync(encoded, flush: true);
-      checkUnchanged();
+      _checkUnchanged();
       pending.renameSync(file.path);
       _original = encoded;
     } finally {

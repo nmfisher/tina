@@ -31,6 +31,34 @@ Future<void> settle() async {
 }
 
 void main() {
+  test('host policy pauses automatic and manual compaction until released',
+      () async {
+    var enabled = false;
+    final provider = ScriptedProvider([
+      turn('x' * 400),
+      turn('y' * 400),
+      scriptedReply('summary'),
+    ]);
+    final plugin = CompactionPlugin(
+        canCompact: () => enabled,
+        config:
+            const CompactionConfig(thresholdTokens: 100, keepRecentTurns: 1));
+    final host = Host.start(HostConfig(
+        providerFactory: (_) => provider,
+        workingDirectory: Directory.systemTemp.path,
+        plugins: [plugin]));
+    addTearDown(host.close);
+    await host.send('one');
+    await host.send('two');
+    await host.commands['compact']!.handler('');
+    expect(provider.callCount, 2);
+    expect(host.session.loop.log.whereType<CompactedEntry>(), isEmpty);
+    enabled = true;
+    await host.commands['compact']!.handler('');
+    expect(provider.callCount, 3);
+    expect(host.session.loop.log.whereType<CompactedEntry>(), hasLength(1));
+  });
+
   late Directory ws;
 
   setUp(() async {

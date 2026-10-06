@@ -26,10 +26,13 @@ on exit or when returning to the default theme. Default-model changes apply to
 new conversations; restart-only plugin changes remain marked pending. Session
 overrides are restored with their saved session.
 **Plugins** in `/settings` applies supported plugin changes between turns.
-Press Tab to choose Session, Workspace or Global scope. Space/Enter toggles a checkbox;
-Ctrl-R restores inheritance. Toggles save immediately. The checkbox reflects
-the chosen scope; the status row shows its source, active state and any pending
-restart. Required plugins are locked. `?` opens the full description from
+The grid has Session, Workspace, Global and All columns. Left/right or Tab moves
+between columns; Space/Enter toggles. All updates all three scopes together.
+`[-]` means inherited, `[~]` means mixed; Ctrl-R restores inheritance in the
+selected column (all three for All). Toggles save immediately. The status row
+shows source, active state and pending restart. Required plugins cannot be
+disabled, but can be enabled in scopes where they are missing.
+Descriptions appear below the list; `?` opens the full description from
 registration metadata. `--configure` also saves each confirmed change, without
 starting a model session.
 
@@ -140,6 +143,35 @@ and child sessions. Provider RPM and minimum interval both apply, using the
 larger interval. 429/503 Retry-After adds a cooldown capped at 60 seconds.
 Cancellation removes queued requests and releases active slots. There is no
 unbounded retry ladder and no cross-process scheduler.
+
+## Agent-managed context
+
+Experimental `tina/context` is disabled by default. Enable it through Settings
+→ Plugins, or add an override to global config or `<workspace>/.tina/config`:
+
+```toml
+[plugins.overrides]
+"tina/context" = true
+```
+
+Restart to apply the change. Each primary conversation gets a separate editable
+`live.json` in temporary sandbox space. Its path and editing instructions are
+provided to the model. Dedicated file tools receive a session grant for that
+exact file; other files and the protected `.tina` tree keep their existing
+permission rules. Shell commands keep their normal approval policy.
+
+The plugin validates edits before subsequent model calls and persists accepted
+replacements alongside the original conversation log. Automatic compaction and
+`/compact` pause while it is loaded; a pending restart change does not switch
+the running context policy. Persistence must be enabled for edits to survive
+process exit. Child agents retain their existing plugin set. There are no
+automatic budget reminders yet. See the
+[context package](../packages/plugins/tina_context/README.md).
+
+Also set `"tina/context-tui" = true` under `[plugins.overrides]` for the optional
+`/context` visualizer. It requires `tina/context`; once that plugin is loaded,
+the viewer can be toggled live. It displays accepted messages, approximate
+tokens, pending mirror status and latest accepted changes without applying edits.
 
 ## Limits
 

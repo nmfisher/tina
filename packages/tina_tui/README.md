@@ -88,27 +88,60 @@ the global config path; workspace overrides still apply. When both paths identif
 the same file it is read once as the explicit global file, and Workspace-scope
 writes are refused to avoid silently treating one file as two scopes.
 
-Settings → **Plugins** lists registered plugins with enable/disable checkboxes,
-active state, source scope, pending changes and a description of the selected
-plugin. Press `?` to read the full description. Choose Global (default), Workspace
-or Session scope. Space/Enter toggles; Ctrl-R removes that scope's per-ID override
-and restores inheritance. Changes save immediately. Session
-changes stay in memory and are not restored with session history. Global and
-workspace changes are saved atomically, preserve unrelated config, and apply to
-the current session where live changes are supported. Other running processes
-are not automatically reconfigured. A higher scope can mask a persisted change;
-the checkbox shows the selected scope while the row also shows active state.
+Settings → **Plugins** shows four columns: **Session**, **Workspace**, **Global**,
+and **All**. Left/right or Tab selects a column; Space/Enter toggles the plugin.
+The first three columns show explicit values: `[x]` enabled, `[ ]` disabled,
+`[-]` inherited. All shows `[~]` for mixed values and toggles all three scopes
+together (mixed values become enabled). Ctrl-R restores inheritance in the
+selected column, or all three scopes when All is selected. Descriptions remain
+visible below the list; `?` opens the full text. Status shows the selected source,
+active state and pending changes. Narrow terminals abbreviate column headers.
+
+Changes save immediately. Session changes affect the current conversation;
+Global and Workspace persist in their config files and apply where live changes
+are supported. All validates every affected scope before saving and rolls back
+completed file writes if a subsequent save fails. Unrelated settings are
+preserved. When Global and Workspace point at the same file, All is refused;
+choose a single scope. Other running processes are not automatically
+reconfigured. Session overrides Workspace, which overrides Global.
 
 Plans, goals, auto-compaction and file resources support live enable/disable.
 Changes requested during a turn wait until it finishes. Unload removes commands,
 executors, hooks, subscriptions and frontend contributions; reloading creates a
 fresh instance and lets the plugin replay its state from the transcript. Failed
 activation cleans partial registrations and leaves existing plugins loaded.
-Persistence and subagents require restart; their configured and loaded states
+Persistence, subagents and agent-managed context require restart; their configured and loaded states
 can therefore differ. The system-instruction plugin is optional. Settings show
 which enabled consumer or application capability requires each provider.
 Dependency validation rejects removing a provider while its consumers remain enabled. Channel changes use the approval-channel
 setting and require restart.
+
+Required plugins can still be enabled in missing scopes, including through All;
+the dependency requirement does not imply that every scope has a saved override.
+Columns show the actual saved values, and masked scope changes refresh metadata
+even when the current conversation's effective configuration stays the same.
+
+Experimental agent-managed context is disabled by default. Enable `tina/context`
+in Settings → Plugins, or add this to the workspace `.tina/config`, then restart:
+
+```toml
+[plugins.overrides]
+"tina/context" = true
+```
+
+Each primary conversation gets a separate temporary `live.json` identified in
+the model's instructions. The agent can edit it with existing file tools; only
+that exact file receives an automatic write grant. Changes are validated before
+the next model request. The original log stays intact, and persistence saves
+accepted edits for resume. Automatic compaction and `/compact` pause while the
+plugin is loaded. The setting applies to interactive and headless sessions;
+child agents retain their existing context policy. See the
+[context plugin](../plugins/tina_context/README.md) for the format and recovery rules.
+
+For a read-only visualizer, also enable `tina/context-tui` and open `/context`.
+It shows accepted messages, estimated tokens, pending file status and the latest
+accepted replacement. `T` switches messages/changes, arrows scroll and Esc closes.
+The viewer can be toggled live once `tina/context` is loaded; it never applies edits.
 
 Plugin authors opt into live changes with `PluginDefinition(live: true)` (or
 `registry.register(..., description: "...", live: true)`). Every definition

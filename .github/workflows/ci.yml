@@ -611,6 +611,48 @@ jobs:
         working-directory: packages/plugins/tina_compaction
         run: dart test -j 4
 
+  tina_context:
+    name: tina_context (packages/plugins/tina_context)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_context)
+        working-directory: packages/plugins/tina_context
+        run: dart pub get
+      - name: analyze (tina_context)
+        working-directory: packages/plugins/tina_context
+        run: dart analyze
+      - name: test (tina_context)
+        working-directory: packages/plugins/tina_context
+        run: dart test -j 4
+
+  tina_context_tui:
+    name: tina_context_tui (packages/plugins/tina_context_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install native console dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+      - name: pub get (tina_context_tui)
+        working-directory: packages/plugins/tina_context_tui
+        run: dart pub get
+      - name: analyze (tina_context_tui)
+        working-directory: packages/plugins/tina_context_tui
+        run: dart analyze
+      - name: test (tina_context_tui)
+        working-directory: packages/plugins/tina_context_tui
+        run: dart test -j 4
+
   tina_plans:
     name: tina_plans (packages/plugins/tina_plans)
     runs-on: ubuntu-latest

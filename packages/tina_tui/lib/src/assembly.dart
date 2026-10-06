@@ -386,6 +386,10 @@ final class TuiAssembly {
             '${descriptor.id}/${entry.key}': entry.value.name,
       }),
       openStore: persists ? openStore : null,
+      contextLoaded: () =>
+          assembled?.host.plugins
+              .any((plugin) => plugin.id == 'tina/context') ??
+          false,
     );
     final plugins = registry.build(pluginSettings.selected, context);
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
@@ -420,11 +424,8 @@ final class TuiAssembly {
         final values = settingsBackend.effectiveDocument();
         final encoded = jsonEncode(values);
         settings.reload();
-        if (encoded == previousConfiguration) return;
-        final next =
-            ConfigDocument.validateValues(values, descriptors: descriptors);
-        refreshProviderDefinitions(catalog, next);
-        settings.reload();
+        // Persisted layers can change while session overrides keep the
+        // effective configuration identical. Refresh scope metadata anyway.
         pluginSettings.reload();
         pluginSettings.restoreSessionOverrides({
           for (final id in registry.ids)
@@ -432,6 +433,11 @@ final class TuiAssembly {
                 case final bool enabled)
               id: enabled,
         });
+        if (encoded == previousConfiguration) return;
+        final next =
+            ConfigDocument.validateValues(values, descriptors: descriptors);
+        refreshProviderDefinitions(catalog, next);
+        settings.reload();
         resolved = next;
         previousConfiguration = encoded;
         policy.updateLimits(next.limits);

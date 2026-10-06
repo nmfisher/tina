@@ -105,6 +105,7 @@ final class CompactionPlugin extends AgentPlugin {
     this.config = const CompactionConfig(),
     this.terminal,
     this.id = 'tina/auto-compact',
+    this.canCompact,
   })  : assert(config.overThresholdMargin >= 1.0),
         assert(config.keepRecentTurns >= 0);
 
@@ -118,12 +119,21 @@ final class CompactionPlugin extends AgentPlugin {
 
   final CompactionConfig config;
   final Terminal? terminal;
+
+  /// Host coordination with another context policy. Defaults to enabled.
+  /// Consult the loaded policy, not settings pending a restart.
+  final bool Function()? canCompact;
   @override
   List<Command> get commands => [
         Command(
             name: 'compact',
             description: 'summarize conversation history now',
             handler: (_) async {
+              if (!(canCompact?.call() ?? true)) {
+                terminal?.writeln('Compaction is paused while agent-managed '
+                    'context is active. Edit the context file instead.');
+                return;
+              }
               final loop = _loop;
               if (loop == null) return;
               await loop.betweenTurns(() async {
@@ -167,6 +177,7 @@ final class CompactionPlugin extends AgentPlugin {
 
   @override
   Future<void> onTurnEnd(TurnContext c) async {
+    if (!(canCompact?.call() ?? true)) return;
     if (config.thresholdTokens <= 0) return;
     final loop = _loop;
     if (loop == null) return;

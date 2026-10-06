@@ -480,6 +480,20 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_context:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_context"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_context_tui:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_context_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_core:
     dependency: "direct main"
     description:

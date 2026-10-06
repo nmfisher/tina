@@ -1,0 +1,13 @@
+name: tina_context
+description: Opt-in agent-managed working context with an editable file mirror.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+dev_dependencies:
+  test: ^1.25.0
+  tina_persistence:
+    path: ../tina_persistence

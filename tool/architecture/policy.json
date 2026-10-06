@@ -20,6 +20,7 @@
     "tina_workflows",
     "tina_system_instruction",
     "tina_compaction",
+    "tina_context",
     "tina_plans",
     "tina_goals",
     "tina_persistence",
@@ -28,6 +29,7 @@
     "tina_self_update",
     "tina_providers",
     "tina_activity_tui",
+    "tina_context_tui",
     "tina_chat_tui",
     "tina_grok_guard",
     "tina_mode",
@@ -44,6 +46,7 @@
     "tina_tui",
     "tina_approvals_tui",
     "tina_activity_tui",
+    "tina_context_tui",
     "tina_chat_tui"
   ],
   "sourceRoots": {
@@ -138,6 +141,10 @@
       "lib",
       "test"
     ],
+    "tina_context": [
+      "lib",
+      "test"
+    ],
     "tina_plans": [
       "lib",
       "test"
@@ -188,6 +195,10 @@
       "test"
     ],
     "tina_settings": [
+      "lib",
+      "test"
+    ],
+    "tina_context_tui": [
       "lib",
       "test"
     ]
@@ -268,6 +279,7 @@
     "tina_workflows": "packages/plugins/tina_workflows",
     "tina_system_instruction": "packages/plugins/tina_system_instruction",
     "tina_compaction": "packages/plugins/tina_compaction",
+    "tina_context": "packages/plugins/tina_context",
     "tina_plans": "packages/plugins/tina_plans",
     "tina_goals": "packages/plugins/tina_goals",
     "tina_persistence": "packages/plugins/tina_persistence",
@@ -280,9 +292,13 @@
     "tina_grok_guard": "packages/plugins/tina_grok_guard",
     "tina_mode": "packages/plugins/tina_mode",
     "tina_mcp": "packages/plugins/tina_mcp",
-    "tina_settings": "packages/libraries/tina_settings"
+    "tina_settings": "packages/libraries/tina_settings",
+    "tina_context_tui": "packages/plugins/tina_context_tui"
   },
   "runtimeDependencies": {
+    "tina_context": [
+      "tina_engine_2"
+    ],
     "tina_shell": [
       "tina_core",
       "tina_engine_2",
@@ -366,6 +382,11 @@
     "tina_settings": [],
     "tina": [
       "tina_tui"
+    ],
+    "tina_context_tui": [
+      "tina_engine_2",
+      "tina_console",
+      "tina_context"
     ]
   },
   "pluginFreePackages": [

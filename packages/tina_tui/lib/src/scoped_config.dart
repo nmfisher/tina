@@ -129,6 +129,60 @@ final class ConfigSettingsBackend implements SettingsBackend {
     });
   }
 
+  /// The plugin grid's All column is one action across the three layers.
+  void setPluginInAllScopes(ScopedSettings settings,
+      SettingDefinition<Object> definition, bool? enabled) {
+    if (!definition.id.endsWith('/enabled') ||
+        definition.configPath.first != 'plugins') {
+      throw ArgumentError('All scopes is only available for plugin toggles');
+    }
+    if (sameFile) {
+      throw StateError(
+          'Global and workspace config are the same file; choose a single scope');
+    }
+    settings.reload();
+    final layers = {
+      for (final scope in SettingScope.values)
+        scope: Map<String, Object?>.of(settings.layer(scope))
+    };
+    for (final scope in SettingScope.values) {
+      if (!definition.scopes.contains(scope))
+        throw ArgumentError('Unsupported plugin scope');
+      if (enabled == null) {
+        layers[scope]!.remove(definition.id);
+      } else {
+        layers[scope]![definition.id] = definition.encodeObject(enabled);
+      }
+    }
+    final documents = <ConfigDocument>[];
+    for (final scope in [SettingScope.global, SettingScope.workspace]) {
+      final document = _snapshots[scope]!.fork();
+      if (scope == SettingScope.global) {
+        document.table('plugins')
+          ..remove('enabled')
+          ..['selection_version'] = 2;
+      }
+      for (final field in catalog.definitions) {
+        if (field.scopes.contains(scope))
+          _writeValue(document.values, field, layers[scope]![field.id]);
+      }
+      documents.add(document);
+    }
+    for (final view in SettingScope.values) {
+      final effective = effectiveDocument(layers: {
+        for (final scope in SettingScope.values)
+          scope:
+              scope.index < view.index ? <String, Object?>{} : layers[scope]!,
+      });
+      ConfigDocument.validateValues(effective, descriptors: descriptors);
+      validateSelection?.call(effective);
+    }
+    ConfigDocument.saveScopedBatch(documents);
+    _session = layers[SettingScope.session]!;
+    onChanged?.call();
+    settings.reload();
+  }
+
   /// Effective config retains unknown legacy fields and credentials verbatim.
   Map<String, dynamic> effectiveDocument(
       {Map<SettingScope, Map<String, Object?>>? layers}) {

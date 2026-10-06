@@ -17,10 +17,14 @@ import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
+import 'package:tina_context/tina_context.dart';
+import 'package:tina_context_tui/tina_context_tui.dart';
 import 'package:tina_subagents/tina_subagents.dart';
 import 'package:tina_file_resources/tina_file_resources.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_step_limit/tina_step_limit.dart';
+
+const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
 /// Explicit dependencies available to factories in the application assembly.
 final class TuiPluginContext {
@@ -41,6 +45,7 @@ final class TuiPluginContext {
     this.limits = const RequestLimits(),
     this.settings,
     this.readLimits,
+    this.contextLoaded,
   });
   final String workingDirectory;
   final String configPath;
@@ -50,6 +55,7 @@ final class TuiPluginContext {
   final RequestLimits limits;
   final ScopedSettings? settings;
   final RequestLimits Function()? readLimits;
+  final bool Function()? contextLoaded;
   RequestLimits get currentLimits => readLimits?.call() ?? limits;
   final Terminal terminal;
   final ToolsPlugin tools;
@@ -244,9 +250,30 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Tracks an active goal and its progress across turns, with optional token budgets.',
             live: true),
         PluginDefinition<TuiPluginContext>(
-            'tina/auto-compact', (c) => CompactionPlugin(terminal: c.terminal),
+            'tina/auto-compact',
+            (c) => CompactionPlugin(
+                terminal: c.terminal,
+                canCompact: () => !(c.contextLoaded?.call() ?? false)),
             description:
                 'Summarizes older conversation history when context grows large to make room for more work.',
+            live: true),
+        PluginDefinition.dependingOn<TuiPluginContext, ToolSessionSource>(
+            'tina/context',
+            dependency: toolProvider,
+            provides: [_workingContext],
+            create: (c, _) => ContextPlugin.sessionMirror(
+                onMirrorReady: (file) => c.tools.sandbox.grants
+                    .rememberExact(file.resolveSymbolicLinksSync())),
+            description:
+                'Experimental: lets the agent edit its working conversation through a temporary file. Preserves the original log and pauses automatic and manual compaction while loaded. Changes require restart.',
+            live: false),
+        PluginDefinition.dependingOn<TuiPluginContext, ContextPlugin>(
+            'tina/context-tui',
+            dependency: _workingContext,
+            create: (c, context) =>
+                ContextTuiPlugin(context: context, terminal: c.terminal),
+            description:
+                'Adds /context to inspect accepted working messages, estimated tokens, pending file edits and the latest accepted changes. Requires tina/context.',
             live: true),
         PluginDefinition.dependingOn2<TuiPluginContext, ToolSessionSource,
                 ModelAccess>('tina/subagents',
