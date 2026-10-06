@@ -19,6 +19,7 @@ import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'scoped_config.dart';
 import 'settings_catalog.dart';
+import 'settings_stack.dart';
 import 'config_document.dart';
 
 /// Where an entry point's lines go. One seam for everything the
@@ -255,6 +256,13 @@ final class TuiAssembly {
     final output = terminal ?? TuiTerminal();
     final registry = firstPartyPlugins();
     registerPlugins?.call(registry);
+    final stack = ScopedSettingsStack.build(
+        globalPath: options.configPath ?? defaultConfigPath(),
+        workspacePath: '$workingDirectory/.tina/config',
+        registry: registry,
+        descriptors: descriptors,
+        config: resolved,
+        onConfigurationChanged: configurationUpdates.changed);
     final pluginSettings = PluginSettings<TuiPluginContext>(
       globalPath: options.configPath ?? defaultConfigPath(),
       workspacePath: '$workingDirectory/.tina/config',
@@ -263,24 +271,9 @@ final class TuiAssembly {
       sessionBaseline: options.plugins,
       channelOverride: options.approvalChannel,
     );
-    final catalog = createSettingsCatalog(registry, resolved);
-    final settingsBackend = ConfigSettingsBackend(
-        catalog: catalog,
-        globalPath: options.configPath ?? defaultConfigPath(),
-        workspacePath: '$workingDirectory/.tina/config',
-        descriptors: descriptors,
-        validateSelection: (values) {
-          final parsed =
-              parseTinaConfig(values, descriptors: descriptors!).config;
-          if (parsePluginOverrides(values['plugins'])[parsed.approvalChannel] ==
-              false) {
-            throw ArgumentError(
-                '${parsed.approvalChannel} is the selected approval channel');
-          }
-          registry.validate({...parsed.plugins, parsed.approvalChannel});
-        },
-        onChanged: configurationUpdates.changed);
-    final settings = ScopedSettings(catalog: catalog, backend: settingsBackend);
+    final catalog = stack.catalog;
+    final settingsBackend = stack.backend;
+    final settings = stack.settings;
     resolved = ConfigDocument.validateValues(
         settingsBackend.effectiveDocument(),
         descriptors: descriptors);
@@ -522,7 +515,7 @@ final class TuiAssembly {
           output.writeln('/${c.name} — ${c.description}');
         }
         output.writeln(
-            'Type while busy and Enter to queue. Esc clears the draft; Esc with an empty draft cancels. Tab completes command arguments; @ completes files.');
+            'Type while busy and Enter to queue. Ctrl+C clears the draft; with an empty draft it quits. Esc clears the draft; Esc with an empty draft cancels. Tab completes command arguments; @ completes files.');
       },
     ));
     return assembly;
