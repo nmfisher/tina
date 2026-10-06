@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:tina_tools/tina_tools.dart' show killProcessTree;
+import 'package:tina_tools/tina_tools.dart'
+    show killProcessTree, startCapturedProcess;
 import 'config.dart';
 
 typedef RpcMessage = Map<String, dynamic>;
@@ -24,15 +25,14 @@ Future<McpTransport> connectMcp(McpServerConfig config, String workspace,
       for (final e in config.headers.entries) e.key: expand(e.value),
     });
   }
-  final process = await Process.start(
+  final process = await startCapturedProcess(
       expand(config.command!), config.arguments.map(expand).toList(),
       workingDirectory: config.directory(workspace),
       environment: {
         ...env,
         for (final e in config.environment.entries) e.key: expand(e.value)
       },
-      includeParentEnvironment: false,
-      runInShell: false);
+      includeParentEnvironment: false);
   return StdioMcpTransport(process);
 }
 

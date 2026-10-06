@@ -17,8 +17,7 @@ import 'stdio_fake.dart';
 /// forever. The fix is a full re-emission ([Screen.refresh] →
 /// [NotcursesBackend.refresh] → notcurses_refresh) at the end of every
 /// resize; these tests pin the forwarding chain and the post-refresh cursor
-/// re-park. The app-side "refresh runs after every resize" pin lives in
-/// test/tui/resize_coordinator_test.dart.
+/// re-park. Same-size SIGWINCH repaints also recover external terminal writes.
 void main() {
   test('Screen.refresh forwards to the backend platform (full re-emission)',
       () {
@@ -44,6 +43,45 @@ void main() {
     screen.refresh(); // must not throw
   });
 
+  test('same-size resize still re-emits the complete retained frame', () {
+    final io = FakeStdio()..columns = 120;
+    final platform = _RefreshRecordingPlatform();
+    final backend = NotcursesBackend.forTesting(io: io, platform: platform);
+    final layout = ScreenLayout.fromSize(120, 40, split: false);
+    final screen = Screen.withBackend(backend: backend, io: io, layout: layout);
+    screen.resize(layout);
+    expect(platform.refreshCalls, 1);
+    expect(platform.calls.last, 'refresh');
+    expect(platform.calls, contains('render'));
+  });
+
+  test('refresh presents pending plane changes before replaying the raster',
+      () {
+    final io = FakeStdio()..columns = 120;
+    final platform = _RefreshRecordingPlatform();
+    final backend = NotcursesBackend.forTesting(io: io, platform: platform);
+    backend.writeText('new frame');
+    backend.refresh();
+    expect(platform.calls, ['render', 'refresh']);
+    expect(backend.gridDirty, false);
+  });
+
+  test('resize refresh waits for the enclosing frame to finish', () {
+    final io = FakeStdio()..columns = 120;
+    final platform = _RefreshRecordingPlatform();
+    final backend = NotcursesBackend.forTesting(io: io, platform: platform);
+    final layout = ScreenLayout.fromSize(120, 40, split: false);
+    final screen = Screen.withBackend(backend: backend, io: io, layout: layout);
+    screen.frame(() {
+      screen.resize(layout);
+      expect(platform.refreshCalls, 0);
+      backend.writeText('final frame change');
+    });
+    expect(platform.refreshCalls, 1);
+    expect(platform.calls.last, 'refresh');
+    expect(backend.gridDirty, false);
+  });
+
   test('NotcursesBackend.refresh re-parks the hardware cursor', () {
     final io = FakeStdio()..columns = 120;
     final platform = _RefreshRecordingPlatform();
@@ -60,11 +98,13 @@ void main() {
 }
 
 class _RefreshRecordingPlatform implements NotcursesPlatform {
+  final calls = <String>[];
   int refreshCalls = 0;
   (int, int)? lastCursorEnable;
 
   @override
   bool refresh() {
+    calls.add('refresh');
     refreshCalls++;
     return true;
   }
@@ -91,7 +131,11 @@ class _RefreshRecordingPlatform implements NotcursesPlatform {
   @override
   void setBgDefault() {}
   @override
-  bool render() => true;
+  bool render() {
+    calls.add('render');
+    return true;
+  }
+
   @override
   void cursorDisable() {}
   @override

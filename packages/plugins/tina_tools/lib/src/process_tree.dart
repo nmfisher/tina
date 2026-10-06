@@ -5,9 +5,11 @@ import 'dart:io';
 /// Why this exists: `Process.kill()` (and `RunningProcess.kill()`) signals only
 /// the direct child, so a command that backgrounds or forks (`npm run dev &`,
 /// a build server, a daemon) survives cancel/timeout/exit and leaks. macOS has
-/// no `setsid`, so we can't drop the shell into its own process group and
-/// `kill(-pgid)`; instead we enumerate the descendant tree with `pgrep -P`
-/// (present on both macOS and Linux) and signal each pid. A double-forked
+/// no `setsid` executable. The CLI now calls libc's setsid in an exec
+/// trampoline to remove terminal access, but this runner can also be embedded
+/// without that launcher. Cleanup therefore enumerates descendants with
+/// `pgrep -P` (present on both macOS and Linux), without assuming an isolated
+/// process group, and signals each pid. A double-forked
 /// `setsid` daemon still escapes — the same known limitation pi has.
 ///
 /// Sequence: SIGTERM every pid (descendants before the root), poll for a clean

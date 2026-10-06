@@ -49,4 +49,5 @@ export 'src/plugin_catalog.dart' show TuiPluginContext;
 export 'src/plugin_settings.dart';
 
 export 'src/cli.dart';
+export 'src/process_launcher.dart' show initializeProcessLauncher;
 export 'src/shell_completion.dart';

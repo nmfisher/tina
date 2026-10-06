@@ -64,6 +64,20 @@ OS confinement separately.
 They are two tools on purpose, not one tool with a mode flag: the
 signatures say what each can and cannot do.
 
+## Process output
+
+The CLI captures stdout and stderr and starts commands in a new POSIX session
+before exec. This prevents a command or background job from reopening Tina's
+controlling terminal through `/dev/tty`; PID, pipes, cwd, environment and exit
+status are preserved. Manual shell commands and stdio MCP servers use the same
+launcher. Embedding hosts can install their own exec trampoline with
+`configureCapturedProcessLauncher`; without one, the library uses ordinary
+`Process.start` with captured pipes.
+
+An existing external process can still own a terminal descriptor opened before
+Tina starts. Such a writer must be stopped or launched with output redirected;
+changing Tina's subprocess launcher cannot replace another process's descriptors.
+
 ## Network access
 
 `exec` and `bash` accept `network: true` with a required `network_reason`.

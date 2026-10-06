@@ -537,8 +537,11 @@ class NotcursesBackend
     // why a resize needs this: tmux scrolls the alternate screen on pane
     // shrink, so the terminal's grid no longer matches our retained frame
     // and damage-only renders would leave stale rows forever.
+    // A resize can update the planes before the coalesced present runs.
+    // Rasterize those changes first: refresh replays the last raster, and
+    // clearing gridDirty here would otherwise discard the pending new frame.
+    if (_gridDirty) _flushNow();
     _platform.refresh();
-    _gridDirty = false;
     _flushNow();
   }
 

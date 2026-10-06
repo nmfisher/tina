@@ -98,6 +98,7 @@ class Screen {
   /// [_pendingBorderRepairRows] instead of repairing immediately, so several
   /// writes to one row in a logical frame re-emit each border cell at most once.
   int _frameDepth = 0;
+  bool _refreshPending = false;
 
   /// Whether the "frame not closed" warning has already been written for the
   /// current occurrence, so a stuck backend warns once instead of every frame.
@@ -298,6 +299,10 @@ class Screen {
         // silently stops repainting while the app keeps running.
         be.endFrame();
         _checkFrameClosed(be);
+        if (_frameDepth == 0 && _refreshPending) {
+          _refreshPending = false;
+          be.refresh();
+        }
       }
     }
   }
@@ -547,17 +552,23 @@ class Screen {
 
   /// Resize to a new layout. Repaints the frame and gives each region a
   /// chance to re-render its content within the new bounds.
-  void resize(ScreenLayout layout) => frame(() {
-        _layout = layout;
-        if (_canvasConfigured) _canvasNeedsPaint = true;
-        redrawFrame();
-        _activeChat.handleResize();
-        _status.handleResize();
-        _input.handleResize();
-        for (final o in _overlays) {
-          o.handleResize();
-        }
-      });
+  void resize(ScreenLayout layout) {
+    frame(() {
+      _layout = layout;
+      if (_canvasConfigured) _canvasNeedsPaint = true;
+      redrawFrame();
+      _activeChat.handleResize();
+      _status.handleResize();
+      _input.handleResize();
+      for (final o in _overlays) {
+        o.handleResize();
+      }
+    });
+    // Rewriting unchanged retained cells cannot remove out-of-band terminal
+    // output. Re-emit the complete frame even when SIGWINCH reports the same
+    // dimensions, so a repaint repairs marks left by an external writer.
+    refresh();
+  }
 
   /// Paint the entire frame: menu box + chat box + info box (when split),
   /// each tinted per the current focus/highlight state.
@@ -912,6 +923,10 @@ class Screen {
   /// stale forever. See [TerminalBackend.refresh].
   void refresh() {
     if (passthrough) return;
+    if (_frameDepth > 0) {
+      _refreshPending = true;
+      return;
+    }
     _backend!.refresh();
   }
 

@@ -6,6 +6,7 @@
 library;
 
 export 'src/process_tree.dart' show killProcessTree;
+export 'src/captured_process.dart';
 
 export 'package:tina_core/tina_core.dart'
     show ToolResult, ToolSchema, ToolDescription;

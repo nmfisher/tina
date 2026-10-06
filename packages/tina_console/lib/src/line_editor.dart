@@ -1527,6 +1527,7 @@ class LineEditor {
           case ControlCode.ctrlL:
             screen.clearChat();
             _redraw();
+            screen.refresh();
           case ControlCode.ctrlB:
           case ControlCode.ctrlW:
           case ControlCode.ctrlG:
@@ -1766,6 +1767,7 @@ class LineEditor {
             // turn itself are untouched.
             screen.clearChat();
             _renderQueueDisplay();
+            screen.refresh();
           case ControlCode.tab:
           case ControlCode.ctrlD:
           case ControlCode.ctrlW:

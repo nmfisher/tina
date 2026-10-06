@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'process_tree.dart';
+import 'captured_process.dart';
 
 /// One command the runner has been asked to run.
 ///
@@ -185,7 +186,7 @@ class IoProcessRunner implements ProcessRunner {
       return stopped('cancelled', '', '');
     final Process process;
     try {
-      process = await Process.start(request.command, request.arguments,
+      process = await startCapturedProcess(request.command, request.arguments,
           workingDirectory: request.workingDirectory,
           environment: request.environment,
           includeParentEnvironment: request.environment == null);
