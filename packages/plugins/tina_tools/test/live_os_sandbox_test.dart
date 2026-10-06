@@ -47,17 +47,21 @@ void main() {
           stdin: null,
           timeout: null
         ));
-    Future<void> blocked(String path) async {
+    Future<void> blocked(String path, {bool syntheticParent = false}) async {
       final result = await touch(path);
-      expect(
-          result is CommandBlocked ||
-              result is CommandCompleted && result.exitCode != 0,
-          isTrue,
-          reason: '$result');
+      // bwrap creates empty namespace parents for the Tina bind. Writes in
+      // those private directories can succeed without modifying the host.
+      if (!syntheticParent || runner.backend != SandboxBackend.bwrap) {
+        expect(
+            result is CommandBlocked ||
+                result is CommandCompleted && result.exitCode != 0,
+            isTrue,
+            reason: '$result');
+      }
       expect(File(path).existsSync(), isFalse);
     }
 
-    await blocked('${external.path}/before');
+    await blocked('${external.path}/before', syntheticParent: true);
     writes.replace([external.path]);
     final allowed = await touch('${external.path}/allowed');
     expect(allowed, isA<CommandCompleted>());
@@ -66,7 +70,7 @@ void main() {
     await blocked('${other.path}/blocked');
     await blocked('${tina.path}/blocked');
     writes.replace([]);
-    await blocked('${external.path}/revoked');
+    await blocked('${external.path}/revoked', syntheticParent: true);
   });
 
   test('explicit outside approval and startup disable actually remove the jail',
