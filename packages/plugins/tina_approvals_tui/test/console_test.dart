@@ -73,6 +73,20 @@ void main() {
               'Your message contains grok, this is a no-no. Are you sure you want to proceed?',
           kind: kind);
 
+  test('approval releases input before the tool receives its decision',
+      () async {
+    final decision = ask();
+    final received = decision.then((value) {
+      expect(editor.isReadingKey, false,
+          reason:
+              'tool startup and its shortcuts must run after input releases');
+      return value;
+    });
+    await tick();
+    io.feed('y');
+    expect(await received, ApprovalDecision.allow);
+  });
+
   test('alerts once per presented approval, including queued questions',
       () async {
     screen.enterAltScreen();

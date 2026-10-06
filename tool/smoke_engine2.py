@@ -360,6 +360,8 @@ def smoke(launcher, endpoint, columns, rows):
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
                "HOME": str(root), "TERM": "xterm-256color", "LANG": "en_US.UTF-8",
                "TINA_LLM_ENDPOINT": endpoint, "TINA_LLM_TOKEN": "local-smoke-only"}
+        if os.environ.get('TINA_INPUT_TRACE'):
+            env['TINA_INPUT_TRACE'] = os.environ['TINA_INPUT_TRACE']
         command = launcher + ["--config", str(config),
                    "--cwd", str(workspace), "--store", str(store)]
         request_start = len(ModelStub.requests)
@@ -661,7 +663,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('❯ [y] allow once', start)
             terminal.resize(100, 30)
             start = terminal.send('\r')
-            time.sleep(0.05)
+            terminal.wait_for(lambda: (workspace / 'subprocess-ready').exists(),
+                              'approved subprocess never started')
             # Browsing during execution must not cancel or submit input.
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
@@ -752,6 +755,9 @@ def smoke(launcher, endpoint, columns, rows):
                     about = terminal.send('?')
                     terminal.expect('About tina/grok-guard', about)
                     terminal.expect('Asks for Yes/No confirmation', about, wrapped=True)
+                    # Small settings frames show one help row at a time.
+                    # Read the next row through the same persistent input session.
+                    terminal.send('\x1b[B')
                     terminal.expect('No cancels the message.', about, wrapped=True)
                     back = terminal.send('\x1b')
                     # Wait for the popup to close before Space. On the ANSI
