@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, File, FileMode, FileSystemException;
 import 'dart:typed_data';
 
 import 'terminfo_environment.dart';
@@ -263,7 +263,20 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
   int planeColumns() => _plane.dimx();
 
   @override
-  void writeRawToTty(String s) => _nc.writeRawToTty(s);
+  void writeRawToTty(String s) {
+    try {
+      // Dart's append mode seeks to EOF, which fails with ESPIPE on a tty.
+      // Character devices accept write-only mode without an append seek.
+      final tty = File('/dev/tty').openSync(mode: FileMode.writeOnly);
+      try {
+        tty.writeStringSync(s);
+      } finally {
+        tty.closeSync();
+      }
+    } on FileSystemException {
+      // No controlling terminal (for example, a headless test).
+    }
+  }
 
   @override
   InputBackend createInputBackend() => NotcursesInputBackend.fromNotcurses(_nc);
@@ -291,6 +304,7 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
 class NotcursesBackend
     implements
         TerminalBackend,
+        TerminalAttentionBackend,
         BackendDiagnostics,
         CursorBackend,
         CanvasBackend,
@@ -634,6 +648,13 @@ class NotcursesBackend
     // controlling tty (its output FILE* isn't exposed to Dart, and stdout
     // interleaves badly with notcurses render output).
     _platform.writeRawToTty('\x1b[?2004h');
+  }
+
+  @override
+  void requestAttention() {
+    if (_stopped) return;
+    // notcurses interprets drawing strings instead of forwarding controls.
+    _platform.writeRawToTty('\x07');
   }
 
   @override

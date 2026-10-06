@@ -143,6 +143,54 @@ void main() {
     });
   }
 
+  test('categories, pickers, inline fields and help share one frame', () async {
+    late _TrackingBackend backend;
+    late Screen screen;
+    void stable() {
+      final expected =
+          dialogBounds(screen.layout, preferredWidth: 80, preferredHeight: 22);
+      expect(backend.surfaces.last.bounds.toString(), expected.toString());
+    }
+
+    final output = await drive([
+      stable,
+      down, enter, stable, // Models category
+      enter, stable, escape, stable, // model picker
+      down, enter, stable, // provider tree
+      ArrowKey(ArrowDirection.right), down, stable, // inline credential
+      escape, stable,
+      down, enter, stable, escape, stable, // generation editor
+      escape, stable, // root retains Models selection
+      down, enter, stable, enter, stable, // Appearance / Theme choices
+      down, escape, stable, escape, stable,
+      down, enter, stable, escape, stable, // Permissions
+      down, enter, stable, enter, stable, // Plugins / Enabled plugins
+      CharInput('acme/notes'), CharInput('?'), stable,
+      () => screen.resize(ScreenLayout.fromSize(40, 8, split: false)),
+      down, stable,
+      () => screen.resize(ScreenLayout.fromSize(100, 24, split: false)),
+      down, stable,
+      escape, stable, escape, stable, escape, stable, escape,
+    ], resizeEachKey: false, onReady: (s, b) {
+      screen = s;
+      backend = b;
+    });
+    for (final category in [
+      'General',
+      'Models',
+      'Appearance',
+      'Permissions',
+      'Plugins'
+    ]) {
+      expect(output, contains(category));
+    }
+    expect(output, contains('Settings › Models'));
+    expect(output, contains('Choose default model'));
+    expect(output, contains('Providers & models'));
+    expect(output, contains('Generation · anthropic'));
+    expect(output, contains('About acme/notes'));
+  });
+
   test(
       'disabled plugin descriptions come from registration and open fully on narrow screens',
       () async {
@@ -182,7 +230,7 @@ void main() {
     ], resizeEachKey: false);
     expect(output, contains('About acme/notes'));
     expect(output, contains('Summarizes release notes'));
-    expect(output, contains('the next release.'));
+    expect(output, contains('next release.'));
   });
 
   test(
@@ -271,8 +319,7 @@ void main() {
       CharInput('tina/tools'),
       space,
       escape,
-      CharInput('Save'),
-      enter,
+      escape,
     ]);
     expect(loadTinaConfig(path: config.path).config.model, 'next-model');
     expect(app.commands['goal'], isNotNull);

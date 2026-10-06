@@ -38,6 +38,9 @@ void main() {
   tearDown(() => root.deleteSync(recursive: true));
 
   test('saved read directories remove grep approval in every mode', () async {
+    final nested = File('${external.path}/nested/deeper/source.txt');
+    nested.parent.createSync(recursive: true);
+    nested.writeAsStringSync('needle\n');
     for (final mode in PermissionMode.values) {
       final directories = ReadOnlyDirectories();
       final inner = Recorder();
@@ -67,7 +70,11 @@ void main() {
       for (final program in ['cat', 'head', 'tail']) {
         expect(await gate.run(request(program, [source.path], workspace)),
             isA<CommandCompleted>());
+        expect(await gate.run(request(program, [nested.path], workspace)),
+            isA<CommandCompleted>());
       }
+      expect(approvals, before,
+          reason: 'a directory read grant must include all descendants');
       directories.replace([]);
       if (mode != PermissionMode.readOnly) {
         expect(await gate.run(call), isA<CommandRefused>());

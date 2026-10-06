@@ -9,6 +9,85 @@ import 'package:tina_approvals/tina_approvals.dart' as approvals;
 
 void main() {
   test(
+      'human Always skips repeat auto review of git refs outside the workspace',
+      () async {
+    final root =
+        Directory.systemTemp.createTempSync('tina-cross-project-grant-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final workspace = Directory('${root.path}/workspace')..createSync();
+    final repository = Directory('${root.path}/other-project')..createSync();
+    Future<ProcessResult> git(List<String> args) async {
+      final result = await Process.run('git', ['-C', repository.path, ...args]);
+      expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+      return result;
+    }
+
+    await git(['init', '-q', '--initial-branch=master']);
+    await git([
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'fixture'
+    ]);
+    await git(['update-ref', 'refs/remotes/origin/master', 'master']);
+    final hash = (await git(['rev-parse', 'master'])).stdout.toString().trim();
+    final judgeRequests = <String>[];
+    final human = _NetworkHuman();
+    final agent = ScriptedProvider([
+      for (final id in ['first', 'repeat']) ...[
+        scriptedReply('', calls: [
+          ToolUseBlock(id: id, name: 'exec', input: {
+            'program': 'git',
+            'args': [
+              '-C',
+              repository.path,
+              'rev-parse',
+              'master',
+              'origin/master'
+            ],
+          }),
+        ]),
+        scriptedReply('finished $id'),
+      ],
+    ]);
+    var builds = 0;
+    final assembly = TuiAssembly.start(
+        options: AssemblyOptions(
+            configPath: '${root.path}/missing',
+            workingDirectory: workspace.path),
+        providerFactory: (_) =>
+            builds++ == 0 ? agent : _Judge(judgeRequests, answer: 'DENY'));
+    addTearDown(assembly.close);
+    assembly.tools.modePolicy.approvals = human;
+    await assembly.handleCommand('/mode auto');
+    await assembly.host.send('read refs from the other project');
+    await assembly.host.send('read those same refs again');
+    expect(judgeRequests, hasLength(1),
+        reason:
+            'the repeat must skip the classifier despite the external path');
+    expect(human.requests, hasLength(1));
+    expect(human.kinds.single, approvals.ApprovalKind.permission);
+    expect(human.requests.single['permission_scope'], 'command');
+    final results = assembly.host.session.loop.log
+        .whereType<MessageAppendedEntry>()
+        .expand((entry) => entry.message.content)
+        .whereType<ToolResultBlock>()
+        .toList();
+    expect(results, hasLength(2));
+    expect(
+        results.every((result) =>
+            !result.isError && result.content.contains('$hash\n$hash')),
+        true,
+        reason: 'both real git commands must read both refs successfully');
+    expect(assembly.tools.processRunner.grants.length, 1);
+  });
+
+  test(
       'auto routes outside-sandbox execution to human and remembers exact grant',
       () async {
     final dir = Directory.systemTemp.createTempSync('tina-outside-human-');

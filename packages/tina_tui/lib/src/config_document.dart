@@ -59,6 +59,9 @@ final class ConfigDocument {
   /// Overlapping edits keep the stale baseline and are rejected at save time.
   void refreshUneditedTables() {
     final latest = ConfigDocument.open(path);
+    // A missing file has no disk baseline to merge. Synthesized defaults must
+    // not turn null into an empty TOML baseline and reject the first save.
+    if (_original == null && latest._original == null) return;
     final original = _original == null
         ? <String, dynamic>{}
         : TomlDocument.parse(_original!).toMap();

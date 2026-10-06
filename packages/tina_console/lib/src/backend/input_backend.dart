@@ -21,3 +21,11 @@ abstract class InputBackend {
   /// Release any subscriptions / timers / native resources.
   void dispose();
 }
+
+/// Optional batch dispatch capability for consumers with a persistent queue.
+/// Deliver a decoded batch before its consumer's async continuations run, so
+/// every key in that batch belongs to the same dialog. Single-key readers keep
+/// the legacy yielding behavior.
+abstract interface class SynchronousInputBackend {
+  set synchronousDispatch(bool value);
+}

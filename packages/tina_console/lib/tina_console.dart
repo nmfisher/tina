@@ -36,6 +36,7 @@ export 'src/focusable.dart';
 export 'src/focus_manager.dart';
 export 'src/info_panel.dart';
 export 'src/input_event.dart';
+export 'src/input_session.dart';
 export 'src/input_log.dart';
 export 'src/input_parser.dart';
 export 'src/text_line_input.dart';

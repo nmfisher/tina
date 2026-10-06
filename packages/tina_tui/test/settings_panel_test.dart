@@ -76,10 +76,10 @@ enabled = []
   test('settings edits a masked credential, saves other tables unchanged',
       () async {
     final (saved, output) = await drive([
-      down, down, enter, // providers
+      CharInput('Providers and models'), enter, // providers
       ArrowKey(ArrowDirection.right), down, // inline API key
       EditingKey(EditingAction.killToStart), CharInput('new-secret'), enter,
-      CharInput('Save'), enter,
+      escape,
     ]);
     expect(saved, isTrue);
     expect(output, isNot(contains('original-secret')));
@@ -93,11 +93,11 @@ enabled = []
 
   test('settings selects a channel independently of feature plugins', () async {
     final (saved, _) = await drive([
-      down, down, down, enter, // plugins
+      CharInput('Plugins'), enter, // plugins
       CharInput('Approval channel'), enter, // approval channel
       EditingKey(EditingAction.killToStart), CharInput('tina/approvals-stream'),
       enter, escape,
-      down, down, down, down, enter, // save
+      escape, // close
     ]);
     expect(saved, true);
     final loaded =
@@ -108,9 +108,9 @@ enabled = []
 
   test('model choices omit disabled models and save the wire ID', () async {
     final (saved, output) = await drive([
-      down, enter, // default model
+      CharInput('Default model'), enter, // default model
       down, enter, // next
-      down, down, down, down, enter, // save
+      escape, // close
     ]);
     expect(saved, isTrue);
     expect(output, isNot(contains('Hidden')));
@@ -127,8 +127,7 @@ enabled = []
       enter,
       CharInput('Next'),
       enter,
-      CharInput('Save'),
-      enter,
+      escape,
     ]);
     expect(saved, true);
     expect(
@@ -136,6 +135,37 @@ enabled = []
             .config
             .model,
         'next');
+  });
+
+  test('first-run model choice creates config without a stale-file error',
+      () async {
+    config.deleteSync();
+    final (saved, output) = await drive([
+      CharInput('Default model'),
+      enter,
+      CharInput('claude-sonnet-4-6'),
+      enter,
+      escape,
+    ], providerDescriptors: configuredDescriptors());
+    expect(saved, true);
+    expect(config.existsSync(), true);
+    expect(ConfigDocument.open(config.path).table('default')['model'],
+        'claude-sonnet-4-6');
+    expect(output, isNot(contains('Config changed on disk')));
+    expect(output, contains('▸ anthropic/claude-sonnet-4-6'));
+  });
+
+  test('cancelling first-run model picker leaves config absent', () async {
+    config.deleteSync();
+    final (saved, output) = await drive([
+      CharInput('Default model'),
+      enter,
+      escape,
+      escape,
+    ], providerDescriptors: configuredDescriptors());
+    expect(saved, false);
+    expect(config.existsSync(), false);
+    expect(output, isNot(contains('Could not apply setting')));
   });
 
   test('the default model picker chooses provider and model together',
@@ -148,8 +178,7 @@ enabled = []
       enter,
       CharInput('Other Provider'),
       enter,
-      CharInput('Save'),
-      enter,
+      escape,
     ]);
     expect(saved, true);
     final loaded =
@@ -173,8 +202,8 @@ enabled = []
       CharInput(' '), // disable Original
       down, down, CharInput(' '), // enable Hidden
       enter,
-      CharInput('Default model'), enter, CharInput('Next'), enter,
-      CharInput('Save'), enter,
+      CharInput('Next'), enter, // choose replacement for disabled default
+      escape,
     ]);
     expect(saved, true);
     final document = ConfigDocument.open(config.path);
@@ -211,8 +240,7 @@ enabled = []
       CharInput('tina/pl'),
       CharInput(' '),
       escape,
-      CharInput('Save'),
-      enter,
+      escape,
     ]);
     expect(saved, true);
     expect(
@@ -269,8 +297,7 @@ enabled = []
         if (applyDraft) ...[
           ArrowKey(ArrowDirection.left), // provider row, Enter applies the tree
           enter,
-          CharInput('Save'),
-          enter
+          escape
         ] else ...[
           escape,
           escape
@@ -368,16 +395,16 @@ enabled = []
     expect(options.thinkingBudget, isNull);
   });
 
-  test('saving generation preserves unrelated unsaved settings', () async {
+  test('generation preserves previously committed model settings', () async {
     final (saved, _) = await drive([
       CharInput('Default model'), enter, CharInput('Next'), enter,
       CharInput('Generation'), enter, CharInput('16384'), enter,
-      escape, down, enter, // discard the unrelated model draft
+      escape, // close after committed edits
     ]);
     expect(saved, true);
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
-    expect(loaded.model, 'original');
+    expect(loaded.model, 'next');
     expect(loaded.providers['custom']!.maxOutput, 16384);
     expect(loaded.providers['custom']!.apiKey, 'original-secret');
   });
@@ -462,12 +489,17 @@ enabled = []
     expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 8192);
   });
 
-  test('Escape requires an explicit discard before dropping edits', () async {
+  test('Escape closes settings after accepted edits have saved', () async {
     final before = config.readAsStringSync();
     final (saved, _) =
-        await drive([down, enter, down, enter, escape, down, enter]);
-    expect(saved, isFalse);
-    expect(config.readAsStringSync(), before);
+        await drive([CharInput('Default model'), enter, down, enter, escape]);
+    expect(saved, isTrue);
+    expect(config.readAsStringSync(), isNot(before));
+    expect(
+        loadTinaConfig(path: config.path, descriptors: descriptors)
+            .config
+            .model,
+        'next');
   });
 
   test('generation edits at the cursor, accepts commas and stores an integer',
@@ -562,8 +594,10 @@ enabled = []
       cursorAt('1,934,567', 3);
       await key(enter);
       menuCursorHidden();
-      await key(CharInput('Save'));
-      await key(enter);
+      await key(escape);
+      // Back through nested menus, without the global double-Esc cancel gesture.
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await key(escape);
       expect(await run.timeout(const Duration(seconds: 3)), true);
       expect(
           (VirtualTerminal(

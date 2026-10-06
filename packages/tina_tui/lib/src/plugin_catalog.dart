@@ -191,13 +191,15 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 tokenCap: c.limits.sessionTokens,
                 currentTokenCap: () => c.currentLimits.sessionTokens,
                 showSessionId: c.openStore != null,
+                terminalAlertsEnabled: () =>
+                    c.settings?.read(terminalAlertsSetting).value ?? true,
                 sessionTokens: c.providerPolicy == null
                     ? null
                     : () => c.providerPolicy!.sessionTokens,
                 sessionEstimatedTokens: c.providerPolicy == null
                     ? null
                     : () => c.providerPolicy!.sessionEstimatedTokens),
-            settings: [themeSetting],
+            settings: [themeSetting, terminalAlertsSetting],
             description:
                 'Displays conversation history, model responses, tool calls, timestamps and token spend.',
             live: true),

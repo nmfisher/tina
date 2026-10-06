@@ -8,13 +8,17 @@ the plugins that need it.
 
 ## Editing and inheritance
 
-Open `/settings`. The header shows the editing scope; Tab cycles Session,
-Workspace and Global in menus. Fields show their value and where it comes from.
-Select a field to set an override or choose **Use inherited value** to remove it.
+Open `/settings`. General, Models, Appearance, Permissions and Plugins use the
+same centered 80×22 frame, shrinking only when the terminal is smaller. Lists
+scroll inside it; typing searches sections and individual settings from the root.
+The header shows the editing scope; Tab cycles Session, Workspace and Global
+in menus. Rows show names and values; the status row shows inheritance and
+application timing. Enter edits a field, Space toggles, and Ctrl-R removes its
+override in setting lists. `?` opens descriptions and the values at each scope.
 An explicit value equal to the inherited value still creates an override.
 Confirmed edits save immediately. Generation forms save on Enter and cancel on
-Escape. In Plugins, Space/Enter toggles and Ctrl-R removes an override; `?` shows
-the full description.
+Escape. Escape from a list returns to its parent. In Plugins, Space/Enter toggles
+and Ctrl-R removes an override; `?` shows the full description.
 
 | Scope | Storage | Applies to |
 |---|---|---|
@@ -44,6 +48,7 @@ their counters into a process-wide or cross-process quota.
 | Default provider/model | Global, Workspace | New conversations; `/model` changes the current one |
 | Approval delivery | Global, Workspace | New conversation/restart |
 | Theme | Global | Immediately across the terminal |
+| Terminal alerts | Global | Immediately for response completion and new approvals |
 | Provider catalog/credentials and MCP server configuration | Global | Existing specialized editors apply their changes |
 
 A plugin lists eligible scopes and explains restrictions with `scopeReason`.

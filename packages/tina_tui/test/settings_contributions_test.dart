@@ -146,7 +146,7 @@ void main() {
     final enter = ControlKey(ControlCode.enter),
         down = ArrowKey(ArrowDirection.down);
     final keys = <InputEvent>[
-      CharInput('Example'), enter, enter, // section, toggle
+      CharInput('Example'), enter, CharInput(' '), // section, toggle
       down, enter, EditingKey(EditingAction.killToStart), CharInput('new'),
       enter,
       down, down, enter, down, enter, // choice
@@ -187,8 +187,10 @@ void main() {
                   change: (_) => changed++),
             ]);
     await Future<void>.delayed(Duration.zero);
-    expect(io.written.toString(), contains('Live section'));
+    // Contributions are searchable without expanding the five-category home.
     events.add(CharInput('Live section'));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(io.written.toString(), contains('Live section'));
     events.add(ControlKey(ControlCode.enter));
     events.add(ControlKey(ControlCode.enter));
     await Future<void>.delayed(const Duration(milliseconds: 20));

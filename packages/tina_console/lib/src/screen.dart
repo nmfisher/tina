@@ -386,6 +386,14 @@ class Screen {
     // are sent together.
   }
 
+  /// Request terminal tab attention only while this screen owns the terminal.
+  void requestAttention() {
+    if (passthrough || !_inAltScreen) return;
+    if (_backend case TerminalAttentionBackend attention) {
+      attention.requestAttention();
+    }
+  }
+
   /// Leave the alternate screen buffer. Idempotent.
   void leaveAltScreen() {
     if (passthrough) return;

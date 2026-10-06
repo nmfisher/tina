@@ -140,7 +140,17 @@ class StartupDrain {
 /// Uses [nc.NotCurses.getNonBlocking] (via [_NotcursesKeySource]) to poll for
 /// input events and maps [nc.NcKey] codes to the tina_console [InputEvent]
 /// hierarchy.
-class NotcursesInputBackend implements InputBackend {
+class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
+  bool _synchronousDispatch = false;
+  bool get synchronousDispatch => _synchronousDispatch;
+  @override
+  set synchronousDispatch(bool value) {
+    // Any keys already held by paste detection belong to the closing owner.
+    // Flush while that owner's queue is still attached, before the next dialog.
+    if (_synchronousDispatch && !value && !_disposed) _flushBurst();
+    _synchronousDispatch = value;
+  }
+
   final KeySource _keySource;
   final _controller = StreamController<InputEvent>(sync: true);
   Timer? _pollTimer;
@@ -596,12 +606,13 @@ class NotcursesInputBackend implements InputBackend {
     }
   }
 
-  /// Emit one event, deferring all but the first per tick so readKey has a
+  /// Dialog queues receive an entire batch synchronously. Legacy readers defer
+  /// all but the first event per tick so readKey has a
   /// chance to re-arm _keyCompleter between events (the stream consumer is
   /// single-shot per key). The first event of a tick goes synchronously.
   void _emit(InputEvent event) {
     InputLatency.beginIfAbsent(event);
-    if (_firstThisTick) {
+    if (_firstThisTick || synchronousDispatch) {
       _firstThisTick = false;
       _controller.add(event);
     } else {

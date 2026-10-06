@@ -16,7 +16,8 @@ Automatic output uses model metadata, then the global fallback. An explicit
 number takes precedence. Automatic thinking uses provider defaults; choosing
 a thinking level replaces the old budget/effort combination automatically.
 Existing custom thinking budgets remain visible and can be replaced using the
-same control. Other unsaved settings still offer Save, Discard or Keep editing.
+same control. Other editors also save confirmed changes immediately; Escape
+discards the current editor and returns to its parent.
 `/settings` can open while a model request or tool is running. Saved generation
 settings apply to the next model request; the current request continues with its
 original values. Theme changes apply immediately. The hardware text cursor follows
@@ -26,11 +27,11 @@ new conversations; restart-only plugin changes remain marked pending. Session
 overrides are restored with their saved session.
 **Plugins** in `/settings` applies supported plugin changes between turns.
 Press Tab to choose Session, Workspace or Global scope. Space/Enter toggles a checkbox;
-Ctrl-R restores inheritance. Toggles save immediately, even if you leave settings
-without saving other fields. The checkbox reflects the chosen scope; each row
-also shows its source, active state and any pending restart. Required plugins
-are locked. Highlighting a plugin shows its description from registration
-metadata; `?` opens the full description. `--configure` has no live session, so its checkboxes use Save changes.
+Ctrl-R restores inheritance. Toggles save immediately. The checkbox reflects
+the chosen scope; the status row shows its source, active state and any pending
+restart. Required plugins are locked. `?` opens the full description from
+registration metadata. `--configure` also saves each confirmed change, without
+starting a model session.
 
 See the [config compatibility audit](engine2-config-audit.md) for the exact
 consumed/ignored keys, credential precedence and verification of the existing
@@ -221,6 +222,20 @@ background = "48;5;234"
 Existing nested theme color overrides merge over the selected variant. Values
 are ANSI color-number strings, never arbitrary escape sequences. Settings offers
 the variant picker; custom color tables remain editable in TOML.
+
+## Terminal alerts
+
+Terminal alerts are on by default. Settings → Appearance → **Terminal alerts**
+applies immediately across conversation panels and persists in global config:
+
+```toml
+[terminal]
+alerts = true
+```
+
+Tina emits a terminal bell once when a response finishes or a new approval
+appears. Your terminal determines its tab badge and any sound. History replay,
+cancelled responses and ordinary repaints do not alert.
 
 ## Input classification
 

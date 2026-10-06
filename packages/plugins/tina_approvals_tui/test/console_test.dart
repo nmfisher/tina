@@ -24,6 +24,17 @@ class Io implements Stdio {
 
 Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));
 
+class RecordingChannel implements ApprovalChannel {
+  RecordingChannel(this.inner);
+  final ApprovalChannel inner;
+  final tickets = <ApprovalTicket>[];
+  @override
+  Future<void> deliver(ApprovalTicket ticket) {
+    tickets.add(ticket);
+    return inner.deliver(ticket);
+  }
+}
+
 void main() {
   late Io io;
   late Screen screen;
@@ -61,6 +72,69 @@ void main() {
           reason:
               'Your message contains grok, this is a no-no. Are you sure you want to proceed?',
           kind: kind);
+
+  test('alerts once per presented approval, including queued questions',
+      () async {
+    screen.enterAltScreen();
+    io.output.clear();
+    final first = ask(kind: ApprovalKind.permission);
+    final second = ask();
+    await tick();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(1));
+    ui.repaintConsole();
+    io.feed('\x1b[B\t');
+    await tick();
+    screen.resize(ScreenLayout.fromSize(100, 30, split: false));
+    ui.repaintConsole();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(1));
+    io.feed('a');
+    expect(await first, ApprovalDecision.allowAlways);
+    await tick();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(2));
+    service.closeSession();
+    expect(await second, ApprovalDecision.deny);
+    await tick();
+    ui.repaintConsole();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(2));
+  });
+
+  test('batched arrows and Enter save Always without answering the next prompt',
+      () async {
+    final first = ask(kind: ApprovalKind.permission);
+    final second = ask(kind: ApprovalKind.permission);
+    await tick();
+    io.feed('\x1b[B\x1b[B\r\r');
+    expect(await first.timeout(const Duration(seconds: 1)),
+        ApprovalDecision.allowAlways);
+    var answered = false;
+    unawaited(second.then((_) => answered = true));
+    await tick();
+    expect(answered, false,
+        reason: 'extra Enter belongs to the completed dialog');
+    expect(ui.asker!.current, isNotNull);
+    io.feed('n');
+    expect(await second, ApprovalDecision.deny);
+  });
+
+  test('cancelling a dialog discards its batched controls before the next ask',
+      () async {
+    service.closeSession();
+    final channel = RecordingChannel(ui);
+    service = ApprovalsPlugin(channel: channel);
+    final first = ask(kind: ApprovalKind.permission);
+    final second = ask(kind: ApprovalKind.permission);
+    await tick();
+    channel.tickets.first.respond(ApprovalDecision.deny);
+    io.feed('\x1b[B\r');
+    expect(await first, ApprovalDecision.deny);
+    var answered = false;
+    unawaited(second.then((_) => answered = true));
+    await tick();
+    expect(answered, false);
+    expect(ui.asker!.current, isNotNull);
+    io.feed('n');
+    expect(await second, ApprovalDecision.deny);
+  });
 
   for (final size in [(80, 10), (80, 24), (120, 30)]) {
     test('Yes/No replaces the input and restores the draft at $size', () async {

@@ -109,6 +109,56 @@ void main() {
         LogEvent.appended);
   }
 
+  test('alerts once at live turn end, never for replay, tools or cancellation',
+      () {
+    screen.enterAltScreen();
+    io.output.clear();
+    chat.observe(const ToolStarted(call));
+    chat.observe(const ToolFinished(call, ToolResult('done')));
+    chat.repaintConsole();
+    const complete =
+        TurnEndedEntry(turnId: 'done', reason: TurnStopReason.complete);
+    chat.entry(complete, LogEvent.replay);
+    chat.entry(
+        const TurnEndedEntry(
+            turnId: 'cancelled', reason: TurnStopReason.cancelled),
+        LogEvent.appended);
+    expect('\x07'.allMatches(io.output.toString()), isEmpty);
+    final before = transcript();
+    chat.entry(complete, LogEvent.appended);
+    chat.repaintConsole();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(1));
+    expect(transcript(), before);
+    chat.detachConsole();
+    chat.entry(complete, LogEvent.appended);
+    expect('\x07'.allMatches(io.output.toString()), hasLength(1));
+  });
+
+  test('live attention preference also gates requests from other contributions',
+      () {
+    chat.closeSession();
+    var enabled = true;
+    chat = ChatTuiPlugin(model: 'test', terminalAlertsEnabled: () => enabled)
+      ..attachConsole(context);
+    screen.enterAltScreen();
+    io.output.clear();
+    const complete =
+        TurnEndedEntry(turnId: 'done', reason: TurnStopReason.complete);
+    chat.entry(complete, LogEvent.appended);
+    enabled = false;
+    chat.entry(complete, LogEvent.appended);
+    context.requestAttention();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(1));
+    enabled = true;
+    context.requestAttention();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(2));
+    enabled = false;
+    chat.detachConsole();
+    context.requestAttention();
+    expect('\x07'.allMatches(io.output.toString()), hasLength(3),
+        reason: 'detach must release its preference binding');
+  });
+
   test(
       'tool-owned descriptions label calls and structured failures read as text',
       () {

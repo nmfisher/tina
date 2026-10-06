@@ -78,6 +78,7 @@ final class SessionControlsPlugin extends AgentPlugin
 
   Future<String?> _pick(ConsoleContext console) async {
     final catalog = modelCatalog();
+    final input = console.openInputSession();
     final picker = ModelSearchPicker(
       screen: console.screen,
       modelRefs: catalog.models,
@@ -88,13 +89,14 @@ final class SessionControlsPlugin extends AgentPlugin
         _recentModels,
         [currentModel()]
       ].expand((refs) => refs).toList(),
-      readEvent: () => console.input.readKey(acceptPaste: true),
+      readEvent: input.read,
       accent: console.screen.theme.border.focus,
     );
     _paint = picker.repaint;
     try {
       return await picker.run();
     } finally {
+      input.dispose();
       _paint = null;
       console.chat.repaint();
       console.refreshInput();

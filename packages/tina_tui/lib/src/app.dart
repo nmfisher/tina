@@ -476,7 +476,6 @@ final class StartupTerminal {
       return await picker.run();
     } finally {
       await resize.cancel();
-      editor.endKeyCaptureWindow();
     }
   }
 

@@ -21,6 +21,7 @@ final class ChatTuiPlugin extends AgentPlugin
       this.sessionTokens,
       this.sessionEstimatedTokens,
       this.showSessionId = true,
+      this.terminalAlertsEnabled,
       DateTime Function()? now})
       : _now = now ?? DateTime.now,
         renderer = TimestampChatRenderer(now: now ?? DateTime.now);
@@ -30,6 +31,7 @@ final class ChatTuiPlugin extends AgentPlugin
   final int Function()? sessionTokens;
   final int Function()? sessionEstimatedTokens;
   final bool showSessionId;
+  final bool Function()? terminalAlertsEnabled;
   String? _sessionId;
   int _tokens = 0;
   PlanChangedEntry? _plan;
@@ -62,6 +64,7 @@ final class ChatTuiPlugin extends AgentPlugin
   ConsoleContext? _console;
   void Function()? _unbindPrompt, _unbindKey, _unbindModal;
   void Function()? _unbindStatus;
+  void Function()? _unbindAttention;
   Timer? _ticker;
   int _frame = 0, _width = -1, _height = -1;
   ImageCellSize? _cells;
@@ -90,6 +93,9 @@ final class ChatTuiPlugin extends AgentPlugin
   void attachConsole(ConsoleContext context) {
     detachConsole();
     _console = context;
+    if (terminalAlertsEnabled case final enabled?) {
+      _unbindAttention = context.bindAttentionPreference(enabled);
+    }
     _unbindStatus = context.bindStatus(_statusLines);
     for (final block in _blocks) {
       final source = _sources[block];
@@ -363,6 +369,10 @@ final class ChatTuiPlugin extends AgentPlugin
       _sawThinking = false;
       _busy = false;
       _paintUsage();
+      if (event == LogEvent.appended &&
+          entry.reason != TurnStopReason.cancelled) {
+        _console?.requestAttention();
+      }
     }
     _console?.refreshInput();
   }
@@ -724,6 +734,8 @@ final class ChatTuiPlugin extends AgentPlugin
     _selected = null;
     _unbindStatus?.call();
     _unbindStatus = null;
+    _unbindAttention?.call();
+    _unbindAttention = null;
     _console = null;
     _width = -1;
   }

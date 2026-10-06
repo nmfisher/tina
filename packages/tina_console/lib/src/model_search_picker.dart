@@ -15,7 +15,7 @@ import 'input_display.dart';
 /// rows only (headers are skipped), so arrow order matches the visible order.
 /// Returns the selected ref, or null on Escape / Ctrl-C.
 ///
-/// Driven by [LineEditor.readKey] like the other overlays; [readEvent] is
+/// Driven by [LineEditor.openInputSession] like the other overlays; [readEvent] is
 /// injectable for tests.
 Future<String?> runModelSearchOverlay({
   required Screen screen,
@@ -26,16 +26,22 @@ Future<String?> runModelSearchOverlay({
   List<String> recentRefs = const [],
   Future<InputEvent> Function()? readEvent,
   String? accent,
-}) =>
-    ModelSearchPicker(
-      screen: screen,
-      modelRefs: modelRefs,
-      providerNames: providerNames,
-      title: title,
-      recentRefs: recentRefs,
-      readEvent: readEvent ?? editor.captureKeyReader(),
-      accent: accent,
-    ).run();
+}) async {
+  final input = readEvent == null ? editor.openInputSession() : null;
+  try {
+    return await ModelSearchPicker(
+            screen: screen,
+            modelRefs: modelRefs,
+            providerNames: providerNames,
+            title: title,
+            recentRefs: recentRefs,
+            readEvent: readEvent ?? input!.read,
+            accent: accent)
+        .run();
+  } finally {
+    input?.dispose();
+  }
+}
 
 /// One provider group in the unfiltered list.
 class _Group {
@@ -56,6 +62,8 @@ class ModelSearchPicker {
     List<String> recentRefs = const [],
     Map<String, String> modelNames = const {},
     String? accent,
+    Rect Function()? bounds,
+    String Function()? contextLine,
   })  : _screen = screen,
         _modelRefs = modelRefs,
         _providerNames = providerNames,
@@ -63,7 +71,9 @@ class ModelSearchPicker {
         _recentRefs = recentRefs,
         _modelNames = modelNames,
         _readEvent = readEvent,
-        _accent = accent;
+        _accent = accent,
+        _bounds = bounds,
+        _contextLine = contextLine;
 
   final Map<String, String> _modelNames;
   bool _open = false;
@@ -78,6 +88,8 @@ class ModelSearchPicker {
   final List<String> _recentRefs;
   final Future<InputEvent> Function() _readEvent;
   final String? _accent;
+  final Rect Function()? _bounds;
+  final String Function()? _contextLine;
 
   late final OverlayRegion _overlay;
   late Rect _rect;
@@ -225,25 +237,50 @@ class ModelSearchPicker {
     _scrollOffset = 0;
   }
 
-  int get _visibleRows => (_rect.height - 6).clamp(1, 1 << 30);
+  int get _visibleRows =>
+      (_rect.height - 6 - (_contextLine == null ? 0 : 1)).clamp(1, 1 << 30);
 
   // -- Render -----------------------------------------------------------------
 
   void _render() {
     final area = dialogArea(_screen.layout);
     final w = (area.width - 8).clamp(0, 76);
-    final width = area.width < 56 ? area.width : w;
-    final height = (area.height * 2 ~/ 3)
-        .clamp(area.height < 12 ? area.height : 12, area.height);
-    _rect = Rect(
-      row: area.row + (area.height - height) ~/ 2,
-      col: area.col + (area.width - width) ~/ 2,
-      width: width,
-      height: height,
-    );
+    final preferred = _bounds?.call();
+    final width = preferred?.width ?? (area.width < 56 ? area.width : w);
+    final height = preferred?.height ??
+        (area.height * 2 ~/ 3)
+            .clamp(area.height < 12 ? area.height : 12, area.height);
+    _rect = preferred ??
+        Rect(
+          row: area.row + (area.height - height) ~/ 2,
+          col: area.col + (area.width - width) ~/ 2,
+          width: width,
+          height: height,
+        );
+    if (_contextLine != null && height < 8 && height >= 4 && width >= 4) {
+      final body = [
+        if (height >= 7) _contextLine!(),
+        if (height >= 6) '/ ${_query.isEmpty ? 'filter models…' : _query}▌',
+        if (_filtered.isEmpty)
+          '(no models match)'
+        else
+          '▸ ${_filtered[_focus]}',
+      ];
+      _overlay.update(
+          bounds: _rect,
+          lines: dialogBoxLines(
+              width: width,
+              height: height,
+              title: _title,
+              body: body,
+              footer: '↑↓ · enter select · esc cancel',
+              paint: _paint));
+      return;
+    }
     if (height < 7) {
       final lines = [
         _title,
+        if (_contextLine != null && height >= 5) _contextLine!(),
         '/ $_query▌',
         if (_filtered.isEmpty)
           '(no models match)'
@@ -318,12 +355,19 @@ class ModelSearchPicker {
     final contentRows = _rect.height - 4;
 
     if (_filtered.isEmpty) {
-      return [..._searchField(innerW), '  ${_dim('(no models match)')}'];
+      return [
+        if (_contextLine != null) _contextLine!(),
+        ..._searchField(innerW),
+        '  ${_dim('(no models match)')}'
+      ];
     }
     if (_focus >= _filtered.length) _focus = _filtered.length - 1;
     if (_focus < 0) _focus = 0;
 
-    final lines = _searchField(innerW);
+    final lines = [
+      if (_contextLine != null) _contextLine!(),
+      ..._searchField(innerW)
+    ];
     lines.addAll(_fitRows(contentRows - lines.length));
     return lines;
   }

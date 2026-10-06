@@ -18,6 +18,7 @@ import 'canvas_style.dart';
 class AnsiBackend
     implements
         TerminalBackend,
+        TerminalAttentionBackend,
         BackendDiagnostics,
         CursorBackend,
         CanvasBackend,
@@ -183,6 +184,12 @@ class AnsiBackend
   }
 
   // -- Screen lifecycle ---------------------------------------------------
+
+  @override
+  void requestAttention() {
+    _buf.write('\x07');
+    flush();
+  }
 
   @override
   void enterAltScreen() {

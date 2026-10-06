@@ -20,9 +20,16 @@ The private bundle is `${XDG_DATA_HOME:-~/.local/share}/tina`, with a launcher
 symlink at `~/.local/bin/tina`. `--dir` and `--bundle-dir` override these locations.
 
 The first launch without config opens settings. Choose a provider and model,
-supply credentials in settings or the provider's environment variable, save,
-then launch Tina. `/settings` edits Session, Workspace or Global settings, with
-supported changes applied immediately or on the next request.
+supply credentials in settings or the provider's environment variable, then
+close settings and launch Tina. Confirmed edits save immediately.
+
+`/settings` uses a centered 80×22 frame that shrinks to fit smaller terminals.
+General, Models, Appearance, Permissions and Plugins share the same layout;
+lists scroll inside the frame. Type to find a section or setting, use arrows
+to navigate, Enter to edit/confirm, Space to toggle, and Escape to cancel/go back.
+Tab selects Session, Workspace or Global scope; Ctrl-R restores inheritance
+in setting lists. `?` opens descriptions and scope details. Supported changes
+apply immediately or on the next request, as shown in the status row.
 
 ## Configuration and plugins
 
@@ -57,12 +64,12 @@ UI plugins can register settings sections and other console contributions;
 see [UI contribution interfaces and lifecycle](docs/ui-contributions.md).
 See [scoped settings](docs/engine2-settings.md) for the plugin API and scope rules.
 
-In `/settings` → **Mode and auto approval**, edit **Auto-approval classifier
+In `/settings` → **Permissions** → **Mode and auto approval**, edit **Auto-approval classifier
 instruction** to supply permission preferences. The default Session scope saves
 that instruction with the conversation and prepends it to each classifier request.
 
 MCP servers, including Blender Lab's official server, are supported by `tina/mcp`.
-Configure them in Settings → MCP servers; see [MCP setup](docs/engine2-mcp.md).
+Configure them in Settings → Permissions → MCP servers; see [MCP setup](docs/engine2-mcp.md).
 
 See [configuration reference](docs/engine2-config.md) for pools, rates, token
 limits, reasoning/output controls, themes, credentials and completion.
@@ -79,6 +86,11 @@ If your keyboard has no Fn key, macOS Terminal also lets you toggle
 Page Up/Down to scroll conversation history.
 
 ## Input, commands and sessions
+
+Tina requests terminal tab attention when a response finishes or a new approval
+needs an answer, on both ANSI and notcurses. Settings → Appearance → **Terminal
+alerts** turns this on or off globally. The terminal's bell settings determine
+the badge/icon and any sound; streamed text and ordinary repaints do not alert.
 
 Type during a turn and press Enter to queue another input. Queued inputs run in
 order; unfinished text stays in the editor. Escape clears the draft first;

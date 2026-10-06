@@ -129,6 +129,12 @@ abstract class TerminalBackend {
   bool get coalescesPaints;
 }
 
+/// Optional terminal attention capability, separate from rendered text.
+abstract interface class TerminalAttentionBackend {
+  /// Request tab attention using the terminal's configured bell policy.
+  void requestAttention();
+}
+
 /// Hardware cursor visibility, independent of drawing and cursor position.
 /// Screen coordinates ownership; backends preserve this state across renders.
 abstract interface class CursorBackend {

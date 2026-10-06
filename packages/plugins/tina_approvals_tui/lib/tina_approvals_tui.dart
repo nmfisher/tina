@@ -25,6 +25,7 @@ final class ApprovalTuiPlugin extends AgentPlugin
   ConsoleContext? _context;
   OverlayRegion? _overlay;
   bool _closed = false;
+  ApprovalRequest? _alertedRequest;
 
   @override
   void attachConsole(ConsoleContext context) {
@@ -33,9 +34,7 @@ final class ApprovalTuiPlugin extends AgentPlugin
     _context = context;
     _overlay = OverlayRegion(
         context.screen, Rect(row: 1, col: 1, width: 1, height: 1));
-    _asker = QueuedDialogAsker(
-        keysFor: (ticket) => _ConsoleKeys(context, ticket.done.then((_) {})))
-      ..onChange = repaintConsole;
+    _asker = QueuedDialogAsker()..onChange = repaintConsole;
   }
 
   @override
@@ -45,7 +44,20 @@ final class ApprovalTuiPlugin extends AgentPlugin
       ticket.respond(ApprovalDecision.deny);
       return;
     }
-    await _context!.interact(() => asker.ask(ticket));
+    await _context!.interact(() async {
+      if (!ticket.isActive) return;
+      final input = _context!.openInputSession(
+          globalKeys: true,
+          panelNavigation: false,
+          acceptPaste: false,
+          releaseOnEscape: true,
+          cancelSignal: ticket.done.then((_) {}));
+      try {
+        await asker.ask(ticket, keys: _ConsoleKeys(input));
+      } finally {
+        input.dispose();
+      }
+    });
   }
 
   @override
@@ -54,6 +66,7 @@ final class ApprovalTuiPlugin extends AgentPlugin
     final dialog = _asker?.currentDialog;
     if (context == null) return;
     if (dialog == null) {
+      _alertedRequest = null;
       _hide(context);
       return;
     }
@@ -87,6 +100,11 @@ final class ApprovalTuiPlugin extends AgentPlugin
       }
       _overlay!.update(bounds: bounds, lines: lines);
     });
+    final request = _asker!.current;
+    if (request != null && !identical(request, _alertedRequest)) {
+      _alertedRequest = request;
+      context.requestAttention();
+    }
   }
 
   void _hide(ConsoleContext context) {
@@ -107,6 +125,7 @@ final class ApprovalTuiPlugin extends AgentPlugin
     _asker = null;
     _overlay = null;
     _context = null;
+    _alertedRequest = null;
   }
 
   @override
@@ -118,8 +137,8 @@ final class ApprovalTuiPlugin extends AgentPlugin
 
 /// Serializes dialogs while allowing cancelled queued requests to disappear.
 final class QueuedDialogAsker {
-  QueuedDialogAsker({required this.keysFor});
-  final KeySource Function(ApprovalTicket) keysFor;
+  QueuedDialogAsker({this.keysFor});
+  final KeySource Function(ApprovalTicket)? keysFor;
   final _pending = <ApprovalTicket>{};
   Future<void> _tail = Future.value();
   ApprovalRequest? current;
@@ -127,7 +146,7 @@ final class QueuedDialogAsker {
   void Function()? onChange;
   bool _closed = false;
 
-  Future<void> ask(ApprovalTicket ticket) {
+  Future<void> ask(ApprovalTicket ticket, {KeySource? keys}) {
     if (_closed) {
       ticket.respond(ApprovalDecision.deny);
       return Future.value();
@@ -144,10 +163,11 @@ final class QueuedDialogAsker {
       current = request;
       currentDialog = dialog;
       try {
+        final source = keys ?? keysFor?.call(ticket);
+        if (source == null) throw StateError('approval has no input source');
         onChange?.call();
-        final outcome = await dialog.awaitDecision(
-            _CancellableKeys(keysFor(ticket), ticket),
-            onKey: onChange);
+        final outcome = await dialog
+            .awaitDecision(_CancellableKeys(source, ticket), onKey: onChange);
         ticket.respond(outcome.decision);
       } catch (_) {
         ticket.respond(ApprovalDecision.deny);
@@ -182,13 +202,12 @@ final class _CancellableKeys implements KeySource {
 }
 
 final class _ConsoleKeys implements KeySource {
-  _ConsoleKeys(this.context, this.cancelled);
-  final ConsoleContext context;
-  final Future<void> cancelled;
+  _ConsoleKeys(this.input);
+  final InputSession input;
   @override
   Future<ApprovalKey?> next() async {
     while (true) {
-      final event = await context.readKey(cancelled);
+      final event = await input.read();
       final key = switch (event) {
         CharInput(text: 'y') => ApprovalKey.allow,
         CharInput(text: 'n') => ApprovalKey.deny,
@@ -208,7 +227,6 @@ final class _ConsoleKeys implements KeySource {
         ControlKey(code: ControlCode.tab) => ApprovalKey.details,
         ControlKey(code: ControlCode.ctrlC) => ApprovalKey.cancel,
         EscapeKey() => ApprovalKey.cancel,
-        null => ApprovalKey.cancel,
         _ => null,
       };
       if (key != null) return key;

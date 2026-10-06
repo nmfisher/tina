@@ -70,6 +70,22 @@ unknown = "preserve me"
   SettingDefinition<Object> field(String id) => app.settings.catalog[id];
   final enter = ControlKey(ControlCode.enter), escape = EscapeKey();
 
+  test('terminal alerts persist globally and update existing sibling sessions',
+      () {
+    final alerts = field('tina/chat-tui/terminal_alerts');
+    final sibling = app.newSession(null);
+    addTearDown(sibling.close);
+    expect(alerts.scopes, {SettingScope.global});
+    expect(app.settings.read(alerts).value, true);
+    app.settings.set(alerts, false, SettingScope.global);
+    expect(app.settings.read(alerts).value, false);
+    expect(sibling.settings.read(alerts).value, false);
+    expect(global.readAsStringSync(), contains('[terminal]'));
+    expect(global.readAsStringSync(), contains('alerts = false'));
+    app.settings.set(alerts, true, SettingScope.global);
+    expect(sibling.settings.read(alerts).value, true);
+  });
+
   test('scope edits update live policy and respect sibling overrides', () {
     final sibling = app.newSession(null);
     addTearDown(sibling.close);
@@ -280,7 +296,6 @@ unknown = "preserve me"
       enter,
       CharInput('Requests per minute'),
       enter,
-      enter,
       EditingKey(EditingAction.killToStart),
       CharInput('1200'),
       enter,
@@ -306,10 +321,96 @@ unknown = "preserve me"
       expect(global.readAsStringSync(), original);
       expect(io.written.toString(), contains('[session]'));
       expect(io.written.toString(), contains('1,200'));
-      expect(io.written.toString(), contains('inherited from global'));
+      expect(io.written.toString(), contains('Inherited from global'));
     } finally {
       editor.close();
       visible.dispose();
+      io.closeInput();
+    }
+  });
+
+  test('root search edits individual fields and Escape discards the editor',
+      () async {
+    final io = FakeIo();
+    final screen = fakeScreen(io);
+    final input = LineEditor(screen: screen);
+    final keys = <InputEvent>[
+      CharInput('Requests per minute'),
+      enter,
+      EditingKey(EditingAction.killToStart),
+      CharInput('120'),
+      escape,
+      CharInput('Requests per minute'),
+      enter,
+      EditingKey(EditingAction.killToStart),
+      CharInput('60'),
+      enter,
+      escape,
+    ];
+    final original = global.readAsStringSync();
+    var reads = 0;
+    try {
+      final panel = SettingsPanel(screen, input, readEvent: () async {
+        if (reads++ == 5) {
+          expect(
+              app.settings
+                  .read(field('tina/providers/requests_per_minute'))
+                  .value,
+              0,
+              reason: 'Escape must discard the unfinished text editor');
+        }
+        return keys.removeAt(0);
+      });
+      expect(
+          await panel.run(
+              path: global.path,
+              scopedSettings: app.settings,
+              settingsBackend: app.settingsBackend),
+          true);
+      expect(keys, isEmpty);
+      expect(
+          app.settings.read(field('tina/providers/requests_per_minute')).value,
+          60);
+      expect(global.readAsStringSync(), original);
+    } finally {
+      input.close();
+      screen.dispose();
+      io.closeInput();
+    }
+  });
+
+  test('setting lists retain filtering and scope while resetting inheritance',
+      () async {
+    final io = FakeIo();
+    final screen = fakeScreen(io);
+    final input = LineEditor(screen: screen);
+    final keys = <InputEvent>[
+      enter, // General
+      enter, // Request and token limits
+      CharInput('Requests per minute'), ControlKey(ControlCode.tab), enter,
+      EditingKey(EditingAction.killToStart), CharInput('45'), enter,
+      ControlKey(ControlCode.ctrlR),
+      escape, escape, escape,
+    ];
+    try {
+      await SettingsPanel(screen, input,
+              readEvent: () async => keys.removeAt(0))
+          .run(
+              path: global.path,
+              scopedSettings: app.settings,
+              settingsBackend: app.settingsBackend);
+      expect(keys, isEmpty);
+      expect(
+          app.settings.hasOverride(field('tina/providers/requests_per_minute'),
+              SettingScope.workspace),
+          false);
+      expect(
+          app.settings.read(field('tina/providers/requests_per_minute')).value,
+          0);
+      expect(io.written.toString(), contains('[workspace]'));
+    } finally {
+      input.close();
+      screen.dispose();
       io.closeInput();
     }
   });

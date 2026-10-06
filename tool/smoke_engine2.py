@@ -101,6 +101,9 @@ class ModelStub(BaseHTTPRequestHandler):
             ('network permission example', 'exec', {'program': '/bin/echo',
                 'args': ['network-permission-output'], 'network': True,
                 'network_reason': 'test combined execution and network approval'}),
+            ('failed command approval example', 'exec', {'program': '/bin/false',
+                'args': ['failed-approval-probe'], 'outside_sandbox': True,
+                'sandbox_reason': 'test remembered permission after command failure'}),
             ('different network example', 'exec', {'program': '/bin/echo',
                 'args': ['different-network-output'], 'network': True,
                 'network_reason': 'test exact network permission scope'}),
@@ -746,9 +749,9 @@ def smoke(launcher, endpoint, columns, rows):
                     terminal.expect('[' + scope + ']', start)
                 selected = terminal.send(plugin_id)
                 if plugin_id == 'tina/grok-guard' and checked:
-                    terminal.expect('Asks for Yes/No confirmation', selected)
                     about = terminal.send('?')
                     terminal.expect('About tina/grok-guard', about)
+                    terminal.expect('Asks for Yes/No confirmation', about, wrapped=True)
                     terminal.expect('No cancels the message.', about, wrapped=True)
                     back = terminal.send('\x1b')
                     # Wait for the popup to close before Space. On the ANSI
@@ -1040,8 +1043,8 @@ def smoke_cli(launcher):
             terminal.expect('Choose default model', start)
             terminal.expect('filter models', start)
             start = terminal.send('claude-sonnet-4-6\r')
-            terminal.expect('Default model: claude-sonnet-4-6', start)
-            start = terminal.send('Save\r')
+            terminal.expect('Settings', start)
+            start = terminal.send('\x1b')
             terminal.expect('Settings saved. Run tina to start.', start)
             assert terminal.process.wait(timeout=5) == 0
             assert termios.tcgetattr(terminal.master) == terminal.original_modes, 'setup left raw terminal modes'
@@ -1066,7 +1069,7 @@ def smoke_cli(launcher):
                     start = terminal.send('\x1b[D\x1b[3~4')
                     terminal.expect('16,384', start)
                     start = terminal.send('\x1b[B')
-                    terminal.expect('←→ choose', start)
+                    terminal.expect('Thinking:', start)
                     start = terminal.send('\x1b[C')
                     terminal.expect('Thinking: Off', start)
                     start = terminal.send('\x1b[C')

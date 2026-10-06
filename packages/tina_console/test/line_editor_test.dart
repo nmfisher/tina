@@ -190,6 +190,49 @@ void main() {
         'fast settings value');
   });
 
+  test('dialog retains batched controls across slow paints and releases them',
+      () async {
+    final io = FakeStdio();
+    final ed = _editor(io);
+    addTearDown(ed.close);
+    final context = ConsoleContext(screen: ed.screen, editor: ed);
+    final events = <InputEvent>[];
+    final done = context.interact(() async {
+      final input = context.openInputSession();
+      try {
+        for (var i = 0; i < 3; i++) {
+          events.add(await input.read());
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      } finally {
+        input.dispose();
+      }
+    });
+    await _flush();
+    io.feedBytes('\x1b[B\x1b[B\r\r'.codeUnits);
+    await done.timeout(const Duration(seconds: 1));
+    expect(events, [
+      ArrowKey(ArrowDirection.down),
+      ArrowKey(ArrowDirection.down),
+      ControlKey(ControlCode.enter)
+    ]);
+    var answered = false;
+    final next = context.interact(() async {
+      final input = context.openInputSession();
+      try {
+        final result = await input.read();
+        answered = true;
+        return result;
+      } finally {
+        input.dispose();
+      }
+    });
+    await _flush();
+    expect(answered, false);
+    io.feedBytes('n'.codeUnits);
+    expect(await next, CharInput('n'));
+  });
+
   group('LineEditor basics', () {
     late FakeStdio io;
     setUp(() => io = FakeStdio());

@@ -26,7 +26,10 @@ final class ProvidersPanel {
       required this.providers,
       required this.descriptors,
       required this.editAdvanced,
-      required this.onShow}) {
+      required this.onShow,
+      this.bounds,
+      this.contextLine,
+      this.title = 'Providers & models'}) {
     _checked.addAll(providers.keys);
     for (final id in _ids) {
       final settings = _settings(id);
@@ -41,6 +44,9 @@ final class ProvidersPanel {
   final List<ProviderDescriptor> descriptors;
   final Future<void> Function(String) editAdvanced;
   final void Function() onShow;
+  final Rect Function()? bounds;
+  final String Function()? contextLine;
+  final String title;
   final _checked = <String>{}, _expanded = <String>{};
   final _disabled = <String, Set<String>>{};
   final _dismissedHint = <String>{};
@@ -230,8 +236,10 @@ final class ProvidersPanel {
     }
   }
 
-  int get _room => (_height - 4).clamp(1, 10000);
+  int get _room => (_height - 4 - (_height >= 6 && contextLine != null ? 1 : 0))
+      .clamp(1, 10000);
   int get _height {
+    if (bounds != null) return bounds!().height;
     final height = dialogArea(screen.layout).height;
     return (height ~/ 2).clamp(height < 12 ? height : 12, height);
   }
@@ -240,15 +248,19 @@ final class ProvidersPanel {
     if (!_open) return;
     onShow();
     final area = dialogArea(screen.layout);
-    final width = (area.width - 4)
-        .clamp(area.width < 40 ? area.width : 40, area.width.clamp(0, 70));
+    final rect = bounds?.call();
+    final width = rect?.width ??
+        (area.width - 4)
+            .clamp(area.width < 40 ? area.width : 40, area.width.clamp(0, 70));
     final height = _height;
     final rows = _rows;
     _focus = _focus.clamp(0, rows.length - 1);
     if (_focus < _offset) _offset = _focus;
     if (_focus >= _offset + _room) _offset = _focus - _room + 1;
     _offset = _offset.clamp(0, (rows.length - _room).clamp(0, rows.length));
-    final lines = <String>[];
+    final lines = <String>[
+      if (height >= 6 && contextLine != null) contextLine!(),
+    ];
     for (var i = _offset; i < rows.length && i < _offset + _room; i++) {
       final row = rows[i], focused = i == _focus;
       final text = switch (row.kind) {
@@ -278,15 +290,16 @@ final class ProvidersPanel {
           focused ? screen.colorize(screen.theme.border.focus, shown) : shown);
     }
     _overlay.update(
-        bounds: Rect(
-            row: area.row + (area.height - height) ~/ 2,
-            col: area.col + (area.width - width) ~/ 2,
-            width: width,
-            height: height),
+        bounds: rect ??
+            Rect(
+                row: area.row + (area.height - height) ~/ 2,
+                col: area.col + (area.width - width) ~/ 2,
+                width: width,
+                height: height),
         lines: dialogBoxLines(
             width: width,
             height: height,
-            title: 'Providers & models',
+            title: title,
             body: lines,
             footer:
                 '↑↓ move · → expand · ← collapse · space toggle · enter apply · esc cancel',

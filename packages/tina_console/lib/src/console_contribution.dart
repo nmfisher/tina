@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'input_session.dart';
 import 'input_event.dart';
 import 'line_editor.dart';
 import 'screen.dart';
@@ -23,6 +25,7 @@ final class ConsoleContext {
       required LineEditor editor,
       Future<InputEvent?> Function(Future<void> cancelled)? readKey})
       : _editor = editor,
+        _readKeyOverride = readKey,
         _shared = _ConsoleBindings(editor),
         _chat = null,
         _active = null,
@@ -40,6 +43,7 @@ final class ConsoleContext {
       {SettingsRegistry? settings})
       : screen = parent.screen,
         _editor = parent._editor,
+        _readKeyOverride = parent._readKeyOverride,
         _shared = parent._shared,
         _settings = settings ?? SettingsRegistry(),
         readKey = parent.readKey;
@@ -122,6 +126,29 @@ final class ConsoleContext {
     return run;
   }
 
+  /// Own all key events until the dialog closes, including between reads.
+  InputSession openInputSession(
+      {bool globalKeys = false,
+      bool panelNavigation = true,
+      bool acceptPaste = true,
+      bool releaseOnEscape = false,
+      Future<void>? cancelSignal}) {
+    _checkOpen();
+    final inner = _editor.openInputSession(
+        globalKeys: globalKeys,
+        panelNavigation: panelNavigation,
+        acceptPaste: acceptPaste,
+        releaseOnEscape: releaseOnEscape,
+        cancelSignal: cancelSignal);
+    final source = _readKeyOverride;
+    final session = source == null
+        ? inner
+        : _InjectedInputSession(inner, source, cancelSignal);
+    final release = own(session.dispose);
+    unawaited(session.closed.then((_) => release()));
+    return session;
+  }
+
   /// Install a live prompt and release only the binding this caller owns.
   void Function() bindPrompt(String Function() builder) {
     _checkOpen();
@@ -181,7 +208,24 @@ final class ConsoleContext {
     screen.setStatusLines([for (final source in sources) ...source.read()]);
   }
 
+  /// Register a live terminal-wide alert preference with this attachment.
+  /// UI plugins own configuration; every view shares the same terminal bell.
+  void Function() bindAttentionPreference(bool Function() enabled) {
+    _checkOpen();
+    final owner = Object();
+    _shared.attentionPreferences[owner] = enabled;
+    return own(() => _shared.attentionPreferences.remove(owner));
+  }
+
+  void requestAttention() {
+    if (_disposed ||
+        _shared.attentionPreferences.values.any((enabled) => !enabled()))
+      return;
+    screen.requestAttention();
+  }
+
   final LineEditor _editor;
+  final Future<InputEvent?> Function(Future<void>)? _readKeyOverride;
   bool get isReadingKey => _editor.isReadingKey;
   bool get isCompleting => _editor.isCompleting;
   void Function() bindShortcut(bool Function(InputEvent) handler) {
@@ -239,6 +283,7 @@ final class _ConsoleBindings {
   final prompts = <Object, String? Function()>{};
   final status = <Object, ({int priority, List<RenderLine> Function() read})>{};
   final sidebars = <ScrollingTextRegion, SidebarLayout>{};
+  final attentionPreferences = <Object, bool Function()>{};
   Future<void> interactions = Future.value();
   String prompt() {
     for (final build in prompts.values.toList().reversed) {
@@ -263,4 +308,28 @@ final class _ScopedModal extends ModalSurface {
 /// notices here without knowing the renderer's block types or engine events.
 abstract interface class ConsoleTranscript {
   void writeNotice(String text);
+}
+
+/// Preserve injected key sources while keeping the same dialog lifetime.
+final class _InjectedInputSession implements InputSession {
+  _InjectedInputSession(this.inner, this.source, Future<void>? cancelSignal)
+      : cancelled =
+            Future.any([inner.closed, if (cancelSignal != null) cancelSignal]);
+  final InputSession inner;
+  final Future<InputEvent?> Function(Future<void>) source;
+  final Future<void> cancelled;
+  @override
+  Future<void> get closed => inner.closed;
+  @override
+  bool get isClosed => inner.isClosed;
+  @override
+  Future<InputEvent> read() async {
+    if (isClosed) return ControlKey(ControlCode.ctrlC);
+    final event = await Future.any(
+        [source(cancelled), cancelled.then<InputEvent?>((_) => null)]);
+    return isClosed || event == null ? ControlKey(ControlCode.ctrlC) : event;
+  }
+
+  @override
+  void dispose() => inner.dispose();
 }

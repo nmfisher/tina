@@ -99,8 +99,8 @@ loading and unloading. The attachment owns registration cleanup; panels still
 register with the generic focus manager and own their overlay/cursor resources.
 
 Panel bounds are allocated before painting; text is clipped or scrolled inside
-them. Settings menus use `dialogBounds` with a preferred width of 88 cells and
-height of at most 24 rows, based on the complete menu. Search, descriptions and
+them. Settings menus use `dialogBounds` with a preferred width of 80 cells and
+height of 22 rows, shrinking for smaller terminals. Search, descriptions and
 load status have reserved rows, so filtering, selecting or toggling a checkbox
 does not resize the container. The terminal's `dialogArea` supplies the hard
 maximum and excludes the status row. Terminal resizing recomputes the bounds.
@@ -120,6 +120,41 @@ the newest owner controls the cursor, including during background output and
 resizing. Releasing it restores the previous owner or the conversation draft.
 Completion suggestions keep the conversation cursor because they still edit
 that draft.
+
+## Dialog keyboard ownership
+
+Use one input session for the entire dialog, acquired before painting:
+
+```dart
+await context.interact(() async {
+  final input = context.openInputSession(acceptPaste: false);
+  try {
+    paintChoices();
+    while (true) {
+      final event = await input.read();
+      if (handleChoice(event)) break;
+      repaintChoices();
+    }
+  } finally {
+    input.dispose();
+  }
+});
+```
+
+The ordered queue remains attached during repainting and between reads. Nested
+editors share their parent's session. Disposal discards unread answers and
+settles pending reads as Ctrl+C before another dialog acquires input. An explicit
+`cancelSignal` settles reads but keeps ownership until disposal; the attachment
+also disposes its sessions when it unloads. A second simultaneous owner is
+rejected. Legacy `readKey()` calls wait until the owned dialog closes.
+
+Set `acceptPaste: true` for text fields. Choice dialogs hold pasted text for the
+conversation draft; a later text field cannot consume that earlier paste. With
+`globalKeys: true`, the focus ring remains available; set `panelNavigation:
+false` when arrows select choices. `releaseOnEscape: true` lets a single Escape
+dismiss an approval before following text enters the draft. Settings leave it
+false so Escape can return from a nested editor to its parent. Double Escape
+still cancels the interaction and clears its queued input.
 
 Live loading still follows the plugin registry's policy: only definitions marked
 `live` load/unload without restarting, and changes are applied between turns.

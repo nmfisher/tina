@@ -10,9 +10,15 @@ import 'plugin_settings.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart'
-    show themeSetting, defaultModelSetting;
+    show themeSetting, defaultModelSetting, terminalAlertsSetting;
 import 'scoped_config.dart';
 import 'settings_catalog.dart';
+
+typedef _SettingsEntry = ({
+  String category,
+  String label,
+  Future<void> Function() open
+});
 
 /// Shared scope editor plus specialized provider forms and plugin UI actions.
 final class SettingsPanel {
@@ -34,10 +40,31 @@ final class SettingsPanel {
   SettingScope _scope = SettingScope.session;
   bool _usingScopes = false;
   Set<SettingScope> _availableScopes = {...SettingScope.values};
-  static const _menuWidth = 88, _menuMaxHeight = 24;
-  int get _aboutWidth =>
-      (dialogArea(screen.layout).width.clamp(0, _menuWidth) - 2)
-          .clamp(1, _menuWidth - 2);
+  static const _menuWidth = 80, _menuMaxHeight = 22;
+  static const _categories = [
+    'General',
+    'Models',
+    'Appearance',
+    'Permissions',
+    'Plugins'
+  ];
+  final _breadcrumbs = <String>[];
+  Rect get _frame => dialogBounds(screen.layout,
+      preferredWidth: _menuWidth, preferredHeight: _menuMaxHeight);
+  int get _contentWidth => (_frame.width - 4).clamp(1, _menuWidth);
+  String get _scopeLine => _usingScopes
+      ? 'Scope: ${[
+          for (final scope
+              in SettingScope.values.where(_availableScopes.contains))
+            scope == _scope ? '[${scope.name}]' : scope.name
+        ].join('  ')}'
+      : 'Scope: [global]';
+  String _title(String leaf) {
+    final full = [..._breadcrumbs, leaf].join(' › ');
+    return visibleWidth(full) <= _contentWidth ? full : leaf;
+  }
+
+  int get _aboutWidth => (_contentWidth - 2).clamp(1, _menuWidth);
   Future<void> _withinScopes(
       Set<SettingScope> scopes, Future<void> Function() edit) async {
     final previous = _availableScopes;
@@ -94,17 +121,19 @@ final class SettingsPanel {
     _scope = SettingScope.session;
     _availableScopes = {...SettingScope.values};
     _cancelled = false;
+    _breadcrumbs.clear();
     _cancel = Completer<void>();
     _applyConfiguration = applyConfiguration;
-    descriptors ??= configuredDescriptors();
+    final resolvedDescriptors = descriptors ?? configuredDescriptors();
     final document = ConfigDocument.open(path);
     if (!document.existsOnDisk &&
         document.table('default')['model'] == kTinaDefaultModel) {
       document.table('default')['model'] = '';
     }
-    _read = readEvent ??
-        editor.captureKeyReader(
-            acceptPaste: true, cancelSignal: _cancel.future);
+    final input = readEvent == null
+        ? editor.openInputSession(cancelSignal: _cancel.future)
+        : null;
+    _read = readEvent ?? input!.read;
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
     final stopSettings = scopedSettings?.listen(_refresh);
@@ -115,129 +144,130 @@ final class SettingsPanel {
       if (scopedSettings != null && settingsBackend != null) {
         return await _scopedRun(scopedSettings, settingsBackend,
             document: document,
-            descriptors: descriptors,
+            descriptors: resolvedDescriptors,
             sections: sections,
             pluginSettings: pluginSettings,
             pluginManager: pluginManager,
             validatePlugins: validatePlugins,
             descriptions: pluginDescriptions);
       }
-      while (true) {
-        if (_cancelled) return _savedSection;
-        final defaults = document.table('default');
-        SettingsSection? chosenSection;
-        var currentSections = <SettingsSection>[];
-        List<String> items() {
-          currentSections = sections?.sections ?? [];
-          return [
-            'Default provider: ${defaults['provider'] ?? 'anthropic'}',
-            'Default model: ${defaults['model'] ?? ''}',
-            'Providers and models',
-            'Plugins',
-            'Save changes',
-            'Request and token limits',
-            'Generation settings',
-            'Theme',
-            for (final section in currentSections)
-              '${section.title} (${section.id})',
-          ];
-        }
-
-        var selected = await _menu(
-            document.hasChanges
-                ? 'Settings · unsaved changes'
-                : _savedSection
-                    ? 'Settings · saved'
-                    : 'Settings',
-            items(),
-            itemsNow: items, onSelected: (index) {
-          if (index >= 8) chosenSection = currentSections[index - 8];
-        });
-        if (_cancelled) return _savedSection;
-        if (selected == null) {
-          if (!document.hasChanges) return _savedSection;
-          final exit = await _menu('Unsaved settings', [
-            'Save changes and close',
-            'Discard changes',
-            'Keep editing',
-          ]);
-          if (exit == 1) return _savedSection;
-          if (exit != 0) continue;
-          selected = 4;
-        }
-        if (chosenSection != null) {
-          await _section(sections!, chosenSection!);
-          document.refreshUneditedTables();
-          continue;
-        }
-        switch (selected) {
-          case 0:
-          case 1:
-            await _defaultModel(document, descriptors);
-          case 2:
-            await _providers(document, descriptors, validatePlugins);
-          case 3:
-            await _plugins(document, pluginIds.toList(), pluginSettings,
-                pluginManager, pluginDescriptions);
-          case 4:
-            try {
-              document.save(
-                  descriptors: descriptors, validatePlugins: validatePlugins);
-              _applyConfiguration?.call();
-              return true;
-            } catch (error) {
-              // Parsing errors contain field names, never credential values.
-              await _menu('Could not save', [
-                error is FormatException
-                    ? error.message.toString()
-                    : error is ArgumentError
-                        ? error.message.toString()
-                        : 'Config could not be saved; check file permissions or external edits.',
-                'Back'
-              ]);
-            }
-          case 5:
-            final values = document.table('limits');
-            const fields = {
-              'max_global_tokens': 'Global token limit',
-              'max_session_tokens': 'Session token limit',
-              'max_turn_tokens': 'Turn token limit',
-              'max_request_tokens': 'Request token limit',
-              'max_sub_agent_tokens': 'Sub-agent token limit',
-              'max_sub_agent_depth': 'Sub-agent depth',
-              'max_sub_agent_concurrency': 'Concurrent sub-agents',
-              'requests_per_minute': 'Requests per minute',
-              'min_request_interval_ms': 'Minimum request interval (ms)',
-              'max_concurrent_requests': 'Concurrent requests'
-            };
-            final keys = fields.keys.toList();
-            final index = await _menu('Limits (0 disables token/rate caps)', [
-              for (final key in keys)
-                '${fields[key]}: ${_preview(key, values[key])}'
-            ]);
-            if (index != null)
-              await _field(values, keys[index], fields[keys[index]]!,
-                  numeric: true);
-          case 6:
-            await _generation(document, descriptors, validatePlugins);
-          case 7:
-            final variants = ['default', 'light', 'dark'];
-            final index =
-                await _menu('Theme variant (keeps custom colors)', variants);
-            if (index != null)
-              document.table('theme')['variant'] = variants[index];
-        }
+      Future<void> commit() async {
+        document.refreshUneditedTables();
+        if (!document.hasChanges) return;
+        document.save(
+            descriptors: resolvedDescriptors, validatePlugins: validatePlugins);
+        _applyConfiguration?.call();
+        _savedSection = true;
       }
+
+      Future<void> edit(Future<bool> Function() action) async {
+        if (await action()) await commit();
+      }
+
+      return await _browseSettings(() => [
+            (
+              category: 'Models',
+              label: 'Default model',
+              open: () =>
+                  edit(() => _defaultModel(document, resolvedDescriptors))
+            ),
+            (
+              category: 'Models',
+              label: 'Providers and models',
+              open: () => edit(() =>
+                  _providers(document, resolvedDescriptors, validatePlugins))
+            ),
+            (
+              category: 'Models',
+              label: 'Generation settings',
+              open: () =>
+                  _generation(document, resolvedDescriptors, validatePlugins)
+            ),
+            (
+              category: 'Plugins',
+              label: 'Enabled plugins',
+              open: () => _plugins(document, pluginIds.toList(), pluginSettings,
+                  pluginManager, pluginDescriptions,
+                  commit: commit)
+            ),
+            (
+              category: 'General',
+              label: 'Request and token limits',
+              open: () async {
+                const fields = {
+                  'max_global_tokens': 'Global token limit',
+                  'max_session_tokens': 'Session token limit',
+                  'max_turn_tokens': 'Turn token limit',
+                  'max_request_tokens': 'Request token limit',
+                  'max_sub_agent_tokens': 'Sub-agent token limit',
+                  'max_sub_agent_depth': 'Sub-agent depth',
+                  'max_sub_agent_concurrency': 'Concurrent sub-agents',
+                  'requests_per_minute': 'Requests per minute',
+                  'min_request_interval_ms': 'Minimum request interval (ms)',
+                  'max_concurrent_requests': 'Concurrent requests'
+                };
+                final keys = fields.keys.toList();
+                while (!_cancelled) {
+                  final values = document.table('limits');
+                  final index = await _menu('Request and token limits', [
+                    for (final key in keys)
+                      '${fields[key]}: ${_preview(key, values[key])}'
+                  ]);
+                  if (index == null) return;
+                  await edit(() => _field(
+                      values, keys[index], fields[keys[index]]!,
+                      numeric: true));
+                }
+              }
+            ),
+            (
+              category: 'Appearance',
+              label: 'Theme',
+              open: () async {
+                final variants = ['default', 'light', 'dark'];
+                final index = await _menu('Theme', variants);
+                if (index != null) {
+                  document.table('theme')['variant'] = variants[index];
+                  await commit();
+                }
+              }
+            ),
+            (
+              category: 'Appearance',
+              label: 'Terminal alerts',
+              open: () async {
+                while (!_cancelled) {
+                  final values = document.table('terminal');
+                  final selected = await _menu(
+                      'Terminal alerts',
+                      [
+                        'Terminal alerts: ${values['alerts'] != false ? 'On' : 'Off'}'
+                      ],
+                      canToggle: (_) => true,
+                      descriptionFor: (_) => terminalAlertsSetting.description);
+                  if (selected == null) return;
+                  values['alerts'] = values['alerts'] == false;
+                  await commit();
+                }
+              }
+            ),
+            for (final section in sections?.sections ?? <SettingsSection>[])
+              (
+                category: _ownerCategory(section.id),
+                label: section.title,
+                open: () => _section(sections!, section)
+              ),
+          ]);
     } finally {
       try {
         unlisten?.call();
         stopSettings?.call();
         _paint = null;
         if (!_cancel.isCompleted) _cancel.complete();
+        input?.dispose();
         await _pendingRead;
         _pendingRead = null;
         _overlay.hide();
-        editor.endKeyCaptureWindow();
         editor.handleResize();
       } finally {
         _cursor.release();
@@ -254,46 +284,24 @@ final class SettingsPanel {
       PluginManager<dynamic>? pluginManager,
       void Function(Iterable<String>)? validatePlugins,
       Map<String, String> descriptions = const {}}) async {
-    while (!_cancelled) {
-      var owners = <String>[];
-      var custom = <SettingsSection>[];
-      List<String> items() {
-        owners = settings.catalog.definitions
-            .map((d) => d.owner)
-            .toSet()
-            .where((id) =>
-                !id.startsWith('tina/providers') &&
-                id != 'tina/chat-tui' &&
-                id != 'tina/session-controls' &&
-                settings.catalog.definitions
-                    .any((d) => d.owner == id && !d.id.endsWith('/enabled')))
-            .toList()
-          ..sort();
-        custom = sections?.sections ?? [];
-        return [
-          'Default provider and model',
-          'Providers and models (Global only)',
-          'Plugins',
-          'Request and token limits',
-          'Generation settings',
-          'Theme (Global only)',
-          for (final id in owners) _sectionTitle(id),
-          for (final section in custom) section.title
-        ];
-      }
-
-      final choice = await _menu(
-          settings.applicationErrors.isEmpty
-              ? 'Settings'
-              : 'Settings · changes need attention',
-          items(),
-          itemsNow: items,
-          descriptionFor: (_) => settings.applicationErrors.values.join('\n'));
-      if (choice == null) return _savedSection;
-      try {
-        switch (choice) {
-          case 0:
-            if (!await _allowedScope(defaultModelSetting)) continue;
+    return _browseSettings(() {
+      final owners = settings.catalog.definitions
+          .map((d) => d.owner)
+          .toSet()
+          .where((id) =>
+              !id.startsWith('tina/providers') &&
+              id != 'tina/chat-tui' &&
+              id != 'tina/session-controls' &&
+              settings.catalog.definitions
+                  .any((d) => d.owner == id && !d.id.endsWith('/enabled')))
+          .toList()
+        ..sort();
+      return [
+        (
+          category: 'Models',
+          label: 'Default model',
+          open: () async {
+            if (!await _allowedScope(defaultModelSetting)) return;
             final draft = backend.draft(settings, _scope);
             await _withinScopes(defaultModelSetting.scopes,
                 () => _defaultModel(draft, descriptors));
@@ -302,12 +310,16 @@ final class SettingsPanel {
                   descriptors: descriptors, validatePlugins: validatePlugins);
               _savedSection = true;
             }
-          case 1:
-            // Provider identities and credentials are global configuration.
+          }
+        ),
+        (
+          category: 'Models',
+          label: 'Providers and models (Global only)',
+          open: () async {
             if (_scope != SettingScope.global) {
               final enter = await _menu('Provider catalog is Global only',
                   ['Edit Global providers', 'Back']);
-              if (enter != 0) continue;
+              if (enter != 0) return;
               _scope = SettingScope.global;
             }
             final global = ConfigDocument.open(backend.globalPath);
@@ -324,18 +336,12 @@ final class SettingsPanel {
                       descriptors: descriptors));
               _savedSection = true;
             }
-          case 2:
-            await _scopedPlugins(
-                settings, pluginSettings, pluginManager, descriptions);
-          case 3:
-            await _definitions(
-                settings,
-                'Request and token limits',
-                () => settings.catalog.definitions
-                    .where((d) => d.configPath.first == 'limits')
-                    .toList());
-          case 4:
-            // Composite thinking definitions expose their provider through the ID.
+          }
+        ),
+        (
+          category: 'Models',
+          label: 'Generation settings',
+          open: () async {
             final providers = settings.catalog.definitions
                 .where((d) => d.id.endsWith('/thinking'))
                 .map((d) => d.id.split('/')[2])
@@ -346,45 +352,174 @@ final class SettingsPanel {
                   backend.draft(settings, _scope), descriptors, validatePlugins,
                   provider: providers[selected]);
             }
-          case 5:
-            await _scopedValue(settings, themeSetting);
-          default:
-            final index = choice - 6;
-            if (index < owners.length) {
-              final owner = owners[index];
-              await _definitions(
-                  settings,
-                  _sectionTitle(owner),
-                  () => settings.catalog.definitions
-                      .where(
-                          (d) => d.owner == owner && !d.id.endsWith('/enabled'))
-                      .toList());
-            } else {
-              await _section(sections!, custom[index - owners.length]);
+          }
+        ),
+        (
+          category: 'Plugins',
+          label: 'Enabled plugins',
+          open: () => _scopedPlugins(
+              settings, pluginSettings, pluginManager, descriptions)
+        ),
+        (
+          category: 'General',
+          label: 'Request and token limits',
+          open: () => _definitions(
+              settings,
+              'Request and token limits',
+              () => settings.catalog.definitions
+                  .where((d) => d.configPath.first == 'limits')
+                  .toList())
+        ),
+        (
+          category: 'Appearance',
+          label: 'Theme',
+          open: () => _scopedValue(settings, themeSetting)
+        ),
+        (
+          category: 'Appearance',
+          label: 'Terminal alerts',
+          open: () => _definitions(
+              settings, 'Terminal alerts', () => [terminalAlertsSetting])
+        ),
+        for (final owner in owners)
+          (
+            category: _ownerCategory(owner),
+            label: _sectionTitle(owner),
+            open: () => _definitions(
+                settings,
+                _sectionTitle(owner),
+                () => settings.catalog.definitions
+                    .where(
+                        (d) => d.owner == owner && !d.id.endsWith('/enabled'))
+                    .toList())
+          ),
+        for (final section in sections?.sections ?? <SettingsSection>[])
+          (
+            category: _ownerCategory(section.id),
+            label: section.title,
+            open: () async {
+              await _section(sections!, section);
               document.refreshUneditedTables();
               _applyConfiguration?.call();
             }
+          ),
+      ];
+    },
+        searchEntries: () => [
+              for (final definition in settings.catalog.definitions.where((d) =>
+                  !d.id.endsWith('/enabled') &&
+                  d.id != defaultModelSetting.id &&
+                  d.id != themeSetting.id))
+                (
+                  category: _ownerCategory(definition.owner),
+                  label:
+                      '${definition.label} · ${_sectionTitle(definition.owner)}',
+                  open: () => _scopedValue(settings, definition)
+                ),
+            ],
+        attention: () => settings.applicationErrors.values.join('\n'));
+  }
+
+  String _ownerCategory(String id) => id.startsWith('tina/providers')
+      ? 'Models'
+      : switch (id) {
+          'tina/mode' ||
+          'tina/tools' ||
+          'tina/approvals' ||
+          'tina/mcp' =>
+            'Permissions',
+          'tina/step-limit' || 'tina/subagents' || 'tina/goals' => 'General',
+          'tina/chat-tui' || 'tina/console' => 'Appearance',
+          _ => 'Plugins',
+        };
+
+  Future<bool> _browseSettings(List<_SettingsEntry> Function() entries,
+      {List<_SettingsEntry> Function()? searchEntries,
+      String Function()? attention}) async {
+    var categorySelected = 0;
+    while (!_cancelled) {
+      var visible = <_SettingsEntry>[];
+      var searching = false;
+      List<String> items(String query) {
+        searching = query.isNotEmpty;
+        visible = [...entries(), if (searching) ...?searchEntries?.call()];
+        return searching ? visible.map((e) => e.label).toList() : _categories;
+      }
+
+      final choice = await _menu('Settings', _categories,
+          initialSelected: categorySelected,
+          itemsForQuery: items,
+          detailFor: (_) => (attention?.call() ?? '').isEmpty
+              ? 'Changes save when confirmed · ? help'
+              : 'Changes need attention · ? help',
+          descriptionFor: (_) =>
+              '${attention?.call() ?? ''}\nChoose a category or type to find a setting. '
+              'Tab changes scope; Enter confirms edits; Escape cancels the current editor.');
+      if (choice == null) return _savedSection;
+      if (searching) {
+        await _openEntry(visible[choice]);
+      } else {
+        final category = _categories[choice];
+        categorySelected = choice;
+        var selectedIndex = 0;
+        var query = '';
+        _breadcrumbs.add('Settings');
+        try {
+          while (!_cancelled) {
+            visible = entries().where((e) => e.category == category).toList();
+            final selected =
+                await _menu(category, visible.map((e) => e.label).toList(),
+                    initialSelected: selectedIndex,
+                    initialQuery: query,
+                    onSelected: (value) => selectedIndex = value,
+                    onQuery: (value) => query = value,
+                    itemsNow: () {
+                      visible = entries()
+                          .where((e) => e.category == category)
+                          .toList();
+                      return visible.map((e) => e.label).toList();
+                    });
+            if (selected == null) break;
+            await _openEntry(visible[selected], fromCategory: true);
+          }
+        } finally {
+          _breadcrumbs.removeLast();
         }
-      } catch (error) {
-        await _menu('Could not apply setting', [
-          error is FormatException
-              ? error.message.toString()
-              : error is ArgumentError
-                  ? error.message.toString()
-                  : error is StateError
-                      ? error.message.toString()
-                      : 'Check configuration and file permissions.',
-          'Back'
-        ]);
       }
     }
     return _savedSection;
+  }
+
+  Future<void> _openEntry(_SettingsEntry entry,
+      {bool fromCategory = false}) async {
+    final count = _breadcrumbs.length;
+    _breadcrumbs.addAll([if (!fromCategory) 'Settings', entry.category]);
+    try {
+      await entry.open();
+    } catch (error) {
+      await _menu('Could not apply setting', [
+        error is FormatException
+            ? error.message.toString()
+            : error is ArgumentError
+                ? error.message.toString()
+                : error is StateError
+                    ? error.message.toString()
+                    : 'Check configuration and file permissions.',
+        'Back',
+      ]);
+    } finally {
+      _breadcrumbs.removeRange(count, _breadcrumbs.length);
+    }
   }
 
   String _sectionTitle(String id) => switch (id) {
         'tina/step-limit' => 'Step limit',
         'tina/subagents' => 'Subagents',
         'tina/mode' => 'Mode and auto approval',
+        'tina/tools' => 'Tools',
+        'tina/mcp' => 'MCP servers',
+        'tina/approvals' => 'Approvals',
+        'tina/goals' => 'Goals',
         _ => id,
       };
   String _settingValue(SettingDefinition<Object> definition, Object? value) =>
@@ -402,7 +537,7 @@ final class SettingsPanel {
   String _settingRow(
       ScopedSettings settings, SettingDefinition<Object> definition) {
     final state = settings.read(definition, scope: _scope);
-    return '${definition.label}: ${_settingValue(definition, state.value)} · ${state.source == _scope ? 'set here' : 'inherited from ${state.sourceLabel}'}${definition.scopes.contains(_scope) ? '' : ' · ${definition.scopes.map((s) => s.name).join('/')} only'}';
+    return '${definition.label}: ${_settingValue(definition, state.value)}';
   }
 
   Future<bool> _allowedScope(SettingDefinition<Object> definition) async {
@@ -419,6 +554,8 @@ final class SettingsPanel {
 
   Future<void> _definitions(ScopedSettings settings, String title,
       List<SettingDefinition<Object>> Function() definitions) async {
+    var selected = 0;
+    var query = '';
     while (true) {
       var fields = definitions();
       List<String> items() {
@@ -426,10 +563,30 @@ final class SettingsPanel {
         return fields.map((d) => _settingRow(settings, d)).toList();
       }
 
+      var reset = false;
       final choice = await _menu(title, items(),
-          itemsNow: items, descriptionFor: (i) => fields[i].description);
+          itemsNow: items,
+          initialSelected: selected,
+          initialQuery: query,
+          onSelected: (value) => selected = value,
+          onQuery: (value) => query = value,
+          canToggle: (i) => fields[i].kind == SettingKind.toggle,
+          onReset: () => reset = true,
+          detailFor: (i) {
+            final field = fields[i];
+            final state = settings.read(field, scope: _scope);
+            return '${state.source == _scope ? 'Set here' : 'Inherited from ${state.sourceLabel}'} · ${_applyLabel(field.applyAt)} · Ctrl-R inherit';
+          },
+          descriptionFor: (i) => _definitionHelp(settings, fields[i]));
       if (choice == null) return;
-      await _scopedValue(settings, fields[choice]);
+      if (reset) {
+        if (await _allowedScope(fields[choice])) {
+          settings.removeOverride(fields[choice], _scope);
+          _savedSection = true;
+        }
+      } else {
+        await _scopedValue(settings, fields[choice]);
+      }
     }
   }
 
@@ -444,44 +601,20 @@ final class SettingsPanel {
   Future<void> _editScopedValue(
       ScopedSettings settings, SettingDefinition<Object> definition,
       {bool Function()? valid}) async {
-    final choice = await _menu(
-        definition.label, ['Set value', 'Use inherited value', 'Back'],
-        valid: valid,
-        descriptionFor: (_) => '${definition.description}\n${[
-              for (final scope in SettingScope.values)
-                '${scope.name}: ${_settingValue(definition, settings.override(definition, scope))}',
-              'Default: ${_settingValue(definition, definition.defaultValue)}',
-              'Effective here: ${_settingValue(definition, settings.read(definition).value)} (${settings.read(definition).sourceLabel})',
-              'Applies: ${_applyLabel(definition.applyAt)}',
-              if (settings.applicationErrors[definition.id] != null)
-                settings.applicationErrors[definition.id]!,
-            ].join('\n')}');
-    if (choice != 0 && choice != 1) return;
     if (valid?.call() == false) return;
     if (!await _allowedScope(definition)) return;
-    if (choice == 1) {
-      settings.removeOverride(definition, _scope);
-      _savedSection = true;
-      return;
-    }
     final current = settings.read(definition, scope: _scope).value;
     final Object? value;
-    if (definition.kind == SettingKind.choice ||
-        definition.kind == SettingKind.toggle) {
-      final options = definition.kind == SettingKind.toggle
-          ? ['Off', 'On']
-          : definition.choices;
+    if (definition.kind == SettingKind.toggle) {
+      value = current != true;
+    } else if (definition.kind == SettingKind.choice) {
+      final options = definition.choices;
       final selected = await _menu(definition.label, options,
           valid: valid,
-          initialSelected: definition.kind == SettingKind.toggle
-              ? (current == true ? 1 : 0)
-              : options
-                  .indexOf(current.toString())
-                  .clamp(0, options.length - 1));
+          initialSelected:
+              options.indexOf(current.toString()).clamp(0, options.length - 1));
       if (selected == null) return;
-      value = definition.kind == SettingKind.toggle
-          ? selected == 1
-          : options[selected];
+      value = options[selected];
     } else {
       final text = await _edit(
           definition.label,
@@ -502,6 +635,18 @@ final class SettingsPanel {
     settings.set(definition, definition.checked(value), _scope);
     _savedSection = true;
   }
+
+  String _definitionHelp(
+          ScopedSettings settings, SettingDefinition<Object> definition) =>
+      '${definition.description}\n${[
+        for (final scope in SettingScope.values)
+          '${scope.name}: ${_settingValue(definition, settings.override(definition, scope))}',
+        'Default: ${_settingValue(definition, definition.defaultValue)}',
+        'Effective here: ${_settingValue(definition, settings.read(definition).value)} (${settings.read(definition).sourceLabel})',
+        'Applies: ${_applyLabel(definition.applyAt)}',
+        if (settings.applicationErrors[definition.id] != null)
+          settings.applicationErrors[definition.id]!,
+      ].join('\n')}';
 
   String _applyLabel(ApplyAt timing) => switch (timing) {
         ApplyAt.immediately => 'immediately',
@@ -655,17 +800,13 @@ final class SettingsPanel {
       final prefix = '${selected == 0 ? '›' : ' '} Output limit: ';
       final view = textFieldView(output,
           numeric: true,
-          width: (dialogArea(screen.layout).width - visibleWidth(prefix))
-              .clamp(1, 10000));
+          width: (_contentWidth - visibleWidth(prefix)).clamp(1, 10000));
       _show([
         'Generation · $id',
         '$prefix${output.buffer.isEmpty ? 'Automatic (${formatInteger(automaticOutput)})' : view.text}',
         '${selected == 1 ? '›' : ' '} Thinking: ${labels[thinking]}',
         error ??
-            (selected == 0
-                ? '←→ edit · type number · Ctrl-U Automatic'
-                : '←→ choose · applies to this provider'),
-        '↑↓ select · Enter save · Esc cancel',
+            '↑↓ select · ←→ edit · Ctrl-U Automatic · Enter save · Esc cancel',
       ],
           cursor: selected == 0
               ? (
@@ -764,7 +905,8 @@ final class SettingsPanel {
       List<String> ids,
       PluginSettings<dynamic>? settings,
       PluginManager<dynamic>? manager,
-      Map<String, String> descriptions) async {
+      Map<String, String> descriptions,
+      {Future<void> Function()? commit}) async {
     var scope = PluginScope.global;
     var selected = 0;
     var query = '';
@@ -799,7 +941,7 @@ final class SettingsPanel {
       ];
       final choice = await _menu(
           settings == null
-              ? 'Plugins (Save changes to apply)'
+              ? 'Plugins (toggles save immediately)'
               : 'Plugins (toggles save immediately)',
           rows,
           initialSelected: selected,
@@ -813,12 +955,12 @@ final class SettingsPanel {
               : '',
           detailFor: (index) {
             if (index == 0) return 'Choose where changes apply';
-            if (index > ids.length) return 'Save changes; restart required';
+            if (index > ids.length) return 'Global · restart required';
             final id = ids[index - 1];
             if (requiredIds().contains(id))
               return settings?.blockingReasons[id]?.join('; ') ??
                   'Required by selected plugins';
-            if (settings == null) return 'Save changes to apply';
+            if (settings == null) return 'Global · saves immediately';
             final active =
                 manager!.host.plugins.any((plugin) => plugin.id == id);
             return '${settings.changeStatus(id, manager)} · active ${active ? 'on' : 'off'} · ${settings.scopedState(id, scope).source}';
@@ -850,6 +992,7 @@ final class SettingsPanel {
           if (requiredIds().contains(id)) continue;
           if (settings != null) {
             settings.apply(id, reset ? null : !enabled(id), scope, manager!);
+            _savedSection = true;
             if (scope == PluginScope.global) {
               final channel = document.table('plugins')['approval_channel'];
               document.refreshTable('plugins');
@@ -869,14 +1012,17 @@ final class SettingsPanel {
               overrides[id] = !enabled(id);
             }
             table['overrides'] = overrides;
+            await commit?.call();
           }
         } else {
           final table = document.table('plugins');
-          final value = await _edit(
-              'Approval channel (Save changes; restart required)',
+          final value = await _edit('Approval channel (restart required)',
               table['approval_channel'] as String? ?? defaultApprovalChannel,
               suggestions: ids.where((id) => id.contains('approval')).toList());
-          if (value != null) table['approval_channel'] = value.trim();
+          if (value != null) {
+            table['approval_channel'] = value.trim();
+            await commit?.call();
+          }
         }
       } catch (error) {
         await _menu('Could not change plugin', [
@@ -920,6 +1066,11 @@ final class SettingsPanel {
           itemsNow: items,
           valid: () => registry.contains(section),
           keysNow: () => controls.map((c) => c.id).toList(),
+          canToggle: (i) =>
+              controls[i] is SettingToggle ||
+              controls[i] is ScopedSettingControl &&
+                  (controls[i] as ScopedSettingControl).definition.kind ==
+                      SettingKind.toggle,
           onSelected: (index) => chosen = controls[index]);
       if (selected == null || !registry.contains(section)) return;
       final control = chosen!;
@@ -976,7 +1127,7 @@ final class SettingsPanel {
     return EscapeKey();
   }
 
-  Future<void> _defaultModel(
+  Future<bool> _defaultModel(
       ConfigDocument document, List<ProviderDescriptor> descriptors) async {
     final providers = document.table('providers');
     final defaults = document.table('default');
@@ -1015,7 +1166,9 @@ final class SettingsPanel {
         modelRefs: refs,
         providerNames: names,
         modelNames: modelNames,
-        title: 'Choose default model',
+        title: _title('Choose default model'),
+        bounds: () => _frame,
+        contextLine: () => _scopeLine,
         readEvent: _formEvent,
         accent: screen.theme.border.focus);
     _overlay.hide();
@@ -1027,12 +1180,13 @@ final class SettingsPanel {
         defaults['provider'] = chosen.substring(0, slash);
         defaults['model'] = chosen.substring(slash + 1);
       }
+      return chosen != null;
     } finally {
       _paint = null;
     }
   }
 
-  Future<void> _providers(
+  Future<bool> _providers(
       ConfigDocument document,
       List<ProviderDescriptor> descriptors,
       void Function(Iterable<String>)? validatePlugins) async {
@@ -1043,14 +1197,32 @@ final class SettingsPanel {
         readEvent: _formEvent,
         providers: draft.table('providers'),
         descriptors: descriptors,
+        bounds: () => _frame,
+        contextLine: () => _scopeLine,
+        title: _title('Providers & models'),
         editAdvanced: (id) => _providerFields(
             draft, descriptors, validatePlugins, id,
             generationDocument: document),
         onShow: () => _paint = panel.repaint);
     _overlay.hide();
     try {
-      if (await panel.run())
+      if (await panel.run()) {
+        final defaults = draft.table('default');
+        final id = defaults['provider'] as String? ?? 'anthropic';
+        final values = draft.table('providers')[id];
+        if (values is Map<String, dynamic> &&
+            ProviderSettings.parse(id, values)
+                .disabledModels
+                .contains(defaults['model'])) {
+          final previous = defaults['model'];
+          await _defaultModel(draft, descriptors);
+          if (defaults['model'] == previous) return false;
+        }
         document.values['providers'] = draft.table('providers');
+        document.values['default'] = draft.table('default');
+        return true;
+      }
+      return false;
     } finally {
       _paint = null;
     }
@@ -1170,7 +1342,7 @@ final class SettingsPanel {
   List<String> _list(String text) =>
       text.split(',').map((v) => v.trim()).where((v) => v.isNotEmpty).toList();
 
-  Future<void> _field(Map<String, dynamic> values, String key, String label,
+  Future<bool> _field(Map<String, dynamic> values, String key, String label,
       {bool secret = false,
       bool list = false,
       bool numeric = false,
@@ -1179,12 +1351,12 @@ final class SettingsPanel {
     final value = await _edit(
         label, old is List ? old.join(', ') : old?.toString() ?? '',
         secret: secret, numeric: numeric, suggestions: suggestions);
-    if (value == null) return;
+    if (value == null) return false;
     if (numeric && value.isNotEmpty) {
       final number = int.tryParse(value);
       if (number == null || number < 0) {
         await _menu('Enter a nonnegative integer', ['Back']);
-        return;
+        return false;
       }
       values[key] = number;
     } else if (list) {
@@ -1194,37 +1366,52 @@ final class SettingsPanel {
     } else {
       values[key] = value;
     }
+    return true;
   }
 
-  void _show(List<String> lines, {(int, int)? cursor, Rect? bounds}) {
-    final area = bounds ?? dialogArea(screen.layout);
-    final shown = [
-      if (_usingScopes)
-        'Scope: ${[
-          for (final scope
-              in SettingScope.values.where(_availableScopes.contains))
-            scope == _scope ? '[${scope.name}]' : scope.name,
-        ].join('  ')}',
-      ...lines
+  void _show(List<String> lines, {(int, int)? cursor}) {
+    final target = _frame;
+    if (lines.isEmpty) return;
+    final boxed = target.width >= 4 && target.height >= 4;
+    final scopeRows = boxed && target.height >= 6 ? 1 : 0;
+    final title = _title(lines.first);
+    final body = [
+      if (scopeRows > 0) _scopeLine,
+      ...lines.skip(1).take((lines.length - 2).clamp(0, lines.length))
     ];
-    final visible = shown
-        .take(area.height)
-        .map((v) => clipDialogText(v, area.width))
-        .toList();
-    bounds ??= centeredDialog(screen.layout, visible);
-    final target = bounds;
+    final visible = boxed
+        ? dialogBoxLines(
+            width: target.width,
+            height: target.height,
+            title: title,
+            body: body,
+            footer: lines.length > 1 ? lines.last : '',
+            paint: (text) => screen.colorize(screen.theme.border.focus, text))
+        : [title, ...body, if (lines.length > 1) lines.last]
+            .take(target.height)
+            .map((v) => clipDialogText(v, target.width))
+            .toList();
     screen.frame(() {
       _overlay.update(bounds: target, lines: visible);
       if (cursor != null && target.height > 0 && target.width > 0) {
         _cursor.place(
-            target.row +
-                (cursor.$1 + (_usingScopes ? 1 : 0))
-                    .clamp(0, target.height - 1),
-            target.col + cursor.$2.clamp(0, target.width - 1));
+            target.row + (cursor.$1 + scopeRows).clamp(0, target.height - 1),
+            target.col +
+                (cursor.$2 + (boxed ? 2 : 0)).clamp(0, target.width - 1));
       } else {
         _cursor.hide();
       }
     });
+  }
+
+  String _compactRow(String row) {
+    final split = row.indexOf(': ');
+    if (split <= 0 || row.startsWith('Scope:')) return row;
+    final name = row.substring(0, split);
+    final value = row.substring(split + 2);
+    final column = (_contentWidth ~/ 2).clamp(12, 32);
+    if (_contentWidth < 32 || visibleWidth(name) >= column) return row;
+    return '$name${' ' * (column - visibleWidth(name))}$value';
   }
 
   Future<int?> _menu(String title, List<String> items,
@@ -1237,6 +1424,8 @@ final class SettingsPanel {
       void Function()? onAbout,
       void Function()? onReset,
       List<String> Function()? itemsNow,
+      List<String> Function(String)? itemsForQuery,
+      bool Function(int)? canToggle,
       List<String> Function()? keysNow,
       void Function(int)? onSelected,
       bool Function()? valid}) async {
@@ -1251,47 +1440,32 @@ final class SettingsPanel {
         ];
     _paint = () {
       items = itemsNow?.call() ?? items;
-      // Size from the complete menu, never from selected text, filtered rows,
-      // or a checkbox's changing load status. Registered/removed menu entries
-      // can change the preference; checkbox save/reopen retains it.
-      final preferredHeight = (items.length +
-              3 + // title, search, footer
-              (_usingScopes ? 1 : 0) +
-              (detailFor == null ? 0 : 1) +
-              (descriptionFor == null ? 0 : 3))
-          .clamp(1, _menuMaxHeight);
+      items = itemsForQuery?.call(query) ?? items;
       final filtered = matches();
-      final bounds = dialogBounds(screen.layout,
-          preferredWidth: _menuWidth, preferredHeight: preferredHeight);
-      final height =
-          (bounds.height - (_usingScopes ? 1 : 0)).clamp(0, _menuMaxHeight);
-      final titleRows = height >= 2 ? 1 : 0;
-      final footerRows = height >= 3 ? 1 : 0;
-      final searchRows = height >= 4 ? 1 : 0;
-      final detailRows = detailFor != null && height >= 5 ? 1 : 0;
-      final descriptionRoom = descriptionFor == null
-          ? 0
-          : (height - titleRows - footerRows - searchRows - detailRows - 1)
-              .clamp(0, 3);
-      final room = (height -
-              titleRows -
-              footerRows -
-              searchRows -
-              detailRows -
-              descriptionRoom)
-          .clamp(0, items.length > 0 ? items.length : 1);
+      final bounds = _frame;
+      final bodyHeight = (bounds.height -
+              (bounds.height >= 4 ? 4 : 2) -
+              (bounds.height >= 6 ? 1 : 0))
+          .clamp(1, _menuMaxHeight);
+      final titleRows = 1;
+      final footerRows = 1;
+      final searchRows = bodyHeight >= 2 ? 1 : 0;
+      // Status has one reserved row on every menu; descriptions live behind ?.
+      final detailRows = bodyHeight >= 3 ? 1 : 0;
+      final room =
+          (bodyHeight - searchRows - detailRows).clamp(1, _menuMaxHeight);
       final footer = checkboxes
           ? '${_usingScopes ? 'Tab scope · ' : ''}space toggle · ^R inherit · ? about · esc'
-          : '${_usingScopes ? 'Tab scope · ' : ''}↑↓ move · type to find · enter select · esc back';
+          : '${_usingScopes ? 'Tab scope · ' : ''}↑↓ move · ${canToggle != null ? 'space toggle · ' : ''}enter select · esc back${descriptionFor != null ? ' · ? help' : ''}';
       if (filtered.isEmpty) {
         _show([
           if (titleRows > 0) title,
           if (searchRows > 0) 'Find: $query',
           if (room > 0) 'No matches · backspace to edit',
           for (var i = 1; i < room; i++) '',
-          for (var i = 0; i < descriptionRoom + detailRows; i++) '',
+          for (var i = 0; i < detailRows; i++) '',
           if (footerRows > 0) footer,
-        ], bounds: bounds);
+        ]);
         return;
       }
       selected = selected.clamp(0, filtered.length - 1);
@@ -1301,14 +1475,6 @@ final class SettingsPanel {
         if (previous >= 0) selected = previous;
       }
       selectedKey = keys[filtered[selected]];
-      final blurb = descriptionFor?.call(filtered[selected]) ?? '';
-      final description =
-          blurb.isEmpty ? <String>[] : wrapDialogWords(blurb, bounds.width);
-      final descriptionLines = description.take(descriptionRoom).toList();
-      if (descriptionLines.isNotEmpty && descriptionRoom < description.length) {
-        descriptionLines[descriptionLines.length - 1] =
-            clipDialogText('${descriptionLines.last} …', bounds.width);
-      }
       final shownRows = room.clamp(0, filtered.length);
       final start =
           (selected - shownRows + 1).clamp(0, filtered.length - shownRows);
@@ -1316,13 +1482,11 @@ final class SettingsPanel {
         if (titleRows > 0) title,
         if (searchRows > 0) 'Find: $query',
         for (var i = start; i < start + shownRows; i++)
-          '${selected == i ? '›' : ' '} ${items[filtered[i]]}',
+          '${selected == i ? '›' : ' '} ${_compactRow(items[filtered[i]])}',
         for (var i = shownRows; i < room; i++) '',
-        ...descriptionLines,
-        for (var i = descriptionLines.length; i < descriptionRoom; i++) '',
-        if (detailRows > 0) detailFor!(filtered[selected]),
+        if (detailRows > 0) detailFor?.call(filtered[selected]) ?? '',
         if (footerRows > 0) footer,
-      ], bounds: bounds);
+      ]);
     };
     while (true) {
       if (_cancelled) return null;
@@ -1354,17 +1518,34 @@ final class SettingsPanel {
             onQuery?.call(query);
             return filtered[selected];
           }
-        case CharInput(text: ' ') when checkboxes:
+        case CharInput(text: '?') when descriptionFor != null:
+          if (filtered.isNotEmpty) {
+            final paint = _paint;
+            try {
+              await _menu(
+                  'About $title',
+                  wrapDialogWords(
+                      descriptionFor(filtered[selected]), _aboutWidth));
+            } finally {
+              _paint = paint;
+            }
+          }
+        case CharInput(text: ' ')
+            when checkboxes ||
+                filtered.isNotEmpty &&
+                    canToggle?.call(filtered[selected]) == true:
           if (filtered.isNotEmpty) {
             onQuery?.call(query);
+            onSelected?.call(filtered[selected]);
             return filtered[selected];
           }
-        case ControlKey(code: ControlCode.ctrlR) when checkboxes:
+        case ControlKey(code: ControlCode.ctrlR) when onReset != null:
         case ControlKey(code: ControlCode.backspace)
             when checkboxes && query.isEmpty:
           if (filtered.isNotEmpty) {
             onReset?.call();
             onQuery?.call(query);
+            onSelected?.call(filtered[selected]);
             return filtered[selected];
           }
         case CharInput(:final text):
@@ -1384,6 +1565,18 @@ final class SettingsPanel {
           selected = (selected + 1)
               .clamp(0, filtered.isEmpty ? 0 : filtered.length - 1);
           selectedKey = null;
+        case ArrowKey(direction: ArrowDirection.pageUp):
+        case ArrowKey(direction: ArrowDirection.pageDown):
+          final page = (_frame.height - 7).clamp(1, _menuMaxHeight);
+          final direction = event.direction;
+          selected =
+              (selected + (direction == ArrowDirection.pageUp ? -page : page))
+                  .clamp(0, filtered.isEmpty ? 0 : filtered.length - 1);
+          selectedKey = null;
+        case ScrollEvent(:final up):
+          selected = (selected + (up ? -1 : 1))
+              .clamp(0, filtered.isEmpty ? 0 : filtered.length - 1);
+          selectedKey = null;
         default:
           break;
       }
@@ -1399,9 +1592,7 @@ final class SettingsPanel {
     String? error;
     _paint = () {
       final view = textFieldView(input,
-          width: dialogArea(screen.layout).width,
-          secret: secret,
-          numeric: numeric);
+          width: _contentWidth, secret: secret, numeric: numeric);
       _show([
         label,
         view.text,

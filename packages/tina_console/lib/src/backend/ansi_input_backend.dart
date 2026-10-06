@@ -12,7 +12,9 @@ import '../input_latency.dart';
 /// [InputParser] is a synchronous state machine: [InputParser.feed] returns
 /// an [InputEvent] immediately, and the escape timeout delivers events via
 /// a callback. This adapter wires both paths into a single [events] stream.
-class AnsiInputBackend implements InputBackend {
+class AnsiInputBackend implements InputBackend, SynchronousInputBackend {
+  @override
+  bool synchronousDispatch = false;
   final Stdio _io;
   late final StreamController<InputEvent> _controller;
   late final InputParser _parser;
@@ -58,7 +60,8 @@ class AnsiInputBackend implements InputBackend {
   void inject(InputEvent event) => _emit(event);
 
   void _onBytes(List<int> bytes) {
-    // Emit the first event synchronously, then defer subsequent events from
+    // Persistent dialog queues receive the whole batch synchronously.
+    // Legacy consumers receive the first event synchronously, then defer events from
     // the same stdio chunk to the microtask queue. Without this, a paste
     // (which arrives as one large chunk of ASCII bytes) fires N+1 CharInput
     // events synchronously inside this loop; only the first event reaches
@@ -68,7 +71,7 @@ class AnsiInputBackend implements InputBackend {
     for (final b in bytes) {
       final event = _parser.feed(b);
       if (event != null) {
-        if (first) {
+        if (first || synchronousDispatch) {
           first = false;
           _emit(event);
         } else {

@@ -127,7 +127,7 @@ enabled = ["tina/providers", "tina/session-controls"]
           down, down, enter, // Add model
           PasteInput('org/new-model|Live custom model'), enter,
           enter, // Apply tree draft
-          CharInput('Save'), enter,
+          escape,
         ]),
         true);
     expect(assembly.host.model, 'local/main');
@@ -214,7 +214,7 @@ enabled = ["tina/providers", "tina/session-controls"]
           down, enter, // Add model
           PasteInput('another|Another model'), enter,
           enter,
-          CharInput('Save'), enter,
+          escape,
         ]),
         true);
     expect(await completions(assembly),

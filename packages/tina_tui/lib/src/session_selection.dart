@@ -122,7 +122,8 @@ class SessionPicker {
     if (sessions.isEmpty) return null;
     _overlay = OverlayRegion(screen, Rect.empty);
     final cursor = screen.claimCursor();
-    final next = readEvent ?? editor.captureKeyReader();
+    final input = readEvent == null ? editor.openInputSession() : null;
+    final next = readEvent ?? input!.read;
     try {
       repaint();
       while (true) {
@@ -151,6 +152,7 @@ class SessionPicker {
         repaint();
       }
     } finally {
+      input?.dispose();
       _overlay!.hide();
       _overlay!.dispose();
       _overlay = null;

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'package:logging/logging.dart';
 
@@ -9,6 +10,7 @@ import 'completion_picker.dart';
 import 'confirm_dialog.dart';
 import 'focus_manager.dart';
 import 'input_event.dart';
+import 'input_session.dart';
 import 'input_latency.dart';
 import 'input_log.dart';
 import 'paste_audit.dart';
@@ -74,6 +76,7 @@ class LineEditor {
   Completer<String?>? _completer;
   void Function(String)? _lineSink;
   Completer<InputEvent>? _keyCompleter;
+  _EditorInputSession? _inputSession;
   // Whether the armed [_keyCompleter] yields to the focus ring's global keys
   // (see [readKey]). Cleared with the completer it belongs to.
   bool _keyCompleterGlobal = false;
@@ -298,6 +301,69 @@ class LineEditor {
   /// interaction, so nested dialogs cannot reopen after double-Esc.
   Future<void> get inputCancelled => _cancelKeyReads.future;
 
+  /// Acquire the keyboard before painting a dialog, then dispose after its
+  /// final decision. Reads never release ownership and do not use a timer.
+  InputSession openInputSession({
+    bool globalKeys = false,
+    bool panelNavigation = true,
+    bool acceptPaste = true,
+    bool releaseOnEscape = false,
+    Future<void>? cancelSignal,
+  }) {
+    if (_inputSession != null || _readKeyTurn != null) {
+      throw StateError('another dialog owns the keyboard');
+    }
+    _burstTimer?.cancel();
+    _burstTimer = null;
+    _pending.clear();
+    final generation = _monitorGeneration;
+    final savedCancel = _cancelHandler;
+    final savedSubmit = _onQueueSubmit;
+    _cancelHandler = null;
+    _onQueueSubmit = null;
+    late final _EditorInputSession session;
+    var released = false;
+    void release() {
+      if (released) return;
+      released = true;
+      if (identical(_inputSession, session)) {
+        if (_input case SynchronousInputBackend backend) {
+          backend.synchronousDispatch = false;
+        }
+        _inputSession = null;
+      }
+      if (_monitorGeneration == generation) {
+        _cancelHandler = savedCancel;
+        _onQueueSubmit = savedSubmit;
+      }
+    }
+
+    session = _EditorInputSession(
+      globalKeys: globalKeys,
+      panelNavigation: panelNavigation,
+      acceptPaste: acceptPaste,
+      releaseOnEscape: releaseOnEscape,
+      release: release,
+      onDispose: () {
+        release();
+        _heldPastes.addAll(session.heldPastes);
+        session.heldPastes.clear();
+        _scheduleHeldPasteDelivery();
+      },
+    );
+    _inputSession = session;
+    if (_input case SynchronousInputBackend backend) {
+      backend.synchronousDispatch = true;
+    }
+    if (cancelSignal != null) {
+      unawaited(Future.any([cancelSignal, session.closed]).then((_) {
+        session.cancel();
+      }));
+    }
+    _ensureListening();
+    return session;
+  }
+
   Future<InputEvent> Function() captureKeyReader(
       {bool globalKeys = false,
       bool acceptPaste = false,
@@ -361,6 +427,13 @@ class LineEditor {
     ]).then((_) {
       cancelled = true;
     });
+    // Compatibility reads wait for the whole owned dialog, never consume its
+    // queue or replace its reader between paints.
+    while (_inputSession != null) {
+      final session = _inputSession!;
+      await Future.any([session.closed, stop]);
+      if (cancelled) return ControlKey(ControlCode.ctrlC);
+    }
     // Overflow chars from a paste are drained to the next readKey ONLY while
     // the burst window is still open (the paste is still arriving). Once the
     // window has expired the queued chars are stale — they must never answer
@@ -411,8 +484,8 @@ class LineEditor {
     }
   }
 
-  /// True while a [readKey] is awaiting a keystroke.
-  bool get isReadingKey => _keyCompleter != null;
+  /// True while a dialog session owns input or a legacy [readKey] is waiting.
+  bool get isReadingKey => _inputSession != null || _keyCompleter != null;
 
   /// Completion owns its page keys while a picker is visible.
   bool get isCompleting => _activePicker != null;
@@ -605,7 +678,8 @@ class LineEditor {
       if (_heldPastes.isEmpty) return;
       // Text pasted before entering a prompt's editor belongs to the draft,
       // not to that newly opened field. Only fresh pastes enter the field.
-      if (_keyCompleterGlobal && _keyAcceptsPaste) return;
+      if (_inputSession?.acceptPaste == true ||
+          _keyCompleterGlobal && _keyAcceptsPaste) return;
       final deliver = List<PasteInput>.of(_heldPastes);
       _heldPastes.clear();
       for (final paste in deliver) {
@@ -624,6 +698,7 @@ class LineEditor {
   /// leaving an alternate screen can defer diagnostics until normal stdout
   /// is restored by passing false and then calling [reportInputLatency].
   void close({bool reportLatency = true}) {
+    _inputSession?.dispose();
     // tin-w8dl: pastes still held behind an open readKey must reach the
     // buffer before the input stream dies, or a shutdown mid-prompt drops
     // them. Direct dispatch — no readKey can usefully complete at close.
@@ -674,8 +749,10 @@ class LineEditor {
       'chat_prompt_open': _completer != null,
       // A prompt is waiting for a key — a permission question, a gate, or an
       // overlay. Typing answers it and never reaches the chat input.
-      'answering_prompt': _keyCompleter != null,
-      'prompt_is_global': _keyCompleter != null ? _keyCompleterGlobal : null,
+      'answering_prompt': isReadingKey,
+      'prompt_is_global': _inputSession?.globalKeys ??
+          (_keyCompleter != null ? _keyCompleterGlobal : null),
+      'dialog_queued_keys': _inputSession?._events.length,
       // A second prompt is waiting behind the first (readKey serialization).
       'prompt_serialized': _readKeyTurn != null,
       // Typed while the agent is busy: goes to the queued-message line.
@@ -764,7 +841,7 @@ class LineEditor {
   /// legitimate keyboard owner; standing it down there would splatter panel
   /// keys into the hidden editor. See [_promptRowOwnsKeyboard].
   bool _routeExclusivePanelInput(InputEvent event) {
-    if (_keyCompleter != null ||
+    if (isReadingKey ||
         _promptRowOwnsKeyboard ||
         (_burstTimer != null && event is CharInput) ||
         !_exclusivePanelFocused) {
@@ -893,7 +970,7 @@ class LineEditor {
       final modalActive = _modals.any((m) => m.isActive);
       if (_exclusivePanelFocused &&
           !modalActive &&
-          _keyCompleter == null &&
+          !isReadingKey &&
           !_dialog.isVisible) {
         // An exclusive panel owns every key, Ctrl+C included: the arming
         // press is still forwarded so the panel's key stream stays complete.
@@ -916,6 +993,29 @@ class LineEditor {
     // exclusive panels, the quit-confirm dismissal, an armed prompt, cancel
     // monitoring. Ctrl+C itself stays quit-gate property (see above).
     if (_offerToModals(event)) return KeyHandledBy.modal;
+    if (_inputSession case final session?) {
+      if (_dialog.isVisible) _dialog.dismiss();
+      if (session.globalKeys && _handleFocusRingKeys(event)) {
+        return KeyHandledBy.focusRing;
+      }
+      if (session.globalKeys &&
+          session.panelNavigation &&
+          !_exclusivePanelFocused &&
+          (event is ArrowKey || event is ScrollEvent) &&
+          (_focusManager?.focused?.handleEvent(event) ?? false)) {
+        return KeyHandledBy.panel;
+      }
+      if (event is PasteInput && !session.acceptPaste) {
+        session.heldPastes.add(event);
+        return KeyHandledBy.heldPaste;
+      }
+      session.add(event);
+      if (event is EscapeKey) {
+        _lastEsc = null;
+        if (session.releaseOnEscape) session.release();
+      }
+      return KeyHandledBy.openPrompt;
+    }
     if (_routeExclusivePanelInput(event)) return KeyHandledBy.panel;
     // An armed quit-confirm yields to the key's real owner above (exclusive
     // panels, modals). Any other key dismisses it on the way to its normal
@@ -985,7 +1085,8 @@ class LineEditor {
           'readKey ANSWERED by $event (global=$_keyCompleterGlobal)',
         );
       }
-      _burstForm = !_keyCompleterGlobal;
+      // Legacy readers retain a short typing burst. Dialogs use input sessions.
+      _burstForm = event is! EscapeKey && !_keyCompleterGlobal;
       c.complete(event);
       // After completing a readKey, open a short burst window during which
       // overflow CharInput events (from a paste) are queued rather than
@@ -1005,7 +1106,7 @@ class LineEditor {
     // A screen-owning form must retain controls as well as text between key
     // reads. Slow rendering can batch a filter and its next navigation/reset
     // key together; dropping that control leaves a visible menu unresponsive.
-    // Approval reads still queue only text, never a later approval answer.
+    // This compatibility path is used only by legacy single-key readers.
     if (_burstTimer != null &&
         event is! EscapeKey &&
         (event is CharInput || _burstForm)) {
@@ -1062,6 +1163,7 @@ class LineEditor {
   }
 
   void _forceCancelInput() {
+    _inputSession?.dispose();
     // Release both the current prompt and readers queued behind it. A new
     // prompt belongs to a new cancellation generation.
     final reads = _cancelKeyReads;
@@ -1075,6 +1177,7 @@ class LineEditor {
     _burstTimer?.cancel();
     _burstTimer = null;
     _pending.clear();
+    _burstForm = false;
     _heldPastes.clear();
     _dialog.dismiss();
     _activePicker?.closeState();
@@ -1324,8 +1427,7 @@ class LineEditor {
     // onDoubleEscape wired it only reaches the double-Esc clear, which is a
     // no-op on an untouched buffer; when those hooks are wired, cancel must
     // keep working mid-dispatch.
-    final ownerless =
-        _completer == null && !_queueModeActive && _keyCompleter == null;
+    final ownerless = _completer == null && !_queueModeActive && !isReadingKey;
     if (ownerless &&
         (event is CharInput ||
             event is PasteInput ||
@@ -1603,6 +1705,7 @@ class LineEditor {
   /// cleared too; a live turn underneath keeps running and is torn down by
   /// the controller's shutdown, not here.
   void _quitNow() {
+    _inputSession?.dispose();
     _lastEsc = null;
     _dialog.reset();
     _activePicker?.closeState();
@@ -1759,6 +1862,69 @@ class LineEditor {
       // re-armed — so the prompt visibly vanished mid-command (tin-y8kh).
       // Rendering an empty buffer keeps the cursor parked and the row alive.
       screen.input.render(prompt: _currentPrompt, buffer: '', cursor: 0);
+    }
+  }
+}
+
+final class _EditorInputSession implements InputSession {
+  _EditorInputSession(
+      {required this.globalKeys,
+      required this.panelNavigation,
+      required this.acceptPaste,
+      required this.releaseOnEscape,
+      required this.release,
+      required this.onDispose});
+  final bool globalKeys, panelNavigation, acceptPaste, releaseOnEscape;
+  final void Function() release, onDispose;
+  final _events = Queue<InputEvent>();
+  final _reads = Queue<Completer<InputEvent>>();
+  final heldPastes = <PasteInput>[];
+  final _closed = Completer<void>();
+  bool _disposed = false;
+  bool _cancelled = false;
+  @override
+  bool get isClosed => _disposed;
+  @override
+  Future<void> get closed => _closed.future;
+  @override
+  Future<InputEvent> read() {
+    if (_disposed || _cancelled)
+      return Future.value(ControlKey(ControlCode.ctrlC));
+    if (_events.isNotEmpty) return Future.value(_events.removeFirst());
+    final next = Completer<InputEvent>();
+    _reads.add(next);
+    return next.future;
+  }
+
+  void add(InputEvent event) {
+    if (_disposed || _cancelled) return;
+    if (_reads.isNotEmpty) {
+      _reads.removeFirst().complete(event);
+    } else {
+      _events.add(event);
+    }
+  }
+
+  // Cancellation settles readers but leaves the queue attached until its
+  // owner exits. Keys already in the backend batch cannot reach a later dialog.
+  void cancel() {
+    if (_cancelled) return;
+    _cancelled = true;
+    _events.clear();
+    while (_reads.isNotEmpty) {
+      _reads.removeFirst().complete(ControlKey(ControlCode.ctrlC));
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    cancel();
+    try {
+      onDispose();
+    } finally {
+      _closed.complete();
     }
   }
 }
