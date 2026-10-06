@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:logging/logging.dart';
 
 import 'backend/ansi_input_backend.dart';
 import 'backend/input_backend.dart';
@@ -24,10 +25,11 @@ import 'screen.dart';
 /// itself never emits ANSI directly — every change goes through the
 /// screen's clipping primitives.
 class LineEditor {
+  static final _log = Logger('tina_console.editor');
   final Screen screen;
 
-  /// When true, log parsed events to stderr for debugging input issues
-  /// (e.g. Alt/Option key handling). Enable with `COCOON_DEBUG_KEYS=1`.
+  /// When true, emit parsed events at FINE through package:logging for input
+  /// issues (e.g. Alt/Option key handling), keeping stderr free for the UI.
   final bool debugKeys;
 
   final InputBackend _input;
@@ -453,14 +455,14 @@ class LineEditor {
     });
     _ensureListening();
     if (debugKeys) {
-      stderr.writeln('[readkey] armed');
+      _log.fine('[readkey] armed');
     }
     return c.future.whenComplete(() {
       restoreMonitor();
       _keyCompleterGlobal = false;
       _keyAcceptsPaste = false;
       if (debugKeys) {
-        stderr.writeln('[readkey] completed');
+        _log.fine('[readkey] completed');
       }
     });
   }
@@ -852,7 +854,7 @@ class LineEditor {
   /// so a key that does nothing visible can name who took it.
   KeyHandledBy _onEventInner(InputEvent event) {
     if (debugKeys) {
-      stderr.writeln('[keys] event: $event');
+      _log.fine('[keys] event: $event');
     }
     if (event is EscapeKey) {
       final now = DateTime.now();
@@ -1242,7 +1244,7 @@ class LineEditor {
     // this path must not offer again.
     if (_routeExclusivePanelInput(event)) return KeyHandledBy.panel;
     if (debugKeys) {
-      stderr.writeln('[keys] event: $event');
+      _log.fine('[keys] event: $event');
     }
     // 2. Ctrl+O: the app's panel-maximize toggle. Ahead of the focus
     //    ring so it fires both while cycling (the highlighted panel) and on

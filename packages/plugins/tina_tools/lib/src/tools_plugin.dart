@@ -65,7 +65,6 @@ final class ToolsPlugin extends AgentPlugin
       plan: osPlan,
       enabled: osSandbox,
       unavailableBehaviour: osUnavailable,
-      onWarn: (message) => stderr.writeln('tina: $message'),
     );
     processRunner = SandboxedProcessRunner(
       inner: osRunner,

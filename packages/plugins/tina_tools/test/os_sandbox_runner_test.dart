@@ -271,6 +271,52 @@ void main() {
   });
 
   group('OsSandboxRunner availability (the explicit fallback)', () {
+    test('fallback warning is captured as tool stderr once', () async {
+      final inner = ScriptedRunner([
+        const CommandCompleted(
+            exitCode: -9,
+            stdout: 'out',
+            stderr: 'err',
+            note: 'cancelled',
+            cancelled: true,
+            timedOut: true),
+        const CommandCompleted(exitCode: 0, stdout: '', stderr: ''),
+      ]);
+      final runner = OsSandboxRunner(
+        inner: inner,
+        plan: const SandboxPlan(workspaceRoot: '/w'),
+        backend: SandboxBackend.passThrough,
+        unavailableReason: 'fixture backend unavailable',
+      );
+      final output = <({String text, bool error})>[];
+      final control = ProcessControl(onOutput: (text, {isError = false}) {
+        output.add((text: text, error: isError));
+      });
+      final request = (
+        command: 'echo',
+        arguments: <String>[],
+        workingDirectory: null,
+        environment: null,
+        stdin: null,
+        timeout: null,
+      );
+      final result =
+          await runner.run(request, control: control) as CommandCompleted;
+      expect(output, hasLength(1));
+      expect(output.single.error, isTrue);
+      expect(output.single.text, contains('fixture backend unavailable'));
+      expect(result.stderr, '${output.single.text}err');
+      expect(result.stdout, 'out');
+      expect(result.exitCode, -9);
+      expect(result.note, 'cancelled');
+      expect(result.cancelled, isTrue);
+      expect(result.timedOut, isTrue);
+      final next =
+          await runner.run(request, control: control) as CommandCompleted;
+      expect(next.stderr, isEmpty);
+      expect(output, hasLength(1));
+    });
+
     test(
         'no backend + allow: the request runs through the inner runner '
         'untouched, once with a warning', () async {

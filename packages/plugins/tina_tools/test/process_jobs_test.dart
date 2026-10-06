@@ -6,6 +6,44 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_tools/tina_tools.dart';
 
 void main() {
+  test('detached job keeps stdout and stderr out of foreground output',
+      () async {
+    final dir = Directory.systemTemp.createTempSync('tina-job-output-');
+    final jobs = ProcessJobs(const IoProcessRunner());
+    addTearDown(() async {
+      await jobs.close();
+      dir.deleteSync(recursive: true);
+    });
+    final foreground = <String>[];
+    final result = await jobs.run((
+      command: '/bin/sh',
+      arguments: [
+        '-c',
+        'while [ ! -f finish ]; do sleep 0.05; done; '
+            'echo background-stdout; echo background-stderr >&2',
+      ],
+      workingDirectory: dir.path,
+      environment: null,
+      stdin: null,
+      timeout: const Duration(seconds: 10),
+    ),
+        control: ProcessControl(
+          background: true,
+          onOutput: (text, {isError = false}) => foreground.add(text),
+        )) as CommandRunning;
+    File('${dir.path}/finish').writeAsStringSync('done');
+    final completed = await jobs.inspect({
+      'job_id': result.id,
+      'action': 'wait',
+      'wait_ms': 3000,
+    });
+    expect(completed.content, contains('background-stdout'));
+    expect(completed.content, contains('background-stderr'));
+    expect(completed.content, contains('exit code: 0'));
+    expect(foreground, isEmpty,
+        reason: 'a background job must stop reporting to its old tool call');
+  }, skip: Platform.isWindows);
+
   for (final toolName in ['exec', 'bash']) {
     test(
         '$toolName background starts only after approval and remains inspectable',

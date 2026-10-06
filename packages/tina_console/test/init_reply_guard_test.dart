@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
+import 'package:logging/logging.dart';
 import 'package:tina_console/src/backend/init_reply_guard.dart';
 
 /// Recording fake for [ReplyGuardOs]: every call is appended to [calls] as a
@@ -242,8 +243,8 @@ void main() {
       // DECRPM and cursor-position replies — `\x1b[?..` and `\x1b[1;1R` —
       // carry no OSC payload at all; recognition must not depend on OSC
       // syntax.
-      final os = FakeReplyGuardOs(
-          replyArrives: true, probeReply: '\x1b[?1;2;6;22c');
+      final os =
+          FakeReplyGuardOs(replyArrives: true, probeReply: '\x1b[?1;2;6;22c');
       final guard = TerminalReplyGuard(os: os);
       expect(guard.prepare(), isFalse);
       expect(os.calls.any((c) => c.startsWith('detour')), isFalse);
@@ -404,6 +405,20 @@ void main() {
           reason: 'nothing was read, so nothing was written');
       // A later tick still runs.
       expect(() => bridge.tick(), returnsNormally);
+    });
+
+    test('copy errors go to logging once per bridge lifetime', () async {
+      final records = <LogRecord>[];
+      final subscription = Logger.root.onRecord.listen(records.add);
+      addTearDown(subscription.cancel);
+      final bridge = StdinBridge(_BridgeFakeOs(throwOnRead: true));
+      bridge.tick();
+      bridge.tick();
+      final errors = records.where((r) =>
+          r.loggerName == 'tina_console.input' &&
+          r.message.contains('stdin bridge: copy error'));
+      expect(errors, hasLength(1));
+      expect(errors.single.level, Level.WARNING);
     });
 
     test('write error: tick swallows, loop keeps going', () {

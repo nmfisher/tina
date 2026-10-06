@@ -231,7 +231,8 @@ final class OsSandboxRunner implements ProcessRunner {
   /// Overrides the layout host probes; null inspects the real host.
   final SandboxHostLayout Function()? hostLayout;
 
-  /// Warn sink for the one-time pass-through notice; null is silent.
+  /// Optional observer for the one-time pass-through notice. The notice also
+  /// goes through captured tool output and the completed command's stderr.
   final void Function(String message)? onWarn;
 
   bool _warned = false;
@@ -287,14 +288,36 @@ final class OsSandboxRunner implements ProcessRunner {
       ), control: control);
     }
     if (backend == SandboxBackend.passThrough) {
-      _warnOnce();
-      return switch (unavailableBehaviour) {
-        UnavailableBehaviour.allow => inner.run(request, control: control),
+      final warning = _warnOnce();
+      if (warning != null) {
+        try {
+          control?.onOutput?.call('$warning\n', isError: true);
+        } catch (_) {
+          // Output observers cannot change the command's outcome.
+        }
+      }
+      final outcome = switch (unavailableBehaviour) {
+        UnavailableBehaviour.allow =>
+          await inner.run(request, control: control),
         UnavailableBehaviour.refuse =>
           CommandRefused('the OS sandbox is unavailable on this host '
               '(${passThroughReason ?? 'no backend'}); this command was not '
               'allowed to run unsandboxed'),
       };
+      // Keep the warning in the result as well as the live output. It must
+      // survive a collapsed tool call or a background job without writing
+      // directly to the terminal owned by the frontend.
+      if (warning != null && outcome is CommandCompleted) {
+        return CommandCompleted(
+          exitCode: outcome.exitCode,
+          stdout: outcome.stdout,
+          stderr: '$warning\n${outcome.stderr}',
+          note: outcome.note,
+          cancelled: outcome.cancelled,
+          timedOut: outcome.timedOut,
+        );
+      }
+      return outcome;
     }
     final layout = hostLayout?.call() ??
         SandboxHostLayout.inspect(
@@ -428,16 +451,18 @@ final class OsSandboxRunner implements ProcessRunner {
         'bash can access that path. Both process tools use the same sandbox.';
   }
 
-  void _warnOnce() {
-    if (_warned) return;
+  String? _warnOnce() {
+    if (_warned) return null;
     _warned = true;
     final runs = switch (unavailableBehaviour) {
       UnavailableBehaviour.allow => 'commands run unsandboxed',
       UnavailableBehaviour.refuse => 'commands are refused at this layer',
     };
-    onWarn
-        ?.call('OS sandbox unavailable (${passThroughReason ?? 'no backend'}): '
-            '$runs. The permission gate still applies.');
+    final warning =
+        'OS sandbox unavailable (${passThroughReason ?? 'no backend'}): '
+        '$runs. The permission gate still applies.';
+    onWarn?.call(warning);
+    return warning;
   }
 }
 

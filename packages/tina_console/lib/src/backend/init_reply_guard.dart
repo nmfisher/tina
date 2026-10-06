@@ -3,6 +3,7 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:meta/meta.dart';
+import 'package:logging/logging.dart';
 
 /// Bounds the wait for terminal capability replies around notcurses init.
 ///
@@ -351,10 +352,8 @@ class StdinBridge {
       // because the alternative is a dead keyboard with no trace.
       if (!_loggedError) {
         _loggedError = true;
-        assert(() {
-          stderr.writeln('stdin bridge: copy error, retrying next tick');
-          return true;
-        }());
+        Logger('tina_console.input')
+            .warning('stdin bridge: copy error, retrying next tick');
       }
     } finally {
       _ticking = false;
