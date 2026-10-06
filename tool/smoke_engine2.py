@@ -744,13 +744,12 @@ def smoke(launcher, endpoint, columns, rows):
                 terminal.expect('Scope: [session]', start)
                 time.sleep(0.1)
                 start = terminal.send('Plugins\r')
-                # Stable menu bounds preserve the unchanged scope row, so
-                # entering this submenu need not emit that text again.
-                terminal.expect('Plugins (toggles save immediately)', start)
+                terminal.expect('Plugins · [-] inherit · [~] mixed', start)
+                terminal.expect('Session   Workspace Global    All', start)
                 if scope != 'session':
-                    start = terminal.send('\t' * (1 if scope == 'workspace' else 2))
-                    terminal.expect('[' + scope + ']', start)
+                    terminal.send('\t' * (1 if scope == 'workspace' else 2))
                 selected = terminal.send(plugin_id)
+                terminal.expect(plugin_id, selected)
                 if plugin_id == 'tina/grok-guard' and checked:
                     about = terminal.send('?')
                     terminal.expect('About tina/grok-guard', about)
@@ -763,11 +762,13 @@ def smoke(launcher, endpoint, columns, rows):
                     # Wait for the popup to close before Space. On the ANSI
                     # backend ESC waits 150ms to distinguish an Alt sequence;
                     # a fixed 100ms sleep can turn ESC + Space into Alt-Space.
-                    terminal.expect('Plugins (toggles save immediately)', back)
+                    terminal.expect('Plugins · [-] inherit · [~] mixed', back)
                 time.sleep(0.1)
                 terminal.read()
                 start = terminal.send('\x12' if reset else ' ')
-                terminal.expect(('[x] ' if checked else '[ ] ') + plugin_id, start)
+                # The selected column marks the explicit scope override;
+                # restoring inheritance displays [-], even when effective on.
+                terminal.expect('>[-]' if reset else ('>[x]' if checked else '>[ ]'), start)
                 terminal.send('\x1b')
                 time.sleep(0.1)
                 closed = terminal.send('\x1b')

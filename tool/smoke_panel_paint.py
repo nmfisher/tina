@@ -110,7 +110,7 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.expect_idle()
             original_frame = frame()
             line('Plugins')
-            visible('Plugins (toggles save immediately)')
+            visible('Plugins · [-] inherit · [~] mixed')
             terminal.expect_idle()
             assert frame() == original_frame
             terminal.send('tina/goals')
@@ -121,7 +121,7 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.expect_idle()
             assert frame() == original_frame
             terminal.send('\x1b')
-            visible('Plugins (toggles save immediately)')
+            visible('Plugins · [-] inherit · [~] mixed')
             assert frame() == original_frame
             # Space out Escape presses: double-Esc is the global cancel gesture.
             terminal.expect_idle()
