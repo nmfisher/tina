@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import 'file_system.dart';
 import 'permissions.dart';
+import 'write_directories.dart';
 
 /// Thrown by [SandboxedFileSystem] when an operation is refused. Tools catch
 /// this and surface it verbatim via `ToolResult.error`; callers should not
@@ -65,6 +66,7 @@ class SandboxedFileSystem implements FileSystem {
   /// [Approval.always] causes a [remember] here; a host may also
   /// pre-seed grants to widen a grant deliberately.
   final FileGrants grants;
+  WriteDirectories? writeDirectories;
 
   // Only temporary files created by this sandbox inherit the target grant.
   // This permits atomic replacement without approving unrelated siblings.
@@ -191,6 +193,10 @@ class SandboxedFileSystem implements FileSystem {
     await assertOutsideTina(target);
     final approvedTarget = _temporaryTargets[target] ?? target;
     await assertOutsideTina(approvedTarget);
+    if (op == FileOp.write &&
+        writeDirectories?.allows(approvedTarget) == true) {
+      return;
+    }
     final request = (op: op, path: approvedTarget);
     final decision = decideOperation(
       request,

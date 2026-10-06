@@ -11,7 +11,9 @@ enum ApprovalDecision {
   allowAlways,
   deny,
   allowReadsInDirectory,
-  allowAlwaysAndReadsInDirectory
+  allowAlwaysAndReadsInDirectory,
+  allowWritesInDirectory,
+  allowAlwaysAndWritesInDirectory
 }
 
 /// A confirmation has only Yes/No; it cannot grant future requests.
@@ -126,9 +128,15 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       final directoryGrant =
           decision == ApprovalDecision.allowReadsInDirectory ||
               decision == ApprovalDecision.allowAlwaysAndReadsInDirectory;
-      final invalidScope = directoryGrant &&
-          (request.kind != ApprovalKind.permission ||
-              request.details['read_directory'] is! String);
+      final writeGrant = decision == ApprovalDecision.allowWritesInDirectory ||
+          decision == ApprovalDecision.allowAlwaysAndWritesInDirectory;
+      final invalidScope = (directoryGrant &&
+              (request.kind != ApprovalKind.permission ||
+                  request.details['read_directory'] is! String)) ||
+          (writeGrant &&
+              (request.kind != ApprovalKind.permission ||
+                  request.operation != 'write' ||
+                  request.details['write_directory'] is! String));
       result.complete(invalid || invalidScope
           ? ApprovalDecision.deny
           : request.kind == ApprovalKind.confirmation &&

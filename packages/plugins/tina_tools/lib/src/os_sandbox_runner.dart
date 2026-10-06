@@ -29,6 +29,7 @@ import 'package:path/path.dart' as path;
 
 import 'process_runner.dart';
 import 'read_directories.dart';
+import 'write_directories.dart';
 import 'sandbox_failure.dart';
 import 'sandbox_layout.dart';
 
@@ -162,6 +163,7 @@ class SandboxPlan {
   final List<String> writablePaths;
 
   final ReadOnlyDirectories? readDirectories;
+  final WriteDirectories? writeDirectories;
 
   /// Network off unless the session says otherwise.
   final bool isolateNetwork;
@@ -181,6 +183,7 @@ class SandboxPlan {
     this.tinaDir,
     this.writablePaths = const [],
     this.readDirectories,
+    this.writeDirectories,
     this.isolateNetwork = true,
     this.childEnvironment = const {
       'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -194,7 +197,12 @@ class SandboxPlan {
   /// grants, and the temp scratch space. The gate's writable directories
   /// should be built from the same value.
   List<String> writableLayout() => [
-        ...{workspaceRoot, ...writablePaths, ...defaultSandboxTempDirs()},
+        ...{workspaceRoot, ...extraWritablePaths, ...defaultSandboxTempDirs()},
+      ];
+
+  List<String> get extraWritablePaths => [
+        ...writablePaths,
+        ...?writeDirectories?.existingPaths,
       ];
 
   /// Every path the layout mounts, writable or not — the classifier's
@@ -346,7 +354,7 @@ final class OsSandboxRunner implements ProcessRunner {
             host: layout,
             workspaceRoot: plan.workspaceRoot,
             tinaDir: plan.tinaDir,
-            writablePaths: plan.writablePaths,
+            writablePaths: plan.extraWritablePaths,
             isolateNetwork:
                 plan.isolateNetwork && !(control?.networkAllowed ?? false),
             childEnvironment: plan.childEnvironment,
@@ -358,6 +366,7 @@ final class OsSandboxRunner implements ProcessRunner {
             '-p',
             buildSeatbeltProfile(
               writablePaths: plan.writableLayout(),
+              deniedWritePaths: [if (plan.tinaDir != null) plan.tinaDir!],
               isolateNetwork:
                   plan.isolateNetwork && !(control?.networkAllowed ?? false),
             ),
@@ -399,7 +408,7 @@ final class OsSandboxRunner implements ProcessRunner {
         ...layout.readOnlyDirectories,
         ...layout.temporaryDirectories,
         plan.workspaceRoot,
-        ...plan.writablePaths,
+        ...plan.extraWritablePaths,
         if (plan.tinaDir != null) plan.tinaDir!,
         if (layout.resolverTarget != null) layout.resolverTarget!,
         '/dev',
@@ -415,7 +424,8 @@ final class OsSandboxRunner implements ProcessRunner {
     return SandboxHostLayout(
       readOnlyDirectories: {
         ...base.readOnlyDirectories,
-        ...?plan.readDirectories?.existingPaths,
+        ...?plan.readDirectories?.existingPaths.where((read) =>
+            !plan.extraWritablePaths.any((write) => _under(read, write))),
       },
       temporaryDirectories: base.temporaryDirectories,
       resolverTarget: base.resolverTarget,
@@ -451,7 +461,7 @@ final class OsSandboxRunner implements ProcessRunner {
     ];
     final writable = {
       plan.workspaceRoot,
-      ...plan.writablePaths,
+      ...plan.extraWritablePaths,
       ...layout.temporaryDirectories
     };
     return 'OS sandbox: bwrap (Linux). Subprocess read-only mounts: '

@@ -106,6 +106,13 @@ it does not grant writes or approve arbitrary shell scripts. The saved list
 can be edited in Tools settings. `/update` runs immediately while a
 conversation is busy.
 
+Write and edit approval prompts offer an **Allow all writes in this directory**
+checkbox. Selecting it and allowing the request remembers the displayed directory
+and its descendants, using the same persistence scope as read approvals. Later
+file writes there run without prompting, and sandboxed commands can write there
+after their execution is approved. Unchecking the box or denying the request
+saves nothing. Remove a grant in Tools settings under **Writable directories**.
+
 `/spawn` opens an independent conversation panel using the configured default model;
 `/spawn provider/model` selects a different model. Each panel keeps its own
 draft, input history, queued messages and saved session. Panels can run turns

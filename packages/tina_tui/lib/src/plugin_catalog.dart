@@ -153,7 +153,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Delivers approval requests through a stream for an external interaction channel.'),
         PluginDefinition.dependingOn2<TuiPluginContext, ApprovalRequester,
                 ModelAccess>('tina/tools',
-            settings: [readOnlyDirectoriesSetting],
+            settings: [readOnlyDirectoriesSetting, writeDirectoriesSetting],
             first: approvalRequester,
             second: modelAccess,
             provides: [toolProvider, modePolicySource],

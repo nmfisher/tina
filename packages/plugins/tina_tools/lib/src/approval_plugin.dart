@@ -1,5 +1,6 @@
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_host/tina_host.dart';
+import 'package:path/path.dart' as path;
 import '../tina_tools.dart';
 
 const toolProvider = PluginCapability<ToolSessionSource>('tina/tool-provider');
@@ -9,7 +10,7 @@ const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
 /// the loader supplies the approval capability, never a particular channel.
 PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/tools',
-        settings: [readOnlyDirectoriesSetting],
+        settings: [readOnlyDirectoriesSetting, writeDirectoriesSetting],
         dependency: approvalRequester,
         provides: [toolProvider, modePolicySource],
         create: (context, approvals) {
@@ -28,7 +29,9 @@ Approver requesterApprover(ApprovalRequester approvals) =>
         ApprovalDecision.allow => Approval.yes,
         ApprovalDecision.allowAlways => Approval.always,
         ApprovalDecision.allowReadsInDirectory ||
-        ApprovalDecision.allowAlwaysAndReadsInDirectory =>
+        ApprovalDecision.allowAlwaysAndReadsInDirectory ||
+        ApprovalDecision.allowWritesInDirectory ||
+        ApprovalDecision.allowAlwaysAndWritesInDirectory =>
           Approval.no,
         ApprovalDecision.deny =>
           throw SandboxViolation('$reason — approval denied or cancelled'),
@@ -40,7 +43,9 @@ Approval _answer(ApprovalDecision decision, String reason) =>
       ApprovalDecision.allow => Approval.yes,
       ApprovalDecision.allowAlways => Approval.always,
       ApprovalDecision.allowReadsInDirectory ||
-      ApprovalDecision.allowAlwaysAndReadsInDirectory =>
+      ApprovalDecision.allowAlwaysAndReadsInDirectory ||
+      ApprovalDecision.allowWritesInDirectory ||
+      ApprovalDecision.allowAlwaysAndWritesInDirectory =>
         Approval.no,
       ApprovalDecision.deny =>
         throw SandboxViolation('$reason — approval denied or cancelled'),
@@ -49,6 +54,8 @@ Approval _answer(ApprovalDecision decision, String reason) =>
 /// Connect enforcement boundaries to the shared mode policy.
 void attachModePolicy(ToolsPlugin plugin) {
   plugin.sandbox.approver = (request, reason) async {
+    final writeDirectory =
+        request.op == FileOp.write ? path.dirname(request.path) : null;
     final decision = await plugin.modePolicy.request(
       operation: request.op.name,
       target: request.path,
@@ -58,8 +65,17 @@ void attachModePolicy(ToolsPlugin plugin) {
         'description':
             plugin.describeFileRequest(request.op.name, request.path).toJson(),
         'permission_scope': 'file',
+        if (writeDirectory != null) 'write_directory': writeDirectory,
       },
     );
+    if ((decision == ApprovalDecision.allowWritesInDirectory ||
+            decision == ApprovalDecision.allowAlwaysAndWritesInDirectory) &&
+        writeDirectory != null) {
+      plugin.rememberWriteDirectory(writeDirectory);
+      return decision == ApprovalDecision.allowWritesInDirectory
+          ? Approval.yes
+          : Approval.always;
+    }
     return _answer(decision, reason);
   };
   plugin.processRunner.commandApprover = (request, review) async {
@@ -133,6 +149,9 @@ void attachModePolicy(ToolsPlugin plugin) {
         review.readDirectory != null ? Approval.yes : Approval.no,
       ApprovalDecision.allowAlwaysAndReadsInDirectory =>
         review.readDirectory != null ? Approval.always : Approval.no,
+      ApprovalDecision.allowWritesInDirectory ||
+      ApprovalDecision.allowAlwaysAndWritesInDirectory =>
+        Approval.no,
       ApprovalDecision.deny => Approval.no,
     };
   };

@@ -29,6 +29,34 @@ TurnContext context(CancelToken token) => TurnContext(token,
     pinnedTools: []);
 
 void main() {
+  test('write scope requires a write request offering that directory',
+      () async {
+    final channel = CapturingChannel();
+    final service = ApprovalsPlugin(channel: channel);
+    addTearDown(service.closeSession);
+    for (final decision in [
+      ApprovalDecision.allowWritesInDirectory,
+      ApprovalDecision.allowAlwaysAndWritesInDirectory
+    ]) {
+      for (final kind in ApprovalKind.values) {
+        for (final op in ['write', 'run command']) {
+          for (final offered in [true, false]) {
+            final pending = service.request(
+                operation: op,
+                target: '/external/file',
+                reason: 'ask',
+                kind: kind,
+                details: {if (offered) 'write_directory': '/external'});
+            await Future<void>.delayed(Duration.zero);
+            final valid =
+                offered && op == 'write' && kind == ApprovalKind.permission;
+            expect(channel.tickets.last.respond(decision), valid);
+            expect(await pending, valid ? decision : ApprovalDecision.deny);
+          }
+        }
+      }
+    }
+  });
   test('read directory grants must have been offered by the requester',
       () async {
     final channel = CapturingChannel();

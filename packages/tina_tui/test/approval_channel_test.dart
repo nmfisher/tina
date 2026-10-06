@@ -118,6 +118,65 @@ approval_channel = "acme/messages"
     expect(secondRequests, isEmpty);
   }, skip: Platform.isWindows);
 
+  test('directory write approval persists across sessions and covers siblings',
+      () async {
+    final external = Directory('${root.path}/external')..createSync();
+    TuiAssembly open(StreamApprovalChannel channel) => TuiAssembly.start(
+        options: AssemblyOptions(
+            configPath: config.path, workingDirectory: workspace.path),
+        registerPlugins: (registry) => registry.registerDefinition(
+            PluginDefinition<TuiPluginContext>(channel.id, (_) => channel,
+                provides: [approvalChannel],
+                description: 'Test approval channel.')),
+        providerFactory: (_) => ScriptedProvider([]));
+    final channel = StreamApprovalChannel(id: 'acme/messages');
+    final requests = <ApprovalRequest>[];
+    final sub = channel.requests.listen((request) {
+      requests.add(request);
+      channel.respond(request.id, ApprovalDecision.allowWritesInDirectory);
+    });
+    final first = open(channel);
+    addTearDown(first.close);
+    final write =
+        first.tools.toolList.singleWhere((t) => t.schema.name == 'write');
+    final result = await write
+        .execute({'filePath': '${external.path}/first', 'content': 'first'});
+    expect(result.isError, isFalse, reason: result.content);
+    expect(requests, hasLength(1));
+    expect(requests.single.details['write_directory'],
+        external.resolveSymbolicLinksSync());
+    expect(first.tools.sandbox.grants.isEmpty, isTrue);
+    first.close();
+    await sub.cancel();
+    final secondChannel = StreamApprovalChannel(id: 'acme/messages');
+    final secondRequests = <ApprovalRequest>[];
+    final secondSub = secondChannel.requests.listen((request) {
+      secondRequests.add(request);
+      secondChannel.respond(request.id, ApprovalDecision.deny);
+    });
+    final second = open(secondChannel);
+    addTearDown(() async {
+      second.close();
+      await secondSub.cancel();
+    });
+    final secondWrite =
+        second.tools.toolList.singleWhere((t) => t.schema.name == 'write');
+    final sibling = await secondWrite.execute({
+      'filePath': '${external.path}/nested/sibling',
+      'content': 'persisted'
+    });
+    expect(sibling.isError, isFalse, reason: sibling.content);
+    expect(secondRequests, isEmpty);
+    expect(File('${external.path}/nested/sibling').readAsStringSync(),
+        'persisted');
+    expect(
+        (await secondWrite.execute(
+                {'filePath': '${root.path}/outside', 'content': 'blocked'}))
+            .isError,
+        isTrue);
+    expect(secondRequests, hasLength(1));
+  });
+
   test(
       'cancelling a turn awaiting remote approval returns and prevents a late write',
       () async {

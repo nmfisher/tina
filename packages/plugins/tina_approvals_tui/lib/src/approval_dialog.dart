@@ -30,7 +30,9 @@ enum ApprovalKey {
   allow,
   deny,
   always,
-  toggleReadDirectory
+  toggleReadDirectory,
+  toggleWriteDirectory,
+  toggleDirectory
 }
 
 /// Where keys come from. The dialog [ApprovalDialog.awaitDecision]s until a
@@ -102,13 +104,20 @@ class ApprovalDialog {
   int _maxPreviewOffset = 0;
   int _pageSize = 1;
   bool _rememberReads = false;
+  bool _rememberWrites = false;
   String? get _readDirectory => ask?.confirmation != true &&
           _hasAlways &&
           ask?.details['read_directory'] is String
       ? ask!.details['read_directory'] as String
       : null;
-  bool get _onReadCheckbox =>
-      _readDirectory != null && _selected == _choices.length - 1;
+  String? get _writeDirectory => ask?.confirmation != true &&
+          _hasAlways &&
+          ask?.op == 'write' &&
+          ask?.details['write_directory'] is String
+      ? ask!.details['write_directory'] as String
+      : null;
+  bool get _onDirectoryCheckbox =>
+      {'read directory', 'write directory'}.contains(_choices[_selected]);
 
   /// The pending tool call, when the question came from one. A permission
   /// ask straight from the sandbox has no call — only [ask].
@@ -130,9 +139,18 @@ class ApprovalDialog {
           'deny',
           if (_hasAlways) 'allow always',
           if (_readDirectory != null) 'read directory',
+          if (_writeDirectory != null) 'write directory',
         ];
 
-  ApprovalDecision _withReadScope(ApprovalDecision decision) {
+  ApprovalDecision _withDirectoryScope(ApprovalDecision decision) {
+    if (_rememberWrites && _writeDirectory != null) {
+      return switch (decision) {
+        ApprovalDecision.allow => ApprovalDecision.allowWritesInDirectory,
+        ApprovalDecision.allowAlways =>
+          ApprovalDecision.allowAlwaysAndWritesInDirectory,
+        _ => decision,
+      };
+    }
     if (!_rememberReads || _readDirectory == null) return decision;
     return switch (decision) {
       ApprovalDecision.allow => ApprovalDecision.allowReadsInDirectory,
@@ -143,7 +161,7 @@ class ApprovalDialog {
   }
 
   ApprovalDecision decisionFor(int index) =>
-      _withReadScope(switch (_choices[index]) {
+      _withDirectoryScope(switch (_choices[index]) {
         'allow always' => ApprovalDecision.allowAlways,
         'allow' || 'Yes' => ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
@@ -202,6 +220,7 @@ class ApprovalDialog {
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
       if (_readDirectory != null) 'Read directory: $_readDirectory',
+      if (_writeDirectory != null) 'Write directory: $_writeDirectory',
       if (ask?.confirmation == true) ...[
         ask!.reason,
         if (description != null) ...[
@@ -309,6 +328,8 @@ class ApprovalDialog {
             if (_hasAlways) '[a] $alwaysLabel',
             if (_readDirectory != null)
               '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
+            if (_writeDirectory != null)
+              '[${_rememberWrites ? 'x' : ' '}] Allow all writes in this directory (w/Space)',
           ];
     RenderLine choice(int i, {bool compact = false}) => row(
         '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
@@ -350,10 +371,21 @@ class ApprovalDialog {
 
   /// Apply one navigation key; returns true when the selection changed.
   bool handleKey(ApprovalKey key) {
+    final toggleFocused = key == ApprovalKey.toggleDirectory ||
+        key == ApprovalKey.confirm && _onDirectoryCheckbox && !_details;
+    if (_writeDirectory != null &&
+        (key == ApprovalKey.toggleWriteDirectory ||
+            toggleFocused &&
+                (_choices[_selected] == 'write directory' ||
+                    _readDirectory == null))) {
+      _rememberWrites = !_rememberWrites;
+      _rememberReads = false;
+      return true;
+    }
     if (_readDirectory != null &&
-        (key == ApprovalKey.toggleReadDirectory ||
-            key == ApprovalKey.confirm && _onReadCheckbox && !_details)) {
+        (key == ApprovalKey.toggleReadDirectory || toggleFocused)) {
       _rememberReads = !_rememberReads;
+      _rememberWrites = false;
       return true;
     }
     if ({
@@ -395,6 +427,8 @@ class ApprovalDialog {
       case ApprovalKey.always:
       case ApprovalKey.details:
       case ApprovalKey.toggleReadDirectory:
+      case ApprovalKey.toggleWriteDirectory:
+      case ApprovalKey.toggleDirectory:
         return false;
       case ApprovalKey.up:
         if (_selected > 0) {
@@ -427,13 +461,13 @@ class ApprovalDialog {
       final key = await keys.next();
       switch (key) {
         case ApprovalKey.allow:
-          return ApprovalOutcome(_withReadScope(ApprovalDecision.allow));
+          return ApprovalOutcome(_withDirectoryScope(ApprovalDecision.allow));
         case ApprovalKey.deny:
           return const ApprovalOutcome(ApprovalDecision.deny);
         case ApprovalKey.always:
           if (ask?.confirmation != true && _hasAlways) {
             return ApprovalOutcome(
-                _withReadScope(ApprovalDecision.allowAlways));
+                _withDirectoryScope(ApprovalDecision.allowAlways));
           }
         case ApprovalKey.pageUp:
         case ApprovalKey.pageDown:
@@ -443,10 +477,12 @@ class ApprovalDialog {
         case ApprovalKey.down:
         case ApprovalKey.details:
         case ApprovalKey.toggleReadDirectory:
+        case ApprovalKey.toggleWriteDirectory:
+        case ApprovalKey.toggleDirectory:
           handleKey(key!);
           onKey?.call();
         case ApprovalKey.confirm:
-          if (_details || _onReadCheckbox) {
+          if (_details || _onDirectoryCheckbox) {
             handleKey(key!);
             onKey?.call();
           } else {

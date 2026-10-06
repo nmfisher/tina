@@ -61,8 +61,10 @@ final class ToolsPlugin extends AgentPlugin
       tinaDir: tinaDir.path,
       isolateNetwork: osIsolateNetwork,
       readDirectories: readDirectories,
+      writeDirectories: writeDirectories,
     );
     final writable = WritableDirectories(osPlan.writableLayout());
+    sandbox.writeDirectories = writeDirectories;
     final osRunner = OsSandboxRunner(
       inner: const IoProcessRunner(),
       plan: osPlan,
@@ -99,6 +101,10 @@ final class ToolsPlugin extends AgentPlugin
     _stopReadSettings = settings?.watch(readOnlyDirectoriesSetting,
         (value) => readDirectories.replace(value.value),
         fireImmediately: true);
+    _stopWriteSettings = settings?.watch(writeDirectoriesSetting, (value) {
+      writeDirectories.replace(value.value);
+      writable.replace(osPlan.writableLayout());
+    }, fireImmediately: true);
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
         sandboxDescription: osRunner.describeEnvironment);
@@ -110,7 +116,9 @@ final class ToolsPlugin extends AgentPlugin
   late final SandboxPlan osPlan;
   final ScopedSettings? settings;
   final ReadOnlyDirectories readDirectories = ReadOnlyDirectories();
+  final WriteDirectories writeDirectories = WriteDirectories();
   void Function()? _stopReadSettings;
+  void Function()? _stopWriteSettings;
   late final SandboxedProcessRunner processRunner;
   late final ProcessJobs processJobs;
 
@@ -142,6 +150,18 @@ final class ToolsPlugin extends AgentPlugin
       settings.set(readOnlyDirectoriesSetting, paths, scope);
     } else {
       readDirectories.replace(paths);
+    }
+  }
+
+  void rememberWriteDirectory(String directory) {
+    final paths = {...writeDirectories.paths, directory}.toList();
+    if (settings case final ScopedSettings settings) {
+      final scope =
+          settings.read(writeDirectoriesSetting).source ?? SettingScope.global;
+      settings.set(writeDirectoriesSetting, paths, scope);
+    } else {
+      writeDirectories.replace(paths);
+      processRunner.writableDirectories.replace(osPlan.writableLayout());
     }
   }
 
@@ -220,6 +240,7 @@ final class ToolsPlugin extends AgentPlugin
   @override
   void closeSession() {
     _stopReadSettings?.call();
+    _stopWriteSettings?.call();
     unawaited(processJobs.close());
     modePolicy.closeSession();
   }
@@ -240,6 +261,12 @@ final class ToolsPlugin extends AgentPlugin
   @override
   void onPrompt(TurnContext c) {
     c.promptSections.add(prompt.sectionFor(sandbox.mode));
+    if (writeDirectories.paths.isNotEmpty) {
+      c.promptSections.add('User-approved writable directories: '
+          '${writeDirectories.paths.join(', ')}. File tools may create and edit '
+          'files within these directories without repeated write approval. '
+          'Command execution still follows the current mode.');
+    }
     if (readDirectories.paths.isNotEmpty) {
       c.promptSections.add('User-configured read-only directories: '
           '${readDirectories.paths.join(', ')}. Use dedicated file tools or '

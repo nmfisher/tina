@@ -37,11 +37,11 @@ void main() {
         '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
         // Temp scratch, writable.
         '--bind', '/tmp', '/tmp',
-        // tina's own data: visible, read-only.
-        '--ro-bind', '/home/user/.tina', '/home/user/.tina',
         // The project and its extra grants, read-write.
         '--bind', '/work/proj', '/work/proj',
         '--bind', '/work/proj/out', '/work/proj/out',
+        // Protect tina's data after granting its writable ancestors.
+        '--ro-bind', '/home/user/.tina', '/home/user/.tina',
         // Fresh device/proc trees.
         '--dev', '/dev', '--proc', '/proc',
         // A cleared environment, rebuilt from the allowlist only.

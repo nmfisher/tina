@@ -7,6 +7,64 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
 
+  test('write checkbox remembers only when explicitly checked and approved',
+      () async {
+    ApprovalDialog dialog() => ApprovalDialog(null,
+        ask: const ApprovalAskContext('write', '/external/file', 'ask',
+            details: {
+              'write_directory': '/external',
+              'permission_scope': 'file',
+            }));
+    expect(dialog().rows().map(text).join('\n'),
+        contains('[ ] Allow all writes in this directory'));
+    expect(dialog().rows().map(text).join('\n'),
+        contains('Write directory: /external'));
+    for (final entry in <List<ApprovalKey>, ApprovalDecision>{
+      [ApprovalKey.allow]: ApprovalDecision.allow,
+      [ApprovalKey.toggleWriteDirectory, ApprovalKey.allow]:
+          ApprovalDecision.allowWritesInDirectory,
+      [ApprovalKey.toggleDirectory, ApprovalKey.always]:
+          ApprovalDecision.allowAlwaysAndWritesInDirectory,
+      [
+        ApprovalKey.toggleWriteDirectory,
+        ApprovalKey.toggleWriteDirectory,
+        ApprovalKey.allow
+      ]: ApprovalDecision.allow,
+      [ApprovalKey.toggleWriteDirectory, ApprovalKey.deny]:
+          ApprovalDecision.deny,
+      [ApprovalKey.toggleWriteDirectory, ApprovalKey.cancel]:
+          ApprovalDecision.deny,
+      [
+        ApprovalKey.down,
+        ApprovalKey.down,
+        ApprovalKey.down,
+        ApprovalKey.confirm,
+        ApprovalKey.up,
+        ApprovalKey.up,
+        ApprovalKey.up,
+        ApprovalKey.confirm
+      ]: ApprovalDecision.allowWritesInDirectory,
+    }.entries) {
+      expect(
+          (await dialog().awaitDecision(ScriptedKeySource(entry.key))).decision,
+          entry.value,
+          reason: '${entry.key}');
+    }
+    final checked = dialog()..handleKey(ApprovalKey.toggleWriteDirectory);
+    expect(
+        checked.rows().map(text).join('\n'), contains('[x] Allow all writes'));
+    for (final ask in [
+      const ApprovalAskContext('write', '/file', 'ask'),
+      const ApprovalAskContext('write', '/file', 'confirm',
+          confirmation: true, details: {'write_directory': '/'}),
+      const ApprovalAskContext('run command', 'bash', 'ask',
+          details: {'write_directory': '/'}),
+    ]) {
+      expect(ApprovalDialog(null, ask: ask).rows().map(text).join('\n'),
+          isNot(contains('Allow all writes')));
+    }
+  });
+
   test(
       'read checkbox is explicit, reversible and independent of command Always',
       () async {

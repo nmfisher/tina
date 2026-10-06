@@ -17,6 +17,58 @@ bool get _backendAvailable =>
     resolveSandboxBackend() != SandboxBackend.passThrough;
 
 void main() {
+  test('saved directory writes update the live jail and retain Tina protection',
+      tags: 'live-os-sandbox', () async {
+    if (!_backendAvailable) {
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    // Keep the external target outside the sandbox's already-writable temp roots.
+    final fixture = Directory(Directory('${Directory.current.path}/.dart_tool')
+        .createTempSync('write-grant-')
+        .resolveSymbolicLinksSync());
+    addTearDown(() => fixture.deleteSync(recursive: true));
+    final project = Directory('${fixture.path}/project')..createSync();
+    final external = Directory('${fixture.path}/external')..createSync();
+    final other = Directory('${fixture.path}/other')..createSync();
+    final tina = Directory('${external.path}/.tina')..createSync();
+    final writes = WriteDirectories();
+    final runner = OsSandboxRunner(
+        inner: const IoProcessRunner(),
+        plan: SandboxPlan(
+            workspaceRoot: project.path,
+            tinaDir: tina.path,
+            writeDirectories: writes));
+    Future<RunOutcome> touch(String target) => runner.run((
+          command: 'touch',
+          arguments: [target],
+          workingDirectory: project.path,
+          environment: null,
+          stdin: null,
+          timeout: null
+        ));
+    Future<void> blocked(String path) async {
+      final result = await touch(path);
+      expect(
+          result is CommandBlocked ||
+              result is CommandCompleted && result.exitCode != 0,
+          isTrue,
+          reason: '$result');
+      expect(File(path).existsSync(), isFalse);
+    }
+
+    await blocked('${external.path}/before');
+    writes.replace([external.path]);
+    final allowed = await touch('${external.path}/allowed');
+    expect(allowed, isA<CommandCompleted>());
+    expect((allowed as CommandCompleted).exitCode, 0, reason: allowed.stderr);
+    expect(File('${external.path}/allowed').existsSync(), isTrue);
+    await blocked('${other.path}/blocked');
+    await blocked('${tina.path}/blocked');
+    writes.replace([]);
+    await blocked('${external.path}/revoked');
+  });
+
   test('explicit outside approval and startup disable actually remove the jail',
       tags: 'live-os-sandbox', () async {
     if (!_backendAvailable) {

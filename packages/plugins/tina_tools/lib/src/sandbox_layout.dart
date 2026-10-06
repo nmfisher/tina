@@ -106,7 +106,7 @@ List<String> buildBwrapArguments({
 
   void bind(String source, String target, {bool readOnly = false}) {
     if (source.isEmpty || target.isEmpty) return;
-    if (!bound.add('$source->$target')) return;
+    if (!bound.add('$source->$target:$readOnly')) return;
     args
       ..add(readOnly ? '--ro-bind' : '--bind')
       ..add(source)
@@ -124,10 +124,14 @@ List<String> buildBwrapArguments({
   for (final dir in host.temporaryDirectories) {
     bind(dir, dir);
   }
-  if (tinaDir != null) bind(tinaDir, tinaDir, readOnly: true);
   bind(workspaceRoot, workspaceRoot);
   for (final path in writablePaths) {
     bind(path, path);
+  }
+  // Protect Tina's data even when a writable grant contains its parent.
+  if (tinaDir != null) {
+    bound.remove('$tinaDir->$tinaDir:true');
+    bind(tinaDir, tinaDir, readOnly: true);
   }
   args
     ..add('--dev')
@@ -166,6 +170,7 @@ String buildSeatbeltProfile({
   required bool isolateNetwork,
   String? hidePath,
   Iterable<String> readAllowPaths = const [],
+  Iterable<String> deniedWritePaths = const [],
 }) {
   final sb = StringBuffer('(version 1)\n');
   sb.write('(allow default)\n'); // process, reads, everything not named below
@@ -182,6 +187,9 @@ String buildSeatbeltProfile({
   }
   for (final path in writablePaths) {
     sb.write('(allow file-write* (subpath "${_escapeProfilePath(path)}"))\n');
+  }
+  for (final path in deniedWritePaths) {
+    sb.write('(deny file-write* (subpath "${_escapeProfilePath(path)}"))\n');
   }
   return sb.toString();
 }

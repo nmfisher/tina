@@ -513,6 +513,12 @@ final class WritableDirectories {
     if (!_roots.contains(root)) _roots.add(root);
   }
 
+  void replace(Iterable<String> roots) {
+    _roots
+      ..clear()
+      ..addAll(roots.toSet());
+  }
+
   bool contains(String path) => _roots.any((r) => _isUnder(path, r));
 
   /// Whether this grant covers [request]: checks the working directory, and
