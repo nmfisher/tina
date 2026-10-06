@@ -8,7 +8,6 @@ import 'chat_transcript.dart';
 import 'markdown_renderer.dart';
 import 'prompt.dart';
 import 'timestamp_chat.dart';
-import 'status_layout.dart';
 
 /// Legacy transcript presentation driven by engine2's read-only observations.
 /// This plugin owns chat rows, folds, timestamps and the live model prompt.
@@ -91,7 +90,6 @@ final class ChatTuiPlugin extends AgentPlugin
   void attachConsole(ConsoleContext context) {
     detachConsole();
     _console = context;
-    context.screen.setStatusLayout(const PriorityStatusLayout());
     _unbindStatus = context.bindStatus(_statusLines);
     for (final block in _blocks) {
       final source = _sources[block];
@@ -577,8 +575,6 @@ final class ChatTuiPlugin extends AgentPlugin
   void repaintConsole() {
     final console = _console;
     if (console == null) return;
-    if (console.isActive)
-      console.screen.setStatusLayout(const PriorityStatusLayout());
     if (console.chat.isDetached) {
       _width = -1;
       return;
@@ -728,7 +724,6 @@ final class ChatTuiPlugin extends AgentPlugin
     _selected = null;
     _unbindStatus?.call();
     _unbindStatus = null;
-    if (_console?.isActive == true) _console?.screen.setStatusLayout(null);
     _console = null;
     _width = -1;
   }

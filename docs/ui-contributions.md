@@ -66,6 +66,22 @@ An already started async callback is not forcibly cancelled. Call
 calling it yourself is optional because the attachment also owns it. To replace
 a section, remove the existing registration before registering its ID again.
 
+## Status strip layout
+
+The status strip is one row; `bindStatus` producers supply its lines. How those
+lines are arranged under width pressure is a single screen-level slot:
+`screen.setStatusLayout(...)`. Attaching a layout takes the slot; detaching or
+passing null restores the stock `DefaultStatusLayout` and bar. The slot is
+exclusive by construction — one `StatusLayout` at a time, with a safe fallback
+when it is cleared or throws.
+
+The shipped `StatusStripTuiPlugin` (`tina/status-strip-tui`) demonstrates the
+pattern: it installs `PriorityStatusLayout` on the active conversation's
+screen (a background view must not rearrange the focused view's bar) and
+restores the default on detach, so unloading it returns the stock bar. A plugin
+that wants a different bar ships its own `StatusLayout` and takes the slot the
+same way. Arranging is data-in/rows-out, testable without a screen.
+
 ## Other contribution points and resources
 
 `bindPrompt`, `bindStatus`, `bindShortcut`, and `addModal` follow the same ownership

@@ -127,6 +127,11 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             description:
                 'Connects configured MCP servers, discovers their tools and resources, and routes calls through the current approval mode. Local server commands run with your account privileges.'),
         updateTuiDefinition<TuiPluginContext>(),
+        PluginDefinition<TuiPluginContext>(
+            'tina/status-strip-tui', (_) => StatusStripTuiPlugin(),
+            description:
+                'Arranges the status bar: how plugin lines and the mode label share the strip under width pressure.',
+            live: true),
         updateDefinition<TuiPluginContext>(
             version: (c) => c.version,
             terminal: (c) => c.terminal,
