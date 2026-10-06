@@ -58,7 +58,8 @@ def smoke(launcher, endpoint, selection, term, expected):
                 print('PASS explicit notcurses failure is reported and terminal restored', flush=True)
                 return
             terminal.wait_for(lambda: expected in grid().splitlines()[-1],
-                              f'status does not identify {expected}')
+                              f'status does not identify {expected}',
+                              timeout=60 if len(launcher) > 1 else 10)
             visible('smoke >')
             turn(f'backend launch {selection or "default"} {term}')
             terminal.quit()

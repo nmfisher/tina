@@ -563,11 +563,11 @@ jobs:
       - name: analyze (tina_tui)
         working-directory: packages/tina_tui
         run: dart analyze
+      - name: Resolve root executable dependencies for PTY tests
+        run: dart pub get
       - name: test (tina_tui)
         working-directory: packages/tina_tui
         run: dart test -j 4
-      - name: Resolve root executable dependencies for PTY cutover test
-        run: dart pub get
       - name: PTY startup, HTTP turn and resume (tina_tui)
         working-directory: packages/tina_tui
         run: dart test --tags tty --run-skipped test/app_smoke_test.dart test/shell_terminal_test.dart
