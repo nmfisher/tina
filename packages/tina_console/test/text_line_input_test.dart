@@ -215,22 +215,22 @@ void main() {
     });
 
     test('short paste shows its text; long paste gets the chip', () {
-      edit = edit.addPaste('short and sweet'); // 15 runes < 24
+      edit = edit.addPaste('short and sweet');
       expect(edit.toDisplay(), 'short and sweet');
 
-      edit = edit.addPaste('x' * 25); // just past the verbatim limit
+      edit = edit.addPaste('x' * 129); // just past the verbatim limit
       // Only the long paste collapses; the earlier short one stays verbatim.
-      expect(edit.toDisplay(), 'short and sweet[Pasted text : 25 chars]');
-      expect(edit.buffer, 'short and sweet${'x' * 25}',
+      expect(edit.toDisplay(), 'short and sweet[Pasted text : 129 chars]');
+      expect(edit.buffer, 'short and sweet${'x' * 129}',
           reason: 'the real text is intact under the chip');
     });
 
-    test('verbatim limit boundary: 24 code points in, 25 collapses', () {
-      edit = edit.addPaste('y' * TextLineInput.verbatimPasteLimit);
-      expect(edit.toDisplay(), 'y' * TextLineInput.verbatimPasteLimit);
+    test('verbatim limit boundary: 128 code points in, 129 collapses', () {
+      edit = edit.addPaste('y' * 128);
+      expect(edit.toDisplay(), 'y' * 128);
       edit = edit.clear();
-      edit = edit.addPaste('y' * (TextLineInput.verbatimPasteLimit + 1));
-      expect(edit.toDisplay(), '[Pasted text : 25 chars]');
+      edit = edit.addPaste('y' * 129);
+      expect(edit.toDisplay(), '[Pasted text : 129 chars]');
     });
 
     test('short multi-line paste flattens whitespace for the single line', () {
@@ -245,24 +245,24 @@ void main() {
     });
 
     test('addPaste rune count counts code points, not units', () {
-      // 30 emoji = 30 runes but 60 UTF-16 code units: past the verbatim
+      // 129 emoji = 129 runes but 258 UTF-16 code units: past the verbatim
       // limit either way, so the chip must count runes.
-      edit = edit.addPaste('😀' * 30);
-      expect(edit.pasteSpans.single.display, '[Pasted text : 30 chars]');
+      edit = edit.addPaste('😀' * 129);
+      expect(edit.pasteSpans.single.display, '[Pasted text : 129 chars]');
     });
 
     test('verbatim decision compares runes, so wide glyphs stay visible', () {
-      // 24 emoji = 24 runes (48 code units): at the limit, shown verbatim.
-      edit = edit.addPaste('😀' * TextLineInput.verbatimPasteLimit);
-      expect(edit.toDisplay(), '😀' * TextLineInput.verbatimPasteLimit);
+      // 128 emoji = 128 runes (256 code units): at the limit, shown verbatim.
+      edit = edit.addPaste('😀' * 128);
+      expect(edit.toDisplay(), '😀' * 128);
     });
 
     test('toDisplay leaves surrounding text alone around a chip span', () {
       edit = edit.insert('a');
-      edit = edit.addPaste('B' * 30); // chip territory
+      edit = edit.addPaste('B' * 129); // chip territory
       edit = edit.insert('z');
       // Real buffer: a|BB…B|z ; display keeps the neighbors, chips the paste.
-      expect(edit.toDisplay(), 'a[Pasted text : 30 chars]z');
+      expect(edit.toDisplay(), 'a[Pasted text : 129 chars]z');
     });
 
     test('display cursor follows the displayed text across paste chips', () {
@@ -271,7 +271,7 @@ void main() {
       expect(edit.toDisplay().length, edit.buffer.length);
       expect(edit.displayCursor(5), 5);
       expect(edit.displayCursor(1), 1);
-      edit = edit.addPaste('Z' * 40);
+      edit = edit.addPaste('Z' * 129);
       expect(edit.displayCursor(edit.cursor), edit.toDisplay().length);
       expect(edit.toDisplay().length, isNot(edit.buffer.length));
       edit = edit.insert(' after');

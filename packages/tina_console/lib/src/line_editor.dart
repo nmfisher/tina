@@ -622,6 +622,9 @@ class LineEditor {
   ({String buffer, int cursor}) get editState =>
       (buffer: _edit.buffer, cursor: _edit.cursor);
 
+  /// The visible conversation draft, including input typed during a turn.
+  String get draftText => _queueModeActive ? _qEdit.buffer : _edit.buffer;
+
   /// Stop the input backend's event source (polling timer, stdin listener)
   /// without tearing down the rest of the editor. Used during teardown so the
   /// backend doesn't outlive the screen / notcurses context.

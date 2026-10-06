@@ -392,6 +392,53 @@ void main() {
         '03:04 ');
   });
 
+  test('shell prompt follows typing, paste and history without changing input',
+      () async {
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('!');
+    await tick();
+    expect(visible(), contains('test-model ! '));
+    io.feed('\x7f');
+    await tick();
+    expect(visible(), contains('test-model > '));
+    io.feed('\x1b[200~!echo hello\x1b[201~');
+    await tick();
+    expect(visible(), contains('test-model ! '));
+    io.feed('\r');
+    expect(await line, '!echo hello');
+    final next = editor.readLine('unused');
+    await tick();
+    expect(visible(), contains('test-model > '));
+    io.feed('\x1b[A');
+    await tick();
+    expect(visible(), contains('test-model ! '));
+    io.feed('\r');
+    expect(await next, '!echo hello');
+  });
+
+  test('shell prompt uses the queued draft during a turn', () async {
+    final submitted = <String>[];
+    editor.beginCancelMonitor(() {}, onQueueSubmit: submitted.add);
+    io.feed('!');
+    await tick();
+    expect(visible(), contains('test-model ! '));
+    io.feed('\x7f');
+    await tick();
+    expect(visible(), contains('test-model > '));
+    io.feed('!echo queued');
+    await tick();
+    expect(visible(), contains('test-model ! '));
+    io.feed('\r');
+    await tick();
+    expect(submitted, ['!echo queued']);
+    expect(visible(), contains('[1 queued]'));
+    io.feed('next draft');
+    await tick();
+    expect(visible(), contains('test-model > '));
+    editor.endCancelMonitor();
+  });
+
   test('reasoning appears immediately and grows in place while expanded',
       () async {
     chat.entry(const TurnStartedEntry(turnId: 'stream'), LogEvent.appended);

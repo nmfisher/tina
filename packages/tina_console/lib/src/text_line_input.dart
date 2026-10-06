@@ -445,23 +445,18 @@ class TextLineInput {
   /// code unit swapped for a space, so newlines/tabs from a multi-line paste
   /// never reach the single-line input row) when the text is at most
   /// [verbatimPasteLimit] code points; the `[Pasted text : N chars]` chip
-  /// beyond that. The chip's own width grows past 24 columns once N hits
-  /// three digits, so the limit deliberately compares the two candidates and
-  /// keeps whichever is narrower — a short paste is never hidden behind a
-  /// placeholder wider than itself.
+  /// beyond that.
   String _makeDisplay(String text) {
-    final chip = '[Pasted text : ${text.runes.length} chars]';
-    if (text.runes.length <= verbatimPasteLimit &&
-        text.runes.length <= chip.length) {
+    final length = text.runes.length;
+    if (length <= verbatimPasteLimit) {
       return inputDisplayText(text);
     }
-    return chip;
+    return '[Pasted text : $length chars]';
   }
 
   /// Longest paste, in code points, shown verbatim instead of collapsed to
-  /// the `[Pasted text : N chars]` chip. 24 == the chip's width for 1–2 digit
-  /// counts, so anything at or below this is never wider shown than hidden.
-  static const verbatimPasteLimit = 24;
+  /// the `[Pasted text : N chars]` chip.
+  static const verbatimPasteLimit = 128;
 }
 
 /// A range of [TextLineInput.buffer] that was pasted. The real text always

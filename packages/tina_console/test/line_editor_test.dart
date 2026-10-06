@@ -1198,11 +1198,11 @@ void main() {
       final ed = _editor(io);
       final f = ed.readLine('> ');
       await _flush();
-      final body = 'x' * 40;
+      final body = 'x' * 129;
       io.feedBytes(_pasteBytes(body));
       await _flush();
       final out = io.written.toString();
-      expect(out, contains('[Pasted text : 40 chars]'));
+      expect(out, contains('[Pasted text : 129 chars]'));
       expect(out.contains('xxxxxxx'), isFalse,
           reason: 'the long paste body itself stays hidden');
       io.feedBytes([0x0d]);

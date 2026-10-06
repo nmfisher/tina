@@ -8,6 +8,7 @@ class ConversationPrompt {
   final bool focused;
   final bool highlighted;
   final int newLines;
+  final bool shell;
 
   const ConversationPrompt({
     required this.conversationId,
@@ -16,6 +17,7 @@ class ConversationPrompt {
     this.focused = false,
     this.highlighted = false,
     this.newLines = 0,
+    this.shell = false,
   });
 }
 
@@ -28,11 +30,12 @@ class PromptRenderer extends Renderer<ConversationPrompt> {
     var model = value.model.split('/').last;
     final busy = value.busy ? ' ${_frames[context.animationFrame % 4]}' : '';
     final badge = value.newLines > 0 ? ' ↓ ${value.newLines} new' : '';
-    final suffix = '$busy$badge > ';
+    final marker = value.shell ? '!' : '>';
+    final suffix = '$busy$badge $marker ';
     final available = context.width - plainWidth(suffix);
     if (available <= 0) {
       return [
-        const RenderLine(runs: [RenderRun('> ', null)]),
+        RenderLine(runs: [RenderRun('$marker ', null)]),
       ];
     }
     if (plainWidth(model) > available) {

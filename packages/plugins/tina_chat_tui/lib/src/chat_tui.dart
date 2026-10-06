@@ -106,6 +106,7 @@ final class ChatTuiPlugin extends AgentPlugin
             conversationId: '',
             model: _loop?.provider.model ?? model,
             busy: _busy,
+            shell: context.input.draftText.trimLeft().startsWith('!'),
             focused: true,
             newLines: context.chat.newWhileScrolled),
         context.screen,

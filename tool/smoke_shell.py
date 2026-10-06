@@ -50,12 +50,17 @@ def smoke(launcher, endpoint, backend, panels):
 
         try:
             visible('smoke >')
+            terminal.send('!')
+            visible('smoke !')
+            terminal.send('\x7f')
+            visible('smoke >')
             # These octal escapes generate markers absent from the input row.
             submit(r"!printf '\123\110\105\114\114\137\117\125\124\n'; "
                    r"printf '\123\110\105\114\114\137\105\122\122\n' >&2; exit 7")
             visible('SHELL_OUT')
             visible('SHELL_ERR')
             visible('exit code: 7')
+            visible('smoke >')
             assert len(ModelStub.requests) == before, 'manual shell called the model'
             submit('!echo ready > started; while :; do sleep 0.1; done')
             terminal.wait_for(lambda: (root / 'started').exists(),
