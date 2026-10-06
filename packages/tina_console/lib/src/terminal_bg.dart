@@ -63,14 +63,18 @@ Future<TerminalBg> probeTerminalBg({
 
 /// Parse an OSC 11 response into an RGB triplet.
 ///
-/// Two common formats:
+/// Three common formats:
 ///   `ESC ] 11 ; rgb:RRRR/GGGG/BBBB ST`  (xterm / GNOME Terminal)
 ///   `ESC ] 11 ; #RRGGBB ST`              (some terminals)
+///   `ESC ] 11 : rgb:RRRR/GGGG/BBBB ST`   (kitty / WezTerm / Ghostty / foot:
+///                                         the colon form of the 36-year-old
+///                                         semicolon syntax; see ITU-T T.416)
 ({int r, int g, int b})? _parseOsc11(List<int> raw) {
   final s = String.fromCharCodes(raw);
 
-  // Find the payload after the semicolon: `ESC ] 11 ; <payload> ST`
-  final semi = s.indexOf(';');
+  // Find the payload after the separator: `ESC ] 11 <sep> <payload> ST`,
+  // where <sep> is the classic `;` or the T.416 colon form `:`.
+  final semi = s.indexOf(RegExp('[;:]'));
   if (semi < 0) return null;
   var payload = s.substring(semi + 1);
 

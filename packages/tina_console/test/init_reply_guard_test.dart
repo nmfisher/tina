@@ -213,6 +213,52 @@ void main() {
       expect(os.calls.any((c) => c.startsWith('detour')), isFalse);
     });
 
+    test(
+        'colon-form OSC replies (kitty, WezTerm, Ghostty, foot, newer VTE) '
+        'are recognized', () {
+      // ITU-T T.416 (ISO 8613-6) parameter separator. First-run tina on these
+      // terminals armed the fd-0 detour under the earlier semicolon-only
+      // pattern: the reply WAS there, the probe just could not see it, and
+      // the whole session ran on a detour pty with a timer-driven stdin
+      // bridge — dead keyboard whenever any bridge step hiccuped.
+      final os = FakeReplyGuardOs(
+          replyArrives: true,
+          probeReply: '\x1b]10:rgb:ffff/ffff/ffff\x1b\\\x1b]11:rgb:0000/0000'
+              '/0000\x1b\\');
+      final guard = TerminalReplyGuard(os: os);
+      expect(guard.prepare(), isFalse,
+          reason: 'a live, answering terminal must never be detoured');
+      expect(os.calls.any((c) => c.startsWith('detour')), isFalse);
+    });
+
+    test('fragmented colon-form replies are recognized', () {
+      final os = _ChunkedProbeOs(['\x1b]1', '1:rgb:0000/0000/0000\x1b\\']);
+      final guard = TerminalReplyGuard(os: os);
+      expect(guard.prepare(), isFalse);
+      expect(os.calls.any((c) => c.startsWith('detour')), isFalse);
+    });
+
+    test('CSI replies (cursor position, DA1, DECRPM) are recognized', () {
+      // DECRPM and cursor-position replies — `\x1b[?..` and `\x1b[1;1R` —
+      // carry no OSC payload at all; recognition must not depend on OSC
+      // syntax.
+      final os = FakeReplyGuardOs(
+          replyArrives: true, probeReply: '\x1b[?1;2;6;22c');
+      final guard = TerminalReplyGuard(os: os);
+      expect(guard.prepare(), isFalse);
+      expect(os.calls.any((c) => c.startsWith('detour')), isFalse);
+    });
+
+    test('an Alt+letter keystroke still does not pass as a reply', () {
+      // Alt+letter arrives as ESC + printable, which has no escape
+      // introducer *after* the ESC: it must not be mistaken for a reply,
+      // or native initialization would hang forever on it.
+      final os = FakeReplyGuardOs(replyArrives: true, probeReply: '\x1bb');
+      final guard = TerminalReplyGuard(os: os);
+      expect(guard.prepare(), isTrue,
+          reason: 'a user keystroke must keep the bounded-detour path armed');
+    });
+
     test('no terminal on stdio: does not probe at all', () {
       final os = FakeReplyGuardOs(terminals: {0: false, 1: true});
       expect(TerminalReplyGuard(os: os).prepare(), isFalse);

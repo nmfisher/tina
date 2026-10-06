@@ -2,8 +2,13 @@
 """Exercise keyboard bytes through notcurses and the native input pump.
 
 Covers legacy text, effective text in extended key reports, Alt shortcuts,
-Ctrl shortcuts, repeats and releases. Run both with terminal capability replies
-and without them, exercising TerminalReplyGuard's PTY detour too. No physical
+Ctrl shortcuts, repeats and releases. Runs against a semicolon-form terminal
+(xterm), a colon-form terminal (kitty/WezTerm/Ghostty/foot, ITU-T T.416) and a
+mute terminal, exercising TerminalReplyGuard's stand-down and PTY-detour paths
+alike. The colon variant answers the reply guard's probe (the first OSC 10/11
+pair) in colon form — the reply class the first-run dead-keyboard regression
+misread as silence — and later replies in the form each query asked for, since
+notcurses 3.0.17 cannot parse colon replies to its own queries. No physical
 terminal or keyboard is needed. CI runs this on Linux and macOS.
 
 Usage: tool/altkey_pty_driver.py [probe-log-path]
@@ -33,11 +38,15 @@ def report_failure(message):
         escaped = message[-3000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         print(f"::error title=Native keyboard test::{escaped}", flush=True)
 
-def master_loop(master, proc, mute, log_path):
+def master_loop(master, proc, mute, log_path, colon=False):
     """Drain initialization output until the probe has subscribed to input."""
     seen = b""
     pending = b""
-    queries = re.compile(rb"\x1b\](10|11);\?|\x1b\[(>?)(?:0)?c|\x1b\[6n")
+    queries = re.compile(rb"\x1b\](\d+)([:;])\?|\x1b\[(>?)(?:0)?c|\x1b\[6n")
+    # The reply guard's probe is the first OSC 10/11 pair on the wire,
+    # written before notcurses init. A colon variant answers exactly that
+    # pair in colon form and everything after in the form it was asked.
+    probe_replies_left = 2 if colon else 0
     deadline = time.time() + 150  # dart run cold start can be slow
     while time.time() < deadline:
         if os.path.exists(log_path):
@@ -62,7 +71,24 @@ def master_loop(master, proc, mute, log_path):
         consumed = 0
         for match in ([] if mute else queries.finditer(pending)):
             if match.group(1):
-                reply = b"\x1b]" + match.group(1) + b";rgb:ffff/ffff/ffff\x1b\\"
+                # A colon-form terminal answers the reply guard's probe OSC
+                # 10/11 in the ITU-T T.416 form its introducer recognition
+                # exists for — kitty, WezTerm, Ghostty, foot and newer VTE.
+                # The earlier semicolon-only probe pattern misread these
+                # replies as silence and armed the fd-0 detour on a live
+                # terminal — the first-run dead-keyboard regression. Keep
+                # this variant in CI so that class of bug cannot return.
+                # The vendored notcurses 3.0.17 cannot parse colon-form
+                # replies to *its* own queries, so the remaining replies use
+                # the form each query asked for.
+                if probe_replies_left > 0:
+                    probe_replies_left -= 1
+                    sep = b":"
+                else:
+                    sep = b";"
+                reply = (
+                    b"\x1b]" + match.group(1) + sep + b"rgb:ffff/ffff/ffff\x1b\\"
+                )
             elif match.group(0) == b"\x1b[6n":
                 reply = b"\x1b[1;1R"
             elif match.group(2) == b">":
@@ -93,7 +119,7 @@ def drain_output(master, proc, seconds):
                 break
 
 
-def run(log_path, mute):
+def run(log_path, mute, colon=False):
     os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
     if os.path.exists(log_path):
         os.unlink(log_path)
@@ -120,7 +146,7 @@ def run(log_path, mute):
     )
     os.close(slave)
     try:
-        master_loop(master, proc, mute, log_path)
+        master_loop(master, proc, mute, log_path, colon=colon)
         cases = [
             (b"\x1bb", [(0x62, 2)]),                 # legacy Alt+b
             (b"\x1bf", [(0x66, 2)]),                 # legacy Alt+f
@@ -161,7 +187,9 @@ def run(log_path, mute):
         print(log, end="")
         report_failure(f"FAIL: expected {expected}, got {actual}, exit={proc.returncode}")
         return 1
-    mode = "PTY detour" if mute else "terminal replies"
+    mode = "PTY detour" if mute else (
+        "terminal replies (probe in colon form)" if colon else "terminal replies"
+    )
     print(f"PASS ({mode}): text, modifiers, repeats and releases")
     return 0
 
@@ -171,11 +199,11 @@ if __name__ == "__main__":
         raise TimeoutError("Keyboard harness timed out at:\n" + "".join(traceback.format_stack(frame)))
 
     signal.signal(signal.SIGALRM, timed_out)
-    signal.alarm(180)
+    signal.alarm(300)  # three runs, each with a `dart run` cold start
     try:
-        result = run(LOG, False) | run(LOG + ".mute", True)
+        result = run(LOG, False) | run(LOG + ".colon", False, colon=True) | run(LOG + ".mute", True)
     except Exception:
-        for path in (LOG, LOG + ".mute"):
+        for path in (LOG, LOG + ".colon", LOG + ".mute"):
             if os.path.exists(path):
                 with open(path, encoding="utf-8") as log:
                     report_failure(f"Probe records ({path}):\n{log.read()[-2500:]}")

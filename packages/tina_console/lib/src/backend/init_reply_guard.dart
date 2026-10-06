@@ -141,11 +141,19 @@ class TerminalReplyGuard {
         final bytes = _os.readBytes(0, drainLimit - received.length);
         if (bytes.isEmpty) break;
         received += String.fromCharCodes(bytes);
-        // A user key (including an Enter left during restart) is not a
-        // capability reply. Treating any readable byte as a reply disables
-        // the bounded detour and lets native initialization hang forever.
-        // Retain fragmented replies until their OSC header can be recognized.
-        if (RegExp('\x1b\\](?:10|11);').hasMatch(received)) return false;
+        // A terminal capability reply always begins with an escape
+        // introducer: OSC (`ESC ]`), CSI (`ESC [`) or DCS (`ESC P`).
+        // Recognize the introducer, not the payload syntax — kitty,
+        // WezTerm, Ghostty, foot and newer VTE answer OSC 10/11 in the
+        // colon form (`ESC ]10:rgb:…`), which the earlier semicolon-only
+        // pattern misread as silence, arming the fd-0 detour on a live
+        // terminal and deadening the keyboard for the whole session. A
+        // user key — Enter, a letter, Ctrl+letter, plain Alt+letter
+        // (`ESC` + printable) — never begins with an introducer, so the
+        // no-hang property that replaced the any-bytes shortcut still
+        // holds. Fragmented replies are retained until their introducer
+        // can be recognized.
+        if (RegExp('\x1b(?:\\]|\\[|P)').hasMatch(received)) return false;
       }
     } finally {
       _os.restoreMode(0, savedMode);
