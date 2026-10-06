@@ -722,6 +722,59 @@ void main() {
       expect(emitted, [CharInput('y'), CharInput('e'), CharInput('s')]);
     });
 
+    test('a native Ctrl+G BEL terminates a late OSC reply', () async {
+      backend = makeBackend();
+      backend.pumpedBatchForTest([
+        for (final ch in '\x1b]4;41;rgb:0000/d7d7/5f5f'.codeUnits)
+          nc.PumpedInput(ch, 0, 0),
+        nc.PumpedInput(0x47, nc.KeyMod.ctrl, 0),
+        nc.PumpedInput(0x68, 0, 100000000),
+        nc.PumpedInput(0x69, 0, 200000000),
+      ]);
+      await pumpMicrotasks();
+      expect(emitted, [CharInput('h'), CharInput('i')]);
+    });
+
+    test('Ctrl+C escapes an incomplete startup reply', () async {
+      backend = makeBackend();
+      backend.pumpedBatchForTest([
+        nc.PumpedInput(0x1b, 0, 0),
+        nc.PumpedInput(0x5d, 0, 0),
+        nc.PumpedInput(0x43, nc.KeyMod.ctrl, 100000000),
+        nc.PumpedInput(0x78, 0, 200000000),
+      ]);
+      await pumpMicrotasks();
+      expect(emitted, [ControlKey(ControlCode.ctrlC), CharInput('x')]);
+    });
+
+    test('native BEL closes a reply begun inside the startup drain', () async {
+      final manualClock = _ManualStopwatch();
+      backend = NotcursesInputBackend(
+        _FakeKeySource(),
+        clock: manualClock,
+        startupDrainMinWindow: const Duration(milliseconds: 150),
+        startPolling: false,
+        temporalPasteDetection: false,
+      );
+      sub = backend.events.listen(emitted.add);
+      backend.pumpedBatchForTest([
+        for (final ch in '\x1b]4;41;rgb:0000/d7d7/5f5f'.codeUnits)
+          nc.PumpedInput(ch, 0, 0),
+        nc.PumpedInput(0x47, nc.KeyMod.ctrl, 0),
+      ]);
+      manualClock.elapse(const Duration(milliseconds: 200));
+      backend.pumpedInputForTest(0x78);
+      await pumpMicrotasks();
+      expect(emitted, [CharInput('x')]);
+    });
+
+    test('Ctrl+G outside a reply retains its focus shortcut', () async {
+      backend = makeBackend();
+      backend.pumpedInputForTest(0x47, modifiers: nc.KeyMod.ctrl);
+      await pumpMicrotasks();
+      expect(emitted, [ControlKey(ControlCode.ctrlG)]);
+    });
+
     test('a genuine paste right after a burst arrives whole', () async {
       backend = makeBackend(
         temporalPasteDetection: true,

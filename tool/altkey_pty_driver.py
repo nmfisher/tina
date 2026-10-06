@@ -8,13 +8,15 @@ mute terminal, exercising TerminalReplyGuard's stand-down and PTY-detour paths
 alike. The colon variant answers the reply guard's probe (the first OSC 10/11
 pair) in colon form — the reply class the first-run dead-keyboard regression
 misread as silence — and later replies in the form each query asked for, since
-notcurses 3.0.17 cannot parse colon replies to its own queries. No physical
-terminal or keyboard is needed. CI runs this on Linux and macOS.
+notcurses 3.0.17 cannot parse colon replies to its own queries. Additional
+runs answer all 256 palette queries with ST or BEL (as macOS Terminal does).
+No physical terminal or keyboard is needed. CI runs this on Linux and macOS.
 
 Usage: tool/altkey_pty_driver.py [probe-log-path]
 Exit 0 when the complete sequence of decoded records matches.
 """
 import os
+from collections import deque
 import pty
 import re
 import select
@@ -38,28 +40,47 @@ def report_failure(message):
         escaped = message[-3000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
         print(f"::error title=Native keyboard test::{escaped}", flush=True)
 
-def master_loop(master, proc, mute, log_path, colon=False):
+def master_loop(master, proc, mute, log_path, colon=False, palette=None):
     """Drain initialization output until the probe has subscribed to input."""
     seen = b""
     pending = b""
-    queries = re.compile(rb"\x1b\](\d+)([:;])\?|\x1b\[(>?)(?:0)?c|\x1b\[6n")
+    queries = re.compile(rb"\x1b\](\d+)([:;])\?|\x1b\[(>?)(?:0)?c|\x1b\[6n|\x1b\]4;(\d+);\?")
     # The reply guard's probe is the first OSC 10/11 pair on the wire,
     # written before notcurses init. A colon variant answers exactly that
     # pair in colon form and everything after in the form it was asked.
     probe_replies_left = 2 if colon else 0
+    # A full palette exceeds macOS' PTY buffers. Drain queries while feeding
+    # replies so neither side blocks waiting for the other to read.
+    os.set_blocking(master, False)
+    replies = deque()
+    palette_indices = set()
     deadline = time.time() + 150  # dart run cold start can be slow
     while time.time() < deadline:
         if os.path.exists(log_path):
             with open(log_path, encoding="utf-8") as log:
-                if "probe ready" in log.read():
+                if "probe ready" in log.read() and not replies:
+                    if palette is not None and palette_indices != set(range(256)):
+                        raise RuntimeError(f"incomplete palette query coverage: {len(palette_indices)}/256")
                     return
-        r, _, _ = select.select([master], [], [], 0.5)
+        r, w, _ = select.select([master], [master] if replies else [], [], 0.1)
+        if w:
+            reply = replies[0]
+            try:
+                sent = os.write(master, reply)
+            except BlockingIOError:
+                sent = 0
+            if sent == len(reply):
+                replies.popleft()
+            elif sent:
+                replies[0] = reply[sent:]
         if not r:
             if proc.poll() is not None:
                 raise RuntimeError(f"probe exited early: {proc.returncode}")
             continue
         try:
             chunk = os.read(master, 65536)
+        except BlockingIOError:
+            continue
         except OSError:
             break
         if not chunk:
@@ -70,7 +91,16 @@ def master_loop(master, proc, mute, log_path, colon=False):
         pending += chunk
         consumed = 0
         for match in ([] if mute else queries.finditer(pending)):
-            if match.group(1):
+            if match.group(4):
+                consumed = match.end()
+                if palette is None:
+                    continue
+                palette_indices.add(int(match.group(4)))
+                # Terminal.app uses BEL; other terminals use ST. Exercise all
+                # 256 replies, including their four-digit RGB components.
+                terminator = b"\x1b\\" if palette == "st" else b"\x07"
+                reply = b"\x1b]4;" + match.group(4) + b";rgb:0000/d7d7/5f5f" + terminator
+            elif match.group(1):
                 # A colon-form terminal answers the reply guard's probe OSC
                 # 10/11 in the ITU-T T.416 form its introducer recognition
                 # exists for — kitty, WezTerm, Ghostty, foot and newer VTE.
@@ -87,7 +117,8 @@ def master_loop(master, proc, mute, log_path, colon=False):
                 else:
                     sep = b";"
                 reply = (
-                    b"\x1b]" + match.group(1) + sep + b"rgb:ffff/ffff/ffff\x1b\\"
+                    b"\x1b]" + match.group(1) + sep + b"rgb:ffff/ffff/ffff"
+                    + (b"\x07" if palette == "bel" else b"\x1b\\")
                 )
             elif match.group(0) == b"\x1b[6n":
                 reply = b"\x1b[1;1R"
@@ -95,7 +126,7 @@ def master_loop(master, proc, mute, log_path, colon=False):
                 reply = b"\x1b[>0;276;0c"
             else:
                 reply = b"\x1b[?62;22c"
-            os.write(master, reply)
+            replies.append(reply)
             consumed = match.end()
         pending = pending[consumed:][-64:]
     raise RuntimeError(
@@ -119,7 +150,7 @@ def drain_output(master, proc, seconds):
                 break
 
 
-def run(log_path, mute, colon=False):
+def run(log_path, mute, colon=False, palette=None):
     os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
     if os.path.exists(log_path):
         os.unlink(log_path)
@@ -146,7 +177,8 @@ def run(log_path, mute, colon=False):
     )
     os.close(slave)
     try:
-        master_loop(master, proc, mute, log_path, colon=colon)
+        master_loop(master, proc, mute, log_path, colon=colon, palette=palette)
+        os.set_blocking(master, True)
         cases = [
             (b"\x1bb", [(0x62, 2)]),                 # legacy Alt+b
             (b"\x1bf", [(0x66, 2)]),                 # legacy Alt+f
@@ -175,8 +207,8 @@ def run(log_path, mute, colon=False):
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        proc.wait(timeout=5)
         os.close(master)
+        proc.wait(timeout=5)
 
     with open(log_path, encoding="utf-8") as source:
         log = source.read()
@@ -184,13 +216,16 @@ def run(log_path, mute, colon=False):
               re.findall(r"id=0x([0-9a-f]+) mods=(\d+)", log)]
     expected = [event for _, events in cases for event in events]
     if actual != expected or proc.returncode != 0:
-        print(log, end="")
-        report_failure(f"FAIL: expected {expected}, got {actual}, exit={proc.returncode}")
+        print(log[-2500:], end="")
+        report_failure(f"FAIL: expected {expected}, got {len(actual)} records "
+                       f"(tail: {actual[-len(expected):]}), exit={proc.returncode}")
         return 1
     mode = "PTY detour" if mute else (
-        "terminal replies (probe in colon form)" if colon else "terminal replies"
+        f"terminal replies (palette: {palette})" if palette else (
+            "terminal replies (probe in colon form)" if colon else "terminal replies"
+        )
     )
-    print(f"PASS ({mode}): text, modifiers, repeats and releases")
+    print(f"PASS ({mode}): text, modifiers, repeats and releases", flush=True)
     return 0
 
 
@@ -199,11 +234,13 @@ if __name__ == "__main__":
         raise TimeoutError("Keyboard harness timed out at:\n" + "".join(traceback.format_stack(frame)))
 
     signal.signal(signal.SIGALRM, timed_out)
-    signal.alarm(300)  # three runs, each with a `dart run` cold start
+    signal.alarm(300)  # Leave time for diagnostics before CI's six-minute limit.
     try:
         result = run(LOG, False) | run(LOG + ".colon", False, colon=True) | run(LOG + ".mute", True)
+        for palette in ("st", "bel"):
+            result |= run(LOG + "." + palette, False, palette=palette)
     except Exception:
-        for path in (LOG, LOG + ".colon", LOG + ".mute"):
+        for path in (LOG, LOG + ".colon", LOG + ".mute", LOG + ".st", LOG + ".bel"):
             if os.path.exists(path):
                 with open(path, encoding="utf-8") as log:
                     report_failure(f"Probe records ({path}):\n{log.read()[-2500:]}")

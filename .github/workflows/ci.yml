@@ -75,6 +75,9 @@ jobs:
           dart test --tags live-os-sandbox --run-skipped
       - name: Build native CLI
         run: dart build cli --target bin/tina.dart
+      - name: Check native typing on fresh launch and continuation
+        timeout-minutes: 2
+        run: python3 tool/smoke_notcurses_startup.py --binary build/cli/macos_arm64/bundle/bin/tina
       - name: Open first-load picker and quit at small and normal sizes
         run: |
           mkdir -p "$RUNNER_TEMP/tina-launcher"

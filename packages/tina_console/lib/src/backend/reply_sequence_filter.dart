@@ -93,7 +93,23 @@ class ReplySequenceFilter {
   /// Feed one key event (a notcurses key id) stamped at [monotonicMicros].
   /// Returns the events to emit now — empty while a candidate reply is being
   /// examined or swallowed, the input itself when it is not part of a reply.
-  List<int> add(int id, int monotonicMicros) {
+  List<int> add(int id, int monotonicMicros,
+      {bool hasCtrl = false, bool hasAlt = false}) {
+    // notcurses normalizes a raw BEL to Ctrl+G. Recover its OSC termination
+    // meaning only inside a reply; outside one it remains the user's shortcut.
+    if (hasCtrl || hasAlt) {
+      if (hasCtrl &&
+          !hasAlt &&
+          (id == 0x47 || id == 0x67) &&
+          _state == _inReply &&
+          _class == _osc) {
+        _state = _idle;
+        return const [];
+      }
+      // Modified keys are user input, not reply payload or CSI final bytes.
+      // Release the filter so Ctrl+C and Alt shortcuts can always recover.
+      return [...flush(), id];
+    }
     switch (_state) {
       case _idle:
         if (id == _esc) {

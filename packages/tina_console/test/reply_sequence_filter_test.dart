@@ -134,6 +134,25 @@ void main() {
       expect(out, [0x0d]);
     });
 
+    test('modified user keys interrupt replies without becoming payload', () {
+      for (final opener in ['\x1b]', '\x1b[', '\x1bP']) {
+        final filter = ReplySequenceFilter();
+        expect(feedBurst(filter, ids(opener)), isEmpty);
+        expect(filter.add(0x43, 200, hasCtrl: true), [0x43]);
+        expect(filter.add(0x78, 300), [0x78]);
+        expect(feedBurst(filter, ids(opener)), isEmpty);
+        expect(filter.add(0x62, 200, hasAlt: true), [0x62]);
+        expect(filter.add(0x78, 300), [0x78]);
+      }
+    });
+
+    test('Alt+] following Escape does not open an OSC reply', () {
+      final filter = ReplySequenceFilter();
+      expect(filter.add(0x1b, 0), isEmpty);
+      expect(filter.add(0x5d, 100, hasAlt: true), [0x1b, 0x5d]);
+      expect(filter.add(0x78, 200), [0x78]);
+    });
+
     test('back-to-back replies with no gap between them', () {
       final filter = ReplySequenceFilter();
       final out = feedBurst(

@@ -372,7 +372,9 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
       // is swallowed; the filter's released output is discarded with the
       // record. (_explicitPaste is provably null here: it is only set in
       // _deliverPumpedKey, which the drain never reaches.)
-      _replyFilter?.add(input.id, input.monotonicNanos ~/ 1000);
+      _replyFilter?.add(input.id, input.monotonicNanos ~/ 1000,
+          hasCtrl: (input.modifiers & nc.KeyMod.ctrl) != 0,
+          hasAlt: (input.modifiers & nc.KeyMod.alt) != 0);
       return;
     }
     if (!_startupDrainDone) {
@@ -390,7 +392,9 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
       _deliverPumpedKey(input.id, input.modifiers, input.monotonicNanos);
       return;
     }
-    final released = filter.add(input.id, input.monotonicNanos ~/ 1000);
+    final released = filter.add(input.id, input.monotonicNanos ~/ 1000,
+        hasCtrl: (input.modifiers & nc.KeyMod.ctrl) != 0,
+        hasAlt: (input.modifiers & nc.KeyMod.alt) != 0);
     for (final id in released) {
       _deliverPumpedKey(id, input.modifiers, input.monotonicNanos);
     }
