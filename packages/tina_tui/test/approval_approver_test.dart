@@ -67,7 +67,7 @@ void main() {
   });
 
   for (final decision in ApprovalDecision.values) {
-    test('sandbox adapter preserves $decision and the resolved operation',
+    test('sandbox adapter handles $decision and the resolved operation',
         () async {
       final channel = StreamApprovalChannel();
       final requests = <ApprovalRequest>[];
@@ -83,7 +83,8 @@ void main() {
       });
       final response = requesterApprover(service)(
           (op: FileOp.write, path: '/resolved/path'), 'outside');
-      if (decision == ApprovalDecision.deny) {
+      if (decision != ApprovalDecision.allow &&
+          decision != ApprovalDecision.allowAlways) {
         await expectLater(response, throwsA(isA<SandboxViolation>()));
       } else {
         expect(
@@ -95,6 +96,7 @@ void main() {
       expect(requests.single.operation, 'write');
       expect(requests.single.target, '/resolved/path');
       expect(requests.single.reason, 'outside');
+      expect(requests.single.details, isNot(contains('read_directory')));
     });
   }
 
