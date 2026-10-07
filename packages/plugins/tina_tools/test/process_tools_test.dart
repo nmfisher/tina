@@ -6,6 +6,58 @@ import 'package:test/test.dart';
 /// the real sandbox) so every assertion is on what the tool *asked the runner
 /// to run* or on the tool result it returned — headless by construction.
 void main() {
+  for (final shell in [false, true]) {
+    test('${shell ? 'bash' : 'exec'} directory overrides are per invocation',
+        () async {
+      final inner = _RecordingRunner(_done(0, '', ''));
+      final tool = shell
+          ? BashTool(runner: inner, workingDirectory: '/tmp/ws')
+          : ExecTool(runner: inner, workingDirectory: '/tmp/ws');
+      final command = shell ? {'command': 'ls'} : {'program': 'ls'};
+      for (final (directory, expected) in [
+        ('packages/../src', '/tmp/ws/src'),
+        ('/tmp/other', '/tmp/other'),
+      ]) {
+        final result = await tool.execute({
+          ...command,
+          'working_directory': directory,
+        });
+        expect(result.isError, false);
+        expect(inner.workingDirectory, expected);
+        expect(inner.arguments, shell ? ['-c', 'ls'] : <String>[]);
+      }
+      expect((await tool.execute(command)).isError, false);
+      expect(inner.workingDirectory, '/tmp/ws');
+      expect(
+          tool
+              .schema
+              .describe!({
+            ...command,
+            'working_directory': 'src',
+          })
+              .fields['Directory'],
+          'src');
+    });
+
+    test(
+        '${shell ? 'bash' : 'exec'} rejects invalid directories before running',
+        () async {
+      final inner = _RecordingRunner(_done(0, '', ''));
+      final tool = shell
+          ? BashTool(runner: inner, workingDirectory: '/tmp/ws')
+          : ExecTool(runner: inner, workingDirectory: '/tmp/ws');
+      for (final value in [null, '', '  ', 42]) {
+        final result = await tool.execute({
+          if (shell) 'command': 'ls' else 'program': 'ls',
+          'working_directory': value,
+        });
+        expect(result.isError, true);
+        expect(result.content, contains('working_directory'));
+        expect(inner.command, isNull);
+      }
+    });
+  }
+
   group('bash tool', () {
     test('the command string reaches the runner as shell -c argv', () async {
       final inner = _RecordingRunner(_done(0, '', ''));

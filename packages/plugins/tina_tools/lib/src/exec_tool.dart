@@ -51,6 +51,14 @@ class ExecTool extends ProcessToolBase {
         inputSchema: {
           'type': 'object',
           'properties': {
+            'working_directory': {
+              'type': 'string',
+              'description':
+                  'Directory for this invocation. Relative paths resolve from '
+                      'the session working directory. Defaults to the session '
+                      'directory; does not affect later calls. Prefer this '
+                      'field over a shell cd command.',
+            },
             'outside_sandbox': {
               'type': 'boolean',
               'description':
@@ -106,7 +114,9 @@ class ExecTool extends ProcessToolBase {
       {ProcessControl? control}) async {
     final String program;
     final List<String> modelArgs;
+    final String? directory;
     try {
+      directory = processWorkingDirectory(input, workingDirectory);
       program = requiredString(input, 'program');
       final raw = input['args'];
       if (raw == null) {
@@ -124,7 +134,7 @@ class ExecTool extends ProcessToolBase {
     return runRequest((
       command: program,
       arguments: modelArgs,
-      workingDirectory: workingDirectory,
+      workingDirectory: directory,
       environment: environment,
       stdin: null,
       timeout: timeoutFrom(input) ?? defaultTimeout,

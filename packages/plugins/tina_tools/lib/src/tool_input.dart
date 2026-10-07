@@ -43,3 +43,16 @@ String resolveToolPath(String path, String? workspaceRoot) =>
     workspaceRoot == null || p.isAbsolute(path)
         ? path
         : p.normalize(p.join(workspaceRoot, path));
+
+/// A per-call directory is resolved from the session directory, without
+/// changing the directory of the host or subsequent tool calls.
+String? processWorkingDirectory(
+    Map<String, dynamic> input, String? sessionDirectory) {
+  if (!input.containsKey('working_directory')) return sessionDirectory;
+  final value = input['working_directory'];
+  if (value is! String || value.trim().isEmpty) {
+    throw const ToolValidationException(
+        'working_directory must be a non-empty string');
+  }
+  return resolveToolPath(value, sessionDirectory);
+}

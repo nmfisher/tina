@@ -30,9 +30,13 @@ ToolDescription describeGlob(Map<String, dynamic> input) => ToolDescription(
     target: '${input['pattern'] ?? ''}',
     fields: {'Directory': _path(input)});
 ToolDescription describeBash(Map<String, dynamic> input) => ToolDescription(
-    title: 'Run shell command',
-    target: '${input['command'] ?? ''}',
-    fields: {'Command': '${input['command'] ?? ''}'});
+        title: 'Run shell command',
+        target: '${input['command'] ?? ''}',
+        fields: {
+          'Command': '${input['command'] ?? ''}',
+          if (input['working_directory'] != null)
+            'Directory': '${input['working_directory']}',
+        });
 ToolDescription describeExec(Map<String, dynamic> input) {
   final program =
       '${input['program'] ?? input['executable'] ?? '(unknown program)'}';
@@ -73,7 +77,11 @@ ToolDescription describeExec(Map<String, dynamic> input) {
   return ToolDescription(
       title: git ?? titles[base] ?? 'Run $base',
       target: command,
-      fields: {'Command': command});
+      fields: {
+        'Command': command,
+        if (input['working_directory'] != null)
+          'Directory': '${input['working_directory']}',
+      });
 }
 
 ToolDescription describeProcess(Map<String, dynamic> input) => ToolDescription(
@@ -88,7 +96,14 @@ ToolDescription describeCommandRequest(ProcessRequest request) {
   if ({'sh', 'bash'}.contains(request.command.split('/').last) &&
       request.arguments.length == 2 &&
       request.arguments.first == '-c') {
-    return describeBash({'command': request.arguments.last});
+    return describeBash({
+      'command': request.arguments.last,
+      'working_directory': request.workingDirectory,
+    });
   }
-  return describeExec({'program': request.command, 'args': request.arguments});
+  return describeExec({
+    'program': request.command,
+    'args': request.arguments,
+    'working_directory': request.workingDirectory,
+  });
 }

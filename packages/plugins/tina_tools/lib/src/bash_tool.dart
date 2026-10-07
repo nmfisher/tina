@@ -61,6 +61,14 @@ class BashTool extends ProcessToolBase {
         inputSchema: {
           'type': 'object',
           'properties': {
+            'working_directory': {
+              'type': 'string',
+              'description':
+                  'Directory for this invocation. Relative paths resolve from '
+                      'the session working directory. Defaults to the session '
+                      'directory; does not affect later calls. Prefer this '
+                      'field over cd some_dir && command.',
+            },
             'outside_sandbox': {
               'type': 'boolean',
               'description':
@@ -108,7 +116,9 @@ class BashTool extends ProcessToolBase {
   Future<ToolResult> execute(Map<String, dynamic> input,
       {ProcessControl? control}) async {
     final String command;
+    final String? directory;
     try {
+      directory = processWorkingDirectory(input, workingDirectory);
       command = requiredString(input, 'command');
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
@@ -116,7 +126,7 @@ class BashTool extends ProcessToolBase {
     return runRequest((
       command: shell,
       arguments: [shellFlag, command],
-      workingDirectory: workingDirectory,
+      workingDirectory: directory,
       environment: environment,
       stdin: null,
       timeout: timeoutFrom(input) ?? defaultTimeout,

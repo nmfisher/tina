@@ -64,6 +64,17 @@ OS confinement separately.
 They are two tools on purpose, not one tool with a mode flag: the
 signatures say what each can and cannot do.
 
+Both tools accept `working_directory` for an individual invocation. Relative
+paths resolve from the session working directory; omitting it uses the session
+directory. For example, use `exec` with `program: "ls"` and
+`working_directory: "packages/tina_tui"` rather than `cd packages/tina_tui && ls`.
+The override does not change later calls and remains subject to the same
+permission and OS sandbox checks. Tool and approval details show the directory.
+
+The system prompt prefers dedicated `edit` and `write` tools for file changes.
+Python scripts, sed and other command-based patches are reserved for changes
+that those tools cannot perform.
+
 ## Process output
 
 The CLI captures stdout and stderr and starts commands in a new POSIX session
