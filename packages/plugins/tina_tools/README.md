@@ -26,24 +26,33 @@ Shift-Tab and the status label; no separate `tina/mode-tui` plugin is loaded.
 | Mode | Reads | Project writes | Commands / outside writes |
 | --- | --- | --- | --- |
 | `ask` (default) | allow | ask | ask |
-| `read-only` | allow | human approval | verified ls/grep run; others ask |
-| `allow-edits` | allow | allow | ask |
+| `read-only` | allow | human approval | verified readers run; others ask |
+| `allow-edits` | allow | allow | verified readers run; others ask |
 | `auto` | allow | classifier review | classifier review |
 
 In `auto`, an exact completed ALLOW approves the operation once. DENY,
 timeout, missing classifier or invalid response falls back to the configured
 human approval channel. Read-only uses human approval for writes and commands
-that are not certified direct system readers. Cancellation does not fall back to asking.
+that are not certified system readers. Cancellation does not fall back to asking.
 Human “always” grants remain session-scoped; classifier approvals do not create
 persistent or session grants. Protected Tina paths and OS sandbox restrictions
 remain enforced in every mode. Ordinary approval does not disable the OS sandbox.
 
-In read-only mode, direct system `ls` and `grep` invocations with supported
-GNU/BSD options run without an execution approval. The runner verifies and pins
-the absolute system executable; a replacement on PATH, custom environment,
-unknown option or shell wrapper asks. Arguments remain unchanged. Network and
-outside-sandbox access still need their own approval. Other modes retain their
-existing command review policy. An explicit approval allows the requested
+In read-only and allow-edits modes, verified system `ls`, `grep`, `cat`, `head`,
+`tail` and literal `echo` commands run without an execution approval. Supported
+options include the traditional `head -30` form. The runner verifies and pins
+the absolute system executable; a replacement on PATH, custom environment or
+unknown reader option asks. Direct arguments remain unchanged.
+
+The bash tool also accepts a limited literal grammar containing reader pipelines
+(`|`), sequences (`;`) and conditional sequences (`&&`). Every component must
+be a verified reader. The runner reconstructs these commands with pinned system
+paths and quoted literal arguments. Redirects, substitutions, unquoted wildcards,
+background jobs, other operators and unsupported programs require approval.
+For example, `grep -n 'pattern' file | head; echo ---; head -30 pubspec.yaml`
+runs without an execution prompt. Network and outside-sandbox access still
+need their own approval. Ask and auto retain their command review policy.
+An explicit approval allows the requested
 operation without changing the mode.
 `WritableDirectories` and network heuristics explain why a command needs
 approval; they do not authorize it without review. `OsSandboxRunner` supplies

@@ -337,6 +337,10 @@ void main() {
     expect(visible(), contains('Selected: No'));
     expect(visible(), contains('Project question: 1.0% match'));
     expect(visible(), contains('Is this a project question?'));
+    expect(visible(), contains('• Project question'));
+    expect(visible(), isNot(contains('Option:')));
+    expect(io.output.toString(),
+        contains(RegExp(r'\x1b\[2m  Is this a project question\?')));
     expect(visible(), isNot(contains('Request to do work')));
   });
 

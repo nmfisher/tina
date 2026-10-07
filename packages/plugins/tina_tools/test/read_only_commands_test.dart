@@ -176,12 +176,8 @@ void main() {
     expect(inner.requests, isEmpty);
   });
 
-  test('reader certification does not bypass other modes', () async {
-    for (final mode in [
-      PermissionMode.ask,
-      PermissionMode.allowEdits,
-      PermissionMode.auto
-    ]) {
+  test('reader certification does not bypass ask or auto modes', () async {
+    for (final mode in [PermissionMode.ask, PermissionMode.auto]) {
       final inner = _Recorder();
       final gate = runner(inner, review: (_, __) async => Approval.no)
         ..mode = mode;
@@ -189,6 +185,128 @@ void main() {
       expect(inner.requests, isEmpty);
     }
   });
+
+  for (final mode in [PermissionMode.readOnly, PermissionMode.allowEdits]) {
+    test('$mode allows verified readers and the reported compound read',
+        () async {
+      final inner = _Recorder();
+      final gate = runner(inner,
+          review: (_, __) => throw StateError('unexpected approval'))
+        ..mode = mode;
+      expect(await gate.run(request('grep', ['-n', 'class', 'models.dart'])),
+          isA<CommandCompleted>());
+      const script =
+          r'''grep -n "class.*Question\|abstract\|enum" packages/classification/lib/src/judgments/models.dart | head; echo ---; head -30 packages/classification/pubspec.yaml''';
+      expect(await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
+          isA<CommandCompleted>());
+      final spawned = inner.requests.last;
+      expect(spawned.command, '/bin/sh');
+      expect(spawned.arguments.last, contains("'/usr/bin/grep'"));
+      expect(spawned.arguments.last,
+          contains("'class.*Question\\|abstract\\|enum'"));
+      expect(spawned.arguments.last, contains("| '/usr/bin/head'"));
+      final echo =
+          readOnlyExecutable(request('echo', []), searchPath: systemPath);
+      expect(spawned.arguments.last, contains("; '$echo' '---' ;"));
+      expect(gate.grants.isEmpty, true);
+      expect(inner.controls.last!.networkAllowed, false);
+    });
+
+    test('$mode rejects unsafe or unsupported shell components', () async {
+      final inner = _Recorder();
+      var asks = 0;
+      final gate = runner(inner, review: (_, __) async {
+        asks++;
+        return Approval.no;
+      })
+        ..mode = mode;
+      for (final script in [
+        'grep needle file | tee written',
+        'cat file; touch written',
+        'echo ok && rm file',
+        'cat file > written',
+        'cat file 2> written',
+        r'cat $(touch written)',
+        r'echo "$HOME"',
+        r'echo `touch written`',
+        'cat *',
+        'cat file &',
+        'cat file || cat other',
+        'cat file |',
+        'cat file; ; cat other',
+        'cat < file',
+        'cat file\ntouch written',
+        'env cat file',
+        'head --unsupported file',
+      ]) {
+        expect(
+            await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
+            isA<CommandRefused>(),
+            reason: script);
+      }
+      expect(asks, 17);
+      expect(inner.requests, isEmpty);
+    });
+
+    test('$mode compound readers still review network and unconfined access',
+        () async {
+      final inner = _Recorder();
+      final reviews = <CommandApproval>[];
+      final gate = runner(inner, review: (_, review) async {
+        reviews.add(review);
+        return Approval.no;
+      })
+        ..mode = mode;
+      final call = request('/bin/sh', ['-c', 'cat file | head; echo ---']);
+      expect(
+          await gate.run(call,
+              control: const ProcessControl(
+                networkRequested: true,
+                networkReason: 'fixture',
+              )),
+          isA<CommandRefused>());
+      expect(reviews.last.missingPermissions, {ProcessPermission.network});
+      expect(
+          await gate.run(call,
+              control: const ProcessControl(
+                outsideSandboxRequested: true,
+                sandboxReason: 'fixture',
+              )),
+          isA<CommandRefused>());
+      expect(reviews.last.missingPermissions,
+          {ProcessPermission.network, ProcessPermission.unconfined});
+      expect(inner.requests, isEmpty);
+    });
+  }
+
+  test('certified shell reads preserve regexes and literal shell-looking text',
+      () async {
+    File('${root.path}/models.dart').writeAsStringSync(
+        'class Question {}\nabstract class Base {}\nenum Kind { one }\n');
+    File('${root.path}/pubspec.yaml')
+        .writeAsStringSync('name: fixture\nversion: 1\n');
+    final gate = runner(const IoProcessRunner(),
+        review: (_, __) => throw StateError('unexpected approval'))
+      ..mode = PermissionMode.allowEdits;
+    final outcome = await gate.run(request(
+        '/bin/sh',
+        [
+          '-c',
+          r'''grep -n "class.*Question\|abstract\|enum" models.dart | head; echo ---; head -30 pubspec.yaml'''
+        ],
+        cwd: root.path));
+    expect(outcome, isA<CommandCompleted>());
+    expect((outcome as CommandCompleted).exitCode, 0);
+    expect(outcome.stdout, contains('1:class Question {}'));
+    expect(outcome.stdout, contains('2:abstract class Base {}'));
+    expect(outcome.stdout, contains('---\nname: fixture'));
+    final literal = await gate.run(request('/bin/sh',
+        ['-c', r'''echo '$(touch WRITTEN)' && echo 'literal; | text' | cat'''],
+        cwd: root.path));
+    expect((literal as CommandCompleted).stdout,
+        contains('\$(touch WRITTEN)\nliteral; | text'));
+    expect(File('${root.path}/WRITTEN').existsSync(), false);
+  }, skip: Platform.isWindows);
 
   test(
       'network and unconfined permissions are reviewed separately from reading',

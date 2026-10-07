@@ -77,7 +77,7 @@ void main() {
           writableDirectories: WritableDirectories()..add('/'),
         ),
       );
-      final res = await tool.execute({'command': 'echo hi'});
+      final res = await tool.execute({'command': 'touch file'});
       expect(res.isError, isTrue);
       expect(res.content, contains('read-only mode'));
     });
@@ -310,7 +310,8 @@ void main() {
         'args': ['d']
       });
       expect(execApproved.isError, isFalse);
-      expect(approver.asked, 4);
+      expect(approver.asked, 2,
+          reason: 'read-only mode certifies literal echo calls without asking');
       expect(sandbox.mode, PermissionMode.readOnly);
     });
   });

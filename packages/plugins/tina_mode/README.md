@@ -25,6 +25,10 @@ by changing mode. Explicit human session grants skip repeat approvals in every
 mode. Sub-agents inherit the mode and approval services at creation;
 their mode plugin has its own cancellation lifecycle and retains OS confinement.
 
+Read-only and allow-edits automatically allow verified system reader commands
+and supported literal reader pipelines/sequences. Other commands still follow
+the table above. Network and outside-sandbox requests require separate approval.
+
 The judge implementation lives in `classification/permissions.dart`, separate
 from display-only utterance classification. The app supplies an independent
 provider instance for the selected model. Reviews count toward the session's
@@ -59,7 +63,7 @@ Cancellation, shutdown or switching to read-only prevents a late ALLOW from
 executing. Changing to another mode reverts to human approval for that pending
 request. The judge stream is cancelled and its provider closed on completion.
 
-Read-only asks before every unapproved command, including read-only commands.
+Read-only asks before commands that cannot be certified as system readers.
 Approving a call does not change the selected mode.
 
 Network is a permission on the command invocation. Execution and network are

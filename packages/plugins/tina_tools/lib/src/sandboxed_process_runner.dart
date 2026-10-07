@@ -277,10 +277,15 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final network = (control?.networkRequested ?? false) || outsideSandbox;
     final literal = literalShellRequest(request);
     final readerRequest = literal ?? request;
+    final readerMode =
+        mode == PermissionMode.readOnly || mode == PermissionMode.allowEdits;
+    final shellReader = readerMode
+        ? readOnlyShellRequest(request, searchPath: executableSearchPath)
+        : null;
     final candidate =
         readOnlyExecutable(readerRequest, searchPath: executableSearchPath);
     final reader = candidate != null &&
-            (mode == PermissionMode.readOnly && literal == null ||
+            (readerMode ||
                 readDirectories != null &&
                     readsGrantedDirectories(
                         readerRequest, readDirectories!, workspaceRoot))
@@ -293,14 +298,15 @@ final class SandboxedProcessRunner implements ProcessRunner {
     };
     final missing = requiredPermissions
         .where((permission) =>
-            !(permission == ProcessPermission.execution && reader != null) &&
+            !(permission == ProcessPermission.execution &&
+                (reader != null || shellReader != null)) &&
             !grants.coversRequest(request, permission: permission))
         .toSet();
     final decision = decideCommand(request, mode,
         writableDirectories: writableDirectories,
         networkOff: networkOff,
         grants: grants,
-        certifiedReadOnly: reader != null);
+        certifiedReadOnly: reader != null || shellReader != null);
     if (decision.verdict == ToolVerdict.deny) {
       return CommandRefused(decision.reason);
     }
@@ -359,7 +365,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final authorized = (control ?? const ProcessControl()).copyWith(
         networkAllowed: network, outsideSandboxAllowed: outsideSandbox);
     final spawned = reader == null
-        ? request
+        ? shellReader ?? request
         : (
             command: reader,
             arguments: readerRequest.arguments,
@@ -468,7 +474,8 @@ typedef CommandDecision = ({ToolVerdict verdict, String reason});
 /// the `command: <shell>, arguments: ['-c', <string>]` shape every bash tool
 /// produces. What the string runs cannot be proven from argv: redirects,
 /// backticks, and newlines mean the writable directories can say nothing about it.
-/// Such requests never ride the writable directories; they ask in every mode.
+/// Writable directories never authorize these requests. Uncertified scripts
+/// ask; certified reader scripts have a separate exception in reader modes.
 ///
 /// Shape test: the basename of [ProcessRequest.command] is a known shell and
 /// the shell's flag is followed by a payload — i.e. there is at least one

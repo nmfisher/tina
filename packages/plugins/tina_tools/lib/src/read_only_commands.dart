@@ -5,15 +5,18 @@ import 'package:path/path.dart' as path;
 import 'process_runner.dart';
 import 'read_directories.dart';
 
-/// Parse a single literal POSIX command for separate reader certification.
-/// Expansions, redirections, pipelines and scripts retain normal approval.
-ProcessRequest? literalShellRequest(ProcessRequest request) {
+typedef _ShellPart = ({List<String> words, String? operator});
+
+/// A deliberately small shell grammar: literal arguments and |, ; or &&.
+/// The accepted words are re-quoted before execution, never reused as script.
+List<_ShellPart>? _literalShellParts(ProcessRequest request) {
   if (request.command != '/bin/sh' ||
       request.arguments.length != 2 ||
       request.arguments.first != '-c') return null;
   final script = request.arguments.last;
   if (script.contains('\n') || script.contains('\r')) return null;
-  final words = <String>[];
+  var words = <String>[];
+  final parts = <_ShellPart>[];
   var word = StringBuffer();
   String? quote;
   var active = false;
@@ -28,7 +31,9 @@ ProcessRequest? literalShellRequest(ProcessRequest request) {
     } else if (char == '\\') {
       if (++i >= script.length) return null;
       final escaped = script[i];
-      if (quote == '"' && !'"\u0024`\\'.contains(escaped)) return null;
+      // POSIX double quotes preserve a backslash before other characters,
+      // including the \| in a basic grep expression.
+      if (quote == '"' && !'"\u0024`\\'.contains(escaped)) word.write('\\');
       word.write(escaped);
       active = true;
     } else if (quote == '"') {
@@ -48,7 +53,21 @@ ProcessRequest? literalShellRequest(ProcessRequest request) {
         word = StringBuffer();
         active = false;
       }
-    } else if ('\u0024`|&;<>()[*?~#{}'.contains(char) || char == '\u0000') {
+    } else if ('|;&'.contains(char)) {
+      if (active) words.add(word.toString());
+      word = StringBuffer();
+      active = false;
+      if (words.isEmpty || words.first.isEmpty) return null;
+      var operator = char;
+      if (char == '&') {
+        if (i + 1 >= script.length || script[++i] != '&') return null;
+        operator = '&&';
+      } else if (i + 1 < script.length && script[i + 1] == char) {
+        return null; // no ||, ;; or shell control constructs
+      }
+      parts.add((words: List.unmodifiable(words), operator: operator));
+      words = [];
+    } else if ('\u0024`<>()[*?~#{}'.contains(char) || char.codeUnitAt(0) < 32) {
       return null;
     } else {
       word.write(char);
@@ -58,13 +77,48 @@ ProcessRequest? literalShellRequest(ProcessRequest request) {
   if (quote != null) return null;
   if (active) words.add(word.toString());
   if (words.isEmpty || words.first.isEmpty) return null;
+  parts.add((words: List.unmodifiable(words), operator: null));
+  return parts;
+}
+
+ProcessRequest _partRequest(ProcessRequest request, List<String> words) => (
+      command: words.first,
+      arguments: List.unmodifiable(words.skip(1)),
+      workingDirectory: request.workingDirectory,
+      environment: request.environment,
+      stdin: request.stdin,
+      timeout: request.timeout
+    );
+
+/// A single literal reader may also reuse a saved directory read grant.
+ProcessRequest? literalShellRequest(ProcessRequest request) {
+  final parts = _literalShellParts(request);
+  return parts?.length == 1 ? _partRequest(request, parts!.single.words) : null;
+}
+
+/// Certify every component and reconstruct the shell script with pinned
+/// system executables and quoted literal arguments. No PATH lookup or shell
+/// expansion remains in the script that is executed.
+ProcessRequest? readOnlyShellRequest(ProcessRequest request,
+    {String? searchPath}) {
+  final parts = _literalShellParts(request);
+  if (parts == null) return null;
+  final script = StringBuffer();
+  String quote(String value) => "'${value.replaceAll("'", "'\\''")}'";
+  for (final part in parts) {
+    final component = _partRequest(request, part.words);
+    final executable = readOnlyExecutable(component, searchPath: searchPath);
+    if (executable == null) return null;
+    script.write([executable, ...component.arguments].map(quote).join(' '));
+    if (part.operator != null) script.write(' ${part.operator} ');
+  }
   return (
-    command: words.first,
-    arguments: List.unmodifiable(words.skip(1)),
+    command: '/bin/sh',
+    arguments: ['-c', script.toString()],
     workingDirectory: request.workingDirectory,
     environment: request.environment,
     stdin: request.stdin,
-    timeout: request.timeout
+    timeout: request.timeout,
   );
 }
 
@@ -76,7 +130,8 @@ String? readOnlyExecutable(ProcessRequest request, {String? searchPath}) {
   if (request.environment != null || Platform.isWindows) return null;
   final name = path.basename(request.command);
   final options = _readers[name];
-  if (options == null || !options.accepts(request.arguments)) return null;
+  if (options == null || name != 'echo' && !options.accepts(request.arguments))
+    return null;
   final trusted = {'/bin/$name', '/usr/bin/$name'};
   String? candidate;
   if (request.command == name) {
@@ -114,6 +169,7 @@ String? readOnlyExecutable(ProcessRequest request, {String? searchPath}) {
 
 List<String>? _readTargets(ProcessRequest request) {
   final name = path.basename(request.command);
+  if (name == 'echo') return const [];
   final options = _readers[name];
   if (options == null || !options.accepts(request.arguments)) return null;
   final positional = <String>[];
@@ -237,6 +293,8 @@ class _ReaderOptions {
 // GNU and BSD reader options. Deliberately no interpreters, wrappers, find,
 // sed, git, ripgrep preprocessors or output-file options. A miss asks.
 const _readers = {
+  // Literal output only; echo's arguments never name files or execute code.
+  'echo': _ReaderOptions('', '', {}, {}),
   'cat': _ReaderOptions('AbBenstTuv', '', {
     '--show-all',
     '--number-nonblank',
@@ -252,7 +310,8 @@ const _readers = {
       'qv',
       'cn',
       {'--quiet', '--silent', '--verbose', '--help', '--version'},
-      {'--bytes', '--lines'}),
+      {'--bytes', '--lines'},
+      numericContext: true),
   'tail': _ReaderOptions('Ffqrv', 'bcn', {
     '--follow',
     '--retry',

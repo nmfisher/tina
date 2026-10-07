@@ -273,8 +273,9 @@ final class ToolsPlugin extends AgentPlugin
           'exec with ls, grep, cat, head or tail and literal arguments to read '
           'these directories without repeated execution approval. These '
           'directories do not grant writes. A single literal reader command '
-          'also works through bash; scripts, expansions, redirects and pipes '
-          'still need approval.');
+          'also works through bash. In read-only and allow-edits modes, verified '
+          'reader pipelines and sequences also run. Unsupported scripts, '
+          'expansions and redirects still need approval.');
     }
   }
 }
@@ -296,10 +297,11 @@ final class HostPromptSection {
       '${switch (mode) {
         PermissionMode.ask => 'reads run; writes and commands require approval',
         PermissionMode.readOnly =>
-          'reads and verified direct system ls/grep commands run; '
+          'reads and verified system reader commands, pipelines and sequences run; '
               'writes and other commands require explicit user approval',
         PermissionMode.allowEdits =>
-          'project edits run; commands and outside writes require approval',
+          'project edits and verified system reader commands, pipelines and sequences run; '
+              'other commands and outside writes require approval',
         PermissionMode.auto =>
           'reads run; a safety judge reviews writes and commands; uncertain decisions ask the user',
       }}.\n\n'

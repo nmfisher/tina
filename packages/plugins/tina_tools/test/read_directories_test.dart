@@ -57,7 +57,8 @@ void main() {
           });
       final call = request('grep',
           ['-rn', 'needle', '--include=*.txt', external.path], workspace);
-      if (mode != PermissionMode.readOnly) {
+      if (mode != PermissionMode.readOnly &&
+          mode != PermissionMode.allowEdits) {
         expect(await gate.run(call), isA<CommandRefused>());
         expect(approvals, 1);
       }
@@ -76,7 +77,8 @@ void main() {
       expect(approvals, before,
           reason: 'a directory read grant must include all descendants');
       directories.replace([]);
-      if (mode != PermissionMode.readOnly) {
+      if (mode != PermissionMode.readOnly &&
+          mode != PermissionMode.allowEdits) {
         expect(await gate.run(call), isA<CommandRefused>());
       }
     }

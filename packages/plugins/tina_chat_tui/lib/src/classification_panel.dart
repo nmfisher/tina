@@ -462,11 +462,15 @@ final class ClassificationPanel implements PanelInputTarget {
               if (q['criteria'] case final Map criteria)
                 for (final option in criteria.entries)
                   if (row.choice == null || row.choice == option.key) ...[
-                    'Option: ${_name('${option.key}', option.value)}',
+                    '• ${_name('${option.key}', option.value)}',
+                    if (option.value is Map &&
+                        (option.value as Map)['description'] is String)
+                      '  ${(option.value as Map)['description']}',
                     if (option.value is Map &&
                         (option.value as Map)['question'] is String)
-                      '${(option.value as Map)['question']}',
-                    if (option.value is String) '${option.value}',
+                      '  ${(option.value as Map)['question']}',
+                    if (option.value is String) '  ${option.value}',
+                    '',
                   ],
             ],
           ],
@@ -475,8 +479,13 @@ final class ClassificationPanel implements PanelInputTarget {
         if (request['question'] case final String question) question,
         if (request['categories'] case final List categories)
           for (final category in categories)
-            if (category is Map)
-              'Existing option: ${_name('${category['id']}')} · ${category['question']}',
+            if (category is Map) ...[
+              '• ${_name('${category['id']}', category)}',
+              if (category['description'] is String)
+                '  ${category['description']}',
+              if (category['question'] is String) '  ${category['question']}',
+              '',
+            ],
         '',
         'Match scores describe how well an option fits the request.',
         'They do not approve or execute actions.',
@@ -493,7 +502,13 @@ final class ClassificationPanel implements PanelInputTarget {
         'Press r to inspect the raw request and response.',
       ];
       return _detailCache = [
-        for (final line in readable) ...wrapDialogText(_safe(line), width),
+        for (final line in readable)
+          if (line.startsWith('  ') && width > 2)
+            for (final wrapped
+                in wrapDialogText(_safe(line.substring(2)), width - 2))
+              '  $wrapped'
+          else
+            ...wrapDialogText(_safe(line), width),
       ];
     }
     String request = e.request, response = e.response;
@@ -550,6 +565,8 @@ final class ClassificationPanel implements PanelInputTarget {
 
   String _styleLine(String text) {
     final theme = screen.theme.chat;
+    if (_details && !_raw && text.startsWith('  '))
+      return screen.colorize(theme.dim, text);
     final plain = text
         .trimLeft()
         .replaceFirst(RegExp(r'^[›└]\s*'), '')
@@ -561,6 +578,8 @@ final class ClassificationPanel implements PanelInputTarget {
         ? suffix
         : '';
     final separator = phase.isEmpty ? -1 : lastSeparator;
+    if (_details && !_raw && plain.startsWith('• '))
+      return screen.colorize('1', text);
     if (plain.startsWith('▸') ||
         plain.startsWith('▾') ||
         phase == '◌ Running' ||
