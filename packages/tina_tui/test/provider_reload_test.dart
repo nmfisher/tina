@@ -93,6 +93,8 @@ enabled = ["tina/providers", "tina/session-controls"]
     try {
       final saved = await panel.run(
           path: config.path,
+          scopedSettings: assembly.settings,
+          settingsBackend: assembly.settingsBackend,
           descriptors: assembly.descriptors,
           applyConfiguration: assembly.applySavedConfiguration);
       expect(index, keys.length);
@@ -120,6 +122,7 @@ enabled = ["tina/providers", "tina/session-controls"]
     expect(
         await settings([
           CharInput('Providers and models'), enter,
+          enter, // Edit Global providers
           down, enter, // Add provider
           PasteInput('custom'), enter,
           down, PasteInput('new-fixture-key'), // API key
@@ -208,6 +211,7 @@ enabled = ["tina/providers", "tina/session-controls"]
     expect(
         await settings([
           CharInput('Providers and models'), enter,
+          enter, // Edit Global providers
           right,
           down, down, down, down, down, // Hidden
           CharInput(' '), // Enable Hidden
@@ -228,6 +232,7 @@ enabled = ["tina/providers", "tina/session-controls"]
         await settings([
           CharInput('Providers and models'),
           enter,
+          enter, // Edit Global providers
           right,
           down,
           down,

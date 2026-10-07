@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'plugin_catalog.dart';
+import 'settings_stack.dart';
 import 'dart:io' as io;
 
 import 'package:tina_console/tina_console.dart';
@@ -59,6 +60,7 @@ Future<int> runApp(
   void Function()? releaseBackendStatus;
   int? queueStatusListener;
   StreamSubscription<ScreenLayout>? resizeSubscription;
+  StreamSubscription<io.ProcessSignal>? interruptSubscription;
 
   // The editor owns the raw bytes; where its keys go is decided below.
   late final LineEditor editor = startup?.editor ??
@@ -93,7 +95,6 @@ Future<int> runApp(
               sections: console.settings,
               descriptors: session.assembly.descriptors,
               validatePlugins: session.assembly.validatePlugins,
-              pluginIds: session.assembly.pluginSettings.registry.ids,
               pluginDescriptions:
                   pluginDescriptions(session.assembly.pluginSettings.registry),
               pluginSettings: session.assembly.pluginSettings,
@@ -192,6 +193,11 @@ Future<int> runApp(
     // Native capability-reply draining must finish before a visible prompt
     // invites typing. Otherwise a quick first message can be discarded.
     if (s.backend is NotcursesBackend) await editor.input.ready;
+    // ANSI terminals can deliver Ctrl+C as SIGINT instead of an input byte.
+    // Route both forms through the same draft-clear/quit behavior.
+    interruptSubscription = s.io
+        .watchSignal(io.ProcessSignal.sigint)
+        .listen((_) => editor.inject(ControlKey(ControlCode.ctrlC)));
     final workspace =
         session.host.plugins.whereType<ConsoleWorkspace>().firstOrNull;
     if (workspace != null) {
@@ -264,7 +270,7 @@ Future<int> runApp(
     };
 
     while (true) {
-      if (session.assembly.quitRequested) break;
+      if (session.assembly.quitRequested || editor.quitRequested) break;
       repaintContributions();
       final line =
           queued.isEmpty ? await editor.readLine('› ') : queued.removeFirst();
@@ -290,7 +296,13 @@ Future<int> runApp(
           queueCountProvider: () =>
               queued.length + session.host.session.loop.pendingInputCount);
       try {
-        await session.runLine(line, renderReply: false);
+        final work = session.runLine(line, renderReply: false);
+        await Future.any([work, editor.whenQuit]);
+        if (editor.quitRequested) {
+          session.cancel();
+          await work;
+          break;
+        }
       } finally {
         editor.endInputCaptureWindow();
       }
@@ -301,6 +313,7 @@ Future<int> runApp(
   } finally {
     stopping = true;
     session.cancel();
+    await interruptSubscription?.cancel();
     releaseBackendStatus?.call();
     if (queueStatusListener case final listener?)
       session.host.session.loop.unsubscribe(listener);
@@ -514,7 +527,10 @@ Theme resolveTheme(Map<String, dynamic> values) {
   return Theme.fromMap(merge(base.toMap(), values));
 }
 
-/// Initial configuration has no model session and writes only on Save.
+/// Initial configuration has no model session; it edits the scoped stack
+/// directly over the config file, so first-run and `/settings` share one
+/// editor. Without a conversation there is no session layer — writes land
+/// in Global (the workspace path aliases the same file).
 Future<bool> runConfigEditor(String path,
     {String backend = 'auto', StartupTerminal? startup}) async {
   final terminal = startup ?? StartupTerminal.open(backend: backend);
@@ -530,12 +546,21 @@ Future<bool> runConfigEditor(String path,
           split: false));
       panel.repaint();
     });
-    final registry = firstPartyPlugins();
-    return await panel.run(
+    final descriptors = configuredDescriptors();
+    final stack = ScopedSettingsStack.build(
+        globalPath: path,
+        workspacePath: path,
+        descriptors: descriptors);
+    final registry = stack.registry;
+    final saved = await panel.run(
         path: path,
-        pluginIds: registry.ids,
+        scopedSettings: stack.settings,
+        settingsBackend: stack.backend,
+        descriptors: descriptors,
         pluginDescriptions: pluginDescriptions(registry),
         validatePlugins: registry.validate);
+    stack.settings.close();
+    return saved;
   } finally {
     await resize?.cancel();
     terminal.close();

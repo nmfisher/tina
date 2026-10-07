@@ -106,18 +106,17 @@ final class SettingsPanel {
 
   Future<bool> run(
       {required String path,
+      required ScopedSettings scopedSettings,
+      required ConfigSettingsBackend settingsBackend,
       List<ProviderDescriptor>? descriptors,
       void Function(Iterable<String>)? validatePlugins,
       SettingsRegistry? sections,
       PluginSettings<dynamic>? pluginSettings,
       PluginManager<dynamic>? pluginManager,
-      ScopedSettings? scopedSettings,
-      ConfigSettingsBackend? settingsBackend,
       void Function()? applyConfiguration,
-      Map<String, String> pluginDescriptions = const {},
-      Iterable<String> pluginIds = const []}) async {
+      Map<String, String> pluginDescriptions = const {}}) async {
     _savedSection = false;
-    _usingScopes = scopedSettings != null;
+    _usingScopes = true;
     _scope = SettingScope.session;
     _availableScopes = {...SettingScope.values};
     _cancelled = false;
@@ -126,142 +125,29 @@ final class SettingsPanel {
     _applyConfiguration = applyConfiguration;
     final resolvedDescriptors = descriptors ?? configuredDescriptors();
     final document = ConfigDocument.open(path);
-    if (!document.existsOnDisk &&
-        document.table('default')['model'] == kTinaDefaultModel) {
-      document.table('default')['model'] = '';
-    }
     final input = readEvent == null
         ? editor.openInputSession(cancelSignal: _cancel.future)
         : null;
     _read = readEvent ?? input!.read;
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
-    final stopSettings = scopedSettings?.listen(_refresh);
+    final stopSettings = scopedSettings.listen(_refresh);
     _overlay =
         OverlayRegion(screen, const Rect(row: 0, col: 0, width: 1, height: 1));
     _cursor = screen.claimCursor();
     try {
-      if (scopedSettings != null && settingsBackend != null) {
-        return await _scopedRun(scopedSettings, settingsBackend,
-            document: document,
-            descriptors: resolvedDescriptors,
-            sections: sections,
-            pluginSettings: pluginSettings,
-            pluginManager: pluginManager,
-            validatePlugins: validatePlugins,
-            descriptions: pluginDescriptions);
-      }
-      Future<void> commit() async {
-        document.refreshUneditedTables();
-        if (!document.hasChanges) return;
-        document.save(
-            descriptors: resolvedDescriptors, validatePlugins: validatePlugins);
-        _applyConfiguration?.call();
-        _savedSection = true;
-      }
-
-      Future<void> edit(Future<bool> Function() action) async {
-        if (await action()) await commit();
-      }
-
-      return await _browseSettings(() => [
-            (
-              category: 'Models',
-              label: 'Default model',
-              open: () =>
-                  edit(() => _defaultModel(document, resolvedDescriptors))
-            ),
-            (
-              category: 'Models',
-              label: 'Providers and models',
-              open: () => edit(() =>
-                  _providers(document, resolvedDescriptors, validatePlugins))
-            ),
-            (
-              category: 'Models',
-              label: 'Generation settings',
-              open: () =>
-                  _generation(document, resolvedDescriptors, validatePlugins)
-            ),
-            (
-              category: 'Plugins',
-              label: 'Enabled plugins',
-              open: () => _plugins(document, pluginIds.toList(), pluginSettings,
-                  pluginManager, pluginDescriptions,
-                  commit: commit)
-            ),
-            (
-              category: 'General',
-              label: 'Request and token limits',
-              open: () async {
-                const fields = {
-                  'max_global_tokens': 'Global token limit',
-                  'max_session_tokens': 'Session token limit',
-                  'max_turn_tokens': 'Turn token limit',
-                  'max_request_tokens': 'Request token limit',
-                  'max_sub_agent_tokens': 'Sub-agent token limit',
-                  'max_sub_agent_depth': 'Sub-agent depth',
-                  'max_sub_agent_concurrency': 'Concurrent sub-agents',
-                  'requests_per_minute': 'Requests per minute',
-                  'min_request_interval_ms': 'Minimum request interval (ms)',
-                  'max_concurrent_requests': 'Concurrent requests'
-                };
-                final keys = fields.keys.toList();
-                while (!_cancelled) {
-                  final values = document.table('limits');
-                  final index = await _menu('Request and token limits', [
-                    for (final key in keys)
-                      '${fields[key]}: ${_preview(key, values[key])}'
-                  ]);
-                  if (index == null) return;
-                  await edit(() => _field(
-                      values, keys[index], fields[keys[index]]!,
-                      numeric: true));
-                }
-              }
-            ),
-            (
-              category: 'Appearance',
-              label: 'Theme',
-              open: () async {
-                final variants = ['default', 'light', 'dark'];
-                final index = await _menu('Theme', variants);
-                if (index != null) {
-                  document.table('theme')['variant'] = variants[index];
-                  await commit();
-                }
-              }
-            ),
-            (
-              category: 'Appearance',
-              label: 'Terminal alerts',
-              open: () async {
-                while (!_cancelled) {
-                  final values = document.table('terminal');
-                  final selected = await _menu(
-                      'Terminal alerts',
-                      [
-                        'Terminal alerts: ${values['alerts'] != false ? 'On' : 'Off'}'
-                      ],
-                      canToggle: (_) => true,
-                      descriptionFor: (_) => terminalAlertsSetting.description);
-                  if (selected == null) return;
-                  values['alerts'] = values['alerts'] == false;
-                  await commit();
-                }
-              }
-            ),
-            for (final section in sections?.sections ?? <SettingsSection>[])
-              (
-                category: _ownerCategory(section.id),
-                label: section.title,
-                open: () => _section(sections!, section)
-              ),
-          ]);
+      return await _scopedRun(scopedSettings, settingsBackend,
+          document: document,
+          descriptors: resolvedDescriptors,
+          sections: sections,
+          pluginSettings: pluginSettings,
+          pluginManager: pluginManager,
+          validatePlugins: validatePlugins,
+          descriptions: pluginDescriptions);
     } finally {
       try {
         unlisten?.call();
-        stopSettings?.call();
+        stopSettings.call();
         _paint = null;
         if (!_cancel.isCompleted) _cancel.complete();
         input?.dispose();
@@ -937,163 +823,6 @@ final class SettingsPanel {
     }
   }
 
-  Future<void> _plugins(
-      ConfigDocument document,
-      List<String> ids,
-      PluginSettings<dynamic>? settings,
-      PluginManager<dynamic>? manager,
-      Map<String, String> descriptions,
-      {Future<void> Function()? commit}) async {
-    var scope = PluginScope.global;
-    var column = scope.index;
-    var selected = 0;
-    var query = '';
-    settings?.reload();
-    Set<String> requiredIds() => settings?.requiredIds ?? {};
-    ids = {...ids, ...requiredIds()}.toList()..sort();
-    bool enabled(String id) {
-      if (settings != null) return settings.scopedState(id, scope).enabled;
-      final table = document.table('plugins');
-      return parsePluginOverrides(table)[id] ??
-          pluginBaseline(
-                  (table['enabled'] as List? ?? defaultPluginIds)
-                      .cast<String>(),
-                  selectionVersion: table['selection_version'] as int? ?? 1)
-              .contains(id);
-    }
-
-    String description(String id) =>
-        descriptions[id] ??
-        (settings?.registry.ids.contains(id) == true
-            ? settings!.registry.definition(id).description
-            : '');
-    while (true) {
-      var reset = false;
-      var about = false;
-      final rows = [
-        'Approval channel: ${document.table('plugins')['approval_channel'] ?? defaultApprovalChannel}',
-        for (final id in ids)
-          '${enabled(id) ? '[x]' : '[ ]'} $id${requiredIds().contains(id) ? ' · required' : ''}',
-      ];
-      final choice = await _menu('Plugins · [-] inherit · [~] mixed', rows,
-          initialSelected: selected,
-          initialQuery: query,
-          onQuery: (value) => query = value,
-          checkboxes: true,
-          contextLine: _pluginColumnsHeader,
-          onHorizontal: (delta) {
-            column = (column + delta) % 4;
-            if (column < 3) scope = PluginScope.values[column];
-          },
-          rowFor: (index) => index == 0
-              ? rows.first
-              : _pluginColumnsRow(
-                  '${ids[index - 1]}${requiredIds().contains(ids[index - 1]) ? ' · required' : ''}',
-                  [
-                    for (final candidate in PluginScope.values)
-                      settings != null
-                          ? settings.overrideValue(ids[index - 1], candidate)
-                          : candidate == PluginScope.global
-                              ? enabled(ids[index - 1])
-                              : null,
-                  ],
-                  column),
-          showDescription: true,
-          onReset: () => reset = true,
-          onAbout: () => about = true,
-          descriptionFor: (index) => index > 0 && index <= ids.length
-              ? description(ids[index - 1])
-              : '',
-          detailFor: (index) {
-            if (index == 0)
-              return 'Approval delivery · Global · restart required';
-            if (index > ids.length) return 'Global · restart required';
-            final id = ids[index - 1];
-            if (requiredIds().contains(id))
-              return settings?.blockingReasons[id]?.join('; ') ??
-                  'Required by selected plugins';
-            if (settings == null) return 'Global · saves immediately';
-            final active =
-                manager!.host.plugins.any((plugin) => plugin.id == id);
-            return '${column == 3 ? 'All: toggle session, workspace and global' : '${scope.name}: ${settings.overrideValue(id, scope) == null ? 'inherited' : 'set here'}'} · ${settings.changeStatus(id, manager)} · active ${active ? 'on' : 'off'}';
-          });
-      if (choice == null) return;
-      selected = choice;
-      try {
-        if (about) {
-          if (choice > 0 && choice <= ids.length) {
-            final id = ids[choice - 1];
-            List<String> lines() =>
-                wrapDialogWords(description(id), _aboutWidth);
-            await _menu('About $id', lines(), itemsNow: lines);
-          }
-          continue;
-        }
-        if (choice == 0) {
-          final table = document.table('plugins');
-          final value = await _edit('Approval channel (restart required)',
-              table['approval_channel'] as String? ?? defaultApprovalChannel,
-              suggestions: ids.where((id) => id.contains('approval')).toList());
-          if (value != null) {
-            table['approval_channel'] = value.trim();
-            await commit?.call();
-          }
-        } else if (choice <= ids.length) {
-          final id = ids[choice - 1];
-          final required = requiredIds().contains(id);
-          if (required &&
-              (reset ||
-                  (column == 3
-                      ? PluginScope.values.every((scope) =>
-                          settings?.scopedState(id, scope).enabled ?? true)
-                      : enabled(id)))) continue;
-          if (settings != null) {
-            if (column == 3) {
-              final allEnabled = PluginScope.values
-                  .every((scope) => settings.overrideValue(id, scope) == true);
-              settings.applyAll(id, reset ? null : !allEnabled, manager!);
-            } else {
-              settings.apply(
-                  id, reset ? null : required || !enabled(id), scope, manager!);
-            }
-            _savedSection = true;
-            if (scope == PluginScope.global || column == 3) {
-              final channel = document.table('plugins')['approval_channel'];
-              document.refreshTable('plugins');
-              if (channel != null)
-                document.table('plugins')['approval_channel'] = channel;
-            }
-            if (manager.lastError != null)
-              await _menu(
-                  'Plugin change pending', [manager.lastError!, 'Back']);
-          } else {
-            if (column != PluginScope.global.index)
-              throw StateError(
-                  'Only Global scope is available without a plugin settings backend');
-            final table = document.table('plugins');
-            final overrides =
-                Map<String, dynamic>.from(table['overrides'] as Map? ?? {});
-            if (reset) {
-              overrides.remove(id);
-            } else {
-              overrides[id] = !enabled(id);
-            }
-            table['overrides'] = overrides;
-            await commit?.call();
-          }
-        }
-      } catch (error) {
-        await _menu('Could not change plugin', [
-          error is ArgumentError
-              ? error.message.toString()
-              : error is StateError
-                  ? error.message.toString()
-                  : 'Check the configuration and file permissions.',
-          'Back'
-        ]);
-      }
-    }
-  }
 
   Future<void> _section(
       SettingsRegistry registry, SettingsSection section) async {

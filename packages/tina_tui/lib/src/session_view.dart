@@ -113,7 +113,6 @@ final class SessionView
               sections: context.settings,
               descriptors: session.assembly.descriptors,
               validatePlugins: session.assembly.validatePlugins,
-              pluginIds: session.assembly.pluginSettings.registry.ids,
               pluginDescriptions:
                   pluginDescriptions(session.assembly.pluginSettings.registry),
               pluginSettings: session.assembly.pluginSettings,

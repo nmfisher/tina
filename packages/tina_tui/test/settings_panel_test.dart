@@ -6,6 +6,7 @@ import 'package:tina_console/testing.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
+import 'package:tina_tui/src/plugin_catalog.dart' show pluginDescriptions;
 
 const descriptors = [
   ProviderDescriptor(
@@ -59,13 +60,26 @@ enabled = []
       return keys[index++];
     });
     try {
-      final saved = await panel.run(
-          applyConfiguration: applyConfiguration,
-          path: config.path,
+      final assembly = TuiAssembly.start(
           descriptors: providerDescriptors,
-          pluginIds: ['tina/plans', 'tina/goals']);
-      expect(index, keys.length);
-      return (saved, io.written.toString());
+          options: AssemblyOptions(configPath: config.path));
+      try {
+        final saved = await panel.run(
+            applyConfiguration: applyConfiguration,
+            path: config.path,
+            descriptors: providerDescriptors,
+            scopedSettings: assembly.settings,
+            settingsBackend: assembly.settingsBackend,
+            pluginSettings: assembly.pluginSettings,
+            pluginManager: assembly.pluginManager,
+            validatePlugins: assembly.validatePlugins,
+            pluginDescriptions:
+                pluginDescriptions(assembly.pluginSettings.registry));
+        expect(index, keys.length);
+        return (saved, io.written.toString());
+      } finally {
+        assembly.close();
+      }
     } finally {
       editor.close();
       screen.dispose();
@@ -77,6 +91,7 @@ enabled = []
       () async {
     final (saved, output) = await drive([
       CharInput('Providers and models'), enter, // providers
+      enter, // Edit Global providers
       ArrowKey(ArrowDirection.right), down, // inline API key
       EditingKey(EditingAction.killToStart), CharInput('new-secret'), enter,
       escape,
@@ -93,22 +108,24 @@ enabled = []
 
   test('settings selects a channel independently of feature plugins', () async {
     final (saved, _) = await drive([
-      CharInput('Plugins'), enter, // plugins
-      CharInput('Approval channel'), enter, // approval channel
-      EditingKey(EditingAction.killToStart), CharInput('tina/approvals-stream'),
-      enter, escape,
-      escape, // close
+      CharInput('Plugins'), enter, // plugins matrix
+      CharInput('Approval'), enter, // approval delivery row
+      CharInput('global'), enter, // delivery has no session scope
+      CharInput('approvals-stream'), enter, // choice
+      escape, escape, // close
     ]);
     expect(saved, true);
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
     expect(loaded.approvalChannel, 'tina/approvals-stream');
+    // The scoped write replaces the legacy enabled list with overrides.
     expect(loaded.plugins, legacyProfilePlugins);
   });
 
   test('model choices omit disabled models and save the wire ID', () async {
     final (saved, output) = await drive([
       CharInput('Default model'), enter, // default model
+      CharInput('global'), enter, // default model has no session scope
       down, enter, // next
       escape, // close
     ]);
@@ -125,6 +142,7 @@ enabled = []
     final (saved, _) = await drive([
       CharInput('Default model'),
       enter,
+      CharInput('global'), enter, // default model has no session scope
       CharInput('Next'),
       enter,
       escape,
@@ -143,6 +161,7 @@ enabled = []
     final (saved, output) = await drive([
       CharInput('Default model'),
       enter,
+      CharInput('global'), enter, // default model has no session scope
       CharInput('claude-sonnet-4-6'),
       enter,
       escape,
@@ -176,6 +195,7 @@ enabled = []
     final (saved, output) = await drive([
       CharInput('Default model'),
       enter,
+      CharInput('global'), enter, // default model has no session scope
       CharInput('Other Provider'),
       enter,
       escape,
@@ -197,6 +217,7 @@ enabled = []
             'auth_token = "token-secret"\nunknown_option = "keep"'));
     final (saved, output) = await drive([
       CharInput('Providers and models'), enter,
+      enter, // Edit Global providers
       ArrowKey(ArrowDirection.right),
       down, down, down, down, // Original (after key, URL, separator)
       CharInput(' '), // disable Original
@@ -223,6 +244,7 @@ enabled = []
     final (saved, _) = await drive([
       CharInput('Providers and models'),
       enter,
+      enter, // Edit Global providers
       ArrowKey(ArrowDirection.right),
       down,
       EditingKey(EditingAction.killToStart),
@@ -237,12 +259,17 @@ enabled = []
     final (saved, _) = await drive([
       CharInput('Plugins'),
       enter,
+      ArrowKey(ArrowDirection.right), // workspace column
+      ArrowKey(ArrowDirection.right), // global column
       CharInput('tina/pl'),
-      CharInput(' '),
+      CharInput(' '), // enable tina/plans at global scope
       escape,
       escape,
     ]);
     expect(saved, true);
+    expect(
+        ConfigDocument.open(config.path).table('plugins')['overrides'],
+        containsPair('tina/plans', true));
     expect(
         loadTinaConfig(path: config.path, descriptors: descriptors)
             .config
@@ -254,8 +281,11 @@ enabled = []
       () async {
     var applications = 0;
     final (saved, output) = await drive([
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
       CharInput('Generation'),
       enter,
+      enter, // custom provider
       CharInput('16384'),
       enter,
       escape,
@@ -276,6 +306,7 @@ enabled = []
     final (_, reopened) = await drive([
       CharInput('Generation'),
       enter,
+      enter, // custom provider
       escape,
       escape,
     ]);
@@ -289,6 +320,7 @@ enabled = []
       var applications = 0;
       final (saved, _) = await drive([
         CharInput('Providers and models'), enter,
+        enter, // Edit Global providers
         ArrowKey(ArrowDirection.right), down,
         EditingKey(EditingAction.killToStart), PasteInput('draft-secret'),
         for (var i = 0; i < 7; i++) down, enter, // advanced provider fields
@@ -328,8 +360,11 @@ enabled = []
   test('Escape cancels the generation section without touching disk', () async {
     final original = config.readAsStringSync();
     final (saved, _) = await drive([
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
       CharInput('Generation'),
       enter,
+      enter, // custom provider
       CharInput('32768'),
       down,
       ArrowKey(ArrowDirection.right),
@@ -352,10 +387,15 @@ enabled = []
             keyEnvVar: 'CUSTOM_API_KEY',
             keyStyle: ProviderKeyStyle.bearer)
       ];
-      config.writeAsStringSync(config.readAsStringSync().replaceFirst(
-          'model = "original"', 'model = "original"\nthinking_budget = 4096'));
+      if (wire != ProviderWire.openAiCompatible) {
+        config.writeAsStringSync(config.readAsStringSync().replaceFirst(
+            'model = "original"', 'model = "original"\nthinking_budget = 4096'));
+      }
       final (saved, _) = await drive([
+        ControlKey(ControlCode.tab),
+        ControlKey(ControlCode.tab), // file-backed generation edits need global
         CharInput('Generation'), enter,
+        enter, // custom provider
         CharInput('16384'), down,
         // OpenAI starts Automatic (legacy numeric budget is unsupported).
         // Other wires display the existing Custom budget, wrapping to Automatic.
@@ -373,7 +413,9 @@ enabled = []
       expect(options.thinkingBudget, isNull);
       expect(options.maxOutputTokens, 16384);
       // Unrelated global settings remain on disk; this provider overrides them.
-      expect(loaded.thinkingBudget, 4096);
+      if (wire != ProviderWire.openAiCompatible) {
+        expect(loaded.thinkingBudget, 4096);
+      }
     });
   }
 
@@ -383,7 +425,11 @@ enabled = []
     config.writeAsStringSync(config.readAsStringSync().replaceFirst(
         'model = "original"', 'model = "original"\nreasoning_effort = "high"'));
     final (saved, _) = await drive([
-      CharInput('Generation'), enter, down,
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
+      CharInput('Generation'), enter,
+      enter, // custom provider
+      down,
       ArrowKey(ArrowDirection.right), // High -> Automatic
       enter, escape,
     ]);
@@ -397,8 +443,11 @@ enabled = []
 
   test('generation preserves previously committed model settings', () async {
     final (saved, _) = await drive([
-      CharInput('Default model'), enter, CharInput('Next'), enter,
-      CharInput('Generation'), enter, CharInput('16384'), enter,
+      CharInput('Default model'), enter, // default model picker
+      CharInput('global'), enter, // default model has no session scope
+      CharInput('Next'), enter, // entry completes; still global, Find cleared
+      CharInput('Generation'), enter, enter, // custom provider
+      CharInput('16384'), enter,
       escape, // close after committed edits
     ]);
     expect(saved, true);
@@ -415,7 +464,11 @@ enabled = []
         .readAsStringSync()
         .replaceFirst('model = "original"', 'model = "glm-5.3-flashx"'));
     final (saved, output) = await drive([
-      CharInput('Generation'), enter, down,
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
+      CharInput('Generation'), enter,
+      enter, // custom provider
+      down,
       ArrowKey(ArrowDirection.right), // Low, not Off
       ArrowKey(ArrowDirection.right), // High, not Medium
       ArrowKey(ArrowDirection.right), // Max
@@ -455,14 +508,26 @@ enabled = []
           })
     ];
     await drive(
-        [CharInput('Generation'), enter, CharInput('16384'), enter, escape],
+        [
+          ControlKey(ControlCode.tab),
+          ControlKey(ControlCode.tab), // file-backed generation edits need global
+          CharInput('Generation'),
+          enter,
+          enter, // custom provider
+          CharInput('16384'),
+          enter,
+          escape
+        ],
         providerDescriptors: providers);
     var loaded =
         loadTinaConfig(path: config.path, descriptors: providers).config;
     expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 16384);
     await drive([
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
       CharInput('Generation'),
       enter,
+      enter, // custom provider
       EditingKey(EditingAction.killToStart),
       enter,
       escape
@@ -476,8 +541,11 @@ enabled = []
     config.writeAsStringSync(config.readAsStringSync().replaceFirst(
         '[providers.custom]', '[providers.custom]\nmax_output = 16384'));
     final (saved, _) = await drive([
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
       CharInput('Generation'),
       enter,
+      enter, // custom provider
       EditingKey(EditingAction.killToStart),
       enter,
       escape,
@@ -492,7 +560,14 @@ enabled = []
   test('Escape closes settings after accepted edits have saved', () async {
     final before = config.readAsStringSync();
     final (saved, _) =
-        await drive([CharInput('Default model'), enter, down, enter, escape]);
+        await drive([
+          CharInput('Default model'),
+          enter,
+          CharInput('global'), enter, // default model has no session scope
+          down,
+          enter,
+          escape
+        ]);
     expect(saved, isTrue);
     expect(config.readAsStringSync(), isNot(before));
     expect(
@@ -505,8 +580,11 @@ enabled = []
   test('generation edits at the cursor, accepts commas and stores an integer',
       () async {
     final (saved, output) = await drive([
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
       CharInput('Generation'),
       enter,
+      enter, // custom provider
       PasteInput('16,380'),
       ArrowKey(ArrowDirection.left),
       EditingKey(EditingAction.delete),
@@ -555,7 +633,13 @@ enabled = []
     final line = editor.readLine('> ');
     await settle();
     await key(CharInput('preserved draft'));
-    final run = panel.run(path: config.path, descriptors: descriptors);
+    final assembly = TuiAssembly.start(
+        descriptors: descriptors, options: AssemblyOptions(configPath: config.path));
+    final run = panel.run(
+        path: config.path,
+        descriptors: descriptors,
+        scopedSettings: assembly.settings,
+        settingsBackend: assembly.settingsBackend);
     void menuCursorHidden() {
       final vt = VirtualTerminal(
           width: screen.layout.width, height: screen.layout.height)
@@ -570,11 +654,16 @@ enabled = []
       screen.input.repaint();
       panel.repaint();
       menuCursorHidden();
+      await key(ControlKey(ControlCode.tab));
+      await key(ControlKey(ControlCode.tab)); // global scope
       await key(CharInput('Request and token limits'));
       await key(enter);
       await key(CharInput('Turn token'));
       menuCursorHidden();
       await key(enter);
+      // The scoped editor seeds the field with the resolved default (0),
+      // unlike the legacy raw-table path which left it empty. Clear first.
+      await key(EditingKey(EditingAction.killToStart));
       io.feedBytes('\x1b[200~1,234,567\x1b[201~'.codeUnits);
       await settle();
       expect(editor.editState.buffer, 'preserved draft');
@@ -613,6 +702,7 @@ enabled = []
       expect(await line, 'preserved draft');
     } finally {
       panel.cancel();
+      assembly.close();
       editor.close();
       screen.dispose();
       io.closeInput();

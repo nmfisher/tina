@@ -53,6 +53,7 @@ void main() {
   late ConsoleContext context;
   late Directory directory;
   late String config;
+  late TuiAssembly assembly;
   setUp(() {
     io = FakeIo();
     screen = fakeScreen(io);
@@ -62,8 +63,10 @@ void main() {
     config = '${directory.path}/config';
     File(config).writeAsStringSync(
         '[default]\nmodel = "fixture"\n[plugins]\nenabled = []\n');
+    assembly = TuiAssembly.start(options: AssemblyOptions(configPath: config));
   });
   tearDown(() {
+    assembly.close();
     editor.close();
     screen.dispose();
     io.closeInput();
@@ -155,7 +158,13 @@ void main() {
     ];
     final panel =
         SettingsPanel(screen, editor, readEvent: () async => keys.removeAt(0));
-    expect(await panel.run(path: config, sections: context.settings), false);
+    expect(
+        await panel.run(
+            path: config,
+            scopedSettings: assembly.settings,
+            settingsBackend: assembly.settingsBackend,
+            sections: context.settings),
+        false);
     expect(keys, isEmpty);
     expect(enabled, true);
     expect(text, 'new');
@@ -173,7 +182,11 @@ void main() {
       expect(await iterator.moveNext(), true);
       return iterator.current;
     });
-    final result = panel.run(path: config, sections: context.settings);
+    final result = panel.run(
+        path: config,
+        scopedSettings: assembly.settings,
+        settingsBackend: assembly.settingsBackend,
+        sections: context.settings);
     await Future<void>.delayed(Duration.zero);
     io.written.clear();
     final remove = context.settings.registerSection(
