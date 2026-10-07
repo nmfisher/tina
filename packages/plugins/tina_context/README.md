@@ -43,7 +43,43 @@ request must remain unchanged. Edits during an executing tool batch are
 rejected until its results have been recorded. Settled exchanges, including
 those within the active turn, may be removed or rewritten.
 
-The package supplies no editing tools or budget policy. It never executes
+The working-context budget target defaults to **32,000 tokens**. The editable
+mirror's prompt tells the agent that target; the agent decides when and how to
+edit. Configure it in Settings or in TOML:
+
+```toml
+[plugin_config."tina/context"]
+budget_tokens = 32000
+response_reserve_tokens = 2048
+```
+
+Changes apply to the next request. The default reserves 2,048 tokens inside
+the 32,000-token budget, leaving 29,952 for input. The reserve must be smaller
+than the budget; it does not change the provider's output limit. Set it to
+the response headroom you want to keep.
+
+Before each model call, the plugin estimates the complete provider-neutral
+serialized request: system sections, messages (including tool payloads and
+reasoning), tool names/descriptions/schemas, edit receipts, and its own usage
+instructions. The default gauge uses UTF-8 JSON bytes divided by four. It is
+not a provider tokenizer or billing count; image encoding and provider-specific
+templates can differ substantially. Embedders may supply `tokenCounter` to
+both constructors to replace this heuristic.
+
+The agent receives current usage and remaining input room on every request.
+Additional reminders appear when input crosses 25%, 50%, or 75% of the total
+budget. A jump across several thresholds produces one reminder at the highest
+level. Lowering context rearms thresholds; exhausted response headroom produces
+an urgent reminder on every call. Instructions are transient prompt sections,
+not conversation messages or persisted snapshots. `/context` shows the last
+prepared request's usage/reserve and estimated message tokens removed or added
+by the latest eligible edit. A displayed request is not necessarily the next
+request; new messages and live settings changes are accounted for at its hook.
+
+This is guidance, not an enforced request limit. Overflow recovery remains
+future work; this plugin does not roll back turns or silently discard messages.
+
+The package supplies no editing tools or overflow policy. It never executes
 tools as part of reconstruction. Applications must mount a
 persistence plugin if context must survive process exit; without one, the log
 and snapshots exist only in memory.
@@ -59,7 +95,8 @@ final contextPlugin = ContextPlugin(
 ```
 
 This requires `dart:io`. Without `mirrorFile`, the plugin creates no files and
-adds no prompt instructions or edit receipts. Supplying a path opts into
+adds no file-edit instructions or edit receipts; budget usage instructions
+still apply. Supplying a path opts into
 overwriting that file on mount with the restored working context. Use one
 mirror path per session and permit existing file tools to access it through
 their normal sandbox policy.

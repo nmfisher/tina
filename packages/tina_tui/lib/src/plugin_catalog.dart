@@ -261,7 +261,14 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             'tina/context',
             dependency: toolProvider,
             provides: [_workingContext],
+            settings: [contextBudgetSetting, contextResponseReserveSetting],
             create: (c, _) => ContextPlugin.sessionMirror(
+                readResponseReserveTokens: () =>
+                    c.settings?.read(contextResponseReserveSetting).value ??
+                    defaultContextResponseReserveTokens,
+                readBudgetTokens: () =>
+                    c.settings?.read(contextBudgetSetting).value ??
+                    defaultContextBudgetTokens,
                 onMirrorReady: (file) => c.tools.sandbox.grants
                     .rememberExact(file.resolveSymbolicLinksSync())),
             description:

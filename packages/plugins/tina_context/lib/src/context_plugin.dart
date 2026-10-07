@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
 import 'context_file_mirror.dart';
+import 'context_settings.dart';
+import 'context_budget.dart';
 import 'working_context.dart';
 
 /// An invalid edit, as opposed to a failed durable write.
@@ -18,14 +20,56 @@ final class ContextPersistenceFailure extends StateError {
 
 /// Explicitly opt-in. A file mirror is enabled only with an explicit path.
 final class ContextPlugin extends AgentPlugin {
-  ContextPlugin({File? mirrorFile})
+  ContextPlugin(
+      {File? mirrorFile,
+      int budgetTokens = defaultContextBudgetTokens,
+      int Function()? readBudgetTokens,
+      int responseReserveTokens = defaultContextResponseReserveTokens,
+      int Function()? readResponseReserveTokens,
+      ContextTokenCounter? tokenCounter})
       : onMirrorReady = null,
+        _budget = ContextBudget(counter: tokenCounter),
+        _readResponseReserve =
+            readResponseReserveTokens ?? (() => responseReserveTokens),
+        _readBudgetTokens = readBudgetTokens ?? (() => budgetTokens),
         _sessionMirror = false,
         _mirror = mirrorFile == null ? null : ContextFileMirror(mirrorFile);
 
   /// Allocate a private editing surface for each host session. Persistence
   /// remains in the session log; this temporary file is regenerated on resume.
-  ContextPlugin.sessionMirror({this.onMirrorReady}) : _sessionMirror = true;
+  ContextPlugin.sessionMirror(
+      {this.onMirrorReady,
+      int budgetTokens = defaultContextBudgetTokens,
+      int Function()? readBudgetTokens,
+      int responseReserveTokens = defaultContextResponseReserveTokens,
+      int Function()? readResponseReserveTokens,
+      ContextTokenCounter? tokenCounter})
+      : _budget = ContextBudget(counter: tokenCounter),
+        _readResponseReserve =
+            readResponseReserveTokens ?? (() => responseReserveTokens),
+        _readBudgetTokens = readBudgetTokens ?? (() => budgetTokens),
+        _sessionMirror = true;
+
+  final int Function() _readBudgetTokens;
+  final int Function() _readResponseReserve;
+  final ContextBudget _budget;
+  ContextBudgetUsage? get budgetUsage => _budget.latestUsage;
+  int get responseReserveTokens => _readResponseReserve();
+  int? get latestEditTokensSaved {
+    final change = latestChange;
+    return change == null
+        ? null
+        : _budget.countMessages(change.before.messages) -
+            _budget.countMessages(change.after.messages);
+  }
+
+  int get budgetTokens {
+    final value = _readBudgetTokens();
+    if (value < 1) {
+      throw const FormatException('Context budget must be a positive integer.');
+    }
+    return value;
+  }
 
   final void Function(File)? onMirrorReady;
   final bool _sessionMirror;
@@ -90,6 +134,7 @@ final class ContextPlugin extends AgentPlugin {
     _loop = loop;
     _write = loop.stateWriter(id);
     _writeFailed = false;
+    _budget.reset();
     _mirror?.initialize(workingContext);
     if (_mirror case final ContextFileMirror mirror) {
       onMirrorReady?.call(mirror.file);
@@ -208,6 +253,11 @@ final class ContextPlugin extends AgentPlugin {
             }
           });
     c.messages = List.of(updated.messages);
+    if (mirror != null) {
+      c.promptSections.add(
+          'Target a working context budget of $budgetTokens tokens. '
+          'Choose when and how to edit context to stay within that target.');
+    }
     final receipt = mirror?.lastReceipt;
     if (receipt != null && receipt.status != ContextEditStatus.unchanged) {
       c.messages.add(Message(
@@ -215,12 +265,14 @@ final class ContextPlugin extends AgentPlugin {
           isSynthetic: true,
           content: [TextBlock(receipt.message)]));
     }
+    _budget.prepare(c, budget: budgetTokens, reserve: responseReserveTokens);
   }
 
   @override
   void closeSession() {
     _loop = null;
     _write = null;
+    _budget.reset();
     final directory = _ownedDirectory;
     _ownedDirectory = null;
     if (directory != null) {

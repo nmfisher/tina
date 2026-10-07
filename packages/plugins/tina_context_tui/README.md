@@ -23,7 +23,15 @@ mirror path, file status and latest file-edit receipt in this process. Message
 groups follow retained user requests in working-context order; edited summaries
 do not retain original turn identities. The token estimate uses serialized JSON
 bytes divided by four. It includes tool payloads, excludes the system prompt,
-and is not a provider tokenizer or billing count. Images and reasoning blocks
+and is not a provider tokenizer or billing count. A separate last-prepared-request
+gauge includes system instructions, tool schemas, messages and transient budget
+reminders. It shows the total budget, response reserve, signed input room, any
+reminder on that request, and estimated message-token reductions or increases
+from the latest accepted edit. The default is 32,000 total tokens with a 2,048
+response reserve. Settings apply to subsequent requests, so the gauge remains
+labelled as the last prepared request. Both gauges use the approximate serialized
+JSON byte heuristic; neither represents provider billing or a hard limit.
+Images and reasoning blocks
 are indicated without expanding their contents; long payload previews are
 bounded and the full content remains in the mirror.
 

@@ -29,6 +29,7 @@ final class ContextTuiPlugin extends AgentPlugin
         Command(
             name: 'context',
             description: 'inspect accepted working context and edits',
+            allowWhileRunning: true,
             handler: (_) => toggle()),
       ];
 
@@ -92,8 +93,20 @@ final class ContextTuiPlugin extends AgentPlugin
           .length;
       heading =
           'Working context · revision ${current.revision} · ${current.messages.length} messages';
+      final usage = context.budgetUsage;
+      final saved = context.latestEditTokensSaved;
       body.addAll([
         'Accepted conversation · ~${(bytes / 4).ceil()} tokens (JSON bytes / 4; excludes system prompt)',
+        'Budget target: ${context.budgetTokens} tokens',
+        if (usage == null)
+          'Request usage: awaiting first model call'
+        else ...[
+          'Last prepared request: ~${usage.inputTokens} / ${usage.budgetTokens} tokens (${(usage.fractionUsed * 100).toStringAsFixed(1)}%)',
+          'Input room: ~${usage.remainingInputTokens} tokens · response reserve: ${usage.responseReserveTokens}',
+          if (usage.reminder != null) usage.reminder!,
+        ],
+        if (saved != null)
+          'Latest accepted edit: ~${saved.abs()} ${saved >= 0 ? 'fewer' : 'more'} message tokens',
         'Log through ${current.throughSeq} · file: ${context.fileStatus}',
         if (context.mirrorFile != null) 'Mirror: ${context.mirrorFile!.path}',
         if (context.lastEditReceipt != null)

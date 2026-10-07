@@ -61,6 +61,27 @@ void main() {
     expect(loop.log.whereType<PluginStateEntry>(), isEmpty);
     expect(texts(provider.requests.single.messages), ['old history', 'task']);
     expect(provider.requests.single.systemPrompt, contains(file.path));
+    expect(provider.requests.single.systemPrompt, contains('32000 tokens'));
+    expect(plugin.budgetTokens, 32000);
+  });
+
+  test('configured context budget is reflected in the next request', () async {
+    var budget = 16000;
+    final plugin =
+        ContextPlugin(mirrorFile: file, readBudgetTokens: () => budget);
+    final provider = ScriptedProvider([
+      scriptedReply('done'),
+      scriptedReply('again'),
+    ]);
+    final loop = AgentLoop(provider: provider, plugins: [plugin]);
+    loop.mountPlugin(plugin);
+    await loop.runTurn(const Input('task', id: 'one'));
+    expect(provider.requests.last.systemPrompt, contains('16000 tokens'));
+    budget = 48000;
+    await loop.runTurn(const Input('next', id: 'two'));
+    expect(provider.requests.last.systemPrompt, contains('48000 tokens'));
+    budget = 0;
+    expect(() => plugin.budgetTokens, throwsFormatException);
   });
 
   test('file tools can evict settled exchanges within the active turn',

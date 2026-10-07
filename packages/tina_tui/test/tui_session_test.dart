@@ -11,9 +11,13 @@ import 'dart:io';
 import 'dart:async';
 
 import 'package:test/test.dart';
+import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/testing.dart' show AnsiBackend;
+import 'package:tina_context_tui/tina_context_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_mode/tina_mode.dart' show ModePlugin;
 import 'package:tina_tui/tina_tui.dart';
+import 'app_test.dart' show FakeIo;
 
 void main() {
   late Directory ws;
@@ -65,6 +69,50 @@ void main() {
     expect(tui.host.session.lastReply, isNull);
     expect(tui.canCancel, isFalse);
   }, skip: Platform.isWindows);
+
+  test('/context opens immediately during a busy model turn', () async {
+    final config = File('${ws.path}/context-config')
+      ..writeAsStringSync(
+          '[default]\nmodel="scripted"\n[plugins]\nenabled=["tina/context", "tina/context-tui"]\n'
+          '[plugin_config."tina/context"]\nbudget_tokens=16000\nresponse_reserve_tokens=1024\n');
+    final ready = Completer<void>();
+    final release = Completer<void>();
+    final provider = _WaitingProvider(ready, release);
+    final session = TuiSession.start(
+        configPath: config.path,
+        providerFactory: (_) => provider,
+        workingDirectory: ws.path);
+    final io = FakeIo();
+    final screen = Screen.withBackend(
+        io: io,
+        backend: AnsiBackend(io: io, ansi: AnsiCapable.yes),
+        layout: ScreenLayout.fromSize(100, 24, split: false));
+    final editor = LineEditor(screen: screen);
+    final viewer = session.host.plugins.whereType<ContextTuiPlugin>().single;
+    viewer.attachConsole(ConsoleContext(screen: screen, editor: editor));
+    addTearDown(() {
+      if (!release.isCompleted) release.complete();
+      session.close();
+      editor.close(reportLatency: false);
+      screen.dispose();
+      io.closeInput();
+    });
+    final turn = session.runLine('normal message');
+    await ready.future;
+    final command = session.offerCommand('/context');
+    expect(command, isNotNull);
+    await command!.timeout(const Duration(seconds: 3));
+    expect(viewer.isOpen, isTrue);
+    expect(viewer.visibleLines.join('\n'), contains('normal message'));
+    expect(viewer.visibleLines.join('\n'),
+        contains('Budget target: 16000 tokens'));
+    expect(viewer.visibleLines.join('\n'), contains('response reserve: 1024'));
+    expect(release.isCompleted, isFalse);
+    expect(session.host.session.loop.pendingInputCount, 0);
+    release.complete();
+    await turn;
+    expect(provider.calls, 1);
+  });
 
   test('manual shell commands do not enter a busy model input queue', () async {
     final ready = Completer<void>();

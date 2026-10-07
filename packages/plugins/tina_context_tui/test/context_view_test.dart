@@ -92,6 +92,7 @@ void main() {
     expect(visible(), contains('original history'));
     expect(visible(), contains('Pending file changes (not accepted)'));
     expect(visible(), contains('excludes system prompt'));
+    expect(visible(), contains('Budget target: 32000 tokens'));
     expect(visible(), isNot(contains('{pending invalid edit')));
     expect(mirror.readAsStringSync(), '{pending invalid edit');
     expect(loop.log.length, entries);
@@ -163,6 +164,9 @@ void main() {
     await loop.runTurn(const Input('task', id: 'new'));
     viewer.toggle();
     expect(visible(), contains('revision 1'));
+    expect(visible(), contains('Last prepared request: ~'));
+    expect(visible(), contains('response reserve: 2048'));
+    expect(visible(), contains('Latest accepted edit: ~'));
     expect(visible(), contains('short summary'));
     expect(visible(), contains('Context edit accepted.'));
     expect(visible(), isNot(contains('original history')));
