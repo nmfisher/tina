@@ -297,7 +297,8 @@
   },
   "runtimeDependencies": {
     "tina_context": [
-      "tina_engine_2"
+      "tina_engine_2",
+      "tina_settings"
     ],
     "tina_shell": [
       "tina_core",
