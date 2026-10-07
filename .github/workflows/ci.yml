@@ -87,9 +87,9 @@ jobs:
           FULL_RUN: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         run: |
           if [ "$FULL_RUN" = true ]; then
-            dart run tool/ci/select_packages.dart --full
+            dart --disable-dart-dev --packages=.dart_tool/package_config.json tool/ci/select_packages.dart --full
           else
-            dart run tool/ci/select_packages.dart
+            dart --disable-dart-dev --packages=.dart_tool/package_config.json tool/ci/select_packages.dart
           fi
 
   macos_interactive:
@@ -165,7 +165,10 @@ jobs:
       # dart_notcurses submodule is NOT in ownedPackages, so reading the policy
       # (not a packages/* glob) is also what keeps the submodule out.
       - name: pub get (owned packages, for analyze and architecture checks)
-        run: dart run tool/ci/resolve_owned.dart
+        # These pure-Dart helpers do not need native assets. Invoke the VM
+        # directly so root dependencies' hooks do not run before link deps
+        # are installed (and do not add native work to package selection).
+        run: dart --disable-dart-dev --packages=.dart_tool/package_config.json tool/ci/resolve_owned.dart
 
       # Root's own tests import tina_console → the dart_notcurses build hook
       # runs on dart test → the system linker deps must be present (see the

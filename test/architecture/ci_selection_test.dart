@@ -180,6 +180,22 @@ dependency_overrides:
       expect(triggers.containsKey('schedule'), isTrue);
       expect(triggers.containsKey('workflow_dispatch'), isTrue);
       expect((jobs['changes'] as Map)['outputs'], contains('packages'));
+      for (final entry in jobs.entries) {
+        final steps = (entry.value as Map)['steps'] as List? ?? [];
+        for (final step in steps.cast<Map>()) {
+          final run = step['run'];
+          if (run is String &&
+              (run.contains('tool/ci/select_packages.dart') ||
+                  run.contains('tool/ci/resolve_owned.dart'))) {
+            expect(
+              run,
+              contains('--disable-dart-dev'),
+              reason:
+                  'Pure CI helpers must not build root native assets before link dependencies are installed',
+            );
+          }
+        }
+      }
     },
   );
 }
