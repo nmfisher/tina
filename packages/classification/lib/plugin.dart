@@ -193,6 +193,14 @@ class ClassificationPlugin extends AgentPlugin {
         }
         token.cancel();
       });
+      void outcome(String classifier, ClassificationOutcome value) {
+        if (!current() || token.isCancelled) return;
+        final matching = trace.exchanges.where(
+          (e) => e.inputId == input.id && e.classifierId == classifier,
+        );
+        if (matching.isNotEmpty) matching.last.recordOutcome(value);
+      }
+
       final result = await Future.any<UtteranceClassification?>([
         classifyAdaptiveUtterance(
           id: input.id,
@@ -203,6 +211,7 @@ class ClassificationPlugin extends AgentPlugin {
             lease.budget.model,
             trace,
             input.id,
+            input.text,
           ),
           budget: lease.budget,
           cancellation: token,
@@ -210,6 +219,26 @@ class ClassificationPlugin extends AgentPlugin {
           learner: learner == null
               ? null
               : _TracedLearner(learner!, trace, input.id),
+          onIntent: (intent) => outcome(
+            'intent',
+            ClassificationOutcome(switch (intent.type) {
+              IntentType.agentInstruction => 'Request to do work',
+              IntentType.projectQuestion => 'Project question',
+              IntentType.unclear => 'Unclear',
+              null => intent.categoryLabel ?? 'Other',
+            }, unclear: intent.type == IntentType.unclear),
+          ),
+          onGit: (git) => outcome(
+            'git',
+            ClassificationOutcome(
+              git.unknown
+                  ? 'Unclear'
+                  : git.commands.isEmpty
+                  ? 'No Git action'
+                  : git.commands.map((c) => 'git $c').join(', '),
+              unclear: git.unknown,
+            ),
+          ),
           onLearning: (_) {
             if (current() && !token.isCancelled) {
               _publish(
@@ -316,9 +345,16 @@ class ClassificationPlugin extends AgentPlugin {
 }
 
 final class _TracedJudgments implements JudgmentService {
-  _TracedJudgments(this.service, this.model, this.trace, this.inputId);
+  _TracedJudgments(
+    this.service,
+    this.model,
+    this.trace,
+    this.inputId,
+    this.inputText,
+  );
   final JudgmentService service;
   final String model, inputId;
+  final String inputText;
   final ClassificationTrace trace;
 
   @override
@@ -333,12 +369,31 @@ final class _TracedJudgments implements JudgmentService {
       );
     final intent = request.questions.containsKey('intent');
     final previous = trace.exchanges
-        .where((e) => e.inputId == inputId)
+        .where(
+          (e) =>
+              e.inputId == inputId &&
+              (intent
+                  ? e.classifierId == 'intent' ||
+                        e.classifierId == 'learn.intent'
+                  : e.classifierId == 'intent' ||
+                        e.classifierId == 'git' ||
+                        e.classifierId == 'learn.git'),
+        )
         .toList();
     final parent = previous.isEmpty ? null : previous.last.id;
     final exchange = trace.begin(
       inputId: inputId,
       title: intent ? 'Intent' : 'Git operations',
+      classifierId: intent ? 'intent' : 'git',
+      classifierName: intent ? 'Request type' : 'Git actions',
+      inputText: inputText,
+      trigger: parent == null
+          ? null
+          : previous.last.classifierId.startsWith('learn.')
+          ? 'Retry after category discovery'
+          : previous.last.classifierId == (intent ? 'intent' : 'git')
+          ? 'Retry of ${intent ? 'Request type' : 'Git actions'}'
+          : 'Request type → Request to do work',
       parentId: parent,
       questions: request.questions.map((id, q) => MapEntry(id, q.toJson())),
       request: request.toJson(
@@ -389,7 +444,7 @@ final class _TracedLearner implements CategoryLearner {
     required JudgmentCancellation cancellation,
   }) async {
     final previous = trace.exchanges
-        .where((e) => e.inputId == inputId)
+        .where((e) => e.inputId == inputId && e.classifierId == question.id)
         .toList();
     final parent = previous.isEmpty ? null : previous.last.id;
     final actual = learner;
@@ -406,6 +461,10 @@ final class _TracedLearner implements CategoryLearner {
       inputId: inputId,
       parentId: parent,
       title: 'Learn category · ${question.id}',
+      classifierId: 'learn.${question.id}',
+      classifierName: 'Category discovery',
+      trigger: 'No existing category matched',
+      inputText: input,
       request: {
         'question': question.question,
         'input': input,

@@ -103,6 +103,10 @@ final class MainAgentCategoryLearner implements CategoryLearner {
         inputId: inputId ?? '',
         parentId: parentId,
         title: 'Learn category · ${question.id}',
+        classifierId: 'learn.${question.id}',
+        classifierName: 'Category discovery',
+        trigger: 'No existing category matched',
+        inputText: input,
         request: {
           'model': provider.model,
           'system': system,

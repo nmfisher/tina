@@ -7,11 +7,17 @@ more subcommands (push, branch, checkout, commit, etc.).
 
 The plugin is informational: it never executes commands, changes permissions,
 rewrites input, or adds its predictions to the conversation. The console's live
-classification panel shows request/reply bodies and learning progress. Open it
+classification panel groups runs by classifier, with a name, status and result
+for each run. Independent classifiers appear as siblings; dependent classifiers
+are nested with their trigger. Match scores stay inside each classifier's checks
+and never imply permission to execute actions. Open it
 with `/classification`, or use `/classification hierarchy` for all evaluated
 questions/options and dependent stages. F6 toggles visibility; focus through
 Ctrl+G, Tab, Enter, then use ↑↓ to select, → for details, ← to return and `h`
-to toggle the hierarchy. Headless `/classification` prints the latest result.
+to toggle all checks, or Space to expand/collapse one classifier's checks.
+Details explain the checks, results and text context;
+press `r` in details to switch to raw request/response JSON and back.
+Headless `/classification` prints the latest result.
 Each session owns its latest result and a bounded, in-memory exchange history; new
 input supersedes pending work. Cancellation, timeout and unload close the service
 and prevent late results from changing the display. The last result is transient
@@ -77,6 +83,16 @@ Package API:
 - `typesafe_classifier.dart`: the existing HTTP transport.
 - `classification.dart`, `judgments.dart`, `exploration.dart`: retained library
   APIs for legacy callers. Repository indexing/exploration is not activated.
+
+Trace producers can supply arbitrary `classifierId` and `classifierName` values
+to `trace.begin`, plus `inputText` for the request being evaluated. Set `parentId`
+only for an actual dependency and provide `trigger` to explain its condition;
+independent classifiers omit both. The exchange ID identifies the run.
+After completing a run, call `recordOutcome(ClassificationOutcome(label,
+unclear: ...))` with its decoded result. Wire answers and match scores remain
+separate. Outcomes remain attached to their run when a new input arrives;
+cancelled, failed and closed runs reject late outcomes. This is a presentation
+contract; it does not register or schedule additional classifiers.
 
 The live classification panel is in `tina_chat_tui`; its console contribution
 keeps terminal imports out of classification. See

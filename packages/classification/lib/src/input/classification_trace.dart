@@ -3,6 +3,13 @@ import 'dart:convert';
 
 enum ClassificationExchangePhase { pending, complete, failed, cancelled }
 
+/// Display-only decoded outcome. Scores and wire answers remain separate.
+final class ClassificationOutcome {
+  const ClassificationOutcome(this.label, {this.unclear = false});
+  final String label;
+  final bool unclear;
+}
+
 /// Session-local diagnostics, separate from the transcript and learned catalog.
 /// Callers supply bodies only, never transport headers or provider credentials.
 final class ClassificationTrace {
@@ -24,6 +31,10 @@ final class ClassificationTrace {
     required String title,
     required Object request,
     int? parentId,
+    String? classifierId,
+    String? classifierName,
+    String? trigger,
+    String? inputText,
     Map<String, Object?> questions = const {},
   }) {
     final exchange = ClassificationExchange._(
@@ -35,6 +46,10 @@ final class ClassificationTrace {
       DateTime.now(),
       parentId,
       Map.unmodifiable(questions),
+      classifierId ?? title,
+      classifierName ?? title,
+      trigger,
+      inputText == null ? null : _clip(inputText),
     );
     if (!_closed) {
       _exchanges.add(exchange);
@@ -81,10 +96,31 @@ final class ClassificationExchange {
     this.started,
     this.parentId,
     this.questions,
+    this.classifierId,
+    this.classifierName,
+    this.trigger,
+    this.inputText,
   );
   final ClassificationTrace _trace;
   final int id;
+
+  /// An actual dependency, never merely a preceding request.
   final int? parentId;
+
+  /// Stable classifier identity and its user-facing name.
+  final String classifierId, classifierName;
+  final String? trigger, inputText;
+  ClassificationOutcome? _outcome;
+  ClassificationOutcome? get outcome => _outcome;
+
+  /// The owner records the decoded result after evaluation, without changing
+  /// classifier decisions. Cancelled/failed/closed runs reject late outcomes.
+  void recordOutcome(ClassificationOutcome value) {
+    if (_trace._closed || _phase != ClassificationExchangePhase.complete)
+      return;
+    _outcome = value;
+    _trace._notify();
+  }
 
   /// Question metadata survives clipping the displayed body at large catalogs.
   final Map<String, Object?> questions;

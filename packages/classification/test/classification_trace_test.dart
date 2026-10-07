@@ -62,6 +62,14 @@ void main() {
       final git = plugin.trace.exchanges.last;
       expect(git.parentId, intent.id);
       expect(git.title, 'Git operations');
+      expect(intent.classifierId, 'intent');
+      expect(intent.classifierName, 'Request type');
+      expect(intent.trigger, isNull);
+      expect(git.classifierId, 'git');
+      expect(git.classifierName, 'Git actions');
+      expect(git.trigger, 'Request type → Request to do work');
+      expect(intent.outcome!.label, 'Request to do work');
+      expect(git.outcome, isNull);
       plugin.onInput(input('new input'));
       await pump();
       expect(git.phase, ClassificationExchangePhase.cancelled);
@@ -69,6 +77,80 @@ void main() {
       await pump();
       expect(git.response, isEmpty);
       expect(plugin.trace.exchanges.last.inputId, 'new input');
+    },
+  );
+
+  test(
+    'decoded outcomes stay with their run and cancelled runs reject late outcomes',
+    () {
+      final trace = ClassificationTrace();
+      addTearDown(trace.close);
+      final e = trace.begin(
+        inputId: 'input',
+        title: 'wire stage',
+        request: {},
+        classifierId: 'acme/arbitrary',
+        classifierName: 'Project topic',
+      );
+      final revision = trace.revision;
+      e.recordOutcome(const ClassificationOutcome('premature'));
+      expect(e.outcome, isNull);
+      expect(trace.revision, revision);
+      e.complete();
+      e.recordOutcome(const ClassificationOutcome('Unclear', unclear: true));
+      expect(e.outcome!.label, 'Unclear');
+      expect(e.outcome!.unclear, true);
+      final cancelled = trace.begin(
+        inputId: 'input',
+        title: 'cancelled',
+        request: {},
+      );
+      trace.cancelPending('input');
+      cancelled.recordOutcome(const ClassificationOutcome('late'));
+      expect(cancelled.outcome, isNull);
+      trace.close();
+      e.recordOutcome(const ClassificationOutcome('after close'));
+      expect(e.outcome!.label, 'Unclear');
+    },
+  );
+
+  test(
+    'unrelated independent runs do not become Git dependencies; decoded outcomes survive new input',
+    () async {
+      final service = Pending();
+      final plugin = ClassificationPlugin(
+        terminal: Output(),
+        open: () => ClassificationLease(
+          service: service,
+          budget: JudgmentRequestBudget(),
+          close: () {},
+        ),
+      );
+      addTearDown(plugin.closeSession);
+      plugin.onInput(input('push the branch'));
+      await pump();
+      final intent = plugin.trace.exchanges.single;
+      plugin.trace
+          .begin(
+            inputId: intent.inputId,
+            title: 'Topic',
+            request: {},
+            classifierId: 'acme/topic',
+            classifierName: 'Project topic',
+          )
+          .complete();
+      service.complete(0, {'agentInstruction': .99});
+      await pump();
+      final git = plugin.trace.exchanges.last;
+      expect(git.parentId, intent.id);
+      service.complete(1, {'push': .99});
+      await pump();
+      expect(intent.outcome!.label, 'Request to do work');
+      expect(git.outcome!.label, 'git push');
+      plugin.onInput(input('new input'));
+      await pump();
+      expect(intent.outcome!.label, 'Request to do work');
+      expect(git.outcome!.label, 'git push');
     },
   );
 

@@ -76,8 +76,10 @@ void main() {
   setUp(() {
     active = true;
     io = Io();
-    screen =
-        Screen(io: io, layout: ScreenLayout.fromSize(100, 24, split: false));
+    screen = Screen(
+        io: io,
+        ansi: AnsiCapable.yes,
+        layout: ScreenLayout.fromSize(100, 24, split: false));
     editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
     focus = FocusManager();
     home = PanelFrame(
@@ -107,8 +109,8 @@ void main() {
       () async {
     final e = request();
     expect(visible(), contains('classification'));
-    expect(visible(), contains('Input: push the branch'));
-    expect(visible(), contains('Reply: waiting'));
+    expect(visible(), contains('You asked: push the branch'));
+    expect(visible(), contains('Request type · ◌ Running'));
     expect(visible(), isNot(contains('intent: classifying')));
     e.complete({
       'model': 'fixture',
@@ -126,15 +128,15 @@ void main() {
       },
       'usage': {}
     });
-    expect(visible(), contains('agentInstruction 99.0%'));
+    expect(visible(), contains('Request to do work'));
     plugin.detachConsole();
     expect(plugin.panel, isNull);
     plugin.attachConsole(context);
-    expect(visible(), contains('agentInstruction 99.0%'));
+    expect(visible(), contains('Request to do work'));
     plugin.panel!.show(hierarchy: true);
     final labels = classificationPanelRows(plugin.trace, hierarchy: true)
         .map((r) => r.label);
-    expect(labels, contains('✓ instruction · 99.0%'));
+    expect(labels, contains('✓ Request to do work · [####] 99.0% match'));
   });
 
   test(
@@ -169,10 +171,15 @@ void main() {
       }
     });
     final rows = classificationPanelRows(plugin.trace, hierarchy: true);
-    expect(rows.map((r) => r.label), contains('checkout · P(yes) 1.0%'));
-    expect(rows.map((r) => r.label), contains('push · P(yes) 99.0%'));
+    expect(rows.map((r) => r.label),
+        contains('Check out files or a branch · [----] 1.0% match'));
+    expect(rows.map((r) => r.label),
+        contains('Push changes · [####] 99.0% match'));
     expect(
-        rows.singleWhere((r) => r.exchange == git && r.question == null).depth,
+        rows
+            .singleWhere((r) =>
+                r.exchange == git && r.kind == ClassificationRowKind.classifier)
+            .depth,
         1);
     expect(rows.where((r) => r.choice != null), hasLength(3));
     plugin.panel!.show(hierarchy: true);
@@ -211,7 +218,227 @@ void main() {
     expect(e.request, contains('[display truncated]'));
     final rows = classificationPanelRows(plugin.trace, hierarchy: true);
     expect(rows.where((r) => r.choice != null), hasLength(255));
-    expect(rows.map((r) => r.label), contains('✓ Category 253 · 99.0%'));
+    expect(rows.map((r) => r.label),
+        contains('✓ Category 253 · [####] 99.0% match'));
+  });
+
+  test(
+      'arbitrary independent classifiers are siblings and results belong to their runs',
+      () {
+    final root = plugin.trace.begin(
+        inputId: 'same',
+        title: 'opaque-root',
+        classifierId: 'acme/topic',
+        classifierName: 'Project topic',
+        inputText: 'fix the test',
+        request: {});
+    final independent = plugin.trace.begin(
+        inputId: 'same',
+        title: 'opaque-other',
+        classifierId: 'acme/language',
+        classifierName: 'Language',
+        request: {});
+    final child = plugin.trace.begin(
+        inputId: 'same',
+        title: 'opaque-child',
+        classifierId: 'acme/testing',
+        classifierName: 'Test framework',
+        parentId: root.id,
+        trigger: 'Project topic → Testing',
+        request: {});
+    root.complete();
+    root.recordOutcome(const ClassificationOutcome('Testing'));
+    child.complete();
+    child.recordOutcome(const ClassificationOutcome('Unclear', unclear: true));
+    final rows = classificationPanelRows(plugin.trace, hierarchy: false);
+    final headers =
+        rows.where((r) => r.kind == ClassificationRowKind.classifier).toList();
+    expect(headers.map((r) => r.exchange), [root, child, independent]);
+    expect(headers.map((r) => r.depth), [0, 1, 0]);
+    expect(
+        rows
+            .singleWhere((r) =>
+                r.exchange == child && r.kind == ClassificationRowKind.relation)
+            .label,
+        'Trigger: Project topic → Testing');
+    expect(
+        rows
+            .singleWhere((r) =>
+                r.exchange == independent &&
+                r.kind == ClassificationRowKind.relation)
+            .label,
+        'Runs independently');
+    expect(
+        rows
+            .singleWhere((r) =>
+                r.exchange == child && r.kind == ClassificationRowKind.result)
+            .label,
+        'Result: ? Unclear');
+    expect(
+        rows
+            .singleWhere((r) =>
+                r.exchange == root && r.kind == ClassificationRowKind.result)
+            .label,
+        'Result: Testing');
+    expect(
+        rows
+            .singleWhere((r) =>
+                r.exchange == independent &&
+                r.kind == ClassificationRowKind.result)
+            .label,
+        'Result: Waiting for result');
+    plugin.panel!.show();
+    expect(visible(), contains('Project topic'));
+    expect(visible(), contains('Language'));
+    expect(visible(), contains('Test framework'));
+    expect(visible(), isNot(contains('opaque-')));
+    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*36m')));
+    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*32m')));
+    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*33m')));
+    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*34m')));
+    independent.fail('service unavailable');
+    expect(visible(), contains('! Failed'));
+    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*31m')));
+  });
+
+  test('Space expands one classifier and keeps other classifiers collapsed',
+      () {
+    final root = request();
+    final child = request(parent: root.id, git: true);
+    plugin.panel!.show();
+    while (plugin.panel!.selected!.exchange != root) {
+      plugin.panel!.handleEvent(ArrowKey(ArrowDirection.up));
+    }
+    plugin.panel!.handleEvent(CharInput(' '));
+    expect(visible(), contains('Project question'));
+    expect(visible(), isNot(contains('Check out files')));
+    expect(
+        classificationPanelRows(plugin.trace,
+                hierarchy: false, expanded: {root.id})
+            .where((r) => r.exchange == child && r.question != null),
+        isEmpty);
+    plugin.panel!.handleEvent(CharInput(' '));
+    expect(visible(), isNot(contains('Project question')));
+  });
+
+  test('pruned and cross-input parents never appear as independent runs', () {
+    final old =
+        plugin.trace.begin(inputId: 'old', title: 'Old input', request: {});
+    final e = plugin.trace.begin(
+        inputId: 'new', title: 'New input', request: {}, parentId: old.id);
+    final rows =
+        classificationPanelRows(plugin.trace, hierarchy: false, inputId: 'new');
+    expect(rows.every((r) => r.exchange == e), true);
+    expect(
+        rows
+            .where((r) => r.kind == ClassificationRowKind.classifier)
+            .single
+            .depth,
+        0);
+    expect(rows.map((r) => r.label),
+        contains('Dependency: earlier run (outside history)'));
+  });
+
+  test(
+      'unselected option details describe that option, not the winning category',
+      () {
+    final e = request();
+    e.complete({
+      'answers': {
+        'intent': {
+          'choice': 'agentInstruction',
+          'confidence': .99,
+          'probabilities': {'projectQuestion': .01, 'agentInstruction': .99},
+        },
+      },
+    });
+    plugin.panel!.show(hierarchy: true);
+    while (plugin.panel!.selected!.choice != 'projectQuestion') {
+      plugin.panel!.handleEvent(ArrowKey(ArrowDirection.down));
+    }
+    expect(plugin.panel!.selected!.choice, 'projectQuestion');
+    plugin.panel!.handleEvent(ArrowKey(ArrowDirection.right));
+    expect(visible(), contains('Selected: No'));
+    expect(visible(), contains('Project question: 1.0% match'));
+    expect(visible(), contains('Is this a project question?'));
+    expect(visible(), isNot(contains('Request to do work')));
+  });
+
+  test(
+      'short monochrome panels retain classifier names, outcomes and running labels',
+      () {
+    final monoIo = Io();
+    final monoScreen = Screen(
+        io: monoIo,
+        ansi: AnsiCapable.no,
+        layout: ScreenLayout.fromSize(80, 10, split: false));
+    final monoEditor =
+        LineEditor(screen: monoScreen, escapeTimeout: Duration.zero);
+    final monoPlugin =
+        ClassificationConsolePlugin(terminal: Output(), open: () => null);
+    addTearDown(() {
+      monoPlugin.closeSession();
+      monoEditor.close(reportLatency: false);
+      monoScreen.dispose();
+      unawaited(monoIo.input.close());
+    });
+    monoPlugin
+        .attachConsole(ConsoleContext(screen: monoScreen, editor: monoEditor));
+    final topic = monoPlugin.trace.begin(
+        inputId: 'one',
+        title: 'raw topic stage',
+        classifierName: 'Topic',
+        classifierId: 'topic',
+        inputText: 'fix the test',
+        request: {});
+    topic.complete();
+    topic.recordOutcome(const ClassificationOutcome('Unclear', unclear: true));
+    monoPlugin.trace.begin(
+        inputId: 'one',
+        title: 'raw language stage',
+        classifierName: 'Language',
+        classifierId: 'language',
+        inputText: 'fix the test',
+        request: {});
+    final vt = VirtualTerminal(width: 80, height: 10)
+      ..feed(monoIo.output.toString());
+    final text = List.generate(10, vt.rowText).join('\n');
+    expect(text, contains('Topic: ? Unclear'));
+    expect(text, contains('Language: ◌ Running'));
+    expect(text, contains('You asked: fix the test'));
+    expect(monoIo.output.toString(),
+        isNot(contains(RegExp(r'\x1b\[[0-9;]*(31|32|33|34|36)m'))));
+  });
+
+  test('weak Git scores stay under checks and readable details precede JSON',
+      () {
+    final e = request(git: true);
+    e.complete({
+      'answers': {
+        'push': {'type': 'noul', 'noul': .55},
+        'checkout': {'type': 'noul', 'noul': .01},
+      }
+    });
+    e.recordOutcome(const ClassificationOutcome('Unclear', unclear: true));
+    expect(visible(), contains('Git actions'));
+    expect(visible(), contains('Result: ? Unclear'));
+    expect(visible(), isNot(contains('Possible:')));
+    expect(visible(), isNot(contains('55.0%')));
+    expect(visible(), isNot(contains('P(yes)')));
+    final rows = classificationPanelRows(plugin.trace, hierarchy: true);
+    expect(rows.where((r) => r.label.startsWith('✓')), isEmpty);
+    plugin.panel!.show();
+    plugin.panel!.handleEvent(ArrowKey(ArrowDirection.right));
+    expect(visible(), contains('You asked: push the branch'));
+    expect(visible(), contains('Results'));
+    expect(visible(), contains('Push changes: 55.0% match'));
+    expect(visible(), isNot(contains('"model"')));
+    plugin.panel!.handleEvent(CharInput('r'));
+    expect(visible(), contains('Request JSON'));
+    expect(visible(), contains('"model": "fixture"'));
+    plugin.panel!.handleEvent(CharInput('r'));
+    expect(visible(), contains('Results'));
+    expect(visible(), isNot(contains('Request JSON')));
   });
 
   test(
@@ -256,7 +483,7 @@ void main() {
     await key;
     modal.dispose();
     plugin.repaintConsole();
-    expect(visible(), contains('projectQuestion 95.0%'));
+    expect(visible(), contains('Project question'));
     await pumpEventQueue();
     io.output.clear();
     await Future<void>.delayed(const Duration(milliseconds: 180));

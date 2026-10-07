@@ -19,6 +19,8 @@ Future<UtteranceClassification> classifyAdaptiveUtterance({
   required InputCategoryStore store,
   CategoryLearner? learner,
   void Function(CategoryQuestion)? onLearning,
+  void Function(IntentResult)? onIntent,
+  void Function(GitIntent)? onGit,
 }) async {
   final source = await InputTextSource(
     id,
@@ -122,6 +124,7 @@ Future<UtteranceClassification> classifyAdaptiveUtterance({
     categoryId: selected,
     categoryLabel: selected == otherCategoryId ? 'other' : category?.label,
   );
+  onIntent?.call(intent);
   if (selected != 'agentInstruction') {
     return UtteranceClassification(
       intent: intent,
@@ -188,6 +191,7 @@ Future<UtteranceClassification> classifyAdaptiveUtterance({
     gitQuestion = await question('git');
     git = await selectGit(gitQuestion);
   }
+  onGit?.call(git);
   return UtteranceClassification(
     intent: intent,
     git: git,

@@ -282,9 +282,17 @@ definitions are shared globally in `~/.tina/classification/categories.json`
 Results appear in a live classification panel rather than the status bar.
 `/classification` opens it; `/classification hierarchy` opens the execution tree.
 F6 hides or shows it. Use Ctrl+G, Tab, Enter to focus, ↑↓ to select a stage or
-question, → or Enter to inspect its request/reply, ← to return, and `h` to switch
-between exchanges and hierarchy. The hierarchy includes all evaluated choices
-and Git questions, probabilities, category discovery and dependent retries.
+question, → or Enter to inspect readable checks/results, ← to return, and `h` to switch
+between collapsed and expanded checks. Space expands or collapses one classifier.
+The hierarchy includes all evaluated choices
+and Git questions, match scores, category discovery and dependent retries.
+Each classifier has its own name, status and decoded result. Independent runs
+appear as siblings; dependent runs are nested and show their trigger. Scores are
+inside expandable checks. Headers are cyan, running states blue, completed
+evaluations green, unclear results amber and failures red. Scores have muted
+bars; high scores do not imply approval. Labels and symbols remain in monochrome.
+Short terminals show one summary line per classifier. Details explain the input,
+checks, results and context; `r` switches between readable details and raw JSON.
 Payloads, partial discovery replies and failures update without blocking the main
 agent. The panel shares sidebar space with the plan and yields to dialogs.
 The last 32 exchanges are kept in memory for the session; each displayed body is
