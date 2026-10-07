@@ -171,20 +171,13 @@ void main() {
       ed.close();
     });
 
-    test('readKey completes with Ctrl-C on a confirmed quit, not the arm',
-        () async {
+    test('readKey completes with Ctrl-C on empty-input quit', () async {
       final input = FakeInputBackend();
       final ed = _makeEditor(input);
       ed.readLine('> ');
       await _flush();
       final fut = ed.readKey();
-      input.emit(ControlKey(ControlCode.ctrlC)); // arm
-      var resolved = false;
-      fut.then((_) => resolved = true);
-      await _flush();
-      expect(resolved, isFalse,
-          reason: 'the first press only arms the confirm');
-      input.emit(ControlKey(ControlCode.ctrlC)); // confirm quit
+      input.emit(ControlKey(ControlCode.ctrlC));
       final got = await fut;
       expect(got, isA<ControlKey>());
       expect((got as ControlKey).code, ControlCode.ctrlC);

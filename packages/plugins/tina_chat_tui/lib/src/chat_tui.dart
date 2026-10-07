@@ -68,6 +68,7 @@ final class ChatTuiPlugin extends AgentPlugin
   Timer? _ticker;
   int _frame = 0, _width = -1, _height = -1;
   ImageCellSize? _cells;
+  int _themeEpoch = -1;
   bool _busy = false;
   int? _selected;
   String _streamed = '', _thinking = '';
@@ -590,12 +591,17 @@ final class ChatTuiPlugin extends AgentPlugin
       _width = -1;
       return;
     }
+    // Rendered rows bake theme SGR into RegionLines, so a theme change needs a
+    // re-render (rebuild), not just a re-emit of the cached lines.
+    final themeEpoch = console.screen.themeEpoch;
     if (_width != console.chat.bounds.width ||
         _height != console.chat.usableHeight ||
-        _cells != console.screen.imageCellSize) {
+        _cells != console.screen.imageCellSize ||
+        _themeEpoch != themeEpoch) {
       _width = console.chat.bounds.width;
       _height = console.chat.usableHeight;
       _cells = console.screen.imageCellSize;
+      _themeEpoch = themeEpoch;
       _rebuild();
     }
     _paintUsage();

@@ -100,6 +100,13 @@ final class SessionView
       if (next != appliedTheme) {
         appliedTheme = next;
         context.screen.setTheme(resolveTheme(session.assembly.theme));
+        // setTheme only invalidates retained paint state; without an eager
+        // global repaint the new theme reaches the screen lazily — regions
+        // behind an open settings panel keep the old colors until they
+        // repaint for their own reasons. Repaint now, then let contributions
+        // re-render any styled content they cache.
+        context.screen.repaintAfterThemeChange();
+        repaintConsole();
       }
       _settings?.repaint();
     };

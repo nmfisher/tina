@@ -164,14 +164,19 @@ The plugin validates edits before subsequent model calls and persists accepted
 replacements alongside the original conversation log. Automatic compaction and
 `/compact` pause while it is loaded; a pending restart change does not switch
 the running context policy. Persistence must be enabled for edits to survive
-process exit. Child agents retain their existing plugin set. There are no
-automatic budget reminders yet. See the
+process exit. Child agents retain their existing plugin set. The default budget
+is 32,000 tokens with 2,048 reserved for the response. The agent sees estimated
+request usage and receives reminders at 25%, 50% and 75% of the total budget.
+These are guidance, not a hard request limit. See the
 [context package](../packages/plugins/tina_context/README.md).
 
 Also set `"tina/context-tui" = true` under `[plugins.overrides]` for the optional
 `/context` visualizer. It requires `tina/context`; once that plugin is loaded,
-the viewer can be toggled live. It displays accepted messages, approximate
-tokens, pending mirror status and latest accepted changes without applying edits.
+the viewer can be toggled live. Context shows collapsible messages and tool
+exchanges; Changes shows removals/additions; Details shows file and revision
+information. Tab or T switches views, ↑↓ selects, Space/Enter expands, and
+PgUp/PgDn scrolls. The header shows approximate request usage against the input
+budget and pending file status. The viewer never applies edits.
 
 ## Limits
 
@@ -286,10 +291,10 @@ question, → or Enter to inspect readable checks/results, ← to return, and `h
 between collapsed and expanded checks. Space expands or collapses one classifier.
 The hierarchy includes all evaluated choices
 and Git questions, match scores, category discovery and dependent retries.
-Each classifier has its own name, status and decoded result. Independent runs
-appear as siblings; dependent runs are nested and show their trigger. Scores are
-inside expandable checks. Headers are cyan, running states blue, completed
-evaluations green, unclear results amber and failures red. Scores have muted
+Each classifier shows its name and result on one line, or `[loading]` while
+pending. Independent runs appear as siblings; dependent runs are nested, with
+triggers available in details. Scores are inside expandable checks. Names are
+cyan, loading states blue, unclear results amber and failures red. Scores have muted
 bars; high scores do not imply approval. Labels and symbols remain in monochrome.
 Short terminals show one summary line per classifier. Details explain the input,
 checks, results and context; `r` switches between readable details and raw JSON.

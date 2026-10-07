@@ -7,9 +7,9 @@ more subcommands (push, branch, checkout, commit, etc.).
 
 The plugin is informational: it never executes commands, changes permissions,
 rewrites input, or adds its predictions to the conversation. The console's live
-classification panel groups runs by classifier, with a name, status and result
-for each run. Independent classifiers appear as siblings; dependent classifiers
-are nested with their trigger. Match scores stay inside each classifier's checks
+classification panel groups runs by classifier, with one line per run, such as `Request type: [loading]`
+or `Request type: Request to do work`. Independent classifiers appear as siblings; dependent classifiers
+are nested. Dependency information is available in details. Match scores stay inside each classifier's checks
 and never imply permission to execute actions. Open it
 with `/classification`, or use `/classification hierarchy` for all evaluated
 questions/options and dependent stages. F6 toggles visibility; focus through

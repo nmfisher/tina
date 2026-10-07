@@ -39,6 +39,50 @@ final class ControlledProvider implements LlmProvider {
 }
 
 void main() {
+  for (final panels in [false, true]) {
+    test('Ctrl+C clears a busy draft, then quits a live turn (panels=$panels)',
+        () async {
+      final directory = Directory.systemTemp.createTempSync('tina_ctrlc_quit_');
+      final config = File('${directory.path}/config')..writeAsStringSync('''
+[default]
+model="controlled"
+[plugins]
+enabled=["tina/chat-tui"${panels ? ', "tina/panels-tui"' : ''}]
+''');
+      final provider = ControlledProvider();
+      final session = TuiSession.start(
+          providerFactory: (_) => provider,
+          workingDirectory: directory.path,
+          configPath: config.path);
+      final io = FakeIo();
+      late LineEditor editor;
+      final app = runApp(session,
+          screen: fakeScreen(io),
+          editorFor: (screen) => editor = LineEditor(screen: screen));
+      addTearDown(() async {
+        session.cancel();
+        io.closeInput();
+        await app.timeout(const Duration(seconds: 3));
+        directory.deleteSync(recursive: true);
+      });
+      await waitFor(() => editor.isEditing);
+      io.feedBytes('first\r'.codeUnits);
+      await waitFor(() => provider.requests.length == 1);
+      io.feedBytes('draft\x03'.codeUnits);
+      await waitFor(() => editor.draftText.isEmpty);
+      expect(editor.quitRequested, isFalse);
+      expect(session.host.session.loop.running, isTrue);
+      expect(session.inputHistory, ['first']);
+      io.feedBytes([3]);
+      expect(await app.timeout(const Duration(seconds: 3)), 0);
+      expect(editor.quitRequested, isTrue);
+      expect(session.host.session.loop.running, isFalse);
+      expect(
+          session.host.session.turns.single.stopReason, StopReason.cancelled);
+      expect(io.written.toString(), isNot(contains('Ctrl+C again to exit')));
+    });
+  }
+
   for (final burst in [false, true]) {
     test('single-view Escape cancellation accepts next input (burst=$burst)',
         () async {

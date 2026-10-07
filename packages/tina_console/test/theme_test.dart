@@ -331,6 +331,40 @@ final void Function() themeChangeInvalidationTests = () {
           reason: 'setTheme must clear retained paint snapshots so the new '
               'theme\'s SGR re-emits');
     });
+
+    test('themeEpoch increments per setTheme', () {
+      final io = _TThemeStdio();
+      final screen = Screen(
+          io: io, layout: ScreenLayout.fromSize(80, 24), ansi: AnsiCapable.yes);
+      expect(screen.themeEpoch, 0);
+      screen.setTheme(Theme.dark());
+      expect(screen.themeEpoch, 1);
+      screen.setTheme(Theme.light());
+      expect(screen.themeEpoch, 2);
+    });
+
+    test('repaintAfterThemeChange re-emits cleared rows in one frame', () {
+      final io = _TThemeStdio();
+      final screen = Screen(
+          io: io, layout: ScreenLayout.fromSize(80, 24), ansi: AnsiCapable.yes);
+
+      screen.chat.beginStyle('7');
+      screen.chat.write('hello');
+      screen.chat.endStyle();
+      screen.redrawFrame();
+      expect(screen.chat.debugPaintedText(0), isNotNull);
+
+      // setTheme drops the snapshot but paints nothing; the host's eager
+      // repaint is what puts new-theme pixels back on the screen.
+      screen.setTheme(Theme.dark());
+      expect(screen.chat.debugPaintedText(0), isNull,
+          reason: 'setTheme only invalidates; it must not paint');
+
+      screen.repaintAfterThemeChange();
+      expect(screen.chat.debugPaintedText(0), isNotNull,
+          reason: 'the eager repaint must re-emit the conversation so the '
+              'regions behind an open settings panel pick up the new theme');
+    });
   });
 };
 

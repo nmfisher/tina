@@ -373,11 +373,9 @@ void main() {
       expect(await key, isA<CharInput>());
     });
 
-    test('Ctrl-C with empty buffer triggers confirm, second exits', () async {
+    test('Ctrl-C with empty buffer exits immediately', () async {
       final ed = _editor(io);
       final f = ed.readLine('> ');
-      await _flush();
-      io.feedBytes([0x03]);
       await _flush();
       io.feedBytes([0x03]);
       expect(await f, isNull);
@@ -398,7 +396,7 @@ void main() {
       await _flush();
       expect(running, isTrue, reason: 'clearing input must not cancel work');
       expect(ed.editState.buffer, isEmpty);
-      io.feedBytes([0x03, 0x03]); // arm, then confirm quit
+      io.feedBytes([0x03]); // empty input quits
       expect(await line, isNull);
       ed.close();
     });
@@ -425,8 +423,7 @@ void main() {
       ed.close();
     });
 
-    test('Ctrl-C in a local overlay arms the quit confirm like everywhere',
-        () async {
+    test('Ctrl-C with empty input quits from a local overlay', () async {
       final ed = _editor(io);
       var interrupted = false;
       // ignore: deprecated_member_use_from_same_package
@@ -435,12 +432,7 @@ void main() {
       await _flush();
       io.feedBytes([0x03]);
       await _flush();
-      var answered = false;
-      overlay.then((_) => answered = true);
-      await _flush();
-      expect(answered, isFalse, reason: 'first press arms, does not answer');
       expect(interrupted, isFalse);
-      io.feedBytes([0x03]);
       expect(await overlay, ControlKey(ControlCode.ctrlC));
       ed.close();
     });
@@ -453,7 +445,7 @@ void main() {
       io.feedBytes([0x61, 0x62, 0x03]);
       await _flush();
       expect(ed.editState, (buffer: '', cursor: 0));
-      expect(ed.currentState()['confirm_visible'], isFalse);
+      expect(ed.quitRequested, isFalse);
       io.feedBytes([0x78, 0x0d]);
       expect(await f, 'x');
     });
@@ -755,16 +747,18 @@ void main() {
       expect(fired, isTrue);
     });
 
-    test('Ctrl-C during monitor does not cancel; ESC still does', () async {
+    test('Ctrl-C clears a draft during monitor; ESC still cancels', () async {
       final ed = _editor(io);
       ed.readLine('> ');
       await _flush();
       var fired = false;
+      io.feedBytes([0x61]);
+      await _flush();
       ed.beginCancelMonitor(() => fired = true);
       io.feedBytes([0x03]);
       await _flush();
       expect(fired, isFalse,
-          reason: 'the first ctrl+c arms the quit confirm, not a cancel');
+          reason: 'clearing a draft does not cancel the turn');
       io.feedBytes([0x1b]);
       await _flush();
       expect(fired, isTrue);
@@ -781,7 +775,7 @@ void main() {
       expect(submitted, ['hi']);
     });
 
-    test('queue mode Ctrl-C arms the quit, no submission; ESC cancels',
+    test('queue mode Ctrl-C clears text without submission; ESC cancels',
         () async {
       final ed = _editor(io);
       ed.readLine('> ');
@@ -792,10 +786,10 @@ void main() {
         () => cancelled = true,
         onQueueSubmit: submitted.add,
       );
-      io.feedBytes([0x03]);
+      io.feedBytes([0x61, 0x03]);
       await _flush();
       expect(cancelled, isFalse,
-          reason: 'ctrl+c is the quit flow; cancel is Esc-only');
+          reason: 'clearing queued input does not cancel work');
       expect(submitted, isEmpty);
       io.feedBytes([0x1b]);
       await _flush();

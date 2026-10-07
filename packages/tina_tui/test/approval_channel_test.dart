@@ -216,7 +216,9 @@ approval_channel = "acme/messages"
                 providers++;
                 return ScriptedProvider([]);
               }),
-          throwsArgumentError);
+          text.contains('unknown/channel')
+              ? throwsFormatException
+              : throwsArgumentError);
     }
     expect(providers, 0);
   });

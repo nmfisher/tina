@@ -267,11 +267,11 @@ endpoint = "http://127.0.0.1:${server.port}/judge"
           .98);
       expect(classifier.status.result!.git!.commands,
           ['push', 'branch', 'checkout']);
-      expect(io.written.toString(), contains('instruction'));
+      expect(io.written.toString(), contains('Request type:'));
       await session.assembly.handleCommand('/classification');
       expect(
           classifier.status.label, 'instruction · git: push, branch, checkout');
-      expect(io.written.toString(), contains('Git operations'));
+      expect(io.written.toString(), contains('Git actions:'));
       final transcript = session.host.session.loop.log
           .whereType<MessageAppendedEntry>()
           .map((e) => e.message)

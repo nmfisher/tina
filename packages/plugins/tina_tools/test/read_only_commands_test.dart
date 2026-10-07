@@ -71,6 +71,16 @@ void main() {
           '/mnt/sdd_1tb/instarig/_vendor/shared'
         ]
       ),
+      (
+        'grep',
+        [
+          '-rn',
+          '-E',
+          'themeSetting|onSettingsChanged',
+          '/Volumes/T7/projects/tina/packages/tina_tui/lib',
+          '/Volumes/T7/projects/tina/packages/tina_engine_2/lib',
+        ]
+      ),
       ('ls', ['-la', '.']),
       ('grep', ['-n', '-e', '--pre=literal pattern', 'file.py']),
       ('grep', ['-A40', 'class CancelToken', 'file.dart']),

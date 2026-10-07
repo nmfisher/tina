@@ -3,7 +3,7 @@ import 'package:classification/plugin.dart';
 import 'package:tina_console/tina_console.dart';
 
 /// One selectable stage, question, or choice in the actual execution history.
-enum ClassificationRowKind { classifier, relation, result, question, choice }
+enum ClassificationRowKind { classifier, question, choice }
 
 final class ClassificationPanelRow {
   const ClassificationPanelRow(this.exchange, this.label, this.depth,
@@ -135,24 +135,25 @@ String? _input(ClassificationExchange e) {
 
 String _result(ClassificationExchange e) {
   if (e.outcome case final ClassificationOutcome result)
-    return 'Result: ${result.unclear ? '? ' : ''}${result.label}';
-  if (e.pending) return 'Result: Waiting for result';
-  if (e.error != null) return 'Result: ! ${e.error}';
+    return '${result.unclear ? '? ' : ''}${result.label}';
+  if (e.pending) return '[loading]';
+  if (e.phase == ClassificationExchangePhase.cancelled) return '[cancelled]';
+  if (e.error != null) return '! Failed: ${e.error}';
   final choices = _answers(e)
       .entries
       .where((a) => a.value is Map && (a.value as Map)['choice'] != null);
   if (choices.length == 1) {
     final answer = choices.single;
-    return 'Model choice: ${_answer(answer.value, _questions(e)[answer.key]).split(' · ').first}';
+    return '? ${_answer(answer.value, _questions(e)[answer.key]).split(' · ').first}';
   }
   if (choices.isNotEmpty)
-    return 'Model choice: ${choices.map((a) => '${_name('${a.key}', _questions(e)[a.key])}: ${_answer(a.value, _questions(e)[a.key]).split(' · ').first}').join('; ')}';
+    return '? ${choices.map((a) => '${_name('${a.key}', _questions(e)[a.key])}: ${_answer(a.value, _questions(e)[a.key]).split(' · ').first}').join('; ')}';
   final response = _object(e.response);
   if (response['category'] case final Map category)
-    return 'Result: New category · ${category['label'] ?? category['id']}';
+    return 'New category · ${category['label'] ?? category['id']}';
   if (response['existing_category'] case final String category)
-    return 'Result: Existing category · ${_name(category)}';
-  return 'Result: ${_answers(e).isEmpty ? 'No decoded result recorded' : 'Checks complete; inspect scores'}';
+    return 'Existing category · ${_name(category)}';
+  return '${_answers(e).isEmpty ? 'No decoded result recorded' : 'Checks complete; inspect scores'}';
 }
 
 /// All evaluated questions/options are included in hierarchy mode, including
@@ -170,20 +171,7 @@ List<ClassificationPanelRow> classificationPanelRows(ClassificationTrace trace,
     final open = hierarchy || expanded.contains(e.id);
     final phase = _phase(e);
     rows.add(ClassificationPanelRow(
-        e, '${open ? '▾' : '▸'} ${_stage(e)} · $phase', depth));
-    final candidate = byId[e.parentId];
-    final parent = candidate?.inputId == e.inputId ? candidate : null;
-    rows.add(ClassificationPanelRow(
-        e,
-        parent != null
-            ? 'Trigger: ${e.trigger ?? _stage(parent)}'
-            : e.parentId != null
-                ? 'Dependency: earlier run (outside history)'
-                : 'Runs independently',
-        depth + 1,
-        kind: ClassificationRowKind.relation));
-    rows.add(ClassificationPanelRow(e, _result(e), depth + 1,
-        kind: ClassificationRowKind.result));
+        e, '${open ? '▾' : '▸'} ${_stage(e)}: ${_result(e)}', depth));
     if (open) {
       final questions = _questions(e), answers = _answers(e);
       for (final entry in questions.entries) {
@@ -262,8 +250,7 @@ final class ClassificationPanel implements PanelInputTarget {
   (
     int,
     (int, String?, String?, ClassificationRowKind)?,
-    ClassificationStatus,
-    bool
+    ClassificationStatus
   )? _previewKey;
   List<String> _previewCache = [];
   ClassificationPanelRow? get selected =>
@@ -546,22 +533,18 @@ final class ClassificationPanel implements PanelInputTarget {
     ];
   }
 
-  List<String> _preview({bool compact = false}) {
+  List<String> _preview() {
     final exchanges = plugin.trace.exchanges;
     if (exchanges.isEmpty) return [plugin.status.label];
     final latest = exchanges.last;
-    final key = (plugin.trace.revision, selected?.key, plugin.status, compact);
+    final key = (plugin.trace.revision, selected?.key, plugin.status);
     if (_previewKey == key) return _previewCache;
     _previewKey = key;
     final rows = classificationPanelRows(plugin.trace,
         hierarchy: false, inputId: latest.inputId);
     return _previewCache = [
       if (_input(latest) case final String input) 'You asked: $input',
-      for (final row in rows)
-        if (!compact)
-          '${'  ' * row.depth.clamp(0, 4)}${row.label}'
-        else if (row.kind == ClassificationRowKind.classifier)
-          '${'  ' * row.depth.clamp(0, 4)}▸ ${_stage(row.exchange)}: ${row.exchange.pending ? '◌ Running' : _result(row.exchange).replaceFirst(RegExp(r'^(Result|Model choice): '), '')}',
+      for (final row in rows) '${'  ' * row.depth.clamp(0, 4)}${row.label}',
     ];
   }
 
@@ -587,13 +570,14 @@ final class ClassificationPanel implements PanelInputTarget {
       if (separator < 0 && text.contains(': ')) {
         final split = text.indexOf(': ') + 2;
         final result = text.substring(split);
-        final code = result.startsWith('?')
-            ? theme.yellow
-            : result.startsWith('!')
-                ? theme.red
-                : result.startsWith('◌')
-                    ? '34'
-                    : theme.agentText;
+        final code =
+            result.startsWith('?') || result.startsWith('Model choice:')
+                ? theme.yellow
+                : result.startsWith('!')
+                    ? theme.red
+                    : result.startsWith('[loading]') || result.startsWith('◌')
+                        ? '34'
+                        : theme.agentText;
         return '${screen.colorize('1;${theme.cyan}', text.substring(0, split))}${screen.colorize(code, result)}';
       }
       final header = separator >= 0 ? text.substring(0, separator) : text;
@@ -606,16 +590,15 @@ final class ClassificationPanel implements PanelInputTarget {
                   : theme.dim;
       return '${screen.colorize('1;${theme.cyan}', header)}${separator >= 0 ? ' · ${screen.colorize(code, phase)}' : ''}';
     }
-    if (plain.startsWith('Result: ?') || plain.startsWith('Model choice:'))
+    if (plain.startsWith('?') || plain.startsWith('Model choice:'))
       return screen.colorize(theme.yellow, text);
-    if (plain.startsWith('Result: !') || plain.startsWith('Error:'))
+    if (plain.startsWith('!') || plain.startsWith('Error:'))
       return screen.colorize(theme.red, text);
     if (plain.contains('Waiting for result'))
       return screen.colorize('34', text);
     if (plain.startsWith('✓')) return screen.colorize('1', text);
     if (plain.startsWith('Trigger:') ||
         plain.startsWith('Dependency:') ||
-        plain == 'Runs independently' ||
         plain.startsWith('You asked:') ||
         plain.contains('% match')) return screen.colorize(theme.dim, text);
     if (const {
@@ -669,9 +652,7 @@ final class ClassificationPanel implements PanelInputTarget {
     }
     final width = area.width - 4;
     _room = (area.height - 3).clamp(1, area.height);
-    final preview = _focused || _hierarchy
-        ? const <String>[]
-        : _preview(compact: _room < 5);
+    final preview = _focused || _hierarchy ? const <String>[] : _preview();
     final content = _details && _focused
         ? _detailLines(width)
         : _focused || _hierarchy

@@ -95,6 +95,14 @@ def smoke(launcher, endpoint, backend, panels):
             terminal.send('\x1b\x1b')
             terminal.wait_for(lambda: (root / 'busy_stopped').exists(),
                               'shell could not be cancelled after the model finished')
+            terminal.send('DRAFT_THAT_MUST_CLEAR')
+            visible('DRAFT_THAT_MUST_CLEAR')
+            terminal.expect_idle()
+            terminal.send('\x03')
+            terminal.wait_for(
+                lambda: 'DRAFT_THAT_MUST_CLEAR' not in screen_text(terminal.output, 120, 28),
+                'Ctrl+C did not clear the idle draft')
+            assert terminal.process.poll() is None, 'clearing a draft quit the app'
             ModelStub.release_stream.clear()
             submit('terminal smoke draft')
             terminal.wait_for(lambda: len(ModelStub.requests) == before + 2,
@@ -108,9 +116,19 @@ def smoke(launcher, endpoint, backend, panels):
             terminal.wait_for(
                 lambda: 'draft answer' in screen_text(terminal.output, 120, 28),
                 'model turn for quit check did not finish')
-            terminal.quit()
+            terminal.send('BUSY_DRAFT_THAT_MUST_CLEAR')
+            visible('BUSY_DRAFT_THAT_MUST_CLEAR')
+            terminal.expect_idle()
+            terminal.send('\x03')
+            terminal.wait_for(
+                lambda: 'BUSY_DRAFT_THAT_MUST_CLEAR' not in screen_text(terminal.output, 120, 28),
+                'Ctrl+C did not clear the busy draft')
+            assert terminal.process.poll() is None, 'clearing a busy draft quit the app'
+            assert not (root / 'quit_stopped').exists(), 'clearing a draft cancelled work'
+            terminal.send('\x03')
+            terminal.expect_clean_exit()
             assert (root / 'quit_stopped').exists(), 'quit did not stop the shell process'
-            print(f'PASS shell {backend}, panels={panels}: output, exit code, immediate dispatch, cancellation after model turn, shutdown',
+            print(f'PASS shell {backend}, panels={panels}: output, exit code, immediate dispatch, cancellation after model turn, Ctrl+C clear/quit',
                   flush=True)
         except Exception:
             print(screen_text(terminal.output, 120, 28), flush=True)

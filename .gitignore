@@ -13,3 +13,7 @@ releases/*.sha256
 # Never commit them: `git add -A <package>` will happily stage them otherwise.
 .dart_tool/
 build/
+
+# Python smoke-test caches
+__pycache__/
+*.pyc

@@ -114,7 +114,7 @@ The approval shows the command, canonical directory paths, and reason:
 - **n** denies the request and lets the agent continue.
 - **Esc** cancels the turn and returns to the input draft. The agent waits for
   your next submitted message.
-- **Ctrl+C** clears a draft first; with an empty draft it opens quit confirmation.
+- **Ctrl+C** clears a draft first; with an empty draft it quits immediately.
 
 A directory grant includes its contents. Paths must be absolute, existing
 directories; symlinks are resolved before approval. Request a narrow cache

@@ -7,7 +7,6 @@ import 'backend/ansi_input_backend.dart';
 import 'backend/input_backend.dart';
 import 'package:fuzzy_ranker/fuzzy_ranker.dart';
 import 'completion_picker.dart';
-import 'confirm_dialog.dart';
 import 'focus_manager.dart';
 import 'input_event.dart';
 import 'input_session.dart';
@@ -45,7 +44,6 @@ class LineEditor {
   // Mutable slot holding the current immutable [TextLineInput] value; each
   // edit reassigns it (the model itself is never mutated in place).
   TextLineInput _edit = TextLineInput();
-  late final ConfirmDialog _dialog;
   late final CompletionPicker _picker;
   // A second picker for `/`-command completion (opens only at the start of an
   // empty line; accepts the command plus a trailing space). At most one of
@@ -76,7 +74,7 @@ class LineEditor {
   Completer<String?>? _completer;
   final _quit = Completer<void>();
 
-  /// Whether the user has confirmed exit from the conversation.
+  /// Exit requested by Ctrl+C with an empty conversation input.
   bool get quitRequested => _quit.isCompleted;
   Future<void> get whenQuit => _quit.future;
   void Function(String)? _lineSink;
@@ -158,11 +156,8 @@ class LineEditor {
   /// overlays, returns focus home, and clears the draft.
   bool Function()? onDoubleEscape;
 
-  /// Cancel running work on Ctrl+C, including while a global approval is
-  /// open. Return false when idle to keep normal input-clear/quit behavior.
-  /// Local overlays retain their own Ctrl+C handling. A global readKey still
-  /// receives Ctrl+C after cancellation so its prompt can settle as denied.
-  @Deprecated('Ctrl+C clears input or confirms quit; this hook is never called')
+  /// Legacy interrupt hook. Ctrl+C clears the draft or requests exit directly.
+  @Deprecated('Ctrl+C clears input or quits; this hook is never called')
   bool Function()? onInterrupt;
 
   /// Called for Ctrl+O — the panel-maximize toggle. Offered after the
@@ -262,7 +257,6 @@ class LineEditor {
         _ownsInput = input == null {
     _picker = CompletionPicker(screen, onError: onError);
     _commandPicker = CompletionPicker.commandPicker(screen, onError: onError);
-    _dialog = ConfirmDialog(screen);
   }
 
   /// The input backend this editor reads from. Exposed so the host (e.g.
@@ -295,7 +289,6 @@ class LineEditor {
     final draft = _capturedDraft;
     _capturedDraft = null;
     if (draft != null) _edit = _edit.loadState(draft.buffer, draft.cursor);
-    _dialog.reset();
     _picker.reset();
     _commandPicker.reset();
     _completer = Completer<String?>();
@@ -426,6 +419,7 @@ class LineEditor {
       bool panelNavigation = true,
       bool acceptPaste = false,
       Future<void>? cancelSignal}) async {
+    if (quitRequested) return ControlKey(ControlCode.ctrlC);
     var cancelled = false;
     final cancellation = _cancelKeyReads;
     final stop = Future.any([
@@ -593,7 +587,7 @@ class LineEditor {
   /// the same queue-mode capture used mid-turn: keystrokes are echoed in the
   /// input region and handed to [onSubmit] on Enter (multi-entry works —
   /// Enter does not end the capture). Cancel stays inert; Ctrl+C clears the
-  /// draft or confirms quit, as in queue mode. Pairs with
+  /// draft or quits, as in queue mode. Pairs with
   /// [endInputCaptureWindow]; [readKey] save/restores the monitor around an
   /// approval prompt, so a nested prompt during the window is safe. No-op to
   /// end when nothing is armed (the window never spans a [readLine], so the
@@ -729,7 +723,6 @@ class LineEditor {
     _burstTimer?.cancel();
     _burstTimer = null;
     if (_ownsInput) _input.dispose();
-    _dialog.dispose();
     _picker.dispose();
     _commandPicker.dispose();
     if (reportLatency) reportInputLatency();
@@ -775,7 +768,7 @@ class LineEditor {
       'queued_lines': _qCount > 0 ? _qCount : null,
       'held_pastes': _heldPastes.isNotEmpty ? _heldPastes.length : null,
       'paste_overflow': _pending.isNotEmpty ? _pending.length : null,
-      'confirm_visible': _dialog.isVisible,
+      'quit_requested': quitRequested,
       'picker_open': _activePicker != null,
       // The other silent trap: a hidden input row paints nowhere.
       'input_row_hidden': screen.input.bounds.isEmpty,
@@ -910,7 +903,6 @@ class LineEditor {
   /// and command history remain intact for the next conversation focus.
   void suspendSharedInput() {
     _activePicker?.closeState();
-    _dialog.dismiss();
     _lastEsc = null;
     screen.input.setBoundsOverride(Rect.empty);
   }
@@ -945,6 +937,7 @@ class LineEditor {
   /// waiting prompt, or nowhere at all. That value is what [InputLog] records,
   /// so a key that does nothing visible can name who took it.
   KeyHandledBy _onEventInner(InputEvent event) {
+    if (quitRequested) return KeyHandledBy.nobody;
     if (debugKeys) {
       _log.fine('[keys] event: $event');
     }
@@ -961,15 +954,15 @@ class LineEditor {
     } else {
       _lastGlobalEsc = null;
     }
-    // Ctrl+C clears the shared input first. With an empty input, it arms the
-    // quit confirmation; another press quits. Running work and pending
-    // approvals are unaffected by clearing the draft. A quit while a readKey
+    // Ctrl+C clears the shared input first. With an empty input, it quits.
+    // Running work and pending approvals are unaffected by clearing the draft.
+    // A quit while a readKey
     // (approval / overlay prompt) is armed completes it with ctrlC so the
     // awaiting code settles as cancelled instead of hanging.
     if (event is ControlKey && event.code == ControlCode.ctrlC) {
       final hasDraft =
           _queueModeActive ? _qEdit.buffer.isNotEmpty : _edit.buffer.isNotEmpty;
-      if (!_dialog.isVisible && !_exclusivePanelFocused && hasDraft) {
+      if (hasDraft) {
         _activePicker?.closeState();
         _lastEsc = null;
         _capturedDraft = null;
@@ -982,34 +975,14 @@ class LineEditor {
         _redraw();
         return KeyHandledBy.chatBox;
       }
-      final modalActive = _modals.any((m) => m.isActive);
-      if (_exclusivePanelFocused &&
-          !modalActive &&
-          !isReadingKey &&
-          !_dialog.isVisible) {
-        // An exclusive panel owns every key, Ctrl+C included: the arming
-        // press is still forwarded so the panel's key stream stays complete.
-        // With a modal open the gate alone handles the press (overlays sit
-        // above panels), an armed readKey means an overlay owns the screen,
-        // and the confirming press (dialog already visible) belongs to the
-        // gate alone everywhere.
-        _routeExclusivePanelInput(event);
-        if (_dialog.trigger()) _quitNow();
-        return KeyHandledBy.quit;
-      }
-      if (_dialog.trigger()) {
-        _quitNow();
-      } else {
-        _redraw();
-      }
+      _quitNow();
       return KeyHandledBy.quit;
     }
     // Registered overlays sit above every consumer below this line —
-    // exclusive panels, the quit-confirm dismissal, an armed prompt, cancel
-    // monitoring. Ctrl+C itself stays quit-gate property (see above).
+    // exclusive panels, an armed prompt, cancel monitoring.
+    // Ctrl+C itself stays clear/quit property (see above).
     if (_offerToModals(event)) return KeyHandledBy.modal;
     if (_inputSession case final session?) {
-      if (_dialog.isVisible) _dialog.dismiss();
       if (session.globalKeys && _handleFocusRingKeys(event)) {
         return KeyHandledBy.focusRing;
       }
@@ -1032,18 +1005,6 @@ class LineEditor {
       return KeyHandledBy.openPrompt;
     }
     if (_routeExclusivePanelInput(event)) return KeyHandledBy.panel;
-    // An armed quit-confirm yields to the key's real owner above (exclusive
-    // panels, modals). Any other key dismisses it on the way to its normal
-    // handling. A standalone ESC is absorbed by the dismissal — it must not
-    // answer an open prompt as a deny — but only when the chat prompt owns
-    // the keyboard: with no readLine armed (an overlay/approval screen) Esc
-    // keeps its prompt meaning and flows through, and with a cancel monitor
-    // armed it stays the cancel gesture.
-    if (_dialog.isVisible) {
-      final promptOwnsEsc = _completer != null && _cancelHandler == null;
-      _dialog.dismiss();
-      if (event is EscapeKey && promptOwnsEsc) return KeyHandledBy.modal;
-    }
     if (_keyCompleterGlobal && !_keyAcceptsPaste && event is PasteInput) {
       // tin-w8dl: a paste arriving while a GLOBAL readKey (approval / gate
       // prompt) is armed must not land in the editor buffer underneath the
@@ -1194,7 +1155,6 @@ class LineEditor {
     _pending.clear();
     _burstForm = false;
     _heldPastes.clear();
-    _dialog.dismiss();
     _activePicker?.closeState();
     for (final modal in _modals.toList()) {
       if (modal.isActive) modal.handleEvent(EscapeKey());
@@ -1459,7 +1419,6 @@ class LineEditor {
       case ScrollEvent():
         return KeyHandledBy.nobody;
       case CharInput(:final text):
-        _dialog.dismiss();
         final code = text.codeUnitAt(0);
         final trigger = _activePicker == null
             ? _pickerForTrigger(code, _edit.buffer, _edit.cursor)
@@ -1483,7 +1442,7 @@ class LineEditor {
         switch (code) {
           case ControlCode.ctrlC:
           // Unreachable: _onEventInner handles Ctrl+C before dispatch
-          // (clear draft → quit confirm → quit).
+          // (clear draft or quit).
           case ControlCode.ctrlD:
             if (_edit.buffer.isEmpty) {
               _complete(null);
@@ -1528,7 +1487,6 @@ class LineEditor {
               unawaited(_commandPicker.refresh(_edit.buffer, _edit.cursor));
             }
           case ControlCode.backspace:
-            _dialog.dismiss();
             _edit = _edit.backspace();
             final bsActive = _activePicker;
             if (bsActive != null && _edit.cursor <= bsActive.anchor) {
@@ -1653,7 +1611,6 @@ class LineEditor {
       case PasteInput(:final text):
         // A paste is an atomic token: dismiss any overlay, then record the
         // real text with a placeholder span. Submit still sends the real text.
-        _dialog.dismiss();
         _activePicker?.closeState();
         _edit = _edit.addPaste(text);
         _redraw();
@@ -1700,7 +1657,6 @@ class LineEditor {
       buffer: _edit.toDisplay(),
       cursor: _edit.displayCursor(_edit.cursor),
     );
-    if (_dialog.isVisible) _dialog.render();
   }
 
   void _complete(String? result) {
@@ -1713,7 +1669,7 @@ class LineEditor {
     c?.complete(result);
   }
 
-  /// The confirmed quit: settle every pending read as cancelled, reset
+  /// Settle every pending read as cancelled, reset
   /// transient editor state, and complete a pending [readLine] with null so
   /// the controller's REPL loop unwinds into its exit path. An armed readKey
   /// (an approval/overlay prompt) resolves with the ctrlC event — its owner
@@ -1723,9 +1679,9 @@ class LineEditor {
   void _quitNow() {
     if (quitRequested) return;
     _quit.complete();
+    _cancelKeyReads.complete();
     _inputSession?.dispose();
     _lastEsc = null;
-    _dialog.reset();
     _activePicker?.closeState();
     final key = _keyCompleter;
     _keyCompleter = null;
@@ -1748,10 +1704,6 @@ class LineEditor {
   // -- Queue mode ---------------------------------------------------------
 
   void _handleQueueEvent(InputEvent event) {
-    // Any input dismisses an armed quit-confirm (the dialog must not linger
-    // and turn a later keystroke into a surprise exit once readLine re-arms;
-    // Ctrl+C itself never reaches here — the quit gate consumes it first).
-    _dialog.dismiss();
     switch (event) {
       case ScrollEvent():
         return; // the wheel never drives queue/command history.

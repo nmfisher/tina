@@ -191,7 +191,7 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.expect('smoke answer', start)
             terminal.wait_for(lambda: len(ClassifierStub.judgments) > request_start, 'no classifier request')
             expect_grid(terminal, 'Request type', columns, rows)
-            expect_grid(terminal, 'Running', columns, rows)
+            expect_grid(terminal, '[loading]', columns, rows)
             terminal.expect_idle()
             ClassifierStub.release.set()
             terminal.wait_for(lambda: len(ClassifierStub.judgments) == request_start + 2, 'no dependent Git classification')

@@ -85,6 +85,7 @@ final class _Workspace implements ConsolePanels {
   bool painting = false, stopped = false, maximized = false;
   int width = -1, height = -1, visibleIndex = 0;
   int _nextPanel = 1;
+  int _themeEpoch = -1;
   late final PanelsStatus panelStatus = PanelsStatus(
       context: context,
       choices: () => [
@@ -356,6 +357,15 @@ final class _Workspace implements ConsolePanels {
 
   void repaint() {
     if (painting || stopped) return;
+    // _layout() re-renders every frame's chrome (labels, rails, borders) with
+    // the current theme, so a theme change must go through it even though no
+    // geometry changed — otherwise panel borders keep the old colors until
+    // the next resize or panel switch.
+    if (_themeEpoch != screen.themeEpoch) {
+      _themeEpoch = screen.themeEpoch;
+      _layout();
+      return;
+    }
     if (width != screen.layout.width || height != screen.layout.height)
       _layout();
   }

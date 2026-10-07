@@ -101,10 +101,13 @@ void main() {
     expect(received, [same(wheel)],
         reason: 'not one non-wheel event reached the panel');
 
-    // The quit flow still works under the wedge: ctrl+C arms, then confirms.
+    // Ctrl+C clears the visible draft even when an exclusive panel is focused.
     editor.inject(ControlKey(ControlCode.ctrlC));
-    expect(interrupts, 0, reason: 'the first ctrl+c only arms the confirm');
+    expect(editor.editState.buffer, isEmpty);
+    expect(editor.quitRequested, isFalse);
+    expect(interrupts, 0);
     editor.inject(ControlKey(ControlCode.ctrlC));
+    expect(editor.quitRequested, isTrue);
     expect(interrupts, 0);
     expect(focus.focused, same(panel));
   });
@@ -118,10 +121,10 @@ void main() {
     expect(focus.focused, same(chat));
     expect(received, isEmpty);
     editor.inject(CharInput('!'));
-    expect(editor.editState.buffer, 'draft!');
+    expect(editor.editState.buffer, '!');
     editor.inject(ControlKey(ControlCode.ctrlC));
     editor.inject(ControlKey(ControlCode.ctrlC));
-    // Quit confirmed: readLine was armed by setUp, and the quit flow
+    // Quit requested: readLine was armed by setUp, and the quit flow
     // completes it; the panel never saw any of the Ctrl+Cs.
     expect(received, isEmpty);
     expect(interrupts, 0);
@@ -162,12 +165,13 @@ void main() {
   test('local overlays receive keys before the panel', () async {
     final response = editor.readKey();
     await pumpEventQueue();
-    editor.inject(ControlKey(ControlCode.ctrlC)); // arms the quit confirm
+    editor.inject(ControlKey(ControlCode.ctrlC)); // clears the draft
     var answered = false;
     response.then((_) => answered = true);
     await pumpEventQueue();
-    expect(answered, isFalse, reason: 'the first press only arms');
-    editor.inject(ControlKey(ControlCode.ctrlC)); // confirms quit
+    expect(answered, isFalse, reason: 'clearing text leaves the overlay open');
+    expect(editor.editState.buffer, isEmpty);
+    editor.inject(ControlKey(ControlCode.ctrlC)); // empty input quits
     expect(await response, ControlKey(ControlCode.ctrlC));
     expect(received, isEmpty);
     expect(interrupts, 0);
@@ -176,12 +180,11 @@ void main() {
   test('registered modals receive keys even during cancel monitoring', () {
     final modal = _Modal();
     editor.registerModal(modal);
+    editor.loadEditState('', 0);
     editor.beginCancelMonitor(() => fail('background cancellation'));
-    // Ctrl+C is intercepted by the quit gate before any consumer — the modal
-    // never sees it, and the monitor's cancel never fires on it.
-    editor.inject(ControlKey(ControlCode.ctrlC));
     final escape = EscapeKey();
     editor.inject(escape);
+    editor.inject(ControlKey(ControlCode.ctrlC));
     // EscapeKey has no ==: compare identity, not a fresh literal.
     expect(modal.events, [same(escape)]);
     expect(received, isEmpty);
@@ -224,17 +227,18 @@ void main() {
     expect(editor.editState.buffer, 'draft');
   });
 
-  test('approval Ctrl+C arms the quit confirm; it never answers the prompt',
-      () async {
+  test('approval Ctrl+C clears text, then quits on empty input', () async {
     final response = editor.readKey(globalKeys: true);
     await pumpEventQueue();
-    editor.inject(ControlKey(ControlCode.ctrlC)); // arm only
+    editor.inject(ControlKey(ControlCode.ctrlC)); // clear only
     var answered = false;
     response.then((_) => answered = true);
     await pumpEventQueue();
-    expect(answered, isFalse, reason: 'ctrl+c is the quit flow, not a deny');
+    expect(answered, isFalse,
+        reason: 'clearing text must not deny an approval');
+    expect(editor.editState.buffer, isEmpty);
     expect(interrupts, 0);
-    editor.inject(ControlKey(ControlCode.ctrlC)); // confirm quit
+    editor.inject(ControlKey(ControlCode.ctrlC)); // empty input quits
     expect(await response, ControlKey(ControlCode.ctrlC));
     expect(received, isEmpty);
   });

@@ -1114,22 +1114,44 @@ class Screen {
     return _backend!.colorize(sgr, text);
   }
 
-  /// Swap the active theme at runtime. All subsequent paints (region emit,
-  /// frame borders, comet animation) pick up the new values.
-  ///
-  /// A theme change resolves to different SGR code strings, so we must force a
-  /// full repaint of any already-rendered styled rows: drop the active chat
-  /// region's retained paint snapshots (otherwise the unchanged-snapshot check
-  /// [_emitRow] `previous != text` would suppress rows whose underlying
-  /// content is identical but whose SGR codes now differ) and invalidate the
-  /// parse cache (its keys embed [gThemeStyleVersion], so bumping it prevents
-  /// reuse of runs computed against the prior theme's color mapping).
+  /// Monotonic counter bumped by [setTheme]. Hosts and widgets cache styled
+  /// strings (rendered rows, frame labels) with theme colors baked in; they
+  /// compare the epoch they rendered against to decide when a re-render — not
+  /// just a re-emit — is needed.
+  int get themeEpoch => _themeEpoch;
+  int _themeEpoch = 0;
+
+  /// Swap the active theme and invalidate retained rows and styled-run caches.
+  /// Hosts re-render cached content, then repaint to apply the theme immediately.
   void setTheme(Theme t) {
     _theme = t;
     _configureCanvas();
     bumpThemeStyleVersion();
     styledRunCache.clear();
-    _activeChat.clearPaintSnapshots();
+    _themeEpoch++;
+    // Every visible conversation, not just the active one: a background panel
+    // repaints on focus or scroll, and must not resurrect the old theme then.
+    // The active chat is itself retained, so this loop covers it too.
+    for (final region in _chatRegions.toList()) {
+      region.clearPaintSnapshots();
+    }
+  }
+
+  /// Repaint everything the theme is painted with: canvas background, frame
+  /// chrome, the status strip, every visible conversation and the input row,
+  /// in one frame. Hosts call this right after [setTheme] — setTheme only
+  /// invalidates retained state, so without this the new theme reaches the
+  /// screen lazily, one region at a time, as each repaints for its own
+  /// reasons (new content, scroll, overlay close).
+  void repaintAfterThemeChange() {
+    if (passthrough) return;
+    frame(() {
+      redrawFrame();
+      for (final region in _chatRegions.toList()) {
+        region.repaint();
+      }
+      if (!_input.bounds.isEmpty) _input.handleResize();
+    });
   }
 
   void registerOverlay(OverlayRegion o) {

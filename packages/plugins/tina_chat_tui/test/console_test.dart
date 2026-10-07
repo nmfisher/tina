@@ -109,6 +109,42 @@ void main() {
         LogEvent.appended);
   }
 
+  test('theme changes re-render cached transcript without new content', () {
+    final themedIo = Io();
+    final themedScreen = Screen.withBackend(
+        io: themedIo,
+        ansi: AnsiCapable.yes,
+        backend: AnsiBackend(io: themedIo, ansi: AnsiCapable.yes),
+        layout: ScreenLayout.fromSize(80, 24, split: false));
+    final themedEditor = LineEditor(screen: themedScreen);
+    final themedChat = ChatTuiPlugin(model: 'test');
+    addTearDown(() {
+      themedChat.closeSession();
+      themedEditor.close(reportLatency: false);
+      themedScreen.dispose();
+      unawaited(themedIo.input.close());
+    });
+    themedScreen.setTheme(const Theme(chat: ChatTheme(agentText: '31')));
+    themedChat.attachConsole(
+        ConsoleContext(screen: themedScreen, editor: themedEditor));
+    themedChat.entry(
+        MessageAppendedEntry(
+            turnId: 'old',
+            message: Message(
+                role: Role.assistant, content: [TextBlock('retained answer')])),
+        LogEvent.appended);
+    themedChat.repaintConsole();
+    expect(themedIo.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*31m')));
+    themedIo.output.clear();
+    themedScreen.setTheme(const Theme(chat: ChatTheme(agentText: '34')));
+    themedChat.repaintConsole();
+    final after = themedScreen.chat.snapshotLines().join('\n');
+    expect(after, contains('retained answer'));
+    expect(themedIo.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*34m')));
+    expect(themedIo.output.toString(),
+        isNot(contains(RegExp(r'\x1b\[[0-9;]*31m'))));
+  });
+
   test('alerts once at live turn end, never for replay, tools or cancellation',
       () {
     screen.enterAltScreen();

@@ -11,7 +11,7 @@
 /// - [Spinner] (a no-op; turn-animation retired) / [ProgressCounter]: overlays
 ///   in [StatusRegion].
 /// - [CompletionPicker]: `@`-triggered popup, an [OverlayRegion].
-/// - [ConfirmDialog]: Ctrl-C confirmation box, an [OverlayRegion].
+/// - [ConfirmDialog]: optional confirmation box for embedding applications.
 /// - [CompletionProvider]: pluggable source of picker suggestions.
 /// - [fuzzyScore] / [rankFuzzy]: subsequence-fuzzy ranking helpers.
 library;

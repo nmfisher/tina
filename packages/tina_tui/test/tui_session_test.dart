@@ -104,9 +104,8 @@ void main() {
     await command!.timeout(const Duration(seconds: 3));
     expect(viewer.isOpen, isTrue);
     expect(viewer.visibleLines.join('\n'), contains('normal message'));
-    expect(viewer.visibleLines.join('\n'),
-        contains('Budget target: 16000 tokens'));
-    expect(viewer.visibleLines.join('\n'), contains('response reserve: 1024'));
+    expect(viewer.visibleLines.join('\n'), contains('/ 15.0k input budget'));
+    expect(viewer.visibleLines.join('\n'), contains('last prepared request'));
     expect(release.isCompleted, isFalse);
     expect(session.host.session.loop.pendingInputCount, 0);
     release.complete();

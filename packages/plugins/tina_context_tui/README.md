@@ -12,34 +12,46 @@ Enable the context plugin first, then the viewer in Settings → Plugins:
 Restart if `tina/context` was not already loaded. Once it is loaded, the viewer
 can be enabled or disabled live. Both plugins are disabled by default.
 
-Use `/context` to open the panel. Up/down, mouse scrolling, and PgUp/PgDn scroll;
-`T` switches between accepted messages and the latest accepted replacement;
-Esc closes it. Opening the panel preserves your input draft. Approval and
-settings key readers take priority, and session teardown removes the modal,
-cursor ownership and refresh timer.
+Use `/context` to open the inspector. Tab (or `T`) cycles through three views:
 
-The panel displays the accepted working conversation, revision, log watermark,
-mirror path, file status and latest file-edit receipt in this process. Message
-groups follow retained user requests in working-context order; edited summaries
-do not retain original turn identities. The token estimate uses serialized JSON
-bytes divided by four. It includes tool payloads, excludes the system prompt,
-and is not a provider tokenizer or billing count. A separate last-prepared-request
-gauge includes system instructions, tool schemas, messages and transient budget
-reminders. It shows the total budget, response reserve, signed input room, any
-reminder on that request, and estimated message-token reductions or increases
-from the latest accepted edit. The default is 32,000 total tokens with a 2,048
-response reserve. Settings apply to subsequent requests, so the gauge remains
-labelled as the last prepared request. Both gauges use the approximate serialized
-JSON byte heuristic; neither represents provider billing or a hard limit.
-Images and reasoning blocks
-are indicated without expanding their contents; long payload previews are
-bounded and the full content remains in the mirror.
+- **Context** shows accepted working messages as short, collapsible previews.
+  User messages are labelled “You”; assistant messages are labelled “Assistant”.
+  Tool calls and retained outputs appear together, with readable action names.
+- **Changes** summarizes the latest accepted edit and shows collapsible removed
+  and added content. Red/minus marks removals; green/plus marks additions.
+  Shared leading and trailing messages are hidden. Rewrites and reordering
+  appear as removals/additions, not guessed semantic changes.
+- **Details** shows revision, session-log position, context-file path, validation
+  receipt and the full budget explanation.
 
-The changes view reconstructs the latest eligible accepted replacement from
-the session log, including after resume. Shared leading and trailing messages
-are collapsed; the changed span is shown as removed and added messages. A
-rewrite or reorder is represented by removals/additions. Context reset clears
-that comparison, and edits from abandoned turns are excluded.
+Use ↑↓ to select a message or tool exchange, Space/Enter to expand or collapse,
+and →/← to open or close it. PgUp/PgDn and mouse scrolling browse long expanded
+content. In Details, ↑↓ scroll. Esc closes the inspector and restores the input
+draft. Approval and settings readers take priority. Session teardown removes the
+modal, cursor ownership and refresh timer.
+
+A compact header shows file status and the last prepared request's estimated
+input size against its input budget (total budget minus response reserve).
+The default is 32,000 total tokens with a 2,048 response reserve, leaving 29,952
+input tokens. A gauge shows the percentage used, including values above 100%;
+its bar saturates rather than concealing overflow. It also shows estimated
+message-token savings or increases from the latest accepted edit.
+
+The Context view contains accepted working messages; system instructions and
+tool definitions are separate and are included in the request gauge. Both
+estimates use serialized UTF-8 JSON bytes divided by four, not a provider
+tokenizer or billing count. Settings apply to subsequent requests, so the gauge
+is labelled as the last prepared request. Budget guidance is not a hard limit.
+Details exposes the message-only estimate and response reserve.
+
+Messages follow working-context order, not original turn numbers. Reasoning and
+images are indicated without expanding their contents. Expanded payload previews
+are bounded; full content remains in the context file. Terminal control
+characters are removed before rendering. Color supplements textual labels and
+symbols; monochrome mode preserves navigation and meaning.
+
+The changes view is reconstructed from eligible session-log snapshots after
+resume. Context reset clears the comparison, and abandoned edits are excluded.
 
 File changes are marked pending until the context plugin validates them before
 a model call. Missing or unreadable files are marked separately. The viewer

@@ -75,12 +75,28 @@ Future<int> runApp(
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
   final settings = SettingsPanel(s, editor);
+  final contributions =
+      session.host.plugins.whereType<ConsoleContribution>().toList();
+  final attached = <ConsoleContribution, ConsoleAttachment>{};
+  void repaintContributions() {
+    for (final contribution in attached.keys.toList()) {
+      contribution.repaintConsole();
+    }
+  }
+
   var appliedTheme = jsonEncode(session.assembly.theme);
   session.assembly.onSettingsChanged = () {
     final next = jsonEncode(session.assembly.theme);
     if (next != appliedTheme) {
       appliedTheme = next;
       s.setTheme(resolveTheme(session.assembly.theme));
+      // setTheme only invalidates retained paint state; without an eager
+      // global repaint the new theme reaches the screen lazily — regions
+      // behind an open settings panel keep the old colors until they repaint
+      // for their own reasons. Repaint now, then let contributions re-render
+      // any styled content they cache.
+      s.repaintAfterThemeChange();
+      repaintContributions();
     }
     settings.repaint();
   };
@@ -123,9 +139,6 @@ Future<int> runApp(
           workingDir: session.assembly.host.config.workingDirectory);
   }
 
-  final contributions =
-      session.host.plugins.whereType<ConsoleContribution>().toList();
-  final attached = <ConsoleContribution, ConsoleAttachment>{};
   terminal.onLine = (text) {
     final transcripts = attached.keys.whereType<ConsoleTranscript>();
     if (transcripts.isEmpty) {
@@ -134,11 +147,6 @@ Future<int> runApp(
       transcripts.first.writeNotice(text);
     }
   };
-  void repaintContributions() {
-    for (final contribution in attached.keys.toList()) {
-      contribution.repaintConsole();
-    }
-  }
 
   void attachContribution(AgentPlugin plugin) {
     if (plugin is! ConsoleContribution) return;

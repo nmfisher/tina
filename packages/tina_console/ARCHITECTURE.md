@@ -49,6 +49,12 @@ fallback. A parallel `InputBackend` decouples the editor from the byte
 source. The backend directory also holds the paste-burst detector and
 reply-sequence filter that make bracketed paste and probe replies safe.
 
+The notcurses adapters live in `lib/src/backend/notcurses_backend.dart` and
+`notcurses_input_backend.dart`. Tina's native dependency includes an input pump
+with a bounded ring buffer (`COCOON_INPUT_QUEUE_CAP`) and recovery for partial
+terminal replies. The adapter and native sources document those integration
+details; the `dart_notcurses` package documentation describes the bindings.
+
 Input path: bytes → `input_parser.dart` → `InputEvent`s →
 `focus_manager.dart` → the focused widget. `paste_audit.dart` +
 `input_latency.dart` are the observability layer for paste truncation and

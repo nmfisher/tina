@@ -90,9 +90,11 @@ void main() {
     final entries = loop.log.length;
     viewer.toggle();
     expect(visible(), contains('original history'));
-    expect(visible(), contains('Pending file changes (not accepted)'));
-    expect(visible(), contains('excludes system prompt'));
-    expect(visible(), contains('Budget target: 32000 tokens'));
+    expect(visible(), contains('Edits awaiting validation'));
+    expect(visible(),
+        contains('system instructions and tool definitions are separate'));
+    expect(visible(), isNot(contains('Revision:')));
+    expect(visible(), isNot(contains(mirror.path)));
     expect(visible(), isNot(contains('{pending invalid edit')));
     expect(mirror.readAsStringSync(), '{pending invalid edit');
     expect(loop.log.length, entries);
@@ -100,11 +102,11 @@ void main() {
     mirror.writeAsBytesSync([0xff, 0xfe]);
     viewer.repaintConsole();
     expect(visible(), contains('original history'));
-    expect(visible(), contains('(not accepted)'));
+    expect(visible(), contains('showing saved context'));
     expect(mirror.readAsBytesSync(), [0xff, 0xfe]);
     mirror.deleteSync();
     viewer.repaintConsole();
-    expect(visible(), contains('Missing or unreadable (not accepted)'));
+    expect(visible(), contains('Context file unavailable'));
     expect(mirror.existsSync(), false);
   });
 
@@ -124,9 +126,11 @@ void main() {
     expect(visible(), isNot(contains('original history')));
     io.feed('t');
     await tick();
-    expect(visible(), contains('- original history'));
-    expect(visible(), contains('+ concise summary'));
-    expect(visible(), contains('Revision 1'));
+    expect(visible(), contains('- ▸ You: original history'));
+    expect(visible(), contains('+ ▸ You: concise summary'));
+    expect(visible(), contains('1 removed · 1 added messages'));
+    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*31m')));
+    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*32m')));
     final restored = ContextPlugin();
     final resumed = AgentLoop(
         provider: ScriptedProvider([]), plugins: [restored], seedLog: loop.log);
@@ -151,7 +155,7 @@ void main() {
     await loop.runTurn(const Input('next', id: 'next'));
     expect(context.lastReceipt!.status, ContextEditStatus.unchanged);
     viewer.toggle();
-    expect(visible(), contains('Context edit rejected'));
+    expect(visible(), contains('Edit rejected:'));
     expect(visible(), contains('invalid, stale, or protected'));
     expect(context.workingContext.revision, 0);
   });
@@ -162,14 +166,125 @@ void main() {
     data['messages'] = [text('short summary').toJson()];
     mirror.writeAsStringSync(jsonEncode(data));
     await loop.runTurn(const Input('task', id: 'new'));
+    final prompt = editor.readLine('› ');
+    await tick();
     viewer.toggle();
-    expect(visible(), contains('revision 1'));
-    expect(visible(), contains('Last prepared request: ~'));
-    expect(visible(), contains('response reserve: 2048'));
-    expect(visible(), contains('Latest accepted edit: ~'));
+    expect(visible(), contains('Estimated request:'));
+    expect(visible(), contains('/ 30.0k input budget'));
+    expect(visible(), contains('last prepared request'));
+    expect(visible(), contains('Last edit: ~'));
     expect(visible(), contains('short summary'));
-    expect(visible(), contains('Context edit accepted.'));
+    expect(visible(), contains('Context saved · no pending edits'));
     expect(visible(), isNot(contains('original history')));
+    io.feed('\t\t');
+    await tick();
+    expect(visible(), contains('[Details]'));
+    expect(visible(), contains('Revision: 1'));
+    expect(visible(), contains('Response reserve: 2048'));
+    io.feed('\x1b[6~');
+    await tick();
+    expect(visible(), contains('Context edit accepted.'));
+    io.feed('\x1b');
+    await tick();
+    io.feed('done\r');
+    expect(await prompt, 'done');
+  });
+
+  test('tool calls and outputs collapse together and preserve draft', () async {
+    final initial = context.workingContext;
+    context.replaceWorkingContext(
+      expectedRevision: initial.revision,
+      expectedThroughSeq: initial.throughSeq,
+      messages: [
+        text('Inspect the code'),
+        Message(role: Role.assistant, content: [
+          const ToolUseBlock(id: 'search', name: 'exec', input: {
+            'program': 'grep',
+            'args': ['-rn', 'needle', '.'],
+          }),
+        ]),
+        Message(role: Role.user, content: [
+          ToolResultBlock(
+              toolUseId: 'search',
+              content: 'private output\n' + 'result line\n' * 40),
+        ]),
+      ],
+    );
+    final prompt = editor.readLine('› ');
+    await tick();
+    io.feed('keep draft');
+    await tick();
+    viewer.toggle();
+    expect(visible(), contains('Search file contents · completed'));
+    expect(visible(), isNot(contains('private output')));
+    expect(visible(), isNot(contains('Tool output:')));
+    io.feed('\x1b[B ');
+    await tick();
+    expect(visible(), contains('Output: private output'));
+    expect(visible(), contains('Arguments:'));
+    io.feed('\x1b[6~');
+    await tick();
+    expect(visible(), contains('result line'));
+    viewer.repaintConsole();
+    expect(visible(), contains('result line'));
+    io.feed(' ');
+    await tick();
+    expect(visible(), isNot(contains('private output')));
+    io.feed('\x1b');
+    await tick();
+    io.feed(' intact\r');
+    expect(await prompt, 'keep draft intact');
+  });
+
+  test('monochrome budget gauge reports overflow against input allowance',
+      () async {
+    final overflow = ContextPlugin(tokenCounter: (_) => 40000);
+    final overflowLoop = AgentLoop(
+      provider: ScriptedProvider([scriptedReply('done')]),
+      plugins: [overflow],
+    );
+    overflowLoop.mountPlugin(overflow);
+    await overflowLoop.runTurn(const Input('task', id: 'overflow'));
+    final monoIo = TestIo();
+    final monoScreen = Screen.withBackend(
+      io: monoIo,
+      backend: AnsiBackend(io: monoIo, ansi: AnsiCapable.no),
+      layout: ScreenLayout.fromSize(100, 24, split: false),
+    );
+    final monoEditor = LineEditor(screen: monoScreen);
+    final monoViewer =
+        ContextTuiPlugin(context: overflow, terminal: TestTerminal());
+    addTearDown(() {
+      monoViewer.closeSession();
+      overflow.closeSession();
+      monoEditor.close(reportLatency: false);
+      monoScreen.dispose();
+      unawaited(monoIo.input.close());
+    });
+    monoViewer
+        .attachConsole(ConsoleContext(screen: monoScreen, editor: monoEditor));
+    monoViewer.toggle();
+    final lines = monoViewer.visibleLines.join('\n');
+    expect(lines, contains('40.0k / 30.0k input budget'));
+    expect(lines, contains('134% used'));
+    expect(lines, contains('[████████████████████]'));
+    expect(lines, contains('You: task'));
+    expect(monoIo.output.toString(),
+        isNot(contains(RegExp(r'\x1b\[[0-9;]*(31|32|33|36)m'))));
+  });
+
+  test('terminal controls in context never execute during rendering', () {
+    final initial = context.workingContext;
+    context.replaceWorkingContext(
+      expectedRevision: initial.revision,
+      expectedThroughSeq: initial.throughSeq,
+      messages: [text('hello\x1b[2J\x07world')],
+    );
+    io.output.clear();
+    viewer.toggle();
+    expect(visible(), contains('hello[2Jworld'));
+    expect(visible(), isNot(contains('\x1b')));
+    expect(io.output.toString(), isNot(contains('\x07')));
   });
 
   test(

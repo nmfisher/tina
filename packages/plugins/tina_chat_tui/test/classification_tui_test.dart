@@ -110,8 +110,11 @@ void main() {
     final e = request();
     expect(visible(), contains('classification'));
     expect(visible(), contains('You asked: push the branch'));
-    expect(visible(), contains('Request type · ◌ Running'));
+    expect(visible(), contains('Request type: [loading]'));
     expect(visible(), isNot(contains('intent: classifying')));
+    expect(visible(), isNot(contains('Runs independently')));
+    expect(visible(), isNot(contains('Result:')));
+    expect(visible(), isNot(contains('Trigger:')));
     e.complete({
       'model': 'fixture',
       'answers': {
@@ -255,49 +258,22 @@ void main() {
         rows.where((r) => r.kind == ClassificationRowKind.classifier).toList();
     expect(headers.map((r) => r.exchange), [root, child, independent]);
     expect(headers.map((r) => r.depth), [0, 1, 0]);
-    expect(
-        rows
-            .singleWhere((r) =>
-                r.exchange == child && r.kind == ClassificationRowKind.relation)
-            .label,
-        'Trigger: Project topic → Testing');
-    expect(
-        rows
-            .singleWhere((r) =>
-                r.exchange == independent &&
-                r.kind == ClassificationRowKind.relation)
-            .label,
-        'Runs independently');
-    expect(
-        rows
-            .singleWhere((r) =>
-                r.exchange == child && r.kind == ClassificationRowKind.result)
-            .label,
-        'Result: ? Unclear');
-    expect(
-        rows
-            .singleWhere((r) =>
-                r.exchange == root && r.kind == ClassificationRowKind.result)
-            .label,
-        'Result: Testing');
-    expect(
-        rows
-            .singleWhere((r) =>
-                r.exchange == independent &&
-                r.kind == ClassificationRowKind.result)
-            .label,
-        'Result: Waiting for result');
+    expect(headers.map((r) => r.label), [
+      '▸ Project topic: Testing',
+      '▸ Test framework: ? Unclear',
+      '▸ Language: [loading]',
+    ]);
+    expect(rows, hasLength(3));
     plugin.panel!.show();
     expect(visible(), contains('Project topic'));
     expect(visible(), contains('Language'));
     expect(visible(), contains('Test framework'));
     expect(visible(), isNot(contains('opaque-')));
     expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*36m')));
-    expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*32m')));
     expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*33m')));
     expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*34m')));
     independent.fail('service unavailable');
-    expect(visible(), contains('! Failed'));
+    expect(visible(), contains('! Failed:'));
     expect(io.output.toString(), contains(RegExp(r'\x1b\[[0-9;]*31m')));
   });
 
@@ -321,7 +297,7 @@ void main() {
     expect(visible(), isNot(contains('Project question')));
   });
 
-  test('pruned and cross-input parents never appear as independent runs', () {
+  test('cross-input parents do not nest under another input', () {
     final old =
         plugin.trace.begin(inputId: 'old', title: 'Old input', request: {});
     final e = plugin.trace.begin(
@@ -335,8 +311,8 @@ void main() {
             .single
             .depth,
         0);
-    expect(rows.map((r) => r.label),
-        contains('Dependency: earlier run (outside history)'));
+    expect(rows, hasLength(1));
+    expect(rows.single.label, '▸ New input: [loading]');
   });
 
   test(
@@ -404,7 +380,7 @@ void main() {
       ..feed(monoIo.output.toString());
     final text = List.generate(10, vt.rowText).join('\n');
     expect(text, contains('Topic: ? Unclear'));
-    expect(text, contains('Language: ◌ Running'));
+    expect(text, contains('Language: [loading]'));
     expect(text, contains('You asked: fix the test'));
     expect(monoIo.output.toString(),
         isNot(contains(RegExp(r'\x1b\[[0-9;]*(31|32|33|34|36)m'))));
@@ -421,7 +397,7 @@ void main() {
     });
     e.recordOutcome(const ClassificationOutcome('Unclear', unclear: true));
     expect(visible(), contains('Git actions'));
-    expect(visible(), contains('Result: ? Unclear'));
+    expect(visible(), contains('Git actions: ? Unclear'));
     expect(visible(), isNot(contains('Possible:')));
     expect(visible(), isNot(contains('55.0%')));
     expect(visible(), isNot(contains('P(yes)')));

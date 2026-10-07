@@ -205,14 +205,16 @@ void main() {
       assertFrameIntact(vt, layout);
     });
 
-    test('Ctrl-C confirmation overlay does not break borders', () async {
-      editor.readLine('> ');
+    test('Ctrl-C quits without a confirmation overlay or broken borders',
+        () async {
+      final line = editor.readLine('> ');
       await _flush();
-      io.feedBytes([0x03]); // first Ctrl-C
+      io.feedBytes([0x03]);
+      expect(await line, isNull);
       await _flush();
       vt.feed(io.written.toString());
 
-      // Dialog visible somewhere.
+      // Quitting does not open a dialog over the retained frame.
       var foundDialog = false;
       for (var r = 0; r < H; r++) {
         if (vt.rowText(r).contains('Ctrl+C again to exit')) {
@@ -220,17 +222,8 @@ void main() {
           break;
         }
       }
-      expect(foundDialog, isTrue);
+      expect(foundDialog, isFalse);
       assertFrameIntact(vt, layout);
-
-      // Dismiss with a character.
-      io.feedBytes([0x61]); // 'a' dismisses
-      await _flush();
-      vt.feed(io.written.toString());
-      assertFrameIntact(vt, layout);
-
-      io.feedBytes([0x0d]); // submit
-      await _flush();
     });
 
     test('picker opens and closes without touching borders', () async {
