@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:classification/permissions.dart';
 import 'package:test/test.dart';
 import 'package:tina_core/tina_core.dart';
@@ -53,7 +54,11 @@ void main() {
         }
         return completed('{"decision":"ALLOW","reason":""}');
       });
-      final evidence = {'command': 'write', 'path': '/tmp/example'};
+      final evidence = {
+        'command': 'write',
+        'path': '/tmp/example',
+        'user_request': 'Write the report to /tmp/example.',
+      };
       final result = await PermissionClassifier(
         () => provider,
         readInstruction: () => instruction,
@@ -71,6 +76,12 @@ void main() {
         contains('/tmp/example'),
       );
       expect(provider.outputs[0].schema, provider.outputs[1].schema);
+      for (final messages in provider.requests) {
+        expect(
+          jsonDecode((messages.single.content.single as TextBlock).text),
+          evidence,
+        );
+      }
     },
   );
   for (final answer in [

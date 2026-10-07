@@ -166,6 +166,9 @@ class ModePlugin extends AgentPlugin implements ModeControl {
                 'target': target,
                 'reason': reason,
                 ...context,
+                // Owned by the active turn, not the tool's justification or
+                // caller-supplied context. Null means no current user request.
+                'user_request': turn?.input.text,
                 if (_call != null)
                   'tool': {'name': _call!.name, 'input': _call!.input},
               },
