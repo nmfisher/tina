@@ -1,7 +1,7 @@
 name: tina
 description: A minimal terminal coding agent.
 publish_to: none
-version: 0.9.47
+version: 0.9.48
 
 environment:
   sdk: ^3.12.0

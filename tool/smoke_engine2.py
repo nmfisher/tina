@@ -1047,6 +1047,8 @@ def smoke_cli(launcher):
         try:
             terminal.expect('Settings')
             start = terminal.send('Default model\r')
+            terminal.expect('Edit workspace', start)
+            start = terminal.send('global\r')
             terminal.expect('Choose default model', start)
             terminal.expect('filter models', start)
             start = terminal.send('claude-sonnet-4-6\r')
@@ -1068,7 +1070,10 @@ def smoke_cli(launcher):
             terminal = Terminal(launcher + ['--configure', '--config', str(config)], env, 80, 10)
             try:
                 terminal.expect('Settings')
+                terminal.send('\t\t')  # Generation settings persist at Global scope.
                 start = terminal.send('Generation\r')
+                terminal.expect('Generation settings', start)
+                start = terminal.send('\r')  # Select the provider before editing.
                 terminal.expect('Output limit:', start)
                 if not reopen:
                     start = terminal.send('\x1b[200~16,380\x1b[201~')
