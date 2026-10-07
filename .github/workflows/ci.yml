@@ -48,13 +48,54 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+# Superseded commits do not need to occupy runners. Releases use a separate
+# workflow and are never cancelled by this group.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Select affected packages
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.select.outputs.packages }}
+      interactive: ${{ steps.select.outputs.interactive }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12'
+      - run: dart pub get
+      - name: Test release smoke-runner failure handling
+        run: python3 -m unittest discover -s tool/ci -p 'test_*.py'
+      - name: Select packages and their transitive test/runtime dependents
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          MERGE_BASE: ${{ github.event_name == 'pull_request' }}
+          FULL_RUN: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ "$FULL_RUN" = true ]; then
+            dart run tool/ci/select_packages.dart --full
+          else
+            dart run tool/ci/select_packages.dart
+          fi
+
   macos_interactive:
     name: macOS interactive startup
+    needs: changes
+    if: needs.changes.outputs.interactive == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,6 +110,7 @@ jobs:
         timeout-minutes: 6
         run: python3 tool/altkey_pty_driver.py
       - name: Test active tools against the macOS sandbox
+        if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tools')
         working-directory: packages/plugins/tina_tools
         run: |
           dart pub get
@@ -82,9 +124,11 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/tina-launcher"
           ln -s "$PWD/build/cli/macos_arm64/bundle/bin/tina" "$RUNNER_TEMP/tina-launcher/tina"
-          python3 tool/smoke_engine2.py --binary "$RUNNER_TEMP/tina-launcher/tina"
+          python3 tool/smoke_engine2.py --quick --binary "$RUNNER_TEMP/tina-launcher/tina"
 
   root:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina')
     name: root (tina)
     runs-on: ubuntu-latest
     steps:
@@ -121,15 +165,7 @@ jobs:
       # dart_notcurses submodule is NOT in ownedPackages, so reading the policy
       # (not a packages/* glob) is also what keeps the submodule out.
       - name: pub get (owned packages, for analyze and architecture checks)
-        run: |
-          # jq's -r prints raw strings, one per owned package; the root
-          # package "tina" maps to "." and is skipped below.
-          directories=$(jq -r '.packagePaths[]' tool/architecture/policy.json)
-          for d in $directories; do
-            if [ "$d" = "." ]; then continue; fi  # root: pub get ran above
-            echo "pub get in $d"
-            (cd "$d" && dart pub get)
-          done
+        run: dart run tool/ci/resolve_owned.dart
 
       # Root's own tests import tina_console → the dart_notcurses build hook
       # runs on dart test → the system linker deps must be present (see the
@@ -161,10 +197,13 @@ jobs:
           fi
 
       - name: Check native keyboard decoding
+        if: needs.changes.outputs.interactive == 'true'
         timeout-minutes: 6
         run: python3 tool/altkey_pty_driver.py
 
   console:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_console')
     name: console (packages/tina_console)
     runs-on: ubuntu-latest
     steps:
@@ -199,6 +238,8 @@ jobs:
         run: dart test -j 4
 
   index:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_index')
     name: index (packages/plugins/tina_index)
     runs-on: ubuntu-latest
     steps:
@@ -231,6 +272,8 @@ jobs:
   # absence of native terminal dependencies must stay observable, per the A08
   # spec — these jobs fail loudly if either package ever grows one.
   attractor:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'attractor')
     name: attractor (packages/libraries/attractor)
     runs-on: ubuntu-latest
     steps:
@@ -253,6 +296,8 @@ jobs:
         run: dart test -j 4
 
   tina_settings:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_settings')
     name: tina_settings (packages/libraries/tina_settings)
     runs-on: ubuntu-latest
     steps:
@@ -271,6 +316,8 @@ jobs:
         run: dart test -j 4
 
   fuzzy_ranker:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'fuzzy_ranker')
     name: fuzzy_ranker (packages/libraries/fuzzy_ranker)
     runs-on: ubuntu-latest
     steps:
@@ -297,6 +344,8 @@ jobs:
   # Its judgments half is additionally
   # pinned pure (no dart:io) by the root architecture test's pureFiles rule.
   classification:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'classification')
     name: classification (packages/classification)
     runs-on: ubuntu-latest
     steps:
@@ -319,6 +368,8 @@ jobs:
         run: dart test -j 4
 
   file_tree:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'file_tree')
     name: file_tree (packages/libraries/file_tree)
     runs-on: ubuntu-latest
     steps:
@@ -343,6 +394,8 @@ jobs:
   # (session-log entry types + derive), so its job gates on pub get +
   # analyze + test like every other owned package.
   tina_core:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_core')
     name: tina_core (packages/tina_core)
     runs-on: ubuntu-latest
     steps:
@@ -361,6 +414,8 @@ jobs:
         run: dart test -j 4
 
   tina_llm:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_llm')
     name: tina_llm (packages/tina_llm)
     runs-on: ubuntu-latest
     steps:
@@ -379,6 +434,8 @@ jobs:
         run: dart test -j 4
 
   tina_shell:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_shell')
     name: tina_shell (packages/plugins/tina_shell)
     runs-on: ubuntu-latest
     steps:
@@ -397,6 +454,8 @@ jobs:
         run: dart test -j 4
 
   tina_tools:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tools')
     name: tina_tools (packages/plugins/tina_tools)
     runs-on: ubuntu-latest
     steps:
@@ -431,6 +490,8 @@ jobs:
           dart test --tags live-os-sandbox --run-skipped
 
   tina_engine_2:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_engine_2')
     name: tina_engine_2 (packages/tina_engine_2)
     runs-on: ubuntu-latest
     steps:
@@ -449,6 +510,8 @@ jobs:
         run: dart test -j 4
 
   tina_host:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_host')
     name: tina_host (packages/tina_host)
     runs-on: ubuntu-latest
     steps:
@@ -472,6 +535,8 @@ jobs:
   # smoke test is skipped by default (dart_test.yaml), so the CI job
   # never touches the network.
   tina_sqlite:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_sqlite')
     name: tina_sqlite (packages/tina_sqlite)
     runs-on: ubuntu-latest
     steps:
@@ -493,6 +558,8 @@ jobs:
   # so like the console job it needs the submodule checkout and the native
   # linker deps for the dart_notcurses build hook (see header LINKER deps).
   tina_subagents:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_subagents')
     name: tina_subagents (packages/plugins/tina_subagents)
     runs-on: ubuntu-latest
     steps:
@@ -511,6 +578,8 @@ jobs:
         run: dart test -j 4
 
   tina_workflows:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_workflows')
     name: tina_workflows (packages/plugins/tina_workflows)
     runs-on: ubuntu-latest
     steps:
@@ -529,6 +598,8 @@ jobs:
         run: dart test -j 4
 
   tina_file_resources:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_file_resources')
     name: tina_file_resources (packages/plugins/tina_file_resources)
     runs-on: ubuntu-latest
     steps:
@@ -547,6 +618,8 @@ jobs:
         run: dart test -j 4
 
   tina_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tui')
     name: tina_tui (packages/tina_tui)
     runs-on: ubuntu-latest
     steps:
@@ -576,6 +649,8 @@ jobs:
         run: dart test --tags tty --run-skipped test/app_smoke_test.dart test/shell_terminal_test.dart
 
   tina_system_instruction:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_system_instruction')
     name: tina_system_instruction (packages/plugins/tina_system_instruction)
     runs-on: ubuntu-latest
     steps:
@@ -594,6 +669,8 @@ jobs:
         run: dart test -j 4
 
   tina_compaction:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_compaction')
     name: tina_compaction (packages/plugins/tina_compaction)
     runs-on: ubuntu-latest
     steps:
@@ -612,6 +689,8 @@ jobs:
         run: dart test -j 4
 
   tina_context:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_context')
     name: tina_context (packages/plugins/tina_context)
     runs-on: ubuntu-latest
     steps:
@@ -630,6 +709,8 @@ jobs:
         run: dart test -j 4
 
   tina_context_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_context_tui')
     name: tina_context_tui (packages/plugins/tina_context_tui)
     runs-on: ubuntu-latest
     steps:
@@ -654,6 +735,8 @@ jobs:
         run: dart test -j 4
 
   tina_plans:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_plans')
     name: tina_plans (packages/plugins/tina_plans)
     runs-on: ubuntu-latest
     steps:
@@ -672,6 +755,8 @@ jobs:
         run: dart test -j 4
 
   tina_goals:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_goals')
     name: tina_goals (packages/plugins/tina_goals)
     runs-on: ubuntu-latest
     steps:
@@ -690,6 +775,8 @@ jobs:
         run: dart test -j 4
 
   tina_persistence:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_persistence')
     name: tina_persistence (packages/plugins/tina_persistence)
     runs-on: ubuntu-latest
     steps:
@@ -708,6 +795,8 @@ jobs:
         run: dart test -j 4
 
   tina_approvals:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_approvals')
     name: tina_approvals (packages/plugins/tina_approvals)
     runs-on: ubuntu-latest
     steps:
@@ -726,6 +815,8 @@ jobs:
         run: dart test -j 4
 
   tina_approvals_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_approvals_tui')
     name: tina_approvals_tui (packages/plugins/tina_approvals_tui)
     runs-on: ubuntu-latest
     steps:
@@ -750,6 +841,8 @@ jobs:
         run: dart test -j 4
 
   tina_self_update:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_self_update')
     name: tina_self_update (packages/plugins/tina_self_update)
     runs-on: ubuntu-latest
     steps:
@@ -768,6 +861,8 @@ jobs:
         run: dart test -j 4
 
   tina_providers:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_providers')
     name: tina_providers (packages/plugins/tina_providers)
     runs-on: ubuntu-latest
     steps:
@@ -786,6 +881,8 @@ jobs:
         run: dart test -j 4
 
   tina_activity_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_activity_tui')
     name: tina_activity_tui (packages/plugins/tina_activity_tui)
     runs-on: ubuntu-latest
     steps:
@@ -810,6 +907,8 @@ jobs:
         run: dart test -j 4
 
   tina_grok_guard:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_grok_guard')
     name: tina_grok_guard (packages/plugins/tina_grok_guard)
     runs-on: ubuntu-latest
     steps:
@@ -825,6 +924,8 @@ jobs:
         working-directory: packages/plugins/tina_grok_guard
 
   tina_chat_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_chat_tui')
     name: tina_chat_tui (packages/plugins/tina_chat_tui)
     runs-on: ubuntu-latest
     steps:
@@ -849,6 +950,8 @@ jobs:
         run: dart test -j 4
 
   tina_step_limit:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_step_limit')
     name: tina_step_limit (packages/plugins/tina_step_limit)
     runs-on: ubuntu-latest
     steps:
@@ -864,6 +967,8 @@ jobs:
         working-directory: packages/plugins/tina_step_limit
 
   tina_mode:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_mode')
     name: tina_mode (packages/plugins/tina_mode)
     runs-on: ubuntu-latest
     steps:
@@ -882,6 +987,8 @@ jobs:
         run: dart test -j 4
 
   tina_mcp:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_mcp')
     name: tina_mcp (packages/plugins/tina_mcp)
     runs-on: ubuntu-latest
     steps:

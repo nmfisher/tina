@@ -130,6 +130,26 @@ def smoke(launcher, endpoint, backend, panels):
             terminal.expect_idle()
             return terminal.send('\r')
 
+        def inject_output(data):
+            # A macOS PTY can have a full output queue while a repaint is
+            # pending. A blocking write to the slave would stop this harness
+            # draining the master, deadlocking the test itself. Open a separate
+            # nonblocking descriptor so the application's own fd flags stay
+            # unchanged, and continue draining while injecting the damage.
+            descriptor = os.open(os.ttyname(terminal.slave),
+                                 os.O_WRONLY | os.O_NONBLOCK | os.O_NOCTTY)
+            try:
+                deadline = time.monotonic() + 5
+                while data and time.monotonic() < deadline:
+                    terminal.read()
+                    try:
+                        data = data[os.write(descriptor, data):]
+                    except BlockingIOError:
+                        pass
+                assert not data, 'fixture could not write terminal damage within 5s'
+            finally:
+                os.close(descriptor)
+
         def tool(text, approve=True, auto=False):
             before = len(OutputStub.requests)
             start = submit(text)
@@ -199,12 +219,12 @@ def smoke(launcher, endpoint, backend, panels):
             # opened before Tina starts. Simulate that write, then request the
             # same resize repaint used by the application without changing size.
             before_damage = grid()
-            os.write(terminal.slave, b'\x1b[10;10HEXTERNAL_WATCHER_OUTPUT')
+            inject_output(b'\x1b[10;10HEXTERNAL_WATCHER_OUTPUT')
             visible('EXTERNAL_WATCHER_OUTPUT')
             os.kill(terminal.process.pid, signal.SIGWINCH)
             terminal.wait_for(lambda: grid() == before_damage,
                               'resize repaint left external process output on screen', timeout=5)
-            os.write(terminal.slave, b'\x1b[10;10HEXTERNAL_WATCHER_OUTPUT')
+            inject_output(b'\x1b[10;10HEXTERNAL_WATCHER_OUTPUT')
             visible('EXTERNAL_WATCHER_OUTPUT')
             terminal.send('\x0c')
             terminal.wait_for(lambda: 'EXTERNAL_WATCHER_OUTPUT' not in grid(),

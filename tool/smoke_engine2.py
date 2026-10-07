@@ -1112,6 +1112,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dart", default=shutil.which("dart"))
     parser.add_argument("--binary", type=Path)
+    parser.add_argument("--quick", action="store_true",
+                        help="Run the complete engine scenario at 80x24; dedicated UI suites cover size edges")
     args = parser.parse_args()
     if not args.dart and not args.binary:
         parser.error("dart was not found on PATH")
@@ -1124,15 +1126,16 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for columns, rows in [(80, 10), (80, 24), (120, 30)]:
+        sizes = [(80, 24)] if args.quick else [(80, 10), (80, 24), (120, 30)]
+        for columns, rows in sizes:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
         # Each size adds fourteen requests: one file-completion turn, two for
         # line scrolling/draft preservation, six for
         # automatic network approval/denial (agent/judge/result), and five for the
         # background job (start/result, another message, inspect/result).
         # Four MCP tool turns add eight requests per terminal size.
-        assert 168 <= len(ModelStub.requests) <= 171, (
-            f"expected 168–171 model requests depending on input coalescing, got {len(ModelStub.requests)}; "
+        assert 56 * len(sizes) <= len(ModelStub.requests) <= 57 * len(sizes), (
+            f"expected {56 * len(sizes)}–{57 * len(sizes)} model requests depending on input coalescing, got {len(ModelStub.requests)}; "
             "commands or resume unexpectedly called the model")
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)

@@ -146,26 +146,18 @@ jobs:
 
       # Run the actual native UI before uploading any release artifacts.
       # --version cannot catch first-load modal or notcurses lifecycle failures.
-      - name: Smoke-test engine2 turns, approvals, cancellation and resume
-        run: python3 tool/smoke_engine2.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+      - name: Smoke-test release binary (seven isolated suites, three at a time)
+        timeout-minutes: 15
+        run: python3 tool/ci/run_release_smokes.py --jobs 3 --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
 
-      - name: Smoke-test notcurses images, input, resume and teardown
-        run: python3 tool/smoke_notcurses_images.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
-
-      - name: Smoke-test live classification panel and hierarchy on both backends
-        run: python3 tool/smoke_classification_panel.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
-
-      - name: Smoke-test popup restoration and status panel controls on both backends
-        run: python3 tool/smoke_panel_paint.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
-
-      - name: Smoke-test default native backend, ANSI fallback and resumed input
-        run: python3 tool/smoke_backend_selection.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
-
-      - name: Smoke-test manual shell output and cancellation on both backends
-        run: python3 tool/smoke_shell.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
-
-      - name: Smoke-test process output isolation on both backends
-        run: python3 tool/smoke_process_output.py --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
+      - name: Upload smoke-test logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: smoke-logs-${{ env.TAG }}-${{ matrix.target }}
+          path: build/smoke-logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Notarize (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
