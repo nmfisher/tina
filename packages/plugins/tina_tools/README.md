@@ -190,3 +190,16 @@ background. For example, `exec` with `program: "gh"`, `args: ["run", "watch",
 "12345", "--exit-status"]`, `network: true`, a `network_reason`,
 `background: true` and `timeout: 7200` watches a build without holding the
 conversation. Inspect it with `process` using its `job_id` and `action: "status"`.
+## Experimental speculative reads
+
+`ToolsPlugin` leaves speculative caching disabled by default. A predictor can
+opt in with `enableSpeculative: true` and submit read-only candidates through
+`speculativePrefetch`, with the enclosing turn's cancellation token. No runtime
+predictor is connected yet.
+
+The plugin consumes each predicted result once, rechecks sandbox access before
+serving it, and never memoizes ordinary reads. Mutating calls block caching
+during execution and invalidate it before and after dispatch, including failed
+calls. Input, turn completion and session closure invalidate predictions too.
+Results are earlier snapshots: external filesystem changes and ongoing
+background writers are not tracked, so this remains an explicit experiment.

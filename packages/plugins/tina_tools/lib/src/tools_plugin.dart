@@ -49,6 +49,7 @@ final class ToolsPlugin extends AgentPlugin
     UnavailableBehaviour osUnavailable = UnavailableBehaviour.allow,
     bool osIsolateNetwork = true,
     this.settings,
+    this.enableSpeculative = false,
   })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
         sandbox = SandboxedFileSystem(
           const IoFileSystem(),
@@ -98,6 +99,28 @@ final class ToolsPlugin extends AgentPlugin
       ProcessJobTool(processJobs),
     ];
     workingDirectory = workspaceRoot;
+    _speculative = SpeculativeCache(
+      defaults: const {
+        'ls': {'maxResults': 200, 'all': false},
+        'read': {'offset': 1, 'limit': 2000},
+      },
+    );
+    _speculativePrefetch = SpeculativePrefetch(
+        _speculative,
+        {
+          'ls': (input) =>
+              toolList.firstWhere((t) => t.schema.name == 'ls').execute(input),
+          'glob': (input) => toolList
+              .firstWhere((t) => t.schema.name == 'glob')
+              .execute(input),
+          'stat': (input) => toolList
+              .firstWhere((t) => t.schema.name == 'stat')
+              .execute(input),
+          'read': (input) => toolList
+              .firstWhere((t) => t.schema.name == 'read')
+              .execute(input),
+        },
+        enabled: () => enableSpeculative && !_closed);
     _stopReadSettings = settings?.watch(readOnlyDirectoriesSetting,
         (value) => readDirectories.replace(value.value),
         fireImmediately: true);
@@ -140,6 +163,43 @@ final class ToolsPlugin extends AgentPlugin
   /// advertises ([toolSchemas]); their executors are registered by
   /// [mountOn].
   late final List<Tool> toolList;
+
+  /// Read-only results, filled by [SpeculativePrefetch] during the
+  /// prediction window and served by the wrapped executors in [mountOn].
+  /// Cleared by any mutating executor and at turn end, so a hit is never
+  /// older than the current turn's start.
+  late final SpeculativeCache _speculative;
+  late final SpeculativePrefetch _speculativePrefetch;
+
+  /// Experimental prediction snapshots. Ordinary reads remain uncached.
+  final bool enableSpeculative;
+  bool _closed = false;
+
+  Future<ToolResult?> _validateSpeculativeRead(
+      String name, Map<String, Object?> input) async {
+    try {
+      final raw = name == 'read'
+          ? requiredString(input, 'filePath')
+          : name == 'stat'
+              ? requiredString(input, 'path')
+              : optionalString(input, 'path') ?? workingDirectory;
+      await sandbox.guard(FileOp.read, resolveToolPath(raw, workingDirectory));
+      return null;
+    } on SandboxViolation catch (e) {
+      return ToolResult.error(e.message);
+    } on ToolValidationException catch (e) {
+      return ToolResult.error(e.message);
+    }
+  }
+
+  /// The prediction seam for slice 2: a plugin that predicts read-only
+  /// calls submits them here during the turn's model-call window. Direct
+  /// use only for tests and diagnostics.
+  SpeculativePrefetch get speculativePrefetch => _speculativePrefetch;
+
+  /// Hit/miss counters and live entry count, for diagnostics and for
+  /// measuring whether prediction is earning its keep.
+  SpeculativeStats get speculativeStats => _speculative.stats;
   ToolUse? _activeCall;
 
   void rememberReadDirectory(String directory) {
@@ -193,32 +253,63 @@ final class ToolsPlugin extends AgentPlugin
 
   void mountOn(AgentLoop loop) {
     modePolicy.mountPolicy(loop, ownerId: id);
+    registerExecutors(loop.registerContextExecutor);
+  }
+
+  /// The tool dispatch, wired through a register callback. Split from
+  /// [mountOn] so tests can capture the executors without an [AgentLoop]
+  /// (the loop is final; the dispatch is the same code either way).
+  void registerExecutors(
+      void Function(String name, ContextToolExecutor exec) register) {
     for (final t in toolList) {
-      loop.registerContextExecutor(t.schema.name, (input, context) {
-        if (t is ProcessJobTool) {
-          return t.execute(input,
-              control: ProcessControl(
+      final name = t.schema.name;
+      final plain = enableSpeculative && speculativeTools.contains(name)
+          ? (Map<String, Object?> input) => t.execute(input)
+          : null;
+      register(name, (input, context) async {
+        // A mutating tool's result cannot be trusted to leave the world
+        // unchanged, whatever it reported: block caching during execution
+        // and invalidate both before dispatch and after it settles.
+        final invalidates = speculativeInvalidatingTools.contains(name);
+        if (invalidates) _speculative.beginMutation();
+        try {
+          if (plain != null)
+            return await _speculative.wrap(name, plain,
+                validate: (input) => _validateSpeculativeRead(name, input),
+                storeMisses: false,
+                consume: true)(input);
+          if (t is ProcessJobTool) {
+            return await t.execute(input,
+                control: ProcessControl(
+                    isCancelled: context.isCancelled,
+                    whenCancelled: context.whenCancelled,
+                    whenInputPending: context.whenInputPending,
+                    onOutput: context.report));
+          }
+          if (t is ProcessToolBase) {
+            return await t.execute(input,
+                control: ProcessControl(
                   isCancelled: context.isCancelled,
                   whenCancelled: context.whenCancelled,
                   whenInputPending: context.whenInputPending,
-                  onOutput: context.report));
+                  onOutput: context.report,
+                ));
+          }
+          return await t.execute(input);
+        } finally {
+          if (invalidates) _speculative.endMutation();
         }
-        if (t is ProcessToolBase) {
-          return t.execute(input,
-              control: ProcessControl(
-                isCancelled: context.isCancelled,
-                whenCancelled: context.whenCancelled,
-                whenInputPending: context.whenInputPending,
-                onOutput: context.report,
-              ));
-        }
-        return t.execute(input);
       });
     }
   }
 
   @override
-  void onInput(TurnContext c) => modePolicy.onInput(c);
+  void onInput(TurnContext c) {
+    _speculativePrefetch.cancel();
+    _speculative.clear();
+    modePolicy.onInput(c);
+  }
+
   @override
   void beforeToolCall(TurnContext c) {
     _activeCall = c.call;
@@ -234,13 +325,18 @@ final class ToolsPlugin extends AgentPlugin
   @override
   void onTurnEnd(TurnContext c) {
     _activeCall = null;
+    _speculativePrefetch.cancel();
+    _speculative.clear();
     modePolicy.onTurnEnd(c);
   }
 
   @override
   void closeSession() {
+    _closed = true;
+    _speculativePrefetch.cancel();
     _stopReadSettings?.call();
     _stopWriteSettings?.call();
+    _speculative.clear();
     unawaited(processJobs.close());
     modePolicy.closeSession();
   }
