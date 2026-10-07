@@ -61,8 +61,14 @@ void main() {
     onReady?.call(screen, backend);
     final editor = LineEditor(screen: screen);
     var index = 0;
+    // Former global-editor scenarios now select Global in the shared stack.
+    var scopeTabs = scoped ? 0 : 2;
     late SettingsPanel panel;
     panel = SettingsPanel(screen, editor, readEvent: () async {
+      if (scopeTabs > 0) {
+        scopeTabs--;
+        return ControlKey(ControlCode.tab);
+      }
       while (index < steps.length && steps[index] is void Function()) {
         (steps[index++] as void Function())();
       }
@@ -77,12 +83,11 @@ void main() {
     try {
       await panel.run(
           path: config.path,
-          pluginIds: app.pluginSettings.registry.ids,
           pluginDescriptions: pluginDescriptions(app.pluginSettings.registry),
           pluginSettings: app.pluginSettings,
           pluginManager: app.pluginManager,
-          scopedSettings: scoped ? app.settings : null,
-          settingsBackend: scoped ? app.settingsBackend : null);
+          scopedSettings: app.settings,
+          settingsBackend: app.settingsBackend);
       expect(index, steps.length);
       return io.written.toString();
     } finally {
@@ -92,7 +97,7 @@ void main() {
     }
   }
 
-  for (final scoped in [false, true]) {
+  for (final scoped in [true]) {
     test(
         'workspace context can be promoted to All while its viewer requires it ($scoped)',
         () async {
@@ -361,7 +366,8 @@ void main() {
       down, enter, stable, // provider tree
       ArrowKey(ArrowDirection.right), down, stable, // inline credential
       escape, stable,
-      down, enter, stable, escape, stable, // generation editor
+      down, enter, stable, enter, stable, escape,
+      stable, // provider + generation editor
       escape, stable, // root retains Models selection
       down, enter, stable, enter, stable, // Appearance / Theme choices
       down, escape, stable, escape, stable,
@@ -453,8 +459,10 @@ void main() {
       () => expect(app.commands['goal'], isNotNull),
       reset,
       () {
-        expect(app.commands['goal'], isNull);
-        expect(app.pluginSettings.state('tina/goals').source, 'global');
+        expect(
+            app.settings.override(
+                app.settings.catalog['tina/goals/enabled'], PluginScope.global),
+            isNull);
       },
       escape,
       escape,
@@ -470,6 +478,7 @@ void main() {
       () async {
     app.pluginSettings
         .apply('tina/goals', true, PluginScope.global, app.pluginManager);
+    app.settings.reload();
     await drive([
       CharInput('Plugins'), enter, ArrowKey(ArrowDirection.left), // workspace
       CharInput('tina/goals'), space,
@@ -528,7 +537,10 @@ void main() {
     expect(app.commands['goal'], isNotNull);
     expect(app.pluginSettings.state('tina/tools').source, 'required');
     expect(output, contains('required'));
-    expect(config.readAsStringSync(), isNot(contains("'tina/tools' =")));
+    expect(
+        app.settings.override(
+            app.settings.catalog['tina/tools/enabled'], PluginScope.global),
+        isNot(false));
   });
 
   test(

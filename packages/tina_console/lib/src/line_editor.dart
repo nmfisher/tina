@@ -74,6 +74,11 @@ class LineEditor {
   int get keyCount => _keyCount;
 
   Completer<String?>? _completer;
+  final _quit = Completer<void>();
+
+  /// Whether the user has confirmed exit from the conversation.
+  bool get quitRequested => _quit.isCompleted;
+  Future<void> get whenQuit => _quit.future;
   void Function(String)? _lineSink;
   Completer<InputEvent>? _keyCompleter;
   _EditorInputSession? _inputSession;
@@ -284,6 +289,7 @@ class LineEditor {
 
   Future<String?> readLine(String prompt) async {
     await _input.ready;
+    if (quitRequested) return null;
     _prompt = prompt;
     _edit = _edit.clear().resetNavigation();
     final draft = _capturedDraft;
@@ -1715,6 +1721,8 @@ class LineEditor {
   /// cleared too; a live turn underneath keeps running and is torn down by
   /// the controller's shutdown, not here.
   void _quitNow() {
+    if (quitRequested) return;
+    _quit.complete();
     _inputSession?.dispose();
     _lastEsc = null;
     _dialog.reset();
