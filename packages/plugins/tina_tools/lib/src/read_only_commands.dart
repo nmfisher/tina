@@ -5,10 +5,42 @@ import 'package:path/path.dart' as path;
 import 'process_runner.dart';
 import 'read_directories.dart';
 
-typedef _ShellPart = ({List<String> words, String? operator});
+typedef _ShellPart = ({List<String> words, String? operator, List<String> redirects});
 
-/// A deliberately small shell grammar: literal arguments and |, ; or &&.
-/// The accepted words are re-quoted before execution, never reused as script.
+/// Output-only redirections, kept verbatim in the reconstructed script.
+/// Each writes to the null device or duplicates an already-open descriptor:
+/// no path is read, created or modified, so certification is unaffected.
+/// `2> written` and friends stay unrecognized — they name a real path.
+const _outputRedirects = {
+  '2>/dev/null',
+  '2>>/dev/null',
+  '>/dev/null',
+  '>>/dev/null',
+  '1>/dev/null',
+  '1>>/dev/null',
+  '&>/dev/null',
+  '2>&1',
+  '1>&2',
+  '2>>&1',
+};
+
+/// Longest redirect a script suffix can start with, or null. Word boundaries
+/// matter: `2>&1x` is not `2>&1`, and `2>/dev/nullx` is not `/dev/null`.
+String? _redirectAt(String script, int start) {
+  for (final token in _outputRedirects) {
+    final end = start + token.length;
+    if (script.startsWith(token, start) &&
+        (end >= script.length ||
+            !RegExp(r'[A-Za-z0-9_=/&>-]').hasMatch(script[end]))) {
+      return token;
+    }
+  }
+  return null;
+}
+
+/// A deliberately small shell grammar: literal arguments and |, ; or &&,
+/// plus output-only redirects. The accepted words are re-quoted before
+/// execution, never reused as script.
 List<_ShellPart>? _literalShellParts(ProcessRequest request) {
   if (request.command != '/bin/sh' ||
       request.arguments.length != 2 ||
@@ -17,6 +49,7 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
   if (script.contains('\n') || script.contains('\r')) return null;
   var words = <String>[];
   final parts = <_ShellPart>[];
+  final redirects = <String>[];
   var word = StringBuffer();
   String? quote;
   var active = false;
@@ -53,6 +86,19 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
         word = StringBuffer();
         active = false;
       }
+      // An output-only redirect may follow this whitespace; consuming it
+      // here keeps its fd/dup characters out of the word parser entirely.
+      var end = i;
+      while (end + 1 < script.length &&
+          RegExp(r'\s').hasMatch(script[end + 1])) {
+        end++;
+      }
+      final redirect = _redirectAt(script, end + 1);
+      if (redirect != null) {
+        redirects.add(redirect);
+        i = end + redirect.length;
+        continue;
+      }
     } else if ('|;&'.contains(char)) {
       if (active) words.add(word.toString());
       word = StringBuffer();
@@ -65,7 +111,8 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
       } else if (i + 1 < script.length && script[i + 1] == char) {
         return null; // no ||, ;; or shell control constructs
       }
-      parts.add((words: List.unmodifiable(words), operator: operator));
+      parts.add((words: List.unmodifiable(words), operator: operator, redirects: List.unmodifiable(redirects)));
+      redirects.clear();
       words = [];
     } else if ('\u0024`<>()[*?~#{}'.contains(char) || char.codeUnitAt(0) < 32) {
       return null;
@@ -77,7 +124,11 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
   if (quote != null) return null;
   if (active) words.add(word.toString());
   if (words.isEmpty || words.first.isEmpty) return null;
-  parts.add((words: List.unmodifiable(words), operator: null));
+  parts.add((
+    words: List.unmodifiable(words),
+    operator: null,
+    redirects: List.unmodifiable(redirects)
+  ));
   return parts;
 }
 
@@ -91,14 +142,19 @@ ProcessRequest _partRequest(ProcessRequest request, List<String> words) => (
     );
 
 /// A single literal reader may also reuse a saved directory read grant.
+/// Redirects — even output-only ones — disqualify this path: it drops them,
+/// and a script whose meaning depends on `2>&1` must not silently lose it.
 ProcessRequest? literalShellRequest(ProcessRequest request) {
   final parts = _literalShellParts(request);
-  return parts?.length == 1 ? _partRequest(request, parts!.single.words) : null;
+  return parts?.length == 1 && parts!.single.redirects.isEmpty
+      ? _partRequest(request, parts.single.words)
+      : null;
 }
 
 /// Certify every component and reconstruct the shell script with pinned
 /// system executables and quoted literal arguments. No PATH lookup or shell
-/// expansion remains in the script that is executed.
+/// expansion remains in the script that is executed. Output-only redirects
+/// (`2>/dev/null`, `2>&1`) ride along verbatim: they touch no path.
 ProcessRequest? readOnlyShellRequest(ProcessRequest request,
     {String? searchPath}) {
   final parts = _literalShellParts(request);
@@ -110,6 +166,7 @@ ProcessRequest? readOnlyShellRequest(ProcessRequest request,
     final executable = readOnlyExecutable(component, searchPath: searchPath);
     if (executable == null) return null;
     script.write([executable, ...component.arguments].map(quote).join(' '));
+    for (final redirect in part.redirects) script.write(' $redirect');
     if (part.operator != null) script.write(' ${part.operator} ');
   }
   return (

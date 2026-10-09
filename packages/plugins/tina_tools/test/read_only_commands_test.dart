@@ -212,6 +212,38 @@ void main() {
       expect(inner.controls.last!.networkAllowed, false);
     });
 
+    test('$mode runs output-only redirects without asking', () async {
+      final inner = _Recorder();
+      final gate = runner(inner,
+          review: (_, __) => throw StateError('unexpected approval'))
+        ..mode = mode;
+      for (final script in [
+        'cat file',
+        'grep needle file 2>/dev/null | head',
+        'grep needle file 2>/dev/null | head 2>/dev/null',
+        'cat file 2>&1 | head',
+        'cat file | head 2>&1',
+        'cat file; head file 2>/dev/null',
+        'grep needle file 2>&1 2>/dev/null | head',
+        'grep needle file >/dev/null 2>&1 | head',
+        'grep needle file &>/dev/null | head',
+        'grep needle file 2>>/dev/null | head',
+      ]) {
+        expect(
+            await gate.run(
+                request('/bin/sh', ['-c', script], cwd: root.path)),
+            isA<CommandCompleted>(),
+            reason: script);
+      }
+      final spawned = inner.requests.last;
+      expect(spawned.command, '/bin/sh');
+      expect(spawned.arguments.last, contains("2>>/dev/null"));
+      // Redirects attach to their own segment, not the last one.
+      expect(inner.requests[inner.requests.length - 2].arguments.last,
+          contains("'file' &>/dev/null | '/usr/bin/head'"));
+      expect(gate.grants.isEmpty, true);
+    });
+
     test('$mode rejects unsafe or unsupported shell components', () async {
       final inner = _Recorder();
       var asks = 0;
@@ -226,6 +258,11 @@ void main() {
         'echo ok && rm file',
         'cat file > written',
         'cat file 2> written',
+        'cat file 2>> written',
+        'cat file &> written',
+        'cat file >/dev/zero',
+        'cat file 2>&3',
+        'cat file 2>&1x',
         r'cat $(touch written)',
         r'echo "$HOME"',
         r'echo `touch written`',
@@ -244,7 +281,7 @@ void main() {
             isA<CommandRefused>(),
             reason: script);
       }
-      expect(asks, 17);
+      expect(asks, 22);
       expect(inner.requests, isEmpty);
     });
 
