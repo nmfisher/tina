@@ -102,6 +102,94 @@ void main() {
     },
   );
 
+  test('judge context stays empty without conversation history', () async {
+    final judge = Judge(Future.value(const PermissionJudgment(true)));
+    final mode = ModePlugin(
+      mode: PermissionMode.auto,
+      approvals: Human(),
+      classifier: judge,
+    );
+    addTearDown(mode.closeSession);
+    final turn = TurnContext(
+      CancelToken(),
+      input: Input('Fix the shop layout.', id: 'fix'),
+      messages: [],
+      promptSections: [],
+      pinnedTools: [],
+    );
+    mode.onInput(turn);
+    mode.beforeToolCall(turn);
+    await request(mode);
+    expect(judge.requests.single.containsKey('recent_context'), false);
+    expect(judge.requests.single.containsKey('recent_tool_calls'), false);
+  });
+
+  test(
+    'a correction reaches the judge with the failed call it answers',
+    () async {
+      final judge = Judge(Future.value(const PermissionJudgment(true)));
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: Human(),
+        classifier: judge,
+      );
+      addTearDown(mode.closeSession);
+      // The transcript of the turn whose write to a mistyped volume failed
+      // and was cancelled: the correction that follows needs the failed
+      // call visible to be understood as answering it, not the retry.
+      final turn = TurnContext(
+        CancelToken(),
+        input: Input('that path is not correct', id: 'correction'),
+        messages: [
+          Message(role: Role.user, content: [
+            TextBlock('Update the shop template.'),
+          ]),
+          Message(role: Role.assistant, content: [
+            ToolUseBlock(
+              id: 'write-t4',
+              name: 'write',
+              input: {
+                'filePath':
+                    '/Volumes/T4/projects/holotype_shop/blog/templates/_layouts/shop.liquid',
+                'content': '<html>…</html>',
+              },
+            ),
+          ]),
+          Message(role: Role.user, content: [
+            const ToolResultBlock(
+              toolUseId: 'write-t4',
+              content: 'allow write outside the project root (_layouts)',
+              isError: true,
+            ),
+          ]),
+        ],
+        promptSections: [],
+        pinnedTools: [],
+        call: ToolUse(id: 'correction', name: 'write', input: {
+          'filePath':
+              '/Volumes/T7/projects/holotype_shop/blog/templates/_layouts/shop.liquid',
+        }),
+      );
+      mode.onInput(turn);
+      mode.beforeToolCall(turn);
+      await request(mode);
+      final payload = judge.requests.single;
+      expect(payload['user_request'], 'that path is not correct');
+      final context = payload['recent_context'] as Map<String, Object?>;
+      final users = context['user_messages'] as List;
+      expect(users.first['text'], 'Update the shop template.');
+      final calls = payload['recent_tool_calls'] as List;
+      expect(calls.last['name'], 'write');
+      expect(
+        calls.last['input'],
+        contains('/Volumes/T4/projects/holotype_shop'),
+      );
+      // The failed tool result payload is not duplicated into the judge
+      // request; the tail carries calls, not result dumps.
+      expect(payload.containsKey('recent_tool_results'), false);
+    },
+  );
+
   test(
     'confirmation asks a human in auto and read-only and bypasses the judge',
     () async {

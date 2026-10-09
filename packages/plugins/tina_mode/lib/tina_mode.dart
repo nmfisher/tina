@@ -171,6 +171,11 @@ class ModePlugin extends AgentPlugin implements ModeControl {
                 'user_request': turn?.input.text,
                 if (_call != null)
                   'tool': {'name': _call!.name, 'input': _call!.input},
+                // The conversation tail before this request: what a user
+                // correction refers to. Without it, "that path is not
+                // correct" denies the corrected retry because the judge
+                // cannot see the failed call it answered.
+                ...?_recentContext(turn),
               },
               whenCancelled: Future.any([
                 if (turn != null) turn.whenCancelled,
@@ -233,6 +238,44 @@ class ModePlugin extends AgentPlugin implements ModeControl {
       _callApprovals[cacheKey] = decision;
     }
     return decision;
+  }
+
+  /// The conversation tail for the judge, or null when there is nothing
+  /// recent to resolve. Keeps the last few user texts and tool calls so a
+  /// correction ("that path is not correct") can be matched to the call it
+  /// answers — while excluding the tool result payloads and file dumps the
+  /// conversation carries, which the judge does not need and which bloat
+  /// the request with unneeded file contents.
+  Map<String, Object?>? _recentContext(TurnContext? turn) {
+    if (turn == null) return null;
+    final users = <Map<String, Object?>>[];
+    final tools = <Map<String, Object?>>[];
+    String clip(String text, int limit) =>
+        text.length <= limit ? text : '${text.substring(0, limit)}…';
+    for (final message in turn.messages.reversed) {
+      if (users.length >= 3 && tools.length >= 3) break;
+      for (final block in message.content.reversed) {
+        if (users.length >= 3 && tools.length >= 3) break;
+        if (block is TextBlock && message.role == Role.user) {
+          final text = clip(block.text.trim(), 500);
+          if (text.isNotEmpty) {
+            users.add({'text': text});
+          }
+        } else if (block is ToolUseBlock) {
+          tools.add({
+            'name': block.name,
+            'input': clip(block.input.toString(), 300),
+          });
+        }
+      }
+    }
+    if (users.isEmpty && tools.isEmpty) return null;
+    return {
+      if (users.isNotEmpty)
+        'recent_context': {'user_messages': users.reversed.toList()},
+      if (tools.isNotEmpty)
+        'recent_tool_calls': tools.reversed.toList(),
+    };
   }
 
   @override
