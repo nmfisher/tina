@@ -184,6 +184,10 @@ void main() {
         calls.last['input'],
         contains('/Volumes/T4/projects/holotype_shop'),
       );
+      // The call carries its outcome: the judge sees it failed, so the
+      // correction's referent is computed, not inferred.
+      expect(calls.last['error'], contains('outside the project root'));
+      expect(calls.last.containsKey('ok'), false);
       // The failed tool result payload is not duplicated into the judge
       // request; the tail carries calls, not result dumps.
       expect(payload.containsKey('recent_tool_results'), false);

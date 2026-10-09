@@ -252,6 +252,18 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     final tools = <Map<String, Object?>>[];
     String clip(String text, int limit) =>
         text.length <= limit ? text : '${text.substring(0, limit)}…';
+    // Outcomes by toolUseId, so each recent call carries what actually
+    // happened: the judge sees "the write to the wrong volume FAILED",
+    // not just that it happened.
+    final outcomes = <String, Map<String, Object?>>{};
+    for (final message in turn.messages) {
+      for (final block in message.content) {
+        if (block is! ToolResultBlock) continue;
+        outcomes[block.toolUseId] = block.isError
+            ? {'error': clip(block.content.trim(), 300)}
+            : const {'ok': true};
+      }
+    }
     for (final message in turn.messages.reversed) {
       if (users.length >= 3 && tools.length >= 3) break;
       for (final block in message.content.reversed) {
@@ -265,6 +277,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
           tools.add({
             'name': block.name,
             'input': clip(block.input.toString(), 300),
+            ...?outcomes[block.id],
           });
         }
       }
