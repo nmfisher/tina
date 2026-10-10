@@ -766,8 +766,8 @@ void main() {
 
   group('12. bash behind the loop, read-only', () {
     test(
-        'a command call is refused as a tool_result and the turn continues; '
-        'nothing ran', () async {
+        'an uncertified writer is refused as a tool_result and the turn '
+        'continues; nothing ran', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_proc_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final bash = BashTool(
@@ -780,7 +780,10 @@ void main() {
       );
       final provider = ScriptedProvider([
         scriptedReply('', calls: [
-          ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi'}),
+          // `touch` is a writer and is not a certified read-only reader, so
+          // read-only mode refuses it. (`echo` no longer would: v0.9.50
+          // certified literal echo as a reader — see the test below.)
+          ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'touch hi'}),
         ]),
         // The turn continues: the model sees the refusal and answers.
         scriptedReply('understood, read-only'),
@@ -803,10 +806,46 @@ void main() {
       // The enforcement is at the runner, not the loop: no tool_result guard
       // was involved, and the sandbox decided. Nothing ran — in read-only
       // mode the sandbox denies without spawning, so we assert on the
-      // absence of any side effect the command would have had.
+      // absence of any side effect the command would have had. With `touch`
+      // this is a real check: the command's whole job is creating the file.
       final marker = File('${dir.path}/hi');
       expect(marker.existsSync(), isFalse,
-          reason: 'echo never executed, so no side effect landed');
+          reason: 'touch never executed, so no side effect landed');
+    });
+
+    test(
+        'a certified literal reader (echo) runs in read-only mode without '
+        'an error', () async {
+      final dir = await Directory.systemTemp.createTemp('tina_e2_proc4_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final bash = BashTool(
+        runner: SandboxedProcessRunner(
+          inner: const IoProcessRunner(),
+          writableDirectories: WritableDirectories()..add(dir.path),
+          mode: PermissionMode.readOnly,
+        ),
+        workingDirectory: dir.path,
+      );
+      final provider = ScriptedProvider([
+        scriptedReply('', calls: [
+          ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi'}),
+        ]),
+        scriptedReply('done'),
+      ]);
+      final loop = AgentLoop(provider: provider, plugins: [
+        _ToolsPlugin([bash])
+      ]);
+      loop.registerExecutor('bash', bash.execute);
+
+      final outcome =
+          await loop.runTurn(const Input('run something', id: 'i12d'));
+
+      expect(outcome.stopReason, StopReason.complete);
+      // v0.9.50 certified literal `echo` as a read-only reader: it names no
+      // path and executes no code, so it runs rather than being refused.
+      final result = _result(outcome.messages.firstWhere(_isResult));
+      expect(result.isError, isFalse);
+      expect(result.content, contains('hi'));
     });
 
     test(
