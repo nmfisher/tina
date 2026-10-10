@@ -22,3 +22,5 @@ To cut a new tina release:
    - Creates the GitHub release with `softprops/action-gh-release@v2`, attaching all artifacts.
 
 4. **Announce** the new release / tag as appropriate.
+
+If AGENTS.local.md exists, review that file for instructions too.
