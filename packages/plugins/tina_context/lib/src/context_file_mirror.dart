@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 
+import 'context_edit.dart';
 import 'working_context.dart';
 
 enum ContextEditStatus { unchanged, accepted, rejected }
@@ -77,22 +78,21 @@ final class ContextFileMirror {
       } on ArgumentError {
         throw const FormatException('Invalid context message');
       }
+      // Structural parse of the document stays here (it is file shape, not
+      // edit validity); everything past parsing is evaluateContextEdit.
       if (!sameMessages(edited, base.messages)) {
-        if (current.revision != base.revision ||
-            current.throughSeq < base.throughSeq ||
-            current.messages.length < base.messages.length ||
-            !sameMessages(
-                current.messages.take(base.messages.length), base.messages)) {
-          throw const FormatException('Stale context file');
+        final verdict = evaluateContextEdit(
+            current: current, edited: edited, base: base);
+        switch (verdict) {
+          case ContextEditUnchanged():
+            break; // unreachable: edited differs from base by the check above
+          case ContextEditRejectedVerdict():
+            throw const FormatException('rejected');
+          case ContextEditAccepted(:final merged):
+            result = replace(merged);
+            receipt = const ContextEditReceipt(
+                ContextEditStatus.accepted, 'Context edit accepted.');
         }
-        final merged = [
-          ...edited,
-          ...current.messages.skip(base.messages.length),
-        ];
-        validateContextMessages(merged);
-        result = replace(merged);
-        receipt = const ContextEditReceipt(
-            ContextEditStatus.accepted, 'Context edit accepted.');
       }
     } on FormatException {
       // Report a fixed receipt, never arbitrary parser or file contents.

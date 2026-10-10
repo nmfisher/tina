@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 
+import 'context_edit.dart';
 import 'context_file_mirror.dart';
 import 'context_settings.dart';
 import 'context_budget.dart';
@@ -163,55 +164,41 @@ final class ContextPlugin extends AgentPlugin {
         current.throughSeq != expectedThroughSeq) {
       throw ContextEditRejected('Stale working-context edit');
     }
-    final replacement = freezeMessages(messages);
-    validateContextMessages(replacement);
-    // Provider signatures are opaque. Retain the exact signed block or drop
-    // it; callers cannot fabricate or rewrite signed reasoning.
-    final signed = <String, ReasoningBlock>{
-      for (final m in current.messages)
-        for (final r in m.reasoning)
-          if (r.signature != null) r.signature!: r,
-    };
-    for (final m in replacement) {
-      for (final r in m.reasoning) {
-        if (r.signature == null) continue;
-        final original = signed[r.signature];
-        if (original == null ||
-            original.text != r.text ||
-            original.complete != r.complete) {
-          throw const FormatException('Signed reasoning must remain intact');
-        }
-      }
-    }
+    ActiveTurnContext? activeTurn;
     if (loop.inTurn) {
       final active = loop.derive().pendingTurnId;
-      final turnMessages = [
+      if (active == null) {
+        throw StateError('An open turn must have a pending turn id');
+      }
+      activeTurn = ActiveTurnContext(turnId: active, messages: [
         for (final e in loop.log.whereType<MessageAppendedEntry>())
           if (e.turnId == active) e.message,
-      ];
-      // The accepted user request stays intact, but settled tool exchanges
-      // within this same turn can be rewritten or evicted. Outstanding calls
-      // must settle before any replacement can be accepted.
-      if (turnMessages.isNotEmpty &&
-          !replacement.any((m) => sameMessages([m], [turnMessages.first]))) {
-        throw ContextEditRejected(
-            'The current user request must remain intact');
-      }
-      final pending = <String>{};
-      for (final m in turnMessages) {
-        pending.addAll(m.content.whereType<ToolUseBlock>().map((b) => b.id));
-        pending.removeAll(
-            m.content.whereType<ToolResultBlock>().map((b) => b.toolUseId));
-      }
-      if (pending.isNotEmpty) {
-        throw ContextEditRejected('The executing tool batch must settle first');
-      }
+      ]);
+    }
+    final verdict = evaluateContextEdit(
+        current: current, edited: messages, activeTurn: activeTurn);
+    switch (verdict) {
+      case ContextEditRejectedVerdict(:final problem):
+        switch (problem.kind) {
+          case ContextEditProblemKind.stale:
+          case ContextEditProblemKind.protected:
+            throw ContextEditRejected(problem.message);
+          case ContextEditProblemKind.structural:
+            throw FormatException(problem.message);
+        }
+      case ContextEditUnchanged():
+        // A direct replacement against current state with no base can only
+        // be unchanged if it matches current verbatim; adopt it as a no-op
+        // revision bump, exactly as the pre-extraction code did.
+        break;
+      case ContextEditAccepted(:final merged):
+        messages = merged;
     }
     final snapshot = WorkingContextSnapshot(
       revision: current.revision + 1,
       throughSeq: current.throughSeq,
-      originTurnId: loop.inTurn ? loop.derive().pendingTurnId : null,
-      messages: replacement,
+      originTurnId: activeTurn?.turnId,
+      messages: messages,
     );
     try {
       _write!(snapshot.toEntry());
