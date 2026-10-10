@@ -575,8 +575,12 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
               .add(ToolCallStart(id: 'exec-$index', name: 'exec'));
           provider.streams[index].add(MessageComplete(content: [
             ToolUseBlock(id: 'exec-$index', name: 'exec', input: {
-              'program': outside ? '/bin/false' : '/bin/echo',
-              'args': [text],
+              // A bare literal echo is a certified read-only reader since
+              // v0.9.50: confined read-only runs execute it without asking.
+              // printf is not certified, so this request still asks, and it
+              // still prints the per-turn text the assertions check for.
+              'program': outside ? '/bin/false' : '/bin/printf',
+              'args': ['%s\\n', text],
               if (network) 'network': true,
               if (network) 'network_reason': 'test session network approval',
               if (outside) 'outside_sandbox': true,
