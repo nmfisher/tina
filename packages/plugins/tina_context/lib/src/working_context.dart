@@ -146,69 +146,169 @@ bool sameMessages(Iterable<Message> a, Iterable<Message> b) =>
     jsonEncode([for (final m in a) m.toJson()]) ==
     jsonEncode([for (final m in b) m.toJson()]);
 
+/// Phase 1 of [deriveWorkingContext]: what the turn ledger says.
+///
+/// One scan over the log collects everything the later phases need to
+/// decide which entries count: which turns completed, which are still
+/// open, and where the last clear sits. Sequence continuity is checked
+/// here, once, so a gap fails before any snapshot or message work.
+final class TurnLedger {
+  const TurnLedger._(this.completedTurns, this.openTurns, this.clearedAt);
+
+  /// The single scan. Throws [FormatException] on a sequence gap.
+  factory TurnLedger.scan(List<SessionEntry> log) {
+    final completed = <String>{};
+    final open = <String>[];
+    var clearedAt = -1;
+    for (var i = 0; i < log.length; i++) {
+      final e = log[i];
+      if (e.seq != i) throw const FormatException('Session sequence gap');
+      if (e is TurnStartedEntry) open.add(e.turnId);
+      if (e is TurnEndedEntry) {
+        completed.add(e.turnId);
+        open.remove(e.turnId);
+      }
+      if (e is ContextClearedEntry) {
+        clearedAt = e.seq;
+        open.clear();
+      }
+    }
+    return TurnLedger._(completed, open, clearedAt);
+  }
+
+  /// Turns whose [TurnEndedEntry] is in the log.
+  final Set<String> completedTurns;
+
+  /// Turns started but never ended, in start order. The last one is the
+  /// pending turn a resume would replay ([pendingTurnId]).
+  final List<String> openTurns;
+
+  /// Seq of the last [ContextClearedEntry], -1 when the log never clears.
+  final int clearedAt;
+
+  /// The most recent open turn, or null when every started turn ended.
+  String? get pendingTurnId => openTurns.isEmpty ? null : openTurns.last;
+
+  /// Whether content attached to [turnId] belongs in the working context:
+  /// unattributed content always counts; attributed content counts when
+  /// its turn completed or when it is [activeTurn] — the one turn the
+  /// include-pending policy keeps live (null: none is).
+  bool isEligible(String? turnId, {required String? activeTurn}) =>
+      turnId == null ||
+      completedTurns.contains(turnId) ||
+      turnId == activeTurn;
+}
+
+/// Phase 2 of [deriveWorkingContext]: which snapshot, if any, is live.
+///
+/// Walks the working-context entries in log order and validates the whole
+/// history, not just the winner: throughSeq chains entry-by-entry,
+/// revisions increase monotonically, and each snapshot's origin turn must
+/// own the pending turn of the log prefix it snapshotted. A snapshot is
+/// live when it sits after the last clear and is turn-eligible; entries
+/// that fail only the liveness test still count for the revision
+/// watermark — a superseded editor retains credit for its revision.
+final class SnapshotFold {
+  const SnapshotFold._(this.live, this.maxRevision);
+
+  /// The fold. [ledger] provides clearedAt; [activeTurn] is the
+  /// include-pending policy's one live turn (null: only completed turns).
+  static SnapshotFold resolve(
+    List<SessionEntry> log,
+    TurnLedger ledger, {
+    required String? activeTurn,
+  }) {
+    WorkingContextSnapshot? live;
+    var maxRevision = 0;
+    for (final e in log.whereType<PluginStateEntry>()) {
+      if (e.pluginId != contextPluginId || e.stateKey != workingContextKey) {
+        continue;
+      }
+      final candidate = WorkingContextSnapshot.fromEntry(e);
+      if (candidate.throughSeq != e.seq - 1 ||
+          candidate.revision <= maxRevision) {
+        throw const FormatException('Invalid working-context snapshot history');
+      }
+      final prefix = deriveSession(log.sublist(0, e.seq),
+          const SessionSettings(),
+          includePendingTurn: true);
+      if (candidate.originTurnId != null &&
+          candidate.originTurnId != prefix.pendingTurnId) {
+        throw const FormatException('Invalid working-context turn ownership');
+      }
+      maxRevision = candidate.revision;
+      if (e.seq > ledger.clearedAt &&
+          ledger.isEligible(candidate.originTurnId, activeTurn: activeTurn)) {
+        live = candidate;
+      }
+    }
+    return SnapshotFold._(live, maxRevision);
+  }
+
+  /// The snapshot the working context builds on, null for full replay.
+  final WorkingContextSnapshot? live;
+
+  /// Highest revision seen anywhere in the history, live or not.
+  final int maxRevision;
+}
+
+/// Phase 3 of [deriveWorkingContext]: the message list itself.
+///
+/// With no live snapshot the core derivation answers for the whole log —
+/// compaction included. With one, the snapshot's messages are the base
+/// and only eligible tail appends are incorporated, exactly once: the
+/// snapshot already contains everything through its throughSeq. A
+/// compaction after the edit refuses to splice rather than guessing
+/// positions the snapshot's message list cannot express.
+List<Message> assembleContextMessages(
+  List<SessionEntry> log, {
+  required TurnLedger ledger,
+  required WorkingContextSnapshot? snapshot,
+  required String? activeTurn,
+  required bool includePendingTurn,
+}) {
+  if (snapshot == null) {
+    return deriveSession(log, const SessionSettings(),
+            includePendingTurn: includePendingTurn)
+        .messages;
+  }
+  final messages = [...snapshot.messages];
+  for (final e in log.skip(snapshot.throughSeq + 1)) {
+    if (e is MessageAppendedEntry &&
+        ledger.isEligible(e.turnId, activeTurn: activeTurn)) {
+      messages.add(e.message);
+    }
+    if (e is CompactedEntry) {
+      throw StateError('Compaction cannot follow a working-context edit');
+    }
+  }
+  return messages;
+}
+
 /// Pure replay. A snapshot from an abandoned turn is never used on resume.
 /// With includePendingTurn, only the latest open turn is considered live.
+///
+/// Three phases, each pure and tested on its own:
+/// [TurnLedger.scan] reads the turn structure once,
+/// [SnapshotFold.resolve] validates the edit history and picks the live
+/// snapshot, [assembleContextMessages] produces the message list.
 WorkingContext deriveWorkingContext(
   List<SessionEntry> log, {
   bool includePendingTurn = false,
 }) {
-  final completed = <String>{};
-  final open = <String>[];
-  var clearedAt = -1;
-  for (var i = 0; i < log.length; i++) {
-    final e = log[i];
-    if (e.seq != i) throw const FormatException('Session sequence gap');
-    if (e is TurnStartedEntry) open.add(e.turnId);
-    if (e is TurnEndedEntry) {
-      completed.add(e.turnId);
-      open.remove(e.turnId);
-    }
-    if (e is ContextClearedEntry) {
-      clearedAt = e.seq;
-      open.clear();
-    }
-  }
-  final active = includePendingTurn && open.isNotEmpty ? open.last : null;
-  bool eligible(String? id) =>
-      id == null || completed.contains(id) || id == active;
-  WorkingContextSnapshot? snapshot;
-  var maxRevision = 0;
-  for (final e in log.whereType<PluginStateEntry>()) {
-    if (e.pluginId != contextPluginId || e.stateKey != workingContextKey) {
-      continue;
-    }
-    final candidate = WorkingContextSnapshot.fromEntry(e);
-    if (candidate.throughSeq != e.seq - 1 ||
-        candidate.revision <= maxRevision) {
-      throw const FormatException('Invalid working-context snapshot history');
-    }
-    final prefix = deriveSession(log.sublist(0, e.seq), const SessionSettings(),
-        includePendingTurn: true);
-    if (candidate.originTurnId != null &&
-        candidate.originTurnId != prefix.pendingTurnId) {
-      throw const FormatException('Invalid working-context turn ownership');
-    }
-    maxRevision = candidate.revision;
-    if (e.seq > clearedAt && eligible(candidate.originTurnId)) {
-      snapshot = candidate;
-    }
-  }
-  final List<Message> messages;
-  if (snapshot == null) {
-    messages = deriveSession(log, const SessionSettings(),
-            includePendingTurn: includePendingTurn)
-        .messages;
-  } else {
-    messages = [...snapshot.messages];
-    for (final e in log.skip(snapshot.throughSeq + 1)) {
-      if (e is MessageAppendedEntry && eligible(e.turnId)) {
-        messages.add(e.message);
-      }
-      if (e is CompactedEntry) {
-        throw StateError('Compaction cannot follow a working-context edit');
-      }
-    }
-  }
+  final ledger = TurnLedger.scan(log);
+  final activeTurn = includePendingTurn && ledger.openTurns.isNotEmpty
+      ? ledger.openTurns.last
+      : null;
+  final snapshots =
+      SnapshotFold.resolve(log, ledger, activeTurn: activeTurn);
+  final messages = assembleContextMessages(log,
+      ledger: ledger,
+      snapshot: snapshots.live,
+      activeTurn: activeTurn,
+      includePendingTurn: includePendingTurn);
   return WorkingContext(
-      revision: maxRevision, throughSeq: log.length - 1, messages: messages);
+      revision: snapshots.maxRevision,
+      throughSeq: log.length - 1,
+      messages: messages);
 }
