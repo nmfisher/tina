@@ -72,20 +72,10 @@ const compactionSummaryMarker = '[earlier conversation summarized]\n\n';
 /// Estimate a request's input size in tokens. Characters over 4 is the
 /// old engine's rough and ready arithmetic; it is deliberately crude —
 /// the threshold is configuration, the estimate only has to be honest
-/// about order of magnitude.
-int estimateInputTokens(String system, List<Message> messages) {
-  var chars = system.length;
-  for (final m in messages) {
-    for (final b in m.content) {
-      if (b is TextBlock) chars += b.text.length;
-      if (b is ToolResultBlock) chars += b.content.length;
-    }
-    for (final r in m.reasoning) {
-      chars += r.text.length;
-    }
-  }
-  return chars ~/ 4;
-}
+/// about order of magnitude. Lives in tina_core's token_estimators.dart
+/// beside the context budget's byte-based gauge, so the two can neither
+/// silently drift apart nor be unified by accident.
+final estimateInputTokens = estimateTranscriptTokensChars;
 
 /// One split candidate: replace derived-message positions `from..to`
 /// with the summary, keep `to + 1..` verbatim.

@@ -2,12 +2,14 @@ import 'dart:convert';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 
+export 'package:tina_core/tina_core.dart'
+    show estimateRequestTokensUtf8;
+
 /// Counts the provider-neutral serialized request. Embedders may substitute a
 /// tokenizer; the default is an explicitly approximate UTF-8 bytes / 4 gauge.
 typedef ContextTokenCounter = int Function(String serializedRequest);
 
-int estimateContextTokens(String serializedRequest) =>
-    (utf8.encode(serializedRequest).length / 4).ceil();
+final estimateContextTokens = estimateRequestTokensUtf8;
 
 String serializeContextRequest(TurnContext context) => jsonEncode({
       'system': context.promptSections.where((s) => s.isNotEmpty).join('\n\n'),
