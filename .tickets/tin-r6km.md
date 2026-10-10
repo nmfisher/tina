@@ -13,7 +13,8 @@ tags: [plugin-runtime, composition, refactor, agent, tools]
 
 ## Context
 
-`docs/proposals/plugin_runtime.md` (2026-09-10) plans Tina's built-in features
+The (now-deleted) `plugin_runtime.md` proposal (2026-09-10, git history)
+planned Tina's built-in features
 as plugins with one lifecycle: typed service dependencies, owned registrations,
 explicit execution hooks, and a replaceable agent driver. A01–A08 are done and
 the working tree holds the runtime read-all + environment-phase gates, which

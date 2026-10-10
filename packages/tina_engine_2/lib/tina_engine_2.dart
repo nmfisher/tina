@@ -1,6 +1,6 @@
-/// tina_engine_2 — an agent loop + plugin interface built on tina_core's
-/// value types and streaming `LlmProvider`. A review artifact; still not
-/// wired into the tina app.
+/// tina_engine_2 — the agent loop and plugin interface, built on
+/// tina_core's value types and streaming `LlmProvider`. Every host — the
+/// TUI assembly, the headless runner, sub-agents — runs this loop.
 library;
 
 export 'src/context.dart';

@@ -17,7 +17,9 @@ tags: [architecture, terminal, pty, process, audit]
 Architecture review answering one question: can an interface outside the
 terminal (web, Signal, Telegram, WhatsApp) attach to tina without rewriting
 the core? Full inventory (16 surfaces, file:line anchored), findings, and
-recommendations: `docs/proposals/interface_decoupling_audit.md`.
+recommendations: the (now-deleted) interface-decoupling audit; its
+process-seam findings are carried forward in
+`docs/proposals/daemon_sessions.md`.
 
 The audit's two-part answer:
 
@@ -50,7 +52,7 @@ Engine-side findings unique to this audit:
   (C shim, FFI bindings, worker-isolate runner, 38 tests; landed `a3f008e`
   for the shell panel) has zero importers, is not exported from the engine
   barrel, and its only documented use imports it by internal `src/` path
-  (`docs/features/pty_backend.md:25`). The intended consumer is specced for
+  (the retired engine's PTY backend; see git history). The intended consumer is specced for
   the root package, i.e. root → engine-src — the shape the architecture
   policy has to exempt.
 - **Build deps ride along.** `code_assets`/`hooks`/`native_toolchain_c`
@@ -102,7 +104,8 @@ per session; document it as a decision.
 ## Acceptance
 
 - The acceptance list in
-  `docs/proposals/interface_decoupling_audit.md` is the contract.
+  the deleted interface-decoupling audit (git history) was the contract;
+`docs/proposals/daemon_sessions.md` supersedes it for the session seam.
 - Headline items: a served session's asks park rather than auto-answer
   (ask *records* survive restart; resuming the paused tool call itself is
   separate work — see `remote_answerable_approvals.md` recommendation 2's

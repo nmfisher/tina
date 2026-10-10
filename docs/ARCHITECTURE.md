@@ -8,190 +8,156 @@ building, sandboxed execution, permission checks, session persistence — and
 a plugin system for everything that varies.
 
 Nothing in the core assumes a terminal or a coding project; those are
-contributions. The shipped binary mounts a terminal TUI and a headless
-runner (`--prompt`, `--goal`) as hosts, plus the workspace tools that make
-it a coding agent. This document explains the core first, then says what is
-**baked in** and what is **mounted as a plugin**.
+contributions. The shipped binary mounts a terminal front end and a
+headless runner (`--prompt`, `--goal`) over one assembly. This document
+explains the core first, then says what is **baked in** and what is
+**mounted as a plugin**.
 
 ## The main loop
 
 A turn is one cycle:
 
-1. **Build the context.** The system prompt is assembled fresh (details
-   below).
+1. **Build the context.** The system prompt is assembled fresh.
 2. **Stream from the model.** Text deltas and tool-call requests arrive as
    events.
 3. **Run tool calls through the permission gate.** Allowed calls execute
    inside the sandbox (a working set of writable paths). Denied calls
    return an explanation to the model. Everything else asks — an approval
    card in the TUI, the policy itself headless.
-4. **Append results to the transcript and repeat**, until the model stops
-   calling tools.
+4. **Append results to the log and repeat**, until the model stops calling
+   tools.
 
-**The system prompt.** Rebuilt every turn, never stored: an identity
-string; an environment block (working directory, OS, date, and a summary
-of the current workspace); a read-only preamble when running in safe
-mode. On top of that, whatever is mounted: project instructions read from
-the repo, skill instructions, and plan/goal state injected by their
-middlewares. Plugins can mount extra prompt sections — they trail the
-built-ins and can extend them, but never reorder or shadow them.
+**The log.** The loop (`AgentLoop` in `tina_engine_2`) owns an append-only
+log of session entries and is its only writer. Every turn appends its
+entries — turn started, the input as typed, one per plugin rewrite, one
+per message, turn ended with stop reason and usage — and publishes each
+entry to listeners as either `appended` (it just landed) or `replay` (a
+listener subscribed and is receiving the log that already exists). There
+is no transcript beside the log: the messages a request carries are
+derived per request via `deriveSession` (`tina_core`).
 
-**Where input comes from.** Usually a person: the TUI editor hands a line
-to the session controller, which admits it as a user message. But a user
-is optional. Headless, the input is the `--prompt` argument or stdin. A
-`--goal` run synthesizes its own input: after each turn a judge model
-reads the transcript against the goal and prepends a correction nudge
-until the goal is met. Sub-agents get their prompt from the `delegate`
-call that spawned them; workflow nodes get theirs from the pipeline
-graph. The main place a person is consulted mid-run is an approval card —
+**Where input comes from.** Usually a person: the TUI hands a line to the
+host, which runs it as a turn (`Host.send`). But a user is optional.
+Headless, the input is the `--prompt` argument or stdin. A `--goal` run
+synthesizes its own input: after each turn a judge reads the transcript
+against the goal and prepends a correction nudge until the goal is met.
+The main place a person is consulted mid-run is an approval ask —
 headless, even that is answered by policy.
 
-The cycle is bounded: step caps, a token budget that drops or summarizes
-the oldest context, and a spend ceiling that stops the turn through the
-normal error path. An interrupt injects a cancel signal into running tools
-and the model stream; the transcript is persisted as it grows, so an
-interrupted turn still ends cleanly and resumes.
+The cycle is bounded: step caps, spend limits, and context management
+(step limits and compaction are plugin contributions — `tina_step_limit`,
+`tina_compaction`). An interrupt injects a cancel signal into
+running tools and the model stream; the log is persisted as it grows, so
+an interrupted turn still ends cleanly and resumes.
 
-This loop is written **once**, in the engine. TUI sessions, headless runs,
-sub-agents, and workflow pipeline nodes all run it. The rest of tina
-either feeds the loop (plugins, hosts, config) or observes it
-(transcript rendering, status strip).
+This loop is written **once**. The TUI, headless runs, sub-agents and
+workflow nodes all run it.
 
-## Hosts
-
-The core never talks to a terminal. A **host** combines the engine, the
-app layer, and the console toolkit into a working frontend — and the host
-is the only code that touches a terminal:
+## The package stack
 
 ```
-hosts (bin/ + lib/)         the ONLY code that touches a terminal
-  TUI shell, headless runner, config, UI-shaped plugin descriptors
-        |
-tina_app                    application logic, terminal-free
-  turn executor, interrupts, commands, plans/goals, workflows
-        |
-tina_engine                 the agent core, terminal-free
-  the loop, model access, tools, sandbox, permissions, sessions,
-  the plugin runtime
-        |
-tina_index, file_tree       pure support (graph, file listing)
-
-tina_console -> dart_notcurses    terminal toolkit, used by hosts only
+bin/tina.dart               entry point: initializeProcessLauncher, runCli
+packages/tina_tui           the app: CLI router, assembly, terminal front end
+packages/tina_host          session lifecycle: Host, HostConfig, Commands
+packages/tina_engine_2      the agent loop and plugin interface
+packages/tina_core          value types: messages, log entries, Terminal,
+                            provider and command contracts
+packages/tina_llm           model providers and wires
+packages/tina_console       terminal toolkit (renderers, editor, notcurses)
+packages/dart_notcurses     vendored native binding
+packages/tina_sqlite        sqlite wrapper (WAL, busy_timeout)
+packages/plugins/*          feature plugins, mounted by the assembly
+packages/libraries/*        domain-neutral helpers (tina_settings, …)
+classification, file_tree,  small pure support packages
+tina_index, attractor
 ```
 
-- **Engine** has no terminal dependency and no root-package dependency.
-  That is why headless runs, sub-agents, and workflow nodes are the same
-  loop as the interactive TUI — there is no second implementation to drift.
-- **App layer** holds everything a non-terminal host would also need:
-  session operations, command handling, plans, goals, workflow
-  orchestration. A new host gets the whole application without a screen.
-- **Console** is a rendering toolkit that knows nothing about agents —
-  only strings, rectangles, and bytes — which keeps renderers pure and
-  testable.
-- **Hosts** pick what to mount: the TUI host and the headless host build
-  the same runtime, then supply their own renderer set, command scope, and
-  host seam (approval cards vs. policy answers).
-- **Support packages** are domain-neutral: `tina_index` and `file_tree`
-  know nothing about agents; `classifier` and `attractor` know nothing
-  about terminals.
-- **Only the hosts** combine the three. `test/architecture/` and
-  `tool/architecture/` enforce these import boundaries in CI.
+Dependency direction, top down only:
 
-## The plugin system
+- **tina_core** — shared contracts only; standard-library Dart. Everything
+  below it depends on it, it depends on nothing.
+- **tina_engine_2** — `AgentLoop`: turn phases, the append-only log and
+  its listeners, the `AgentPlugin` interface, tool execution policy.
+  Terminal-free.
+- **tina_host** — `Host` owns one `AgentLoop` plus its mounted plugins and
+  published commands; `Host.start`/`Host.resume` validate declarations
+  before opening resources and roll back on failure. Terminal-free.
+- **tina_llm** — `LlmProvider` implementations and the provider
+  descriptors the config system reads.
+- **tina_tui** — the application and its front end in one package today:
+  - `cli.dart` parses flags and routes: interactive TUI, headless
+    `--prompt`/`--goal`, `--configure` editor, `--models` listing,
+    `--resume`/`--continue` picker, `--import-sessions`.
+  - `assembly.dart` (`TuiAssembly`) is the composition root: loads
+    config, builds the scoped settings stack, the plugin registry, the
+    provider policy, the `ToolsPlugin` sandbox, and starts or resumes the
+    `Host`. Everything it needs is injectable (`Terminal`, writer,
+    provider factory), so a test — or a daemon — runs the whole app with
+    no renderer. This is the headless seam.
+  - `app.dart` + the views/panels/dialogs are the full-screen front end
+    (`tina_console` renders it).
+  - `tui_terminal.dart` is the `Terminal` implementation a TUI session
+    contributes: a text buffer plugins write lines into, and a queue of
+    answers `ask` waits on. No terminal code in it despite the name.
+  - `process_launcher.dart` is the FFI process spawner the tools use; the
+    binary initializes it before anything else runs.
+- **tina_console** — rendering toolkit that knows nothing about agents,
+  over `dart_notcurses` or plain ANSI. Used by the front end and by the
+  `*_tui` plugin packages only.
+- **plugins/\*** — feature plugins (tools, persistence, approvals,
+  context, plans, goals, compaction, subagents, MCP, providers,
+  self-update…). Registered by `plugin_catalog.dart` inside the assembly;
+  enabled per global/workspace/session settings. The `*_tui` plugins
+  depend on `tina_console`, never on the front end.
 
-The loop and its safety machinery are fixed. Everything around them —
-transcript rendering, status-strip lines, extra tools, slash commands,
-input observers — is contributed by **plugins**, so the same core serves
-both hosts and any fork.
+Per-package detail, where it exists:
+[`tina_console/ARCHITECTURE.md`](../packages/tina_console/ARCHITECTURE.md),
+[`tina_sqlite/ARCHITECTURE.md`](../packages/tina_sqlite/ARCHITECTURE.md),
+[`plugins/tina_index/ARCHITECTURE.md`](../packages/plugins/tina_index/ARCHITECTURE.md).
+Configuration is documented in
+[`engine2-config.md`](engine2-config.md) and the pages beside it.
 
-A plugin is a `PluginDescriptor`: an id, optional dependencies, and a
-synchronous factory. The runtime validates the whole set up front (ids,
-dependencies, cycles, colliding providers), activates in id order, and on
-failure rolls back — nothing half-mounted. Inside the factory a plugin
-registers services under `ServiceKey`s, requires services from other
-plugins, and contributes to typed lists (tools, slash commands, status
-sources, chat renderers). Id order is also override order: an id that
-sorts earlier can wrap a later one — the timestamp chat overlay decorates
-the built-in renderer that way.
+These boundaries are enforced: `tool/architecture/policy.json` lists every
+owned package and which ones may touch terminals; `test/architecture/`
+runs the import checks in CI.
 
-Details — descriptor anatomy, the factory API, the full inventory of
-built-in plugin ids and their defining files, and the implementation
-record — are in [`docs/PLUGINS.md`](PLUGINS.md).
+## The assembly seam
 
-## Where things live
+`TuiAssembly.start` builds the whole application without a screen:
 
 ```
-bin/tina.dart          entry point: parse args, pick host, run it
-lib/                   the tina package (TUI shell, headless runner, config)
-packages/
-  tina_engine/         the agent core
-  tina_app/            application layer
-  tina_console/        terminal toolkit
-  tina_index/          Dart dependency graph
-  classifier/          structured judgments + exploration
-  attractor/           DOT-based workflow pipeline runner
-  file_tree/  fuzzy_ranker/  dart_notcurses/   small helpers
-docs/                  this file, PLUGINS.md, features/, proposals/
-test/  tool/           tests; codegen and architecture-policy scripts
+AssemblyOptions (config path, cwd, store, session id, model, sandbox, …)
+      │
+TuiAssembly.start ──► config + scoped settings stack + plugin registry
+      │                provider policy, ToolsPlugin (sandbox)
+      └─► Host.start / Host.resume ──► AgentLoop + mounted plugins
 ```
 
-Per-package detail lives inside the packages:
+The interactive path wraps it (`TuiSession.wrap`) and attaches the
+renderer. The headless path (`--prompt`, `--goal`) runs turns against the
+same assembly with no renderer and an approval channel that denies by
+policy. Settings and plugin changes travel through config files plus the
+assembly's configuration watcher — the assembly hot-reloads when they
+change on disk.
 
-- [`packages/tina_engine/ARCHITECTURE.md`](../packages/tina_engine/ARCHITECTURE.md)
-  — agent loop, LLM access, tools, permissions, sessions, plugin runtime.
-- [`packages/tina_app/ARCHITECTURE.md`](../packages/tina_app/ARCHITECTURE.md)
-  — runtime assembly, commands, plans, goals, workflows.
-- [`packages/tina_console/ARCHITECTURE.md`](../packages/tina_console/ARCHITECTURE.md)
-  — screen, regions, editor, backends.
-- [`packages/tina_index/ARCHITECTURE.md`](../packages/tina_index/ARCHITECTURE.md)
-  — the Dart dependency graph.
-- [`packages/classifier/README.md`](../packages/classifier/README.md),
-  [`packages/file_tree/README.md`](../packages/file_tree/README.md),
-  [`packages/dart_notcurses/README.md`](../packages/dart_notcurses/README.md),
-  [`packages/attractor`](../packages/attractor/),
-  [`packages/fuzzy_ranker`](../packages/fuzzy_ranker/).
-
-## The hosts
-
-Two hosts ship. `bin/tina.dart` restores the terminal on crash, reaps
-subprocesses on SIGTERM/SIGHUP, runs first-run setup, takes the session
-lock, then picks one.
-
-**Interactive.** `TuiCoordinator` (lib/tui_coordinator.dart) is the
-composition root — runtime, screen, panels, focus, overlays.
-`SessionController` (lib/session_controller.dart) owns the conversation set
-and command dispatch. Around them:
-
-- `lib/tui/` — panels, overlays, status renderers, approval cards, input.
-- `lib/chat/` — transcript model: agent events → `ChatBlock`s → renderer
-  rows; markdown.
-- `lib/frontend/` — status `Renderer`s and per-conversation input state.
-- `lib/host/` — `TuiConversationHost` (approval prompts become cards).
-- `lib/completion/` — file and command providers for the palette.
-- `lib/session_commands/` — slash commands, registry, session picker.
-- `lib/composition/` — the TUI's plugin descriptors (ids inventoried in
-  `docs/PLUGINS.md`).
-- `lib/config.dart` + `lib/config/` — TOML config, env, CLI flags → typed
-  settings.
-- `lib/tmux/`, `lib/self_update/`, `lib/platform/` — tmux attach; `/update`
-  (download, verify sha256, swap binary); terminal geometry.
-
-**Headless.** Same runtime assembly, the engine's `HeadlessHost` in place
-of the TUI host, stdout/stderr for output. `--goal` wraps the run in the
-goal loop (run → judge → repeat;
-[`docs/features/goal_mode.md`](features/goal_mode.md)); the headless
-watchdog (lib/host/) kills silent hangs.
+The planned daemon split (see
+[`proposals/daemon_sessions.md`](proposals/daemon_sessions.md)) separates
+the assembly half of `tina_tui` from the front end half so a daemon
+process can own live sessions and the TUI can become a client of it. The
+assembly seam above is what makes that a file move, not a rewrite.
 
 ## Principles
 
 - **One loop.** Every agent — interactive, headless, sub-agent, workflow
-  node — runs the same engine loop with a different host.
-- **Contribution, not core, for anything swappable.** Status renderers,
-  extra tools, chat look: descriptors. The loop, the permission
-  precedence, the sandbox: baked in, exactly one implementation.
-- **No interface without a second implementation.** `Agent`, `Screen`,
-  and the regions are concrete; the editor keymap is hardcoded. The
-  rendering backend is abstracted only because there are genuinely two
-  backends.
+  node — runs the same `AgentLoop`.
+- **One writer.** Only the loop appends to a session's log; everything
+  else derives from it.
+- **Contribution, not core, for anything swappable.** Renderers, extra
+  tools, chat look: plugins. The loop, the permission precedence, the
+  sandbox: baked in, exactly one implementation.
+- **No interface without a second implementation.** The rendering backend
+  is abstracted because there are two backends; the daemon work adds the
+  second `SessionClient` implementation (in-process, socket) that
+  justifies that seam.
 
 `dart test` at the repo root runs everything; packages test themselves.

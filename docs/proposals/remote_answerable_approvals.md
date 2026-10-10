@@ -8,10 +8,12 @@ the migration order, the alternatives, the acceptance list — is a
 proposal. None of it is implemented on main.
 Date: 2026-09-25; revised 2026-09-26 after an external design review
 (see "Corrections after external review" at the end).
-Builds on: [`plugin_posture_door.md`](plugin_posture_door.md) (posture as
-a value the core creates) and
-[`plugin_architecture.md`](plugin_architecture.md) §11 (what plugins may
-do with approvals). This document does not re-propose either of them.
+Builds on two now-deleted proposals: `plugin_posture_door.md` (posture
+as a value the core creates) and `plugin_architecture.md` §11 (what
+plugins may do with approvals — the decided boundary is that plugins
+never decide; they may only deliver answers to user surfaces). This
+document does not re-propose either of them; their conclusions are
+summarized where cited below.
 
 ## Summary
 
@@ -407,8 +409,9 @@ earns its keep here for three reasons. Sessions outlive chat windows
 attention requests want a live process. And the plugin architecture
 already assumes a long-lived host: plugins activate into a scope,
 provide services by `ServiceKey`, and may not touch approvals except
-through user surfaces (`plugin_architecture.md` §11, the decided
-boundary). A bridge that answers `/approve` *is* a user surface by that
+through user surfaces (the §11 boundary, now deleted: plugins never
+decide, they deliver answers). A bridge that answers `/approve` *is* a
+user surface by that
 definition, so the boundary already expects this shape rather than
 fighting it.
 

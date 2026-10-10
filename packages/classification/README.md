@@ -309,4 +309,4 @@ model calls — same validation, scheduling and cache machinery, zero tokens.
 this package.)
 
 The hierarchical-classifier design notes live in
-`docs/proposals/hierarchical_classifiers.md`.
+the (now removed) hierarchical-classifiers proposal.

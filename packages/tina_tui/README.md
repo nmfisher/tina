@@ -269,7 +269,7 @@ python3 tool/smoke_engine2.py --dart /path/to/dart
 Use the same Dart SDK as the package's build hooks. This checks terminal byte
 I/O and lifecycle; human visual acceptance and the remaining interaction
 features still need work. Session commands are deliberately deferred.
-See [migration status](../../docs/engine2-migration.md).
+
 
 The root CLI supports `--configure`, `--version`, and `--completion bash|zsh|fish`.
 Command arguments are completed by plugin-owned `Command.complete` callbacks.

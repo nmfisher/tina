@@ -36,9 +36,7 @@ Descriptions appear below the list; `?` opens the full description from
 registration metadata. `--configure` also saves each confirmed change, without
 starting a model session.
 
-See the [config compatibility audit](engine2-config-audit.md) for the exact
-consumed/ignored keys, credential precedence and verification of the existing
-local config. Legacy cached provider definitions are read offline at startup.
+Legacy cached provider definitions are read offline at startup.
 
 ## Plan and approval presentation
 
