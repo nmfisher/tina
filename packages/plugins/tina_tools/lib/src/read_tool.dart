@@ -5,10 +5,8 @@ import 'tool_descriptions.dart';
 
 import 'file_system.dart';
 import 'io_file_system.dart';
-import 'sandboxed_file_system.dart';
-import 'permissions.dart';
 import 'tool.dart';
-import 'tool_input.dart';
+import 'tool_file_system.dart';
 
 class ReadTool implements Tool {
   /// The workspace root relative paths resolve against. Null retains
@@ -19,7 +17,14 @@ class ReadTool implements Tool {
   /// so tests that inject [MemoryFileSystem] are the only ones that need to.
   final FileSystem fs;
 
-  ReadTool({FileSystem? fs, this.workspaceRoot}) : fs = fs ?? IoFileSystem();
+  /// Resolves and routes every path: workspace resolution and the sandbox
+  /// boundary live here, not in the tool body.
+  final ToolFileSystem _routes;
+
+  ReadTool({FileSystem? fs, this.workspaceRoot})
+      : fs = fs ?? IoFileSystem(),
+        _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
+            workspaceRoot: workspaceRoot);
 
   static const int defaultLimit = 2000;
   static const int byteCap = 50 * 1024;
@@ -58,18 +63,16 @@ class ReadTool implements Tool {
     if (rawPath == null || rawPath.isEmpty) {
       return ToolResult.error('filePath is required');
     }
-    final path = resolveToolPath(rawPath, workspaceRoot);
-    // The boundary precedes any existence probe: resolve the operation
-    // through the sandbox BEFORE probing. Sandboxed only; MemoryFileSystem
-    // skips the is-check.
-    final readFs = fs;
-    if (readFs is SandboxedFileSystem) {
-      try {
-        await readFs.guard(FileOp.read, path);
-      } on SandboxViolation catch (e) {
-        return ToolResult.error(e.message);
-      }
-    }
+    // The boundary precedes any existence probe: resolve and route the
+    // operation through the wrapper BEFORE probing. run() makes the decision
+    // (structural checks + table/approver) once at entry; the seam read
+    // below re-guards internally and recognizes that decision instead of
+    // asking again.
+    final path = _routes.resolve(rawPath);
+    return _routes.run(FileOp.read, path, () => _read(path, input));
+  }
+
+  Future<ToolResult> _read(String path, Map<String, dynamic> input) async {
     if (!await fs.fileExists(path)) {
       return ToolResult.error('File not found: $path');
     }

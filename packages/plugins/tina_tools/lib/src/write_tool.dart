@@ -5,10 +5,8 @@ import 'tool_descriptions.dart';
 import 'atomic_write.dart';
 import 'file_system.dart';
 import 'io_file_system.dart';
-import 'sandboxed_file_system.dart';
-import 'permissions.dart';
 import 'tool.dart';
-import 'tool_input.dart';
+import 'tool_file_system.dart';
 
 class WriteTool implements Tool {
   /// The workspace root relative paths resolve against. Null retains
@@ -18,7 +16,14 @@ class WriteTool implements Tool {
   /// The filesystem this tool writes through. Defaults to the real filesystem.
   final FileSystem fs;
 
-  WriteTool({FileSystem? fs, this.workspaceRoot}) : fs = fs ?? IoFileSystem();
+  /// Resolves and routes every path: workspace resolution and the sandbox
+  /// boundary live here, not in the tool body.
+  final ToolFileSystem _routes;
+
+  WriteTool({FileSystem? fs, this.workspaceRoot})
+      : fs = fs ?? IoFileSystem(),
+        _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
+            workspaceRoot: workspaceRoot);
 
   @override
   ToolSchema get schema => const ToolSchema(
@@ -51,21 +56,20 @@ class WriteTool implements Tool {
     if (rawPath == null || rawPath.isEmpty) {
       return ToolResult.error('filePath is required');
     }
-    final path = resolveToolPath(rawPath, workspaceRoot);
     if (content == null) {
       return ToolResult.error('content is required');
     }
-    // The boundary precedes any existence probe: resolve the operation
-    // through the sandbox BEFORE probing. Sandboxed only; MemoryFileSystem
-    // skips the is-check.
-    final writeFs = fs;
-    if (writeFs is SandboxedFileSystem) {
-      try {
-        await writeFs.guard(FileOp.write, path);
-      } on SandboxViolation catch (e) {
-        return ToolResult.error(e.message);
-      }
-    }
+    // The boundary precedes any existence probe: resolve and route the
+    // operation through the wrapper BEFORE probing. run() makes the decision
+    // (structural checks + table/approver) once at entry; the seam methods
+    // below re-guard internally and recognize that decision instead of
+    // asking again.
+    final path = _routes.resolve(rawPath);
+    return _routes.run(
+        FileOp.write, path, () => _writeUnsandboxed(path, content));
+  }
+
+  Future<ToolResult> _writeUnsandboxed(String path, String content) async {
     final dir = p.dirname(path);
     if (!await fs.directoryExists(dir)) {
       await fs.createDirectory(dir, recursive: true);

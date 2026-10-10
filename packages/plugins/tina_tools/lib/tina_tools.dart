@@ -38,6 +38,7 @@ export 'src/sandboxed_process_runner.dart';
 export 'src/speculative_cache.dart';
 export 'src/stat_tool.dart';
 export 'src/tool.dart';
+export 'src/tool_file_system.dart';
 export 'src/tool_input.dart';
 export 'src/tool_descriptions.dart';
 export 'src/write_tool.dart';

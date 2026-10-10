@@ -7,9 +7,8 @@ import 'tool_descriptions.dart';
 import 'atomic_write.dart';
 import 'file_system.dart';
 import 'io_file_system.dart';
-import 'sandboxed_file_system.dart';
-import 'permissions.dart';
 import 'tool.dart';
+import 'tool_file_system.dart';
 import 'tool_input.dart';
 
 /// The exact-match replace tool. The whole read-validate-write runs under one
@@ -24,7 +23,14 @@ class EditTool implements Tool {
   /// filesystem.
   final FileSystem fs;
 
-  EditTool({FileSystem? fs, this.workspaceRoot}) : fs = fs ?? IoFileSystem();
+  /// Resolves and routes every path: workspace resolution and the sandbox
+  /// boundary live here, not in the tool body.
+  final ToolFileSystem _routes;
+
+  EditTool({FileSystem? fs, this.workspaceRoot})
+      : fs = fs ?? IoFileSystem(),
+        _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
+            workspaceRoot: workspaceRoot);
 
   @override
   ToolSchema get schema => const ToolSchema(
@@ -72,43 +78,42 @@ class EditTool implements Tool {
       return ToolResult.error(e.message);
     }
     try {
-      // The boundary precedes existence probes: resolve the operation
-      // through the sandbox BEFORE reading. Sandboxed only; MemoryFileSystem
-      // skips the is-check.
-      final editFs = fs;
-      if (editFs is SandboxedFileSystem) {
-        try {
-          await editFs.guard(FileOp.write, request.path);
-        } on SandboxViolation catch (e) {
-          return ToolResult.error(e.message);
-        }
-      }
-      if (!await fs.fileExists(request.path)) {
-        return ToolResult.error('File not found: ${request.path}');
-      }
-      final current = await fs.readFileString(request.path);
-      final matches = countMatches(current, request.oldString);
-      if (matches == 0 || (matches > 1 && !request.replaceAll)) {
-        return EditConflict(
-            matches == 0
-                ? EditConflictKind.missingMatch
-                : EditConflictKind.ambiguousMatch,
-            request,
-            current,
-            matches);
-      }
-      final updatedText = request.replaceAll
-          ? current.replaceAll(request.oldString, request.newString)
-          : current.replaceFirst(request.oldString, request.newString);
-      await atomicWriteFile(fs, request.path, updatedText);
-      final n = request.replaceAll ? matches : 1;
-      return ToolResult(
-          'edited ${request.path} ($n replacement${n == 1 ? '' : 's'})');
+      // The boundary precedes existence probes: resolve and route the
+      // operation through the wrapper BEFORE reading. run() makes the
+      // decision (structural checks + table/approver) once at entry; the
+      // seam calls below re-guard internally and recognize that decision
+      // instead of asking again.
+      return await _routes.run(
+          FileOp.write, request.path, () => _edit(request));
     } on FileSystemException catch (e) {
       return ToolResult.error('Unable to apply edit: $e');
     } on FormatException {
       return ToolResult.error('Edit target could not be decoded as text.');
     }
+  }
+
+  Future<ToolResult> _edit(EditRequest request) async {
+    if (!await fs.fileExists(request.path)) {
+      return ToolResult.error('File not found: ${request.path}');
+    }
+    final current = await fs.readFileString(request.path);
+    final matches = countMatches(current, request.oldString);
+    if (matches == 0 || (matches > 1 && !request.replaceAll)) {
+      return EditConflict(
+          matches == 0
+              ? EditConflictKind.missingMatch
+              : EditConflictKind.ambiguousMatch,
+          request,
+          current,
+          matches);
+    }
+    final updatedText = request.replaceAll
+        ? current.replaceAll(request.oldString, request.newString)
+        : current.replaceFirst(request.oldString, request.newString);
+    await atomicWriteFile(fs, request.path, updatedText);
+    final n = request.replaceAll ? matches : 1;
+    return ToolResult(
+        'edited ${request.path} ($n replacement${n == 1 ? '' : 's'})');
   }
 }
 

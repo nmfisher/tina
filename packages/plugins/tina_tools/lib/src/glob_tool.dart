@@ -4,9 +4,10 @@ import 'package:tina_core/tina_core.dart';
 import 'tool_descriptions.dart';
 
 import 'glob.dart';
+import 'io_file_system.dart';
 import 'sandboxed_file_system.dart';
-import 'permissions.dart';
 import 'tool.dart';
+import 'tool_file_system.dart';
 import 'tool_input.dart';
 
 /// Maximum number of matches returned per call.
@@ -22,7 +23,13 @@ class GlobTool implements Tool {
   /// asserts the path directly. Null in tests.
   final SandboxedFileSystem? sandbox;
 
-  GlobTool({this.workspaceRoot, this.sandbox});
+  /// Resolves and routes every path: workspace resolution and the sandbox
+  /// boundary live here, not in the tool body.
+  final ToolFileSystem _routes;
+
+  GlobTool({this.workspaceRoot, this.sandbox})
+      : _routes = ToolFileSystem(const IoFileSystem(),
+            workspaceRoot: workspaceRoot, sandbox: sandbox);
 
   @override
   ToolSchema get schema => const ToolSchema(
@@ -63,11 +70,9 @@ class GlobTool implements Tool {
     final int maxResults;
     try {
       pattern = requiredString(input, 'pattern');
-      path = resolveToolPath(
-          optionalString(input, 'path') ??
-              workspaceRoot ??
-              Directory.current.path,
-          workspaceRoot);
+      path = _routes.resolve(optionalString(input, 'path') ??
+          workspaceRoot ??
+          Directory.current.path);
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
@@ -77,16 +82,10 @@ class GlobTool implements Tool {
     if (!Directory(path).existsSync() && !File(path).existsSync()) {
       return ToolResult.error('path does not exist: $path');
     }
-    // The walk can't be covered by the FS seam, so resolve the read through
-    // the boundary here. Skipped when sandbox is null. Maps
-    // SandboxViolation to a clean error.
-    if (sandbox != null) {
-      try {
-        await sandbox!.guard(FileOp.read, path);
-      } on SandboxViolation catch (e) {
-        return ToolResult.error(e.message);
-      }
-    }
+    // The walk can't be covered by the FS seam, so the wrapper resolves the
+    // read through the boundary here.
+    final refusal = await _routes.guard(FileOp.read, path);
+    if (refusal != null) return refusal;
 
     final files = walkFiles(path);
     final matching = <String>[];

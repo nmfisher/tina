@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -71,6 +72,58 @@ class SandboxedFileSystem implements FileSystem {
   // Only temporary files created by this sandbox inherit the target grant.
   // This permits atomic replacement without approving unrelated siblings.
   final Map<String, String> _temporaryTargets = {};
+
+  /// Zone-keyed authorizations granted for the duration of ONE tool
+  /// operation. A tool operation consults the boundary once at its entry
+  /// point (via ToolFileSystem.guard); the seam methods it then calls
+  /// (writeFile, createTempFile, rename, delete behind an atomic write) each
+  /// guard again internally — those re-entrances must recognize the decision
+  /// already made for this operation instead of asking the approver over and
+  /// over (six dialogs for one out-of-project write before this existed).
+  ///
+  /// A Dart [Zone] carries the grant, so concurrent tool operations on the
+  /// same sandbox never see each other's authorizations, and an authorization
+  /// cannot outlive the operation that earned it (unlike a bool field, which
+  /// would leak across interleaved async operations).
+  static final Object _authorizedOps = Object();
+
+  /// Runs [body] with [op] at the canonical [path] pre-authorized: any
+  /// [guard] with the same operation and resolved target inside [body] —
+  /// however deeply nested through the seam — is a no-op. Structural checks
+  /// still run on every interior guard; only the table/approver step is
+  /// skipped, and only for the exact authorized target.
+  ///
+  /// The one decision for the operation is made HERE, before the zone
+  /// exists: [authorize] runs the same structural + table/approver path any
+  /// bare [guard] would, so an ask still reaches the [approver] exactly once
+  /// and a refusal throws before [body] starts. The zone then only carries
+  /// bookkeeping for the seam's internal re-entrances.
+  /// The one decision point for a single tool operation: the same path any
+  /// bare [guard] takes — structural checks, then the operation × mode table
+  /// ([decideOperation]) with the current [mode]. A [ToolVerdict.ask] goes
+  /// to the [approver] exactly once; a refusal throws [SandboxViolation].
+  /// Does not authorize anything: pair with [authorizeOperation] when the
+  /// operation continues through the seam's internally-guarded methods.
+  Future<void> authorize(FileOp op, String path) => guard(op, path);
+
+  Future<T> authorizeOperation<T>(
+      FileOp op, String path, Future<T> Function() body) async {
+    // The decision happens once, here, zone-free: without this the zone
+    // below would pre-authorize a target nobody ever decided on, and an
+    // out-of-workspace write would run without the approver ever firing.
+    await authorize(op, path);
+    final target = await resolveCanonical(path);
+    final existing = Zone.current[_authorizedOps];
+    final ops = existing ?? _AuthorizedOps();
+    ops.add(op, target);
+    final result = await (existing != null
+        ? body()
+        : runZoned(body, zoneValues: {_authorizedOps: ops}));
+    // The zone dies with body; the local mutation only matters when we
+    // joined an enclosing scope.
+    if (existing != null) ops.remove(op, target);
+    return result;
+  }
 
   Future<String>? _rootFuture;
   Future<String>? _tinaFuture;
@@ -188,11 +241,19 @@ class SandboxedFileSystem implements FileSystem {
   /// allowed verdict passes; an ask goes to the [approver] — no approver, or a
   /// refusal, throws [SandboxViolation] whose message is the reason the
   /// model will read.
+  ///
+  /// Re-entrance within one authorized tool operation ([authorizeOperation])
+  /// skips only the table/approver step for the authorized target; structural
+  /// checks always run.
   Future<void> guard(FileOp op, String path) async {
     final target = await resolveCanonical(path);
     await assertOutsideTina(target);
     final approvedTarget = _temporaryTargets[target] ?? target;
     await assertOutsideTina(approvedTarget);
+    final authorized = Zone.current[_authorizedOps];
+    if (authorized != null && authorized.contains(op, approvedTarget)) {
+      return;
+    }
     if (op == FileOp.write &&
         writeDirectories?.allows(approvedTarget) == true) {
       return;
@@ -334,4 +395,23 @@ Future<String> _resolveExisting(String path) async {
       throw SandboxViolation(
           'Broken or missing path cannot be verified: ${p.basename(path)}');
   }
+}
+
+/// The (operation, canonical target) pairs authorized for one in-flight tool
+/// operation. Mutable because [SandboxedFileSystem.authorizeOperation] joins
+/// an enclosing scope when tools nest; the zone scoping keeps concurrent
+/// operations isolated.
+final class _AuthorizedOps {
+  final Map<FileOp, Set<String>> _ops = {};
+
+  void add(FileOp op, String target) {
+    (_ops[op] ??= {}).add(target);
+  }
+
+  void remove(FileOp op, String target) {
+    _ops[op]?.remove(target);
+  }
+
+  bool contains(FileOp op, String target) =>
+      _ops[op]?.contains(target) ?? false;
 }
