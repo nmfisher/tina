@@ -35,6 +35,7 @@ import 'dart:collection';
 import 'package:tina_core/tina_core.dart';
 
 import 'context.dart';
+import 'message_projection.dart';
 import 'model.dart';
 import 'plugin.dart';
 import 'tool_execution.dart';
@@ -328,6 +329,17 @@ final class AgentLoop {
   /// appended, and mid-turn that list is about to grow. The dropped text
   /// is gone from the derived view but the log stays append-only: the
   /// [CompactedEntry] records what was replaced.
+  ///
+  /// First, any registered [MessageProjection] is offered the splice, in
+  /// registration order, stopping at the first that serves it: a
+  /// projection that owns the view the next request is built from rewrites
+  /// itself and records its own snapshot instead. With no projection
+  /// accepting (the default: none registered, or all decline) the
+  /// [CompactedEntry] below is appended exactly as before. The range is
+  /// validated against the core derive either way, so both branches start
+  /// from the same precondition; a projection that throws propagates the
+  /// error with nothing appended — one compaction, never two divergent
+  /// histories.
   void compact(int from, int to, String summary) {
     if (_inTurn) {
       throw StateError('compact between turns, not mid-turn');
@@ -336,6 +348,13 @@ final class AgentLoop {
     if (from < 0 || to < from || to >= view.messages.length) {
       throw RangeError.range(
           to, from, view.messages.length - 1, 'compaction range');
+    }
+    for (final plugin in _byId.values) {
+      if (plugin case MessageProjection projection
+          when projection.applyCompaction(
+              (from: from, to: to, summary: summary))) {
+        return;
+      }
     }
     _append(CompactedEntry(
         replacedFrom: from, replacedTo: to, summary: summary, at: _now()));

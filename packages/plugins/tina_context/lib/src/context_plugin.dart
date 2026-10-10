@@ -19,8 +19,23 @@ final class ContextPersistenceFailure extends StateError {
   final Object cause;
 }
 
+/// The compaction branch of the [MessageProjection] seam. The context
+/// plugin owns the projection the next request is actually built from
+/// (a snapshot plus eligible tail, not the raw log), so a compaction the
+/// loop is asked for is served HERE — rewriting the projected messages
+/// and appending a fresh snapshot — rather than as a [CompactedEntry]
+/// the projection-owned view could never replay (derivation refuses a
+/// compaction that follows a working-context edit).
+///
+/// The splice arrives in core-derive index space; the loop has already
+/// validated it against the core view. This projection's list may have
+/// diverged from that view through context edits, so the range is
+/// re-checked against the list this plugin will actually rewrite before
+/// anything is appended — a range it cannot express throws, with the
+/// log untouched, rather than splicing the wrong messages.
+
 /// Explicitly opt-in. A file mirror is enabled only with an explicit path.
-final class ContextPlugin extends AgentPlugin {
+final class ContextPlugin extends AgentPlugin implements MessageProjection {
   ContextPlugin(
       {File? mirrorFile,
       int budgetTokens = defaultContextBudgetTokens,
@@ -209,6 +224,45 @@ final class ContextPlugin extends AgentPlugin {
       throw ContextPersistenceFailure(error);
     }
     return workingContext;
+  }
+
+  /// [MessageProjection]: serve a between-turns compaction by rewriting
+  /// the working context itself and appending the result as a snapshot —
+  /// never by declining. A [false] from an owner would fall through to a
+  /// [CompactedEntry] over core-derive positions, which a projection-
+  /// owned view (snapshot + tail) cannot replay; an unhandlable splice
+  /// throws instead, leaving the log untouched for the host to decide.
+  ///
+  /// The splice's positions are core-derive indices; the projection's
+  /// own list may have diverged (context edits), so the range is checked
+  /// against the list about to be rewritten. On success the summary
+  /// replaces the range as one synthetic user message — the exact shape
+  /// core derive gives a [CompactedEntry] — recorded through
+  /// [replaceWorkingContext] so cursors advance, budget sees the shrink,
+  /// and the same guards apply as any other edit.
+  @override
+  bool applyCompaction(MessageSplice splice) {
+    final current = workingContext;
+    final messages = current.messages;
+    if (splice.from < 0 ||
+        splice.to < splice.from ||
+        splice.to >= messages.length) {
+      throw StateError(
+          'Compaction range ${splice.from}..${splice.to} does not address '
+          'the working context (${messages.length} messages)');
+    }
+    final compacted = [
+      ...messages.sublist(0, splice.from),
+      Message(role: Role.user, content: [TextBlock(splice.summary)],
+          isSynthetic: true),
+      ...messages.sublist(splice.to + 1),
+    ];
+    replaceWorkingContext(
+      expectedRevision: current.revision,
+      expectedThroughSeq: current.throughSeq,
+      messages: compacted,
+    );
+    return true;
   }
 
   @override

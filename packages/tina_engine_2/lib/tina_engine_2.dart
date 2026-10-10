@@ -5,6 +5,7 @@ library;
 
 export 'src/context.dart';
 export 'src/loop.dart';
+export 'src/message_projection.dart';
 export 'src/model.dart';
 export 'src/plugin.dart';
 export 'src/provider.dart';
