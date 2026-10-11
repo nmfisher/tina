@@ -7,6 +7,7 @@ export 'src/message.dart';
 export 'src/provider.dart';
 export 'src/session_log.dart';
 export 'src/stream.dart';
+export 'src/token_estimators.dart';
 export 'src/tools.dart';
 
 export 'src/command.dart';

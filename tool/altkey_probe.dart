@@ -46,11 +46,23 @@ Future<void> main(List<String> args) async {
   ncs.render();
 
   var done = false;
+  // Warmup state: the driver floods OSC 4 palette replies during notcurses
+  // init, and any residue it cannot fold back into a reply — a PTY read
+  // boundary can split a reply right after its last expected byte, stranding
+  // the ST terminator — surfaces as synthetic keystrokes in the pump's first
+  // drains, all timestamped before the driver's first real key. Records
+  // arriving during the settle window below are dropped.
+  var settled = false;
+  var droppedStartupRecords = 0;
   // NOTE: no blocking sleep() in the wait loop — it would stall the isolate
   // and the native listener callbacks (the pump's records) would never be
   // delivered.
   final pump = ncs.startInputPump();
   final sub = pump.events.listen((rec) {
+    if (!settled) {
+      ++droppedStartupRecords;
+      return;
+    }
     final id = rec.id;
     final mods = rec.modifiers;
     final alt = (mods & nc.KeyMod.alt) != 0;
@@ -80,7 +92,13 @@ Future<void> main(List<String> args) async {
     if (id == 0x71 && mods == 0) done = true; // plain 'q'
     if (id == 0x03) done = true; // Ctrl-C
   });
+  // Tell the driver we exist (master_loop races this via the "probe ready"
+  // substring), then flush the palette-reply residue: everything the pump
+  // delivers during this window predates the driver's first synthetic key.
   logLine('probe ready');
+  await Future<void>.delayed(const Duration(milliseconds: 750));
+  settled = true;
+  logLine('probe settled dropped=$droppedStartupRecords');
 
   final deadline = DateTime.now().add(const Duration(seconds: 120));
   while (!done && DateTime.now().isBefore(deadline)) {

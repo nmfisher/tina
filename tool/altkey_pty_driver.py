@@ -135,6 +135,27 @@ def master_loop(master, proc, mute, log_path, colon=False, palette=None):
     )
 
 
+def wait_for_settled(log_path, timeout=30):
+    """Wait until the probe has flushed its startup input queue.
+
+    During notcurses init the palette variants flood 256 OSC 4 replies; any
+    residue notcurses cannot fold back into a reply is later handed to the
+    input pump as synthetic keystrokes. The probe drops everything delivered
+    in its settle window and then logs "probe settled"; the driver must not
+    write any test key before that line, or residue and test keys interleave
+    (the macOS palette failures: 79/80 leading junk records, the 12 expected
+    ones intact at the tail).
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if os.path.exists(log_path):
+            with open(log_path, encoding="utf-8") as log:
+                if "probe settled" in log.read():
+                    return
+        time.sleep(0.05)
+    raise RuntimeError(f"probe never settled within {timeout}s (log: {log_path})")
+
+
 def drain_output(master, proc, seconds):
     # Keep behaving like a terminal while keys are sent and during teardown.
     # macOS has a small PTY output buffer: stopping reads after the first
@@ -178,6 +199,7 @@ def run(log_path, mute, colon=False, palette=None):
     os.close(slave)
     try:
         master_loop(master, proc, mute, log_path, colon=colon, palette=palette)
+        wait_for_settled(log_path)
         os.set_blocking(master, True)
         cases = [
             (b"\x1bb", [(0x62, 2)]),                 # legacy Alt+b

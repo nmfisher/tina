@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:tina_core/tina_core.dart';
 import 'tool_descriptions.dart';
 
+import 'io_file_system.dart';
 import 'sandboxed_file_system.dart';
-import 'permissions.dart';
 import 'tool.dart';
+import 'tool_file_system.dart';
 import 'tool_input.dart';
 
 /// Maximum number of entries returned per call.
@@ -24,7 +25,13 @@ class LsTool implements Tool {
   /// the path itself. Null in tests that inject a bare [FileSystem].
   final SandboxedFileSystem? sandbox;
 
-  LsTool({this.workspaceRoot, this.sandbox});
+  /// Resolves and routes every path: workspace resolution and the sandbox
+  /// boundary live here, not in the tool body.
+  final ToolFileSystem _routes;
+
+  LsTool({this.workspaceRoot, this.sandbox})
+      : _routes = ToolFileSystem(const IoFileSystem(),
+            workspaceRoot: workspaceRoot, sandbox: sandbox);
 
   @override
   ToolSchema get schema => const ToolSchema(
@@ -60,11 +67,9 @@ class LsTool implements Tool {
     final bool all;
     final int maxResults;
     try {
-      path = resolveToolPath(
-          optionalString(input, 'path') ??
-              workspaceRoot ??
-              Directory.current.path,
-          workspaceRoot);
+      path = _routes.resolve(optionalString(input, 'path') ??
+          workspaceRoot ??
+          Directory.current.path);
       all = optionalBool(input, 'all') ?? false;
       maxResults = optionalInt(input, 'maxResults') ?? _defaultMaxResults;
     } on ToolValidationException catch (e) {
@@ -77,16 +82,10 @@ class LsTool implements Tool {
     if (type != FileSystemEntityType.directory) {
       return ToolResult.error('not a directory: $path');
     }
-    // The listing walk can't be covered by the FS seam, so resolve the
-    // read through the boundary here. Skipped when sandbox is null. Maps
-    // SandboxViolation to a clean error.
-    if (sandbox != null) {
-      try {
-        await sandbox!.guard(FileOp.read, path);
-      } on SandboxViolation catch (e) {
-        return ToolResult.error(e.message);
-      }
-    }
+    // The listing walk can't be covered by the FS seam, so the wrapper
+    // resolves the read through the boundary here.
+    final refusal = await _routes.guard(FileOp.read, path);
+    if (refusal != null) return refusal;
 
     final entries = Directory(path).listSync(followLinks: false);
     final visible =

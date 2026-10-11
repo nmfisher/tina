@@ -42,10 +42,14 @@ def main():
             terminal.expect('RESTART_PARENT_CLOSED', start)
             marker = b'RESTART_PARENT_CLOSED'
             start = terminal.output.index(marker, start) + len(marker)
+            # The restarted app is a fresh `dart run` cold start of the whole
+            # engine; on a loaded runner that JIT alone can outlast the
+            # harness's default 10s window before notcurses even inits. Allow
+            # the same 30s budget expect() grants the parent app.
             terminal.wait_for(
                 lambda: 'config:' in screen_text(terminal.output[start:], 80, 24)
                 and 'smoke >' in screen_text(terminal.output[start:], 80, 24),
-                'restarted app did not show a ready prompt')
+                'restarted app did not show a ready prompt', timeout=30)
             time.sleep(0.2)
             start = terminal.send('hello after restart')
             terminal.expect_idle()
