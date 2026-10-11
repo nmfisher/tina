@@ -71,7 +71,7 @@ class WriteDenied extends SandboxDenial {
   String get explanation =>
       'The command failed with "Read-only file system" while writing:\n'
       '${blockedPaths.map((p) => '    $p').join('\n')}\n'
-      'Those paths are outside the sandbox\'s writable paths:\n'
+      'Those paths are not writable under the sandbox policy (roots may contain exclusions):\n'
       '${writablePaths.map((p) => '    $p').join('\n')}\n'
       'The earlier command approval did not grant write access there.';
 }
@@ -86,7 +86,12 @@ class OperationDenied extends SandboxDenial {
   /// The writable paths of the sandbox, named in the explanation.
   final List<String> writablePaths;
 
-  OperationDenied(this.diagnostic, {required Iterable<String> writablePaths})
+  final List<String> paths;
+  final bool? write;
+  OperationDenied(this.diagnostic,
+      {required Iterable<String> writablePaths,
+      this.paths = const [],
+      this.write})
       : writablePaths = List.unmodifiable(writablePaths);
 
   @override
@@ -116,12 +121,23 @@ SandboxDenial? classifySandboxFailure(
   required List<String> writablePaths,
   required List<String> mountedPaths,
   bool Function(String)? hostFileExists,
+  List<String> deniedPaths = const [],
+  bool? accessIsWrite,
+  bool Function(String)? canWrite,
 }) {
   if (completed.exitCode == 0 || completed.cancelled || completed.timedOut) {
     return null;
   }
   // ENOENT can also mean a genuinely absent file or dynamic loader. Only
   // name a hidden host path when existence and namespace exclusion agree.
+  final output = '${completed.stderr}\n${completed.stdout}';
+  final namedDenied = deniedPaths.where((p) => output.contains(p)).toList();
+  if (namedDenied.isNotEmpty &&
+      RegExp(r'permission denied|operation not permitted|read-only file system',
+              caseSensitive: false)
+          .hasMatch(output)) {
+    return ProtectedPathDenied(namedDenied);
+  }
   if (hostFileExists != null) {
     final hidden = <String>{};
     for (final line in completed.stderr.split('\n')) {
@@ -142,7 +158,6 @@ SandboxDenial? classifySandboxFailure(
     }
     if (hidden.isNotEmpty) return PathHidden(hidden.toList());
   }
-  final output = '${completed.stderr}\n${completed.stdout}';
   final blocked = <String>{};
   final roots = <String>{};
   for (final line in output.split('\n')) {
@@ -165,7 +180,8 @@ SandboxDenial? classifySandboxFailure(
       // doing, not the kernel's: the command was approved for it. Only
       // paths the layout never made writable are evidence of a denial.
       final directory = path.dirname(p);
-      if (writablePaths.any((w) => _under(directory, w))) continue;
+      if (canWrite?.call(p) ?? writablePaths.any((w) => _under(directory, w)))
+        continue;
       blocked.add(p);
       roots.add(directory);
     }
@@ -176,22 +192,28 @@ SandboxDenial? classifySandboxFailure(
       writablePaths: writablePaths,
     );
   }
-  if (completed.exitCode != 0) {
-    final eperm = RegExp(r'operation not permitted', caseSensitive: false)
-        .firstMatch(output);
+  for (final line in output.split('\n')) {
+    final eperm = RegExp(r'operation not permitted|permission denied',
+            caseSensitive: false)
+        .firstMatch(line);
     if (eperm != null) {
-      final named = RegExp(r"""/[^\s:,"']+""").allMatches(output).map((m) {
-        var p = m.group(0)!;
-        while (p.endsWith('.') || p.endsWith(':')) {
-          p = p.substring(0, p.length - 1);
-        }
-        return p;
-      }).toList();
-      final unmounted =
-          named.where((p) => !mountedPaths.any((m) => _under(p, m))).toSet();
-      if (unmounted.isNotEmpty) {
+      // Only the path adjacent to this diagnostic is evidence. A different
+      // line may contain arbitrary command output, including unrelated paths.
+      final before = line.substring(0, eperm.start).trimRight();
+      final match =
+          RegExp(r'''["'](/[^"'\r\n]+)["']:\s*$''').firstMatch(before) ??
+              RegExp(r'(?:^|: )(/[^:\r\n]+):\s*$').firstMatch(before);
+      final named = match?.group(1);
+      if (named == null || RegExp(r'[\x00-\x1f\x7f]').hasMatch(named)) continue;
+      final available = accessIsWrite == true
+          ? (canWrite?.call(named) ??
+              writablePaths.any((root) => _under(named, root)))
+          : mountedPaths.any((root) => _under(named, root));
+      if (!available) {
         return OperationDenied(
-          'Operation not permitted (${unmounted.join(', ')})',
+          '${eperm.group(0)} ($named)',
+          paths: [named],
+          write: accessIsWrite,
           writablePaths: writablePaths,
         );
       }
@@ -204,4 +226,13 @@ bool _under(String child, String parent) {
   final c = path.normalize(child);
   final p = path.normalize(parent);
   return path.equals(c, p) || path.isWithin(p, c);
+}
+
+class ProtectedPathDenied extends SandboxDenial {
+  ProtectedPathDenied(this.paths);
+  final List<String> paths;
+  @override
+  String get explanation =>
+      'Protected credential/config paths are unavailable: ${paths.join(', ')}. '
+      'Ordinary directory grants cannot expose these paths.';
 }

@@ -278,8 +278,10 @@ void main() {
     }
 
     test('yes proceeds: the file exists, the question came first', () async {
+      addTearDown(cleanup);
       final io = FakeIo();
       final approvals = <String>[];
+      final seenApprovals = <String>{};
       final session = TuiSession.start(
         configPath: '/nonexistent/tina/config',
         providerFactory: (_) => outsideWrite(),
@@ -295,7 +297,9 @@ void main() {
       final asker = approvalUi(session).asker!;
       asker.onChange = () {
         final a = asker.current;
-        if (a != null) approvals.add('${a.operation}:${a.target}');
+        if (a != null && seenApprovals.add(a.id)) {
+          approvals.add('${a.operation}:${a.target}');
+        }
       };
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('do the write\r'.codeUnits);
@@ -411,6 +415,8 @@ ConsoleContext Function(Screen, LineEditor) scriptedConsole(
             return switch (key) {
               ApprovalKey.allow => CharInput('y'),
               ApprovalKey.deny => CharInput('n'),
+              ApprovalKey.workspace => CharInput('p'),
+              ApprovalKey.global => CharInput('g'),
               ApprovalKey.always => CharInput('a'),
               ApprovalKey.toggleReadDirectory => CharInput('r'),
               ApprovalKey.toggleWriteDirectory => CharInput('w'),

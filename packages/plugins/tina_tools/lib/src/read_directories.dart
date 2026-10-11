@@ -33,8 +33,14 @@ final readOnlyDirectoriesSetting = SettingDefinition<List<String>>(
 final class ReadOnlyDirectories {
   List<String> _paths = const [];
   List<String> get paths => _paths;
-  List<String> get existingPaths =>
-      _paths.where((value) => Directory(value).existsSync()).toList();
+  List<String> get existingPaths => _paths.where((value) {
+        try {
+          return Directory(value).existsSync() &&
+              p.equals(Directory(value).resolveSymbolicLinksSync(), value);
+        } on FileSystemException {
+          return false;
+        }
+      }).toList();
 
   void replace(Iterable<String> paths) {
     _paths = List.unmodifiable({

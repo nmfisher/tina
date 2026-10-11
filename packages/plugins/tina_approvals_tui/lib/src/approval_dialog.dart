@@ -30,6 +30,8 @@ enum ApprovalKey {
   allow,
   deny,
   always,
+  workspace,
+  global,
   toggleReadDirectory,
   toggleWriteDirectory,
   toggleDirectory
@@ -128,6 +130,10 @@ class ApprovalDialog {
   /// plain tool-call dialog.
   ApprovalAskContext? ask;
 
+  bool get _hasPersistent =>
+      ask?.confirmation != true &&
+      ask?.details['persistent_command_approval'] == true;
+
   bool get _hasAlways => call?.argumentsParseError == null;
 
   ApprovalDialog(this.call, {this.ask});
@@ -138,6 +144,7 @@ class ApprovalDialog {
           'allow',
           'deny',
           if (_hasAlways) 'allow always',
+          if (_hasPersistent) ...['allow workspace', 'allow global'],
           if (_readDirectory != null) 'read directory',
           if (_writeDirectory != null) 'write directory',
         ];
@@ -163,6 +170,8 @@ class ApprovalDialog {
   ApprovalDecision decisionFor(int index) =>
       _withDirectoryScope(switch (_choices[index]) {
         'allow always' => ApprovalDecision.allowAlways,
+        'allow workspace' => ApprovalDecision.allowWorkspace,
+        'allow global' => ApprovalDecision.allowGlobal,
         'allow' || 'Yes' => ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
       });
@@ -326,6 +335,10 @@ class ApprovalDialog {
             '[y] allow once',
             '[n] deny',
             if (_hasAlways) '[a] $alwaysLabel',
+            if (_hasPersistent) ...[
+              '[p] remember this command for this workspace',
+              '[g] remember this command globally (any directory)',
+            ],
             if (_readDirectory != null)
               '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
             if (_writeDirectory != null)
@@ -424,6 +437,8 @@ class ApprovalDialog {
       case ApprovalKey.scrollDown:
       case ApprovalKey.allow:
       case ApprovalKey.deny:
+      case ApprovalKey.workspace:
+      case ApprovalKey.global:
       case ApprovalKey.always:
       case ApprovalKey.details:
       case ApprovalKey.toggleReadDirectory:
@@ -455,15 +470,25 @@ class ApprovalDialog {
   /// close cancels (a denial with reason `'cancelled'`). Resolves when a
   /// decision is reached; never throws on an empty source. [onKey] runs
   /// after each selection change, so a host can repaint the question.
+  /// [onAnyKey] additionally runs for keys the dialog consumes without
+  /// acting on (ordinary typing, pastes) — so a host can repaint and the
+  /// dialog never looks frozen while it owns the keyboard.
   Future<ApprovalOutcome> awaitDecision(KeySource keys,
-      {void Function()? onKey}) async {
+      {void Function()? onKey, void Function()? onAnyKey}) async {
     while (true) {
       final key = await keys.next();
+      onAnyKey?.call();
       switch (key) {
         case ApprovalKey.allow:
           return ApprovalOutcome(_withDirectoryScope(ApprovalDecision.allow));
         case ApprovalKey.deny:
           return const ApprovalOutcome(ApprovalDecision.deny);
+        case ApprovalKey.workspace:
+          if (_hasPersistent)
+            return const ApprovalOutcome(ApprovalDecision.allowWorkspace);
+        case ApprovalKey.global:
+          if (_hasPersistent)
+            return const ApprovalOutcome(ApprovalDecision.allowGlobal);
         case ApprovalKey.always:
           if (ask?.confirmation != true && _hasAlways) {
             return ApprovalOutcome(

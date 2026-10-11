@@ -166,8 +166,17 @@ final class QueuedDialogAsker {
         final source = keys ?? keysFor?.call(ticket);
         if (source == null) throw StateError('approval has no input source');
         onChange?.call();
-        final outcome = await dialog
-            .awaitDecision(_CancellableKeys(source, ticket), onKey: onChange);
+        // Repaint on EVERY key, recognized or not. An approval dialog owns
+        // the keyboard while it is open; unrecognized keys (ordinary typing,
+        // a paste) are consumed as no-ops. Without a repaint the dialog
+        // looks frozen — the user types and nothing on screen changes,
+        // because the dialog is silently eating their keys. The repaint
+        // re-asserts the answer selector (and its cursor) so each keypress
+        // visibly lands, making the dialog's keyboard ownership legible.
+        final outcome = await dialog.awaitDecision(
+            _CancellableKeys(source, ticket),
+            onKey: onChange,
+            onAnyKey: onChange);
         ticket.respond(outcome.decision);
       } catch (_) {
         ticket.respond(ApprovalDecision.deny);
@@ -212,6 +221,8 @@ final class _ConsoleKeys implements KeySource {
         CharInput(text: 'y') => ApprovalKey.allow,
         CharInput(text: 'n') => ApprovalKey.deny,
         CharInput(text: 'a') => ApprovalKey.always,
+        CharInput(text: 'p') => ApprovalKey.workspace,
+        CharInput(text: 'g') => ApprovalKey.global,
         CharInput(text: 'r') => ApprovalKey.toggleReadDirectory,
         CharInput(text: 'w') => ApprovalKey.toggleWriteDirectory,
         CharInput(text: ' ') => ApprovalKey.toggleDirectory,

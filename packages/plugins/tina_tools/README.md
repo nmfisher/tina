@@ -34,7 +34,7 @@ In `auto`, an exact completed ALLOW approves the operation once. DENY,
 timeout, missing classifier or invalid response falls back to the configured
 human approval channel. Read-only uses human approval for writes and commands
 that are not certified system readers. Cancellation does not fall back to asking.
-Human “always” grants remain session-scoped; classifier approvals do not create
+Ordinary human “always” grants remain session-scoped; classifier approvals do not create
 persistent or session grants. Protected Tina paths and OS sandbox restrictions
 remain enforced in every mode. Ordinary approval does not disable the OS sandbox.
 
@@ -148,10 +148,25 @@ Both process tools also accept `outside_sandbox: true` with a required
 `sandbox_reason` for a single invocation. This requests separate **human**
 approval, including in auto mode, for host filesystem and network access to
 the whole subprocess tree. Execution/network approvals alone cannot grant it.
-Always remembers the exact program, argv, cwd, environment and stdin for this
-session. Later calls still have to explicitly request `outside_sandbox`; ordinary
-calls retain their configured confinement. Declining or cancelling starts
-nothing. There is no automatic retry.
+The dialog offers once, session, workspace and global approvals. Session and
+workspace grants match the exact resolved executable, argv, cwd, environment
+and stdin; global grants explicitly allow that invocation in any directory.
+Persistent grants are stored in trusted user state, never repository settings,
+and can be revoked in Settings → Permissions → Remembered host command approvals.
+Child agents share their parent's host-command approval store. Later calls
+still explicitly request `outside_sandbox`; ordinary calls remain confined.
+Declining or cancelling starts nothing and stores no grant.
+
+Sandboxed commands use a session home with selected writable host cache links.
+The parent TMPDIR is preserved when valid; `/tmp` and `/var/tmp` remain shared.
+Credentials and Tina configuration are excluded even beneath broad grants.
+Approved host execution restores the real HOME and SSH_AUTH_SOCK while filtering
+other parent environment variables. Agents should request host execution
+immediately when authentication needs excluded credentials, without a failed
+sandbox attempt. A narrow directory grant and one retry may be offered after a
+filesystem denial, with explicit human approval covering possible partial work.
+See [the sandbox guide](../../../docs/engine2-sandbox.md) for cache settings,
+backend details, approval scope and lifecycle.
 
 The tools prompt describes the actual OS backend and mounts. On Linux, built-in
 file tools can see host paths hidden from subprocesses. An existing absolute

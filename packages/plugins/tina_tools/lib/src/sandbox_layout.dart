@@ -11,6 +11,8 @@
 library;
 
 import 'dart:io';
+import 'package:path/path.dart' as path;
+import 'sandbox_home.dart';
 
 /// System directories the sandbox mounts read-only: the toolchain, visible
 /// inside the namespace so compilers and interpreters keep working, but not
@@ -35,12 +37,46 @@ const List<String> kSandboxReadOnlyBinds = <String>[
 /// The temp directories a sandboxed command may write: its scratch space.
 /// Resolved against [Platform.environment] so `TMPDIR` wins where set.
 List<String> defaultSandboxTempDirs([Map<String, String>? environment]) {
-  final tmp = environment?['TMPDIR'] ?? Platform.environment['TMPDIR'];
-  return [
-    if (tmp != null && tmp.isNotEmpty) tmp,
-    '/tmp',
-    '/var/tmp',
-  ];
+  final tmp = sandboxTempDirectory(environment ?? Platform.environment);
+  return {tmp, '/tmp', '/var/tmp'}.toList();
+}
+
+String sandboxTempDirectory(Map<String, String> environment) {
+  final tmp = environment['TMPDIR'];
+  if (tmp != null &&
+      tmp.isNotEmpty &&
+      path.isAbsolute(tmp) &&
+      !tmp.contains(RegExp(r'[\x00-\x1f\x7f]')) &&
+      Directory(tmp).existsSync()) {
+    return tmp;
+  }
+  return '/tmp';
+}
+
+/// Missing protected leaves cannot be masked by creating mount destinations
+/// inside writable host binds. Lock their nearest existing parents instead.
+List<String> sandboxProtectedParents(
+    Iterable<String> denied, Iterable<String> mounts) {
+  final secrets = denied.toSet();
+  return {
+    for (final secret in secrets)
+      if (mounts.any((root) => sandboxPathUnder(secret, root)) &&
+          !secrets.any(
+              (root) => root != secret && sandboxPathUnder(secret, root)) &&
+          FileSystemEntity.typeSync(secret) == FileSystemEntityType.notFound)
+        _existingParent(secret),
+  }
+      .where((parent) => mounts.any((root) => sandboxPathUnder(parent, root)))
+      .toList()
+    ..sort((a, b) => a.length.compareTo(b.length));
+}
+
+String _existingParent(String value) {
+  var parent = path.dirname(value);
+  while (!Directory(parent).existsSync()) {
+    parent = path.dirname(parent);
+  }
+  return parent;
 }
 
 /// What the host looks like, as far as the sandbox cares: which of the
@@ -97,6 +133,7 @@ List<String> buildBwrapArguments({
   required SandboxHostLayout host,
   required String workspaceRoot,
   String? tinaDir,
+  Iterable<String> deniedPaths = const [],
   required Iterable<String> writablePaths,
   required bool isolateNetwork,
   required Map<String, String> childEnvironment,
@@ -132,6 +169,49 @@ List<String> buildBwrapArguments({
   if (tinaDir != null) {
     bound.remove('$tinaDir->$tinaDir:true');
     bind(tinaDir, tinaDir, readOnly: true);
+  }
+  final mounts = [
+    ...host.readOnlyDirectories,
+    ...host.temporaryDirectories,
+    workspaceRoot,
+    ...writablePaths,
+    if (tinaDir != null) tinaDir
+  ];
+  final secrets = {
+    ...deniedPaths,
+    // A bind source may be a symlink. Mask the protected content at each
+    // destination spelling too, not just at its original canonical name.
+    for (final root in mounts)
+      for (final secret in deniedPaths)
+        if (sandboxPathUnder(secret, canonicalSandboxPath(root)))
+          path.join(
+              root, path.relative(secret, from: canonicalSandboxPath(root))),
+  }.toList()
+    ..sort((a, b) => a.length.compareTo(b.length));
+  for (final parent in sandboxProtectedParents(secrets, mounts)) {
+    bound.remove('$parent->$parent:true');
+    bind(parent, parent, readOnly: true);
+    for (final child in Directory(parent).listSync(followLinks: false)) {
+      if (child is! Directory ||
+          secrets.any((s) => sandboxPathUnder(child.path, s))) continue;
+      if ([workspaceRoot, ...writablePaths, ...host.temporaryDirectories]
+          .any((root) => sandboxPathUnder(child.path, root))) {
+        bound.remove('${child.path}->${child.path}:false');
+        bind(child.path, child.path);
+      }
+    }
+  }
+  for (final secret in secrets) {
+    if (!mounts.any((root) => sandboxPathUnder(secret, root))) continue;
+    if (secrets
+        .any((parent) => parent != secret && sandboxPathUnder(secret, parent)))
+      continue;
+    final type = FileSystemEntity.typeSync(secret);
+    if (type == FileSystemEntityType.directory) {
+      args.addAll(['--tmpfs', secret, '--remount-ro', secret]);
+    } else if (type == FileSystemEntityType.file) {
+      bind('/dev/null', secret, readOnly: true);
+    }
   }
   args
     ..add('--dev')
@@ -171,6 +251,7 @@ String buildSeatbeltProfile({
   String? hidePath,
   Iterable<String> readAllowPaths = const [],
   Iterable<String> deniedWritePaths = const [],
+  Iterable<String> deniedPaths = const [],
 }) {
   final sb = StringBuffer('(version 1)\n');
   sb.write('(allow default)\n'); // process, reads, everything not named below
@@ -190,6 +271,10 @@ String buildSeatbeltProfile({
   }
   for (final path in deniedWritePaths) {
     sb.write('(deny file-write* (subpath "${_escapeProfilePath(path)}"))\n');
+  }
+  for (final path in deniedPaths) {
+    sb.write(
+        '(deny file-read* file-write* (subpath "${_escapeProfilePath(path)}"))\n');
   }
   return sb.toString();
 }

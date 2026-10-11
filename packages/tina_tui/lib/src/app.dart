@@ -104,6 +104,7 @@ Future<int> runApp(
         if (stopping) return;
         try {
           final saved = await settings.run(
+              commandApprovals: session.assembly.tools.commandApprovals,
               scopedSettings: session.assembly.settings,
               settingsBackend: session.assembly.settingsBackend,
               applyConfiguration: session.assembly.applySavedConfiguration,
@@ -556,9 +557,7 @@ Future<bool> runConfigEditor(String path,
     });
     final descriptors = configuredDescriptors();
     final stack = ScopedSettingsStack.build(
-        globalPath: path,
-        workspacePath: path,
-        descriptors: descriptors);
+        globalPath: path, workspacePath: path, descriptors: descriptors);
     final registry = stack.registry;
     final saved = await panel.run(
         path: path,

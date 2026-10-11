@@ -68,6 +68,7 @@ class SandboxedFileSystem implements FileSystem {
   /// pre-seed grants to widen a grant deliberately.
   final FileGrants grants;
   WriteDirectories? writeDirectories;
+  bool Function(String)? protectedPath;
 
   // Only temporary files created by this sandbox inherit the target grant.
   // This permits atomic replacement without approving unrelated siblings.
@@ -302,6 +303,10 @@ class SandboxedFileSystem implements FileSystem {
   /// Rejects any real path under the real Tina data dir. A symlinked
   /// `~/.tina` is still protected because both sides are canonicalized.
   Future<void> assertOutsideTina(String target) async {
+    if (protectedPath?.call(target) == true) {
+      throw SandboxViolation(
+          'Access to protected credential/config path is blocked: ${p.basename(target)}');
+    }
     final tina = await _realTina;
     if (_isUnder(target, tina)) {
       throw SandboxViolation(

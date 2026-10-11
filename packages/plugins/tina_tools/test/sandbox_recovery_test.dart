@@ -149,11 +149,14 @@ void main() {
         'outsideSandboxAllowed': true, 'networkAllowed': true,
       },
           control: const ProcessControl(
-              outsideSandboxAllowed: true, networkAllowed: true));
+              outsideSandboxAllowed: true,
+              networkAllowed: true,
+              approvedHostEnvironment: {'HOME': '/unreviewed'}));
       expect(result.isError, false);
       expect(inner.controls.single!.outsideSandboxRequested, true);
       expect(inner.controls.single!.sandboxReason, 'hidden program');
       expect(inner.controls.single!.outsideSandboxAllowed, false);
+      expect(inner.controls.single!.approvedHostEnvironment, isNull);
       expect(inner.controls.single!.networkAllowed, false);
       expect((tool.schema.inputSchema['properties'] as Map).keys,
           containsAll(['outside_sandbox', 'sandbox_reason']));
@@ -183,8 +186,7 @@ void main() {
           control: outside);
       expect(inner.requests.single.command, 'git');
       expect(inner.requests.single.arguments, ['fetch', 'origin']);
-      expect(inner.requests.single.environment,
-          {'PATH': '/usr/bin:/bin', 'HOME': '/tmp'});
+      expect(inner.requests.single.environment, jail.plan.outsideEnvironment);
       expect(inner.controls.single!.outsideSandboxAllowed, true);
       await gate.run(command());
       expect(inner.requests.last.command,
@@ -208,7 +210,7 @@ void main() {
     gate.commandApprover = (_, __) async => Approval.yes;
     await gate.run(command());
     expect(inner.requests.single.command, 'git');
-    expect(inner.requests.single.environment, jail.plan.childEnvironment);
+    expect(inner.requests.single.environment, jail.plan.outsideEnvironment);
     expect(jail.describeEnvironment(), contains('--no-sandbox'));
     expect(jail.describeEnvironment(), contains('host filesystem and network'));
   });
@@ -275,14 +277,15 @@ void main() {
             temporaryDirectories: ['/scratch'],
             resolverTarget: '/run/resolver'));
     final prompt = linux.describeEnvironment();
-    expect(prompt, contains('/usr, /opt, /data/.tina, /run/resolver'));
+    expect(prompt, contains('/usr, /opt, /run/resolver'));
     expect(prompt, contains('/project, /extra, /scratch'));
     expect(prompt, contains('stat/read does not prove'));
     final mac = OsSandboxRunner(
         inner: RecordingRunner(),
         backend: SandboxBackend.sandboxExec,
         plan: const SandboxPlan(workspaceRoot: '/project'));
-    expect(mac.describeEnvironment(), contains('can read the host filesystem'));
+    expect(
+        mac.describeEnvironment(), contains('Real-home reads are restricted'));
     expect(mac.describeEnvironment(), contains('Network is isolated'));
   });
 

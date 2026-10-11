@@ -173,15 +173,18 @@ void main() {
     final rootPath = external.resolveSymbolicLinksSync();
     final writeIndex = args.indexOf(rootPath);
     expect(args[writeIndex - 1], '--bind');
-    final tinaIndex = args.indexOf(tina.path);
-    expect(args[tinaIndex - 1], '--ro-bind');
+    final tinaIndex = args.indexOf(tina.resolveSymbolicLinksSync());
+    expect(args[tinaIndex - 1], '--tmpfs');
     expect(tinaIndex, greaterThan(writeIndex));
     final seatbelt = OsSandboxRunner(
         inner: runner, plan: plan, backend: SandboxBackend.sandboxExec);
     await seatbelt.run(call);
     final profile = runner.calls.last.arguments[1];
     expect(profile, contains('(allow file-write* (subpath "$rootPath"))'));
-    expect(profile, endsWith('(deny file-write* (subpath "${tina.path}"))\n'));
+    expect(
+        profile,
+        contains(
+            '(deny file-read* file-write* (subpath "${tina.resolveSymbolicLinksSync()}"))'));
     writes.replace([]);
     expect(plan.extraWritablePaths, isEmpty);
   });

@@ -82,7 +82,15 @@ class CommandRefused extends RunOutcome {
 /// stopper, in the model's words.
 class CommandBlocked extends RunOutcome {
   final String reason;
-  const CommandBlocked(this.reason);
+  const CommandBlocked(this.reason, {this.accessRequests = const []});
+  final List<SandboxAccessRequest> accessRequests;
+}
+
+/// A diagnostic candidate, never authorization. Unknown access is not offered.
+final class SandboxAccessRequest {
+  const SandboxAccessRequest(this.path, {required this.write});
+  final String path;
+  final bool write;
 }
 
 /// Runs a command and returns its outcome. This is the seam; wrap it with
@@ -103,6 +111,7 @@ final class ProcessControl {
       this.outsideSandboxRequested = false,
       this.sandboxReason,
       this.outsideSandboxAllowed = false,
+      this.approvedHostEnvironment,
       this.isCancelled,
       this.whenCancelled,
       this.onOutput,
@@ -120,6 +129,10 @@ final class ProcessControl {
   /// Set by the permission boundary after explicit human authorization.
   /// An execution or network approval alone never sets this.
   final bool outsideSandboxAllowed;
+
+  /// The filtered environment reviewed by the gate, frozen before approval.
+  /// Tool input cannot supply this authorization snapshot.
+  final Map<String, String>? approvedHostEnvironment;
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;
@@ -136,6 +149,7 @@ final class ProcessControl {
     bool? outsideSandboxRequested,
     String? sandboxReason,
     bool? outsideSandboxAllowed,
+    Map<String, String>? approvedHostEnvironment,
     bool? background,
   }) =>
       ProcessControl(
@@ -147,6 +161,9 @@ final class ProcessControl {
         sandboxReason: sandboxReason ?? this.sandboxReason,
         outsideSandboxAllowed:
             outsideSandboxAllowed ?? this.outsideSandboxAllowed,
+        approvedHostEnvironment: outsideSandboxAllowed == false
+            ? null
+            : approvedHostEnvironment ?? this.approvedHostEnvironment,
         isCancelled: isCancelled,
         whenCancelled: whenCancelled,
         onOutput: onOutput,

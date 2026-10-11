@@ -29,6 +29,29 @@ TurnContext context(CancelToken token) => TurnContext(token,
     pinnedTools: []);
 
 void main() {
+  test('persistent command scopes require an explicitly offered permission',
+      () async {
+    for (final decision in [
+      ApprovalDecision.allowWorkspace,
+      ApprovalDecision.allowGlobal
+    ]) {
+      for (final offered in [false, true]) {
+        final channel = CapturingChannel();
+        final service = ApprovalsPlugin(channel: channel);
+        addTearDown(service.closeSession);
+        final pending = service.request(
+            operation: 'run command',
+            target: 'ssh host',
+            reason: 'host authentication',
+            details: {
+              if (offered) 'persistent_command_approval': true,
+            });
+        await Future<void>.delayed(Duration.zero);
+        expect(channel.tickets.single.respond(decision), offered);
+        expect(await pending, offered ? decision : ApprovalDecision.deny);
+      }
+    }
+  });
   test('write scope requires a write request offering that directory',
       () async {
     final channel = CapturingChannel();

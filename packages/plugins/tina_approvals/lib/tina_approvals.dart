@@ -9,6 +9,8 @@ import 'package:tina_host/tina_host.dart';
 enum ApprovalDecision {
   allow,
   allowAlways,
+  allowWorkspace,
+  allowGlobal,
   deny,
   allowReadsInDirectory,
   allowAlwaysAndReadsInDirectory,
@@ -130,7 +132,12 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
               decision == ApprovalDecision.allowAlwaysAndReadsInDirectory;
       final writeGrant = decision == ApprovalDecision.allowWritesInDirectory ||
           decision == ApprovalDecision.allowAlwaysAndWritesInDirectory;
-      final invalidScope = (directoryGrant &&
+      final persistentGrant = decision == ApprovalDecision.allowWorkspace ||
+          decision == ApprovalDecision.allowGlobal;
+      final invalidScope = (persistentGrant &&
+              (request.kind != ApprovalKind.permission ||
+                  request.details['persistent_command_approval'] != true)) ||
+          (directoryGrant &&
               (request.kind != ApprovalKind.permission ||
                   request.details['read_directory'] is! String)) ||
           (writeGrant &&

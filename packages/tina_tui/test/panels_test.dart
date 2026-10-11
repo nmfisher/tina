@@ -565,6 +565,9 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     for (final access in ['confined', 'network', 'outside sandbox']) {
       final network = access == 'network';
       final outside = access == 'outside sandbox';
+      int rememberedCommands() => outside
+          ? session.assembly.tools.commandApprovals.entries.length
+          : session.assembly.tools.processRunner.grants.length;
       test(
           'UI Always (${selectAlways ? 'arrows and Enter' : 'shortcut'}) remembers the exact command ($access) on later turns, even after failure',
           () async {
@@ -614,7 +617,14 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         // Exercise both the shortcut and selecting Always with Enter.
         await keys(selectAlways ? '\x1b[B\x1b[B\r' : 'a');
         await waitFor(() => provider.requests.length == 2);
-        expect(session.assembly.tools.processRunner.grants.length, 1);
+        expect(rememberedCommands(), 1);
+        if (outside) {
+          expect(
+              session.assembly.tools.commandApprovals.entries.single['scope'],
+              'session');
+          expect(session.assembly.tools.processRunner.grants.length, 0,
+              reason: 'host approvals use the revocable scoped store');
+        }
         provider.answer(1, 'ran');
         await waitFor(() => !session.host.session.loop.running);
 
@@ -640,7 +650,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         await waitFor(() => approvalUi(session).asker!.current != null);
         await keys('n');
         await waitFor(() => provider.requests.length == 6);
-        expect(session.assembly.tools.processRunner.grants.length, 1);
+        expect(rememberedCommands(), 1);
         provider.answer(5, 'declined');
         await waitFor(() => !session.host.session.loop.running);
       });

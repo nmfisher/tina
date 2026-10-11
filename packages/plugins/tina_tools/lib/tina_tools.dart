@@ -33,6 +33,7 @@ export 'src/read_directories.dart';
 export 'src/write_directories.dart';
 export 'src/sandbox_failure.dart';
 export 'src/sandbox_layout.dart';
+export 'src/sandbox_home.dart';
 export 'src/sandboxed_file_system.dart';
 export 'src/sandboxed_process_runner.dart';
 export 'src/speculative_cache.dart';
@@ -46,3 +47,4 @@ export 'src/write_tool.dart';
 export 'src/tools_plugin.dart';
 
 export 'src/approval_plugin.dart';
+export 'src/command_approval_store.dart';

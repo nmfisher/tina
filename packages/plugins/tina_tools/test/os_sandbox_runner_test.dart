@@ -165,6 +165,33 @@ void main() {
       expect(bare, isNull);
     });
 
+    test('denial names the complete path, including spaces', () {
+      for (final diagnostic in [
+        "cat: '/external/private files/note': Permission denied",
+        'cat: /external/private files/note: Operation not permitted',
+      ]) {
+        final denial = classifySandboxFailure(
+            _completed(exitCode: 1, stderr: diagnostic),
+            writablePaths: writable,
+            mountedPaths: mounted,
+            accessIsWrite: false) as OperationDenied;
+        expect(denial.paths, ['/external/private files/note']);
+        expect(denial.write, false);
+      }
+    });
+
+    test('unrelated output cannot become a directory grant candidate', () {
+      final denial = classifySandboxFailure(
+          _completed(
+              exitCode: 1,
+              stderr: 'command: Permission denied',
+              stdout: 'Data mentions /external/unrelated'),
+          writablePaths: writable,
+          mountedPaths: mounted,
+          accessIsWrite: true);
+      expect(denial, isNull);
+    });
+
     test('a failing build stays an ordinary failed command', () {
       final denial = classifySandboxFailure(
         _completed(

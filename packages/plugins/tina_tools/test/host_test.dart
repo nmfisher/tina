@@ -342,7 +342,8 @@ void main() {
       expect(request.systemPrompt, contains('Mode: ask'));
       expect(request.systemPrompt, contains('OS sandbox'));
       expect(request.systemPrompt, contains('outside_sandbox: true'));
-      expect(request.systemPrompt, contains('This requests human approval'));
+      expect(request.systemPrompt,
+          contains('otherwise it asks the user, even in auto mode'));
       for (final tool
           in request.tools.where((t) => t.name == 'exec' || t.name == 'bash')) {
         expect((tool.inputSchema['properties'] as Map).keys,

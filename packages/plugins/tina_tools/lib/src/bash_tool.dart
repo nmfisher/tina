@@ -73,8 +73,8 @@ class BashTool extends ProcessToolBase {
               'type': 'boolean',
               'description':
                   'Request running this exact command outside the OS sandbox. '
-                      'Requires human approval even in auto mode, or an exact '
-                      'human session grant. Grants host filesystem and network '
+                      'Request this immediately when host credentials/configuration are needed; no failed attempt is required. Requires human approval even in auto mode, or a matching '
+                      'human session, workspace or global grant. Uses real HOME and grants host filesystem and network '
                       'access to this subprocess tree only. Default false.',
             },
             'sandbox_reason': {

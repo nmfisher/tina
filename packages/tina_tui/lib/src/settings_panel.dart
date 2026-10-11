@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:tina_tools/tina_tools.dart' show CommandApprovalStore;
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
@@ -31,6 +32,7 @@ final class SettingsPanel {
   late ScreenCursor _cursor;
   void Function()? _paint;
   bool _savedSection = false;
+  CommandApprovalStore? _commandApprovals;
   void Function()? _applyConfiguration;
   void repaint() => _paint?.call();
   Completer<void> _changed = Completer<void>();
@@ -106,6 +108,7 @@ final class SettingsPanel {
 
   Future<bool> run(
       {required String path,
+      CommandApprovalStore? commandApprovals,
       required ScopedSettings scopedSettings,
       required ConfigSettingsBackend settingsBackend,
       List<ProviderDescriptor>? descriptors,
@@ -115,6 +118,7 @@ final class SettingsPanel {
       PluginManager<dynamic>? pluginManager,
       void Function()? applyConfiguration,
       Map<String, String> pluginDescriptions = const {}}) async {
+    _commandApprovals = commandApprovals;
     _savedSection = false;
     _usingScopes = true;
     _scope = SettingScope.session;
@@ -161,6 +165,24 @@ final class SettingsPanel {
     }
   }
 
+  Future<void> _manageCommandApprovals() async {
+    while (true) {
+      final entries = _commandApprovals!.entries;
+      final selected = await _menu('Host command approvals', [
+        for (final entry in entries)
+          '${entry['scope']}: ${entry['command']} (${entry['directory']})',
+        entries.isEmpty ? 'No remembered approvals — Back' : 'Back',
+      ]);
+      if (selected == null || selected >= entries.length) return;
+      final entry = entries[selected];
+      final revoke = await _menu('Revoke ${entry['scope']} approval?', [
+        'Revoke: ${entry['command']}',
+        'Keep approval',
+      ]);
+      if (revoke == 0) _commandApprovals!.revoke(entry['id'] as String);
+    }
+  }
+
   Future<bool> _scopedRun(
       ScopedSettings settings, ConfigSettingsBackend backend,
       {required ConfigDocument document,
@@ -183,6 +205,12 @@ final class SettingsPanel {
           .toList()
         ..sort();
       return [
+        if (_commandApprovals != null)
+          (
+            category: 'Permissions',
+            label: 'Remembered host command approvals',
+            open: _manageCommandApprovals,
+          ),
         (
           category: 'Models',
           label: 'Default model',
@@ -822,7 +850,6 @@ final class SettingsPanel {
       }
     }
   }
-
 
   Future<void> _section(
       SettingsRegistry registry, SettingsSection section) async {

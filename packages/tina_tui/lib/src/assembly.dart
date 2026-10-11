@@ -302,6 +302,7 @@ final class TuiAssembly {
     final tools = ToolsPlugin(
       workspaceRoot: workingDirectory,
       tinaDir: Directory('$workingDirectory/.tina'),
+      protectedPaths: [options.configPath ?? defaultConfigPath()],
       osSandbox: options.osSandbox,
       settings: settings,
     );

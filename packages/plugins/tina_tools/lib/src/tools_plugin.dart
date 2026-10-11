@@ -18,6 +18,7 @@ library;
 
 import 'dart:io';
 import 'dart:async';
+import 'package:path/path.dart' as path;
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
@@ -50,6 +51,10 @@ final class ToolsPlugin extends AgentPlugin
     bool osIsolateNetwork = true,
     this.settings,
     this.enableSpeculative = false,
+    Map<String, String>? hostEnvironment,
+    Directory? sandboxState,
+    CommandApprovalStore? approvalStore,
+    List<String> protectedPaths = const [],
   })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
         sandbox = SandboxedFileSystem(
           const IoFileSystem(),
@@ -57,15 +62,41 @@ final class ToolsPlugin extends AgentPlugin
           tinaDir: tinaDir,
           mode: mode,
         ) {
+    final environment = hostEnvironment ?? Platform.environment;
+    final realHome = environment['HOME'];
+    home = realHome == null
+        ? null
+        : SandboxHome(
+            realHome: canonicalSandboxPath(realHome),
+            stateRoot: sandboxState?.path ??
+                path.join(realHome, '.tina', 'sandbox-homes'),
+          );
+    commandApprovals = approvalStore ??
+        CommandApprovalStore(
+          workspace: workspaceRoot,
+          file: realHome == null
+              ? null
+              : File(
+                  path.join(realHome, '.tina', 'approvals', 'commands.json')),
+          searchPath: environment['PATH'],
+        );
     osPlan = SandboxPlan(
       workspaceRoot: workspaceRoot,
       tinaDir: tinaDir.path,
+      parentEnvironment: environment,
+      home: home,
+      protectedPaths: [
+        ...protectedPaths,
+        if (commandApprovals.file != null) commandApprovals.file!.parent.path
+      ],
       isolateNetwork: osIsolateNetwork,
       readDirectories: readDirectories,
       writeDirectories: writeDirectories,
     );
-    final writable = WritableDirectories(osPlan.writableLayout());
+    final writable = WritableDirectories.withPolicy(osPlan.writableLayout(),
+        permits: osPlan.canWrite);
     sandbox.writeDirectories = writeDirectories;
+    sandbox.protectedPath = osPlan.isProtected;
     final osRunner = OsSandboxRunner(
       inner: const IoProcessRunner(),
       plan: osPlan,
@@ -76,9 +107,10 @@ final class ToolsPlugin extends AgentPlugin
       inner: osRunner,
       mode: mode,
       writableDirectories: writable,
-      executableSearchPath: osPlan.childEnvironment['PATH'],
+      executableSearchPath: osPlan.searchPath,
       readDirectories: readDirectories,
       workspaceRoot: workspaceRoot,
+      plan: osPlan,
     );
     processJobs = ProcessJobs(processRunner);
     this.modePolicy.listen((value) {
@@ -128,6 +160,12 @@ final class ToolsPlugin extends AgentPlugin
       writeDirectories.replace(value.value);
       writable.replace(osPlan.writableLayout());
     }, fireImmediately: true);
+    if (settings?.catalog.contains(homeCachesSetting.id) == true) {
+      _stopHomeSettings = settings!.watch(homeCachesSetting, (value) {
+        home?.replace(value.value);
+        writable.replace(osPlan.writableLayout());
+      }, fireImmediately: true);
+    }
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
         sandboxDescription: osRunner.describeEnvironment);
@@ -137,6 +175,9 @@ final class ToolsPlugin extends AgentPlugin
   /// writable directories. Exposed so a session report can name the plan;
   /// the plugin owns it, the host never touches it.
   late final SandboxPlan osPlan;
+  late final CommandApprovalStore commandApprovals;
+  late final SandboxHome? home;
+  void Function()? _stopHomeSettings;
   final ScopedSettings? settings;
   final ReadOnlyDirectories readDirectories = ReadOnlyDirectories();
   final WriteDirectories writeDirectories = WriteDirectories();
@@ -336,8 +377,9 @@ final class ToolsPlugin extends AgentPlugin
     _speculativePrefetch.cancel();
     _stopReadSettings?.call();
     _stopWriteSettings?.call();
+    _stopHomeSettings?.call();
     _speculative.clear();
-    unawaited(processJobs.close());
+    unawaited(processJobs.close().whenComplete(() => home?.close()));
     modePolicy.closeSession();
   }
 
@@ -404,14 +446,22 @@ final class HostPromptSection {
       '${sandboxDescription?.call() ?? ''}\n\n'
       'Ordinary command approval does not change the OS confinement described '
       'above; it does not expose hidden paths or remove filesystem limits. '
-      'If this exact command needs unavailable access, set outside_sandbox: '
-      'true and sandbox_reason on exec or bash. This requests human approval '
-      'even in auto mode and grants host filesystem and network access only '
-      'to this invocation and its subprocess tree. An exact human session '
-      'grant may cover a later identical explicit request. The environment '
-      'remains filtered. Do not retry unchanged, switch shells, copy '
-      'executables or ask the user to run commands manually as a sandbox '
-      'workaround. Respect denied or cancelled approvals.\n\n'
+      'Sandboxed commands use a synthetic HOME with selected writable caches. '
+      'Host credential files and authentication configuration are excluded. '
+      'When host authentication is required, request outside_sandbox: true '
+      'with sandbox_reason immediately: for example git push over SSH, ssh '
+      'or scp using the host identity, or HTTPS using a host credential helper. '
+      'Do not first attempt a command known to need unavailable credentials. '
+      'Use the tool approval mechanism, not a request for the user to run it '
+      'manually. Approved host execution uses the real HOME and filtered host '
+      'environment, including SSH_AUTH_SOCK when available. It grants host '
+      'filesystem and network access to this invocation and subprocess tree. '
+      'Tina reuses matching human approvals for this session, workspace or '
+      'globally; otherwise it asks the user, even in auto mode. Ordinary '
+      'execution approval does not remove confinement. Global command '
+      'approvals apply in any directory; session/workspace approvals retain '
+      'the approved working directory. Do not retry unchanged or switch shells '
+      'as a workaround. Respect denied or cancelled approvals.\n\n'
       'Prefer dedicated file tools for listing, reading, searching paths and '
       'editing. Edit existing files with edit and create or replace files '
       'with write whenever possible. Use Python scripts, sed, or other '

@@ -60,6 +60,18 @@ ChildSessionFactory standardChildFactory({
           tinaDir: Directory('${parentTools.workingDirectory}/.tina'),
           modePolicy: mode,
           osSandbox: parentTools.osSandbox,
+          settings: parentTools is ToolsPlugin ? parentTools.settings : null,
+          hostEnvironment: parentTools is ToolsPlugin
+              ? parentTools.osPlan.hostEnvironment
+              : null,
+          protectedPaths: parentTools is ToolsPlugin
+              ? parentTools.osPlan.protectedPaths
+              : const [],
+          approvalStore:
+              parentTools is ToolsPlugin ? parentTools.commandApprovals : null,
+          sandboxState: parentTools is ToolsPlugin && parentTools.home != null
+              ? Directory(parentTools.home!.stateRoot)
+              : null,
         ),
         ...?childPlugins?.call(),
         ...extraPlugins,
