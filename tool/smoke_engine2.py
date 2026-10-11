@@ -101,7 +101,7 @@ class ModelStub(BaseHTTPRequestHandler):
             ('network permission example', 'exec', {'program': '/bin/echo',
                 'args': ['network-permission-output'], 'network': True,
                 'network_reason': 'test combined execution and network approval'}),
-            ('failed command approval example', 'exec', {'program': '/bin/false',
+            ('failed command approval example', 'exec', {'program': shutil.which('false'),
                 'args': ['failed-approval-probe'], 'outside_sandbox': True,
                 'sandbox_reason': 'test remembered permission after command failure'}),
             ('different network example', 'exec', {'program': '/bin/echo',
