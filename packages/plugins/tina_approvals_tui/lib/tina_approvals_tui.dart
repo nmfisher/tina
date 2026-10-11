@@ -6,24 +6,33 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'src/approval_dialog.dart';
+import 'src/command_pattern_review.dart';
 export 'src/approval_dialog.dart';
+export 'src/command_pattern_review.dart';
 
-PluginDefinition<C> approvalTuiDefinition<C>() => PluginDefinition<C>(
-    'tina/approvals-tui', (_) => ApprovalTuiPlugin(),
-    provides: [approvalChannel],
-    description:
-        'Shows approval and confirmation choices in the terminal input area.');
+PluginDefinition<C> approvalTuiDefinition<C>(
+        {SuggestCommandPattern Function(C)? suggestCommandPattern}) =>
+    PluginDefinition<C>(
+        'tina/approvals-tui',
+        (c) => ApprovalTuiPlugin(
+            suggestCommandPattern: suggestCommandPattern?.call(c)),
+        provides: [approvalChannel],
+        description:
+            'Shows approval and confirmation choices in the terminal input area.');
 
 /// The channel owns presentation; the application mounts it like any other
 /// console contribution. No application or tools-package import is required.
 final class ApprovalTuiPlugin extends AgentPlugin
     implements ApprovalChannel, ConsoleContribution {
+  ApprovalTuiPlugin({this.suggestCommandPattern});
+  final SuggestCommandPattern? suggestCommandPattern;
   @override
   String get id => 'tina/approvals-tui';
   QueuedDialogAsker? get asker => _asker;
   QueuedDialogAsker? _asker;
   ConsoleContext? _context;
   OverlayRegion? _overlay;
+  ScreenCursor? _cursor;
   bool _closed = false;
   ApprovalRequest? _alertedRequest;
 
@@ -34,7 +43,8 @@ final class ApprovalTuiPlugin extends AgentPlugin
     _context = context;
     _overlay = OverlayRegion(
         context.screen, Rect(row: 1, col: 1, width: 1, height: 1));
-    _asker = QueuedDialogAsker()..onChange = repaintConsole;
+    _asker = QueuedDialogAsker(suggestCommandPattern: suggestCommandPattern)
+      ..onChange = repaintConsole;
   }
 
   @override
@@ -53,9 +63,12 @@ final class ApprovalTuiPlugin extends AgentPlugin
           releaseOnEscape: true,
           cancelSignal: ticket.done.then((_) {}));
       try {
+        _cursor = _context!.screen.claimCursor();
         await asker.ask(ticket, keys: _ConsoleKeys(input));
       } finally {
         input.dispose();
+        _cursor?.release();
+        _cursor = null;
       }
     });
   }
@@ -74,7 +87,9 @@ final class ApprovalTuiPlugin extends AgentPlugin
     final input = screen.input.bounds;
     final height =
         (input.row - screen.layout.chat.row + 1).clamp(0, screen.layout.height);
-    final rows =
+    final review = _asker?.currentPatternReview;
+    final rows = review?.rows(
+            width: input.width, height: height, theme: screen.theme) ??
         dialog.rows(width: input.width, height: height, theme: screen.theme);
     final lines = [
       for (final row in rows)
@@ -99,6 +114,11 @@ final class ApprovalTuiPlugin extends AgentPlugin
         screen.chat.repaint();
       }
       _overlay!.update(bounds: bounds, lines: lines);
+      if (review?.cursor case final position?) {
+        _cursor?.place(bounds.row + position.$1, bounds.col + position.$2);
+      } else {
+        _cursor?.hide();
+      }
     });
     final request = _asker!.current;
     if (request != null && !identical(request, _alertedRequest)) {
@@ -122,6 +142,8 @@ final class ApprovalTuiPlugin extends AgentPlugin
     _asker?.close();
     if (_context case final context?) _hide(context);
     _overlay?.dispose();
+    _cursor?.release();
+    _cursor = null;
     _asker = null;
     _overlay = null;
     _context = null;
@@ -137,12 +159,14 @@ final class ApprovalTuiPlugin extends AgentPlugin
 
 /// Serializes dialogs while allowing cancelled queued requests to disappear.
 final class QueuedDialogAsker {
-  QueuedDialogAsker({this.keysFor});
+  QueuedDialogAsker({this.keysFor, this.suggestCommandPattern});
   final KeySource Function(ApprovalTicket)? keysFor;
+  final SuggestCommandPattern? suggestCommandPattern;
   final _pending = <ApprovalTicket>{};
   Future<void> _tail = Future.value();
   ApprovalRequest? current;
   ApprovalDialog? currentDialog;
+  CommandPatternReview? currentPatternReview;
   void Function()? onChange;
   bool _closed = false;
 
@@ -173,14 +197,53 @@ final class QueuedDialogAsker {
         // because the dialog is silently eating their keys. The repaint
         // re-asserts the answer selector (and its cursor) so each keypress
         // visibly lands, making the dialog's keyboard ownership legible.
-        final outcome = await dialog.awaitDecision(
-            _CancellableKeys(source, ticket),
-            onKey: onChange,
-            onAnyKey: onChange);
-        ticket.respond(outcome.decision);
+        while (ticket.isActive && !_closed) {
+          final outcome = await dialog.awaitDecision(
+              _CancellableKeys(source, ticket),
+              onKey: onChange,
+              onAnyKey: onChange);
+          if (!outcome.editCommandPattern) {
+            ticket.respond(outcome.decision);
+            break;
+          }
+          if (source is! CommandPatternKeySource) continue;
+          final review = CommandPatternReview(request,
+              suggest: suggestCommandPattern, onChange: onChange);
+          currentPatternReview = review;
+          try {
+            var back = false;
+            while (ticket.isActive && !_closed && !back) {
+              source.editingPattern(!review.reviewing);
+              onChange?.call();
+              final event = await Future.any([
+                source.nextEvent(),
+                ticket.done.then<InputEvent?>((_) => null)
+              ]);
+              if (event == null || !ticket.isActive) break;
+              switch (review.handle(event)) {
+                case CommandPatternReviewResult.pending:
+                  break;
+                case CommandPatternReviewResult.back:
+                  back = true;
+                case CommandPatternReviewResult.denied:
+                  ticket.respond(ApprovalDecision.deny);
+                case CommandPatternReviewResult.approved:
+                  final answer = review.outcome;
+                  ticket.respond(answer.decision,
+                      commandPattern: answer.commandPattern);
+              }
+            }
+          } finally {
+            review.close();
+            currentPatternReview = null;
+            source.editingPattern(false);
+          }
+        }
       } catch (_) {
         ticket.respond(ApprovalDecision.deny);
       } finally {
+        currentPatternReview?.close();
+        currentPatternReview = null;
         current = null;
         currentDialog = null;
         onChange?.call();
@@ -210,11 +273,17 @@ final class _CancellableKeys implements KeySource {
   }
 }
 
-final class _ConsoleKeys implements KeySource {
+final class _ConsoleKeys implements CommandPatternKeySource {
   _ConsoleKeys(this.input);
   final InputSession input;
   @override
+  Future<InputEvent?> nextEvent() => input.read();
+  @override
+  void editingPattern(bool editing) =>
+      input.configure(acceptPaste: editing, releaseOnEscape: false);
+  @override
   Future<ApprovalKey?> next() async {
+    input.configure(acceptPaste: false, releaseOnEscape: true);
     while (true) {
       final event = await input.read();
       final key = switch (event) {
@@ -223,6 +292,7 @@ final class _ConsoleKeys implements KeySource {
         CharInput(text: 'a') => ApprovalKey.always,
         CharInput(text: 'p') => ApprovalKey.workspace,
         CharInput(text: 'g') => ApprovalKey.global,
+        CharInput(text: 'e') => ApprovalKey.editCommandPattern,
         CharInput(text: 'r') => ApprovalKey.toggleReadDirectory,
         CharInput(text: 'w') => ApprovalKey.toggleWriteDirectory,
         CharInput(text: ' ') => ApprovalKey.toggleDirectory,

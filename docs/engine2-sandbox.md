@@ -102,9 +102,38 @@ Session grants live in memory and are shared with child agents in that session.
 Workspace and global grants live in `~/.tina/approvals/commands.json`, outside
 repository settings. Workspace grants are keyed by canonical workspace path.
 Environment and stdin values are hashed in request identities, not persisted.
-Settings → Permissions → Remembered host command approvals lists grants and
+Settings → Permissions → Remembered command approvals lists grants and
 revokes them. Persistent lookups reread the store, so revocation affects future
 launches in existing sessions. Already-running commands retain their access.
+
+Command approval dialogs also offer **[e] always approve with editable regex**.
+Selecting it asks the current model for a conservative generalization. The editor
+starts with an escaped literal fallback, so it remains usable during the request
+or if the suggestion fails. A late suggestion never replaces your edits. The
+model proposes a rule; only your final confirmation grants permission.
+
+For `dart test sometest | head -n2`, a suggested rule might be:
+
+```text
+dart test sometest \| head -n[0-9]+
+```
+
+This varies the numeric line limit while keeping the test and pipeline fixed.
+Rules match the **entire command**, with strict anchors added automatically;
+`head -n[0-9]+` alone does not match that pipeline. Shell tools match the shell
+script. Direct exec tools match quoted argv, preserving argument boundaries.
+You can edit the regex, press Enter to review it, then choose session, workspace
+or global scope and confirm. Invalid regexes and rules that do not match the
+current command cannot be saved. Escape returns to editing or the approval ask.
+
+Regex rules can remember sandboxed execution, network access or an explicitly
+requested host exception. Only the arguments matched by the regex vary: the
+resolved executable, command form, environment, stdin and granted permissions
+stay fixed. Session/workspace scopes also retain the approved working directory.
+Persistent scopes are available when trusted approval storage is configured.
+The same permissions settings list and revoke regex rules. Use narrow patterns;
+wildcards can authorize additional commands, flags or destinations that you did
+not intend. No regex rule implicitly requests host access or disables the jail.
 
 A hidden host executable produces a specific diagnostic and instructions for
 this API. Errors from genuinely missing files and missing loaders for visible

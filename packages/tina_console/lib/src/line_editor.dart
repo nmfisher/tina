@@ -1860,7 +1860,14 @@ final class _EditorInputSession implements InputSession {
       required this.releaseOnEscape,
       required this.release,
       required this.onDispose});
-  final bool globalKeys, panelNavigation, acceptPaste, releaseOnEscape;
+  final bool globalKeys, panelNavigation;
+  bool acceptPaste, releaseOnEscape;
+  @override
+  void configure({bool? acceptPaste, bool? releaseOnEscape}) {
+    if (acceptPaste != null) this.acceptPaste = acceptPaste;
+    if (releaseOnEscape != null) this.releaseOnEscape = releaseOnEscape;
+  }
+
   final void Function() release, onDispose;
   final _events = Queue<InputEvent>();
   final _reads = Queue<Completer<InputEvent>>();

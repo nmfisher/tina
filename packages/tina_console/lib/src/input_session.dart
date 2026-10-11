@@ -9,6 +9,10 @@ abstract interface class InputSession {
   Future<void> get closed;
   bool get isClosed;
 
+  /// Change input handling when a dialog switches between choices and a text
+  /// field, without releasing ownership or leaking queued keys to the draft.
+  void configure({bool? acceptPaste, bool? releaseOnEscape});
+
   /// Release ownership, discard unread answer keys and settle pending reads.
   /// Idempotent; a disposed session can never consume another dialog's keys.
   void dispose();

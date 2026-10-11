@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:classification/command_regex.dart';
 import 'package:tina_mcp/tina_mcp.dart';
 import 'mcp_console_plugin.dart';
 import 'package:tina_grok_guard/tina_grok_guard.dart';
@@ -151,7 +152,25 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             terminal: (c) => c.terminal,
             restart: (c) => c.restart),
         approvalsDefinition<TuiPluginContext>(),
-        approvalTuiDefinition<TuiPluginContext>(),
+        PluginDefinition.dependingOn<TuiPluginContext, ModelAccess>(
+            'tina/approvals-tui',
+            dependency: modelAccess,
+            provides: [approvalChannel],
+            create: (c, models) => ApprovalTuiPlugin(
+                    suggestCommandPattern: (request, cancelled) async {
+                  final suggestion = await CommandRegexSuggester(
+                          () => models.mainProvider(c.currentModel()))
+                      .suggest(
+                          request.details['command_pattern_target'] as String,
+                          whenCancelled: cancelled);
+                  return (
+                    pattern: suggestion.pattern,
+                    explanation: suggestion.explanation,
+                    failure: suggestion.failure
+                  );
+                }),
+            description:
+                'Shows approval choices and edits model-suggested command approval regexes.'),
         PluginDefinition<TuiPluginContext>(
             'tina/approvals-stream', (_) => StreamApprovalChannel(),
             provides: [approvalChannel],

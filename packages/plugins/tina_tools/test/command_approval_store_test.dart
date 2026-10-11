@@ -81,4 +81,97 @@ void main() {
     file.writeAsStringSync('{broken');
     expect(store().covers(request(), permissions), false);
   });
+
+  ProcessRequest pipeline(String script,
+          {String? cwd, Map<String, String>? environment, String? input}) =>
+      (
+        command: '/bin/sh',
+        arguments: ['-c', script],
+        workingDirectory: cwd ?? workspace.path,
+        environment: environment ?? {'LANG': 'C'},
+        stdin: input,
+        timeout: null,
+      );
+  const script = 'printf hello | head -n2';
+  const pattern = r'printf hello \| head -n[0-9]+';
+
+  for (final scope in CommandApprovalScope.values) {
+    test('regex $scope covers only the reviewed command family and context',
+        () {
+      final first = store();
+      first.remember(pipeline(script), {ProcessPermission.execution}, scope,
+          pattern: pattern);
+      final effective = scope == CommandApprovalScope.session ? first : store();
+      expect(
+          effective.covers(pipeline('printf hello | head -n20'),
+              {ProcessPermission.execution}),
+          true);
+      for (final denied in [
+        'printf goodbye | head -n2',
+        'printf hello | head -n2; echo extra',
+        'printf hello | head -n2\necho extra',
+        'printf hello | head -n2\n',
+      ]) {
+        expect(
+            effective.covers(pipeline(denied), {ProcessPermission.execution}),
+            false);
+      }
+      expect(effective.covers(pipeline(script), permissions), false,
+          reason: 'execution rules never acquire network or host access');
+      expect(
+          effective.covers(pipeline(script, input: 'different'),
+              {ProcessPermission.execution}),
+          false);
+      expect(
+          effective.covers(pipeline(script, environment: {'LANG': 'changed'}),
+              {ProcessPermission.execution}),
+          false);
+      expect(
+          effective.covers(
+              pipeline(script, cwd: other.path), {ProcessPermission.execution}),
+          scope == CommandApprovalScope.global);
+      expect(
+          store(other.path).covers(
+              pipeline(script, cwd: other.path), {ProcessPermission.execution}),
+          scope == CommandApprovalScope.global);
+      if (scope != CommandApprovalScope.session) {
+        first.revoke(first.entries.single['id'] as String);
+        expect(
+            effective.covers(pipeline(script), {ProcessPermission.execution}),
+            false);
+      }
+    });
+  }
+
+  test('regex matching preserves argv boundaries and resolved executables', () {
+    final grant = store();
+    grant.remember(request(args: ['hello world']), permissions,
+        CommandApprovalScope.session,
+        pattern: r"/bin/echo 'hello [a-z]+'");
+    expect(grant.covers(request(args: ['hello there']), permissions), true);
+    expect(grant.covers(request(args: ['hello', 'there']), permissions), false);
+    final original = request(args: ['hello world']);
+    expect(
+        grant.covers((
+          command: '/usr/bin/printf',
+          arguments: original.arguments,
+          workingDirectory: original.workingDirectory,
+          environment: original.environment,
+          stdin: original.stdin,
+          timeout: null
+        ), permissions),
+        false);
+  });
+
+  test('invalid or partial regex rules cannot be remembered', () {
+    for (final invalid in ['', '[', r'head -n[0-9]+', 'printf\x1bhello']) {
+      expect(
+          () => store().remember(
+              pipeline(script), permissions, CommandApprovalScope.workspace,
+              pattern: invalid),
+          throwsFormatException,
+          reason: 'pattern=$invalid');
+    }
+    expect(file.existsSync(), false);
+  });
 }

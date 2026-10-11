@@ -12,7 +12,7 @@ void main() {
     workspace = Directory('${root.path}/work')..createSync();
   });
   tearDown(() => root.deleteSync(recursive: true));
-  ToolsPlugin plugin(_Approvals approvals, {String? cwd}) {
+  ToolsPlugin plugin(ApprovalRequester approvals, {String? cwd}) {
     final tools = ToolsPlugin(
         workspaceRoot: cwd ?? workspace.path,
         tinaDir: Directory('${cwd ?? workspace.path}/.tina'),
@@ -36,6 +36,68 @@ void main() {
       );
   const outside = ProcessControl(
       outsideSandboxRequested: true, sandboxReason: 'host identity required');
+
+  for (final hostCommand in [false, true]) {
+    test(
+        'reviewed regex reuses ${hostCommand ? 'host' : 'sandboxed'} approval across command values',
+        () async {
+      final channel = StreamApprovalChannel();
+      final service = ApprovalsPlugin(channel: channel);
+      addTearDown(service.closeSession);
+      var prompts = 0;
+      final subscription = channel.requests.listen((request) {
+        prompts++;
+        channel.respond(
+            request.id,
+            prompts == 1
+                ? ApprovalDecision.allowWorkspace
+                : ApprovalDecision.deny,
+            commandPattern:
+                prompts == 1 ? r'printf hello \| head -n[0-9]+' : null);
+      });
+      addTearDown(() async {
+        channel.closeSession();
+        await subscription.cancel();
+      });
+      final tools = plugin(service);
+      ProcessRequest shell(String script) => (
+            command: '/bin/sh',
+            arguments: ['-c', script],
+            workingDirectory: workspace.path,
+            environment: null,
+            stdin: null,
+            timeout: const Duration(seconds: 10),
+          );
+      final control = hostCommand ? outside : null;
+      for (final value in ['2', '20']) {
+        final outcome = await tools.processRunner
+            .run(shell('printf hello | head -n$value'), control: control);
+        expect(outcome, isA<CommandCompleted>());
+        expect((outcome as CommandCompleted).stdout, 'hello');
+      }
+      expect(prompts, 1);
+      final restarted = plugin(service);
+      expect(
+          await restarted.processRunner
+              .run(shell('printf hello | head -n3'), control: control),
+          isA<CommandCompleted>());
+      expect(prompts, 1);
+      expect(
+          await tools.processRunner.run(
+              shell('printf hello | head -n2; echo extra'),
+              control: control),
+          isA<CommandRefused>());
+      expect(prompts, 2);
+      if (!hostCommand) {
+        expect(
+            await tools.processRunner
+                .run(shell('printf hello | head -n2'), control: outside),
+            isA<CommandRefused>());
+        expect(prompts, 3,
+            reason: 'regex cannot acquire host or network permission');
+      }
+    });
+  }
 
   for (final decision in [
     ApprovalDecision.allowAlways,
@@ -217,7 +279,8 @@ final class _Approvals implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
-      Map<String, Object?> details = const {}}) async {
+      Map<String, Object?> details = const {},
+      void Function(String pattern)? onCommandPattern}) async {
     calls++;
     this.details.add(details);
     if (!ready.isCompleted) ready.complete();

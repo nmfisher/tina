@@ -4,11 +4,28 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import 'package:tina_approvals/tina_approvals.dart' show CommandApprovalPattern;
 
 import 'process_runner.dart';
 import 'sandbox_home.dart';
 
 enum CommandApprovalScope { session, workspace, global }
+
+bool _shellString(ProcessRequest request) =>
+    {'sh', 'bash', 'zsh', 'dash', 'ksh'}
+        .contains(p.basename(request.command)) &&
+    request.arguments.length == 2 &&
+    request.arguments.first == '-c';
+
+/// Shell tools expose their script; exec tools expose unambiguous quoted argv.
+/// Joining argv without quoting would confuse ['a b'] with ['a', 'b'].
+String approvalCommandText(ProcessRequest request) {
+  if (_shellString(request)) return request.arguments[1];
+  String quote(String value) => RegExp(r'^[a-zA-Z0-9_./:=+-]+$').hasMatch(value)
+      ? value
+      : "'${value.replaceAll("'", "'\\''")}'";
+  return [request.command, ...request.arguments].map(quote).join(' ');
+}
 
 /// Resolve before asking, then spawn this same absolute executable. Relative
 /// PATH entries are interpreted against the command's working directory.
@@ -46,12 +63,15 @@ final class CommandApprovalStore {
   String _executable(ProcessRequest request) => resolveHostExecutable(request,
       workspace: workspace, searchPath: searchPath);
 
-  String _identity(ProcessRequest request, CommandApprovalScope scope) {
+  String _identity(ProcessRequest request, CommandApprovalScope scope,
+      {bool patterned = false}) {
     final keys = request.environment?.keys.toList()?..sort();
     return sha256
         .convert(utf8.encode(jsonEncode([
           _executable(request),
-          request.arguments,
+          patterned
+              ? (_shellString(request) ? 'shell -c' : 'quoted argv')
+              : request.arguments,
           if (scope != CommandApprovalScope.global)
             canonicalSandboxPath(request.workingDirectory ?? workspace),
           if (keys == null)
@@ -89,7 +109,13 @@ final class CommandApprovalStore {
         final scope =
             CommandApprovalScope.values.byName(entry['scope'] as String);
         final granted = (entry['permissions'] as List).cast<String>().toSet();
-        return entry['identity'] == _identity(request, scope) &&
+        final pattern = entry['pattern'];
+        return entry['identity'] ==
+                _identity(request, scope, patterned: pattern != null) &&
+            (pattern == null ||
+                pattern is String &&
+                    CommandApprovalPattern(pattern)
+                        .matches(approvalCommandText(request))) &&
             permissions
                 .every((permission) => granted.contains(permission.name));
       });
@@ -105,7 +131,12 @@ final class CommandApprovalStore {
   }
 
   void remember(ProcessRequest request, Set<ProcessPermission> permissions,
-      CommandApprovalScope scope) {
+      CommandApprovalScope scope,
+      {String? pattern}) {
+    if (pattern != null) {
+      CommandApprovalPattern(pattern)
+          .requireMatch(approvalCommandText(request));
+    }
     final entry = <String, Object?>{
       'id': List.generate(
           16,
@@ -116,8 +147,9 @@ final class CommandApprovalStore {
       'scope': scope.name,
       if (scope != CommandApprovalScope.global)
         'workspace': canonicalSandboxPath(workspace),
-      'identity': _identity(request, scope),
-      'command': [request.command, ...request.arguments].join(' '),
+      'identity': _identity(request, scope, patterned: pattern != null),
+      'command': approvalCommandText(request),
+      if (pattern != null) 'pattern': pattern,
       'directory': scope == CommandApprovalScope.global
           ? 'any directory'
           : canonicalSandboxPath(request.workingDirectory ?? workspace),

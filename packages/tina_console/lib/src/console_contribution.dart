@@ -312,6 +312,8 @@ abstract interface class ConsoleTranscript {
 
 /// Preserve injected key sources while keeping the same dialog lifetime.
 final class _InjectedInputSession implements InputSession {
+  @override
+  void configure({bool? acceptPaste, bool? releaseOnEscape}) {}
   _InjectedInputSession(this.inner, this.source, Future<void>? cancelSignal)
       : cancelled =
             Future.any([inner.closed, if (cancelSignal != null) cancelSignal]);

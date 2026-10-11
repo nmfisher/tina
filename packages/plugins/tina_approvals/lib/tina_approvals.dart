@@ -4,6 +4,8 @@ import 'dart:async';
 import 'dart:math';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
+import 'src/command_pattern.dart';
+export 'src/command_pattern.dart';
 
 /// No channel, UI or filesystem types appear in the request protocol.
 enum ApprovalDecision {
@@ -40,12 +42,16 @@ final class ApprovalRequest {
 }
 
 abstract interface class ApprovalRequester {
+  /// [onCommandPattern] receives a validated rule only with an accepted human
+  /// remembered-scope response. The requester persists it after checking that
+  /// its own operation is still active; this callback never executes a command.
   Future<ApprovalDecision> request(
       {required String operation,
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
-      Map<String, Object?> details = const {}});
+      Map<String, Object?> details = const {},
+      void Function(String pattern)? onCommandPattern});
 }
 
 /// A channel must authenticate remote responders before accepting their answers.
@@ -59,11 +65,12 @@ abstract interface class ApprovalChannel {
 final class ApprovalTicket {
   ApprovalTicket._(this.request, this._respond, this.done);
   final ApprovalRequest request;
-  final bool Function(ApprovalDecision) _respond;
+  final bool Function(ApprovalDecision, String?) _respond;
   final Future<ApprovalDecision> done;
   bool _active = true;
   bool get isActive => _active;
-  bool respond(ApprovalDecision decision) => _respond(decision);
+  bool respond(ApprovalDecision decision, {String? commandPattern}) =>
+      _respond(decision, commandPattern);
 }
 
 const approvalRequester =
@@ -107,7 +114,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
-      Map<String, Object?> details = const {}}) {
+      Map<String, Object?> details = const {},
+      void Function(String pattern)? onCommandPattern}) {
     if (_closed || (_turnCancelled?.call() ?? false)) {
       return Future.value(ApprovalDecision.deny);
     }
@@ -121,7 +129,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
     final result = Completer<ApprovalDecision>();
     Timer? timer;
     late final ApprovalTicket ticket;
-    ticket = ApprovalTicket._(request, (decision) {
+    ticket = ApprovalTicket._(request, (decision, commandPattern) {
       if (!ticket._active) return false;
       final invalid = _closed || (_turnCancelled?.call() ?? false);
       ticket._active = false;
@@ -134,9 +142,32 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           decision == ApprovalDecision.allowAlwaysAndWritesInDirectory;
       final persistentGrant = decision == ApprovalDecision.allowWorkspace ||
           decision == ApprovalDecision.allowGlobal;
+      var invalidPattern = false;
+      if (commandPattern != null) {
+        try {
+          final command = request.details['command_pattern_target'];
+          if (request.kind != ApprovalKind.permission ||
+              command is! String ||
+              onCommandPattern == null ||
+              !{
+                ApprovalDecision.allowAlways,
+                ApprovalDecision.allowWorkspace,
+                ApprovalDecision.allowGlobal
+              }.contains(decision)) {
+            invalidPattern = true;
+          } else {
+            CommandApprovalPattern(commandPattern).requireMatch(command);
+          }
+        } on FormatException {
+          invalidPattern = true;
+        }
+      }
       final invalidScope = (persistentGrant &&
               (request.kind != ApprovalKind.permission ||
-                  request.details['persistent_command_approval'] != true)) ||
+                  !(request.details['persistent_command_approval'] == true ||
+                      commandPattern != null &&
+                          request.details['persistent_command_pattern'] ==
+                              true))) ||
           (directoryGrant &&
               (request.kind != ApprovalKind.permission ||
                   request.details['read_directory'] is! String)) ||
@@ -144,13 +175,23 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
               (request.kind != ApprovalKind.permission ||
                   request.operation != 'write' ||
                   request.details['write_directory'] is! String));
-      result.complete(invalid || invalidScope
+      if (!invalid &&
+          !invalidScope &&
+          !invalidPattern &&
+          commandPattern != null) {
+        try {
+          onCommandPattern!(commandPattern);
+        } catch (_) {
+          invalidPattern = true;
+        }
+      }
+      result.complete(invalid || invalidScope || invalidPattern
           ? ApprovalDecision.deny
           : request.kind == ApprovalKind.confirmation &&
                   decision == ApprovalDecision.allowAlways
               ? ApprovalDecision.allow
               : decision);
-      return !invalid && !invalidScope;
+      return !invalid && !invalidScope && !invalidPattern;
     }, result.future);
     _pending[request.id] = ticket;
     final deadline = timeout;
@@ -218,8 +259,9 @@ final class StreamApprovalChannel extends AgentPlugin
     _requests.add(ticket.request);
   }
 
-  bool respond(String id, ApprovalDecision decision) =>
-      _pending[id]?.respond(decision) ?? false;
+  bool respond(String id, ApprovalDecision decision,
+          {String? commandPattern}) =>
+      _pending[id]?.respond(decision, commandPattern: commandPattern) ?? false;
   void _denyPending() {
     for (final ticket in _pending.values.toList()) {
       ticket.respond(ApprovalDecision.deny);

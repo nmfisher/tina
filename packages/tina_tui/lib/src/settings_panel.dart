@@ -168,15 +168,15 @@ final class SettingsPanel {
   Future<void> _manageCommandApprovals() async {
     while (true) {
       final entries = _commandApprovals!.entries;
-      final selected = await _menu('Host command approvals', [
+      final selected = await _menu('Command approvals', [
         for (final entry in entries)
-          '${entry['scope']}: ${entry['command']} (${entry['directory']})',
+          '${entry['scope']}: ${entry['pattern'] == null ? entry['command'] : 'regex: ${entry['pattern']}'} (${entry['directory']})',
         entries.isEmpty ? 'No remembered approvals — Back' : 'Back',
       ]);
       if (selected == null || selected >= entries.length) return;
       final entry = entries[selected];
       final revoke = await _menu('Revoke ${entry['scope']} approval?', [
-        'Revoke: ${entry['command']}',
+        'Revoke: ${entry['pattern'] ?? entry['command']}',
         'Keep approval',
       ]);
       if (revoke == 0) _commandApprovals!.revoke(entry['id'] as String);
@@ -208,7 +208,7 @@ final class SettingsPanel {
         if (_commandApprovals != null)
           (
             category: 'Permissions',
-            label: 'Remembered host command approvals',
+            label: 'Remembered command approvals',
             open: _manageCommandApprovals,
           ),
         (

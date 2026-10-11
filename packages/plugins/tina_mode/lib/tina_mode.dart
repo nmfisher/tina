@@ -135,6 +135,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     Map<String, Object?> context = const {},
     ApprovalKind kind = ApprovalKind.permission,
     bool humanOnly = false,
+    void Function(String pattern)? onCommandPattern,
   }) async {
     final turn = _turn;
     bool invalid() =>
@@ -228,6 +229,11 @@ class ModePlugin extends AgentPlugin implements ModeControl {
             if (autoDiagnostics.isNotEmpty)
               'auto_approval_classifier': autoDiagnostics,
           },
+          onCommandPattern: onCommandPattern == null
+              ? null
+              : (pattern) {
+                  if (!invalid()) onCommandPattern(pattern);
+                },
         ) ??
         ApprovalDecision.deny;
     if (invalid()) return ApprovalDecision.deny;
@@ -286,8 +292,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     return {
       if (users.isNotEmpty)
         'recent_context': {'user_messages': users.reversed.toList()},
-      if (tools.isNotEmpty)
-        'recent_tool_calls': tools.reversed.toList(),
+      if (tools.isNotEmpty) 'recent_tool_calls': tools.reversed.toList(),
     };
   }
 

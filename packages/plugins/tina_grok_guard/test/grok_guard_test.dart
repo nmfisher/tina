@@ -26,7 +26,9 @@ class Broken implements ApprovalRequester {
           {required String operation,
           required String target,
           required String reason,
-          ApprovalKind kind = ApprovalKind.permission, Map<String, Object?> details = const {}}) async =>
+          ApprovalKind kind = ApprovalKind.permission,
+          Map<String, Object?> details = const {},
+          void Function(String pattern)? onCommandPattern}) async =>
       throw StateError('offline');
 }
 

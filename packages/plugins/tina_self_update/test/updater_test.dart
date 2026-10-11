@@ -606,7 +606,8 @@ class _Approvals implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
-      Map<String, Object?> details = const {}}) async {
+      Map<String, Object?> details = const {},
+      void Function(String pattern)? onCommandPattern}) async {
     expect(
         kind,
         operation == 'Restart tina?'

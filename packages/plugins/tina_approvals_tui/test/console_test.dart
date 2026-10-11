@@ -87,6 +87,87 @@ void main() {
     expect(await received, ApprovalDecision.allow);
   });
 
+  test(
+      'regex choice asks model, edits without shortcuts, reviews then saves workspace scope',
+      () async {
+    service.closeSession();
+    ui.closeSession();
+    var suggestions = 0;
+    const pattern = r'dart test sometest \| head -n[0-9]+';
+    ui = ApprovalTuiPlugin(suggestCommandPattern: (request, cancelled) async {
+      suggestions++;
+      return (
+        pattern: pattern,
+        explanation: 'Only line count varies.',
+        failure: null
+      );
+    })
+      ..attachConsole(ConsoleContext(screen: screen, editor: editor));
+    service = ApprovalsPlugin(channel: ui);
+    final line = editor.readLine('model > ');
+    io.feed('draft');
+    await tick();
+    String? saved;
+    var answered = false;
+    final decision = service.request(
+        operation: 'run command',
+        target: 'dart test sometest | head -n2',
+        reason: 'execute',
+        details: {
+          'command_pattern_target': 'dart test sometest | head -n2',
+          'persistent_command_pattern': true,
+        },
+        onCommandPattern: (value) => saved = value);
+    unawaited(decision.then((_) => answered = true));
+    await tick();
+    expect(suggestions, 0);
+    io.feed('e');
+    await tick();
+    expect(suggestions, 1);
+    expect(ui.asker!.currentPatternReview!.input.buffer, pattern);
+    expect(visible().cursorVisible, true);
+    io.feed(
+        '\x15\x1b[200~$pattern\x1b[201~'); // Clear and paste into regex field.
+    await tick();
+    expect(ui.asker!.currentPatternReview!.input.buffer, pattern);
+    expect(answered, false);
+    io.feed('\r');
+    await tick();
+    expect(all(), contains('Review always-approve regex'));
+    expect(visible().cursorVisible, false);
+    expect(saved, isNull);
+    expect(answered, false);
+    io.feed('\x1b[B\r');
+    expect(await decision, ApprovalDecision.allowWorkspace);
+    expect(saved, pattern);
+    await tick();
+    expect(editor.editState.buffer, 'draft');
+    expect(input(), contains('model > draft'));
+    io.feed('\r');
+    expect(await line, 'draft');
+  });
+
+  test(
+      'Escape backs out of regex editor and cancellation discards the suggestion',
+      () async {
+    final pending = service.request(
+        operation: 'run command',
+        target: 'head -n2',
+        reason: 'execute',
+        details: {'command_pattern_target': 'head -n2'},
+        onCommandPattern: (_) => fail('must not save'));
+    await tick();
+    io.feed('e');
+    await tick();
+    expect(ui.asker!.currentPatternReview, isNotNull);
+    io.feed('\x1b');
+    await tick();
+    expect(ui.asker!.currentPatternReview, isNull);
+    expect(ui.asker!.current, isNotNull);
+    io.feed('n');
+    expect(await pending, ApprovalDecision.deny);
+  });
+
   test('alerts once per presented approval, including queued questions',
       () async {
     screen.enterAltScreen();

@@ -32,6 +32,7 @@ enum ApprovalKey {
   always,
   workspace,
   global,
+  editCommandPattern,
   toggleReadDirectory,
   toggleWriteDirectory,
   toggleDirectory
@@ -65,8 +66,11 @@ class ApprovalOutcome {
 
   /// `'cancelled'` when no key confirmed the choice (source closed, escape).
   final String? reason;
+  final String? commandPattern;
+  final bool editCommandPattern;
 
-  const ApprovalOutcome(this.decision, {this.reason});
+  const ApprovalOutcome(this.decision,
+      {this.reason, this.commandPattern, this.editCommandPattern = false});
 
   bool get isCancellation => reason == 'cancelled';
 }
@@ -135,6 +139,10 @@ class ApprovalDialog {
       ask?.details['persistent_command_approval'] == true;
 
   bool get _hasAlways => call?.argumentsParseError == null;
+  bool get _hasCommandPattern =>
+      ask?.confirmation != true &&
+      _hasAlways &&
+      ask?.details['command_pattern_target'] is String;
 
   ApprovalDialog(this.call, {this.ask});
 
@@ -145,6 +153,7 @@ class ApprovalDialog {
           'deny',
           if (_hasAlways) 'allow always',
           if (_hasPersistent) ...['allow workspace', 'allow global'],
+          if (_hasCommandPattern) 'edit command pattern',
           if (_readDirectory != null) 'read directory',
           if (_writeDirectory != null) 'write directory',
         ];
@@ -339,6 +348,7 @@ class ApprovalDialog {
               '[p] remember this command for this workspace',
               '[g] remember this command globally (any directory)',
             ],
+            if (_hasCommandPattern) '[e] always approve with editable regex',
             if (_readDirectory != null)
               '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
             if (_writeDirectory != null)
@@ -440,6 +450,7 @@ class ApprovalDialog {
       case ApprovalKey.workspace:
       case ApprovalKey.global:
       case ApprovalKey.always:
+      case ApprovalKey.editCommandPattern:
       case ApprovalKey.details:
       case ApprovalKey.toggleReadDirectory:
       case ApprovalKey.toggleWriteDirectory:
@@ -464,7 +475,8 @@ class ApprovalDialog {
   }
 
   /// The decision the current selection maps to.
-  ApprovalOutcome get current => ApprovalOutcome(decisionFor(_selected));
+  ApprovalOutcome get current => ApprovalOutcome(decisionFor(_selected),
+      editCommandPattern: _choices[_selected] == 'edit command pattern');
 
   /// Drive the dialog from [keys]: arrows move, Enter confirms, Esc/source
   /// close cancels (a denial with reason `'cancelled'`). Resolves when a
@@ -493,6 +505,11 @@ class ApprovalDialog {
           if (ask?.confirmation != true && _hasAlways) {
             return ApprovalOutcome(
                 _withDirectoryScope(ApprovalDecision.allowAlways));
+          }
+        case ApprovalKey.editCommandPattern:
+          if (_hasCommandPattern) {
+            return const ApprovalOutcome(ApprovalDecision.deny,
+                editCommandPattern: true);
           }
         case ApprovalKey.pageUp:
         case ApprovalKey.pageDown:

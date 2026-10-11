@@ -29,6 +29,103 @@ TurnContext context(CancelToken token) => TurnContext(token,
     pinnedTools: []);
 
 void main() {
+  test(
+      'regex responses require a matching offered command and remembered scope',
+      () async {
+    for (final pattern in [r'head -n[0-9]+', '[', 'head', '.*\n']) {
+      for (final offered in [false, true]) {
+        for (final decision in [
+          ApprovalDecision.allow,
+          ApprovalDecision.allowAlways,
+          ApprovalDecision.allowWorkspace,
+          ApprovalDecision.allowGlobal
+        ]) {
+          final channel = CapturingChannel();
+          final service = ApprovalsPlugin(channel: channel);
+          addTearDown(service.closeSession);
+          String? received;
+          final pending = service.request(
+              operation: 'run command',
+              target: 'head -n2',
+              reason: 'execute',
+              details: {
+                if (offered) 'command_pattern_target': 'head -n2',
+                'persistent_command_pattern': true,
+              },
+              onCommandPattern: (value) => received = value);
+          await Future<void>.delayed(Duration.zero);
+          final valid = offered &&
+              pattern == r'head -n[0-9]+' &&
+              decision != ApprovalDecision.allow;
+          expect(
+              channel.tickets.single.respond(decision, commandPattern: pattern),
+              valid,
+              reason: 'pattern=$pattern offered=$offered decision=$decision');
+          expect(await pending, valid ? decision : ApprovalDecision.deny);
+          expect(received, valid ? pattern : null);
+        }
+      }
+    }
+  });
+  test(
+      'strict whole-command matching rejects alternative prefixes and final newlines',
+      () {
+    final pattern = CommandApprovalPattern(r'head -n[0-9]+|tail -n[0-9]+');
+    expect(pattern.matches('head -n20'), true);
+    expect(pattern.matches('tail -n20'), true);
+    for (final denied in ['head -n2; echo extra', 'head -n2\n', 'xhead -n2']) {
+      expect(pattern.matches(denied), false);
+    }
+  });
+  test('cancelled command regex response cannot call back or approve',
+      () async {
+    final channel = CapturingChannel();
+    final service = ApprovalsPlugin(channel: channel);
+    final pending = service.request(
+        operation: 'run command',
+        target: 'head -n2',
+        reason: 'execute',
+        details: {'command_pattern_target': 'head -n2'},
+        onCommandPattern: (_) => fail('cancelled callback'));
+    await Future<void>.delayed(Duration.zero);
+    service.closeSession();
+    expect(await pending, ApprovalDecision.deny);
+    expect(
+        channel.tickets.single.respond(ApprovalDecision.allowAlways,
+            commandPattern: r'head -n[0-9]+'),
+        false);
+  });
+  test('regex storage scope, confirmations and callback support fail closed',
+      () async {
+    for (final kind in ApprovalKind.values) {
+      for (final persistent in [false, true]) {
+        for (final callback in [false, true]) {
+          final channel = CapturingChannel();
+          final service = ApprovalsPlugin(channel: channel);
+          addTearDown(service.closeSession);
+          final pending = service.request(
+              operation: 'run command',
+              target: 'head -n2',
+              reason: 'execute',
+              kind: kind,
+              details: {
+                'command_pattern_target': 'head -n2',
+                if (persistent) 'persistent_command_pattern': true,
+              },
+              onCommandPattern: callback ? (_) {} : null);
+          await Future<void>.delayed(Duration.zero);
+          final valid =
+              kind == ApprovalKind.permission && persistent && callback;
+          expect(
+              channel.tickets.single.respond(ApprovalDecision.allowGlobal,
+                  commandPattern: r'head -n[0-9]+'),
+              valid);
+          expect(await pending,
+              valid ? ApprovalDecision.allowGlobal : ApprovalDecision.deny);
+        }
+      }
+    }
+  });
   test('persistent command scopes require an explicitly offered permission',
       () async {
     for (final decision in [

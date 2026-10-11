@@ -5,6 +5,15 @@ requests, unique IDs, expiry and cancellation. `ApprovalRequester` is what a
 sandbox or other policy boundary receives. The caller owns enforcement and
 remembered grants; approval delivery never executes an operation.
 
+Command requests may offer `command_pattern_target` and the optional
+`persistent_command_pattern` flag. A channel responds with a remembered scope
+and `commandPattern`; the service validates a strict whole-command match before
+calling the requester's `onCommandPattern` callback. Confirmation requests,
+unoffered scopes, stale answers and invalid patterns cannot grant a regex rule.
+The caller owns persistence and matches executable, execution context and
+permissions in addition to the regex. Model suggestions are presentation aids,
+not approval responses.
+
 `ApprovalChannel` is the delivery interface. A channel receives an
 `ApprovalTicket` containing an immutable `ApprovalRequest` (ID, operation,
 target, reason). It calls `ticket.respond(decision)` to resolve it. That method

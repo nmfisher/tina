@@ -15,7 +15,8 @@ class PendingApproval implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
-      Map<String, Object?> details = const {}}) {
+      Map<String, Object?> details = const {},
+      void Function(String pattern)? onCommandPattern}) {
     ready.complete();
     return answer.future;
   }

@@ -418,6 +418,7 @@ ConsoleContext Function(Screen, LineEditor) scriptedConsole(
               ApprovalKey.workspace => CharInput('p'),
               ApprovalKey.global => CharInput('g'),
               ApprovalKey.always => CharInput('a'),
+              ApprovalKey.editCommandPattern => CharInput('e'),
               ApprovalKey.toggleReadDirectory => CharInput('r'),
               ApprovalKey.toggleWriteDirectory => CharInput('w'),
               ApprovalKey.toggleDirectory => CharInput(' '),

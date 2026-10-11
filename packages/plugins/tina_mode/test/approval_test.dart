@@ -18,6 +18,7 @@ class Human implements ApprovalRequester {
     required String reason,
     ApprovalKind kind = ApprovalKind.permission,
     Map<String, Object?> details = const {},
+    void Function(String pattern)? onCommandPattern,
   }) async {
     calls++;
     lastDetails = details;

@@ -145,16 +145,17 @@ void attachModePolicy(ToolsPlugin plugin) {
         review.requiredPermissions.contains(ProcessPermission.network);
     final outsideSandbox =
         review.requiredPermissions.contains(ProcessPermission.unconfined);
-    if (outsideSandbox &&
-        plugin.commandApprovals.covers(request, review.requiredPermissions)) {
+    if (plugin.commandApprovals.covers(request, review.requiredPermissions)) {
       return Approval.yes;
     }
     final description = describeCommandRequest(request);
+    String? commandPattern;
     final decision = await plugin.modePolicy.request(
       operation: 'run command',
       target: [request.command, ...request.arguments].join(' '),
       reason: review.reason,
       humanOnly: outsideSandbox,
+      onCommandPattern: (pattern) => commandPattern = pattern,
       context: {
         'workspace': plugin.workingDirectory,
         'executable': request.command,
@@ -187,6 +188,9 @@ void attachModePolicy(ToolsPlugin plugin) {
                     : description)
             .toJson(),
         'permission_scope': 'command',
+        'command_pattern_target': approvalCommandText(request),
+        if (plugin.commandApprovals.file != null)
+          'persistent_command_pattern': true,
         if (outsideSandbox && plugin.commandApprovals.file != null)
           'persistent_command_approval': true,
         if (review.readDirectory != null &&
@@ -207,7 +211,7 @@ void attachModePolicy(ToolsPlugin plugin) {
         },
       },
     );
-    if (outsideSandbox &&
+    if ((outsideSandbox || commandPattern != null) &&
         {
           ApprovalDecision.allowAlways,
           ApprovalDecision.allowWorkspace,
@@ -221,7 +225,8 @@ void attachModePolicy(ToolsPlugin plugin) {
             ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
             ApprovalDecision.allowGlobal => CommandApprovalScope.global,
             _ => CommandApprovalScope.session,
-          });
+          },
+          pattern: commandPattern);
       return Approval.yes;
     }
     if ((decision == ApprovalDecision.allowReadsInDirectory ||
