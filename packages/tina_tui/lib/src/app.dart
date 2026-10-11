@@ -5,6 +5,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'plugin_catalog.dart';
 import 'console_catalog.dart';
+import 'console_commands.dart';
 import 'settings_stack.dart';
 import 'dart:io' as io;
 
@@ -288,7 +289,10 @@ Future<int> runApp(
       editor.beginCancelMonitor(() {
         if (session.canCancel) session.cancel();
       }, onQueueSubmit: (text) {
-        final command = session.offerCommand(text);
+        final command = offerConsoleCommand(
+                session.commands, attached.values, text,
+                whileRunning: true) ??
+            session.offerCommand(text);
         if (command != null) {
           late final Future<void> task;
           task = command.catchError((Object error) {
@@ -304,7 +308,10 @@ Future<int> runApp(
           queueCountProvider: () =>
               queued.length + session.host.session.loop.pendingInputCount);
       try {
-        final work = session.runLine(line, renderReply: false);
+        final work =
+            offerConsoleCommand(session.commands, attached.values, line)
+                    ?.then((_) => session.assembly.quitRequested) ??
+                session.runLine(line, renderReply: false);
         await Future.any([work, editor.whenQuit]);
         if (editor.quitRequested) {
           session.cancel();

@@ -1,0 +1,19 @@
+name: tina_classification_tui
+description: Independent read-only classification inspectors for tina's console.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  classification:
+    path: ../../classification
+  tina_console:
+    path: ../../tina_console
+dev_dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_plans:
+    path: ../tina_plans
+  tina_plans_tui:
+    path: ../tina_plans_tui
+  test: ^1.25.0

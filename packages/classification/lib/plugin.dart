@@ -71,6 +71,17 @@ final class ClassificationLease {
   final void Function() close;
 }
 
+/// Read-only access to one session's classification status and diagnostics.
+/// Detaching a reader cannot cancel inference or close the runtime plugin.
+final class ClassificationObservation {
+  ClassificationObservation._(this._plugin);
+  final ClassificationPlugin _plugin;
+  ClassificationStatus get status => _plugin.status;
+  ClassificationTraceSnapshot get trace => _plugin.trace.snapshot;
+  Stream<ClassificationStatus> get changes => _plugin.changes;
+  Stream<void> get traceChanges => _plugin.trace.changes;
+}
+
 /// Informational input classification. Background work never rewrites input,
 /// grants permissions, or adds predictions to the model's prompt/transcript.
 class ClassificationPlugin extends AgentPlugin {
@@ -112,6 +123,7 @@ class ClassificationPlugin extends AgentPlugin {
   final _changes = StreamController<ClassificationStatus>.broadcast(sync: true);
   Stream<ClassificationStatus> get changes => _changes.stream;
   final trace = ClassificationTrace();
+  late final observation = ClassificationObservation._(this);
   JudgmentCancellation? _active;
   void Function()? _closeActive;
   bool _closed = false;

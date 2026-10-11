@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:classification/command_regex.dart';
+import 'package:classification/plugin.dart';
 import 'package:tina_mcp/tina_mcp.dart';
 import 'mcp_console_plugin.dart';
 import 'package:tina_grok_guard/tina_grok_guard.dart';
@@ -202,7 +203,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         PluginDefinition.dependingOn<TuiPluginContext, ModelAccess>(
             'tina/classification',
             dependency: modelAccess,
-            create: (c, models) => ClassificationConsolePlugin.configured(
+            create: (c, models) => ClassificationPlugin.configured(
                 terminal: c.terminal,
                 configPath: c.configPath,
                 createProvider: () => models.mainProvider(c.currentModel())),

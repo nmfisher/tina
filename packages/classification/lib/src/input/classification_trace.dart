@@ -10,6 +10,64 @@ final class ClassificationOutcome {
   final bool unclear;
 }
 
+/// Immutable diagnostics for readers that do not own classifier execution.
+final class ClassificationTraceSnapshot {
+  ClassificationTraceSnapshot._(ClassificationTrace trace)
+    : revision = trace.revision,
+      exchanges = List.unmodifiable(
+        trace.exchanges.map(ClassificationExchangeSnapshot._),
+      );
+  final int revision;
+  final List<ClassificationExchangeSnapshot> exchanges;
+}
+
+/// One exchange as it stood at a particular trace revision.
+final class ClassificationExchangeSnapshot {
+  ClassificationExchangeSnapshot._(ClassificationExchange exchange)
+    : id = exchange.id,
+      parentId = exchange.parentId,
+      classifierId = exchange.classifierId,
+      classifierName = exchange.classifierName,
+      trigger = exchange.trigger,
+      inputText = exchange.inputText,
+      outcome = exchange.outcome,
+      questions = exchange.questions,
+      answers = exchange.answers,
+      inputId = exchange.inputId,
+      title = exchange.title,
+      request = exchange.request,
+      started = exchange.started,
+      response = exchange.response,
+      error = exchange.error,
+      elapsed = exchange.elapsed,
+      phase = exchange.phase,
+      pending = exchange.pending;
+
+  final int id;
+  final int? parentId;
+  final String classifierId, classifierName;
+  final String? trigger, inputText;
+  final ClassificationOutcome? outcome;
+  final Map<String, Object?> questions, answers;
+  final String inputId, title, request, response;
+  final DateTime started;
+  final String? error;
+  final Duration? elapsed;
+  final ClassificationExchangePhase phase;
+  final bool pending;
+}
+
+Object? _freeze(Object? value) => switch (value) {
+  Map value => Map<String, Object?>.unmodifiable(
+    value.map((key, item) => MapEntry(key as String, _freeze(item))),
+  ),
+  List value => List<Object?>.unmodifiable(value.map(_freeze)),
+  _ => value,
+};
+
+Map<String, Object?> _freezeMap(Map<String, Object?> value) =>
+    _freeze(value) as Map<String, Object?>;
+
 /// Session-local diagnostics, separate from the transcript and learned catalog.
 /// Callers supply bodies only, never transport headers or provider credentials.
 final class ClassificationTrace {
@@ -22,6 +80,9 @@ final class ClassificationTrace {
   bool _closed = false;
   int _serial = 0;
   int _revision = 0;
+  ClassificationTraceSnapshot? _snapshot;
+  ClassificationTraceSnapshot get snapshot =>
+      _snapshot ??= ClassificationTraceSnapshot._(this);
   int get revision => _revision;
   List<ClassificationExchange> get exchanges => List.unmodifiable(_exchanges);
   Stream<void> get changes => _changes.stream;
@@ -45,7 +106,7 @@ final class ClassificationTrace {
       _format(request),
       DateTime.now(),
       parentId,
-      Map.unmodifiable(questions),
+      _freezeMap(questions),
       classifierId ?? title,
       classifierName ?? title,
       trigger,
@@ -68,6 +129,7 @@ final class ClassificationTrace {
   void _notify() {
     if (!_closed) {
       _revision++;
+      _snapshot = null;
       _changes.add(null);
     }
   }
@@ -82,6 +144,7 @@ final class ClassificationTrace {
   void close() {
     if (_closed) return;
     _closed = true;
+    _snapshot = null;
     unawaited(_changes.close());
   }
 }
@@ -141,7 +204,7 @@ final class ClassificationExchange {
 
   void recordAnswers(Map<String, Object?> value) {
     if (!pending) return;
-    _answers = Map.unmodifiable(value);
+    _answers = _freezeMap(value);
     _trace._notify();
   }
 

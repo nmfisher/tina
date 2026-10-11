@@ -6,6 +6,7 @@ import 'completion_sources.dart';
 import 'settings_panel.dart';
 import 'plugin_catalog.dart';
 import 'console_catalog.dart';
+import 'console_commands.dart';
 import 'tui_session.dart';
 
 /// Adapts a session to UI capabilities. The workspace plugin never imports
@@ -40,7 +41,13 @@ final class SessionView
       GitFileCompletionSource(workingDir: session.host.config.workingDirectory);
   @override
   Future<void> submit(String text) async {
-    await session.runLine(text, renderReply: false);
+    final command =
+        offerConsoleCommand(session.commands, _attached.values, text);
+    if (command != null) {
+      await command;
+    } else {
+      await session.runLine(text, renderReply: false);
+    }
   }
 
   @override
@@ -50,7 +57,10 @@ final class SessionView
   int get pendingInputCount => session.host.session.loop.pendingInputCount;
 
   @override
-  Future<void>? offerCommand(String text) => session.offerCommand(text);
+  Future<void>? offerCommand(String text) =>
+      offerConsoleCommand(session.commands, _attached.values, text,
+          whileRunning: true) ??
+      session.offerCommand(text);
 
   @override
   void cancel() {

@@ -6,11 +6,15 @@ import 'package:tina_console/tina_console.dart';
 enum ClassificationRowKind { classifier, question, choice }
 
 final class ClassificationPanelRow {
-  const ClassificationPanelRow(this.exchange, this.label, this.depth,
-      {this.question,
-      this.choice,
-      this.kind = ClassificationRowKind.classifier});
-  final ClassificationExchange exchange;
+  const ClassificationPanelRow(
+    this.exchange,
+    this.label,
+    this.depth, {
+    this.question,
+    this.choice,
+    this.kind = ClassificationRowKind.classifier,
+  });
+  final ClassificationExchangeSnapshot exchange;
   final String label;
   final int depth;
   final String? question, choice;
@@ -91,41 +95,42 @@ Object? _choiceDefinition(Object? question, Object? choice) {
   return criteria is Map ? criteria[choice] : null;
 }
 
-Map _questions(ClassificationExchange e) => e.questions.isNotEmpty
+Map _questions(ClassificationExchangeSnapshot e) => e.questions.isNotEmpty
     ? e.questions
     : _object(e.request)['questions'] is Map
-        ? _object(e.request)['questions'] as Map
-        : const {};
+    ? _object(e.request)['questions'] as Map
+    : const {};
 
-Map _answers(ClassificationExchange e) => e.answers.isNotEmpty
+Map _answers(ClassificationExchangeSnapshot e) => e.answers.isNotEmpty
     ? e.answers
     : _object(e.response)['answers'] is Map
-        ? _object(e.response)['answers'] as Map
-        : const {};
+    ? _object(e.response)['answers'] as Map
+    : const {};
 
-String _stage(ClassificationExchange e) => switch (e.classifierName) {
-      'Intent' => 'Request type',
-      'Git operations' => 'Git actions',
-      _ => e.title.startsWith('Learn category')
-          ? 'Learn a new request type'
-          : e.classifierName,
-    };
+String _stage(ClassificationExchangeSnapshot e) => switch (e.classifierName) {
+  'Intent' => 'Request type',
+  'Git operations' => 'Git actions',
+  _ =>
+    e.title.startsWith('Learn category')
+        ? 'Learn a new request type'
+        : e.classifierName,
+};
 
-String _phase(ClassificationExchange e) => switch (e.phase) {
-      ClassificationExchangePhase.pending => '◌ Running',
-      ClassificationExchangePhase.complete => '✓ Complete',
-      ClassificationExchangePhase.failed => '! Failed',
-      ClassificationExchangePhase.cancelled => '– Cancelled',
-    };
+String _phase(ClassificationExchangeSnapshot e) => switch (e.phase) {
+  ClassificationExchangePhase.pending => '◌ Running',
+  ClassificationExchangePhase.complete => '✓ Complete',
+  ClassificationExchangePhase.failed => '! Failed',
+  ClassificationExchangePhase.cancelled => '– Cancelled',
+};
 
-List _evidence(ClassificationExchange e) {
+List _evidence(ClassificationExchangeSnapshot e) {
   final state = _object(e.request)['state'];
   return state is Map && state['evidence'] is List
       ? state['evidence'] as List
       : const [];
 }
 
-String? _input(ClassificationExchange e) {
+String? _input(ClassificationExchangeSnapshot e) {
   if (e.inputText != null) return e.inputText;
   final evidence = _evidence(e);
   final latest = evidence.isNotEmpty ? evidence.last : null;
@@ -133,15 +138,15 @@ String? _input(ClassificationExchange e) {
   return text is String ? text : null;
 }
 
-String _result(ClassificationExchange e) {
+String _result(ClassificationExchangeSnapshot e) {
   if (e.outcome case final ClassificationOutcome result)
     return '${result.unclear ? '? ' : ''}${result.label}';
   if (e.pending) return '[loading]';
   if (e.phase == ClassificationExchangePhase.cancelled) return '[cancelled]';
   if (e.error != null) return '! Failed: ${e.error}';
-  final choices = _answers(e)
-      .entries
-      .where((a) => a.value is Map && (a.value as Map)['choice'] != null);
+  final choices = _answers(
+    e,
+  ).entries.where((a) => a.value is Map && (a.value as Map)['choice'] != null);
   if (choices.length == 1) {
     final answer = choices.single;
     return '? ${_answer(answer.value, _questions(e)[answer.key]).split(' · ').first}';
@@ -158,30 +163,46 @@ String _result(ClassificationExchange e) {
 
 /// All evaluated questions/options are included in hierarchy mode, including
 /// negative answers. No hypothetical, unevaluated branches are invented.
-List<ClassificationPanelRow> classificationPanelRows(ClassificationTrace trace,
-    {required bool hierarchy, Set<int> expanded = const {}, String? inputId}) {
+List<ClassificationPanelRow> classificationPanelRows(
+  ClassificationTraceSnapshot trace, {
+  required bool hierarchy,
+  Set<int> expanded = const {},
+  String? inputId,
+}) {
   final rows = <ClassificationPanelRow>[];
   final exchanges = trace.exchanges
       .where((e) => inputId == null || e.inputId == inputId)
       .toList();
   final byId = {for (final e in exchanges) e.id: e};
   final visited = <int>{};
-  void visit(ClassificationExchange e, int depth) {
+  void visit(ClassificationExchangeSnapshot e, int depth) {
     if (!visited.add(e.id)) return;
     final open = hierarchy || expanded.contains(e.id);
     final phase = _phase(e);
-    rows.add(ClassificationPanelRow(
-        e, '${open ? '▾' : '▸'} ${_stage(e)}: ${_result(e)}', depth));
+    rows.add(
+      ClassificationPanelRow(
+        e,
+        '${open ? '▾' : '▸'} ${_stage(e)}: ${_result(e)}',
+        depth,
+      ),
+    );
     if (open) {
       final questions = _questions(e), answers = _answers(e);
       for (final entry in questions.entries) {
         final id = '${entry.key}', answer = answers[id];
-        rows.add(ClassificationPanelRow(
+        rows.add(
+          ClassificationPanelRow(
             e,
-            '${_name(id, entry.value)} · ${answer is Map && answer['noul'] is num ? _score(answer['noul'] as num) : answer == null && !e.pending ? phase : _answer(answer, entry.value)}',
+            '${_name(id, entry.value)} · ${answer is Map && answer['noul'] is num
+                ? _score(answer['noul'] as num)
+                : answer == null && !e.pending
+                ? phase
+                : _answer(answer, entry.value)}',
             depth + 1,
             question: id,
-            kind: ClassificationRowKind.question));
+            kind: ClassificationRowKind.question,
+          ),
+        );
         final q = entry.value;
         if (q is! Map || q['type'] != 'choice' || q['criteria'] is! Map)
           continue;
@@ -191,13 +212,16 @@ List<ClassificationPanelRow> classificationPanelRows(ClassificationTrace trace,
               p = probabilities is Map ? probabilities[option.key] : null;
           final label = _name('${option.key}', value);
           final selected = answer is Map && answer['choice'] == option.key;
-          rows.add(ClassificationPanelRow(
+          rows.add(
+            ClassificationPanelRow(
               e,
               '${selected ? '✓ ' : ''}$label${p is num ? ' · ${_score(p)}' : ''}',
               depth + 2,
               question: id,
               choice: '${option.key}',
-              kind: ClassificationRowKind.choice));
+              kind: ClassificationRowKind.choice,
+            ),
+          );
         }
       }
     }
@@ -226,10 +250,11 @@ String _safe(String text) =>
     text.replaceAll(RegExp(r'[\x00-\x1f\x7f-\x9f]'), ' ');
 
 /// Inspection never owns a model turn. It participates in the normal focus
-/// ring, yields to dialogs, and retains its history across console reattachment.
+/// ring and yields to dialogs. History belongs to the runtime observation;
+/// selection, expansion and scrolling belong to this panel.
 final class ClassificationPanel implements PanelInputTarget {
-  ClassificationPanel({required this.plugin, required this.context});
-  final ClassificationPlugin plugin;
+  ClassificationPanel({required this.classification, required this.context});
+  final ClassificationObservation classification;
   final ConsoleContext context;
   Screen get screen => context.screen;
   FocusManager? focusManager;
@@ -247,11 +272,8 @@ final class ClassificationPanel implements PanelInputTarget {
   List<ClassificationPanelRow> _rows = [];
   (int, int, (int, String?, String?, ClassificationRowKind))? _detailKey;
   List<String> _detailCache = [];
-  (
-    int,
-    (int, String?, String?, ClassificationRowKind)?,
-    ClassificationStatus
-  )? _previewKey;
+  (int, (int, String?, String?, ClassificationRowKind)?, ClassificationStatus)?
+  _previewKey;
   List<String> _previewCache = [];
   ClassificationPanelRow? get selected =>
       _rows.isEmpty ? null : _rows[_selected.clamp(0, _rows.length - 1)];
@@ -391,8 +413,10 @@ final class ClassificationPanel implements PanelInputTarget {
       _scroll(amount);
       return;
     }
-    _selected =
-        (_selected + amount).clamp(0, _rows.isEmpty ? 0 : _rows.length - 1);
+    _selected = (_selected + amount).clamp(
+      0,
+      _rows.isEmpty ? 0 : _rows.length - 1,
+    );
     if (_selected < _offset) _offset = _selected;
     if (_selected >= _offset + _room) _offset = _selected - _room + 1;
     refresh();
@@ -406,7 +430,7 @@ final class ClassificationPanel implements PanelInputTarget {
   List<String> _detailLines(int width) {
     final row = selected;
     if (row == null) return [];
-    final key = (plugin.trace.revision, width, row.key);
+    final key = (classification.trace.revision, width, row.key);
     if (_detailKey == key) return _detailCache;
     _detailKey = key;
     final e = row.exchange;
@@ -422,7 +446,7 @@ final class ClassificationPanel implements PanelInputTarget {
         'Classifier: ${_stage(e)}',
         if (e.trigger != null) 'Trigger: ${e.trigger}',
         if (e.parentId != null)
-          for (final parent in plugin.trace.exchanges)
+          for (final parent in classification.trace.exchanges)
             if (parent.id == e.parentId && parent.inputId == e.inputId)
               'Depends on: ${_stage(parent)}',
         '',
@@ -504,8 +528,10 @@ final class ClassificationPanel implements PanelInputTarget {
       return _detailCache = [
         for (final line in readable)
           if (line.startsWith('  ') && width > 2)
-            for (final wrapped
-                in wrapDialogText(_safe(line.substring(2)), width - 2))
+            for (final wrapped in wrapDialogText(
+              _safe(line.substring(2)),
+              width - 2,
+            ))
               '  $wrapped'
           else
             ...wrapDialogText(_safe(line), width),
@@ -516,20 +542,21 @@ final class ClassificationPanel implements PanelInputTarget {
       final questions = e.questions.isNotEmpty
               ? e.questions
               : _object(request)['questions'],
-          answers =
-              e.answers.isNotEmpty ? e.answers : _object(response)['answers'];
+          answers = e.answers.isNotEmpty
+              ? e.answers
+              : _object(response)['answers'];
       final q = questions is Map ? questions[row.question] : null;
       final a = answers is Map ? answers[row.question] : null;
       final criteria = q is Map ? q['criteria'] : null;
       final definition = row.choice == null
           ? q
           : criteria is Map
-              ? criteria[row.choice]
-              : null;
+          ? criteria[row.choice]
+          : null;
       request = const JsonEncoder.withIndent('  ').convert({
         'state': _object(e.request)['state'],
         'question': row.question,
-        'definition': definition
+        'definition': definition,
       });
       response = const JsonEncoder.withIndent('  ').convert(a);
     }
@@ -549,14 +576,21 @@ final class ClassificationPanel implements PanelInputTarget {
   }
 
   List<String> _preview() {
-    final exchanges = plugin.trace.exchanges;
-    if (exchanges.isEmpty) return [plugin.status.label];
+    final exchanges = classification.trace.exchanges;
+    if (exchanges.isEmpty) return [classification.status.label];
     final latest = exchanges.last;
-    final key = (plugin.trace.revision, selected?.key, plugin.status);
+    final key = (
+      classification.trace.revision,
+      selected?.key,
+      classification.status,
+    );
     if (_previewKey == key) return _previewCache;
     _previewKey = key;
-    final rows = classificationPanelRows(plugin.trace,
-        hierarchy: false, inputId: latest.inputId);
+    final rows = classificationPanelRows(
+      classification.trace,
+      hierarchy: false,
+      inputId: latest.inputId,
+    );
     return _previewCache = [
       if (_input(latest) case final String input) 'You asked: $input',
       for (final row in rows) '${'  ' * row.depth.clamp(0, 4)}${row.label}',
@@ -573,8 +607,13 @@ final class ClassificationPanel implements PanelInputTarget {
         .replaceFirst(RegExp(r'^└\s*'), '');
     final lastSeparator = text.lastIndexOf(' · ');
     final suffix = lastSeparator >= 0 ? text.substring(lastSeparator + 3) : '';
-    final phase = const {'◌ Running', '✓ Complete', '! Failed', '– Cancelled'}
-            .contains(suffix)
+    final phase =
+        const {
+          '◌ Running',
+          '✓ Complete',
+          '! Failed',
+          '– Cancelled',
+        }.contains(suffix)
         ? suffix
         : '';
     final separator = phase.isEmpty ? -1 : lastSeparator;
@@ -591,22 +630,22 @@ final class ClassificationPanel implements PanelInputTarget {
         final result = text.substring(split);
         final code =
             result.startsWith('?') || result.startsWith('Model choice:')
-                ? theme.yellow
-                : result.startsWith('!')
-                    ? theme.red
-                    : result.startsWith('[loading]') || result.startsWith('◌')
-                        ? '34'
-                        : theme.agentText;
+            ? theme.yellow
+            : result.startsWith('!')
+            ? theme.red
+            : result.startsWith('[loading]') || result.startsWith('◌')
+            ? '34'
+            : theme.agentText;
         return '${screen.colorize('1;${theme.cyan}', text.substring(0, split))}${screen.colorize(code, result)}';
       }
       final header = separator >= 0 ? text.substring(0, separator) : text;
       final code = phase == '◌ Running'
           ? '34'
           : phase == '✓ Complete'
-              ? theme.green
-              : phase == '! Failed'
-                  ? theme.red
-                  : theme.dim;
+          ? theme.green
+          : phase == '! Failed'
+          ? theme.red
+          : theme.dim;
       return '${screen.colorize('1;${theme.cyan}', header)}${separator >= 0 ? ' · ${screen.colorize(code, phase)}' : ''}';
     }
     if (plain.startsWith('?') || plain.startsWith('Model choice:'))
@@ -619,15 +658,17 @@ final class ClassificationPanel implements PanelInputTarget {
     if (plain.startsWith('Trigger:') ||
         plain.startsWith('Dependency:') ||
         plain.startsWith('You asked:') ||
-        plain.contains('% match')) return screen.colorize(theme.dim, text);
+        plain.contains('% match'))
+      return screen.colorize(theme.dim, text);
     if (const {
       'Request',
       'Results',
       'What was checked',
       'Context used',
       'Request JSON',
-      'Response JSON'
-    }.contains(plain)) return screen.colorize('1;${theme.cyan}', text);
+      'Response JSON',
+    }.contains(plain))
+      return screen.colorize('1;${theme.cyan}', text);
     return text;
   }
 
@@ -635,35 +676,40 @@ final class ClassificationPanel implements PanelInputTarget {
     if (!_started || context.isReadingKey) return;
     if (_hidden ||
         !context.isActive ||
-        (!_explicit && plugin.trace.exchanges.isEmpty)) {
+        (!_explicit && classification.trace.exchanges.isEmpty)) {
       _slot?.requestSize(height: 0);
       _hide();
       return;
     }
-    if (_revision != plugin.trace.revision) {
+    if (_revision != classification.trace.revision) {
       final key = selected?.key;
-      final retained = plugin.trace.exchanges.map((e) => e.id).toSet();
+      final retained = classification.trace.exchanges.map((e) => e.id).toSet();
       _expanded.retainWhere(retained.contains);
-      _rows = classificationPanelRows(plugin.trace,
-          hierarchy: _hierarchy, expanded: _expanded);
+      _rows = classificationPanelRows(
+        classification.trace,
+        hierarchy: _hierarchy,
+        expanded: _expanded,
+      );
       final preserved = _rows.indexWhere((r) => r.key == key);
       _selected = _focused && preserved >= 0
           ? preserved
           : (_rows.length - 1).clamp(0, _rows.length);
-      _revision = plugin.trace.revision;
+      _revision = classification.trace.revision;
     }
     if (!_focused && _rows.isNotEmpty)
-      _selected = _rows
-          .lastIndexWhere((r) => r.kind == ClassificationRowKind.classifier);
+      _selected = _rows.lastIndexWhere(
+        (r) => r.kind == ClassificationRowKind.classifier,
+      );
     final chat = context.chat.bounds;
     _slot?.requestSize(
-        height: _focused
-            ? chat.height
-            : _hierarchy
-                ? 14
-                : (_preview().length + 3).clamp(8, 14),
-        width: _focused ? 84 : 44,
-        focused: _focused);
+      height: _focused
+          ? chat.height
+          : _hierarchy
+          ? 14
+          : (_preview().length + 3).clamp(8, 14),
+      width: _focused ? 84 : 44,
+      focused: _focused,
+    );
     final area = _slot!.bounds;
     if (area.isEmpty) {
       _hide();
@@ -675,38 +721,41 @@ final class ClassificationPanel implements PanelInputTarget {
     final content = _details && _focused
         ? _detailLines(width)
         : _focused || _hierarchy
-            ? _rows.isEmpty
-                ? [plugin.status.label]
-                : [
-                    for (final (i, row) in _rows.indexed)
-                      '${i == _selected ? '› ' : '  '}${'  ' * row.depth.clamp(0, 4)}${row.depth > 0 ? '└ ' : ''}${row.label}'
-                  ]
-            : preview;
+        ? _rows.isEmpty
+              ? [classification.status.label]
+              : [
+                  for (final (i, row) in _rows.indexed)
+                    '${i == _selected ? '› ' : '  '}${'  ' * row.depth.clamp(0, 4)}${row.depth > 0 ? '└ ' : ''}${row.label}',
+                ]
+        : preview;
     _maxOffset = (content.length - _room).clamp(0, content.length);
     _offset = _focused
         ? _offset.clamp(0, _maxOffset)
         : _hierarchy
-            ? _maxOffset
-            : 0;
+        ? _maxOffset
+        : 0;
     final footer = _focused
         ? (_details
-            ? '↑↓ scroll · ← back · r ${_raw ? 'readable' : 'raw JSON'}'
-            : '↑↓ select · Space checks · → details · h all')
+              ? '↑↓ scroll · ← back · r ${_raw ? 'readable' : 'raw JSON'}'
+              : '↑↓ select · Space checks · → details · h all')
         : '/classification inspect · F6 hide';
     String paint(String text) => screen.colorize(
-        _focused
-            ? screen.theme.chat.cyan
-            : _highlighted
-                ? screen.theme.chat.yellow
-                : screen.theme.chat.dim,
-        text);
+      _focused
+          ? screen.theme.chat.cyan
+          : _highlighted
+          ? screen.theme.chat.yellow
+          : screen.theme.chat.dim,
+      text,
+    );
     String body(String text) {
       final fit = clipDialogText(_safe(text), width);
       return '${paint('│')} ${_styleLine(fit)}${' ' * (width - visibleWidth(fit))} ${paint('│')}';
     }
 
     final title = clipDialogText(
-        ' classification${_hierarchy ? ' · hierarchy' : ''} ', area.width - 2);
+      ' classification${_hierarchy ? ' · hierarchy' : ''} ',
+      area.width - 2,
+    );
     final lines = [
       paint('┌$title${'─' * (area.width - 2 - visibleWidth(title))}┐'),
       for (final line in content.skip(_offset).take(_room)) body(line),

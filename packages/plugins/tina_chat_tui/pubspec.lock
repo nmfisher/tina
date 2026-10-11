@@ -58,7 +58,7 @@ packages:
     source: hosted
     version: "1.4.1"
   classification:
-    dependency: "direct main"
+    dependency: transitive
     description:
       path: "../../classification"
       relative: true
@@ -476,20 +476,6 @@ packages:
     dependency: "direct main"
     description:
       path: "../tina_mode"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_plans:
-    dependency: "direct dev"
-    description:
-      path: "../tina_plans"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_plans_tui:
-    dependency: "direct dev"
-    description:
-      path: "../tina_plans_tui"
       relative: true
     source: path
     version: "0.1.0"

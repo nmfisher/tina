@@ -11,6 +11,68 @@ import 'category_learner_test.dart' show Provider, proposal;
 import 'typesafe_service_test.dart' show TestClient;
 
 void main() {
+  test('reader snapshots freeze nested metadata and retain their revision', () {
+    final plugin = ClassificationPlugin(terminal: Output(), open: () => null);
+    addTearDown(plugin.closeSession);
+    final questions = <String, Object?>{
+      'intent': {
+        'criteria': {
+          'projectQuestion': {'label': 'Project question'},
+        },
+        'examples': ['explain this'],
+      },
+    };
+    final answers = <String, Object?>{
+      'intent': {
+        'choice': 'projectQuestion',
+        'probabilities': {'projectQuestion': .99},
+      },
+    };
+    final exchange = plugin.trace.begin(
+      inputId: 'input',
+      title: 'Intent',
+      request: {},
+      questions: questions,
+    );
+    exchange.recordAnswers(answers);
+    final observation = plugin.observation;
+    final snapshot = observation.trace;
+    expect(observation, same(plugin.observation));
+    expect(snapshot, same(observation.trace));
+    final run = snapshot.exchanges.single;
+    ((questions['intent'] as Map)['examples'] as List).clear();
+    ((answers['intent'] as Map)['probabilities'] as Map).clear();
+    expect((run.questions['intent'] as Map)['examples'], ['explain this']);
+    expect((run.answers['intent'] as Map)['probabilities'], {
+      'projectQuestion': .99,
+    });
+    expect(() => snapshot.exchanges.clear(), throwsUnsupportedError);
+    expect(
+      () => (run.questions['intent'] as Map).clear(),
+      throwsUnsupportedError,
+    );
+    expect(
+      () => ((run.questions['intent'] as Map)['examples'] as List).clear(),
+      throwsUnsupportedError,
+    );
+    expect(
+      () => ((run.answers['intent'] as Map)['probabilities'] as Map).clear(),
+      throwsUnsupportedError,
+    );
+    exchange.complete({'answers': answers});
+    exchange.recordOutcome(const ClassificationOutcome('Project question'));
+    final current = observation.trace;
+    expect(current.revision, greaterThan(snapshot.revision));
+    expect(
+      current.exchanges.single.phase,
+      ClassificationExchangePhase.complete,
+    );
+    expect(current.exchanges.single.outcome!.label, 'Project question');
+    expect(run.phase, ClassificationExchangePhase.pending);
+    expect(run.response, isEmpty);
+    expect(run.outcome, isNull);
+  });
+
   test(
     'bounded history/payloads and cancelled exchanges reject late data',
     () async {

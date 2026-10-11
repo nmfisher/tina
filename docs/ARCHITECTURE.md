@@ -99,8 +99,13 @@ Dependency direction, top down only:
   - `console_catalog.dart` constructs presentation views for existing runtime
     features. Plans use `tina_plans` for the runtime `PlansPlugin` and
     `tina_plans_tui` for a fresh `PlansView` per attachment, reading immutable
-    snapshots through `PlanObservation`. Other features still use combined
-    contributions while their views migrate.
+    snapshots through `PlanObservation`. Classification uses the runtime
+    `ClassificationPlugin` from `classification` and an independent
+    `ClassificationView` from `tina_classification_tui`, reading immutable
+    trace snapshots through `ClassificationObservation`. View-local inspection
+    commands are routed to the submitting attachment without replacing runtime
+    command handlers. Other features still use combined contributions while
+    their views migrate.
   - `tui_terminal.dart` is the `Terminal` implementation a TUI session
     contributes: a text buffer plugins write lines into, and a queue of
     answers `ask` waits on. No terminal code in it despite the name.

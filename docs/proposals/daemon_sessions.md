@@ -6,8 +6,10 @@ Updated: 2026-10-11, against v0.9.56.
 Preparation status: phase 0 is complete. The
 [ownership and behavior baseline](session_ownership_baseline.md) records the
 command/settings inventory, existing coverage and added lifecycle
-characterization tests. Phase 1's plans slice is implemented: one runtime
-`PlansPlugin` supplies read-only state to independent `PlansView` instances.
+characterization tests. Phase 1's plans and classification slices are implemented:
+one runtime `PlansPlugin` supplies read-only state to independent `PlansView` instances.
+One runtime `ClassificationPlugin` supplies status and immutable trace snapshots
+to independent `ClassificationView` inspectors.
 The remaining feature views and later runtime/attachment phases are still pending.
 
 ## Assessment
@@ -36,7 +38,7 @@ replacement for their stores or change SQLite durability.
 | Application assembly | `TuiAssembly` runs without a screen, but its catalog constructs TUI plugins and supplies concrete tools, providers and settings to them. | A presentation-free runtime requires more than a file move. |
 | TUI lifetime | `app.dart` cancels the session on exit; `TuiSession.close` closes the assembly and host. | Detaching a client must become separate from stopping the runtime. |
 | Notifications | Assembly settings/watch callbacks, terminal output and plugin-manager callbacks each have one mutable callback slot. | Two clients would replace one another's callbacks. Introduce independently disposable subscriptions. |
-| Presentation | Plans now have independent views over a read-only feature observation. `ChatTuiPlugin` still holds one `ConsoleContext`; attaching a new console detaches the previous one. Classification and step-limit adapters still inherit their runtime plugins. | Continue creating presentation objects per attachment; compose them with feature capabilities instead of sharing or duplicating runtime plugins. |
+| Presentation | Plans and classification now have independent views over read-only feature observations. `ChatTuiPlugin` still holds one `ConsoleContext`; attaching a new console detaches the previous one. Step-limit and MCP adapters still inherit their runtime plugins. | Continue creating presentation objects per attachment; compose them with feature capabilities instead of sharing or duplicating runtime plugins. |
 | Live model output | `_ObservedProvider` delivers watch events only while the assembly's `turnObservation` marker is active. `TuiSession.runLine` controls that marker. | Observation must continue regardless of which client initiated a turn or remains attached. |
 | Approvals | `ApprovalsPlugin` has request IDs, pending requests, cancellation and single-response tickets. `StreamApprovalChannel` has one subscriber and denies pending requests when it unsubscribes. | Keep the approval service; add a runtime-owned broker instead of subscribing each TUI directly to this channel. |
 | Other questions | `TuiTerminal.ask` and `submitAnswer` match questions and answers by FIFO order, without request IDs. | Questions crossing the attachment boundary need correlated IDs and stale-response rejection too. |
@@ -255,9 +257,41 @@ passed (43). Analysis is clean in all three affected UI/application packages.
 The architecture check passes without new exceptions, and the new package has
 a CI job selected through the existing dependency graph.
 
-Convert presentation adapters that inherit runtime plugins into separate views
-that receive the feature's state/operation capability. Start with plans,
-classification, step limits and MCP; then separate mode, context, activity,
+**Classification slice implemented.** The runtime catalog constructs one plain
+`ClassificationPlugin` from the terminal-independent `classification` package.
+The dedicated `tina_classification_tui` package owns `ClassificationView`, its
+panel and tests, with production dependencies only on `classification` and
+`tina_console`. Views share a concrete `ClassificationObservation` exposing
+status, immutable trace snapshots and existing change streams. Snapshot exchange
+records and nested question/answer metadata cannot be mutated by readers; one
+snapshot is cached per trace revision and shared between views.
+
+Selection, expansion, detail/raw mode, scrolling, focus, shortcuts, animations
+and subscriptions belong to each view. Detaching all inspectors leaves ongoing
+inference and category learning with the runtime. Reattaching reads the current
+trace without opening another classifier lease or making another model call.
+The regular TUI and workspace session views both use the presentation factory
+for initial and live plugin loading.
+
+Classification inspection commands use the optional `ConsoleCommandHandler`
+capability, dispatched to the submitting attachment. Runtime registration and
+its `allowWhileRunning` flag still govern command availability. `/classification`
+and `/classification hierarchy` inspect that view; `/classification categories`
+and headless commands use the runtime handler. Inspection does not replace a
+handler in the shared session command registry. This is a narrow view command
+seam; the later session input/approval routing phases remain necessary.
+
+Classification validation: the complete runtime suite passed (242), the new
+inspector suite passed (17), and the remaining chat suite passed (99). The TUI
+suite passed (356, excluding the compiled-smoke tag and with three existing
+opt-in PTY suites skipped), including independent view commands and live reload
+through both entry paths. Architecture tests passed (43), analysis is clean in
+all five affected packages, and the architecture check has no new exceptions.
+The new package has a CI job selected through the existing dependency graph.
+
+Convert the remaining presentation adapters that inherit runtime plugins into
+separate views that receive the feature's state/operation capability. Continue
+with step limits and MCP; then separate mode, context, activity,
 chat, updates, session controls and workspace panels.
 
 Chat views must own their own renderer, markdown state, folds, selection,

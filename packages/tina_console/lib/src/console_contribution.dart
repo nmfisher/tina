@@ -18,6 +18,12 @@ abstract interface class ConsoleContribution {
   void detachConsole();
 }
 
+/// Optional view-local handling of a published runtime command. Return null
+/// to retain the runtime handler, including when no console is attached.
+abstract interface class ConsoleCommandHandler {
+  Future<void>? handleConsoleCommand(String name, String arguments);
+}
+
 /// Explicit frontend capabilities. Key reads share the editor's input owner.
 final class ConsoleContext {
   ConsoleContext(

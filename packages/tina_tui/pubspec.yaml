@@ -23,6 +23,8 @@ dependencies:
     path: ../plugins/tina_mode
   classification:
     path: ../classification
+  tina_classification_tui:
+    path: ../plugins/tina_classification_tui
   tina_grok_guard:
     path: ../plugins/tina_grok_guard
   tina_chat_tui:

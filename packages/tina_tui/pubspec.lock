@@ -466,6 +466,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_classification_tui:
+    dependency: "direct main"
+    description:
+      path: "../plugins/tina_classification_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_compaction:
     dependency: "direct main"
     description:
