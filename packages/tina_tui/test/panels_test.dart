@@ -579,7 +579,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
               // v0.9.50: confined read-only runs execute it without asking.
               // printf is not certified, so this request still asks, and it
               // still prints the per-turn text the assertions check for.
-              'program': outside ? '/bin/false' : '/bin/printf',
+              'program': outside ? '/usr/bin/false' : '/usr/bin/printf',
               'args': ['%s\\n', text],
               if (network) 'network': true,
               if (network) 'network_reason': 'test session network approval',

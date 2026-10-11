@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 
-export 'package:tina_core/tina_core.dart'
+export 'package:tina_engine_2/tina_engine_2.dart'
     show estimateRequestTokensUtf8;
 
 /// Counts the provider-neutral serialized request. Embedders may substitute a

@@ -47,10 +47,8 @@ void main() {
     expect(texts(context.messages), ['the whole exchange, summarized']);
     expect(context.revision, 1);
     expect(
-        context.messages
-            .singleWhere((m) => m.isSynthetic)
-            .content
-            .single is TextBlock,
+        context.messages.singleWhere((m) => m.isSynthetic).content.single
+            is TextBlock,
         isTrue);
     // Derivation still works — no "compaction cannot follow an edit".
     expect(() => loop.derive(), returnsNormally);
@@ -77,19 +75,70 @@ void main() {
         provider: provider, plugins: [plugin], seedLog: completedHistory());
     loop.mountPlugin(plugin);
     final before = loop.log.length;
-    // Core derive has 2 messages; 0..5 passes the loop's own range check
-    // only if the projection's list is longer — shrink it first so the
-    // projection is the one that refuses.
+    // Core derive has 2 messages; index 1 passes its range check, but is
+    // outside the edited projection.
     plugin.replaceWorkingContext(
         expectedRevision: 0,
         expectedThroughSeq: 3,
         messages: [text('only one now')]);
-    expect(() => loop.compact(1, 1, 'too far'),
-        throwsA(isA<StateError>()));
+    expect(() => loop.compact(1, 1, 'too far'), throwsA(isA<StateError>()));
     expect(loop.log.length, before + 1,
         reason: 'only the edit snapshot was appended, never a compacted '
             'entry or a half-served splice');
     expect(
         [for (final e in loop.log) e.kind], everyElement(isNot('compacted')));
+  });
+
+  for (final replacement in [
+    [text('a', Role.assistant)],
+    [text('different question'), text('different answer', Role.assistant)],
+    [text('a', Role.assistant), text('q')],
+    [
+      text('inserted'),
+      ...[text('q'), text('a', Role.assistant)]
+    ],
+  ]) {
+    for (final resume in [false, true]) {
+      test(
+          'in-bounds compaction refuses a divergent projection '
+          '${texts(replacement)} (resume: $resume)', () {
+        var plugin = ContextPlugin();
+        var loop = AgentLoop(
+            provider: ScriptedProvider([]),
+            plugins: [plugin],
+            seedLog: completedHistory());
+        loop.mountPlugin(plugin);
+        plugin.replaceWorkingContext(
+            expectedRevision: 0, expectedThroughSeq: 3, messages: replacement);
+        if (resume) {
+          final seed = List<SessionEntry>.of(loop.log);
+          plugin = ContextPlugin();
+          loop = AgentLoop(
+              provider: ScriptedProvider([]), plugins: [plugin], seedLog: seed);
+          loop.mountPlugin(plugin);
+        }
+        final before = List<SessionEntry>.of(loop.log);
+        expect(() => loop.compact(0, 0, 'summary of original question'),
+            throwsStateError);
+        expect(loop.log, before);
+        expect(texts(plugin.workingContext.messages), texts(replacement));
+      });
+    }
+  }
+
+  test('a snapshot with unchanged content can still be compacted', () {
+    final plugin = ContextPlugin();
+    final loop = AgentLoop(
+        provider: ScriptedProvider([]),
+        plugins: [plugin],
+        seedLog: completedHistory());
+    loop.mountPlugin(plugin);
+    plugin.replaceWorkingContext(
+        expectedRevision: 0,
+        expectedThroughSeq: 3,
+        messages: [text('q'), text('a', Role.assistant)]);
+    loop.compact(0, 1, 'summary');
+    expect(texts(plugin.workingContext.messages), ['summary']);
+    expect(plugin.workingContext.revision, 2);
   });
 }

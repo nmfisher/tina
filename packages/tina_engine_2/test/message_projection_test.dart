@@ -49,15 +49,14 @@ void main() {
   }
 
   test('no projection: CompactedEntry exactly as before', () async {
-    final loop = await turnedLoop();
+    final loop = await turnedLoop(plugins: [const _Plain()]);
     loop.compact(0, 1, 'summary');
     expect(kinds(loop.log).last, 'compacted');
     final entry = loop.log.last as CompactedEntry;
     expect(entry.replacedFrom, 0);
     expect(entry.replacedTo, 1);
     expect(entry.summary, 'summary');
-    expect(
-        [for (final m in loop.derive().messages) m.content.single],
+    expect([for (final m in loop.derive().messages) m.content.single],
         hasLength(1));
     expect(loop.derive().messages.single.isSynthetic, isTrue);
     expect((loop.derive().messages.single.content.single as TextBlock).text,

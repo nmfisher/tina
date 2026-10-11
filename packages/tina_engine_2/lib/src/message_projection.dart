@@ -33,8 +33,10 @@ typedef MessageSplice = ({int from, int to, String summary});
 ///   histories.
 /// - The loop validates the splice against the core derive BEFORE any
 ///   projection runs, so both branches start from the same precondition.
-///   A projection whose list has diverged (context edits shrink or grow
-///   it) throws on a splice its own index space cannot express.
+///   A projection must also verify that these positions still address the
+///   same messages in its own view. Bounds checks alone are insufficient:
+///   edits may shift, reorder, or replace messages without changing length.
+///   Without a verified mapping, a divergent projection must throw.
 abstract interface class MessageProjection {
   /// Serve [splice] against this projection: rewrite the projected
   /// messages and durably record the result, then return true. Return

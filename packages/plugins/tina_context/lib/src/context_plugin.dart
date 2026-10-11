@@ -29,10 +29,10 @@ final class ContextPersistenceFailure extends StateError {
 ///
 /// The splice arrives in core-derive index space; the loop has already
 /// validated it against the core view. This projection's list may have
-/// diverged from that view through context edits, so the range is
-/// re-checked against the list this plugin will actually rewrite before
-/// anything is appended — a range it cannot express throws, with the
-/// log untouched, rather than splicing the wrong messages.
+/// diverged from that view through context edits. Both views must match
+/// before applying core positions to the projection; otherwise compaction
+/// throws with the log untouched. Bounds alone cannot detect shifted or
+/// rewritten messages.
 
 /// Explicitly opt-in. A file mirror is enabled only with an explicit path.
 final class ContextPlugin extends AgentPlugin implements MessageProjection {
@@ -234,8 +234,8 @@ final class ContextPlugin extends AgentPlugin implements MessageProjection {
   /// throws instead, leaving the log untouched for the host to decide.
   ///
   /// The splice's positions are core-derive indices; the projection's
-  /// own list may have diverged (context edits), so the range is checked
-  /// against the list about to be rewritten. On success the summary
+  /// own list may have diverged (context edits), so both the range and
+  /// message contents are checked before rewriting. On success the summary
   /// replaces the range as one synthetic user message — the exact shape
   /// core derive gives a [CompactedEntry] — recorded through
   /// [replaceWorkingContext] so cursors advance, budget sees the shrink,
@@ -251,9 +251,15 @@ final class ContextPlugin extends AgentPlugin implements MessageProjection {
           'Compaction range ${splice.from}..${splice.to} does not address '
           'the working context (${messages.length} messages)');
     }
+    if (!sameMessages(messages, _mounted.derive().messages)) {
+      throw StateError('Compaction addresses the original history, but the '
+          'working context has changed. Edit the working context instead.');
+    }
     final compacted = [
       ...messages.sublist(0, splice.from),
-      Message(role: Role.user, content: [TextBlock(splice.summary)],
+      Message(
+          role: Role.user,
+          content: [TextBlock(splice.summary)],
           isSynthetic: true),
       ...messages.sublist(splice.to + 1),
     ];

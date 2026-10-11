@@ -73,19 +73,14 @@ class SandboxedFileSystem implements FileSystem {
   // This permits atomic replacement without approving unrelated siblings.
   final Map<String, String> _temporaryTargets = {};
 
-  /// Zone-keyed authorizations granted for the duration of ONE tool
-  /// operation. A tool operation consults the boundary once at its entry
-  /// point (via ToolFileSystem.guard); the seam methods it then calls
-  /// (writeFile, createTempFile, rename, delete behind an atomic write) each
-  /// guard again internally — those re-entrances must recognize the decision
-  /// already made for this operation instead of asking the approver over and
-  /// over (six dialogs for one out-of-project write before this existed).
-  ///
-  /// A Dart [Zone] carries the grant, so concurrent tool operations on the
-  /// same sandbox never see each other's authorizations, and an authorization
-  /// cannot outlive the operation that earned it (unlike a bool field, which
-  /// would leak across interleaved async operations).
+  /// Each operation gets a separate zone carrying its exact approved target.
+  /// Nested operations can use active enclosing approvals without sharing
+  /// their own approvals with sibling operations. Explicit expiry also covers
+  /// async work that inherits the zone but outlives the operation.
   static final Object _authorizedOps = Object();
+
+  /// Check the boundary once, without retaining an operation-scoped grant.
+  Future<void> authorize(FileOp op, String path) => guard(op, path);
 
   /// Runs [body] with [op] at the canonical [path] pre-authorized: any
   /// [guard] with the same operation and resolved target inside [body] —
@@ -93,36 +88,18 @@ class SandboxedFileSystem implements FileSystem {
   /// still run on every interior guard; only the table/approver step is
   /// skipped, and only for the exact authorized target.
   ///
-  /// The one decision for the operation is made HERE, before the zone
-  /// exists: [authorize] runs the same structural + table/approver path any
-  /// bare [guard] would, so an ask still reaches the [approver] exactly once
-  /// and a refusal throws before [body] starts. The zone then only carries
-  /// bookkeeping for the seam's internal re-entrances.
-  /// The one decision point for a single tool operation: the same path any
-  /// bare [guard] takes — structural checks, then the operation × mode table
-  /// ([decideOperation]) with the current [mode]. A [ToolVerdict.ask] goes
-  /// to the [approver] exactly once; a refusal throws [SandboxViolation].
-  /// Does not authorize anything: pair with [authorizeOperation] when the
-  /// operation continues through the seam's internally-guarded methods.
-  Future<void> authorize(FileOp op, String path) => guard(op, path);
-
+  /// The target comes from the decision itself: resolving the input again
+  /// after approval could silently grant a different symlink target.
   Future<T> authorizeOperation<T>(
       FileOp op, String path, Future<T> Function() body) async {
-    // The decision happens once, here, zone-free: without this the zone
-    // below would pre-authorize a target nobody ever decided on, and an
-    // out-of-workspace write would run without the approver ever firing.
-    await authorize(op, path);
-    final target = await resolveCanonical(path);
-    final existing = Zone.current[_authorizedOps];
-    final ops = existing ?? _AuthorizedOps();
-    ops.add(op, target);
-    final result = await (existing != null
-        ? body()
-        : runZoned(body, zoneValues: {_authorizedOps: ops}));
-    // The zone dies with body; the local mutation only matters when we
-    // joined an enclosing scope.
-    if (existing != null) ops.remove(op, target);
-    return result;
+    final target = await _authorizeTarget(op, path);
+    final scope = _AuthorizationScope(
+        this, op, target, Zone.current[_authorizedOps] as _AuthorizationScope?);
+    try {
+      return await runZoned(body, zoneValues: {_authorizedOps: scope});
+    } finally {
+      scope.active = false;
+    }
   }
 
   Future<String>? _rootFuture;
@@ -228,10 +205,9 @@ class SandboxedFileSystem implements FileSystem {
   Future<String> createTempFile({required String near}) async {
     // The temp lives in the same dir as `near`; guard `near` as a write so a
     // temp can't be staged outside the root / inside tina.
-    await guard(FileOp.write, near);
+    final approvedTarget = await _authorizeTarget(FileOp.write, near);
     final tmp = await _inner.createTempFile(near: near);
-    _temporaryTargets[await resolveCanonical(tmp)] =
-        await resolveCanonical(near);
+    _temporaryTargets[await resolveCanonical(tmp)] = approvedTarget;
     return tmp;
   }
 
@@ -246,17 +222,21 @@ class SandboxedFileSystem implements FileSystem {
   /// skips only the table/approver step for the authorized target; structural
   /// checks always run.
   Future<void> guard(FileOp op, String path) async {
+    await _authorizeTarget(op, path);
+  }
+
+  Future<String> _authorizeTarget(FileOp op, String path) async {
     final target = await resolveCanonical(path);
     await assertOutsideTina(target);
     final approvedTarget = _temporaryTargets[target] ?? target;
     await assertOutsideTina(approvedTarget);
-    final authorized = Zone.current[_authorizedOps];
-    if (authorized != null && authorized.contains(op, approvedTarget)) {
-      return;
+    final authorized = Zone.current[_authorizedOps] as _AuthorizationScope?;
+    if (authorized?.allows(this, op, approvedTarget) == true) {
+      return approvedTarget;
     }
     if (op == FileOp.write &&
         writeDirectories?.allows(approvedTarget) == true) {
-      return;
+      return approvedTarget;
     }
     final request = (op: op, path: approvedTarget);
     final decision = decideOperation(
@@ -267,7 +247,7 @@ class SandboxedFileSystem implements FileSystem {
     );
     switch (decision.verdict) {
       case ToolVerdict.allow:
-        return;
+        return approvedTarget;
       case ToolVerdict.deny:
         throw SandboxViolation(decision.reason);
       case ToolVerdict.ask:
@@ -276,12 +256,17 @@ class SandboxedFileSystem implements FileSystem {
           throw SandboxViolation('${decision.reason} — denied: no approver '
               'is wired to approve it');
         }
-        switch (await approver(request, decision.reason)) {
+        final approval = await approver(request, decision.reason);
+        if (approval != Approval.no && await resolveCanonical(path) != target) {
+          throw SandboxViolation(
+              'Path changed while awaiting approval: ${p.basename(path)}');
+        }
+        switch (approval) {
           case Approval.yes:
-            return;
+            return approvedTarget;
           case Approval.always:
             grants.rememberExact(approvedTarget);
-            return;
+            return approvedTarget;
           case Approval.no:
             throw SandboxViolation('${decision.reason} — denied by the user');
         }
@@ -397,21 +382,28 @@ Future<String> _resolveExisting(String path) async {
   }
 }
 
-/// The (operation, canonical target) pairs authorized for one in-flight tool
-/// operation. Mutable because [SandboxedFileSystem.authorizeOperation] joins
-/// an enclosing scope when tools nest; the zone scoping keeps concurrent
-/// operations isolated.
-final class _AuthorizedOps {
-  final Map<FileOp, Set<String>> _ops = {};
+/// An approval belongs to this boundary and this invocation, including when
+/// another filesystem is called from the same zone or async work escapes it.
+final class _AuthorizationScope {
+  _AuthorizationScope(this.boundary, this.op, this.target, this.parent);
 
-  void add(FileOp op, String target) {
-    (_ops[op] ??= {}).add(target);
+  final SandboxedFileSystem boundary;
+  final FileOp op;
+  final String target;
+  final _AuthorizationScope? parent;
+  bool active = true;
+
+  bool allows(SandboxedFileSystem boundary, FileOp op, String target) {
+    var matches = false;
+    for (_AuthorizationScope? scope = this;
+        scope != null;
+        scope = scope.parent) {
+      // A nested operation cannot extend the lifetime of an inherited grant.
+      if (!scope.active) return false;
+      if (identical(scope.boundary, boundary) &&
+          scope.op == op &&
+          scope.target == target) matches = true;
+    }
+    return matches;
   }
-
-  void remove(FileOp op, String target) {
-    _ops[op]?.remove(target);
-  }
-
-  bool contains(FileOp op, String target) =>
-      _ops[op]?.contains(target) ?? false;
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -39,6 +40,149 @@ void main() {
   });
 
   tearDown(() => root.deleteSync(recursive: true));
+
+  group('operation approval stays scoped to its target and lifetime', () {
+    test('changing a symlink during approval cannot authorize its new target',
+        () async {
+      final approved = Directory(p.join(root.path, 'approved'))..createSync();
+      final refused = Directory(p.join(root.path, 'refused'))..createSync();
+      final victim = File(p.join(refused.path, 'note.txt'))
+        ..writeAsStringSync('original');
+      final alias = Link(p.join(workspace.path, 'alias'))
+        ..createSync(approved.path);
+      final approvedPath =
+          p.join(approved.resolveSymbolicLinksSync(), 'note.txt');
+      sandbox.approver = (request, reason) async {
+        if (request.path != approvedPath) return Approval.no;
+        alias.updateSync(refused.path);
+        return Approval.yes;
+      };
+
+      final tool = WriteTool(fs: sandbox, workspaceRoot: workspace.path);
+      final result = await tool.execute({
+        'filePath': p.join(alias.path, 'note.txt'),
+        'content': 'unauthorized change',
+      });
+      expect(result.isError, isTrue);
+      expect(victim.readAsStringSync(), 'original');
+    });
+
+    test('nested approval does not replace the enclosing approval', () async {
+      final path = p.join(root.path, 'nested.txt');
+      await sandbox.authorizeOperation(FileOp.write, path, () async {
+        await sandbox.authorizeOperation(FileOp.write, path, () async {
+          await sandbox.writeFile(path, 'nested');
+        });
+        sandbox.approver = (request, reason) async => Approval.no;
+        await sandbox.writeFile(path, 'outer');
+      });
+      expect(File(path).readAsStringSync(), 'outer');
+      expect(spy.calls, 1);
+    });
+
+    test('a failed nested operation cannot leave its approval behind',
+        () async {
+      final outer = p.join(root.path, 'outer.txt');
+      final inner = p.join(root.path, 'inner.txt');
+      await sandbox.authorizeOperation(FileOp.write, outer, () async {
+        await expectLater(
+            sandbox.authorizeOperation(FileOp.write, inner, () async {
+              throw StateError('failed operation');
+            }),
+            throwsStateError);
+        sandbox.approver = (request, reason) async => Approval.no;
+        await expectLater(sandbox.writeFile(inner, 'unauthorized'),
+            throwsA(isA<SandboxViolation>()));
+      });
+      expect(File(inner).existsSync(), isFalse);
+    });
+
+    test('concurrent nested operations cannot use each other\'s approval',
+        () async {
+      final path = p.join(root.path, 'concurrent.txt');
+      final entered = Completer<void>();
+      final finish = Completer<void>();
+      await sandbox.authorizeOperation(
+          FileOp.write, p.join(root.path, 'outer.txt'), () async {
+        final pending =
+            sandbox.authorizeOperation(FileOp.write, path, () async {
+          entered.complete();
+          await finish.future;
+        });
+        await entered.future;
+        sandbox.approver = (request, reason) async => Approval.no;
+        try {
+          await expectLater(sandbox.writeFile(path, 'unauthorized'),
+              throwsA(isA<SandboxViolation>()));
+        } finally {
+          finish.complete();
+          await pending;
+        }
+      });
+      expect(File(path).existsSync(), isFalse);
+    });
+
+    for (final fails in [false, true]) {
+      test(
+          'detached async work loses approval after ${fails ? 'failure' : 'success'}',
+          () async {
+        final path = p.join(root.path, 'detached.txt');
+        final resume = Completer<void>();
+        late Future<void> detached;
+        final operation =
+            sandbox.authorizeOperation(FileOp.write, path, () async {
+          detached = () async {
+            await resume.future;
+            await sandbox.writeFile(path, 'unauthorized');
+          }();
+          if (fails) throw StateError('failed operation');
+        });
+        if (fails) {
+          await expectLater(operation, throwsStateError);
+        } else {
+          await operation;
+        }
+        sandbox.approver = (request, reason) async => Approval.no;
+        final denied = expectLater(detached, throwsA(isA<SandboxViolation>()));
+        resume.complete();
+        await denied;
+        expect(File(path).existsSync(), isFalse);
+      });
+    }
+
+    test('a nested operation cannot extend an inherited approval', () async {
+      final path = p.join(root.path, 'inherited.txt');
+      final entered = Completer<void>();
+      final resume = Completer<void>();
+      late Future<void> nested;
+      await sandbox.authorizeOperation(FileOp.write, path, () async {
+        nested = sandbox.authorizeOperation(FileOp.write, path, () async {
+          entered.complete();
+          await resume.future;
+          await sandbox.writeFile(path, 'unauthorized');
+        });
+        await entered.future;
+      });
+      sandbox.approver = (request, reason) async => Approval.no;
+      final denied = expectLater(nested, throwsA(isA<SandboxViolation>()));
+      resume.complete();
+      await denied;
+      expect(File(path).existsSync(), isFalse);
+    });
+
+    test('an approval belongs to one filesystem boundary', () async {
+      final path = p.join(root.path, 'separate-boundary.txt');
+      final other = SandboxedFileSystem(const IoFileSystem(),
+          workspaceRoot: workspace.path,
+          tinaDir: tinaDir,
+          approver: (request, reason) async => Approval.no);
+      await sandbox.authorizeOperation(FileOp.write, path, () async {
+        await expectLater(other.writeFile(path, 'unauthorized'),
+            throwsA(isA<SandboxViolation>()));
+      });
+      expect(File(path).existsSync(), isFalse);
+    });
+  });
 
   group('guard fires exactly once per tool operation', () {
     test('write inside the workspace never asks under allowEdits', () async {
