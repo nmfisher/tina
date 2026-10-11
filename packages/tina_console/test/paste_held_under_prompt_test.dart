@@ -46,6 +46,26 @@ void main() {
     late FakeStdio io;
     setUp(() => io = FakeStdio());
 
+    test('external dialog cancellation preserves a held conversation draft',
+        () async {
+      final (editor, _) = _rig(io);
+      addTearDown(editor.close);
+      final line = editor.readLine('> ');
+      await _flush();
+      final cancelled = Completer<void>();
+      final approval =
+          editor.readKey(globalKeys: true, cancelSignal: cancelled.future);
+      await _flush();
+      editor.inject(PasteInput('draft held during approval'));
+      cancelled.complete();
+      expect(await approval, ControlKey(ControlCode.ctrlC));
+      await _flush();
+      expect(editor.quitRequested, isFalse);
+      expect(editor.draftText, 'draft held during approval');
+      editor.inject(ControlKey(ControlCode.enter));
+      expect(await line, 'draft held during approval');
+    });
+
     test('text fields receive fresh paste and preserve paste held before entry',
         () async {
       final (editor, _) = _rig(io);

@@ -524,6 +524,8 @@ class LineEditor {
       if (identical(_keyCompleter, c)) {
         _keyCompleter = null;
         c.complete(ControlKey(ControlCode.ctrlC));
+        // Cancelling just the dialog preserves the conversation draft.
+        // Emergency cancellation and quit clear held pastes themselves.
         _scheduleHeldPasteDelivery();
       }
     });
@@ -685,6 +687,11 @@ class LineEditor {
     }
     scheduleMicrotask(() {
       if (_heldPastes.isEmpty) return;
+      // A scheduled delivery must not resurrect a draft after quit.
+      if (quitRequested) {
+        _heldPastes.clear();
+        return;
+      }
       // Text pasted before entering a prompt's editor belongs to the draft,
       // not to that newly opened field. Only fresh pastes enter the field.
       if (_inputSession?.acceptPaste == true ||
@@ -960,12 +967,19 @@ class LineEditor {
     // (approval / overlay prompt) is armed completes it with ctrlC so the
     // awaiting code settles as cancelled instead of hanging.
     if (event is ControlKey && event.code == ControlCode.ctrlC) {
-      final hasDraft =
-          _queueModeActive ? _qEdit.buffer.isNotEmpty : _edit.buffer.isNotEmpty;
+      // A paste held behind an approval is still a draft. The first Ctrl+C
+      // discards it; it must not quit or answer the approval.
+      final hasDraft = _heldPastes.isNotEmpty ||
+          (_inputSession?.heldPastes.isNotEmpty ?? false) ||
+          (_queueModeActive
+              ? _qEdit.buffer.isNotEmpty
+              : _edit.buffer.isNotEmpty);
       if (hasDraft) {
         _activePicker?.closeState();
         _lastEsc = null;
         _capturedDraft = null;
+        _heldPastes.clear();
+        _inputSession?.heldPastes.clear();
         if (_queueModeActive) {
           _qEdit = const TextLineInput();
           _renderQueueDisplay();

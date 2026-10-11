@@ -65,33 +65,38 @@ void main() {
   });
 
   for (final busy in [false, true]) {
-    test('approval with draft (busy=$busy): clear, then quit', () async {
-      final (_, editor) = rig();
-      final line = editor.readLine('> ');
-      await flush();
-      var cancelled = false;
-      final submitted = <String>[];
-      if (busy) {
-        editor.beginCancelMonitor(() => cancelled = true,
-            onQueueSubmit: submitted.add);
-      }
-      editor.inject(PasteInput('draft\nwith multiple lines'));
-      var answered = false;
-      final approval = editor.readKey(globalKeys: true);
-      approval.then((_) => answered = true);
-      editor.inject(ControlKey(ControlCode.ctrlC));
-      await flush();
-      expect(editor.quitRequested, isFalse);
-      expect(editor.draftText, isEmpty);
-      expect(answered, isFalse);
-      expect(cancelled, isFalse);
-      expect(submitted, isEmpty);
-      editor.inject(ControlKey(ControlCode.ctrlC));
-      expect(await approval, ControlKey(ControlCode.ctrlC));
-      expect(await line, isNull);
-      expect(editor.quitRequested, isTrue);
-      expect(cancelled, isFalse);
-    });
+    for (final held in [false, true]) {
+      test('approval with draft (busy=$busy, held=$held): clear, then quit',
+          () async {
+        final (_, editor) = rig();
+        final line = editor.readLine('> ');
+        await flush();
+        var cancelled = false;
+        final submitted = <String>[];
+        if (busy) {
+          editor.beginCancelMonitor(() => cancelled = true,
+              onQueueSubmit: submitted.add);
+        }
+        if (!held) editor.inject(PasteInput('draft\nwith multiple lines'));
+        var answered = false;
+        final approval = editor.readKey(globalKeys: true);
+        approval.then((_) => answered = true);
+        await flush();
+        if (held) editor.inject(PasteInput('draft\nwith multiple lines'));
+        editor.inject(ControlKey(ControlCode.ctrlC));
+        await flush();
+        expect(editor.quitRequested, isFalse);
+        expect(editor.draftText, isEmpty);
+        expect(answered, isFalse);
+        expect(cancelled, isFalse);
+        expect(submitted, isEmpty);
+        editor.inject(ControlKey(ControlCode.ctrlC));
+        expect(await approval, ControlKey(ControlCode.ctrlC));
+        expect(await line, isNull);
+        expect(editor.quitRequested, isTrue);
+        expect(cancelled, isFalse);
+      });
+    }
   }
 
   test('busy draft clears without losing submitted messages', () async {

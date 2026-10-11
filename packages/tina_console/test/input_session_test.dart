@@ -202,6 +202,32 @@ void main() {
     expect(await draft, 'old new');
   });
 
+  test('Ctrl+C clears paste held by an approval without closing it', () async {
+    final draft = editor.readLine('> ');
+    await tick();
+    final approval =
+        editor.openInputSession(globalKeys: true, acceptPaste: false);
+    var answered = false;
+    final answer = approval.read().then((event) {
+      answered = true;
+      return event;
+    });
+    io.feedBytes('\x1b[200~held draft\x1b[201~\x03'.codeUnits);
+    await tick();
+    expect(editor.quitRequested, false);
+    expect(editor.draftText, isEmpty);
+    expect(approval.isClosed, false);
+    expect(answered, false);
+    io.feedBytes('n'.codeUnits);
+    expect(await answer, CharInput('n'));
+    approval.dispose();
+    await tick();
+    expect(editor.draftText, isEmpty,
+        reason: 'the discarded paste must not reappear when the dialog closes');
+    io.feedBytes('replacement\r'.codeUnits);
+    expect(await draft, 'replacement');
+  });
+
   test('fresh paste belongs to the owned form field', () async {
     final input = editor.openInputSession();
     io.feedBytes('\x1b[200~filter\x1b[201~\r'.codeUnits);
