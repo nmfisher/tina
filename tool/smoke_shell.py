@@ -12,7 +12,7 @@ import time
 
 sys.dont_write_bytecode = True
 from smoke_engine2 import ModelStub, Terminal
-from smoke_classification_panel import screen_text
+from smoke_classification_panel import terminal_grid
 
 
 def smoke(launcher, endpoint, backend, panels):
@@ -37,9 +37,12 @@ def smoke(launcher, endpoint, backend, panels):
                  LANG='en_US.UTF-8'), 120, 28)
         before = len(ModelStub.requests)
 
+        def grid():
+            return terminal_grid(terminal, 120, 28)
+
         def visible(text):
             terminal.wait_for(
-                lambda: text in screen_text(terminal.output, 120, 28),
+                lambda: text in grid(),
                 f'{backend}: shell display does not contain {text!r}', timeout=20)
 
         def submit(command, *, busy=False):
@@ -86,7 +89,7 @@ def smoke(launcher, endpoint, backend, panels):
                               '/shell command waited for the active model turn')
             assert not ModelStub.release_stream.is_set(), 'model turn finished before shell dispatch'
             assert len(ModelStub.requests) == before + 1, 'busy shell called the model'
-            display = screen_text(terminal.output, 120, 28)
+            display = grid()
             assert 'queued]' not in display, 'immediate shell is shown as queued'
             assert 'Message queued' not in display, 'immediate shell emitted a queue notice'
             ModelStub.release_stream.set()
@@ -100,7 +103,7 @@ def smoke(launcher, endpoint, backend, panels):
             terminal.expect_idle()
             terminal.send('\x03')
             terminal.wait_for(
-                lambda: 'DRAFT_THAT_MUST_CLEAR' not in screen_text(terminal.output, 120, 28),
+                lambda: 'DRAFT_THAT_MUST_CLEAR' not in grid(),
                 'Ctrl+C did not clear the idle draft')
             assert terminal.process.poll() is None, 'clearing a draft quit the app'
             ModelStub.release_stream.clear()
@@ -114,14 +117,14 @@ def smoke(launcher, endpoint, backend, panels):
             ModelStub.release_stream.set()
             terminal.expect_idle()
             terminal.wait_for(
-                lambda: 'draft answer' in screen_text(terminal.output, 120, 28),
+                lambda: 'draft answer' in grid(),
                 'model turn for quit check did not finish')
             terminal.send('BUSY_DRAFT_THAT_MUST_CLEAR')
             visible('BUSY_DRAFT_THAT_MUST_CLEAR')
             terminal.expect_idle()
             terminal.send('\x03')
             terminal.wait_for(
-                lambda: 'BUSY_DRAFT_THAT_MUST_CLEAR' not in screen_text(terminal.output, 120, 28),
+                lambda: 'BUSY_DRAFT_THAT_MUST_CLEAR' not in grid(),
                 'Ctrl+C did not clear the busy draft')
             assert terminal.process.poll() is None, 'clearing a busy draft quit the app'
             assert not (root / 'quit_stopped').exists(), 'clearing a draft cancelled work'
@@ -131,7 +134,7 @@ def smoke(launcher, endpoint, backend, panels):
             print(f'PASS shell {backend}, panels={panels}: output, exit code, immediate dispatch, cancellation after model turn, Ctrl+C clear/quit',
                   flush=True)
         except Exception:
-            print(screen_text(terminal.output, 120, 28), flush=True)
+            print(grid(), flush=True)
             raise
         finally:
             ModelStub.release_stream.set()

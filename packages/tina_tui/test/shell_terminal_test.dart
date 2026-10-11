@@ -19,5 +19,7 @@ void main() {
       Platform.resolvedExecutable,
     ]);
     expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
-  }, skip: Platform.isWindows, timeout: const Timeout(Duration(minutes: 3)));
+    // Four JIT launches share this budget and run alongside the full CLI smoke
+    // suite in CI. Individual terminal operations retain their shorter deadlines.
+  }, skip: Platform.isWindows, timeout: const Timeout(Duration(minutes: 6)));
 }
