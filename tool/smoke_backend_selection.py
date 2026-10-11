@@ -48,6 +48,9 @@ def smoke(launcher, endpoint, selection, term, expected):
                               f'input did not reach the model: {text}')
             terminal.wait_for(lambda: grid().count('smoke answer') > answers_before,
                               'model reply did not appear in the terminal grid')
+            # A streamed reply can appear before the turn finishes saving and
+            # restores the idle prompt. Only then test for redundant redraws.
+            visible('smoke >')
             terminal.expect_idle()
 
         try:
