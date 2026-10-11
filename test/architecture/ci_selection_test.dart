@@ -126,6 +126,38 @@ void main() {
       {'tina'},
     );
   });
+  test('known executable smoke fixtures select UI consumers only', () {
+    final smokeDirectories = {...directories, 'tina_tui': 'packages/tina_tui'};
+    final smokeDependencies = {
+      ...dependencies,
+      'tina': {'tina_tui'},
+      'tina_tui': <String>{},
+    };
+    for (final file in executableSmokeFiles) {
+      expect(selectPackages([file], smokeDirectories, smokeDependencies), {
+        'tina_tui',
+        'tina',
+      }, reason: file);
+    }
+    expect(
+      selectPackages(
+        ['tool/smoke_unknown.py'],
+        smokeDirectories,
+        smokeDependencies,
+      ),
+      smokeDirectories.keys.toSet(),
+      reason: 'New helpers need explicit ownership before narrowing CI',
+    );
+    expect(
+      selectPackages(
+        ['tool/smoke_shell.py', 'packages/core/lib/api.dart'],
+        smokeDirectories,
+        smokeDependencies,
+      ),
+      {'tina_tui', 'tina', 'core', 'plugin', 'ui'},
+      reason: 'Fixture changes must not suppress independent code coverage',
+    );
+  });
   test('manifest graph includes dev dependencies and overrides', () {
     final root = Directory.systemTemp.createTempSync('tina-ci-graph-');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -180,6 +212,24 @@ dependency_overrides:
       expect(triggers.containsKey('schedule'), isTrue);
       expect(triggers.containsKey('workflow_dispatch'), isTrue);
       expect((jobs['changes'] as Map)['outputs'], contains('packages'));
+      expect((jobs['changes'] as Map)['outputs'], contains('full'));
+      final native = jobs['linux_interactive'] as Map;
+      expect(native['needs'], 'changes');
+      expect(native['if'], "needs.changes.outputs.interactive == 'true'");
+      expect(
+        (native['steps'] as List).cast<Map>().any(
+          (step) =>
+              (step['run'] as String? ?? '').contains('run_release_smokes.py'),
+        ),
+        isTrue,
+        reason: 'Skipping duplicate JIT checks requires compiled coverage',
+      );
+      final tuiSteps = ((jobs['tina_tui'] as Map)['steps'] as List).cast<Map>();
+      final expanded = tuiSteps.singleWhere(
+        (step) =>
+            (step['run'] as String? ?? '').contains('--tags tty --run-skipped'),
+      );
+      expect(expanded['if'], "needs.changes.outputs.full == 'true'");
       for (final entry in jobs.entries) {
         final steps = (entry.value as Map)['steps'] as List? ?? [];
         for (final step in steps.cast<Map>()) {

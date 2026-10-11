@@ -10,10 +10,41 @@ and unavailable base revisions select everything. Weekly and manual runs also
 select everything. Existing per-package jobs retain their native/pure-Dart
 environments and names. Superseded runs are cancelled within the same event/ref.
 
+Known executable smoke scripts and their runner select `tina_tui` and its
+consumers, including root checks, rather than every owned package. The list is
+explicit in `tool/ci/select_packages.dart`; a new or unknown helper still selects
+everything until its ownership is reviewed. Mixed fixture and source changes
+retain the source's affected-package coverage.
+
 The root job resolves owned packages four at a time; this is needed for the
 analyzer and architecture graph even when only some package tests are selected.
 Native interactive checks run when the affected graph reaches the frontend or
 root executable sources. Tools sandbox checks stay platform-specific.
+
+## Routine versus expanded terminal coverage
+
+The October 11 release-candidate run took about 10m28s. Its UI job took 10m05s:
+2m28s in package tests (including repeated JIT launches), then about 6m43s in
+the three-size CLI and shell smoke run. Most package jobs took 20–60 seconds.
+Removing small unit suites would not address that critical path.
+
+Routine CI now builds the Linux CLI once in an independent job and uses the
+same seven-suite, three-worker runner as releases. The engine scenario runs
+once at 80x24; dedicated rendering suites still cover geometry edges. Every
+suite retains its assertions and per-suite failure logs. This job runs in
+parallel with package tests instead of appending repeated JIT startups to them.
+macOS retains its native keyboard, startup, small-window and sandbox checks.
+
+The duplicated backend-selection JIT test is tagged `compiled-smoke` and
+excluded only from routine CI's package run; the compiled backend suite covers
+the same scenario. Focused restart, missing-terminal-path and stdin ownership
+regressions still run in the package suite. Weekly/manual CI additionally runs
+the JIT backend test and the full three-geometry CLI and shell wrappers. Local
+`dart test` keeps its previous default coverage.
+
+Sandbox confinement, credential exclusions, scoped approvals, SQLite durability,
+plugin boundaries and ordinary affected-package tests remain routine gates.
+Release checks below continue to run on all three shipped platforms.
 
 ## Release smoke review
 

@@ -19,7 +19,10 @@ Future<void> main() async {
     expect(result.stdout,
         contains('default / tina-nonexistent-terminal-fixture: ansi'));
     expect(result.stdout, contains('explicit notcurses failure is reported'));
-  }, skip: Platform.isWindows, timeout: const Timeout(Duration(minutes: 3)));
+  },
+      tags: ['compiled-smoke'],
+      skip: Platform.isWindows,
+      timeout: const Timeout(Duration(minutes: 3)));
 
   test('missing restart pathname does not prevent launch or resume input',
       () async {

@@ -1,4 +1,7 @@
 tags:
+  # Routine CI covers this scenario with the compiled executable. Full/manual
+  # runs also exercise the JIT launcher; local dart test retains that coverage.
+  compiled-smoke: {}
   # Creates its own controlling PTY and localhost HTTP stub; no human TTY
   # or API credentials needed. CI runs this gate explicitly.
   tty:

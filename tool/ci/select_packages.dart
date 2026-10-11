@@ -4,6 +4,23 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:yaml/yaml.dart';
 
+// These fixtures exercise the executable/UI, not arbitrary owned packages.
+// Keep unknown tools conservative; new shared build helpers still run all CI.
+const executableSmokeFiles = {
+  'tool/smoke_engine2.py',
+  'tool/smoke_backend_selection.py',
+  'tool/smoke_classification_panel.py',
+  'tool/smoke_notcurses_images.py',
+  'tool/smoke_notcurses_startup.py',
+  'tool/smoke_panel_paint.py',
+  'tool/smoke_process_output.py',
+  'tool/smoke_restart.py',
+  'tool/smoke_resume_terminal.py',
+  'tool/smoke_shell.py',
+  'tool/ci/run_release_smokes.py',
+  'tool/ci/test_release_smokes.py',
+};
+
 /// Include test dependencies: a fixture/API change can break a consumer's tests
 /// even when it is not one of that consumer's runtime dependencies.
 Map<String, Set<String>> packageDependencies(
@@ -61,6 +78,11 @@ Set<String> selectPackages(
     }
     if (file == 'pubspec.yaml' && rootVersionOnly) {
       selected.add('tina');
+      continue;
+    }
+    if (executableSmokeFiles.contains(file) &&
+        directories.containsKey('tina_tui')) {
+      selected.add('tina_tui');
       continue;
     }
     if (file.startsWith('.github/') ||

@@ -68,6 +68,7 @@ jobs:
     outputs:
       packages: ${{ steps.select.outputs.packages }}
       interactive: ${{ steps.select.outputs.interactive }}
+      full: ${{ steps.select.outputs.full }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,6 +126,38 @@ jobs:
           mkdir -p "$RUNNER_TEMP/tina-launcher"
           ln -s "$PWD/build/cli/macos_arm64/bundle/bin/tina" "$RUNNER_TEMP/tina-launcher/tina"
           python3 tool/smoke_engine2.py --quick --binary "$RUNNER_TEMP/tina-launcher/tina"
+
+  linux_interactive:
+    name: Linux compiled CLI smoke tests
+    needs: changes
+    if: needs.changes.outputs.interactive == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12'
+      - name: Install native link dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+      - name: Resolve executable dependencies
+        run: dart pub get
+      - name: Build CLI once for all smoke suites
+        run: dart build cli --target bin/tina.dart
+      - name: Test the compiled CLI (seven isolated suites, three at a time)
+        timeout-minutes: 15
+        run: python3 tool/ci/run_release_smokes.py --jobs 3 --binary build/cli/linux_x64/bundle/bin/tina
+      - name: Upload smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-smoke-logs-linux
+          path: build/smoke-logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   root:
     needs: changes
@@ -646,8 +679,19 @@ jobs:
         run: dart pub get
       - name: test (tina_tui)
         working-directory: packages/tina_tui
-        run: dart test -j 4
-      - name: PTY startup, HTTP turn and resume (tina_tui)
+        env:
+          FULL_RUN: ${{ needs.changes.outputs.full }}
+        run: |
+          if [ "$FULL_RUN" = true ]; then
+            dart test -j 4
+          else
+            dart test -j 4 --exclude-tags compiled-smoke
+          fi
+      # The compiled job covers every distinct scenario on ordinary changes.
+      # Retain the slower JIT launcher and three-size engine matrix as a
+      # weekly/manual cross-check, outside the normal PR critical path.
+      - name: Full JIT terminal and three-size engine checks
+        if: needs.changes.outputs.full == 'true'
         working-directory: packages/tina_tui
         run: dart test --tags tty --run-skipped test/app_smoke_test.dart test/shell_terminal_test.dart
 
