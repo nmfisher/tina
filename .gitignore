@@ -1,6 +1,7 @@
 # IDE / editor settings
 .claude/
 .poolside/
+AGENTS.local.md
 
 # Release artifacts
 releases/bundle/

@@ -1,5 +1,5 @@
-# This file exists for exactly one purpose: keeping the dart_notcurses
-# submodule out of the parent tree's analysis context. The parent repo
+# Keep the dart_notcurses submodule and generated build artifacts out of the
+# parent tree's analysis context. The parent repo
 # otherwise runs on pure SDK defaults — no lints
 # package, no custom rules — and gains none from this file.
 #
@@ -13,3 +13,4 @@
 analyzer:
   exclude:
     - packages/dart_notcurses/**
+    - build/**
