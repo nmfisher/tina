@@ -267,16 +267,21 @@ class Terminal:
         return start
 
     def expect_idle(self):
-        # Let the final turn/layout paint settle, then require a quiet grid.
-        # Rewriting an unchanged plan every 40ms clears GNOME text selection.
-        deadline = time.monotonic() + 0.2
+        # Turn completion/layout may paint after the streamed text arrives.
+        # Wait for a quiet grid, with a bound that still rejects a redraw loop
+        # (rewriting every 40ms clears GNOME text selection).
+        quiet_since = time.monotonic()
+        deadline = quiet_since + 3
+        previous = len(self.output)
         while time.monotonic() < deadline:
             self.read()
-        start = len(self.output)
-        deadline = time.monotonic() + 0.35
-        while time.monotonic() < deadline:
-            self.read()
-        assert not self.output[start:], 'idle app kept redrawing selectable text'
+            now = time.monotonic()
+            if len(self.output) != previous:
+                previous = len(self.output)
+                quiet_since = now
+            elif now - quiet_since >= 0.35:
+                return
+        raise AssertionError('idle app kept redrawing selectable text')
 
     def wait_for(self, predicate, description, *, timeout=10):
         deadline = time.monotonic() + timeout

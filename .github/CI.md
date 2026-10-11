@@ -46,6 +46,11 @@ Sandbox confinement, credential exclusions, scoped approvals, SQLite durability,
 plugin boundaries and ordinary affected-package tests remain routine gates.
 Release checks below continue to run on all three shipped platforms.
 
+The first optimized full-package run completed its critical path in 3m12s
+(down from 10m30s, about 70%). Its compiled Linux smoke job passed in 2m29s,
+the UI package job in 2m29s, and macOS checks in 2m45s. These are single hosted
+run measurements; runner load and dependency downloads still vary.
+
 ## Release smoke review
 
 The v0.9.49 macOS job built in 42 seconds, then spent 10m44s in seven sequential

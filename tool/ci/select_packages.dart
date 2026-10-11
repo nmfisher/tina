@@ -19,6 +19,7 @@ const executableSmokeFiles = {
   'tool/smoke_shell.py',
   'tool/ci/run_release_smokes.py',
   'tool/ci/test_release_smokes.py',
+  'tool/ci/test_smoke_idle.py',
 };
 
 /// Include test dependencies: a fixture/API change can break a consumer's tests
