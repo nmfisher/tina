@@ -41,6 +41,7 @@ Each imported conversation gets its own ID, printed for --resume. Sources stay u
 
 Future<int> runCli(List<String> args,
     {String version = '0.0.0',
+    AssemblyDiagnostics? diagnostics,
     String? Function() locateTerminalDevice = terminalDevicePath}) async {
   String? configPath;
   String? model;
@@ -266,6 +267,7 @@ Future<int> runCli(List<String> args,
     String? restartRoot;
     String? restartSession;
     final assembly = TuiAssembly.start(
+      diagnostics: diagnostics,
       options: AssemblyOptions(
         configPath: configPath,
         version: version,

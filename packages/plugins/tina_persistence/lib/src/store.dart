@@ -165,18 +165,24 @@ final class SessionStore {
   /// Record a new session: appends the registry row that begins the
   /// session's slice. Returns the row's id. [details] rides on the same
   /// row — it is session-level fact, not log content — and comes back
-  /// with [readDetails].
+  /// with [readDetails]. Optional initial [entries] commit atomically with
+  /// registration; failure leaves neither the marker nor a partial history.
   int createSession(String id,
-      {String? title, String? model, SessionDetails? details}) {
+      {String? title,
+      String? model,
+      SessionDetails? details,
+      List<SessionEntry> entries = const []}) {
     try {
-      return _log.append({
-        'type': _markerType,
-        'session_id': id,
-        if (title != null) 'title': title,
-        if (model != null) 'model': model,
-        if (details != null) 'details': details.toJson(),
-        if (model != null) 'model': model,
-      });
+      return _log.appendAll([
+        {
+          'type': _markerType,
+          'session_id': id,
+          if (title != null) 'title': title,
+          if (model != null) 'model': model,
+          if (details != null) 'details': details.toJson(),
+        },
+        for (final entry in entries) {'slice': id, ..._payloadOf(entry)},
+      ]).first;
     } on Object catch (e) {
       _fail('recording session $id', e);
     }
@@ -282,16 +288,16 @@ final class SessionStore {
 
   /// Append entries to a session's slice, in order, one row per entry.
   /// The entries' own `seq` is untouched: it is the loop's position, and
-  /// the store is the cache, not a second truth. Each row names its
+  /// the store does not assign another sequence counter. Each row names its
   /// session (`slice`), so interleaved writers — a parent's turn and a
   /// child's spawn running through one file — stay attributed when
   /// readers come back.
+  /// Each nonempty call is one FULL transaction, regardless of entry count.
   void append(String sessionId, List<SessionEntry> entries) {
     try {
-      for (final e in entries) {
-        final payload = _payloadOf(e);
-        _log.append({'slice': sessionId, ...payload});
-      }
+      _log.appendAll([
+        for (final e in entries) {'slice': sessionId, ..._payloadOf(e)},
+      ]);
     } on Object catch (e) {
       _fail('appending to session $sessionId', e);
     }

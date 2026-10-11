@@ -22,6 +22,15 @@ import 'settings_catalog.dart';
 import 'settings_stack.dart';
 import 'config_document.dart';
 
+/// Optional instrumentation of the real startup path. Callbacks must not
+/// mutate the assembly. No extra config or store reads are made for profiling.
+final class AssemblyDiagnostics {
+  const AssemblyDiagnostics({this.stage, this.modelEvent, this.ready});
+  final void Function(String name)? stage;
+  final void Function(StreamEvent event)? modelEvent;
+  final void Function(TuiAssembly assembly)? ready;
+}
+
 /// Where an entry point's lines go. One seam for everything the
 /// assembly itself prints; injectable so a test captures it.
 abstract interface class AssemblyWriter {
@@ -219,6 +228,7 @@ final class TuiAssembly {
     AssemblyOptions options = const AssemblyOptions(),
     List<ProviderDescriptor>? descriptors,
     void Function(PluginRegistry<TuiPluginContext>)? registerPlugins,
+    AssemblyDiagnostics? diagnostics,
   }) =>
       _start(
           writer: writer,
@@ -227,6 +237,7 @@ final class TuiAssembly {
           options: options,
           descriptors: descriptors,
           registerPlugins: registerPlugins,
+          diagnostics: diagnostics,
           configurationUpdates: _ConfigurationUpdates());
 
   static TuiAssembly _start({
@@ -237,10 +248,14 @@ final class TuiAssembly {
     required AssemblyOptions options,
     List<ProviderDescriptor>? descriptors,
     void Function(PluginRegistry<TuiPluginContext>)? registerPlugins,
+    AssemblyDiagnostics? diagnostics,
   }) {
+    diagnostics?.stage?.call('assembly-start');
     descriptors ??= configuredDescriptors();
+    diagnostics?.stage?.call('descriptors-ready');
     final config =
         loadTinaConfig(path: options.configPath, descriptors: descriptors);
+    diagnostics?.stage?.call('config-loaded');
     // A malformed config must not silently re-enable persistence or other
     // defaults the user may have explicitly disabled.
     if (config is TinaConfigProblem) throw FormatException(config.problem);
@@ -290,6 +305,7 @@ final class TuiAssembly {
       osSandbox: options.osSandbox,
       settings: settings,
     );
+    diagnostics?.stage?.call('settings-and-tools-ready');
     final policy = configuredPolicy(resolved,
         override: providerFactory, currentConfig: () => resolved);
     final enabled = pluginSettings.features;
@@ -301,16 +317,21 @@ final class TuiAssembly {
     }
     final path = options.storePath ?? defaultSessionStorePath(workingDirectory);
     SessionStore openStore() {
+      diagnostics?.stage?.call('store-open-start');
       File(path).parent.createSync(recursive: true);
-      return SessionStore.open(path);
+      final store = SessionStore.open(path);
+      diagnostics?.stage?.call('store-open-end');
+      return store;
     }
 
     TuiAssembly? assembled;
     if (options.sessionId != null) {
       final stored = openStore();
       try {
+        diagnostics?.stage?.call('settings-replay-start');
         PersistencePlugin.restoreSettings(
             settings, stored.readEntries(options.sessionId!));
+        diagnostics?.stage?.call('settings-replay-end');
         resolved = ConfigDocument.validateValues(
             settingsBackend.effectiveDocument(),
             descriptors: descriptors);
@@ -388,6 +409,7 @@ final class TuiAssembly {
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     final hostConfig = HostConfig(
       providerFactory: (model) => _ObservedProvider(factory(model), () {
+        diagnostics?.stage?.call('provider-send');
         final current = assembled;
         if (current == null ||
             !current.watchingTurn ||
@@ -402,15 +424,17 @@ final class TuiAssembly {
             }
           }
         };
-      }),
+      }, diagnostics?.modelEvent),
       model: model,
       restoreModel: options.model == null,
       workingDirectory: workingDirectory,
       plugins: plugins,
     );
+    diagnostics?.stage?.call('host-open-start');
     final host = options.sessionId == null
         ? Host.start(hostConfig)
         : Host.resume(hostConfig, options.sessionId!);
+    diagnostics?.stage?.call('host-open-end');
     var previousConfiguration = jsonEncode(settingsBackend.effectiveDocument());
     final stopConfigurationUpdates = configurationUpdates.listen(() {
       try {
@@ -472,6 +496,7 @@ final class TuiAssembly {
           providerFactory: providerFactory,
           descriptors: descriptors,
           registerPlugins: registerPlugins,
+          diagnostics: diagnostics,
           options: AssemblyOptions(
               configPath: options.configPath,
               onRestart: options.onRestart,
@@ -518,6 +543,8 @@ final class TuiAssembly {
             'Type while busy and Enter to queue. Ctrl+C clears the draft; with an empty draft it quits. Esc clears the draft; Esc with an empty draft cancels. Tab completes command arguments; @ completes files.');
       },
     ));
+    diagnostics?.stage?.call('assembly-ready');
+    diagnostics?.ready?.call(assembly);
     return assembly;
   }
 
@@ -595,18 +622,27 @@ final class _NullWriter implements AssemblyWriter {
 /// Capture an observer per request. Background summaries/judgments stay quiet,
 /// and a cancelled request cannot paint into a later turn.
 final class _ObservedProvider implements LlmProvider {
-  _ObservedProvider(this.inner, this.observer);
+  _ObservedProvider(this.inner, this.observer, [this.modelEvent]);
   final LlmProvider inner;
   final WatchSink? Function() observer;
+  final void Function(StreamEvent)? modelEvent;
   @override
   String get model => inner.model;
   @override
   Stream<StreamEvent> send(
-          {required String system,
-          required List<Message> messages,
-          required List<ToolSchema> tools}) =>
-      TeeProvider(inner, sink: observer())
-          .send(system: system, messages: messages, tools: tools);
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) {
+    final stream = TeeProvider(inner, sink: observer())
+        .send(system: system, messages: messages, tools: tools);
+    final observe = modelEvent;
+    if (observe == null) return stream;
+    return stream.map((event) {
+      observe(event);
+      return event;
+    });
+  }
+
   @override
   void close() => inner.close();
 }

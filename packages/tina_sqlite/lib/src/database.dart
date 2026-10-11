@@ -18,10 +18,18 @@ library;
 import 'package:sqlite3/sqlite3.dart';
 
 /// The pragma block every tina database gets at open.
-void _setPragmas(Database db) {
+void _setPragmas(Database db, String file) {
   db.execute('PRAGMA foreign_keys=ON');
   db.execute('PRAGMA busy_timeout=5000');
-  db.execute('PRAGMA journal_mode=WAL');
+  final mode = db.select('PRAGMA journal_mode=WAL').single['journal_mode'];
+  // SQLite cannot put an in-memory database into WAL mode. File-backed
+  // stores must actually enter WAL, rather than silently using another mode.
+  if (mode != 'wal' && !(file == ':memory:' && mode == 'memory')) {
+    throw StateError('Cannot enable WAL for $file (journal_mode=$mode)');
+  }
+  // A successful write acknowledges the FULL commit, including its WAL sync.
+  // Set this on every connection; synchronous is not a persistent file setting.
+  db.execute('PRAGMA synchronous=FULL');
 }
 
 /// Thrown when the file on disk was written by a different (usually
@@ -59,9 +67,10 @@ Database openTinaDatabase(
   required TinaMigration migrate,
   bool create = true,
 }) {
-  final db = sqlite3.open(file, mode: create ? OpenMode.readWriteCreate : OpenMode.readWrite);
+  final db = sqlite3.open(file,
+      mode: create ? OpenMode.readWriteCreate : OpenMode.readWrite);
   try {
-    _setPragmas(db);
+    _setPragmas(db, file);
     final version = db.userVersion;
     if (version == schemaVersion) return db;
     if (version > schemaVersion) {

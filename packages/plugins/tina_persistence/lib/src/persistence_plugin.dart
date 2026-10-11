@@ -50,6 +50,7 @@ final class PersistencePlugin extends AgentPlugin {
   String? _lastModel;
   int? _subscription;
   bool _saved = false;
+  (Object, StackTrace)? _saveFailure;
 
   @override
   SessionSeed? openSession(PluginSession session) {
@@ -100,28 +101,48 @@ final class PersistencePlugin extends AgentPlugin {
     }
     // Runtime enablement also saves activity already recorded in memory.
     if (!_saved && loop.log.isNotEmpty) {
-      _saveSession();
-      store.append(_session!.id, loop.log);
+      _saveEntries(loop.log);
     }
-    _subscription = loop.subscribe((entry, event) {
+    _subscription = loop.subscribeBatches((entries, event) {
       if (event != LogEvent.appended) return;
-      final session = _session!;
-      if (!_saved) _saveSession();
-      store.append(session.id, [entry]);
+      _saveEntries(entries);
     });
   }
 
-  void _saveSession() {
-    final session = _session!;
-    registryKey = store.createSession(session.id,
-        title: session.title, model: session.model, details: session.details);
-    _saved = true;
-    _lastDetails = jsonEncode(session.details.toJson());
-    _lastModel = session.model;
+  void _checkSaveFailure() {
+    if (_saveFailure case final failure?) {
+      Error.throwWithStackTrace(failure.$1, failure.$2);
+    }
+  }
+
+  void _saveEntries(List<SessionEntry> entries) {
+    _checkSaveFailure();
+    try {
+      final session = _session!;
+      if (_saved) {
+        store.append(session.id, entries);
+      } else {
+        registryKey = store.createSession(session.id,
+            title: session.title,
+            model: session.model,
+            details: session.details,
+            entries: entries);
+        // Registration and initial history succeeded in the same transaction.
+        _saved = true;
+        _lastDetails = jsonEncode(session.details.toJson());
+        _lastModel = session.model;
+      }
+    } catch (error, stack) {
+      // Even a serialization error must stop future writes: the in-memory
+      // log now contains an entry that this connection did not persist.
+      _saveFailure = (error, stack);
+      rethrow;
+    }
   }
 
   @override
   void sessionChanged(PluginSession session) {
+    _checkSaveFailure();
     final encoded = jsonEncode(session.details.toJson());
     if (!_saved) return;
     if (encoded == _lastDetails && session.model == _lastModel) return;

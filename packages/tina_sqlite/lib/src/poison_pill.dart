@@ -76,8 +76,14 @@ mixin PoisonPillStore {
           final r = work(d);
           d.execute('COMMIT');
           return r;
-        } on Object {
-          d.execute('ROLLBACK');
+        } on Object catch (error) {
+          // SQLite can roll back automatically (including a rejected COMMIT).
+          // Preserve the original failure if rollback itself cannot complete.
+          try {
+            if (!d.autocommit) d.execute('ROLLBACK');
+          } on Object {
+            _die(error);
+          }
           rethrow;
         }
       });

@@ -46,14 +46,29 @@ final class TinaEntryLog with PoisonPillStore {
   final String _table;
 
   /// Append one entry; the database picks the rowid. Returns it.
-  int append(Map<String, Object?> entry) => guardWrite((d) {
-        final at = DateTime.now().toUtc().toIso8601String();
-        d.execute(
-          'INSERT INTO "$_table" (at, payload) VALUES (?, ?)',
-          [at, jsonEncode(entry)],
-        );
-        return d.lastInsertRowId;
-      });
+  int append(Map<String, Object?> entry) => appendAll([entry]).single;
+
+  /// Append a batch atomically, returning its rowids only after COMMIT.
+  /// Serialize before taking the writer lock. Empty batches make no writes.
+  List<int> appendAll(Iterable<Map<String, Object?>> entries) {
+    final payloads = entries.map(jsonEncode).toList();
+    if (payloads.isEmpty) return guard((_) => <int>[]);
+    return guardWrite((d) {
+      final at = DateTime.now().toUtc().toIso8601String();
+      final insert =
+          d.prepare('INSERT INTO "$_table" (at, payload) VALUES (?, ?)');
+      try {
+        final ids = <int>[];
+        for (final payload in payloads) {
+          insert.execute([at, payload]);
+          ids.add(d.lastInsertRowId);
+        }
+        return ids;
+      } finally {
+        insert.close();
+      }
+    });
+  }
 
   /// Every entry, oldest first. `payload` is decoded; `at` stays a string.
   List<TinaLogEntry> readAll() => _select();
@@ -63,14 +78,14 @@ final class TinaEntryLog with PoisonPillStore {
 
   /// The highest rowid assigned so far, or 0 for an empty log.
   int get lastId => guard(
-        (d) => d.select('SELECT COALESCE(MAX(id), 0) AS m FROM "$_table"')
+        (d) => d
+            .select('SELECT COALESCE(MAX(id), 0) AS m FROM "$_table"')
             .first['m'] as int,
       );
 
   /// How many entries the log holds.
-  int get length =>
-      guard((d) => d.select('SELECT COUNT(*) AS c FROM "$_table"').first['c']
-          as int);
+  int get length => guard(
+      (d) => d.select('SELECT COUNT(*) AS c FROM "$_table"').first['c'] as int);
 
   List<TinaLogEntry> _select({int? afterId}) => guard((d) {
         final rows = afterId == null

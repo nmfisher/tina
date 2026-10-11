@@ -37,6 +37,7 @@ void main() {
       expect(migrations, 1);
       expect(db.userVersion, 3);
       expect(db.select('PRAGMA journal_mode').first['journal_mode'], 'wal');
+      expect(db.select('PRAGMA synchronous').single['synchronous'], 2);
       expect(db.select('PRAGMA foreign_keys').first['foreign_keys'], 1);
       expect(db.select('PRAGMA busy_timeout').first['timeout'], 5000);
       // The migration's work is durable and visible.
@@ -46,7 +47,8 @@ void main() {
 
     test('a reopen on the current version does not migrate again', () {
       final p = path();
-      openTinaDatabase(p, schemaVersion: 1,
+      openTinaDatabase(p,
+          schemaVersion: 1,
           migrate: (db) => db.execute('CREATE TABLE probe (x TEXT)')).close();
       openTinaDatabase(
         p,
@@ -89,7 +91,8 @@ void main() {
       final p = path('junk.db');
       File(p).writeAsStringSync('this is not sqlite');
       expect(
-        () => openTinaDatabase(p, schemaVersion: 1,
+        () => openTinaDatabase(p,
+            schemaVersion: 1,
             migrate: (db) => db.execute('CREATE TABLE probe (x TEXT)')),
         throwsA(isA<SqliteException>()),
       );
@@ -103,7 +106,8 @@ void main() {
       db.userVersion = 99;
       db.close();
       expect(
-        () => openTinaDatabase(p, schemaVersion: 1,
+        () => openTinaDatabase(p,
+            schemaVersion: 1,
             migrate: (db) => db.execute('CREATE TABLE probe (x TEXT)')),
         throwsA(isA<UnsupportedDatabaseVersion>()
             .having((e) => e.found, 'found', 99)
@@ -118,7 +122,8 @@ void main() {
       db.userVersion = 1;
       db.close();
       expect(
-        () => openTinaDatabase(p, schemaVersion: 2,
+        () => openTinaDatabase(p,
+            schemaVersion: 2,
             migrate: (db) => db.execute('CREATE TABLE probe (x TEXT)')),
         throwsA(isA<UnsupportedDatabaseVersion>()
             .having((e) => e.found, 'found', 1)),
@@ -130,7 +135,8 @@ void main() {
     test('an absent file is not created', () {
       final p = path('never.db');
       expect(
-        () => openTinaDatabase(p, schemaVersion: 1,
+        () => openTinaDatabase(p,
+            schemaVersion: 1,
             migrate: (db) => db.execute('CREATE TABLE probe (x TEXT)'),
             create: false),
         throwsA(isA<SqliteException>()),
@@ -143,11 +149,41 @@ void main() {
       final p = path();
       sqlite3.open(p).close(); // a valid, empty, version-0 database
       expect(
-        () => openTinaDatabase(p, schemaVersion: 1,
+        () => openTinaDatabase(p,
+            schemaVersion: 1,
             migrate: (db) => db.execute('CREATE TABLE probe (x TEXT)'),
             create: false),
         throwsA(isA<UnsupportedDatabaseVersion>()),
       );
     });
+  });
+
+  test('each connection resets synchronous to FULL, including memory', () {
+    for (final file in [path(), ':memory:']) {
+      final first = openTinaDatabase(file, schemaVersion: 1, migrate: (_) {});
+      first.execute('PRAGMA synchronous=NORMAL');
+      final second = openTinaDatabase(file, schemaVersion: 1, migrate: (_) {});
+      expect(second.select('PRAGMA synchronous').single['synchronous'], 2);
+      expect(second.select('PRAGMA journal_mode').single['journal_mode'],
+          file == ':memory:' ? 'memory' : 'wal');
+      second.close();
+      first.close();
+      final reopened =
+          openTinaDatabase(file, schemaVersion: 1, migrate: (_) {});
+      expect(reopened.select('PRAGMA synchronous').single['synchronous'], 2);
+      reopened.close();
+    }
+  });
+
+  test('refuses a temporary file that cannot enter WAL before migrating', () {
+    var migrated = false;
+    // An empty filename asks SQLite for a temporary on-disk database. It
+    // remains in delete journal mode, so it cannot meet the store contract.
+    expect(
+        () => openTinaDatabase('', schemaVersion: 1, migrate: (_) {
+              migrated = true;
+            }),
+        throwsStateError);
+    expect(migrated, isFalse);
   });
 }

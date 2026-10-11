@@ -50,9 +50,22 @@ TurnStopReason _turnReason(StopReason r) =>
     TurnStopReason.values.byName(r.name);
 
 final class _LogListener {
-  _LogListener(this.id, this.onEntry);
+  _LogListener(this.id, this.onBatch, {required this.batched});
   final int id;
-  final void Function(SessionEntry entry, LogEvent event) onEntry;
+  final void Function(List<SessionEntry> entries, LogEvent event) onBatch;
+  final bool batched;
+  final pending = Queue<(List<SessionEntry>, LogEvent)>();
+
+  void enqueue(List<SessionEntry> entries, LogEvent event) {
+    if (entries.isEmpty) return;
+    if (batched) {
+      pending.add((entries, event));
+    } else {
+      for (final entry in entries) {
+        pending.add((List<SessionEntry>.unmodifiable([entry]), event));
+      }
+    }
+  }
 }
 
 /// A failed enforcement hook: thrown by [_PhaseFailed]'s phase, caught by
@@ -145,6 +158,8 @@ final class AgentLoop {
 
   final List<_LogListener> _listeners = [];
   int _nextListenerId = 0;
+  int _dispatchDepth = 0;
+  (Object, StackTrace)? _dispatchFailure;
 
   /// True between [runTurn]'s start and its single exit; compaction is a
   /// between-turns operation and refuses to run mid-turn.
@@ -284,31 +299,102 @@ final class AgentLoop {
   /// lands as [LogEvent.appended] — which is the hook a persistence store
   /// appends from and a UI renders from. Returns a handle for
   /// [unsubscribe]. Entry payloads are immutable; listeners may keep them.
-  int subscribe(void Function(SessionEntry entry, LogEvent event) onEntry) {
+  int subscribe(void Function(SessionEntry entry, LogEvent event) onEntry) =>
+      _subscribe((entries, event) => onEntry(entries.single, event),
+          batched: false);
+
+  /// Synchronous batch delivery. The whole batch is visible in [log] before
+  /// notification, with contiguous sequence numbers. Batch listeners run
+  /// before per-entry observers, so their writes finish before observers act.
+  /// Existing history is replayed as one batch; replay makes no new entries.
+  /// A callback must finish its work before returning, and must throw on failure.
+  int subscribeBatches(
+          void Function(List<SessionEntry> entries, LogEvent event) onBatch) =>
+      _subscribe(onBatch, batched: true);
+
+  int _subscribe(
+      void Function(List<SessionEntry> entries, LogEvent event) onBatch,
+      {required bool batched}) {
     final id = _nextListenerId++;
     if (_mounting != null) _listenerOwners[id] = _mounting!;
-    _listeners.add(_LogListener(id, onEntry));
-    for (final e in _log) {
-      onEntry(e, LogEvent.replay);
+    final listener = _LogListener(id, onBatch, batched: batched);
+    _listeners.add(listener);
+    listener.enqueue(log, LogEvent.replay);
+    try {
+      _dispatch(() => _flush(listener));
+    } catch (_) {
+      unsubscribe(id);
+      rethrow;
     }
     return id;
   }
 
   void unsubscribe(int handle) {
+    for (final listener in _listeners.where((l) => l.id == handle)) {
+      listener.pending.clear();
+    }
     _listeners.removeWhere((l) => l.id == handle);
     _listenerOwners.remove(handle);
   }
 
   /// Append to the log and publish to the listeners. The only write path;
-  /// `_seq` is the entry's position, so the store's rows and this list
-  /// cannot disagree.
-  SessionEntry _append(SessionEntry entry) {
-    final stored = entry.withSeq(_seq++);
-    _log.add(stored);
-    for (final l in List.of(_listeners)) {
-      l.onEntry(stored, LogEvent.appended);
+  /// `_seq` is the entry's position. Listener failures propagate; entries
+  /// already added in memory are not a claim that persistence succeeded.
+  SessionEntry _append(SessionEntry entry) => _appendBatch([entry]).single;
+
+  List<SessionEntry> _appendBatch(List<SessionEntry> entries) {
+    final stored = List<SessionEntry>.unmodifiable([
+      for (final entry in entries) entry.withSeq(_seq++),
+    ]);
+    _log.addAll(stored);
+    final listeners = [
+      ..._listeners.where((l) => l.batched),
+      ..._listeners.where((l) => !l.batched),
+    ];
+    for (final listener in listeners) {
+      listener.enqueue(stored, LogEvent.appended);
     }
+    _dispatch(() {
+      for (final listener in listeners) {
+        _flush(listener);
+      }
+    });
     return stored;
+  }
+
+  void _checkDispatchFailure() {
+    if (_dispatchFailure case final failure?) {
+      Error.throwWithStackTrace(failure.$1, failure.$2);
+    }
+  }
+
+  void _flush(_LogListener listener) {
+    // Remove before calling: a re-entrant append drains the remaining older
+    // entries first, including the tail of a per-entry adapter's batch.
+    while (listener.pending.isNotEmpty) {
+      _checkDispatchFailure();
+      final (entries, event) = listener.pending.removeFirst();
+      listener.onBatch(entries, event);
+    }
+  }
+
+  void _dispatch(void Function() notify) {
+    _dispatchDepth++;
+    try {
+      if (_dispatchFailure == null) notify();
+      // A listener cannot hide a nested append failure by catching it.
+      _checkDispatchFailure();
+    } catch (error, stack) {
+      _dispatchFailure ??= (error, stack);
+      rethrow;
+    } finally {
+      if (--_dispatchDepth == 0) {
+        for (final listener in _listeners) {
+          listener.pending.clear();
+        }
+        _dispatchFailure = null;
+      }
+    }
   }
 
   /// The request-shaped view of the log, derived fresh on every call.
@@ -377,7 +463,7 @@ final class AgentLoop {
   /// write are suppressed (the original error is what must surface; a
   /// second throw here would hide it), but the write itself happens.
   void _appendCrashEnd(String turnId, EntryUsage usage) {
-    // Appending commits before notifying listeners. A failed end listener
+    // Entries enter memory before notification. A failed end listener
     // must not cause a second end entry for the same turn.
     for (final entry in _log.reversed) {
       if (entry is TurnEndedEntry && entry.turnId == turnId) return;
@@ -563,8 +649,10 @@ final class AgentLoop {
     // errors propagate (a broken store must not be papered over), but the
     // try below still lands the turn's end entry when they do.
     try {
-      _append(TurnStartedEntry(turnId: turnId, at: _now()));
-      _append(InputRecordedEntry(turnId: turnId, text: raw.text, at: _now()));
+      _appendBatch([
+        TurnStartedEntry(turnId: turnId, at: _now()),
+        InputRecordedEntry(turnId: turnId, text: raw.text, at: _now()),
+      ]);
     } catch (e) {
       _inTurn = false;
       _appendCrashEnd(turnId, usage);
@@ -577,15 +665,19 @@ final class AgentLoop {
     // outcome, fan out onTurnEnd, return. Every exit — complete,
     // cancelled, provider error, even a loop-internal throw — comes
     // through here, so a started turn always ends in the log.
-    Future<Outcome> finish(StopReason reason, String detail) async {
+    Future<Outcome> finish(StopReason reason, String detail,
+        {MessageAppendedEntry? finalReply}) async {
       final stop = _stopRequest;
       if (stop != null && reason == StopReason.cancelled) detail = stop.detail;
-      _append(TurnEndedEntry(
-          turnId: turnId,
-          reason: _turnReason(reason),
-          usage: usage,
-          at: _now(),
-          stop: stop?.toJson()));
+      _appendBatch([
+        if (finalReply != null) finalReply,
+        TurnEndedEntry(
+            turnId: turnId,
+            reason: _turnReason(reason),
+            usage: usage,
+            at: _now(),
+            stop: stop?.toJson()),
+      ]);
       final outcome = Outcome(
           stopReason: reason,
           messages: List.of(appended),
@@ -860,16 +952,19 @@ final class AgentLoop {
         closeThinking(complete: completion != null);
         final reply = Message(
             role: Role.assistant, content: blocks, reasoning: reasoning);
-        _append(
-            MessageAppendedEntry(turnId: turnId, message: reply, at: _now()));
+        final replyEntry =
+            MessageAppendedEntry(turnId: turnId, message: reply, at: _now());
         appended.add(reply);
         responses.add(reply);
         if (toolCalls.isEmpty) {
           if (_inputs.isNotEmpty)
             return await finish(
-                StopReason.cancelled, 'continuing with new input');
-          return await finish(StopReason.complete, replyText);
+                StopReason.cancelled, 'continuing with new input',
+                finalReply: replyEntry);
+          return await finish(StopReason.complete, replyText,
+              finalReply: replyEntry);
         }
+        _append(replyEntry);
 
         // Step 4: run the tool calls. Liveness first: a plugin that left
         // mid-turn has its call skipped, not crashed on. Then the guard
