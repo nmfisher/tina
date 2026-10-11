@@ -86,12 +86,15 @@ void main() {
       ..parent.createSync(recursive: true);
     key.writeAsStringSync('fixture secret');
     Link('${workspace.path}/key-alias').createSync(key.path);
+    final ordinary = Directory('${host.path}/ordinary')..createSync();
     final plan = SandboxPlan(
         workspaceRoot: workspace.path,
         realHome: host.path,
         writablePaths: [host.path]);
-    expect(plan.canWrite('${host.path}/ordinary'), true);
-    expect(plan.canWrite(key.path), false);
+    for (final linux in [false, true]) {
+      expect(plan.canWrite('${ordinary.path}/new-file', linux: linux), true);
+      expect(plan.canWrite(key.path, linux: linux), false);
+    }
     expect(plan.canGrant('${workspace.path}/key-alias'), false);
   });
 
