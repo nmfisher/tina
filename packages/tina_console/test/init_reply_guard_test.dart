@@ -135,6 +135,13 @@ class FakeReplyGuardOs implements ReplyGuardOs {
 }
 
 void main() {
+  final boundedProbePoll = predicate<String>((call) {
+    final match = RegExp(r'^poll\(0,(\d+)\)$').firstMatch(call);
+    if (match == null) return false;
+    final remaining = int.parse(match.group(1)!);
+    return remaining > 0 && remaining <= TerminalReplyGuard.probeTimeoutMs;
+  }, 'poll fd 0 within the remaining probe deadline');
+
   group('TerminalReplyGuard (tin-r2vd)', () {
     test('mute terminal: probes, then detours fd 0 with a fallback DA1', () {
       final os = FakeReplyGuardOs(replyArrives: false);
@@ -148,12 +155,12 @@ void main() {
       // detour is installed.
       expect(
           os.calls,
-          containsAllInOrder(<String>[
+          containsAllInOrder(<Object>[
             'isatty(0)',
             'isatty(1)',
             'raw(0)',
             'write(1,${TerminalReplyGuard.probeQuery.length})', // OSC 10 + OSC 11
-            'poll(0,${TerminalReplyGuard.probeTimeoutMs})',
+            boundedProbePoll,
             'unraw(0,saved)',
             'detour(${TerminalReplyGuard.fallbackReply.length})',
           ]));
@@ -178,7 +185,7 @@ void main() {
           containsAllInOrder([
             'raw(0)',
             'write(1,${TerminalReplyGuard.probeQuery.length})',
-            'poll(0,${TerminalReplyGuard.probeTimeoutMs})',
+            boundedProbePoll,
             'readBytes(0,4096)',
             'unraw(0,saved)'
           ]));
