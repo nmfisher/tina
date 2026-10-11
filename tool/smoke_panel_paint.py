@@ -132,6 +132,10 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.send('\x1b')
             visible('Settings closed.')
             visible('smoke >')
+            # The prompt is repainted during modal teardown, before the next
+            # readLine owns native input. Start the next gesture after that
+            # transition has settled, just as between the Escape presses above.
+            terminal.expect_idle()
             assert not any('┌' in text for text in grid().splitlines())
 
             for panel in [2, 3]:
