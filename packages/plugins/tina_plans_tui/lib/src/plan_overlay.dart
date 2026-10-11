@@ -11,7 +11,7 @@ typedef _Address = (int, int?);
 
 extension on PlanState {
   Iterable<PlanEntryItem> get allItems => [
-        for (final item in items) ...[item, ...item.children]
+        for (final item in items) ...[item, ...item.children],
       ];
 }
 
@@ -64,8 +64,12 @@ List<(String, String?)> _body(Plan plan, PlanOverlayUi ui, int innerWidth) {
   ];
 }
 
-List<(String, String?)> _itemLines(_Row row, PlanOverlayUi ui, int width,
-    {required bool selected}) {
+List<(String, String?)> _itemLines(
+  _Row row,
+  PlanOverlayUi ui,
+  int width, {
+  required bool selected,
+}) {
   final expanded = ui.expandedItems.contains(row.address);
   final indent = '  ' * row.depth;
   final state = switch (row.item.state) {
@@ -97,8 +101,10 @@ List<(String, String?)> _itemLines(_Row row, PlanOverlayUi ui, int width,
         (width - visibleWidth(prefix) - visibleWidth(count)).clamp(0, width);
     return [('$prefix${_fit(text, titleWidth)}$count', kind)];
   }
-  final lines =
-      wrapDialogWords(text, (width - visibleWidth(prefix)).clamp(1, width));
+  final lines = wrapDialogWords(
+    text,
+    (width - visibleWidth(prefix)).clamp(1, width),
+  );
   final summaryIndent = ' ' * visibleWidth(prefix).clamp(0, width - 1);
   final summaryWidth = width - summaryIndent.length;
   return [
@@ -145,10 +151,11 @@ List<String> renderPlanOverlayLines({
     '${paint('┌', border)}$title${paint('─' * (width - 2 - visibleWidth(title)), border)}${paint('┐', border)}',
     for (final row in visible) box(row.$1, row.$2),
     box(
-        hasMore
-            ? '${offset + 1}–${offset + visible.length}/${body.length} · PgUp/PgDn scroll'
-            : footer,
-        'dim'),
+      hasMore
+          ? '${offset + 1}–${offset + visible.length}/${body.length} · PgUp/PgDn scroll'
+          : footer,
+      'dim',
+    ),
     '${paint('└${'─' * (width - 2)}┘', border)}',
   ];
 }
@@ -157,25 +164,28 @@ String _safe(String text) =>
     text.replaceAll(RegExp(r'[\x00-\x1f\x7f-\x9f]'), ' ');
 String _fit(String text, int width) => clipDialogText(_safe(text), width);
 
-int planOverlayContentHeight(Plan plan,
-        {required bool collapsed, Set<int> collapsedRoots = const {}}) =>
+int planOverlayContentHeight(
+  Plan plan, {
+  required bool collapsed,
+  Set<int> collapsedRoots = const {},
+}) =>
     (collapsed
         ? plan.allItems.where((i) => i.state == 'in_progress').length
         : _visibleRows(plan, collapsedRoots: collapsedRoots).length) +
     1;
 
-/// A session-owned plan browser. Selection and expansion change only view
+/// An attachment-owned plan browser. Selection and expansion change only view
 /// state; the panel never changes approval or item progress.
 class PlanOverlay implements PanelInputTarget {
   PlanOverlay({
     required this.screen,
-    required this.store,
+    required this.plans,
     required this.context,
     this.focusManager,
     this.mode = PlanOverlayMode.auto,
   });
   final Screen screen;
-  final PlanStore store;
+  final PlanObservation plans;
   final ConsoleContext context;
   final FocusManager? focusManager;
   final PlanOverlayMode mode;
@@ -202,11 +212,11 @@ class PlanOverlay implements PanelInputTarget {
   @override
   PanelInputMode get inputMode => PanelInputMode.commands;
   Set<int> get _collapsedRoots => {
-        for (final (i, _) in store.state.items.indexed)
-          if (!_expanded.contains((i, null))) i
+        for (final (i, _) in plans.state.items.indexed)
+          if (!_expanded.contains((i, null))) i,
       };
   List<_Row> get _rows =>
-      _visibleRows(store.state, collapsedRoots: _collapsedRoots);
+      _visibleRows(plans.state, collapsedRoots: _collapsedRoots);
   _Row? get _selectedRow {
     final rows = _rows, index = _selected;
     return index == null || index < 0 || index >= rows.length
@@ -310,31 +320,35 @@ class PlanOverlay implements PanelInputTarget {
   /// Preserve item identity across progress ticks/reordering; remove view
   /// state when its item disappears or its text changes.
   void _syncItems() {
-    final current = store.state.items;
+    final current = plans.state.items;
     if (identical(current, _previous)) return;
-    final oldRows = _visibleRows(PlanState(items: _previous), collapsedRoots: {
-      for (var i = 0; i < _previous.length; i++)
-        if (!_expanded.contains((i, null))) i
-    });
+    final oldRows = _visibleRows(
+      PlanState(items: _previous),
+      collapsedRoots: {
+        for (var i = 0; i < _previous.length; i++)
+          if (!_expanded.contains((i, null))) i,
+      },
+    );
     (String, String?) identity(_Row row, List<PlanItem> items) => (
           items[row.rootIndex].text,
-          row.childIndex == null ? null : row.item.text
+          row.childIndex == null ? null : row.item.text,
         );
     final selected = _selected != null && _selected! < oldRows.length
         ? identity(oldRows[_selected!], _previous)
         : null;
     final expanded = {
       for (final row in _visibleRows(PlanState(items: _previous)))
-        if (_expanded.contains(row.address)) identity(row, _previous)
+        if (_expanded.contains(row.address)) identity(row, _previous),
     };
     _expanded.clear();
-    for (final row in _visibleRows(store.state)) {
+    for (final row in _visibleRows(plans.state)) {
       if (expanded.contains(identity(row, current))) _expanded.add(row.address);
     }
     _previous = current;
     final rows = _rows;
-    final preserved =
-        rows.indexWhere((row) => identity(row, current) == selected);
+    final preserved = rows.indexWhere(
+      (row) => identity(row, current) == selected,
+    );
     if (_selected != null)
       _selected = preserved >= 0
           ? preserved
@@ -346,7 +360,7 @@ class PlanOverlay implements PanelInputTarget {
     _started = true;
     _slot = context.bindSidebarPanel(refresh, priority: 10);
     focusManager?.register(this);
-    _sub = store.changes.listen((_) => refresh());
+    _sub = plans.changes.listen((_) => refresh());
     refresh();
   }
 
@@ -359,7 +373,7 @@ class PlanOverlay implements PanelInputTarget {
   void render() => refresh();
   void refresh() {
     if (!_started || context.isReadingKey) return;
-    final plan = store.state;
+    final plan = plans.state;
     final chat = context.chat.bounds;
     if (plan.isEmpty ||
         !context.isActive ||
@@ -372,16 +386,18 @@ class PlanOverlay implements PanelInputTarget {
     }
     _syncItems();
     _slot?.requestSize(
-        height: (_body(
-                        plan,
-                        PlanOverlayUi(
-                            collapsedRoots: _collapsedRoots,
-                            expandedItems: _expanded),
-                        chat.width.clamp(8, 44) - 4)
-                    .length +
-                3)
-            .clamp(4, chat.height),
-        focused: _focused);
+      height: (_body(
+                plan,
+                PlanOverlayUi(
+                  collapsedRoots: _collapsedRoots,
+                  expandedItems: _expanded,
+                ),
+                chat.width.clamp(8, 44) - 4,
+              ).length +
+              3)
+          .clamp(4, chat.height),
+      focused: _focused,
+    );
     final area = _slot!.bounds;
     if (area.isEmpty) {
       _hide();
@@ -413,20 +429,26 @@ class PlanOverlay implements PanelInputTarget {
         _offset = line.clamp(0, _maxOffset);
     }
     final lines = renderPlanOverlayLines(
-        plan: plan,
-        ui: PlanOverlayUi(
-            collapsed: collapsed,
-            collapsedRoots: _collapsedRoots,
-            expandedItems: _expanded,
-            selectedIndex: _focused ? _selected : null,
-            highlighted: _highlighted,
-            focused: _focused,
-            offset: _offset,
-            maxRows: _room),
-        width: width,
-        paint: _themePaint);
-    final bounds =
-        Rect(row: area.row, col: area.col, width: width, height: lines.length);
+      plan: plan,
+      ui: PlanOverlayUi(
+        collapsed: collapsed,
+        collapsedRoots: _collapsedRoots,
+        expandedItems: _expanded,
+        selectedIndex: _focused ? _selected : null,
+        highlighted: _highlighted,
+        focused: _focused,
+        offset: _offset,
+        maxRows: _room,
+      ),
+      width: width,
+      paint: _themePaint,
+    );
+    final bounds = Rect(
+      row: area.row,
+      col: area.col,
+      width: width,
+      height: lines.length,
+    );
     final region = _region ??= OverlayRegion(screen, bounds);
     if (region.isVisible &&
         (region.bounds.row != bounds.row ||

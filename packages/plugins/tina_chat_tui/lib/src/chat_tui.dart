@@ -1,4 +1,3 @@
-import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -34,7 +33,6 @@ final class ChatTuiPlugin extends AgentPlugin
   final bool Function()? terminalAlertsEnabled;
   String? _sessionId;
   int _tokens = 0;
-  PlanChangedEntry? _plan;
   GoalChangedEntry? _goal;
   @override
   SessionSeed? openSession(PluginSession session) {
@@ -343,13 +341,6 @@ final class ChatTuiPlugin extends AgentPlugin
               at: at);
         }
       }
-    } else if (PlanChangedEntry.matches(entry)) {
-      try {
-        _plan = PlanChangedEntry.decode(entry as PluginStateEntry);
-      } catch (_) {
-        _plan = null;
-      } // The owner reports incompatible state when enabled.
-      _paintUsage();
     } else if (GoalChangedEntry.matches(entry)) {
       try {
         _goal = GoalChangedEntry.decode(entry as PluginStateEntry);
@@ -620,23 +611,8 @@ final class ChatTuiPlugin extends AgentPlugin
     final theme = console.screen.theme.chat;
     final tokenCap = currentTokenCap?.call() ?? this.tokenCap;
     final fraction = tokenCap > 0 ? (tokens + estimated) / tokenCap : 0.0;
-    final plan = _plan;
-    final items = plan?.items ?? const <PlanEntryItem>[];
-    final active =
-        items.where((i) => i.state == 'in_progress').firstOrNull?.text;
     final goal = _goal;
     return [
-      if (items.isNotEmpty)
-        RenderLine(runs: [
-          RenderRun('plan: ', theme.dim),
-          RenderRun(
-              [
-                if (active != null) active,
-                '${items.where((i) => i.state == 'done').length}/${items.length} done',
-                if (plan!.approval == PlanApproval.requested) 'needs approval',
-              ].join(' · '),
-              null)
-        ]),
       if (goal != null && goal.text.isNotEmpty)
         RenderLine(runs: [
           RenderRun('goal: ', theme.dim),

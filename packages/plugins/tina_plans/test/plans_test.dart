@@ -47,6 +47,38 @@ final class _CaptureTerminal implements Terminal {
 }
 
 void main() {
+  test('observations expose immutable snapshots independent of input lists',
+      () {
+    final (loop, plugin, _) = _wired();
+    addTearDown(plugin.closeSession);
+    final children = [const PlanEntryItem('child', state: 'pending')];
+    final items = [
+      PlanEntryItem('parent', state: 'pending', children: children)
+    ];
+    plugin.store.update(loop, items, approval: PlanApproval.requested);
+    final snapshot = plugin.observation.state;
+
+    children.clear();
+    items.clear();
+    expect(snapshot.items.single.children.single.text, 'child');
+    expect(() => snapshot.items.clear(), throwsUnsupportedError);
+    expect(
+        () => snapshot.items.single.children.clear(), throwsUnsupportedError);
+    expect(snapshot.approval, PlanApproval.requested);
+    final recorded = PlanChangedEntry.decode(loop.log
+        .whereType<PluginStateEntry>()
+        .where(PlanChangedEntry.matches)
+        .single);
+    expect(recorded.items, snapshot.items);
+
+    plugin.store
+        .update(loop, const [PlanEntryItem('replacement', state: 'done')]);
+    expect(plugin.observation.state.items.single.text, 'replacement');
+    expect(snapshot.items.single.text, 'parent');
+    expect(snapshot.items.single.children.single.state, 'pending');
+    expect(snapshot.approval, PlanApproval.requested);
+  });
+
   test('future plugin state is opaque while disabled and rejected by its owner',
       () async {
     final state = PluginStateEntry.snapshot(

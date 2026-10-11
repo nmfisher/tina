@@ -6,8 +6,17 @@ import 'package:tina_console/testing.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_plans/tina_plans.dart';
+import 'package:tina_plans_tui/tina_plans_tui.dart';
 import 'console_test.dart' show Io;
-import 'plans_tui_test.dart' show Panels;
+
+final class _Panels implements ConsolePanels {
+  @override
+  Future<void> spawn([String? model]) async {}
+  @override
+  Future<void> closeFocused() async {}
+  @override
+  List<String> describe() => [];
+}
 
 class Output implements Terminal {
   @override
@@ -92,7 +101,7 @@ void main() {
         chat: screen.chat,
         isActive: () => active,
         activate: () {},
-        panels: Panels());
+        panels: _Panels());
     plugin = ClassificationConsolePlugin(terminal: Output(), open: () => null);
     plugin.attachConsole(context);
   });
@@ -473,25 +482,28 @@ void main() {
   test(
       'shares sidebar with plan, fits a small terminal, switches views, and unloads focused',
       () async {
-    final plans = PlansConsolePlugin();
+    final plans = PlansPlugin();
     final loop = AgentLoop(provider: ScriptedProvider([]), plugins: [plans]);
     plans.mountOn(loop);
-    plans.attachConsole(context);
+    final plansView = PlansView(plans.observation);
+    final plansAttachment = ConsoleAttachment.attach(plansView, context);
+    addTearDown(plansAttachment.dispose);
     addTearDown(plans.closeSession);
     plans.store.update(
         loop, [const PlanEntryItem('current step', state: 'in_progress')]);
     request();
     await pumpEventQueue();
     plugin.repaintConsole();
-    plans.repaintConsole();
-    expect(plans.overlay!.bounds.bottom, lessThan(plugin.panel!.bounds.row));
+    plansView.repaintConsole();
+    expect(
+        plansView.overlay!.bounds.bottom, lessThan(plugin.panel!.bounds.row));
     expect(visible(), contains('current step'));
     expect(visible(), contains('classification'));
     screen.resize(ScreenLayout.fromSize(30, 8, split: false));
     home.setOuter(screen.chat.bounds);
     io.output.clear();
     plugin.panel!.show();
-    plans.repaintConsole();
+    plansView.repaintConsole();
     await pumpEventQueue();
     plugin.repaintConsole();
     expect(plugin.panel!.bounds.bottom, lessThan(screen.layout.inputRow));

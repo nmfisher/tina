@@ -62,6 +62,8 @@ dependencies:
     path: ../plugins/tina_system_instruction
   tina_plans:
     path: ../plugins/tina_plans
+  tina_plans_tui:
+    path: ../plugins/tina_plans_tui
   tina_goals:
     path: ../plugins/tina_goals
   tina_compaction:

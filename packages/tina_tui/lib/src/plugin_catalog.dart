@@ -24,6 +24,7 @@ import 'package:tina_subagents/tina_subagents.dart';
 import 'package:tina_file_resources/tina_file_resources.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_step_limit/tina_step_limit.dart';
+import 'package:tina_plans/tina_plans.dart';
 
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
@@ -249,7 +250,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         PluginDefinition.dependingOn<TuiPluginContext, ApprovalRequester>(
             'tina/plans',
             dependency: approvalRequester,
-            create: (c, approvals) => PlansConsolePlugin(
+            create: (c, approvals) => PlansPlugin(
                   terminal: c.terminal,
                   // Plan consent is always human, never a tool-safety judgment.
                   approver: (request, reason) async {

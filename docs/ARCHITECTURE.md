@@ -96,6 +96,11 @@ Dependency direction, top down only:
     no renderer. This is the headless seam.
   - `app.dart` + the views/panels/dialogs are the full-screen front end
     (`tina_console` renders it).
+  - `console_catalog.dart` constructs presentation views for existing runtime
+    features. Plans use `tina_plans` for the runtime `PlansPlugin` and
+    `tina_plans_tui` for a fresh `PlansView` per attachment, reading immutable
+    snapshots through `PlanObservation`. Other features still use combined
+    contributions while their views migrate.
   - `tui_terminal.dart` is the `Terminal` implementation a TUI session
     contributes: a text buffer plugins write lines into, and a queue of
     answers `ask` waits on. No terminal code in it despite the name.
@@ -142,9 +147,13 @@ change on disk.
 
 The planned daemon split (see
 [`proposals/daemon_sessions.md`](proposals/daemon_sessions.md)) separates
-the assembly half of `tina_tui` from the front end half so a daemon
-process can own live sessions and the TUI can become a client of it. The
-assembly seam above is what makes that a file move, not a rewrite.
+the application runtime from independent TUI attachments so one process
+can own a live session while multiple clients observe it. The engine and
+host already provide the foundation. The remaining work includes splitting
+runtime and presentation plugin construction, separating detach from
+shutdown, and replacing direct runtime access and single UI callbacks with
+session operations and subscriptions. Headless execution alone does not
+establish those boundaries.
 
 ## Principles
 
@@ -156,8 +165,9 @@ assembly seam above is what makes that a file move, not a rewrite.
   tools, chat look: plugins. The loop, the permission precedence, the
   sandbox: baked in, exactly one implementation.
 - **No interface without a second implementation.** The rendering backend
-  is abstracted because there are two backends; the daemon work adds the
-  second `SessionClient` implementation (in-process, socket) that
-  justifies that seam.
+  is abstracted because there are two backends. The preparatory daemon work
+  can use a concrete in-process session connection and shared value
+  contracts; a transport interface gains its second implementation when
+  the socket client is actually added.
 
 `dart test` at the repo root runs everything; packages test themselves.

@@ -571,6 +571,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_plans_tui:
+    dependency: transitive
+    description:
+      path: "packages/plugins/tina_plans_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_providers:
     dependency: transitive
     description:

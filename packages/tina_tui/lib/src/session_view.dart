@@ -5,6 +5,7 @@ import 'app.dart' show resolveTheme;
 import 'completion_sources.dart';
 import 'settings_panel.dart';
 import 'plugin_catalog.dart';
+import 'console_catalog.dart';
 import 'tui_session.dart';
 
 /// Adapts a session to UI capabilities. The workspace plugin never imports
@@ -19,7 +20,7 @@ final class SessionView
   SessionView(this.session, {this.showConfig = false});
   final TuiSession session;
   final bool showConfig;
-  final _attached = <ConsoleContribution, ConsoleAttachment>{};
+  final _attached = <AgentPlugin, ConsoleAttachment>{};
   ConsoleContext? _context;
   int? _inputStatusListener;
   SettingsPanel? _settings;
@@ -59,8 +60,10 @@ final class SessionView
 
   @override
   void notice(String text) {
-    final transcript =
-        _attached.keys.whereType<ConsoleTranscript>().firstOrNull;
+    final transcript = _attached.values
+        .map((attachment) => attachment.contribution)
+        .whereType<ConsoleTranscript>()
+        .firstOrNull;
     if (transcript != null) {
       transcript.writeNotice(text);
     } else {
@@ -79,16 +82,14 @@ final class SessionView
     final terminal = session.terminal as TuiTerminal;
     terminal.onLine = notice;
     void attach(AgentPlugin plugin) {
-      if (plugin is! ConsoleContribution) return;
-      final contribution = plugin as ConsoleContribution;
-      _attached[contribution] = ConsoleAttachment.attach(contribution, context);
+      final contribution = createConsoleView(plugin);
+      if (contribution == null) return;
+      _attached[plugin] = ConsoleAttachment.attach(contribution, context);
     }
 
     session.assembly.pluginManager.onLoaded = attach;
     session.assembly.pluginManager.onUnloading = (plugin) {
-      if (plugin is! ConsoleContribution) return;
-      final contribution = plugin as ConsoleContribution;
-      _attached.remove(contribution)?.dispose();
+      _attached.remove(plugin)?.dispose();
     };
     for (final plugin in session.host.plugins) {
       attach(plugin);
@@ -139,8 +140,8 @@ final class SessionView
 
   @override
   void repaintConsole() {
-    for (final contribution in _attached.keys.toList()) {
-      contribution.repaintConsole();
+    for (final attachment in _attached.values.toList()) {
+      attachment.contribution.repaintConsole();
     }
     if (_context?.isActive == true) _settings?.repaint();
   }

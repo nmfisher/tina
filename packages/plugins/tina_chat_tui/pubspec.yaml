@@ -11,8 +11,6 @@ dependencies:
     path: ../tina_goals
   tina_step_limit:
     path: ../tina_step_limit
-  tina_plans:
-    path: ../tina_plans
   tina_mode:
     path: ../tina_mode
   classification:
@@ -29,4 +27,8 @@ dependencies:
   tina_self_update:
     path: ../tina_self_update
 dev_dependencies:
+  tina_plans:
+    path: ../tina_plans
+  tina_plans_tui:
+    path: ../tina_plans_tui
   test: ^1.25.0

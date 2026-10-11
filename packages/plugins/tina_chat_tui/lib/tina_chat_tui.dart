@@ -19,7 +19,4 @@ export 'src/status_strip_tui.dart';
 export 'src/update_tui.dart';
 export 'src/panels_tui.dart';
 
-export 'src/plans_tui.dart';
-export 'src/plan_overlay.dart';
-
 export 'src/session_controls.dart';

@@ -47,7 +47,17 @@ class PlanState {
   final List<PlanEntryItem> items;
   final PlanApproval approval;
 
-  PlanState({required this.items, this.approval = PlanApproval.none});
+  PlanState({
+    required List<PlanEntryItem> items,
+    this.approval = PlanApproval.none,
+  }) : items = List.unmodifiable(items.map(_snapshotItem));
+
+  static PlanEntryItem _snapshotItem(PlanEntryItem item) => PlanEntryItem(
+        item.text,
+        state: item.state,
+        summary: item.summary,
+        children: List.unmodifiable(item.children.map(_snapshotItem)),
+      );
 
   bool get isEmpty => items.isEmpty;
 
@@ -89,12 +99,25 @@ class PlanState {
   }
 }
 
+/// Read-only plans state for a presentation attachment. The owning plugin
+/// retains all mutation and disposal authority; listeners release only their
+/// own subscriptions. Snapshots remain valid after later plan changes.
+final class PlanObservation {
+  PlanObservation._(this._store);
+  final PlanStore _store;
+
+  PlanState get state => _store.state;
+  Stream<void> get changes => _store.changes;
+}
+
 /// One plan for one session, held by the plugin. The log carries the
 /// durable truth; this cell is the plugin's view of the latest entry,
 /// updated by its own log listener. Not conversation-scoped: one host is
 /// one session in this engine.
 class PlanStore {
   PlanState _state = PlanState(items: const []);
+
+  late final PlanObservation observation = PlanObservation._(this);
 
   /// The plan now. Empty when the session carries none.
   PlanState get state => _state;
@@ -286,6 +309,8 @@ class PlansPlugin extends AgentPlugin {
   final Approver? approver;
 
   final PlanStore store = PlanStore();
+
+  PlanObservation get observation => store.observation;
 
   AgentLoop? _loop;
   int? _subscription;

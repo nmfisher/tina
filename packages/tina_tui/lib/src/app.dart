@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'plugin_catalog.dart';
+import 'console_catalog.dart';
 import 'settings_stack.dart';
 import 'dart:io' as io;
 
@@ -75,12 +76,10 @@ Future<int> runApp(
   final console = consoleContextFor?.call(s, editor) ??
       ConsoleContext(screen: s, editor: editor);
   final settings = SettingsPanel(s, editor);
-  final contributions =
-      session.host.plugins.whereType<ConsoleContribution>().toList();
-  final attached = <ConsoleContribution, ConsoleAttachment>{};
+  final attached = <AgentPlugin, ConsoleAttachment>{};
   void repaintContributions() {
-    for (final contribution in attached.keys.toList()) {
-      contribution.repaintConsole();
+    for (final attachment in attached.values.toList()) {
+      attachment.contribution.repaintConsole();
     }
   }
 
@@ -141,7 +140,9 @@ Future<int> runApp(
   }
 
   terminal.onLine = (text) {
-    final transcripts = attached.keys.whereType<ConsoleTranscript>();
+    final transcripts = attached.values
+        .map((attachment) => attachment.contribution)
+        .whereType<ConsoleTranscript>();
     if (transcripts.isEmpty) {
       s.frame(() => s.chat.writeln(text));
     } else {
@@ -150,15 +151,13 @@ Future<int> runApp(
   };
 
   void attachContribution(AgentPlugin plugin) {
-    if (plugin is! ConsoleContribution) return;
-    final contribution = plugin as ConsoleContribution;
-    attached[contribution] = ConsoleAttachment.attach(contribution, console);
+    final contribution = createConsoleView(plugin);
+    if (contribution == null) return;
+    attached[plugin] = ConsoleAttachment.attach(contribution, console);
   }
 
   void detachContribution(AgentPlugin plugin) {
-    if (plugin is! ConsoleContribution) return;
-    final contribution = plugin as ConsoleContribution;
-    attached.remove(contribution)?.dispose();
+    attached.remove(plugin)?.dispose();
   }
 
   session.assembly.pluginManager.onLoaded = attachContribution;
@@ -227,8 +226,8 @@ Future<int> runApp(
           (model) async =>
               SessionView(TuiSession.wrap(session.assembly.newSession(model))));
     }
-    for (final contribution in contributions) {
-      attached[contribution] = ConsoleAttachment.attach(contribution, console);
+    for (final plugin in session.host.plugins) {
+      attachContribution(plugin);
     }
     releaseQueueStatus = console.bindStatus(() {
       final count = queued.length + session.host.session.loop.pendingInputCount;
