@@ -459,14 +459,17 @@ final class _Workspace implements ConsolePanels {
     // The owner may choose not to wait. Submission handlers already
     // report failures while attached; retain no unhandled future on detach.
     pending.ignore();
+    late final Future<void> released;
     try {
-      return _releaseSession(view.session, pending);
+      released = _releaseSession(view.session, pending);
     } finally {
       view.unbindQueueStatus?.call();
       view.releaseActivity?.call();
       view.chat.detach();
       view.frame.dispose();
     }
+    // Dispose presentation immediately, before awaiting application-owned work.
+    return released;
   }
 
   Future<void> _releaseSession(
