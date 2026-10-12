@@ -450,12 +450,17 @@ void main() {
     io.feed('!');
     await tick();
     expect(visible(), contains('test-model ! '));
+    expect(screen.input.buffer, isEmpty);
+    expect(screen.input.cursor, 0);
+    expect(editor.editState.buffer, '!');
     io.feed('\x7f');
     await tick();
     expect(visible(), contains('test-model > '));
     io.feed('\x1b[200~!echo hello\x1b[201~');
     await tick();
-    expect(visible(), contains('test-model ! '));
+    expect(visible(), contains('test-model ! echo hello'));
+    expect(screen.input.buffer, 'echo hello');
+    expect(screen.input.cursor, 'echo hello'.length);
     io.feed('\r');
     expect(await line, '!echo hello');
     final next = editor.readLine('unused');
@@ -463,9 +468,57 @@ void main() {
     expect(visible(), contains('test-model > '));
     io.feed('\x1b[A');
     await tick();
-    expect(visible(), contains('test-model ! '));
+    expect(visible(), contains('test-model ! echo hello'));
+    expect(screen.input.buffer, 'echo hello');
     io.feed('\r');
     expect(await next, '!echo hello');
+  });
+
+  test('shell prefix display tracks cursor edits and restores plain input',
+      () async {
+    final line = editor.readLine('unused');
+    await tick();
+    editor.loadEditState('  !echo hi!', 11);
+    expect(screen.input.buffer, 'echo hi!');
+    expect(screen.input.cursor, 8);
+    io.feed('\x1b[DX');
+    await tick();
+    expect(screen.input.buffer, 'echo hiX!');
+    expect(screen.input.cursor, 8);
+    expect(editor.editState.buffer, '  !echo hiX!');
+
+    editor.loadEditState('!echo hi!', 1);
+    expect(screen.input.cursor, 0);
+    io.feed('\x7f');
+    await tick();
+    expect(screen.input.prompt, contains('test-model > '));
+    expect(screen.input.buffer, 'echo hi!');
+    expect(screen.input.cursor, 0);
+    io.feed('\r');
+    expect(await line, 'echo hi!');
+  });
+
+  test('shell display preserves long paste chips and original submission',
+      () async {
+    final command = 'echo ${'x' * 140}';
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('\x1b[200~!$command\x1b[201~');
+    await tick();
+    expect(screen.input.prompt, contains('test-model ! '));
+    expect(screen.input.buffer, '[Pasted text : ${command.length} chars]');
+    expect(screen.input.cursor, screen.input.buffer.length);
+    io.feed('\r');
+    expect(await line, '!$command');
+  });
+
+  test('detaching the chat view releases shell prefix presentation', () {
+    editor.loadEditState('!echo hello', 11);
+    expect(screen.input.buffer, 'echo hello');
+    chat.detachConsole();
+    editor.loadEditState('!echo hello', 11);
+    expect(screen.input.buffer, '!echo hello');
+    expect(editor.hiddenInputPrefixLength, isNull);
   });
 
   test('shell prompt uses the queued draft during a turn', () async {
@@ -474,12 +527,16 @@ void main() {
     io.feed('!');
     await tick();
     expect(visible(), contains('test-model ! '));
+    expect(screen.input.buffer, isEmpty);
+    expect(screen.input.cursor, 0);
     io.feed('\x7f');
     await tick();
     expect(visible(), contains('test-model > '));
     io.feed('!echo queued');
     await tick();
-    expect(visible(), contains('test-model ! '));
+    expect(visible(), contains('test-model ! echo queued'));
+    expect(screen.input.buffer, 'echo queued');
+    expect(screen.input.cursor, 'echo queued'.length);
     io.feed('\r');
     await tick();
     expect(submitted, ['!echo queued']);

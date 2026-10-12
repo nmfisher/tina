@@ -48,6 +48,7 @@ const defaultPluginIds = <String>[
   'tina/chat-tui',
   'tina/session-controls',
   'tina/status-strip-tui',
+  'tina/cwd-tui',
   'tina/panels-tui',
   'tina/activity-tui',
   'tina/mcp',

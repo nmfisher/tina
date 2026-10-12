@@ -14,6 +14,7 @@ Each directory is a Dart package with its own public API and tests.
 | `tina_compaction` | Context summarization and compaction |
 | `tina_context` | Opt-in agent-managed context, persisted snapshots and editable mirror |
 | `tina_context_tui` | Optional `/context` viewer for accepted messages, file status and latest edits |
+| `tina_cwd_tui` | Active session working directory in the status bar |
 | `tina_plans` | Plan state, `update_plan`, `/plan` |
 | `tina_goals` | Goal state, judging, `/goal` |
 | `tina_subagents` | Child-session scheduling, spawn tool and child assembly |

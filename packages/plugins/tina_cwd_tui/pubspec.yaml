@@ -1,0 +1,11 @@
+name: tina_cwd_tui
+description: Session working directory in the console status bar.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_console:
+    path: ../../tina_console
+dev_dependencies:
+  test: ^1.25.0

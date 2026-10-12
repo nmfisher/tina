@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:tina_console/tina_console.dart';
 import 'panels_status.dart';
+import 'prompt.dart';
 
 /// UI-only workspace: session creation/execution is supplied by the app.
 final class PanelsView
@@ -196,7 +197,11 @@ final class _Workspace implements ConsolePanels {
     };
     frame.onScroll = (pages) => chat.scrollBy(pages * chat.usableHeight);
     frame.onWheel = chat.scrollBy;
-    frame.inputPrompt = () => '${session.label} > ';
+    frame.inputPrompt = () {
+      final shell = conversationInputPrefixLength(frame.inputBuffer) > 0;
+      return '${session.label} ${shell ? '!' : '>'} ';
+    };
+    frame.hiddenInputPrefixLength = conversationInputPrefixLength;
     frame.onInputChanged = () => identical(active, view) && editor.isEditing;
     views.add(view);
     focus.register(frame);

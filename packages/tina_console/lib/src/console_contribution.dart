@@ -169,15 +169,23 @@ final class ConsoleContext {
   }
 
   /// Install a live prompt and release only the binding this caller owns.
-  void Function() bindPrompt(String Function() builder) {
+  /// [hiddenInputPrefixLength] counts draft code units represented by the
+  /// prompt; it follows the same focus and attachment lifetime as the prompt.
+  void Function() bindPrompt(String Function() builder,
+      {int Function(String draft)? hiddenInputPrefixLength}) {
     _checkOpen();
     final owner = Object();
-    _shared.prompts[owner] = () => isActive ? builder() : null;
+    _shared.prompts[owner] = () => isActive
+        ? (build: builder, hiddenPrefix: hiddenInputPrefixLength)
+        : null;
     _editor.promptBuilder = _shared.prompt;
+    _editor.hiddenInputPrefixLength = _shared.hiddenInputPrefixLength;
     return own(() {
       _shared.prompts.remove(owner);
-      if (_shared.prompts.isEmpty)
+      if (_shared.prompts.isEmpty) {
         _editor.promptBuilder = _shared.originalPrompt;
+        _editor.hiddenInputPrefixLength = _shared.originalHiddenPrefix;
+      }
     });
   }
 
@@ -297,9 +305,14 @@ final class ConsoleAttachment {
 }
 
 final class _ConsoleBindings {
-  _ConsoleBindings(LineEditor editor) : originalPrompt = editor.promptBuilder;
+  _ConsoleBindings(LineEditor editor)
+      : originalPrompt = editor.promptBuilder,
+        originalHiddenPrefix = editor.hiddenInputPrefixLength;
   final String Function()? originalPrompt;
-  final prompts = <Object, String? Function()>{};
+  final int Function(String)? originalHiddenPrefix;
+  final prompts = <Object,
+      ({String Function() build, int Function(String)? hiddenPrefix})?
+          Function()>{};
   final status = <Object, ({int priority, List<RenderLine> Function() read})>{};
   final sidebars = <ScrollingTextRegion, SidebarLayout>{};
   final attentionPreferences = <Object, bool Function()>{};
@@ -307,9 +320,17 @@ final class _ConsoleBindings {
   String prompt() {
     for (final build in prompts.values.toList().reversed) {
       final value = build();
-      if (value != null) return value;
+      if (value != null) return value.build();
     }
     return originalPrompt?.call() ?? '› ';
+  }
+
+  int hiddenInputPrefixLength(String draft) {
+    for (final read in prompts.values.toList().reversed) {
+      final value = read();
+      if (value != null) return value.hiddenPrefix?.call(draft) ?? 0;
+    }
+    return originalHiddenPrefix?.call(draft) ?? 0;
   }
 }
 

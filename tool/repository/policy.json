@@ -34,6 +34,7 @@
     "tina_providers",
     "tina_activity_tui",
     "tina_context_tui",
+    "tina_cwd_tui",
     "tina_chat_tui",
     "tina_grok_guard",
     "tina_mode",
@@ -55,6 +56,7 @@
     "tina_approvals_tui",
     "tina_activity_tui",
     "tina_context_tui",
+    "tina_cwd_tui",
     "tina_chat_tui",
     "tina_plans_tui",
     "tina_classification_tui",
@@ -220,6 +222,10 @@
       "lib",
       "test"
     ],
+    "tina_cwd_tui": [
+      "lib",
+      "test"
+    ],
     "tina_mcp_tui": [
       "lib",
       "test"
@@ -326,6 +332,7 @@
     "tina_mcp": "packages/plugins/tina_mcp",
     "tina_settings": "packages/libraries/tina_settings",
     "tina_context_tui": "packages/plugins/tina_context_tui",
+    "tina_cwd_tui": "packages/plugins/tina_cwd_tui",
     "tina_mcp_tui": "packages/plugins/tina_mcp_tui",
     "tina_chat": "packages/plugins/tina_chat",
     "tina_activity": "packages/plugins/tina_activity",
@@ -436,6 +443,7 @@
       "tina_context",
       "tina_context_tui",
       "tina_core",
+      "tina_cwd_tui",
       "tina_engine_2",
       "tina_file_resources",
       "tina_goals",
@@ -464,6 +472,9 @@
       "tina_engine_2",
       "tina_console",
       "tina_context"
+    ],
+    "tina_cwd_tui": [
+      "tina_console"
     ],
     "tina_mcp_tui": [
       "tina_mcp",

@@ -3,7 +3,8 @@ import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina/session.dart';
-import 'package:tina/tui.dart';
+import 'package:tina/src/console_catalog.dart';
+import 'package:tina_cwd_tui/tina_cwd_tui.dart';
 
 void main() {
   test('legacy system-instruction selections retain their enabled state', () {
@@ -34,6 +35,22 @@ void main() {
             configPath: config.path, workingDirectory: workspace.path),
         providerFactory: (_) => ScriptedProvider([scriptedReply('done')]),
       );
+
+  test('CWD plugin uses the session workspace and supports live toggling', () {
+    final assembly = assemble();
+    addTearDown(assembly.close);
+    CwdView view() => createConsoleView(assembly.host.plugins
+        .singleWhere((plugin) => plugin.id == 'tina/cwd-tui')) as CwdView;
+    expect(view().workingDirectory, workspace.absolute.path);
+    expect(view(), isNot(same(view())));
+    assembly.pluginSettings.apply(
+        'tina/cwd-tui', false, PluginScope.session, assembly.pluginManager);
+    expect(assembly.host.plugins.any((plugin) => plugin.id == 'tina/cwd-tui'),
+        isFalse);
+    assembly.pluginSettings.apply(
+        'tina/cwd-tui', true, PluginScope.session, assembly.pluginManager);
+    expect(view().workingDirectory, workspace.absolute.path);
+  });
 
   test('defaults mount the selected first-party plugins and persist a turn',
       () async {

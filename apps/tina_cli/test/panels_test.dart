@@ -769,6 +769,31 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(editor.editState.buffer, isEmpty);
   });
 
+  test('shell draft has one prompt marker across panel focus changes',
+      () async {
+    await keys('!echo hello');
+    final mainFrame = getFrame();
+    expect(screen.input.buffer, 'echo hello');
+    expect(screen.input.prompt, contains(' ! '));
+    await spawn('other');
+    await keys('normal draft!');
+    expect(screen.input.buffer, 'normal draft!');
+    expect(screen.input.prompt, contains(' > '));
+
+    final terminal = VirtualTerminal(width: 120, height: 24)
+      ..feed(io.written.toString());
+    final row = terminal.rowText(mainFrame.inputRect.row);
+    expect(row, contains('main ! echo hello'));
+    expect(row, isNot(contains('! !echo')));
+    expect(mainFrame.inputBuffer, '!echo hello');
+
+    await keys('\x07\t\t\r');
+    expect(editor.editState.buffer, '!echo hello');
+    expect(screen.input.buffer, 'echo hello');
+    expect(screen.input.cursor, 'echo hello'.length);
+    expect(screen.input.prompt, contains(' ! '));
+  });
+
   test('closing a spawned panel clears the complete bottom rail', () async {
     final terminal = VirtualTerminal(width: 120, height: 24);
     await spawn('other');

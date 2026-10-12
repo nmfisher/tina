@@ -67,17 +67,20 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       final source = _sources[block];
       if (source != null) block.body = renderMarkdown(_clean(source), _style);
     }
-    _unbindPrompt = context.bindPrompt(() => renderConversationPrompt(
-        ConversationPrompt(
-            conversationId: '',
-            model: chat.model,
-            busy: _busy,
-            shell: context.input.draftText.trimLeft().startsWith('!'),
-            focused: true,
-            newLines: context.chat.newWhileScrolled),
-        context.screen,
-        width: context.screen.input.bounds.width,
-        animationFrame: _frame));
+    _unbindPrompt = context.bindPrompt(
+        () => renderConversationPrompt(
+            ConversationPrompt(
+                conversationId: '',
+                model: chat.model,
+                busy: _busy,
+                shell:
+                    conversationInputPrefixLength(context.input.draftText) > 0,
+                focused: true,
+                newLines: context.chat.newWhileScrolled),
+            context.screen,
+            width: context.screen.input.bounds.width,
+            animationFrame: _frame),
+        hiddenInputPrefixLength: conversationInputPrefixLength);
     _unbindKey = context.bindShortcut((event) {
       final lineRows = _lineScrollRows(event);
       if (lineRows != 0 && context.input.focusManager?.isCycling == true) {

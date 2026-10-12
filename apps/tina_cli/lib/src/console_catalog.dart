@@ -3,6 +3,7 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 import 'package:tina_classification_tui/tina_classification_tui.dart';
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_cwd_tui/tina_cwd_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
@@ -39,6 +40,8 @@ final _viewFactories =
           (plugin as PresentationPlugin<UpdateStatusSource>).source, access),
       checkOnAttach: access.canControl),
   'tina/status-strip-tui': (_, access) => StatusStripView(),
+  'tina/cwd-tui': (plugin, access) =>
+      CwdView((plugin as PresentationPlugin<String>).source),
   'tina/panels-tui': (_, access) => PanelsView(),
   'tina/chat-tui': (plugin, access) =>
       ChatView((plugin as ChatPlugin).observation),

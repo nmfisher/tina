@@ -199,6 +199,29 @@ void main() {
   });
 
   group('TextLineInput paste spans', () {
+    test('display prefix hiding preserves paste spans and cursor positions',
+        () {
+      final edit =
+          const TextLineInput().insert('!').addPaste('x' * 140).insert(' tail');
+      final display = edit.display(hiddenPrefixLength: 1);
+      expect(display.buffer, '[Pasted text : 140 chars] tail');
+      expect(display.cursor, display.buffer.length);
+      expect(edit.buffer, '!${'x' * 140} tail');
+      expect(edit.copyWith(cursor: 0).display(hiddenPrefixLength: 1).cursor, 0);
+      expect(edit.copyWith(cursor: 1).display(hiddenPrefixLength: 1).cursor, 0);
+      expect(edit.copyWith(cursor: 141).display(hiddenPrefixLength: 1).cursor,
+          '[Pasted text : 140 chars]'.length);
+    });
+
+    test('display prefix may cross paste spans without exposing controls', () {
+      final edit =
+          const TextLineInput().addPaste('  ').addPaste('!echo\t世界\x1b[31m!');
+      expect(edit.display(hiddenPrefixLength: 3),
+          (buffer: 'echo 世界!', cursor: 'echo 世界!'.length));
+      expect(edit.display(hiddenPrefixLength: edit.buffer.length),
+          (buffer: '', cursor: 0));
+    });
+
     late TextLineInput edit;
 
     setUp(() => edit = TextLineInput());

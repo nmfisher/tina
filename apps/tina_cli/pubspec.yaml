@@ -37,6 +37,8 @@ dependencies:
     path: ../../packages/plugins/tina_context_tui
   tina_core:
     path: ../../packages/tina_core
+  tina_cwd_tui:
+    path: ../../packages/plugins/tina_cwd_tui
   tina_engine_2:
     path: ../../packages/tina_engine_2
   tina_file_resources:

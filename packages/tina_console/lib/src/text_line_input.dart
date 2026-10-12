@@ -321,6 +321,33 @@ class TextLineInput {
 
   // -- Pure reads (no copyWith) -----------------------------------------
 
+  /// Project the draft with a routing prefix already represented by the
+  /// prompt. Editing, submission and history retain the full original text.
+  ({String buffer, int cursor}) display({int hiddenPrefixLength = 0}) {
+    final start = hiddenPrefixLength.clamp(0, buffer.length);
+    final visible = start == 0
+        ? this
+        : TextLineInput(
+            buffer: buffer.substring(start),
+            cursor: (cursor - start).clamp(0, buffer.length - start),
+            pasteSpans: [
+              for (final span in pasteSpans)
+                if (span.end > start)
+                  _PasteSpan(
+                    (span.start - start).clamp(0, buffer.length),
+                    span.end - start,
+                    span.start >= start
+                        ? span.display
+                        : _makeDisplay(buffer.substring(start, span.end)),
+                  ),
+            ],
+          );
+    return (
+      buffer: visible.toDisplay(),
+      cursor: visible.displayCursor(visible.cursor),
+    );
+  }
+
   /// Rebuild [buffer] with each paste span's real text replaced by its
   /// display form — verbatim (whitespace flattened) or the placeholder chip,
   /// per [_makeDisplay]. Recalled and restored text is flattened too, because

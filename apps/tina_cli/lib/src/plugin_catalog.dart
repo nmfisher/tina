@@ -159,6 +159,14 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             description:
                 'Arranges the status bar: how plugin lines and the mode label share the strip under width pressure.',
             live: true),
+        PluginDefinition<SessionPluginContext>(
+            'tina/cwd-tui',
+            (c) => PresentationPlugin(
+                id: 'tina/cwd-tui',
+                source: Directory(c.workingDirectory).absolute.path),
+            description:
+                'Shows the active session working directory in the status bar.',
+            live: true),
         updateDefinition<SessionPluginContext>(
             version: (c) => c.version,
             terminal: (c) => c.terminal,

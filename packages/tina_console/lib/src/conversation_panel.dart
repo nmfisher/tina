@@ -7,6 +7,7 @@ import 'panel_input.dart';
 import 'rect.dart';
 import 'screen.dart';
 import 'term_width.dart' show plainWidth;
+import 'text_line_input.dart';
 
 /// A focusable chrome frame: an optionally bordered box with a title bar and an optional
 /// busy (turn-in-flight) comet. It owns only rectangles and focus state — it
@@ -107,6 +108,9 @@ class PanelFrame implements Focusable, PanelInputTarget {
 
   /// Application-owned prompt formatting; the frame knows no model types.
   String Function()? inputPrompt;
+
+  /// Routing prefix already represented by [inputPrompt].
+  int Function(String draft)? hiddenInputPrefixLength;
 
   /// Return true when the shared editor owns this row (including while a
   /// modal temporarily holds its keyboard). Prevents stale saved drafts from
@@ -542,10 +546,12 @@ class PanelFrame implements Focusable, PanelInputTarget {
     final width = b.width;
     if (inputBuffer.isEmpty && !_hasFocus && inputPrompt == null) return;
     final prompt = inputPrompt?.call() ?? (_hasFocus ? '> ' : '');
+    final display = TextLineInput(buffer: inputBuffer).display(
+        hiddenPrefixLength: hiddenInputPrefixLength?.call(inputBuffer) ?? 0);
     final maxBuf = (width - plainWidth(stripAnsi(prompt))).clamp(0, width);
-    final buf = inputBuffer.length > maxBuf
-        ? inputBuffer.substring(inputBuffer.length - maxBuf)
-        : inputBuffer;
+    final buf = display.buffer.length > maxBuf
+        ? display.buffer.substring(display.buffer.length - maxBuf)
+        : display.buffer;
     final padding =
         (width - plainWidth(stripAnsi('$prompt$buf'))).clamp(0, width);
     screen.putAtAbsolute(

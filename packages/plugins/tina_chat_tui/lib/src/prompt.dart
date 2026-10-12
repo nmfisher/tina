@@ -1,5 +1,11 @@
 import 'package:tina_console/tina_console.dart';
 
+/// The shell routing prefix is displayed by the conversation prompt.
+int conversationInputPrefixLength(String draft) {
+  final trimmed = draft.trimLeft();
+  return trimmed.startsWith('!') ? draft.length - trimmed.length + 1 : 0;
+}
+
 /// Live presentation data. Never added to the message sent to the agent.
 class ConversationPrompt {
   final String conversationId;

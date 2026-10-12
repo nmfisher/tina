@@ -58,6 +58,10 @@ class LineEditor {
   String Function()? promptBuilder;
   String get _currentPrompt => promptBuilder?.call() ?? _prompt;
 
+  /// Leading draft characters represented by the prompt instead of the
+  /// editable display. The underlying input and history remain unchanged.
+  int Function(String draft)? hiddenInputPrefixLength;
+
   /// How many key events have reached the editor. A rising count with no new
   /// presentation is what the stuck check looks for.
   int _keyCount = 0;
@@ -653,7 +657,7 @@ class LineEditor {
     // longer apply.
     _edit = _edit.loadState(buffer, cursor);
     if (_readKeyTurn != null || _modals.any((m) => m.isActive)) return;
-    screen.input.render(prompt: _currentPrompt, buffer: buffer, cursor: cursor);
+    _redraw();
   }
 
   /// Seed Up/Down recall from a restored conversation's user messages.
@@ -1666,10 +1670,16 @@ class LineEditor {
 
   void _redraw() {
     InputLatency.stage(LatencyStage.bufferMutated);
+    _renderDraft(_edit);
+  }
+
+  void _renderDraft(TextLineInput edit) {
+    final display = edit.display(
+        hiddenPrefixLength: hiddenInputPrefixLength?.call(edit.buffer) ?? 0);
     screen.input.render(
       prompt: _currentPrompt,
-      buffer: _edit.toDisplay(),
-      cursor: _edit.displayCursor(_edit.cursor),
+      buffer: display.buffer,
+      cursor: display.cursor,
     );
   }
 
@@ -1788,8 +1798,8 @@ class LineEditor {
         _qEdit = _qEdit.insert(text);
         _renderQueueDisplay();
       case PasteInput(:final text):
-        // Queue mode stays single-line: the pasted text goes in verbatim (no
-        // placeholder span — rendering below uses the raw buffer).
+        // Queue mode keeps pasted text verbatim without a placeholder span;
+        // the display projection still flattens it onto one terminal row.
         _qEdit = _qEdit.insert(text);
         _renderQueueDisplay();
       case ArrowKey ev
@@ -1833,8 +1843,7 @@ class LineEditor {
   void _renderQueueDisplay() {
     final queueCount = _queueCountProvider?.call() ?? _qCount;
     if (_qEdit.buffer.isNotEmpty) {
-      screen.input.render(
-          prompt: _currentPrompt, buffer: _qEdit.buffer, cursor: _qEdit.cursor);
+      _renderDraft(_qEdit);
     } else if (queueCount > 0) {
       final useColor = screen.ansi.useColor;
       final label = useColor
