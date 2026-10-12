@@ -1,19 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:tina_tools/tina_tools.dart' show CommandApprovalStore;
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_llm/tina_llm.dart';
-import 'assembly_config.dart';
-import 'config_document.dart';
-import 'configured_provider.dart';
-import 'providers_panel.dart';
-import 'plugin_settings.dart';
-import 'package:tina_host/tina_host.dart';
 import 'package:tina_settings/tina_settings.dart';
-import 'package:tina_chat_tui/tina_chat_tui.dart'
-    show themeSetting, defaultModelSetting, terminalAlertsSetting;
-import 'scoped_config.dart';
-import 'settings_catalog.dart';
+import 'providers_panel.dart';
+import 'settings_management.dart';
 
 typedef _SettingsEntry = ({
   String category,
@@ -32,8 +22,8 @@ final class SettingsPanel {
   late ScreenCursor _cursor;
   void Function()? _paint;
   bool _savedSection = false;
-  CommandApprovalStore? _commandApprovals;
-  void Function()? _applyConfiguration;
+  late SettingsManagement _management;
+  late SettingsSnapshot _state;
   void repaint() => _paint?.call();
   Completer<void> _changed = Completer<void>();
   Future<InputEvent>? _pendingRead;
@@ -100,25 +90,20 @@ final class SettingsPanel {
   }
 
   void _refresh() {
+    _state = _management.settings.snapshot();
     final previous = _changed;
     _changed = Completer<void>();
     previous.complete();
     repaint();
   }
 
+  /// Uses one disposable editor connection; closing the dialog releases that
+  /// connection without closing the runtime's shared settings.
   Future<bool> run(
-      {required String path,
-      CommandApprovalStore? commandApprovals,
-      required ScopedSettings scopedSettings,
-      required ConfigSettingsBackend settingsBackend,
-      List<ProviderDescriptor>? descriptors,
-      void Function(Iterable<String>)? validatePlugins,
-      SettingsRegistry? sections,
-      PluginSettings<dynamic>? pluginSettings,
-      PluginManager<dynamic>? pluginManager,
-      void Function()? applyConfiguration,
-      Map<String, String> pluginDescriptions = const {}}) async {
-    _commandApprovals = commandApprovals;
+      {required SettingsManagement management,
+      SettingsRegistry? sections}) async {
+    _management = management;
+    _state = management.settings.snapshot(refresh: true);
     _savedSection = false;
     _usingScopes = true;
     _scope = SettingScope.session;
@@ -126,32 +111,23 @@ final class SettingsPanel {
     _cancelled = false;
     _breadcrumbs.clear();
     _cancel = Completer<void>();
-    _applyConfiguration = applyConfiguration;
-    final resolvedDescriptors = descriptors ?? configuredDescriptors();
-    final document = ConfigDocument.open(path);
     final input = readEvent == null
         ? editor.openInputSession(cancelSignal: _cancel.future)
         : null;
     _read = readEvent ?? input!.read;
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
-    final stopSettings = scopedSettings.listen(_refresh);
+    final stopSettings = management.listen(_refresh);
     _overlay =
         OverlayRegion(screen, const Rect(row: 0, col: 0, width: 1, height: 1));
     _cursor = screen.claimCursor();
     try {
-      return await _scopedRun(scopedSettings, settingsBackend,
-          document: document,
-          descriptors: resolvedDescriptors,
-          sections: sections,
-          pluginSettings: pluginSettings,
-          pluginManager: pluginManager,
-          validatePlugins: validatePlugins,
-          descriptions: pluginDescriptions);
+      return await _scopedRun(sections: sections);
     } finally {
       try {
         unlisten?.call();
         stopSettings.call();
+        management.close();
         _paint = null;
         if (!_cancel.isCompleted) _cancel.complete();
         input?.dispose();
@@ -167,7 +143,7 @@ final class SettingsPanel {
 
   Future<void> _manageCommandApprovals() async {
     while (true) {
-      final entries = _commandApprovals!.entries;
+      final entries = _management.commandApprovals;
       final selected = await _menu('Command approvals', [
         for (final entry in entries)
           '${entry['scope']}: ${entry['pattern'] == null ? entry['command'] : 'regex: ${entry['pattern']}'} (${entry['directory']})',
@@ -179,33 +155,28 @@ final class SettingsPanel {
         'Revoke: ${entry['pattern'] ?? entry['command']}',
         'Keep approval',
       ]);
-      if (revoke == 0) _commandApprovals!.revoke(entry['id'] as String);
+      if (revoke == 0) _management.revokeCommandApproval(entry['id'] as String);
     }
   }
 
-  Future<bool> _scopedRun(
-      ScopedSettings settings, ConfigSettingsBackend backend,
-      {required ConfigDocument document,
-      required List<ProviderDescriptor> descriptors,
-      SettingsRegistry? sections,
-      PluginSettings<dynamic>? pluginSettings,
-      PluginManager<dynamic>? pluginManager,
-      void Function(Iterable<String>)? validatePlugins,
-      Map<String, String> descriptions = const {}}) async {
+  SettingInfo get _defaultModelSetting =>
+      _state.catalog['tina/session-controls/default_model'];
+
+  Future<bool> _scopedRun({SettingsRegistry? sections}) async {
     return _browseSettings(() {
-      final owners = settings.catalog.definitions
+      final owners = _state.catalog.definitions
           .map((d) => d.owner)
           .toSet()
           .where((id) =>
               !id.startsWith('tina/providers') &&
               id != 'tina/chat-tui' &&
               id != 'tina/session-controls' &&
-              settings.catalog.definitions
+              _state.catalog.definitions
                   .any((d) => d.owner == id && !d.id.endsWith('/enabled')))
           .toList()
         ..sort();
       return [
-        if (_commandApprovals != null)
+        if (_management.hasCommandApprovals)
           (
             category: 'Permissions',
             label: 'Remembered command approvals',
@@ -215,14 +186,17 @@ final class SettingsPanel {
           category: 'Models',
           label: 'Default model',
           open: () async {
-            if (!await _allowedScope(defaultModelSetting)) return;
-            final draft = backend.draft(settings, _scope);
-            await _withinScopes(defaultModelSetting.scopes,
-                () => _defaultModel(draft, descriptors));
-            if (draft.hasChanges) {
-              draft.save(
-                  descriptors: descriptors, validatePlugins: validatePlugins);
-              _savedSection = true;
+            if (!await _allowedScope(_defaultModelSetting)) return;
+            final draft = _management.openDraft(_scope);
+            try {
+              await _withinScopes(_defaultModelSetting.scopes,
+                  () => _defaultModel(draft, _management.providers));
+              if (draft.hasChanges) {
+                _management.saveDraft(draft);
+                _savedSection = true;
+              }
+            } finally {
+              _management.closeDraft(draft);
             }
           }
         ),
@@ -236,19 +210,17 @@ final class SettingsPanel {
               if (enter != 0) return;
               _scope = SettingScope.global;
             }
-            final global = ConfigDocument.open(backend.globalPath);
-            await _withinScopes({SettingScope.global},
-                () => _providers(global, descriptors, validatePlugins));
-            if (global.hasChanges) {
-              global.save(
-                  descriptors: descriptors, validatePlugins: validatePlugins);
-              _applyConfiguration?.call();
-              settings.reload();
-              refreshProviderDefinitions(
-                  settings.catalog,
-                  ConfigDocument.validateValues(backend.effectiveDocument(),
-                      descriptors: descriptors));
-              _savedSection = true;
+            final draft = _management.openDraft(SettingScope.global,
+                providerCatalog: true);
+            try {
+              await _withinScopes({SettingScope.global},
+                  () => _providers(draft, _management.providers));
+              if (draft.hasChanges) {
+                _management.saveDraft(draft);
+                _savedSection = true;
+              }
+            } finally {
+              _management.closeDraft(draft);
             }
           }
         ),
@@ -256,53 +228,49 @@ final class SettingsPanel {
           category: 'Models',
           label: 'Generation settings',
           open: () async {
-            final providers = settings.catalog.definitions
+            final providers = _state.catalog.definitions
                 .where((d) => d.id.endsWith('/thinking'))
                 .map((d) => d.id.split('/')[2])
                 .toList();
             final selected = await _menu('Generation settings', providers);
             if (selected != null) {
-              await _generation(
-                  backend.draft(settings, _scope), descriptors, validatePlugins,
-                  provider: providers[selected]);
+              final draft = _management.openDraft(_scope);
+              try {
+                await _generation(draft, provider: providers[selected]);
+              } finally {
+                _management.closeDraft(draft);
+              }
             }
           }
         ),
-        (
-          category: 'Plugins',
-          label: 'Enabled plugins',
-          open: () => _scopedPlugins(
-              settings, backend, pluginSettings, pluginManager, descriptions)
-        ),
+        (category: 'Plugins', label: 'Enabled plugins', open: _scopedPlugins),
         (
           category: 'General',
           label: 'Request and token limits',
           open: () => _definitions(
-              settings,
               'Request and token limits',
-              () => settings.catalog.definitions
+              () => _state.catalog.definitions
                   .where((d) => d.configPath.first == 'limits')
                   .toList())
         ),
         (
           category: 'Appearance',
           label: 'Theme',
-          open: () => _scopedValue(settings, themeSetting)
+          open: () => _scopedValue(_state.catalog['tina/chat-tui/theme'])
         ),
         (
           category: 'Appearance',
           label: 'Terminal alerts',
-          open: () => _definitions(
-              settings, 'Terminal alerts', () => [terminalAlertsSetting])
+          open: () => _definitions('Terminal alerts',
+              () => [_state.catalog['tina/chat-tui/terminal_alerts']])
         ),
         for (final owner in owners)
           (
             category: _ownerCategory(owner),
             label: _sectionTitle(owner),
             open: () => _definitions(
-                settings,
                 _sectionTitle(owner),
-                () => settings.catalog.definitions
+                () => _state.catalog.definitions
                     .where(
                         (d) => d.owner == owner && !d.id.endsWith('/enabled'))
                     .toList())
@@ -313,25 +281,25 @@ final class SettingsPanel {
             label: section.title,
             open: () async {
               await _section(sections!, section);
-              document.refreshUneditedTables();
-              _applyConfiguration?.call();
+              _management.refresh();
+              _refresh();
             }
           ),
       ];
     },
         searchEntries: () => [
-              for (final definition in settings.catalog.definitions.where((d) =>
+              for (final definition in _state.catalog.definitions.where((d) =>
                   !d.id.endsWith('/enabled') &&
-                  d.id != defaultModelSetting.id &&
-                  d.id != themeSetting.id))
+                  d.id != _defaultModelSetting.id &&
+                  d.id != 'tina/chat-tui/theme'))
                 (
                   category: _ownerCategory(definition.owner),
                   label:
                       '${definition.label} · ${_sectionTitle(definition.owner)}',
-                  open: () => _scopedValue(settings, definition)
+                  open: () => _scopedValue(definition)
                 ),
             ],
-        attention: () => settings.applicationErrors.values.join('\n'));
+        attention: () => _state.applicationErrors.values.join('\n'));
   }
 
   String _ownerCategory(String id) => id.startsWith('tina/providers')
@@ -416,9 +384,11 @@ final class SettingsPanel {
             ? error.message.toString()
             : error is ArgumentError
                 ? error.message.toString()
-                : error is StateError
-                    ? error.message.toString()
-                    : 'Check configuration and file permissions.',
+                : error is SettingsConflict
+                    ? error.toString()
+                    : error is StateError
+                        ? error.message.toString()
+                        : 'Check configuration and file permissions.',
         'Back',
       ]);
     } finally {
@@ -436,9 +406,9 @@ final class SettingsPanel {
         'tina/goals' => 'Goals',
         _ => id,
       };
-  String _settingValue(SettingDefinition<Object> definition, Object? value) =>
+  String _settingValue(SettingInfo definition, Object? value) =>
       definition.secret
-          ? (value == null ? 'unset' : '••••')
+          ? (value == null || value == '' ? 'unset' : '••••')
           : value == null
               ? 'Inherit'
               : value is int
@@ -448,13 +418,12 @@ final class SettingsPanel {
                       : value is Map || value is List
                           ? jsonEncode(value)
                           : value.toString();
-  String _settingRow(
-      ScopedSettings settings, SettingDefinition<Object> definition) {
-    final state = settings.read(definition, scope: _scope);
+  String _settingRow(SettingInfo definition) {
+    final state = _state.read(definition, scope: _scope);
     return '${definition.label}: ${_settingValue(definition, state.value)}';
   }
 
-  Future<bool> _allowedScope(SettingDefinition<Object> definition) async {
+  Future<bool> _allowedScope(SettingInfo definition) async {
     if (definition.scopes.contains(_scope)) return true;
     final scopes =
         SettingScope.values.where(definition.scopes.contains).toList();
@@ -466,15 +435,15 @@ final class SettingsPanel {
     return true;
   }
 
-  Future<void> _definitions(ScopedSettings settings, String title,
-      List<SettingDefinition<Object>> Function() definitions) async {
+  Future<void> _definitions(
+      String title, List<SettingInfo> Function() definitions) async {
     var selected = 0;
     var query = '';
     while (true) {
       var fields = definitions();
       List<String> items() {
         fields = definitions();
-        return fields.map((d) => _settingRow(settings, d)).toList();
+        return fields.map((d) => _settingRow(d)).toList();
       }
 
       var reset = false;
@@ -488,36 +457,39 @@ final class SettingsPanel {
           onReset: () => reset = true,
           detailFor: (i) {
             final field = fields[i];
-            final state = settings.read(field, scope: _scope);
+            final state = _state.read(field, scope: _scope);
             return '${state.source == _scope ? 'Set here' : 'Inherited from ${state.sourceLabel}'} · ${_applyLabel(field.applyAt)} · Ctrl-R inherit';
           },
-          descriptionFor: (i) => _definitionHelp(settings, fields[i]));
+          descriptionFor: (i) => _definitionHelp(fields[i]));
       if (choice == null) return;
       if (reset) {
         if (await _allowedScope(fields[choice])) {
-          settings.removeOverride(fields[choice], _scope);
+          _management.settings.update(_scope,
+              expectedRevision: _state.revision, remove: {fields[choice].id});
+          _refresh();
           _savedSection = true;
         }
       } else {
-        await _scopedValue(settings, fields[choice]);
+        await _scopedValue(fields[choice]);
       }
     }
   }
 
-  Future<void> _scopedValue(
-      ScopedSettings settings, SettingDefinition<Object> definition,
-      {bool Function()? valid}) async {
+  Future<void> _scopedValue(SettingInfo definition,
+      {bool Function()? valid, SettingsClient? client}) async {
     if (!await _allowedScope(definition)) return;
     await _withinScopes(definition.scopes,
-        () => _editScopedValue(settings, definition, valid: valid));
+        () => _editScopedValue(definition, valid: valid, client: client));
   }
 
-  Future<void> _editScopedValue(
-      ScopedSettings settings, SettingDefinition<Object> definition,
-      {bool Function()? valid}) async {
+  Future<void> _editScopedValue(SettingInfo definition,
+      {bool Function()? valid, SettingsClient? client}) async {
     if (valid?.call() == false) return;
     if (!await _allowedScope(definition)) return;
-    final current = settings.read(definition, scope: _scope).value;
+    final connection = client ?? _management.settings;
+    final snapshot = connection.snapshot(refresh: true);
+    final scope = _scope;
+    final current = snapshot.read(definition, scope: scope).value;
     final Object? value;
     if (definition.kind == SettingKind.toggle) {
       value = current != true;
@@ -532,9 +504,11 @@ final class SettingsPanel {
     } else {
       final text = await _edit(
           definition.label,
-          definition.kind == SettingKind.object
-              ? jsonEncode(current)
-              : current.toString(),
+          definition.secret
+              ? ''
+              : definition.kind == SettingKind.object
+                  ? jsonEncode(current)
+                  : current.toString(),
           numeric: definition.kind == SettingKind.integer,
           secret: definition.secret,
           valid: valid);
@@ -546,20 +520,21 @@ final class SettingsPanel {
               : text;
     }
     if (valid?.call() == false) return;
-    settings.set(definition, definition.checked(value), _scope);
+    connection.update(scope,
+        expectedRevision: snapshot.revision, values: {definition.id: value});
+    _refresh();
     _savedSection = true;
   }
 
-  String _definitionHelp(
-          ScopedSettings settings, SettingDefinition<Object> definition) =>
+  String _definitionHelp(SettingInfo definition) =>
       '${definition.description}\n${[
         for (final scope in SettingScope.values)
-          '${scope.name}: ${_settingValue(definition, settings.override(definition, scope))}',
+          '${scope.name}: ${_settingValue(definition, _state.override(definition, scope))}',
         'Default: ${_settingValue(definition, definition.defaultValue)}',
-        'Effective here: ${_settingValue(definition, settings.read(definition).value)} (${settings.read(definition).sourceLabel})',
+        'Effective here: ${_settingValue(definition, _state.read(definition).value)} (${_state.read(definition).sourceLabel})',
         'Applies: ${_applyLabel(definition.applyAt)}',
-        if (settings.applicationErrors[definition.id] != null)
-          settings.applicationErrors[definition.id]!,
+        if (_state.applicationErrors[definition.id] != null)
+          _state.applicationErrors[definition.id]!,
       ].join('\n')}';
 
   String _applyLabel(ApplyAt timing) => switch (timing) {
@@ -569,29 +544,29 @@ final class SettingsPanel {
         ApplyAt.newSession => 'new conversations',
         ApplyAt.restart => 'after restart',
       };
-  Future<void> _scopedPlugins(
-      ScopedSettings settings,
-      ConfigSettingsBackend backend,
-      PluginSettings<dynamic>? plugins,
-      PluginManager<dynamic>? manager,
-      Map<String, String> descriptions) async {
-    final fields = settings.catalog.definitions
+  Future<void> _scopedPlugins() async {
+    final fields = _state.catalog.definitions
         .where(
             (d) => d.id.endsWith('/enabled') && d.configPath.first == 'plugins')
         .toList()
       ..sort((a, b) => a.owner.compareTo(b.owner));
-    final delivery = settings.catalog['tina/approvals/channel'];
+    final delivery = _state.catalog['tina/approvals/channel'];
+    var pluginInfo = _management.plugins;
     var query = '';
     var selected = 0;
     var column = _scope.index;
     while (true) {
       var reset = false;
       var about = false;
-      List<String> items() => [
-            _settingRow(settings, delivery),
-            for (final field in fields)
-              '[${plugins?.requiredIds.contains(field.owner) == true || settings.read(field, scope: _scope).value == true ? 'x' : ' '}] ${field.owner}'
-          ];
+      List<String> items() {
+        pluginInfo = _management.plugins;
+        return [
+          _settingRow(delivery),
+          for (final field in fields)
+            '[${pluginInfo[field.owner]?.required == true || _state.read(field, scope: _scope).value == true ? 'x' : ' '}] ${field.owner}'
+        ];
+      }
+
       final choice = await _menu('Plugins · [-] inherit · [~] mixed', items(),
           itemsNow: items,
           checkboxes: true,
@@ -601,12 +576,12 @@ final class SettingsPanel {
             if (column < 3) _scope = SettingScope.values[column];
           },
           rowFor: (i) => i == 0
-              ? _settingRow(settings, delivery)
+              ? _settingRow(delivery)
               : _pluginColumnsRow(
-                  '${fields[i - 1].owner}${plugins?.requiredIds.contains(fields[i - 1].owner) == true ? ' · required' : ''}',
+                  '${fields[i - 1].owner}${pluginInfo[fields[i - 1].owner]?.required == true ? ' · required' : ''}',
                   [
                     for (final scope in SettingScope.values)
-                      settings.override(fields[i - 1], scope) as bool?,
+                      _state.override(fields[i - 1], scope) as bool?,
                   ],
                   column),
           showDescription: true,
@@ -617,52 +592,57 @@ final class SettingsPanel {
           onAbout: () => about = true,
           descriptionFor: (i) => i == 0
               ? delivery.description
-              : descriptions[fields[i - 1].owner] ?? fields[i - 1].description,
+              : pluginInfo[fields[i - 1].owner]?.description ??
+                  fields[i - 1].description,
           detailFor: (i) => i == 0
               ? 'Selected delivery plugin · opens with conversation'
-              : plugins?.requiredIds.contains(fields[i - 1].owner) == true
-                  ? plugins!.blockingReasons[fields[i - 1].owner]!.join('; ')
-                  : '${column == 3 ? 'All: toggle session, workspace and global' : '${_scope.name}: ${settings.hasOverride(fields[i - 1], _scope) ? 'set here' : 'inherited from ${settings.read(fields[i - 1], scope: _scope).sourceLabel}'}'} · ${manager == null ? _applyLabel(fields[i - 1].applyAt) : plugins!.changeStatus(fields[i - 1].owner, manager)}');
+              : pluginInfo[fields[i - 1].owner]?.required == true
+                  ? pluginInfo[fields[i - 1].owner]!.blockingReasons.join('; ')
+                  : '${column == 3 ? 'All: toggle session, workspace and global' : '${_scope.name}: ${_state.hasOverride(fields[i - 1], _scope) ? 'set here' : 'inherited from ${_state.read(fields[i - 1], scope: _scope).sourceLabel}'}'} · ${pluginInfo[fields[i - 1].owner]?.status ?? _applyLabel(fields[i - 1].applyAt)}');
       if (choice == null) return;
       selected = choice;
       if (about) {
         final id = choice == 0 ? delivery.owner : fields[choice - 1].owner;
         final blurb = choice == 0
             ? delivery.description
-            : descriptions[id] ?? fields[choice - 1].description;
+            : pluginInfo[id]?.description ?? fields[choice - 1].description;
         List<String> lines() => wrapDialogWords(blurb, _aboutWidth);
         await _menu('About $id', lines(), itemsNow: lines);
         continue;
       }
       if (choice == 0) {
-        await _scopedValue(settings, delivery);
+        await _scopedValue(delivery);
         continue;
       }
       final field = fields[choice - 1];
-      final required = plugins?.requiredIds.contains(field.owner) == true;
+      final required = pluginInfo[field.owner]?.required == true;
       // A dependency requires the plugin in the effective conversation, not
       // necessarily in every scope. Allow promotion to missing scopes.
       if (required &&
           (reset ||
               (column == 3
-                  ? SettingScope.values.every((scope) =>
-                      settings.read(field, scope: scope).value == true)
-                  : settings.read(field, scope: _scope).value == true)))
-        continue;
+                  ? SettingScope.values.every(
+                      (scope) => _state.read(field, scope: scope).value == true)
+                  : _state.read(field, scope: _scope).value == true))) continue;
       try {
         if (column == 3) {
           final allEnabled = SettingScope.values
-              .every((scope) => settings.override(field, scope) == true);
-          backend.setPluginInAllScopes(
-              settings, field, reset ? null : !allEnabled);
+              .every((scope) => _state.override(field, scope) == true);
+          _management.settings.setInAllScopes(
+              field.id, reset ? null : !allEnabled,
+              expectedRevision: _state.revision);
         } else if (reset) {
-          settings.removeOverride(field, _scope);
+          _management.settings.update(_scope,
+              expectedRevision: _state.revision, remove: {field.id});
         } else {
-          settings.set(
-              field,
-              required || settings.read(field, scope: _scope).value != true,
-              _scope);
+          _management.settings.update(_scope,
+              expectedRevision: _state.revision,
+              values: {
+                field.id:
+                    required || _state.read(field, scope: _scope).value != true
+              });
         }
+        _refresh();
         _savedSection = true;
       } catch (error) {
         await _menu('Could not change plugin', ['$error', 'Back']);
@@ -670,81 +650,31 @@ final class SettingsPanel {
     }
   }
 
-  Future<void> _generation(
-      ConfigDocument document,
-      List<ProviderDescriptor> descriptors,
-      void Function(Iterable<String>)? validatePlugins,
-      {String? provider}) async {
-    final parsed = parseTinaConfig(document.values, descriptors: descriptors);
-    final config = parsed.config;
-    final id = provider ?? config.providerId ?? 'anthropic';
-    final settings = config.providers[id];
-    if (settings?.members.isNotEmpty == true) {
-      final members =
-          settings!.members.map((m) => m.split('/').first).toSet().toList();
-      final choice = await _menu('Generation for pool member', members);
-      if (choice != null) {
-        await _generation(document, descriptors, validatePlugins,
-            provider: members[choice]);
-      }
+  Future<void> _generation(ProviderDraft document, {String? provider}) async {
+    final form = _management.generation(document, provider: provider);
+    if (form.members.isNotEmpty) {
+      final choice = await _menu('Generation for pool member', form.members);
+      if (choice != null)
+        await _generation(document, provider: form.members[choice]);
       return;
     }
-    if (!document.existsOnDisk) {
+    if (!form.exists) {
       await _menu('Choose and save your provider and model first', ['Back']);
       return;
     }
-    final descriptor = descriptorByIdFor(id, config.descriptors);
-    if (descriptor == null) return;
-    final wire = descriptor.wire;
-    final model = config.model;
-    final automaticOutput =
-        descriptor.models[model]?.maxOutput ?? config.maxOutputTokens;
-    final initialOutput = settings?.maxOutput?.toString() ?? '';
-    var output =
-        TextLineInput(buffer: initialOutput, cursor: initialOutput.length);
+    final id = form.provider;
+    final automaticOutput = form.automaticOutput;
+    var output = TextLineInput(buffer: form.output, cursor: form.output.length);
     var replaceOutput = true;
-    final localEffort = settings?.reasoningEffort;
-    final localBudget = settings?.thinkingBudget;
-    final effort =
-        localEffort ?? (localBudget == null ? config.reasoningEffort : null);
-    final budget =
-        localEffort == null ? localBudget ?? config.thinkingBudget : null;
-    final efforts = thinkingChoicesFor(model).toList();
+    final budget = form.budget;
+    final efforts = form.efforts;
     final labels = [
-      for (final value in efforts)
-        switch (value) {
-          'auto' => 'Automatic',
-          'none' => 'Off',
-          _ => value[0].toUpperCase() + value.substring(1),
-        },
+      for (var i = 0; i < efforts.length; i++)
+        efforts[i] == 'budget'
+            ? 'Custom (${formatInteger(budget!)} tokens)'
+            : form.labels[i]
     ];
-    String? effectiveEffort = effort;
-    try {
-      effectiveEffort = generationFor(config, id, model).reasoningEffort;
-    } on FormatException {
-      // An unsupported legacy field is replaced by the single selected choice.
-    }
-    var thinking = efforts.indexOf(effectiveEffort ?? 'auto');
-    if (thinking < 0 &&
-        effectiveEffort != null &&
-        !model.split('/').last.toLowerCase().startsWith('glm-')) {
-      efforts.add(effectiveEffort);
-      labels
-          .add(effectiveEffort[0].toUpperCase() + effectiveEffort.substring(1));
-      thinking = labels.length - 1;
-    }
-    if (thinking < 0) thinking = 0;
-    final customBudget =
-        budget != null && wire != ProviderWire.openAiCompatible;
-    if (customBudget) {
-      if (budget == 0) {
-        thinking = 1;
-      } else {
-        labels.add('Custom (${formatInteger(budget)} tokens)');
-        efforts.add('budget');
-        thinking = labels.length - 1;
-      }
-    }
+    var thinking = form.selected;
     var selected = 0;
     String? error;
     _paint = () {
@@ -812,32 +742,17 @@ final class SettingsPanel {
             else
               'reasoning_effort': efforts[thinking],
           };
-          final candidate = document.fork();
-          final values = candidate.table('providers').putIfAbsent(
-              id, () => <String, dynamic>{}) as Map<String, dynamic>;
-          for (final key in [
-            'max_output',
-            'reasoning_effort',
-            'thinking_budget'
-          ]) {
-            values.remove(key);
-          }
-          values.addAll(fields);
           try {
-            generationFor(
-                parseTinaConfig(candidate.values, descriptors: descriptors)
-                    .config,
-                id,
-                model);
-            document.saveGeneration(id, fields,
-                descriptors: descriptors, validatePlugins: validatePlugins);
-            _applyConfiguration?.call();
+            _management.saveGeneration(document, id, fields);
+            _refresh();
             _savedSection = true;
             return;
           } catch (failure) {
-            error = failure is FormatException
-                ? 'These choices are incompatible. Try Automatic thinking.'
-                : 'Could not save; check permissions or reopen Settings.';
+            error = failure is SettingsConflict
+                ? failure.toString()
+                : failure is FormatException
+                    ? 'These choices are incompatible. Try Automatic thinking.'
+                    : 'Could not save; check permissions or reopen Settings.';
           }
         default:
           if (selected == 0) {
@@ -871,7 +786,7 @@ final class SettingsPanel {
               SettingChoice() => '${control.label}: ${control.read()}',
               SettingAction() => control.label,
               ScopedSettingControl() =>
-                _settingRow(control.settings, control.definition),
+                '${control.definition.label}: ${_settingValue(control.definition, control.settings.snapshot().read(control.definition, scope: _scope).value)}',
             }
         ];
       }
@@ -921,8 +836,8 @@ final class SettingsPanel {
               if (available()) await control.invoke();
             case ScopedSettingControl():
               if (available())
-                await _scopedValue(control.settings, control.definition,
-                    valid: available);
+                await _scopedValue(control.definition,
+                    valid: available, client: control.settings);
           }
         });
       } catch (_) {
@@ -942,7 +857,7 @@ final class SettingsPanel {
   }
 
   Future<bool> _defaultModel(
-      ConfigDocument document, List<ProviderDescriptor> descriptors) async {
+      ProviderDraft document, List<ProviderOption> descriptors) async {
     final providers = document.table('providers');
     final defaults = document.table('default');
     final currentId = defaults['provider'] as String? ?? 'anthropic';
@@ -953,26 +868,23 @@ final class SettingsPanel {
     final names = <String, String>{};
     final modelNames = <String, String>{};
     for (final id in ids) {
-      final descriptor = descriptorByIdFor(id, descriptors);
+      final descriptor = descriptors.where((d) => d.id == id).firstOrNull;
       final values = providers[id];
-      final settings = values is Map<String, dynamic>
-          ? ProviderSettings.parse(id, values)
-          : const ProviderSettings();
-      names[id] =
-          (values as Map?)?['name'] as String? ?? descriptor?.name ?? id;
-      final models = <String, ModelInfo>{
-        ...?descriptor?.models,
-        ...?settings.models
-      };
-      for (final model in models.values) {
-        if (settings.disabledModels.contains(model.id)) continue;
-        refs.add('$id/${model.id}');
-        modelNames['$id/${model.id}'] = model.name;
+      final fields =
+          (values as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+      final disabled =
+          (fields['disabled_models'] as List? ?? const []).cast<String>();
+      names[id] = fields['name'] as String? ?? descriptor?.name ?? id;
+      final models = providerModels(descriptor, fields);
+      for (final model in models.entries) {
+        if (disabled.contains(model.key)) continue;
+        refs.add('$id/${model.key}');
+        modelNames['$id/${model.key}'] = model.value;
       }
       final current = defaults['model'] as String? ?? '';
       if (id == currentId &&
           current.isNotEmpty &&
-          !settings.disabledModels.contains(current) &&
+          !disabled.contains(current) &&
           !refs.contains('$id/$current')) refs.add('$id/$current');
     }
     final picker = ModelSearchPicker(
@@ -1001,21 +913,18 @@ final class SettingsPanel {
   }
 
   Future<bool> _providers(
-      ConfigDocument document,
-      List<ProviderDescriptor> descriptors,
-      void Function(Iterable<String>)? validatePlugins) async {
+      ProviderDraft document, List<ProviderOption> descriptors) async {
     final draft = document.fork();
     late final ProvidersPanel panel;
     panel = ProvidersPanel(
         screen: screen,
         readEvent: _formEvent,
-        providers: draft.table('providers'),
+        draft: draft,
         descriptors: descriptors,
         bounds: () => _frame,
         contextLine: () => _scopeLine,
         title: _title('Providers & models'),
-        editAdvanced: (id) => _providerFields(
-            draft, descriptors, validatePlugins, id,
+        editAdvanced: (id) => _providerFields(draft, descriptors, id,
             generationDocument: document),
         onShow: () => _paint = panel.repaint);
     _overlay.hide();
@@ -1025,8 +934,7 @@ final class SettingsPanel {
         final id = defaults['provider'] as String? ?? 'anthropic';
         final values = draft.table('providers')[id];
         if (values is Map<String, dynamic> &&
-            ProviderSettings.parse(id, values)
-                .disabledModels
+            (values['disabled_models'] as List? ?? const [])
                 .contains(defaults['model'])) {
           final previous = defaults['model'];
           await _defaultModel(draft, descriptors);
@@ -1034,6 +942,7 @@ final class SettingsPanel {
         }
         document.values['providers'] = draft.table('providers');
         document.values['default'] = draft.table('default');
+        document.secretEdits.addAll(draft.secretEdits);
         return true;
       }
       return false;
@@ -1043,16 +952,13 @@ final class SettingsPanel {
   }
 
   Future<void> _providerFields(
-      ConfigDocument document,
-      List<ProviderDescriptor> descriptors,
-      void Function(Iterable<String>)? validatePlugins,
-      String id,
-      {ConfigDocument? generationDocument}) async {
+      ProviderDraft document, List<ProviderOption> descriptors, String id,
+      {ProviderDraft? generationDocument}) async {
     final providers = document.table('providers');
     final ids = {...descriptors.map((d) => d.id), ...providers.keys}.toList();
     final values = providers.putIfAbsent(id, () => <String, dynamic>{})
         as Map<String, dynamic>;
-    final builtin = descriptorByIdFor(id, descriptors);
+    final builtin = descriptors.where((d) => d.id == id).firstOrNull;
     while (true) {
       const fields = [
         'name',
@@ -1086,15 +992,16 @@ final class SettingsPanel {
         for (var i = 0; i < fields.length; i++)
           fields[i] == 'generation'
               ? labels[i]
-              : '${labels[i]}: ${_preview(fields[i], values[fields[i]])}',
+              : '${labels[i]}: ${_preview(fields[i], document.hasSecret(id, fields[i]) ? true : values[fields[i]])}',
         'Back',
       ]);
       if (choice == null || choice == fields.length) break;
       final field = fields[choice];
       if (field == 'generation') {
         final target = generationDocument ?? document;
-        await _generation(target, descriptors, validatePlugins, provider: id);
+        await _generation(target, provider: id);
         if (!identical(target, document)) {
+          document.revision = target.revision;
           // Generation saves immediately; keep its saved values when the
           // provider tree later applies its independent credential/model draft.
           for (final entry in target.table('providers').entries) {
@@ -1113,6 +1020,17 @@ final class SettingsPanel {
             }
           }
         }
+      } else if (field == 'api_key' || field == 'auth_token') {
+        final previous = document.secret(id, field);
+        final value =
+            await _edit(labels[choice], previous.value ?? '', secret: true);
+        if (value != null)
+          document.editSecret(
+              id,
+              field,
+              value.isEmpty
+                  ? const SecretEdit.clear()
+                  : SecretEdit.replace(value));
       } else if (field == 'wire') {
         final wires = ['Provider default', 'openai', 'anthropic', 'gemini'];
         final wire = await _menu('Wire protocol', wires);

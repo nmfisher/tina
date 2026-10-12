@@ -1,3 +1,4 @@
+import 'package:tina_tui/src/config_settings_management.dart';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_tui/tina_tui.dart';
@@ -348,11 +349,11 @@ unknown = "preserve me"
       await SettingsPanel(screen, input,
               readEvent: () async => keys.removeAt(0))
           .run(
-              path: global.path,
-              scopedSettings: app.settings,
-              settingsBackend: app.settingsBackend,
-              pluginSettings: app.pluginSettings,
-              pluginManager: app.pluginManager);
+              management: ConfigSettingsManagement(
+                  scopedSettings: app.settings,
+                  backend: app.settingsBackend,
+                  pluginSettings: app.pluginSettings,
+                  pluginManager: app.pluginManager));
       expect(app.settings.read(field('tina/goals/enabled')).value, true);
       expect(
           app.settings
@@ -387,11 +388,11 @@ unknown = "preserve me"
           readEvent: () async => keys.removeAt(0));
       expect(
           await panel.run(
-              path: global.path,
-              scopedSettings: app.settings,
-              settingsBackend: app.settingsBackend,
-              pluginSettings: app.pluginSettings,
-              pluginManager: app.pluginManager),
+              management: ConfigSettingsManagement(
+                  scopedSettings: app.settings,
+                  backend: app.settingsBackend,
+                  pluginSettings: app.pluginSettings,
+                  pluginManager: app.pluginManager)),
           true);
       expect(keys, isEmpty);
       expect(
@@ -442,15 +443,50 @@ unknown = "preserve me"
       });
       expect(
           await panel.run(
-              path: global.path,
-              scopedSettings: app.settings,
-              settingsBackend: app.settingsBackend),
+              management: ConfigSettingsManagement(
+                  scopedSettings: app.settings, backend: app.settingsBackend)),
           true);
       expect(keys, isEmpty);
       expect(
           app.settings.read(field('tina/providers/requests_per_minute')).value,
           60);
       expect(global.readAsStringSync(), original);
+    } finally {
+      input.close();
+      screen.dispose();
+      io.closeInput();
+    }
+  });
+
+  test('an open field rejects another attachment changing its value', () async {
+    final io = FakeIo();
+    final screen = fakeScreen(io);
+    final input = LineEditor(screen: screen);
+    final keys = <InputEvent>[
+      CharInput('Requests per minute'), enter,
+      EditingKey(EditingAction.killToStart), CharInput('120'), enter,
+      escape, // conflict message
+      escape, // settings
+    ];
+    var reads = 0;
+    final panel = SettingsPanel(screen, input, readEvent: () async {
+      if (reads++ == 4) {
+        app.settings.set(field('tina/providers/requests_per_minute'), 60,
+            SettingScope.session);
+      }
+      return keys.removeAt(0);
+    });
+    try {
+      expect(
+          await panel.run(
+              management: ConfigSettingsManagement(
+                  scopedSettings: app.settings, backend: app.settingsBackend)),
+          false);
+      expect(
+          app.settings.read(field('tina/providers/requests_per_minute')).value,
+          60);
+      expect(io.written.toString(), contains('Settings changed'));
+      expect(keys, isEmpty);
     } finally {
       input.close();
       screen.dispose();
@@ -475,9 +511,8 @@ unknown = "preserve me"
       await SettingsPanel(screen, input,
               readEvent: () async => keys.removeAt(0))
           .run(
-              path: global.path,
-              scopedSettings: app.settings,
-              settingsBackend: app.settingsBackend);
+              management: ConfigSettingsManagement(
+                  scopedSettings: app.settings, backend: app.settingsBackend));
       expect(keys, isEmpty);
       expect(
           app.settings.hasOverride(field('tina/providers/requests_per_minute'),

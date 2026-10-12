@@ -19,8 +19,8 @@ final class ScopedSettingControl extends SettingControl {
             id: definition.id,
             label: definition.label,
             scopes: definition.scopes);
-  final SettingDefinition<Object> definition;
-  final ScopedSettings settings;
+  final SettingInfo definition;
+  final SettingsClient settings;
 }
 
 final class SettingToggle extends SettingControl {

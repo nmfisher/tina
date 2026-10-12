@@ -1,3 +1,4 @@
+import 'package:tina_tui/src/config_settings_management.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:test/test.dart';
@@ -160,10 +161,10 @@ void main() {
         SettingsPanel(screen, editor, readEvent: () async => keys.removeAt(0));
     expect(
         await panel.run(
-            path: config,
-            scopedSettings: assembly.settings,
-            settingsBackend: assembly.settingsBackend,
-            sections: context.settings),
+            sections: context.settings,
+            management: ConfigSettingsManagement(
+                scopedSettings: assembly.settings,
+                backend: assembly.settingsBackend)),
         false);
     expect(keys, isEmpty);
     expect(enabled, true);
@@ -183,10 +184,10 @@ void main() {
       return iterator.current;
     });
     final result = panel.run(
-        path: config,
-        scopedSettings: assembly.settings,
-        settingsBackend: assembly.settingsBackend,
-        sections: context.settings);
+        sections: context.settings,
+        management: ConfigSettingsManagement(
+            scopedSettings: assembly.settings,
+            backend: assembly.settingsBackend));
     await Future<void>.delayed(Duration.zero);
     io.written.clear();
     final remove = context.settings.registerSection(

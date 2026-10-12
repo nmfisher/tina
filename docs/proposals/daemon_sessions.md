@@ -1,7 +1,7 @@
 # Daemon sessions — one runtime, multiple TUI clients
 
 Status: **preparatory refactors in progress; daemon not implemented**.
-Updated: 2026-10-12, after v0.9.60 and the view ownership/session connection refactors.
+Updated: 2026-10-12, after v0.9.60 and the session/settings operation refactors.
 
 Preparation status: phases 0 and 1 are complete. The
 [ownership and behavior baseline](session_ownership_baseline.md) records the
@@ -28,7 +28,9 @@ metadata/completion, input, steering and cancellation by work ID. Active command
 tracking belongs to the host; both TUI paths use the same `SessionView`, with
 `SessionPresentation` supplying feature factories and the local settings UI.
 `Host.shutdown()` owns asynchronous cancellation/draining and resource cleanup.
-Settings/provider management operations, correlated ordinary questions, complete
+Settings/provider editors now use revision-checked operations and sanitized
+data through `SettingsManagement`, backed by the application adapter
+`ConfigSettingsManagement`. Correlated ordinary questions, complete
 attach snapshots and moving application composition out of `tina_tui` remain
 pending; no daemon has been built.
 
@@ -57,7 +59,7 @@ replacement for their stores or change SQLite durability.
 | Engine and host | `tina_engine_2` and `tina_host` have no terminal dependency. `Host` owns the loop, provider and mounted plugins. | Retain both; put the application runtime above them. |
 | Committed history | `AgentLoop.subscribe` and `subscribeBatches` replay existing entries before delivering new ones. Entries carry `seq`. Batch listeners run before per-entry observers. | Reuse the log for history and preserve persistence before client notification. |
 | Application assembly | `TuiAssembly` runs without a screen. Its runtime catalog imports no TUI view package, while the assembly remains in `tina_tui` and supplies concrete tools, providers and settings. | A presentation-free runtime requires more than a file move. |
-| TUI lifetime | `SessionView.close` disposes presentation and its connection only. The workspace calls an optional application `onViewClosed` policy. `runApp` owns embedded sessions and uses host shutdown to drain accepted work before closing resources. | Borrowed views close independently; frontend quit is local. Settings and other feature operations still need their own narrow management contracts. |
+| TUI lifetime | `SessionView.close` disposes presentation and its connection only. The workspace calls an optional application `onViewClosed` policy. `runApp` owns embedded sessions and uses host shutdown to drain accepted work before closing resources. | Borrowed views close independently; frontend quit is local. Settings dialogs use disposable operation clients; ordinary questions still need correlation. |
 | Notifications | Settings changes, terminal output and plugin lifecycle events support independently disposable listeners; foreground watch lifetime follows runtime log events. | Attachments release only their own listeners. Application commands that open Settings route to the submitting view. |
 | Presentation | Every first-party feature view is independent of its runtime plugin. Chat and activity consume immutable session observations; frontend-only IDs have stateless declarations. | Keep one runtime feature instance and a fresh presentation object per attachment. Existing third-party combined contributions retain their compatibility fallback. |
 | Live model output | `_ObservedProvider` observes foreground turns through runtime-owned log markers. Chat retains bounded previews independently of attachments. | Direct `Host.send` and turns continuing after detach deliver observations. Background requests remain excluded; late views replay canonical history plus the current preview. |
@@ -563,10 +565,26 @@ from one another and delivered outside synchronous persistence callbacks.
 
 This is an in-process operation boundary, not the complete remote-client
 contract below. Retry/deduplication IDs, read-only/control authorization,
-revision-checked settings/provider management, correlated ordinary questions
-and complete snapshots/event cursors remain pending. `tui_presentation.dart`
-still composes the existing settings/backend UI; the next extraction should
-give that presenter settings operations before moving composition to the app.
+correlated ordinary questions and complete snapshots/event cursors remain
+pending. The configuration adapter remains with the current assembly until
+application composition moves into the CLI.
+
+Implemented settings/provider subset: `SettingsClient` in `tina_settings`
+provides immutable metadata, values, inheritance and application errors, plus
+updates by ID/scope/expected revision. Definition validation and storage stay
+with `ScopedSettings`. The configuration adapter retains file stale checks,
+atomic multi-scope plugin writes, external reload and pending idle/restart status.
+The settings and provider panels cannot import config files/backends, plugin
+managers, provider implementations or approval stores; an import test enforces
+that boundary. Custom feature settings remain feature-owned.
+
+Provider drafts contain only public fields, with separate presence indicators
+and explicit keep/replace/clear credential edits. Unknown config fields and
+unrelated MCP secrets stay in the owner. Generation saves apply only generation
+fields, preserving any unfinished provider/credential draft. Editors close their
+own clients, not shared settings. Tests cover concurrent and external edits,
+redaction, isolated observers, credential retention/replacement/removal and
+existing first-run, provider reload and scoped-plugin behavior.
 
 Move dispatch authority and command/job lifetime out of `TuiSession`. Return
 operation results or job IDs rather than exposing executable `Command` callbacks

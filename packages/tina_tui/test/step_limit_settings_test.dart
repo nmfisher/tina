@@ -1,3 +1,4 @@
+import 'package:tina_tui/src/config_settings_management.dart';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -19,15 +20,16 @@ final class _Presentation {
 
   Future<bool> setting(TuiAssembly assembly, List<InputEvent> events) async {
     final keys = [...events];
-    final saved = await SettingsPanel(screen, editor,
-        readEvent: () async => keys.removeAt(0)).run(
-      path: assembly.configPath,
-      scopedSettings: assembly.settings,
-      settingsBackend: assembly.settingsBackend,
-      pluginSettings: assembly.pluginSettings,
-      pluginManager: assembly.pluginManager,
-      sections: context.settings,
-    );
+    final saved =
+        await SettingsPanel(screen, editor, readEvent: () async => keys.removeAt(0))
+            .run(
+                sections: context.settings,
+                management: ConfigSettingsManagement(
+                  scopedSettings: assembly.settings,
+                  backend: assembly.settingsBackend,
+                  pluginSettings: assembly.pluginSettings,
+                  pluginManager: assembly.pluginManager,
+                ));
     expect(keys, isEmpty);
     return saved;
   }

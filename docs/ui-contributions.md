@@ -54,10 +54,24 @@ so its legacy cancellation callback cannot stop another concurrent invocation.
 
 Presentation dependencies create fresh feature views and attachment-local
 settings UI. The transitional `tui_presentation.dart` adapter owns that wiring;
-views cannot import it or the assembly. Settings/provider configuration still
-uses its existing backend inside the settings presenter; its transport-friendly
-operation API remains a separate step. `/quit` is interpreted by the invoking
+views cannot import it or the assembly. `/quit` is interpreted by the invoking
 view, while the headless command retains its existing application-exit flag.
+
+`SettingsPanel.run` takes one disposable `SettingsManagement` connection, plus
+the attachment's custom settings sections. It closes that connection on exit;
+the shared settings remain available. The application adapter supplies immutable
+setting/plugin metadata, provider options and remembered approval descriptions.
+Confirmed mutations go through owner operations with the revision captured when
+editing began. Conflicts require reopening the editor, so another attachment's
+or an external file's changes are not silently overwritten.
+
+Provider drafts contain public fields only. Credential presence is separate
+from explicit keep/replace/clear edits; existing keys are never sent to a dialog.
+Typing into an inline credential replaces it, Ctrl-U clears it, and leaving it
+untouched keeps it. Generation saves retain unrelated provider drafts. Original
+file validation, atomic writes, unknown fields and scoped inheritance remain
+owned by the configuration adapter. Custom feature settings still use their
+own contribution contracts; MCP config is absent from generic snapshots.
 
 ## Settings sections
 

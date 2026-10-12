@@ -1,3 +1,4 @@
+import 'package:tina_tui/src/config_settings_management.dart';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
@@ -82,12 +83,13 @@ void main() {
     });
     try {
       await panel.run(
-          path: config.path,
-          pluginDescriptions: pluginDescriptions(app.pluginSettings.registry),
-          pluginSettings: app.pluginSettings,
-          pluginManager: app.pluginManager,
-          scopedSettings: app.settings,
-          settingsBackend: app.settingsBackend);
+          management: ConfigSettingsManagement(
+              pluginDescriptions:
+                  pluginDescriptions(app.pluginSettings.registry),
+              pluginSettings: app.pluginSettings,
+              pluginManager: app.pluginManager,
+              scopedSettings: app.settings,
+              backend: app.settingsBackend));
       expect(index, steps.length);
       return io.written.toString();
     } finally {

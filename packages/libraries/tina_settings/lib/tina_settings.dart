@@ -3,6 +3,8 @@ library;
 
 import 'dart:convert';
 
+part 'src/settings_client.dart';
+
 enum SettingScope { session, workspace, global }
 
 enum ApplyAt { immediately, nextRequest, whenIdle, newSession, restart }
@@ -214,6 +216,14 @@ final class ScopedSettings {
       {Set<String> remove = const {}}) {
     _checkOpen();
     reload();
+    _updateLoaded(scope, values, remove: remove);
+  }
+
+  // The client has already checked a revision against these layers. Do not
+  // reload and silently rebase its edit between that check and the write.
+  void _updateLoaded(SettingScope scope, Map<String, Object?> values,
+      {Set<String> remove = const {}}) {
+    _checkOpen();
     for (final id in {...values.keys, ...remove}) {
       final definition = catalog[id];
       if (!definition.scopes.contains(scope))

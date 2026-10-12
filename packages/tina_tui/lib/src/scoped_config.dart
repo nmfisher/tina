@@ -103,7 +103,8 @@ final class ConfigSettingsBackend implements SettingsBackend {
     }
   }
 
-  ConfigDocument draft(ScopedSettings settings, SettingScope scope) {
+  ConfigDocument draft(ScopedSettings settings, SettingScope scope,
+      {void Function(Map<String, Object?>, Set<String>)? commit}) {
     final initial = effectiveDocument(layers: {
       for (final layer in SettingScope.values)
         layer: layer.index < scope.index ? <String, Object?>{} : read(layer),
@@ -124,14 +125,20 @@ final class ConfigSettingsBackend implements SettingsBackend {
               definition.encodeObject(definition.checked(after));
         }
       }
-      if (changed.isNotEmpty || removed.isNotEmpty)
-        settings.update(scope, changed, remove: removed);
+      if (changed.isNotEmpty || removed.isNotEmpty) {
+        if (commit != null) {
+          commit(changed, removed);
+        } else {
+          settings.update(scope, changed, remove: removed);
+        }
+      }
     });
   }
 
   /// The plugin grid's All column is one action across the three layers.
   void setPluginInAllScopes(ScopedSettings settings,
-      SettingDefinition<Object> definition, bool? enabled) {
+      SettingDefinition<Object> definition, bool? enabled,
+      {bool refresh = true}) {
     if (!definition.id.endsWith('/enabled') ||
         definition.configPath.first != 'plugins') {
       throw ArgumentError('All scopes is only available for plugin toggles');
@@ -140,7 +147,7 @@ final class ConfigSettingsBackend implements SettingsBackend {
       throw StateError(
           'Global and workspace config are the same file; choose a single scope');
     }
-    settings.reload();
+    if (refresh) settings.reload();
     final layers = {
       for (final scope in SettingScope.values)
         scope: Map<String, Object?>.of(settings.layer(scope))

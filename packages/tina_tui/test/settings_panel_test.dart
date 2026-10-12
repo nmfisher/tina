@@ -1,3 +1,4 @@
+import 'package:tina_tui/src/config_settings_management.dart';
 import 'dart:io';
 import 'dart:async';
 import 'package:test/test.dart';
@@ -65,16 +66,16 @@ enabled = []
           options: AssemblyOptions(configPath: config.path));
       try {
         final saved = await panel.run(
-            applyConfiguration: applyConfiguration,
-            path: config.path,
-            descriptors: providerDescriptors,
-            scopedSettings: assembly.settings,
-            settingsBackend: assembly.settingsBackend,
-            pluginSettings: assembly.pluginSettings,
-            pluginManager: assembly.pluginManager,
-            validatePlugins: assembly.validatePlugins,
-            pluginDescriptions:
-                pluginDescriptions(assembly.pluginSettings.registry));
+            management: ConfigSettingsManagement(
+                applyConfiguration: applyConfiguration,
+                descriptors: providerDescriptors,
+                scopedSettings: assembly.settings,
+                backend: assembly.settingsBackend,
+                pluginSettings: assembly.pluginSettings,
+                pluginManager: assembly.pluginManager,
+                validatePlugins: assembly.validatePlugins,
+                pluginDescriptions:
+                    pluginDescriptions(assembly.pluginSettings.registry)));
         expect(index, keys.length);
         return (saved, io.written.toString());
       } finally {
@@ -267,8 +268,7 @@ enabled = []
       escape,
     ]);
     expect(saved, true);
-    expect(
-        ConfigDocument.open(config.path).table('plugins')['overrides'],
+    expect(ConfigDocument.open(config.path).table('plugins')['overrides'],
         containsPair('tina/plans', true));
     expect(
         loadTinaConfig(path: config.path, descriptors: descriptors)
@@ -389,7 +389,8 @@ enabled = []
       ];
       if (wire != ProviderWire.openAiCompatible) {
         config.writeAsStringSync(config.readAsStringSync().replaceFirst(
-            'model = "original"', 'model = "original"\nthinking_budget = 4096'));
+            'model = "original"',
+            'model = "original"\nthinking_budget = 4096'));
       }
       final (saved, _) = await drive([
         ControlKey(ControlCode.tab),
@@ -507,18 +508,16 @@ enabled = []
                 supportsTools: true)
           })
     ];
-    await drive(
-        [
-          ControlKey(ControlCode.tab),
-          ControlKey(ControlCode.tab), // file-backed generation edits need global
-          CharInput('Generation'),
-          enter,
-          enter, // custom provider
-          CharInput('16384'),
-          enter,
-          escape
-        ],
-        providerDescriptors: providers);
+    await drive([
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // file-backed generation edits need global
+      CharInput('Generation'),
+      enter,
+      enter, // custom provider
+      CharInput('16384'),
+      enter,
+      escape
+    ], providerDescriptors: providers);
     var loaded =
         loadTinaConfig(path: config.path, descriptors: providers).config;
     expect(generationFor(loaded, 'custom', 'original').maxOutputTokens, 16384);
@@ -559,15 +558,14 @@ enabled = []
 
   test('Escape closes settings after accepted edits have saved', () async {
     final before = config.readAsStringSync();
-    final (saved, _) =
-        await drive([
-          CharInput('Default model'),
-          enter,
-          CharInput('global'), enter, // default model has no session scope
-          down,
-          enter,
-          escape
-        ]);
+    final (saved, _) = await drive([
+      CharInput('Default model'),
+      enter,
+      CharInput('global'), enter, // default model has no session scope
+      down,
+      enter,
+      escape
+    ]);
     expect(saved, isTrue);
     expect(config.readAsStringSync(), isNot(before));
     expect(
@@ -634,12 +632,13 @@ enabled = []
     await settle();
     await key(CharInput('preserved draft'));
     final assembly = TuiAssembly.start(
-        descriptors: descriptors, options: AssemblyOptions(configPath: config.path));
-    final run = panel.run(
-        path: config.path,
         descriptors: descriptors,
-        scopedSettings: assembly.settings,
-        settingsBackend: assembly.settingsBackend);
+        options: AssemblyOptions(configPath: config.path));
+    final run = panel.run(
+        management: ConfigSettingsManagement(
+            descriptors: descriptors,
+            scopedSettings: assembly.settings,
+            backend: assembly.settingsBackend));
     void menuCursorHidden() {
       final vt = VirtualTerminal(
           width: screen.layout.width, height: screen.layout.height)

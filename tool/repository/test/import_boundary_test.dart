@@ -175,4 +175,27 @@ Future<void> main() async {
       );
     },
   );
+  test(
+    'settings dialogs cannot reach configuration owners or runtime services',
+    () {
+      for (final entry in ['settings_panel.dart', 'providers_panel.dart']) {
+        expect(
+          violations('packages/tina_tui/lib/src/$entry', {
+            'packages/tina_tui/lib/src/assembly.dart',
+            'packages/tina_tui/lib/src/assembly_config.dart',
+            'packages/tina_tui/lib/src/config_document.dart',
+            'packages/tina_tui/lib/src/scoped_config.dart',
+            'packages/tina_tui/lib/src/config_settings_management.dart',
+            'packages/tina_tui/lib/src/plugin_settings.dart',
+            'tina_host',
+            'tina_tools',
+            'tina_llm',
+            'tina_persistence',
+          }),
+          isEmpty,
+          reason: entry,
+        );
+      }
+    },
+  );
 }

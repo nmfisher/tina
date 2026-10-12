@@ -106,8 +106,10 @@ Dependency direction, top down only:
     (`tina_console` renders it). Both regular and panel layouts use `SessionView`,
     which receives a host connection and presentation capabilities. It cannot
     reach the assembly or concrete runtime services. `tui_presentation.dart`
-    currently adapts the assembly into feature view factories and a settings
-    presenter; the latter still needs its own settings operation boundary.
+    adapts the assembly into feature view factories and a settings presenter.
+    Settings/provider dialogs receive `SettingsManagement` operations and data;
+    `ConfigSettingsManagement` owns their concrete configuration wiring.
+    `tina_settings` supplies immutable snapshots and revision-checked edits.
   - `console_catalog.dart` constructs presentation views for existing runtime
     features. Plans use `tina_plans` for the runtime `PlansPlugin` and
     `tina_plans_tui` for a fresh `PlansView` per attachment, reading immutable
@@ -187,8 +189,12 @@ accepted runtime work before closing them. Closing a borrowed view does not
 cancel its session; frontend `/quit` belongs to the invoking view. A cancellation
 names work from the observed status and cannot stop a successor turn. Status
 listeners run outside persistence callbacks and a failed observer is isolated.
-The remaining work includes settings/provider management operations, correlated
-non-approval questions and complete attachment snapshots, followed by moving
+Settings dialogs no longer receive a backend, plugin manager, provider factory
+or credential-bearing config document. Each confirmed edit checks the revision
+it began with. Provider drafts expose public fields and credential presence;
+keep/replace/clear operations apply secrets inside the configuration adapter.
+The remaining work includes correlated non-approval questions and complete
+attachment snapshots, followed by moving
 application composition to `apps/tina_cli`. Reusable contracts belong in
 `tina_host`; no additional runtime package is planned. The current in-process
 connection is not a transport protocol or an authorization boundary.

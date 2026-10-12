@@ -34,6 +34,7 @@ export 'src/config_document.dart';
 export 'src/scoped_config.dart';
 export 'package:tina_settings/tina_settings.dart';
 export 'src/settings_panel.dart';
+export 'src/settings_management.dart';
 export 'src/chat_view.dart';
 export 'src/completion_sources.dart';
 export 'src/status_strip.dart';

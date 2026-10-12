@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 import 'assembly.dart';
+import 'config_settings_management.dart';
 import 'console_catalog.dart';
 import 'plugin_catalog.dart';
 import 'session_presentation.dart';
@@ -42,18 +43,19 @@ SessionPresentation presentationForAssembly(TuiAssembly assembly) =>
         return SessionSettingsView(
             open: () async {
               final saved = await panel.run(
-                  commandApprovals: assembly.tools.commandApprovals,
-                  scopedSettings: assembly.settings,
-                  settingsBackend: assembly.settingsBackend,
-                  applyConfiguration: assembly.applySavedConfiguration,
-                  path: assembly.configPath,
                   sections: context.settings,
-                  descriptors: assembly.descriptors,
-                  validatePlugins: assembly.validatePlugins,
-                  pluginDescriptions:
-                      pluginDescriptions(assembly.pluginSettings.registry),
-                  pluginSettings: assembly.pluginSettings,
-                  pluginManager: assembly.pluginManager);
+                  management: ConfigSettingsManagement(
+                      commandApprovals: assembly.tools.commandApprovals,
+                      scopedSettings: assembly.settings,
+                      backend: assembly.settingsBackend,
+                      applyConfiguration: assembly.applySavedConfiguration,
+                      listenConfiguration: assembly.listenSettings,
+                      descriptors: assembly.descriptors,
+                      validatePlugins: assembly.validatePlugins,
+                      pluginDescriptions:
+                          pluginDescriptions(assembly.pluginSettings.registry),
+                      pluginSettings: assembly.pluginSettings,
+                      pluginManager: assembly.pluginManager));
               return saved
                   ? assembly.settings.applicationErrors.isEmpty
                       ? 'Settings saved. Request settings affect the next request; plugin changes may wait for idle or restart.'

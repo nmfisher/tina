@@ -11,6 +11,7 @@ import 'package:tina_console/notcurses.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 
 import 'settings_panel.dart';
+import 'config_settings_management.dart';
 import 'tui_session.dart';
 import 'session_view.dart';
 export 'theme.dart';
@@ -406,12 +407,12 @@ Future<bool> runConfigEditor(String path,
         globalPath: path, workspacePath: path, descriptors: descriptors);
     final registry = stack.registry;
     final saved = await panel.run(
-        path: path,
-        scopedSettings: stack.settings,
-        settingsBackend: stack.backend,
-        descriptors: descriptors,
-        pluginDescriptions: pluginDescriptions(registry),
-        validatePlugins: registry.validate);
+        management: ConfigSettingsManagement(
+            scopedSettings: stack.settings,
+            backend: stack.backend,
+            descriptors: descriptors,
+            pluginDescriptions: pluginDescriptions(registry),
+            validatePlugins: registry.validate));
     stack.settings.close();
     return saved;
   } finally {

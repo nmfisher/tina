@@ -1,6 +1,5 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_llm/tina_llm.dart';
-import 'assembly_config.dart';
+import 'settings_management.dart';
 
 enum _Kind {
   search,
@@ -23,7 +22,7 @@ final class ProvidersPanel {
   ProvidersPanel(
       {required this.screen,
       required this.readEvent,
-      required this.providers,
+      required this.draft,
       required this.descriptors,
       required this.editAdvanced,
       required this.onShow,
@@ -32,16 +31,16 @@ final class ProvidersPanel {
       this.title = 'Providers & models'}) {
     _checked.addAll(providers.keys);
     for (final id in _ids) {
-      final settings = _settings(id);
       _disabled[id] = providers.containsKey(id)
-          ? settings.disabledModels.toSet()
+          ? _disabledModels(id)
           : _models(id).keys.toSet();
     }
   }
   final Screen screen;
   final Future<InputEvent> Function() readEvent;
-  final Map<String, dynamic> providers;
-  final List<ProviderDescriptor> descriptors;
+  final ProviderDraft draft;
+  Map<String, dynamic> get providers => draft.table('providers');
+  final List<ProviderOption> descriptors;
   final Future<void> Function(String) editAdvanced;
   final void Function() onShow;
   final Rect Function()? bounds;
@@ -58,22 +57,26 @@ final class ProvidersPanel {
 
   List<String> get _ids =>
       {...descriptors.map((d) => d.id), ...providers.keys}.toList();
-  ProviderDescriptor? _descriptor(String id) =>
+  ProviderOption? _descriptor(String id) =>
       descriptors.where((d) => d.id == id).firstOrNull;
   Map<String, dynamic> _values(String id) =>
       providers.putIfAbsent(id, () => <String, dynamic>{})
           as Map<String, dynamic>;
-  ProviderSettings _settings(String id) => providers[id] is Map<String, dynamic>
-      ? ProviderSettings.parse(id, providers[id] as Map<String, dynamic>)
-      : const ProviderSettings();
-  Map<String, ModelInfo> _models(String id) =>
-      {...?_descriptor(id)?.models, ...?_settings(id).models};
+  Set<String> _disabledModels(String id) =>
+      (((providers[id] as Map?)?['disabled_models'] as List?) ?? const [])
+          .cast<String>()
+          .toSet();
+  Map<String, String> _models(String id) => providerModels(
+      _descriptor(id), (providers[id] as Map?)?.cast<String, dynamic>() ?? {});
   String _name(String id) =>
       (providers[id] as Map?)?['name'] as String? ??
       _descriptor(id)?.name ??
       id;
   String _keyField(String id) =>
-      (providers[id] as Map?)?['auth_token'] != null ? 'auth_token' : 'api_key';
+      (draft.configuredSecrets.contains('$id/auth_token') ||
+              draft.secretEdits.containsKey('$id/auth_token'))
+          ? 'auth_token'
+          : 'api_key';
 
   List<_Row> get _rows => [
         (kind: _Kind.search, id: '', model: null),
@@ -181,14 +184,27 @@ final class ProvidersPanel {
             final field =
                 row.kind == _Kind.key ? _keyField(row.id) : 'base_url';
             final values = _values(row.id);
-            final old = values[field] as String? ?? '';
+            final secret = row.kind == _Kind.key;
+            final old = secret
+                ? draft.secret(row.id, field).value ?? ''
+                : values[field] as String? ?? '';
             final next = _editText(old, event);
-            if (next.isEmpty)
-              values.remove(field);
-            else
-              values[field] = next;
-            if (next != old) _checked.add(row.id);
-            if (row.kind == _Kind.key) _dismissedHint.add(row.id);
+            if (secret) {
+              draft.editSecret(
+                  row.id,
+                  field,
+                  next.isEmpty
+                      ? const SecretEdit.clear()
+                      : SecretEdit.replace(next));
+              _checked.add(row.id);
+              _dismissedHint.add(row.id);
+            } else {
+              if (next.isEmpty)
+                values.remove(field);
+              else
+                values[field] = next;
+              if (next != old) _checked.add(row.id);
+            }
             continue;
           }
         }
@@ -218,7 +234,7 @@ final class ProvidersPanel {
             _checked.add(row.id);
             _values(row.id);
             await editAdvanced(row.id);
-            _disabled[row.id] = _settings(row.id).disabledModels.toSet();
+            _disabled[row.id] = _disabledModels(row.id);
             continue;
           }
           for (final id in _checked) {
@@ -272,7 +288,7 @@ final class ProvidersPanel {
         _Kind.url => _url(row.id, focused),
         _Kind.separator => '  ── models ──',
         _Kind.model =>
-          '  ${_disabled[row.id]!.contains(row.model) ? '☐' : '☑'} ${_models(row.id)[row.model]!.name}',
+          '  ${_disabled[row.id]!.contains(row.model) ? '☐' : '☑'} ${_models(row.id)[row.model]!}',
         _Kind.addModel =>
           _adding == row ? '  ＋ $_entry▏' : '  ＋ add model id (or id|Name)',
         _Kind.advanced => '  Advanced settings…',
@@ -308,12 +324,18 @@ final class ProvidersPanel {
 
   String _credential(String id, bool focused) {
     final field = _keyField(id);
-    final key = (providers[id] as Map?)?[field] as String? ?? '';
+    final edit = draft.secret(id, field);
+    final present = draft.hasSecret(id, field);
     final env = _descriptor(id)?.keyEnvVar ?? '';
-    final hint = key.isEmpty && !_dismissedHint.contains(id) && env.isNotEmpty
+    final hint = !present && !_dismissedHint.contains(id) && env.isNotEmpty
         ? '(or env $env)'
         : '';
-    return '  ${field == 'auth_token' ? 'Auth token' : 'API key'}: ${'*' * key.length}$hint${focused ? '_' : ''}';
+    final masked = edit.action == SecretAction.replace
+        ? '*' * (edit.value?.length ?? 0)
+        : present
+            ? '••••'
+            : '';
+    return '  ${field == 'auth_token' ? 'Auth token' : 'API key'}: $masked$hint${focused ? ' _ (type replaces; Ctrl-U clears)' : ''}';
   }
 
   String _url(String id, bool focused) {

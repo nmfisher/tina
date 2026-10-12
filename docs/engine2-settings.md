@@ -89,8 +89,10 @@ final detach = settings.watch(instruction, (resolved) => apply(resolved.value));
 Kinds cover toggles, integers, text, choices and composite objects. Definitions
 specify defaults, descriptions, validation, numeric bounds, secret presentation
 and application timing. Generic editors are generated from installed metadata.
-`ScopedSettingControl` also binds a definition and resolver to a plugin's custom
-`SettingsSection`. Existing `SettingAction` and callback controls remain available.
+`ScopedSettingControl` binds immutable `SettingInfo` metadata and a disposable
+`SettingsClient` to a plugin's custom `SettingsSection`. Obtain metadata from
+`client.snapshot().catalog[id]`; the control never receives the owner's backend.
+Existing `SettingAction` and callback controls remain available.
 `scopes` on a callback control documents an eligibility restriction; the plugin
 still owns its custom storage and callback behavior.
 
@@ -101,6 +103,14 @@ segment. `MemorySettingsBackend` supports tests or embedders. Validation runs
 before writes; `watch` receives effective value/origin changes, and returns its
 cleanup function. Masked lower-scope changes still refresh the UI without
 reapplying the session's effective value.
+
+Frontend clients read `SettingsSnapshot` values, inheritance and application
+errors. Snapshot values are deeply immutable; secret fields expose presence
+only. `SettingsClient.update` names the scope, setting IDs and expected revision.
+It reloads and checks that revision before applying the edit through the existing
+owner validation and persistence. A stale edit raises `SettingsConflict`;
+closing a client removes only its own subscriptions. Broken editor listeners
+cannot abort a successful settings write or silence another client.
 
 ## Auto-approval instruction
 

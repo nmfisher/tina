@@ -1,3 +1,4 @@
+import 'package:tina_tui/src/config_settings_management.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -92,11 +93,11 @@ enabled = ["tina/providers", "tina/session-controls"]
     });
     try {
       final saved = await panel.run(
-          path: config.path,
-          scopedSettings: assembly.settings,
-          settingsBackend: assembly.settingsBackend,
-          descriptors: assembly.descriptors,
-          applyConfiguration: assembly.applySavedConfiguration);
+          management: ConfigSettingsManagement(
+              scopedSettings: assembly.settings,
+              backend: assembly.settingsBackend,
+              descriptors: assembly.descriptors,
+              applyConfiguration: assembly.applySavedConfiguration));
       expect(index, keys.length);
       return saved;
     } finally {
