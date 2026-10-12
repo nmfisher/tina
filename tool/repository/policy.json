@@ -121,8 +121,7 @@
     ],
     "tina_tui": [
       "lib",
-      "test",
-      "tool"
+      "test"
     ],
     "attractor": [
       "lib",
