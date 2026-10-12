@@ -3,7 +3,7 @@
 // tests grant 10s per command. Importing the package barrel pulls the whole
 // TUI into each spawn's JIT compile (~10s on 4 cores, more on CI) and races
 // those deadlines — import the narrow launcher library instead (~1.5s).
-import 'package:tina/tina.dart';
+import 'package:tina/src/process_launcher.dart';
 
 Future<void> main(List<String> arguments) async {
   if (!await initializeProcessLauncher(arguments)) {

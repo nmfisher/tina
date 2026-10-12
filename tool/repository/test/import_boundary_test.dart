@@ -131,6 +131,17 @@ Future<void> main() async {
       isEmpty,
     );
   });
+  test('process launcher fixture keeps the TUI out of child startup', () {
+    expect(
+      violations('apps/tina_cli/test/fixtures/process_launcher.dart', {
+        'tina_tui',
+        'tina_console',
+        'dart_notcurses',
+      }),
+      isEmpty,
+      reason: 'Each spawned JIT command must avoid compiling the full TUI.',
+    );
+  });
   test('runtime feature construction cannot import a presentation package', () {
     expect(
       violations('packages/tina_tui/lib/src/plugin_catalog.dart', {
