@@ -57,6 +57,22 @@ settings UI. The transitional `tui_presentation.dart` adapter owns that wiring;
 views cannot import it or the assembly. `/quit` is interpreted by the invoking
 view, while the headless command retains its existing application-exit flag.
 
+Ordinary text questions use `SessionConnection.questions`. Clients receive
+immutable pending snapshots and answer or dismiss an exact question ID; the
+first accepted response retires it for every view. `SessionView` mounts a
+generic question presenter with its own draft and input lifetime. Its dialogs
+share `ConsoleContext`'s interaction queue with approval and settings dialogs.
+`interactIf` rechecks request activity before activating a panel, so a question
+answered elsewhere while queued cannot steal focus. Detach discards only the
+local draft and releases input; reattach sees the same pending request.
+
+The host owns question cancellation for each command and turn, including queued
+turns. Interactive requests expire after five minutes by default; the owner can
+configure that duration or explicitly disable expiry. Unattended requests return
+an unavailable result immediately. The legacy `Terminal.ask` adapter returns an
+empty string for unanswered requests; permission requests retain their separate
+approval policy and delivery channels. These questions are in-memory only.
+
 `SettingsPanel.run` takes one disposable `SettingsManagement` connection, plus
 the attachment's custom settings sections. It closes that connection on exit;
 the shared settings remain available. The application adapter supplies immutable

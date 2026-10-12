@@ -1,7 +1,7 @@
 # Daemon sessions — one runtime, multiple TUI clients
 
 Status: **preparatory refactors in progress; daemon not implemented**.
-Updated: 2026-10-12, after v0.9.60, session/settings operations and application composition separation.
+Updated: 2026-10-12, after v0.9.60, session/settings operations, application composition and correlated questions.
 
 Preparation status: phases 0, 1 and 3 are complete. The
 [ownership and behavior baseline](session_ownership_baseline.md) records the
@@ -18,7 +18,7 @@ independent `McpView` attachments edit settings through `McpManagement`.
 Chat, activity, model controls, mode, context, updates, status layout, workspace
 panels and approvals now have independent views. Two in-process `SessionView`
 attachments share one runtime, including direct host turns and live plugin changes.
-The approval portion of phase 2 and the disposable notification portion of phase 4
+The approval and ordinary-question portions of phase 2 and disposable notifications in phase 4
 are implemented. Closing a `SessionView` now releases only that view. The panel
 workspace also closes borrowed views without cancelling or awaiting shared work;
 the embedded application supplies its ownership policy separately, cancelling and
@@ -31,14 +31,15 @@ tracking belongs to the host; both TUI paths use the same `SessionView`, with
 Settings/provider editors now use revision-checked operations and sanitized
 data through `SettingsManagement`, backed by the application adapter
 `ConfigSettingsManagement`. Application composition now lives in `apps/tina_cli`;
-`tina_tui` has no feature-plugin dependencies. Correlated ordinary questions and
-complete attach snapshots remain pending; no daemon has been built.
+`tina_tui` has no feature-plugin dependencies. Ordinary questions now use host-owned
+IDs with independent client drafts and cancellation scoped to commands and turns.
+Complete attach snapshots remain pending; no daemon has been built.
 
 ## Assessment
 
 Two in-process session views now share a live runtime with independent
 presentation and disposable observations. The engine and host remain the
-foundation. Correlated ordinary questions and the remaining operation/snapshot
+foundation. The remaining operation/snapshot
 contracts still precede a remote client or daemon; wrapping
 `SessionAssembly` directly in a socket would bypass those remaining boundaries.
 
@@ -59,12 +60,12 @@ replacement for their stores or change SQLite durability.
 | Engine and host | `tina_engine_2` and `tina_host` have no terminal dependency. `Host` owns the loop, provider and mounted plugins. | Retain both; put the application runtime above them. |
 | Committed history | `AgentLoop.subscribe` and `subscribeBatches` replay existing entries before delivering new ones. Entries carry `seq`. Batch listeners run before per-entry observers. | Reuse the log for history and preserve persistence before client notification. |
 | Application assembly | `SessionAssembly` lives in `apps/tina_cli`. Its headless `session.dart` entry point cannot reach a renderer or frontend package. | Application wiring stays above reusable host and frontend packages; scripted turns and resume use the same assembly. |
-| TUI lifetime | `SessionView.close` disposes presentation and its connection only. The workspace calls an optional application `onViewClosed` policy. `runTui` in the CLI owns embedded sessions and uses host shutdown to drain accepted work before closing resources. | Borrowed views close independently; frontend quit is local. Settings dialogs use disposable operation clients; ordinary questions still need correlation. |
+| TUI lifetime | `SessionView.close` disposes presentation and its connection only. The workspace calls an optional application `onViewClosed` policy. `runTui` in the CLI owns embedded sessions and uses host shutdown to drain accepted work before closing resources. | Borrowed views close independently; frontend quit is local. Settings and ordinary-question dialogs use disposable clients. |
 | Notifications | Settings changes, terminal output and plugin lifecycle events support independently disposable listeners; foreground watch lifetime follows runtime log events. | Attachments release only their own listeners. Application commands that open Settings route to the submitting view. |
 | Presentation | Every first-party feature view is independent of its runtime plugin. Chat and activity consume immutable session observations; frontend-only IDs have stateless declarations. | Keep one runtime feature instance and a fresh presentation object per attachment. Existing third-party combined contributions retain their compatibility fallback. |
 | Live model output | `_ObservedProvider` observes foreground turns through runtime-owned log markers. Chat retains bounded previews independently of attachments. | Direct `Host.send` and turns continuing after detach deliver observations. Background requests remain excluded; late views replay canonical history plus the current preview. |
 | Approvals | `ApprovalsPlugin` has request IDs, pending requests, cancellation and single-response tickets. `StreamApprovalChannel` has one subscriber and denies pending requests when it unsubscribes. | The interactive channel is now `AttachmentApprovalChannel`. Each view gets a question facade; the ticket and channel lifetime remain private. Detach retains pending approvals; new headless requests fail closed. |
-| Other questions | `SessionTerminal.ask` and `submitAnswer` match questions and answers by FIFO order, without request IDs. | Questions crossing the attachment boundary need correlated IDs and stale-response rejection too. |
+| Other questions | `SessionTerminal.ask` adapts to `SessionQuestions` in `tina_host`. Each connection receives immutable pending requests and answers by ID. | Detach retains requests. Duplicate, stale and foreign-session responses fail; cancellation, expiry, shutdown and unattended execution settle without an answer. |
 | Persistence | Each persistence plugin owns a connection. SQLite uses WAL, a busy timeout and `synchronous=FULL`; session sequence gaps are checked on resume. | Preserve these guarantees. WAL serializes database transactions; it does not enforce one live engine for a particular session. |
 
 Relevant sources:
@@ -438,6 +439,23 @@ configurations and optional feature selections still load.
 
 ### Phase 2 — move interaction ownership into the runtime
 
+**Approvals and ordinary questions implemented.** Approvals retain feature-owned policy and their configured
+delivery channels. Ordinary text questions now use `SessionQuestions` in
+`tina_host`, exposed through disposable `QuestionClient` instances on session
+connections. The compatibility `SessionTerminal` no longer has a FIFO answer
+queue. The generic TUI presenter keeps drafts and input ownership local, skips
+retired queued dialogs before activating their panel, and releases input on
+detach without answering. Another view can answer the same pending ID.
+
+Question lifetimes follow individual host commands and engine turns, including
+queued inputs. Scope cancellation rejects late asynchronous re-asks as well as
+late responses. Interactive requests default to a five-minute expiry (configurable
+by the owner); unattended requests resolve immediately as unavailable. Shutdown
+settles pending questions before draining handlers that may await them. These
+requests are not persisted across process restart. Tests cover two independent
+drafts, out-of-order and stale responses, reconnect, queued focus, expiry, direct
+engine cancellation, command isolation, queued-turn isolation and shutdown.
+
 Put an approval broker at the runtime boundary. It owns delivery lifetime and
 publishes request/resolution observations; `ApprovalsPlugin` continues to own
 validation, cancellation and the ticket's authority.
@@ -578,10 +596,10 @@ behavioral tests moved to the host. Disposable status listeners are isolated
 from one another and delivered outside synchronous persistence callbacks.
 
 This is an in-process operation boundary, not the complete remote-client
-contract below. Retry/deduplication IDs, read-only/control authorization,
-correlated ordinary questions and complete snapshots/event cursors remain
-pending. The configuration adapter remains with the current assembly until
-application composition moves into the CLI.
+contract below. Retry/deduplication IDs, read-only/control authorization and
+complete snapshots/event cursors remain pending. The configuration adapter
+now lives with application composition in the CLI; ordinary questions use the
+correlated host service described in phase 2.
 
 Implemented settings/provider subset: `SettingsClient` in `tina_settings`
 provides immutable metadata, values, inheritance and application errors, plus

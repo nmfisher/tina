@@ -8,6 +8,7 @@ library;
 
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show AgentPlugin;
+import 'session_questions.dart';
 
 /// Builds one provider. Called **once per session, by that session's
 /// host** — never store a shared instance: a provider owns its connection
@@ -29,6 +30,7 @@ final class HostConfig {
     this.systemPrompt = '',
     this.sessionTitle,
     this.details,
+    this.questions,
   });
 
   /// Builds the provider for **one** session. Called once per
@@ -58,4 +60,8 @@ final class HostConfig {
   /// recorded with the session (registry row when persisted). Null
   /// means a fresh [SessionDetails] of zeros.
   final SessionDetails? details;
+
+  /// Optional ordinary-question service supplied by application composition.
+  /// Ownership transfers to this host; use a fresh instance for each session.
+  final SessionQuestions? questions;
 }

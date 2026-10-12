@@ -115,21 +115,34 @@ final class ConsoleContext {
   /// Serialize complete interactions across views and keep the requesting
   /// view focused until its dialog has released the shared input owner.
   Future<T> interact<T>(Future<T> Function() action) {
+    final run = _shared.interactions.then((_) => _interactNow(action));
+    _shared.interactions = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  /// A remote answer or detach may retire a queued dialog. Check before
+  /// activating its panel or taking the keyboard, not after changing focus.
+  Future<void> interactIf(
+      bool Function() pending, Future<void> Function() action) {
     final run = _shared.interactions.then((_) async {
-      _activate?.call();
-      final focus = _editor.focusManager;
-      _editor.focusManager = null;
-      final cursor = screen.claimCursor();
-      try {
-        return await action();
-      } finally {
-        _editor.focusManager = focus;
-        cursor.release();
-        refreshInput();
-      }
+      if (!_disposed && pending()) await _interactNow(action);
     });
     _shared.interactions = run.then<void>((_) {}, onError: (Object _) {});
     return run;
+  }
+
+  Future<T> _interactNow<T>(Future<T> Function() action) async {
+    _activate?.call();
+    final focus = _editor.focusManager;
+    _editor.focusManager = null;
+    final cursor = screen.claimCursor();
+    try {
+      return await action();
+    } finally {
+      _editor.focusManager = focus;
+      cursor.release();
+      refreshInput();
+    }
   }
 
   /// Own all key events until the dialog closes, including between reads.

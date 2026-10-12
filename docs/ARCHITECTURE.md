@@ -95,8 +95,8 @@ Dependency direction, top down only:
   settings stack, runtime plugin registry, provider policy and sandbox, then
   starts or resumes a `Host`. Its public `session.dart` entry point has no
   transitive terminal dependency. `Terminal`, writer and provider factory remain
-  injectable. `SessionTerminal` buffers notices and ordinary question answers
-  without physical terminal I/O.
+  injectable. `SessionTerminal` buffers notices and adapts ordinary questions
+  to the host's `SessionQuestions` service without physical terminal I/O.
   - `cli.dart` routes interactive TUI, headless `--prompt`/`--goal`, configuration,
     model listing, resume and import. The app owns release version, process
     startup and restart, plus reading the store for resume selection.
@@ -177,8 +177,13 @@ or credential-bearing config document. Each confirmed edit checks the revision
 it began with. Provider drafts expose public fields and credential presence;
 keep/replace/clear operations apply secrets inside the configuration adapter.
 Application composition now lives in `apps/tina_cli`, with transitive import
-checks for its headless entry point and the reusable TUI. The remaining work
-includes correlated non-approval questions and complete attachment snapshots. Reusable contracts belong in
+checks for its headless entry point and the reusable TUI. Ordinary questions use
+correlated IDs through `SessionConnection.questions`; each TUI owns its draft,
+while the session retains requests across detach. Answers, explicit dismissal,
+operation cancellation, expiry and shutdown retire the ID. Headless requests
+settle immediately as unavailable. Every command and individual turn (including
+queued inputs) has its own question scope, so late continuations cannot affect
+a successor. Complete attachment snapshots remain pending. Reusable contracts belong in
 `tina_host`; no additional runtime package is planned. The current in-process
 connection is not a transport protocol or an authorization boundary.
 

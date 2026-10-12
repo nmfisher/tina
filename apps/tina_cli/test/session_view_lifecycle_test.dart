@@ -110,7 +110,9 @@ void main() {
       provider.requests.single.add(const TextDelta(' after close'));
       await waitFor(() => remaining.transcript.contains('after close'));
       expect(screens[closedIndex].transcript, frozen);
-      terminal.submitAnswer('yes');
+      final responder = terminal.questions.connect();
+      expect(responder.answer(responder.pending.single.id, 'yes'), isTrue);
+      responder.close();
       expect(await question, 'yes');
       provider.requests.single.add(const MessageComplete(
           content: [TextBlock('before close after close')],

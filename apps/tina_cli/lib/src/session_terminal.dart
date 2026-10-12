@@ -1,10 +1,10 @@
-/// The application's buffered [Terminal]: plugin notices and queued answers to
+/// The application's buffered [Terminal]: plugin notices and correlated
 /// ordinary questions, shared by headless execution and terminal attachments.
 /// It owns no screen or terminal modes. Listeners detach independently.
 library;
 
-import 'dart:async';
 import 'package:tina_core/tina_core.dart';
+import 'package:tina_host/tina_host.dart' show SessionQuestions;
 
 /// One conversation row: the text and whether it came from the user.
 final class ConversationLine {
@@ -23,9 +23,12 @@ final class ConversationLine {
 }
 
 /// The session [Terminal]: writes append to the conversation;
-/// asks resolve from a queue of answers.
+/// asks use the session-owned question service.
 final class SessionTerminal implements Terminal {
-  SessionTerminal({this.onLine});
+  SessionTerminal({this.onLine, SessionQuestions? questions})
+      : questions = questions ?? SessionQuestions();
+
+  final SessionQuestions questions;
 
   /// When set, every line written through [writeln] is also handed here
   /// — the full-screen loop paints it into the chat region. A test's
@@ -40,14 +43,9 @@ final class SessionTerminal implements Terminal {
 
   final List<ConversationLine> _lines = [];
 
-  /// Every line written through [writeln] and every submitted answer,
-  /// oldest first — the host reads this to repaint the conversation view.
+  /// Written notices and question prompts, oldest first. Answer text stays
+  /// with the caller of [ask], rather than being copied into this buffer.
   List<ConversationLine> get lines => List.unmodifiable(_lines);
-
-  /// Answers waiting to be handed to asks, oldest first. A test seeds it;
-  /// a raw-mode host appends as the user types. An ask with an empty
-  /// queue waits — nothing is invented.
-  final List<String> answers = [];
 
   @override
   void writeln([String? line]) {
@@ -65,34 +63,14 @@ final class SessionTerminal implements Terminal {
   }
 
   @override
-  Future<String> ask(String prompt) {
-    _lines.add(ConversationLine(prompt, fromUser: false));
-    if (answers.isNotEmpty) {
-      return Future.value(answers.removeAt(0));
-    }
-    final wait = Completer<String>();
-    _pending.add(wait);
-    return wait.future;
+  Future<String> ask(String prompt) async {
+    _lines.add(ConversationLine(prompt));
+    final result = await questions.ask(prompt);
+    // Legacy Terminal callers treat an empty answer as cancellation. New
+    // callers can inspect the explicit disposition on QuestionResult.
+    return result.text;
   }
 
-  final List<Completer<String>> _pending = [];
-
-  /// Answer the oldest pending ask (or queue the answer for the next one,
-  /// when nothing is waiting). Resolves the future [ask] returned.
-  void submitAnswer(String answer) {
-    if (_pending.isNotEmpty) {
-      _pending.removeAt(0).complete(answer);
-    } else {
-      answers.add(answer);
-    }
-  }
-
-  /// End-of-input: every ask still waiting resolves `''` — the same
-  /// answer an empty line gives, never a hang, never an exception.
-  void closeInput() {
-    for (final wait in _pending) {
-      wait.complete('');
-    }
-    _pending.clear();
-  }
+  /// Owner shutdown; view detach must never call this method.
+  void closeInput() => questions.close();
 }

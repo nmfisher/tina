@@ -1,73 +1,57 @@
-// The TUI's Terminal: writes land in the conversation, asks resolve from
-// a queued answer — headless, no terminal anywhere.
-//
-// Run: dart test
-library;
-
-import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina/session.dart';
-import 'package:tina/tui.dart';
+import 'package:tina_host/tina_host.dart';
 
 void main() {
-  group('SessionTerminal: the text sink', () {
-    test('writeln appends a conversation line the host can read', () {
-      final tui = SessionTerminal();
-      tui.writeln('mode: read-only');
-      tui.writeln();
-      expect(tui.lines, [
-        const ConversationLine('mode: read-only'),
-        const ConversationLine(''),
-      ]);
-    });
+  test(
+    'terminal records notices and notifies independently disposable listeners',
+    () {
+      final terminal = SessionTerminal();
+      addTearDown(terminal.closeInput);
+      final lines = <String>[];
+      final detach = terminal.listenLines(lines.add);
+      terminal.writeln('one');
+      detach();
+      terminal.writeln('two');
+      expect(lines, ['one']);
+      expect(terminal.lines.map((line) => line.text), ['one', 'two']);
+    },
+  );
 
-    test('a user-typed line can be recorded beside written lines', () {
-      final tui = SessionTerminal();
-      tui.writeln('hello');
-      tui.lines; // the host reads it; nothing changes
-      expect(tui.lines.single.fromUser, isFalse);
-    });
+  test('legacy asks use identified requests, answered out of order', () async {
+    final terminal = SessionTerminal();
+    final client = terminal.questions.connect();
+    addTearDown(terminal.closeInput);
+    addTearDown(client.close);
+    final first = terminal.ask('first?'), second = terminal.ask('second?');
+    final pending = client.pending;
+    expect(pending.map((q) => q.prompt), ['first?', 'second?']);
+    expect(terminal.lines.map((line) => line.text), ['first?', 'second?']);
+    expect(client.answer(pending.last.id, 'two'), isTrue);
+    expect(client.answer(pending.first.id, 'one'), isTrue);
+    expect(await first, 'one');
+    expect(await second, 'two');
+    expect(client.answer(pending.first.id, 'stale'), isFalse);
   });
 
-  group('SessionTerminal: the ask seam', () {
-    test('a queued answer is returned to the ask, trimmed path intact',
-        () async {
-      final tui = SessionTerminal()..answers.add('read-only');
-      final got = await tui.ask('mode?');
-      expect(got, 'read-only');
-      // The prompt itself is part of the conversation.
-      expect(tui.lines.single.text, 'mode?');
-    });
-
-    test('an ask with no queued answer waits for submitAnswer', () async {
-      final tui = SessionTerminal();
-      final waiting = tui.ask('continue?');
-      var resolved = false;
-      unawaited(waiting.then((_) => resolved = true));
-      await Future<void>.delayed(Duration.zero);
-      expect(resolved, isFalse, reason: 'nothing is invented while empty');
-      tui.submitAnswer('yes');
-      expect(await waiting, 'yes');
-    });
-
-    test('asks resolve in order, oldest first', () async {
-      final tui = SessionTerminal();
-      final first = tui.ask('first?');
-      final second = tui.ask('second?');
-      tui.submitAnswer('one');
-      tui.submitAnswer('two');
-      expect(await first, 'one');
-      expect(await second, 'two');
-    });
-
-    test('closeInput resolves every pending ask with the empty answer',
-        () async {
-      final tui = SessionTerminal();
-      final first = tui.ask('first?');
-      final second = tui.ask('second?');
-      tui.closeInput();
+  test(
+    'shutdown settles pending and future legacy asks without an answer',
+    () async {
+      final terminal = SessionTerminal();
+      final first = terminal.ask('first?'), second = terminal.ask('second?');
+      terminal.closeInput();
+      terminal.closeInput();
       expect(await first, '');
       expect(await second, '');
-    });
+      expect(await terminal.ask('closed?'), '');
+    },
+  );
+
+  test('headless legacy asks return without waiting for input', () async {
+    final terminal = SessionTerminal(
+      questions: SessionQuestions(interactive: false),
+    );
+    addTearDown(terminal.closeInput);
+    expect(await terminal.ask('unattended?'), '');
   });
 }

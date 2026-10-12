@@ -30,8 +30,8 @@ final class TuiSession {
   /// The session's host — the loop inside it is the conversation.
   final Host host;
 
-  /// The session's terminal — the text sink plugin lines land in, and
-  /// the queued answers to plugin asks come back through. A [SessionTerminal]
+  /// The session's terminal — the text sink for plugin lines and the adapter
+  /// for ordinary questions answered by request ID. A [SessionTerminal]
   /// when this wrapper created it; whatever the assembly was handed when
   /// it was built with one.
   final Terminal terminal;

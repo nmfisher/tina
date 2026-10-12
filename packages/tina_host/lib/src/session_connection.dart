@@ -58,6 +58,12 @@ final class SessionConnection {
   SessionConnection._(this._host);
   final Host _host;
   bool _closed = false;
+  QuestionClient? _questions;
+  QuestionClient get questions {
+    _checkOpen();
+    return _questions ??= _host.questions.connect();
+  }
+
   final _listeners = <Object, void Function(SessionStatus)>{};
 
   void _checkOpen() {
@@ -78,7 +84,8 @@ final class SessionConnection {
       cancellableWork: [
         if (host._turnWork case final work?) work,
         for (final entry in host._commandWork.entries)
-          if (entry.value.cancel != null)
+          if (entry.value.cancel != null ||
+              _host._commandQuestions[entry.key]?.hasPending == true)
             SessionWork(entry.key, 'command', command: entry.value.name),
       ],
     );
@@ -198,12 +205,15 @@ final class SessionConnection {
     final id = 'work-${++_host._nextWork}';
     final settled = Completer<void>();
     _host._commandWork[id] = command;
+    final scope = _host._commandQuestions[id] = _host.questions.openScope();
     _host._pendingWork.add(settled);
     _host._changed();
     try {
-      await command.handler(argument);
+      await scope.run(() => command.handler(argument));
       return const SessionResult();
     } finally {
+      scope.cancel();
+      _host._commandQuestions.remove(id);
       _host._commandWork.remove(id);
       _host._pendingWork.remove(settled);
       settled.complete();
@@ -218,10 +228,16 @@ final class SessionConnection {
     var cancelled = false;
     final ids = workIds.toSet();
     if (_host._turnWork case final work? when ids.contains(work.id)) {
+      _host._turnQuestions?.cancel();
       _host.session.loop.cancel(reason);
       cancelled = true;
     }
     for (final id in ids) {
+      final questions = _host._commandQuestions[id];
+      if (questions?.hasPending == true) {
+        questions!.cancel();
+        cancelled = true;
+      }
       final command = _host._commandWork[id];
       if (command?.cancel case final cancel?) {
         cancel();
@@ -263,6 +279,7 @@ final class SessionConnection {
   void close() {
     if (_closed) return;
     _closed = true;
+    _questions?.close();
     _listeners.clear();
     _host._connections.remove(this);
   }

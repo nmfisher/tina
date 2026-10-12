@@ -78,6 +78,7 @@ final class AssemblyOptions {
     this.version = '0.0.0',
     this.model,
     this.osSandbox = true,
+    this.interactive = true,
   });
 
   /// Explicit config file, else `~/.tina/config`.
@@ -106,6 +107,9 @@ final class AssemblyOptions {
 
   /// Per-launch OS confinement. Permission policy remains active when false.
   final bool osSandbox;
+
+  /// Ordinary questions may wait for attached clients only in interactive runs.
+  final bool interactive;
 }
 
 /// Default store stays separate from legacy session files and is scoped to
@@ -283,7 +287,9 @@ final class SessionAssembly {
       model = canonicalModelReference(resolved, model);
     }
     final workingDirectory = options.workingDirectory ?? Directory.current.path;
-    final output = terminal ?? SessionTerminal();
+    final output = terminal ??
+        SessionTerminal(
+            questions: SessionQuestions(interactive: options.interactive));
     final registry = firstPartyPlugins();
     registerPlugins?.call(registry);
     final stack = ScopedSettingsStack.build(
@@ -424,6 +430,9 @@ final class SessionAssembly {
     final plugins = registry.build(pluginSettings.selected, context);
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     final hostConfig = HostConfig(
+      questions: output is SessionTerminal
+          ? output.questions
+          : SessionQuestions(interactive: options.interactive),
       providerFactory: (model) => _ObservedProvider(factory(model), () {
         diagnostics?.stage?.call('provider-send');
         final current = assembled;
@@ -517,6 +526,7 @@ final class SessionAssembly {
               configPath: options.configPath,
               onRestart: options.onRestart,
               osSandbox: options.osSandbox,
+              interactive: options.interactive,
               workingDirectory: workingDirectory,
               storePath: options.storePath,
               plugins: options.plugins,

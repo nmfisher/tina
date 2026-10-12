@@ -8,18 +8,27 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'commands.dart';
 import 'host_config.dart';
 import 'session.dart';
+import 'session_questions.dart';
 
 part 'session_connection.dart';
 
 final class Host {
-  Host._(
-      this.config, this.session, this.context, this.commands, this._plugins) {
+  Host._(this.config, this.session, this.context, this.commands, this._plugins,
+      this.questions) {
+    _releaseQuestions = questions.listen(_changed);
     _statusSubscription = session.loop.subscribe((entry, event) {
       if (event != LogEvent.appended) return;
       if (entry is TurnStartedEntry) {
         _turnWork = SessionWork('work-${++_nextWork}', 'turn');
+        final scope = _turnQuestions = questions.currentScope;
+        if (scope != null) {
+          unawaited(session.loop.whenCancelled.then((_) => scope.cancel()));
+        }
       }
-      if (entry is TurnEndedEntry) _turnWork = null;
+      if (entry is TurnEndedEntry) {
+        _turnWork = null;
+        _turnQuestions = null;
+      }
       if (entry is TurnStartedEntry ||
           entry is TurnEndedEntry ||
           entry is InputRecordedEntry) _changed();
@@ -30,6 +39,8 @@ final class Host {
   final Session session;
   final PluginSession context;
   final Commands commands;
+  final SessionQuestions questions;
+  late final void Function() _releaseQuestions;
   final List<AgentPlugin> _plugins;
   bool _closed = false;
   bool _stopping = false;
@@ -37,7 +48,9 @@ final class Host {
   late final int _statusSubscription;
   int _nextWork = 0;
   SessionWork? _turnWork;
+  QuestionScope? _turnQuestions;
   final _commandWork = <String, Command>{};
+  final _commandQuestions = <String, QuestionScope>{};
   final _pendingWork = <Completer<void>>{};
   final _connections = <SessionConnection>{};
   bool _notificationQueued = false;
@@ -188,6 +201,7 @@ final class Host {
       },
     );
     final opened = <AgentPlugin>[];
+    final questions = config.questions ?? SessionQuestions();
     LlmProvider? provider;
     try {
       SessionSeed? seed;
@@ -222,8 +236,10 @@ final class Host {
           Session(id: id, loop: loop, details: context.details),
           context,
           commands,
-          plugins);
+          plugins,
+          questions);
     } catch (_) {
+      questions.close();
       for (final plugin in opened.reversed) {
         try {
           plugin.closeSession();
@@ -265,12 +281,20 @@ final class Host {
     try {
       final outcome = await session.loop.runTurn(
           Input(text, id: turnId ?? 't-${session.loop.seq}'),
-          onOutcome: session.turns.add);
+          onOutcome: session.turns.add, withTurnScope: (run) async {
+        final scope = questions.openScope();
+        try {
+          return await scope.run(run);
+        } finally {
+          scope.cancel();
+        }
+      });
       context.notifyChanged();
       if (!_stopping) onIdle?.call();
       return outcome;
     } finally {
       _turnWork = null;
+      _turnQuestions = null;
       _pendingWork.remove(settled);
       settled.complete();
       _changed();
@@ -305,6 +329,8 @@ final class Host {
     }
 
     try {
+      // Settle questions before awaiting work which may be parked on an answer.
+      questions.close();
       attempt(() => session.loop.cancel('shutdown'));
       for (final command in _commandWork.values.toSet())
         attempt(() => command.cancel?.call());
@@ -327,6 +353,8 @@ final class Host {
       throw StateError('active host work requires asynchronous shutdown');
     }
     _closed = true;
+    questions.close();
+    _releaseQuestions();
     session.loop.unsubscribe(_statusSubscription);
     _changed();
     onIdle = null;

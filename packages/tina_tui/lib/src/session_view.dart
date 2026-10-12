@@ -3,6 +3,7 @@ import 'package:tina_host/tina_host.dart';
 import 'completion_sources.dart';
 import 'console_commands.dart';
 import 'session_presentation.dart';
+import 'question_view.dart';
 
 /// A disposable frontend over session operations and presentation capabilities.
 /// Runtime implementations and shutdown authority stay with the application.
@@ -22,6 +23,7 @@ final class SessionView
       _attached.values.map((attachment) => attachment.contribution));
   ConsoleContext? _context;
   SessionSettingsView? _settings;
+  ConsoleAttachment? _questions;
   Future<void> Function()? _openSettings;
   final _releases = <void Function()>[];
   bool _closed = false, _quitRequested = false;
@@ -109,6 +111,8 @@ final class SessionView
       throw StateError('session view is closed or stopping');
     detachConsole();
     _context = context;
+    _questions =
+        ConsoleAttachment.attach(QuestionView(connection.questions), context);
     _releases.add(connection.listen((_) => context.refreshStatus()));
     _releases.add(presentation.listenNotices(notice));
     void attach(String id, ConsoleContribution contribution) {
@@ -145,6 +149,7 @@ final class SessionView
 
   @override
   void repaintConsole() {
+    _questions?.contribution.repaintConsole();
     for (final attachment in _attached.values.toList()) {
       attachment.contribution.repaintConsole();
     }
@@ -153,6 +158,8 @@ final class SessionView
 
   @override
   void detachConsole() {
+    _questions?.dispose();
+    _questions = null;
     _settings?.close();
     _openSettings = null;
     for (final release in _releases.reversed) release();

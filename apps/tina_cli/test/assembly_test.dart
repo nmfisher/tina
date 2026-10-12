@@ -110,6 +110,37 @@ void main() {
   });
 
   group('headless by construction', () {
+    test(
+      'unattended question policy belongs to each assembly and its children',
+      () async {
+        final ws = Directory.systemTemp.createTempSync('tina_question_policy_');
+        addTearDown(() => ws.deleteSync(recursive: true));
+        final app = SessionAssembly.start(
+          providerFactory: (_) => ScriptedProvider([]),
+          options: AssemblyOptions(
+            configPath: '/nonexistent/tina/config',
+            workingDirectory: ws.path,
+            interactive: false,
+          ),
+        );
+        addTearDown(app.close);
+        final child = app.newSession(null);
+        addTearDown(child.close);
+        for (final assembly in [app, child]) {
+          final terminal = assembly.terminal as SessionTerminal;
+          expect(
+            identical(terminal.questions, assembly.host.questions),
+            isTrue,
+          );
+          expect(await terminal.ask('No interactive client'), isEmpty);
+          final client = assembly.host.connect();
+          addTearDown(client.close);
+          expect(client.questions.pending, isEmpty);
+        }
+        expect(identical(app.host.questions, child.host.questions), isFalse);
+      },
+    );
+
     test('a session assembles without a physical terminal and runs a full turn',
         () async {
       final env = _assembly([

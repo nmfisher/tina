@@ -302,6 +302,7 @@ Future<int> runCli(
         sessionId: sessionId,
         model: model,
         osSandbox: osSandbox,
+        interactive: !headless,
         approvalChannel: headless ? 'tina/approvals-stream' : null,
         onRestart: headless
             ? null

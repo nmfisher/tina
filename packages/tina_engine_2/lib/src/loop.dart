@@ -263,6 +263,10 @@ final class AgentLoop {
     _modelCall?.close();
   }
 
+  /// Cancellation of the current turn. Capture on TurnStartedEntry; a later
+  /// turn receives a fresh signal. Observers cannot cancel through this future.
+  Future<void> get whenCancelled => _cancel.whenCancelled;
+
   final _inputs = Queue<Input>();
 
   /// Inputs accepted during a turn, awaiting their own transcript turn.
@@ -620,20 +624,27 @@ final class AgentLoop {
           if (s.isNotEmpty) s,
       ].join('\n\n');
 
-  /// The five steps of one turn, in order, in one pass.
+  /// Run the input and any inputs accepted while it runs. [withTurnScope]
+  /// wraps each individual turn, including queued inputs, so an owner can
+  /// give asynchronous work a lifetime that never leaks into its successor.
   Future<Outcome> runTurn(Input raw,
-      {void Function(Outcome)? onOutcome}) async {
+      {void Function(Outcome)? onOutcome,
+      Future<Outcome> Function(Future<Outcome> Function())?
+          withTurnScope}) async {
     if (_running) throw StateError('a turn is already running');
     _running = true;
+    Future<Outcome> run(Input input) => withTurnScope == null
+        ? _runTurn(input)
+        : withTurnScope(() => _runTurn(input));
     try {
-      var outcome = await _runTurn(raw);
+      var outcome = await run(raw);
       onOutcome?.call(outcome);
       while (_inputs.isNotEmpty) {
         final next = _inputs.removeFirst();
         _inputPending = Completer<void>();
         if (_inputs.isNotEmpty) _inputPending.complete();
         _cancel = CancelToken();
-        outcome = await _runTurn(next);
+        outcome = await run(next);
         onOutcome?.call(outcome);
       }
       return outcome;
