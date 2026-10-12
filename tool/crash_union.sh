@@ -42,7 +42,7 @@ for run in $(seq 1 "$runs"); do
   tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
   sleep 1
   tmux pipe-pane -t "$sess" -o "cat >> $outdir/$run_id.raw"
-  tmux send-keys -t "$sess" "HOME=$stubhome dart run /workspace/bin/tina.dart" Enter
+  tmux send-keys -t "$sess" "HOME=$stubhome dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
   # Wait for the app's query burst before injecting the init replies, so the
   # injection lands inside notcurses' reply window and the app comes up.

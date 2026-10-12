@@ -21,7 +21,7 @@ tmux new-session -d -x 120 -y 40 -s "$sess"
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux pipe-pane -t "$sess" -o "cat >> $outdir/raw.log"
-tmux send-keys -t "$sess" "HOME=$stubhome dart run /workspace/bin/tina.dart" Enter
+tmux send-keys -t "$sess" "HOME=$stubhome dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
 # Wait for the app to enter the alt screen, then unblock notcurses init.
 for _ in $(seq 1 90); do

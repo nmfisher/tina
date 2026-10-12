@@ -28,7 +28,7 @@ tmux new-session -d -x "$cols" -y "$rows" -s "$sess"
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux pipe-pane -t "$sess" -o "cat >> $out/run.raw"
-tmux send-keys -t "$sess" "HOME=/tmp/stubhome dart run /workspace/bin/tina.dart" Enter
+tmux send-keys -t "$sess" "HOME=/tmp/stubhome dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
 # Come up: wait for the notcurses query burst, then inject the init replies.
 for _ in $(seq 1 120); do

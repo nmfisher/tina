@@ -24,7 +24,7 @@ fi
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux pipe-pane -t "$sess" -o "cat >> $outdir/$run_id.raw"
-tmux send-keys -t "$sess" "ulimit -c unlimited; dart run /workspace/bin/tina.dart" Enter
+tmux send-keys -t "$sess" "ulimit -c unlimited; dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
 # Inject the replies the moment the app's notcurses init query burst appears
 # in the run's raw log (the alt-screen enter + CPR are the first queries) —

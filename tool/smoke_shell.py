@@ -151,7 +151,7 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         launcher = ([str(Path(args.binary).resolve())] if args.binary
-                    else [args.dart, 'run', 'bin/tina.dart'])
+                    else [args.dart, 'run', 'apps/tina_cli/bin/tina.dart'])
         for backend in ('ansi', 'notcurses'):
             for panels in (False, True):
                 smoke(launcher, f'http://127.0.0.1:{server.server_port}', backend, panels)

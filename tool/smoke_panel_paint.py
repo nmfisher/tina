@@ -185,7 +185,7 @@ def main():
     source.add_argument('--binary')
     source.add_argument('--dart')
     args = parser.parse_args()
-    launcher = [str(Path(args.binary).resolve())] if args.binary else [args.dart, 'run', 'bin/tina.dart']
+    launcher = [str(Path(args.binary).resolve())] if args.binary else [args.dart, 'run', 'apps/tina_cli/bin/tina.dart']
     server = ThreadingHTTPServer(('127.0.0.1', 0), ModelStub)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:

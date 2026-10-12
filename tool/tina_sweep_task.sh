@@ -37,7 +37,7 @@ tmux send-keys -t sweep "cd /workspace/examples/workspace" Enter
 sleep 1
 rm -f /tmp/tina_raw.log
 tmux pipe-pane -t sweep -o "cat >> /tmp/tina_raw.log" >/dev/null
-tmux send-keys -t sweep "dart run /workspace/bin/tina.dart" Enter
+tmux send-keys -t sweep "dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 # Inject the terminal replies the moment the app's notcurses init query burst
 # appears in the raw log (the alt-screen enter + CPR are the first queries).
 # This lands inside notcurses' reply window (~2 s):

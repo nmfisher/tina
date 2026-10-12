@@ -1,6 +1,6 @@
 # Tina
 
-Tina is a terminal coding agent. The root `tina` executable now runs engine2:
+Tina is a terminal coding agent. The `tina` executable in `apps/tina_cli` runs engine2:
 one agent loop, with tools, persistence, plans, goals, compaction, subagents,
 provider policy and updates supplied by plugins.
 
@@ -193,7 +193,6 @@ signatures. The installer above supports signature verification.
 ```sh
 git clone --recurse-submodules https://github.com/nmfisher/tina.git
 cd tina
-dart pub get
 ./tool/build_bundle.sh host
 python3 tool/smoke_engine2.py --binary build/cli/macos_arm64/bundle/bin/tina
 python3 tool/smoke_notcurses_images.py --binary build/cli/macos_arm64/bundle/bin/tina
@@ -208,3 +207,20 @@ reference). Repository classification and indexing remain deferred. Workflows/At
 available as standalone packages, disconnected from the app. The legacy
 `tina_app`, `tina_engine` and root application sources have been removed. See
 [package architecture](docs/ARCHITECTURE.md).
+
+## Run from source
+
+From the repository root:
+
+```sh
+cd apps/tina_cli
+dart pub get
+dart run bin/tina.dart --help
+dart test
+```
+
+The application package and installed command are both named `tina`.
+The repository root has no Dart package. Shared architecture and CI checks
+live in `tool/repository`; reusable libraries and plugins live under `packages/`.
+Each package keeps its own development tools.
+Build release bundles from the repository root with `./tool/build_bundle.sh`.

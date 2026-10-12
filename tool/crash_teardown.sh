@@ -36,7 +36,7 @@ for run in $(seq 1 "$runs"); do
   tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
   sleep 1
   tmux pipe-pane -t "$sess" -o "cat >> $outdir/$run_id.raw"
-  tmux send-keys -t "$sess" "HOME=$stubhome dart run /workspace/bin/tina.dart" Enter
+  tmux send-keys -t "$sess" "HOME=$stubhome dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
   # Wait for the alt-screen enter, then give the TUI a beat to finish init.
   for _ in $(seq 1 120); do
@@ -53,7 +53,7 @@ for run in $(seq 1 "$runs"); do
         >/dev/null 2>&1 &
       inj=$!
       sleep 0.15
-      pkill -TERM -f "bin/tina.dart" 2>/dev/null || true
+      pkill -TERM -f "apps/tina_cli/bin/tina.dart" 2>/dev/null || true
       wait $inj 2>/dev/null || true
       ;;
     term-flood)
@@ -68,11 +68,11 @@ for run in $(seq 1 "$runs"); do
       ) &
       flood=$!
       sleep 1
-      pkill -TERM -f "bin/tina.dart" 2>/dev/null || true
+      pkill -TERM -f "apps/tina_cli/bin/tina.dart" 2>/dev/null || true
       wait $flood 2>/dev/null || true
       ;;
     term-idle)
-      pkill -TERM -f "bin/tina.dart" 2>/dev/null || true
+      pkill -TERM -f "apps/tina_cli/bin/tina.dart" 2>/dev/null || true
       ;;
     quit-burst)
       # Control: the NORMAL quit path disposes the input backend before

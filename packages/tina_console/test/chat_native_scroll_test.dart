@@ -263,7 +263,7 @@ void main() {
   // the next screen row and blanking its border. These tests pin the CALLER
   // half of the contract (what _emitRow reports); the raster half — the
   // forced two-phase erase — needs the real raster and lives in
-  // tool/p8k2_check.sh, which replays a live notcurses byte stream through
+  // packages/tina_console/tool/p8k2_check.sh, which replays a live notcurses byte stream through
   // the tmux-class VirtualTerminal and asserts every border survives.
   group('erase span reporting (tin-p8k2)', () {
     test('a row painted for the first time reports no previous extent', () {

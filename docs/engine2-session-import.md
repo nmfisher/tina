@@ -5,15 +5,15 @@
 From the repository root, preview all available legacy sessions:
 
 ```sh
-dart run bin/tina.dart --import-sessions "$HOME/.tina/sessions" --dry-run
+dart run apps/tina_cli/bin/tina.dart --import-sessions "$HOME/.tina/sessions" --dry-run
 ```
 
 Convert into an explicitly chosen SQLite store, then use the printed IDs:
 
 ```sh
-dart run bin/tina.dart --import-sessions "$HOME/.tina/sessions" --store /tmp/tina-import.db
-dart run bin/tina.dart --store /tmp/tina-import.db --resume
-dart run bin/tina.dart --store /tmp/tina-import.db --resume 'legacy:SESSION_ID:CONVERSATION_ID'
+dart run apps/tina_cli/bin/tina.dart --import-sessions "$HOME/.tina/sessions" --store /tmp/tina-import.db
+dart run apps/tina_cli/bin/tina.dart --store /tmp/tina-import.db --resume
+dart run apps/tina_cli/bin/tina.dart --store /tmp/tina-import.db --resume 'legacy:SESSION_ID:CONVERSATION_ID'
 ```
 
 Choose a durable destination when ready. Without `--store`, import writes to

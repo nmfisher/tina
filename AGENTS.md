@@ -4,10 +4,11 @@
 
 To cut a new tina release:
 
-1. **Bump version** in `pubspec.yaml` (semver, e.g. `1.4.3`), then regenerate
-   the embedded version constant (`dart run tool/generate_version.dart`) and
-   commit `lib/version.g.dart` together with the bump (CI tests fail if they
-   drift).
+1. **Bump version** in `apps/tina_cli/pubspec.yaml` (semver, e.g. `1.4.3`).
+   From the repository root, run
+   `dart apps/tina_cli/tool/generate_version.dart` to regenerate the embedded
+   constant. Commit `apps/tina_cli/lib/version.g.dart` together with the bump
+   (CI tests fail if the constant drifts).
 
 2. **Tag and push**:
    ```bash

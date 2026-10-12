@@ -10,7 +10,7 @@
 /// The tin-v6tq ticket recorded that a content-based filter was "not
 /// implementable at this layer: a reply's printable bytes are
 /// indistinguishable from typing". Capturing what the pump actually delivers
-/// (tool/reply_decode_spike.dart, 2026-08-16) disproves that: notcurses' input
+/// (packages/tina_console/tool/reply_decode_spike.dart, 2026-08-16) disproves that: notcurses' input
 /// automaton has no rule for OSC replies *after* init, so it emits the leading
 /// `ESC` as a standalone key event and decodes the rest of the reply as
 /// ordinary printable characters. Measured, in one run:

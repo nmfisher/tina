@@ -11,9 +11,14 @@ build
 packages/dart_notcurses/.git
 packages/dart_notcurses/.dart_tool
 packages/dart_notcurses/build
+apps/tina_cli/.dart_tool
+apps/tina_cli/build
 
 # macOS metadata — the T7 volume recreates these ._ sidecars, and Docker's
 # context sender errors setting their xattrs.
 .DS_Store
 ._*
 **/._*
+
+tool/repository/.dart_tool
+tool/repository/build

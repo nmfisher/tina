@@ -60,11 +60,11 @@ build_macos_arm64() {
   command -v dart >/dev/null 2>&1 || err "dart not found in PATH (need Dart >=3.12)"
   [ "$(uname -s)" = "Darwin" ] || err "macos-arm64 must be built on macOS"
   echo "==> building macos/arm64 bundle (native)"
-  # Regenerate lib/version.g.dart from the pubspec first so the compiled
+  # Regenerate apps/tina_cli/lib/version.g.dart from the pubspec first so the compiled
   # binary carries the release version (the Docker path does the same).
-  ( cd "$REPO_ROOT" && dart pub get \
-    && dart run tool/generate_version.dart "$REPO_ROOT" \
-    && dart build cli -t bin/tina.dart )
+  ( cd "$REPO_ROOT/apps/tina_cli" && dart pub get \
+    && dart tool/generate_version.dart \
+    && dart build cli -t bin/tina.dart -o "$REPO_ROOT/build/cli/macos_arm64" )
   printf 'tina bundle root\n' > "$REPO_ROOT/build/cli/macos_arm64/bundle/.tina-bundle"
   echo "==> staged $REPO_ROOT/build/cli/macos_arm64/bundle"
 }

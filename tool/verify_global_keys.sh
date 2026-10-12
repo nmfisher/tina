@@ -31,7 +31,7 @@ tmux new-session -d -x "$cols" -y "$rows" -s "$sess"
 tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
 tmux pipe-pane -t "$sess" -o "cat >> $out/run.raw"
-tmux send-keys -t "$sess" "HOME=/tmp/stubhome dart run /workspace/bin/tina.dart" Enter
+tmux send-keys -t "$sess" "HOME=/tmp/stubhome dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
 # The TUI must render on its own (cold build can take a while).
 up=0

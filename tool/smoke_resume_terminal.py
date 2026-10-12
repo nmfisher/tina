@@ -24,7 +24,7 @@ def smoke(dart, endpoint, backend):
             'models=["smoke|Smoke model"]\n'
             '[plugins]\nenabled=["tina/chat-tui", "tina/panels-tui", '
             '"tina/persistence", "tina/session-controls"]\n')
-        command = [dart, 'packages/tina_tui/test/fixtures/resume_terminal.dart',
+        command = [dart, 'apps/tina_cli/test/fixtures/resume_terminal.dart',
                    '--backend', backend, '--config', str(config),
                    '--cwd', str(root), '--store', str(root / 'sessions.db')]
         env = dict(os.environ, HOME=str(root), TERM='xterm-256color', LANG='en_US.UTF-8')

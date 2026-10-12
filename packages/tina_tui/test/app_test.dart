@@ -3,7 +3,7 @@
 // required: raw mode is skipped (no controlling terminal), events are
 // fed as bytes.
 //
-// The TTY smoke test lives in app_smoke_test.dart, tagged `tty` and
+// The TTY smoke test lives in apps/tina_cli/test/app_smoke_test.dart, tagged `tty` and
 // skipped by default — the wiring tests here run everywhere.
 //
 // Run: dart test

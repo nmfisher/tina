@@ -30,7 +30,7 @@ fail() { echo "[y4qn] FAIL: $*"; echo "[y4qn] artifacts in $outdir"; exit 1; }
 # Stub up + reset (deterministic regardless of what a previous session left).
 pkill -f "stub_server.dart" 2>/dev/null || true
 sleep 0.5
-(cd /workspace && nohup dart run tool/stub_server.dart \
+(cd /workspace && nohup dart run apps/tina_cli/tool/stub_server.dart \
     --scenario "$scenario" --port $port >"$outdir/stub.log" 2>&1 &)
 disown -a 2>/dev/null || true
 for _ in $(seq 1 30); do
@@ -78,7 +78,7 @@ tmux send-keys -t y4qn "cd $fixture" Enter
 sleep 1
 tmux pipe-pane -t y4qn -o "cat >> $outdir/raw.log"
 tmux send-keys -t y4qn \
-  "HOME=$stubhome /home/agent/dart-sdk/bin/dart run /workspace/bin/tina.dart" Enter
+  "HOME=$stubhome /home/agent/dart-sdk/bin/dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
 # Wait for paint: the main panel title appears.
 for _ in $(seq 1 60); do

@@ -36,7 +36,7 @@ else
   pkill -f "stub_server.dart" 2>/dev/null || true
   sleep 0.5
   echo "[hunt] starting stub server (scenario $scenario, port $port)"
-  (cd /workspace && nohup dart run tool/stub_server.dart \
+  (cd /workspace && nohup dart run apps/tina_cli/tool/stub_server.dart \
       --scenario "$scenario" --port $port >"$base/stub.log" 2>&1 &)
   # Detach fully: an undisowned grandchild leaves this script in do_wait at
   # exit (observed: wrapper hung with the stub as its only live child).
@@ -84,7 +84,7 @@ for i in $(seq 1 "$max"); do
   sleep 1
   tmux pipe-pane -t "$sess" -o "cat >> $outdir/raw.log"
   tmux send-keys -t "$sess" \
-    "HOME=$stubhome TINA_PASTE_AUDIT_LOG=$outdir/audit.log /home/agent/dart-sdk/bin/dart run /workspace/bin/tina.dart" Enter
+    "HOME=$stubhome TINA_PASTE_AUDIT_LOG=$outdir/audit.log /home/agent/dart-sdk/bin/dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 
   # Wait for alt-screen, then paint.
   for _ in $(seq 1 90); do

@@ -15,14 +15,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /work
 
-# The whole workspace (bin/, lib/, packages/, data/, pubspec). .dockerignore at
+# The whole workspace (apps/, packages/, tool/, data/, pubspec). .dockerignore at
 # the repo root keeps build/, .git, .dart_tool out of the context.
 COPY . /work
+
+WORKDIR /work/apps/tina_cli
 
 RUN dart pub get \
     # Embed the pubspec version (lib/version.g.dart) before building — see
     # tool/generate_version.dart; /update compares against it.
-    && dart run tool/generate_version.dart /work \
+    && dart tool/generate_version.dart \
     && dart build cli -t bin/tina.dart \
-    && find build/cli -type d -name bundle -exec touch {}/.tina-bundle \;
+    && mkdir -p /work/build \
+    && cp -R build/cli /work/build/cli \
+    && find /work/build/cli -type d -name bundle -exec touch {}/.tina-bundle \;
 # Bundle now at /work/build/cli/<os>_<arch>/bundle/

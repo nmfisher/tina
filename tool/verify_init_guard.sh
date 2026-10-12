@@ -20,7 +20,7 @@ sleep 1
 tmux pipe-pane -t "$sess" -o "cat >> $outdir/$sess.raw"
 # Deliberately NO tmux_inject_replies.sh call — that is the workaround this
 # fix removes.
-tmux send-keys -t "$sess" "dart run bin/tina.dart --safe-mode 2>$outdir/$sess.err" Enter
+tmux send-keys -t "$sess" "dart run apps/tina_cli/bin/tina.dart --safe-mode 2>$outdir/$sess.err" Enter
 
 # The TUI must appear on its own within a bounded window. 100 s covers a cold
 # build; a warm run renders in a couple of seconds.
@@ -96,7 +96,7 @@ tmux new-session -d -x 120 -y 40 -s "$sess2"
 tmux send-keys -t "$sess2" "cd ${TINA_DIR:-$here/..}" Enter
 sleep 1
 tmux pipe-pane -t "$sess2" -o "cat >> $outdir/$sess2.raw"
-tmux send-keys -t "$sess2" "dart run bin/tina.dart --safe-mode 2>$outdir/$sess2.err" Enter
+tmux send-keys -t "$sess2" "dart run apps/tina_cli/bin/tina.dart --safe-mode 2>$outdir/$sess2.err" Enter
 
 up2=0
 for _ in $(seq 1 100); do

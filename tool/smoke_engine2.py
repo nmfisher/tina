@@ -1122,7 +1122,7 @@ def main():
     args = parser.parse_args()
     if not args.dart and not args.binary:
         parser.error("dart was not found on PATH")
-    launcher = [str(args.binary.absolute())] if args.binary else [args.dart, "run", "bin/tina.dart"]
+    launcher = [str(args.binary.absolute())] if args.binary else [args.dart, "run", "apps/tina_cli/bin/tina.dart"]
     # This suite asserts ANSI writes; dedicated native/default suites replay
     # the retained grid and verify images, fallback, input and resume.
     launcher += ["--backend", "ansi"]

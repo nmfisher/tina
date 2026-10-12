@@ -56,8 +56,9 @@ workflow nodes all run it.
 ## The package stack
 
 ```
-bin/tina.dart               entry point: initializeProcessLauncher, runCli
-packages/tina_tui           the app: CLI router, assembly, terminal front end
+apps/tina_cli               application (package tina): CLI, headless runner, process startup
+packages/tina_tui           reusable terminal front end and injectable session assembly
+tool/repository            repository architecture checks and CI helpers
 packages/tina_host          session lifecycle: Host, HostConfig, Commands
 packages/tina_engine_2      the agent loop and plugin interface
 packages/tina_core          value types: messages, log entries, Terminal,
@@ -84,10 +85,12 @@ Dependency direction, top down only:
   before opening resources and roll back on failure. Terminal-free.
 - **tina_llm** — `LlmProvider` implementations and the provider
   descriptors the config system reads.
-- **tina_tui** — the application and its front end in one package today:
-  - `cli.dart` parses flags and routes: interactive TUI, headless
-    `--prompt`/`--goal`, `--configure` editor, `--models` listing,
-    `--resume`/`--continue` picker, `--import-sessions`.
+- **tina** (`apps/tina_cli`) — the executable application. `cli.dart` routes
+  interactive TUI, headless `--prompt`/`--goal`, configuration, model listing,
+  resume and session import. It owns the release version, shell completion,
+  process launcher and terminal restart. Libraries and plugins cannot depend
+  on it.
+- **tina_tui** — the reusable front end and session assembly today:
   - `assembly.dart` (`TuiAssembly`) is the composition root: loads
     config, builds the scoped settings stack, the plugin registry, the
     provider policy, the `ToolsPlugin` sandbox, and starts or resumes the
@@ -119,8 +122,6 @@ Dependency direction, top down only:
   - `tui_terminal.dart` is the `Terminal` implementation a TUI session
     contributes: a text buffer plugins write lines into, and a queue of
     answers `ask` waits on. No terminal code in it despite the name.
-  - `process_launcher.dart` is the FFI process spawner the tools use; the
-    binary initializes it before anything else runs.
 - **tina_console** — rendering toolkit that knows nothing about agents,
   over `dart_notcurses` or plain ANSI. Used by the front end and by the
   `*_tui` plugin packages only.
@@ -137,9 +138,12 @@ Per-package detail, where it exists:
 Configuration is documented in
 [`engine2-config.md`](engine2-config.md) and the pages beside it.
 
-These boundaries are enforced: `tool/architecture/policy.json` lists every
-owned package and which ones may touch terminals; `test/architecture/`
-runs the import checks in CI.
+These boundaries are enforced: `tool/repository/policy.json` lists every
+owned package and which ones may touch terminals; `tool/repository/test/`
+runs the import checks in CI. The repository root has no Dart package. The
+repository tooling package depends only on analysis/test libraries; it reads
+application sources without importing their code. Application and library
+packages cannot depend on repository tooling.
 
 ## The assembly seam
 

@@ -25,7 +25,7 @@ tmux send-keys -t "$sess" "cd /workspace/examples/workspace" Enter
 sleep 1
 rm -f "$outdir/$run_id.raw"
 tmux pipe-pane -t "$sess" -o "cat >> $outdir/$run_id.raw"
-tmux send-keys -t "$sess" "HOME=/tmp/sweep-home dart run /workspace/bin/tina.dart" Enter
+tmux send-keys -t "$sess" "HOME=/tmp/sweep-home dart run /workspace/apps/tina_cli/bin/tina.dart" Enter
 # Inject the replies the moment the app's notcurses init query burst appears
 # in the run's raw log (see crash_hunt.sh) — inside notcurses' reply window.
 for i in $(seq 1 120); do

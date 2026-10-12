@@ -31,7 +31,7 @@ def main():
                 f'base_url = "http://127.0.0.1:{server.server_port}"\n'
                 'api_key = "fixture-key"\nmodels = ["smoke|Smoke model"]\n')
             terminal = Terminal([args.dart,
-                'packages/tina_tui/test/fixtures/restart_app.dart',
+                'apps/tina_cli/test/fixtures/restart_app.dart',
                 str(config), str(root)],
                 dict(os.environ, COCOON_UPDATE_CHECK='0', TERM='xterm-256color'), 80, 24)
             terminal.expect('smoke >')

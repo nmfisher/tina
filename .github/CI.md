@@ -1,25 +1,27 @@
 # CI coverage and runtime
 
 Regular CI selects changed owned packages and their transitive consumers from
-actual `pubspec.yaml` dependencies, dev dependencies and overrides. Root
-analysis/tests still check cross-package architecture rules for every code
-change. Known documentation paths skip tests; Markdown fixtures do not.
-Version-only root manifest bumps select the root without forcing unrelated
-packages. Shared build/CI configuration, native submodule changes, unknown paths
-and unavailable base revisions select everything. Weekly and manual runs also
-select everything. Existing per-package jobs retain their native/pure-Dart
-environments and names. Superseded runs are cancelled within the same event/ref.
+actual `pubspec.yaml` dependencies, dev dependencies and overrides. Repository
+analysis and architecture tests still run for every code change. Known
+documentation paths skip tests; Markdown fixtures do not. Version-only
+`apps/tina_cli/pubspec.yaml` bumps select the CLI and repository checks without
+forcing unrelated packages or compiled interactive checks. Shared build/CI
+configuration, native submodule changes, unknown paths and unavailable base
+revisions select everything. Weekly and manual runs also select everything.
+Superseded runs are cancelled within the same event/ref.
 
 Known executable smoke scripts and their runner select `tina_tui` and its
-consumers, including root checks, rather than every owned package. The list is
-explicit in `tool/ci/select_packages.dart`; a new or unknown helper still selects
+consumers, plus repository checks. The list is explicit in
+`tool/repository/bin/select_packages.dart`; a new or unknown helper still selects
 everything until its ownership is reviewed. Mixed fixture and source changes
 retain the source's affected-package coverage.
 
-The root job resolves owned packages four at a time; this is needed for the
-analyzer and architecture graph even when only some package tests are selected.
-Native interactive checks run when the affected graph reaches the frontend or
-root executable sources. Tools sandbox checks stay platform-specific.
+The repository-checks job resolves owned packages four at a time for analysis
+and architecture checks. Its own Dart package has no application or native
+asset dependencies, so it needs no native link libraries. Native keyboard tests
+run in the console job on Linux and the interactive job on macOS. Compiled
+interactive checks run when the affected graph reaches the frontend or CLI
+application sources. Tools sandbox checks stay platform-specific.
 
 ## Routine versus expanded terminal coverage
 
@@ -90,7 +92,7 @@ about 95 seconds with three workers (their individual runtimes totalled about
 Local checks:
 
 ```sh
-dart test test/architecture/ci_selection_test.dart test/architecture/ci_owned_packages_guard_test.dart
+(cd tool/repository && dart pub get && dart test)
 python3 -m unittest discover -s tool/ci -p 'test_*.py'
 actionlint .github/workflows/ci.yml .github/workflows/release.yml
 python3 tool/ci/run_release_smokes.py --binary /path/to/bundle/bin/tina

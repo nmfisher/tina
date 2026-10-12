@@ -1,13 +1,13 @@
 # CI for the engine2 executable and every owned package.
 # Retired app/engine packages are not part of the build or test matrix.
 #
-# Owned-package inventory (A08): tool/architecture/policy.json lists the owned
-# packages plus the vendored dart_notcurses submodule exception. The root job's
-# architecture test (test/architecture/import_boundary_test.dart →
-# policy.validateWorkspace) FAILS on any packages/*/pubspec.yaml outside that
+# Owned-package inventory (A08): tool/repository/policy.json lists the owned
+# packages plus the vendored dart_notcurses submodule exception. The repository job's
+# architecture test (tool/repository/test/import_boundary_test.dart →
+# policy.validateWorkspace) FAILS on any package under packages/ or apps/ outside that
 # list — a new package must join the policy AND gain a job here or an
 # explicitly reviewed exclusion; it cannot silently inherit root-only coverage.
-# The root job pub-gets every owned package before analyze: the architecture
+# The repository job pub-gets every owned package before analyze: the architecture
 # graph reads each package's .dart_tool/package_config.json. That step's list
 # is generated from the same policy file, so a package in the policy cannot be
 # left unprefetched — classifier tripped exactly this on its first PR run,
@@ -78,6 +78,7 @@ jobs:
         with:
           sdk: '3.12'
       - run: dart pub get
+        working-directory: tool/repository
       - name: Test release smoke-runner failure handling
         run: python3 -m unittest discover -s tool/ci -p 'test_*.py'
       - name: Select packages and their transitive test/runtime dependents
@@ -88,9 +89,9 @@ jobs:
           FULL_RUN: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         run: |
           if [ "$FULL_RUN" = true ]; then
-            dart --disable-dart-dev --packages=.dart_tool/package_config.json tool/ci/select_packages.dart --full
+            dart run tool/repository/bin/select_packages.dart --full
           else
-            dart --disable-dart-dev --packages=.dart_tool/package_config.json tool/ci/select_packages.dart
+            dart run tool/repository/bin/select_packages.dart
           fi
 
   macos_interactive:
@@ -105,11 +106,12 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: '3.12'
-      - name: Resolve dependencies
+      - name: Resolve console dependencies
+        working-directory: packages/tina_console
         run: dart pub get
       - name: Check native keyboard decoding
         timeout-minutes: 6
-        run: python3 tool/altkey_pty_driver.py
+        run: python3 packages/tina_console/tool/altkey_pty_driver.py
       - name: Test active tools against the macOS sandbox
         if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tools')
         working-directory: packages/plugins/tina_tools
@@ -117,7 +119,8 @@ jobs:
           dart pub get
           dart test --tags live-os-sandbox --run-skipped
       - name: Build native CLI
-        run: dart build cli --target bin/tina.dart
+        working-directory: apps/tina_cli
+        run: dart pub get && dart build cli --target bin/tina.dart --output ../../build/cli/macos_arm64
       - name: Check native typing on fresh launch and continuation
         timeout-minutes: 2
         run: python3 tool/smoke_notcurses_startup.py --binary build/cli/macos_arm64/bundle/bin/tina
@@ -143,10 +146,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
-      - name: Resolve executable dependencies
-        run: dart pub get
       - name: Build CLI once for all smoke suites
-        run: dart build cli --target bin/tina.dart
+        working-directory: apps/tina_cli
+        run: dart pub get && dart build cli --target bin/tina.dart --output ../../build/cli/linux_x64
       - name: Test the compiled CLI (seven isolated suites, three at a time)
         timeout-minutes: 15
         run: python3 tool/ci/run_release_smokes.py --jobs 3 --binary build/cli/linux_x64/bundle/bin/tina
@@ -159,83 +161,29 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  root:
+  repository_tools:
     needs: changes
-    if: contains(fromJSON(needs.changes.outputs.packages), 'tina')
-    name: root (tina)
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_repository_tools')
+    name: repository checks (tool/repository)
     runs-on: ubuntu-latest
     steps:
-      # Submodules: recursive — packages/dart_notcurses is a git submodule and
-      # the tree embeds its native sources + staged static libs; tina_console
-      # FFI-links them through the dart_notcurses build hook.
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
-
-      - name: pub get (root)
-        working-directory: .
+      - name: Resolve repository tools
+        working-directory: tool/repository
         run: dart pub get
-
-      # Root's analyze sweeps the sub-packages' test/ dirs, and those tests
-      # import packages (e.g. tina_console's fake_async) that only resolve
-      # through EACH package's own .dart_tool/package_config.json — learn from
-      # the first live run: without these pub gets, root analyze saw 23
-      # URI_DOES_NOT_EXIST errors for console's test-only imports. This
-      # mirrors a dev machine, where every package has been pub-got.
-      #
-      # The package list below is GENERATED from tool/architecture/policy.json
-      # (ownedPackages), not written by hand. A hand-written copy here went
-      # stale the first time a package joined the policy without editing this
-      # file, and CI failed with a bare PathNotFoundException that never named
-      # the fix. Do not turn this back into a list of cd commands — one list,
-      # the policy's, is the point. ownedPackages also names the root package
-      # ("tina"), which is the repo root, not packages/tina; it is mapped to
-      # "." and skipped because the step above already pub-got it. The vendored
-      # dart_notcurses submodule is NOT in ownedPackages, so reading the policy
-      # (not a packages/* glob) is also what keeps the submodule out.
-      - name: pub get (owned packages, for analyze and architecture checks)
-        # These pure-Dart helpers do not need native assets. Invoke the VM
-        # directly so root dependencies' hooks do not run before link deps
-        # are installed (and do not add native work to package selection).
-        run: dart --disable-dart-dev --packages=.dart_tool/package_config.json tool/ci/resolve_owned.dart
-
-      # Root's own tests import tina_console → the dart_notcurses build hook
-      # runs on dart test → the system linker deps must be present (see the
-      # header's LINKER deps note).
-      - name: Install native link deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
-
-      # Root gates on zero issues. (History: this gate was born count-based —
-      # it tolerated exactly ONE known warning, the submodule's
-      # include_file_not_found, and emitted a ::notice:: if it ever hit zero.
-      # Log item #40 then added the root analysis_options.yaml whose
-      # analyzer.exclude silences the submodule config in the parent context,
-      # the root analyzer reached zero, and the gate tightened to plain
-      # `dart analyze` exactly as that notice suggested.)
-      - name: analyze (root)
-        working-directory: .
+      # The graph reads each package's resolution; it never loads its code.
+      - name: Resolve owned packages for analysis and architecture checks
+        run: dart run tool/repository/bin/resolve_owned.dart
+      - name: Analyze owned sources
         run: dart analyze
-
-      - name: test (root)
-        working-directory: .
-        run: |
-          if dart test -j 4 --file-reporter "json:$RUNNER_TEMP/tina-tests.json"; then
-            exit 0
-          else
-            python3 tool/report_test_failures.py "$RUNNER_TEMP/tina-tests.json"
-            exit 1
-          fi
-
-      - name: Check native keyboard decoding
-        if: needs.changes.outputs.interactive == 'true'
-        timeout-minutes: 6
-        run: python3 tool/altkey_pty_driver.py
+      - name: Test architecture and CI selection
+        working-directory: tool/repository
+        run: dart test -j 4
 
   console:
     needs: changes
@@ -272,6 +220,10 @@ jobs:
       - name: test (console)
         working-directory: packages/tina_console
         run: dart test -j 4
+
+      - name: Check native keyboard decoding
+        timeout-minutes: 6
+        run: python3 packages/tina_console/tool/altkey_pty_driver.py
 
   index:
     needs: changes
@@ -675,10 +627,34 @@ jobs:
       - name: analyze (tina_tui)
         working-directory: packages/tina_tui
         run: dart analyze
-      - name: Resolve root executable dependencies for PTY tests
-        run: dart pub get
       - name: test (tina_tui)
         working-directory: packages/tina_tui
+        run: dart test -j 4
+
+  tina_cli:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina')
+    name: tina (apps/tina_cli)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install native notcurses + link deps (tina_cli job)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+      - name: pub get (tina_cli)
+        working-directory: apps/tina_cli
+        run: dart pub get
+      - name: analyze (tina_cli)
+        working-directory: apps/tina_cli
+        run: dart analyze
+      - name: test (tina_cli)
+        working-directory: apps/tina_cli
         env:
           FULL_RUN: ${{ needs.changes.outputs.full }}
         run: |
@@ -692,7 +668,7 @@ jobs:
       # weekly/manual cross-check, outside the normal PR critical path.
       - name: Full JIT terminal and three-size engine checks
         if: needs.changes.outputs.full == 'true'
-        working-directory: packages/tina_tui
+        working-directory: apps/tina_cli
         run: dart test --tags tty --run-skipped test/app_smoke_test.dart test/shell_terminal_test.dart
 
   tina_system_instruction:

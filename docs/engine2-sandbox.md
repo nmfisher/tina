@@ -51,7 +51,7 @@ on the host, but new entries in that parent may require outside execution.
 ```sh
 tina --no-sandbox
 tina --continue --no-sandbox
-dart run bin/tina.dart --no-sandbox
+dart run apps/tina_cli/bin/tina.dart --no-sandbox
 ```
 
 This removes OS filesystem and network confinement for new commands in that

@@ -1,7 +1,7 @@
 // Validates ReplySequenceFilter against a *captured* pump event log — the
 // strongest evidence available without wiring the filter into the backend.
 //
-// Capture a log with tool/reply_decode_spike.dart (repo root) while injecting
+// Capture a log with packages/tina_console/tool/reply_decode_spike.dart (repo root) while injecting
 // tool/tmux_inject_replies.sh and pasting/typing controls, then:
 //   dart run tool/validate_reply_filter.dart /tmp/reply_spike.log
 //

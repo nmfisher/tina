@@ -1,0 +1,29 @@
+name: tina
+description: A minimal terminal coding agent.
+publish_to: none
+version: 0.9.58
+
+environment:
+  sdk: ^3.12.0
+
+executables:
+  tina:
+
+dependencies:
+  ffi: ^2.1.0
+  tina_tui:
+    path: ../../packages/tina_tui
+  tina_tools:
+    path: ../../packages/plugins/tina_tools
+  tina_engine_2:
+    path: ../../packages/tina_engine_2
+  tina_goals:
+    path: ../../packages/plugins/tina_goals
+  tina_persistence:
+    path: ../../packages/plugins/tina_persistence
+
+dev_dependencies:
+  path: ^1.9.0
+  tina_core:
+    path: ../../packages/tina_core
+  test: ^1.25.0

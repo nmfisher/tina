@@ -69,10 +69,10 @@ it from the enclosing append. A failed replay removes its subscription.
 ## Reproducing measurements and recovery checks
 
 ```sh
-dart build cli -t tool/perf/startup_stages.dart -o build/perf/stages
-python3 tool/startup_bench.py --dart /path/to/dart --runs 5
-dart run tool/perf/sqlite_batches.dart bench build/perf/transactions.db
-python3 tool/sqlite_recovery_test.py --dart /path/to/dart
+(cd apps/tina_cli && dart pub get && dart build cli -t tool/perf/startup_stages.dart -o build/perf/stages)
+python3 apps/tina_cli/tool/startup_bench.py --dart /path/to/dart --runs 5
+(cd packages/tina_sqlite && dart pub get && mkdir -p build/perf && dart run tool/perf/sqlite_batches.dart bench build/perf/transactions.db)
+python3 packages/tina_sqlite/tool/sqlite_recovery_test.py --dart /path/to/dart
 ```
 
 The startup driver owns a localhost HTTP stub and isolates HOME, workspace,

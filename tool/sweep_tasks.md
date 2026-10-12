@@ -58,6 +58,6 @@ path can't run.
 With the stub provider the agent's actions are deterministic, so a
 snapshot + the same stub script is a fully replayable repro.
 
-The stub server lives in `tool/` — see `tool/stub/README.md` (run it with
-`dart run tool/stub_server.dart --scenario <name>`, point tina at it with a
+The stub server lives in `tool/` — see `apps/tina_cli/tool/stub/README.md` (run it with
+`dart run apps/tina_cli/tool/stub_server.dart --scenario <name>`, point tina at it with a
 `base_url` override).

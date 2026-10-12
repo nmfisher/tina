@@ -4,9 +4,8 @@
 /// The assembly (`src/assembly.dart`) is front-end-free: it wires engine,
 /// host, plugins and the session loop against an injected provider
 /// factory and an [AssemblyWriter], so a daemon or a test can run the
-/// whole app with no renderer initialised. The entry point
-/// (`bin/tina_tui.dart`) is the terminal front end that drives it — the
-/// only place a `Terminal` service is registered for real.
+/// whole app with no renderer initialised. The executable lives in
+/// `apps/tina_cli`; this package supplies its terminal front end.
 ///
 /// Exposed here:
 /// - [TuiAssembly], `AssemblyOptions`, [AssemblyWriter],
@@ -48,6 +47,4 @@ export 'src/plugin_catalog.dart' show TuiPluginContext;
 
 export 'src/plugin_settings.dart';
 
-export 'src/cli.dart';
-export 'src/process_launcher.dart' show initializeProcessLauncher;
-export 'src/shell_completion.dart';
+export 'src/session_selection.dart' show resumableSessions, pickSession;

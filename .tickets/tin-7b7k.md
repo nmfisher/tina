@@ -114,5 +114,5 @@ per session; document it as a decision.
   a served front end and the TUI; UI-only commands report "not available on
   this front end" instead of no-op; when recommendation 3's `tina_pty`
   package lands it carries `code_assets`/`hooks`/`native_toolchain_c` with
-  the hook, and `dart run tool/check_architecture.dart` +
+  the hook, and `dart run tool/repository/bin/check_architecture.dart` +
   `dart test test/architecture/` stay green.

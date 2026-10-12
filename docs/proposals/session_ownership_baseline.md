@@ -70,7 +70,7 @@ Sources:
 [panel session view](../../packages/tina_tui/lib/src/session_view.dart),
 [panel workspace](../../packages/plugins/tina_chat_tui/lib/src/panels_tui.dart),
 [plugin catalog](../../packages/tina_tui/lib/src/plugin_catalog.dart),
-[CLI](../../packages/tina_tui/lib/src/cli.dart).
+[CLI](../../apps/tina_cli/lib/src/cli.dart).
 
 ## Settings and permission matrix
 
@@ -139,8 +139,8 @@ Sources:
 | Dispatch, immediate shell/context/update, shell cancellation | [tui_session_test](../../packages/tina_tui/test/tui_session_test.dart) |
 | Drafts, focus, scroll, spawned-session attribution and panel close | [panels_test](../../packages/tina_tui/test/panels_test.dart) |
 | Draft clear, Ctrl+C, Escape, settings during requests | [turn_rendering_test](../../packages/tina_tui/test/turn_rendering_test.dart) |
-| Headless prompt/goal bounds, model override, continue, unattended denial | [headless_test](../../packages/tina_tui/test/headless_test.dart) |
-| Resume transcript/input history and terminal restart | [assembly_store_test](../../packages/tina_tui/test/assembly_store_test.dart), [resume_input_history_test](../../packages/tina_tui/test/resume_input_history_test.dart), [restart_terminal_test](../../packages/tina_tui/test/restart_terminal_test.dart) |
+| Headless prompt/goal bounds, model override, continue, unattended denial | [headless_test](../../apps/tina_cli/test/headless_test.dart) |
+| Resume transcript/input history and terminal restart | [assembly_store_test](../../packages/tina_tui/test/assembly_store_test.dart), [resume_input_history_test](../../packages/tina_tui/test/resume_input_history_test.dart), [restart_terminal_test](../../apps/tina_cli/test/restart_terminal_test.dart) |
 | Model switch, clear and manual compaction | [conversation_controls_test](../../packages/tina_tui/test/conversation_controls_test.dart) |
 | Settings inheritance, atomic edits, stale drafts and session snapshots | [scoped_settings_test](../../packages/tina_tui/test/scoped_settings_test.dart), [config_batch_test](../../packages/tina_tui/test/config_batch_test.dart) |
 | Live plugin changes, dependency validation and restart-only features | [scoped_plugins_test](../../packages/tina_tui/test/scoped_plugins_test.dart), [live_plugin_ui_test](../../packages/tina_tui/test/live_plugin_ui_test.dart) |
@@ -149,7 +149,7 @@ Sources:
 | Ephemeral grant isolation and late-approval rejection | [approval_grants_test](../../packages/tina_tui/test/approval_grants_test.dart) |
 | Regex confirmation/edit preservation and scope/context matching | [command_pattern_review_test](../../packages/plugins/tina_approvals_tui/test/command_pattern_review_test.dart), [command_approval_store_test](../../packages/plugins/tina_tools/test/command_approval_store_test.dart) |
 | Sandbox HOME/caches/config/credential exclusions and live grants | [sandbox_home_test](../../packages/plugins/tina_tools/test/sandbox_home_test.dart), [live_os_sandbox_test](../../packages/plugins/tina_tools/test/live_os_sandbox_test.dart) |
-| Detached child-process argv/environment/cwd/pipes/cancellation | [process_launcher_test](../../packages/tina_tui/test/process_launcher_test.dart), [shell_terminal_test](../../packages/tina_tui/test/shell_terminal_test.dart) |
+| Detached child-process argv/environment/cwd/pipes/cancellation | [process_launcher_test](../../apps/tina_cli/test/process_launcher_test.dart), [shell_terminal_test](../../apps/tina_cli/test/shell_terminal_test.dart) |
 | Persistence/resume/failure, log batch ordering and FULL per connection | [host_store_test](../../packages/plugins/tina_persistence/test/host_store_test.dart), [store_test](../../packages/plugins/tina_persistence/test/store_test.dart), [log_batch_test](../../packages/tina_engine_2/test/log_batch_test.dart), [database_test](../../packages/tina_sqlite/test/database_test.dart) |
 
 The suite map identifies existing protection; it does not imply that all future

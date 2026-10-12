@@ -35,7 +35,7 @@ verifies and ships.
 
 - Backend: notcurses only. Never fall back to `--backend ansi`.
 - Verify with `dart analyze`, the touched package's `dart test`, and
-  `dart tool/check_architecture.dart` when dependencies move.
+  `dart tool/repository/bin/check_architecture.dart` when dependencies move.
 - Commit all work locally on `asb/plugin-runtime`. Push the branch and raise a
   PR when finished. Never merge the PR. Never commit or push to main.
 - Update this ticket with tk: start when you begin, close when done.
