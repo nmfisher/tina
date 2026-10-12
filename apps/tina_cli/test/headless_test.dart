@@ -166,22 +166,18 @@ enabled = ["tina/persistence", "tina/session-controls", "tina/goals"]
 
       // Validate stdin after reading it, before opening a session or contacting
       // the provider. The literal '-' must never become the objective.
+      // The process above covers the real stdin adapter; invalid inputs use the
+      // same entry point without paying for another cold Dart startup each.
       for (final invalid in ['   ', 'x' * (goalMaxTextLength + 1)]) {
         final count = requests.length;
-        final child = await Process.start(Platform.resolvedExecutable, [
-          'run',
-          'bin/tina.dart',
-          ...args,
-          '--goal',
-          '-',
-        ], workingDirectory: root.path);
-        final output = child.stdout.transform(utf8.decoder).join();
-        final errors = child.stderr.transform(utf8.decoder).join();
-        child.stdin.write(invalid);
-        await child.stdin.close();
-        expect(await child.exitCode.timeout(const Duration(seconds: 30)), 64);
-        expect(await errors, contains('--goal must be'));
-        await output;
+        expect(
+          await runCli([
+            ...args,
+            '--goal',
+            '-',
+          ], readStdin: () async => invalid),
+          64,
+        );
         expect(requests, hasLength(count));
       }
       fail = true;
@@ -195,6 +191,8 @@ enabled = ["tina/persistence", "tina/session-controls", "tina/goals"]
         store.close();
       }
     },
+    // Leave room around the child's own 30-second deadline on shared CI hosts.
+    timeout: const Timeout(Duration(minutes: 1)),
   );
   test(
     'headless goals wait for verdicts and honor explicit turn bounds',

@@ -19,6 +19,7 @@ Future<int> runCli(
   String version = '0.0.0',
   AssemblyDiagnostics? diagnostics,
   void Function(PluginRegistry<SessionPluginContext>)? registerPlugins,
+  Future<String> Function()? readStdin,
   String? Function() locateTerminalDevice = terminalDevicePath,
 }) async {
   final registry = firstPartyPlugins();
@@ -181,7 +182,7 @@ Future<int> runCli(
   try {
     try {
       await command?.prepare?.call(
-        () => stdin.transform(systemEncoding.decoder).join(),
+        readStdin ?? () => stdin.transform(systemEncoding.decoder).join(),
       );
     } on FormatException catch (e) {
       stderr.writeln('tina: ${e.message}');

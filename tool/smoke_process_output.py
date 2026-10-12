@@ -131,6 +131,8 @@ def smoke(launcher, endpoint, backend, panels):
             return terminal.send('\r')
 
         def inject_output(data):
+            payload = data
+            output_start = len(terminal.output)
             # A macOS PTY can have a full output queue while a repaint is
             # pending. A blocking write to the slave would stop this harness
             # draining the master, deadlocking the test itself. Open a separate
@@ -149,6 +151,11 @@ def smoke(launcher, endpoint, backend, panels):
                 assert not data, 'fixture could not write terminal damage within 5s'
             finally:
                 os.close(descriptor)
+            # Confirm the fixture reached the PTY, without requiring the damage
+            # to remain visible: a pending repaint may already have repaired it
+            # by the time the harness drains and reconstructs the screen.
+            terminal.wait_for(lambda: payload in terminal.output[output_start:],
+                              'fixture output did not reach the PTY', timeout=5)
 
         def tool(text, approve=True, auto=False):
             before = len(OutputStub.requests)
@@ -220,12 +227,10 @@ def smoke(launcher, endpoint, backend, panels):
             # same resize repaint used by the application without changing size.
             before_damage = grid()
             inject_output(b'\x1b[10;10HEXTERNAL_WATCHER_OUTPUT')
-            visible('EXTERNAL_WATCHER_OUTPUT')
             os.kill(terminal.process.pid, signal.SIGWINCH)
             terminal.wait_for(lambda: grid() == before_damage,
                               'resize repaint left external process output on screen', timeout=5)
             inject_output(b'\x1b[10;10HEXTERNAL_WATCHER_OUTPUT')
-            visible('EXTERNAL_WATCHER_OUTPUT')
             terminal.send('\x0c')
             terminal.wait_for(lambda: 'EXTERNAL_WATCHER_OUTPUT' not in grid(),
                               'Ctrl+L left external process output on screen', timeout=5)
