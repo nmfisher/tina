@@ -9,7 +9,7 @@ from smoke_engine2 import Terminal
 
 
 class IdleGateTest(unittest.TestCase):
-    def run_gate(self, paints=(), continuous=False):
+    def run_gate(self, paints=(), continuous=False, quiet_for=0.35):
         terminal = Terminal.__new__(Terminal)
         terminal.output = bytearray()
         clock = [0.0]
@@ -25,7 +25,7 @@ class IdleGateTest(unittest.TestCase):
 
         terminal.read = read
         with patch('smoke_engine2.time.monotonic', lambda: clock[0]):
-            terminal.expect_idle()
+            terminal.expect_idle(quiet_for=quiet_for)
         return clock[0]
 
     def test_quiet_terminal_does_not_wait_for_the_deadline(self):
@@ -37,6 +37,11 @@ class IdleGateTest(unittest.TestCase):
         elapsed = self.run_gate([0.2, 0.5, 0.65])
         self.assertGreaterEqual(elapsed, 1.0)
         self.assertLess(elapsed, 1.15)
+
+    def test_separate_escape_gestures_can_wait_beyond_cancel_window(self):
+        elapsed = self.run_gate(quiet_for=0.6)
+        self.assertGreaterEqual(elapsed, 0.6)
+        self.assertLess(elapsed, 0.75)
 
     def test_recurring_redraws_still_fail(self):
         with self.assertRaisesRegex(AssertionError, 'kept redrawing'):

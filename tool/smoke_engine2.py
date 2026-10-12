@@ -266,7 +266,7 @@ class Terminal:
         os.kill(self.process.pid, signal.SIGWINCH)
         return start
 
-    def expect_idle(self):
+    def expect_idle(self, *, quiet_for=0.35):
         # Turn completion/layout may paint after the streamed text arrives.
         # Wait for a quiet grid, with a bound that still rejects a redraw loop
         # (rewriting every 40ms clears GNOME text selection).
@@ -279,7 +279,7 @@ class Terminal:
             if len(self.output) != previous:
                 previous = len(self.output)
                 quiet_since = now
-            elif now - quiet_since >= 0.35:
+            elif now - quiet_since >= quiet_for:
                 return
         raise AssertionError('idle app kept redrawing selectable text')
 

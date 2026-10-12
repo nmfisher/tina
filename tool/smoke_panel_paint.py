@@ -123,12 +123,13 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.send('\x1b')
             visible('Plugins · [-] inherit · [~] mixed')
             assert frame() == original_frame
-            # Space out Escape presses: double-Esc is the global cancel gesture.
-            terminal.expect_idle()
+            # Space out Escape presses beyond the 450ms global cancel window.
+            # The usual 350ms idle gate still permits a double-Esc gesture.
+            terminal.expect_idle(quiet_for=0.6)
             terminal.send('\x1b')
             visible('› General')
             assert frame() == original_frame
-            terminal.expect_idle()
+            terminal.expect_idle(quiet_for=0.6)
             terminal.send('\x1b')
             visible('Settings closed.')
             visible('smoke >')
@@ -140,7 +141,10 @@ def smoke(launcher, endpoint, backend, columns, rows):
 
             for panel in [2, 3]:
                 line('/spawn local/smoke')
-                visible(f'{panel}:')
+                # Require the panel frame: bare '2:' can match a timestamp
+                # while the preceding Enter has yet to reach native input.
+                visible(f'┌{panel}:')
+                terminal.expect_idle()
             visible('3 panels (2 hidden)')
             terminal.send('panel draft')
             terminal.expect_idle()
@@ -156,7 +160,7 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.send('\r')
             terminal.expect_idle()
             assert 'Panels' not in grid(), 'restoring a panel left stale controls'
-            visible('1:')
+            visible('┌1:')
             terminal.send('\x07\x1b[B\r\r')
             visible('Panels')
             terminal.send('\x1b[B\x1b[Bx')
