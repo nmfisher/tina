@@ -325,11 +325,17 @@ void main() {
       () async {
     final post = _PostTurn();
     start(plugins: [post]);
+    expect(client.status.acceptsInput, isTrue);
+    expect(client.status.busy, isFalse);
     final first =
         client.submitRequest('first', id: client.requestWindow.id('first'));
     await _until(() => provider.calls.isNotEmpty);
+    expect(client.status.acceptsInput, isTrue);
+    expect(client.status.busy, isTrue);
     provider.answer('done');
     await post.entered.future;
+    expect(client.status.acceptsInput, isFalse);
+    expect(client.status.busy, isTrue);
     expect(first.snapshot.state, SessionRequestState.running);
     final late =
         client.submitRequest('late', id: client.requestWindow.id('late'));
@@ -337,6 +343,8 @@ void main() {
     expect(host.session.loop.pendingInputCount, 0);
     post.release.complete();
     await first.completed;
+    await _until(() => !client.status.busy);
+    expect(client.status.acceptsInput, isTrue);
     expect(client.submitRequest('late', id: late.snapshot.id), same(late));
   });
 

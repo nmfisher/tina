@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:math';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_host/tina_host.dart';
 import 'completion_sources.dart';
@@ -15,7 +17,9 @@ final class SessionView
         ConsolePendingInput,
         ConsoleInputHistory,
         ConsoleCommandReceiver {
-  SessionView(this.connection, this.presentation, {this.showConfig = false});
+  SessionView(this.connection, this.presentation, {this.showConfig = false}) {
+    _stopStatus = connection.listen((_) => _sessionChanged());
+  }
   final SessionConnection connection;
   final SessionPresentation presentation;
   final bool showConfig;
@@ -29,10 +33,64 @@ final class SessionView
   Future<void> Function()? _openSettings;
   final _releases = <void Function()>[];
   bool _closed = false, _quitRequested = false;
+  late final void Function() _stopStatus;
+  final _activity = <Object, void Function()>{};
+  final _deferred = Queue<_ViewSubmission>();
+  bool _draining = false, _notificationQueued = false;
+  // A view-local namespace prevents different controllers choosing the same ID.
+  final _requestPrefix = List.generate(16,
+          (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
+      .join();
+  int _nextRequest = 0;
 
   SessionStatus get status => connection.status;
   Theme get theme => presentation.theme();
+  @override
   bool get canCancel => !_closed && connection.canControl && status.canCancel;
+  @override
+  bool get busy => !_closed && status.busy;
+  @override
+  void Function() listenActivity(void Function() listener) {
+    if (_closed) throw StateError('session view is closed');
+    final key = Object();
+    _activity[key] = listener;
+    try {
+      listener();
+    } catch (_) {
+      _activity.remove(key);
+      rethrow;
+    }
+    return () => _activity.remove(key);
+  }
+
+  void _changed() {
+    if (_closed || _notificationQueued) return;
+    _notificationQueued = true;
+    scheduleMicrotask(() {
+      _notificationQueued = false;
+      if (_closed) return;
+      _context?.refreshStatus();
+      for (final entry in _activity.entries.toList()) {
+        if (!_activity.containsKey(entry.key)) continue;
+        try {
+          entry.value();
+        } catch (_) {
+          _activity.remove(entry.key);
+        }
+      }
+    });
+  }
+
+  void _sessionChanged() {
+    if (_closed) return;
+    if (status.closed || status.stopping) {
+      _discardDeferred('Session stopped before queued input was sent.');
+    } else {
+      _drainDeferred();
+    }
+    _changed();
+  }
+
   void Function() listenStatus(void Function(SessionStatus) listener) =>
       connection.listen(listener);
   @override
@@ -56,6 +114,7 @@ final class SessionView
         call.command.name == 'quit' &&
         (!whileRunning || call.command.allowWhileRunning)) {
       _quitRequested = true;
+      _discardDeferred();
       return Future.value();
     }
     return offerSettingsCommand(connection, text, _openSettings,
@@ -68,36 +127,118 @@ final class SessionView
   Future<void> submit(String text) async {
     if (_closed || status.closed || status.stopping)
       throw StateError('session view is closed or stopping');
+    if (_quitRequested || text.trim().isEmpty) return;
+    final submission = _ViewSubmission(text);
+    final wasBusy = busy;
+    if (!_dispatch(submission)) {
+      _deferred.add(submission);
+      notice('Message queued; waiting for current work.');
+      _changed();
+    } else if (wasBusy &&
+        submission.request?.snapshot.inputId != null &&
+        submission.request?.snapshot.state == SessionRequestState.accepted) {
+      notice('Message queued; waiting for current work.');
+    }
+    await submission.done.future;
+  }
+
+  /// Only unsent lines wait here. A request ID is allocated immediately before
+  /// its first send and retained with that action; accepted work is never put
+  /// back on this queue, even after rejection, cancellation, expiry or failure.
+  bool _dispatch(_ViewSubmission submission) {
+    final current = status;
+    final call = connection.commandFor(submission.text);
     try {
-      final command = _offerLocalCommand(text);
-      if (command != null) {
-        await command;
-      } else {
-        final result = await connection.submit(text);
-        if (!_closed && result.notice != null) notice(result.notice!);
+      // Local inspection and quit remain available to observing clients.
+      if (current.busy && call != null && !call.command.allowWhileRunning) {
+        if (connection.canControl) return false;
       }
-    } on SessionAccessDenied catch (error) {
-      notice(error.toString());
+      final local =
+          _offerLocalCommand(submission.text, whileRunning: current.busy);
+      if (local != null) {
+        unawaited(_complete(submission, local));
+        _changed();
+        return true;
+      }
+      connection.access.requireControl();
+      final plain = call == null && !submission.text.trimLeft().startsWith('/');
+      if (plain && !current.acceptsInput) return false;
+      submission.requestId ??=
+          connection.requestWindow.id('$_requestPrefix-${++_nextRequest}');
+      final request = submission.request =
+          connection.submitRequest(submission.text, id: submission.requestId!);
+      unawaited(_complete(submission, request.completed.then((snapshot) {
+        if (!_closed && snapshot.result?.notice != null)
+          notice(snapshot.result!.notice!);
+      })));
+    } catch (error) {
+      if (!_closed) notice(error.toString());
+      submission.done.complete();
+    }
+    return true;
+  }
+
+  Future<void> _complete(_ViewSubmission submission, Future<void> work) async {
+    try {
+      await work;
+    } catch (error) {
+      if (!_closed) notice('Command error: $error');
+    } finally {
+      submission.done.complete();
+      _changed();
+    }
+  }
+
+  void _drainDeferred() {
+    if (_closed || _quitRequested || _draining || busy || _deferred.isEmpty)
+      return;
+    final next = _deferred.removeFirst();
+    // Reserve the drain before invoking a local command, which can reenter.
+    _draining = true;
+    if (!_dispatch(next)) {
+      _deferred.addFirst(next);
+      _draining = false;
+      return;
+    }
+    _changed();
+    unawaited(next.done.future.then((_) {
+      _draining = false;
+      _drainDeferred();
+    }));
+  }
+
+  void _discardDeferred([String? message]) {
+    while (_deferred.isNotEmpty) {
+      _deferred.removeFirst().done.complete();
+      if (message != null) notice(message);
     }
   }
 
   @override
-  bool offerInput(String text) =>
-      !_closed && connection.canControl && connection.offerInput(text);
+  bool offerInput(String text) {
+    if (_closed ||
+        _quitRequested ||
+        !connection.canControl ||
+        !status.running ||
+        !status.acceptsInput ||
+        text.trim().isEmpty ||
+        text.trimLeft().startsWith('/') ||
+        connection.commandFor(text) != null) return false;
+    return _dispatch(_ViewSubmission(text));
+  }
+
   @override
-  int get pendingInputCount => status.pendingInputCount;
+  int get pendingInputCount =>
+      _closed ? 0 : _deferred.length + status.pendingInputCount;
   @override
   Future<void>? offerCommand(String text) {
-    if (_closed || status.closed || status.stopping) return null;
-    final local = _offerLocalCommand(text, whileRunning: true);
-    if (local != null) return local;
-    if (!connection.canControl) {
-      notice(const SessionAccessDenied().toString());
-      return Future.value();
-    }
-    return connection.offerCommand(text)?.then((result) {
-      if (!_closed && result.notice != null) notice(result.notice!);
-    });
+    if (_closed || _quitRequested || status.closed || status.stopping)
+      return null;
+    final call = connection.commandFor(text);
+    if (call == null || !call.command.allowWhileRunning) return null;
+    final submission = _ViewSubmission(text);
+    _dispatch(submission);
+    return submission.done.future;
   }
 
   @override
@@ -212,10 +353,21 @@ final class SessionView
   void close() {
     if (_closed) return;
     _closed = true;
+    _stopStatus();
+    _activity.clear();
+    _discardDeferred();
     try {
       detachConsole();
     } finally {
       connection.close();
     }
   }
+}
+
+final class _ViewSubmission {
+  _ViewSubmission(this.text);
+  final String text;
+  final done = Completer<void>();
+  SessionRequestId? requestId;
+  SessionRequest? request;
 }

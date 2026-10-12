@@ -634,6 +634,25 @@ Observer connections can read these values but cannot submit or retry requests.
 The existing `submit`, `offerInput` and `offerCommand` methods retain their
 one-shot embedded-client behavior; clients requiring retries use `submitRequest`.
 
+Implemented TUI receipt routing: both regular and panel layouts keep their editor
+armed and delegate submissions to `SessionView`. It allocates a namespaced ID
+once per runtime action at first send and observes the receipt's completion;
+rejection, failure or expiry never causes an automatic resubmission with a new
+ID. Presentation commands remain local. The host's shared `busy`, `acceptsInput`
+and cancellable-work state drive activity indicators, input routing and Escape,
+including for a client attaching while another is working. Command activity
+includes commands without cancellation hooks.
+
+Only unsent lines wait in the view: commands requiring idle and plain input
+during cleanup are dispatched sequentially once shared activity becomes idle.
+Accepted input stays solely in the engine queue. Pending counts combine that
+shared queue with the view's unsent lines. Detaching a view discards only its
+unsent lines and listeners; accepted work survives. Layout-local submission
+futures exist only for application-owned teardown, never as the source of busy
+state. Two live input loops exercise shared steering, cancellation, command
+activity and independent drafts in both layouts. This adds no reconnect
+transport or persistent frontend request storage.
+
 The caller chooses an ID value within `connection.requestWindow` and saves the
 whole ID (runtime epoch, window generation, value) before sending. Reconnect
 reuses that exact ID and exact input, returning the retained receipt even after

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
 import 'package:tina_console/tina_console.dart';
 import 'panels_status.dart';
 
@@ -53,11 +52,9 @@ final class _View {
   final PanelFrame frame;
   final ScrollingTextRegion chat;
   late ConsoleContext context;
-  final queue = Queue<String>();
   final history = <String>[];
-  final commands = <Future<void>>{};
-  Future<void>? task;
-  void Function()? unbindQueueStatus;
+  final submissions = <Future<void>>{};
+  void Function()? unbindQueueStatus, releaseActivity;
   bool closed = false, minimized = false;
 }
 
@@ -107,6 +104,12 @@ final class _Workspace implements ConsolePanels {
 
   Future<int> run() async {
     final previousFocus = editor.focusManager;
+    final previousDoubleEscape = editor.onDoubleEscape;
+    editor.onDoubleEscape = () {
+      if (active?.session.canCancel != true) return false;
+      active!.session.cancel();
+      return true;
+    };
     final removeKey = context.bindShortcut(_key);
     final releasePanelStatus =
         context.bindStatus(panelStatus.status, priority: -10);
@@ -122,6 +125,7 @@ final class _Workspace implements ConsolePanels {
       releasePanelStatus();
       removeKey();
       editor.focusManager = previousFocus;
+      editor.onDoubleEscape = previousDoubleEscape;
       for (final view in views.reversed) {
         closing.add(_closeView(view));
       }
@@ -147,31 +151,12 @@ final class _Workspace implements ConsolePanels {
       case '/close':
         unawaited(closeFocused());
       default:
-        final receiver = target.session;
-        if (target.task != null && receiver is ConsoleCommandReceiver) {
-          final command =
-              (receiver as ConsoleCommandReceiver).offerCommand(line);
-          if (command != null) {
-            late final Future<void> task;
-            task = command.catchError((Object error) {
-              if (!target.closed && !stopped)
-                receiver.notice('Command error: $error');
-            }).whenComplete(() => target.commands.remove(task));
-            target.commands.add(task);
-            return;
-          }
-        }
-        final busy = target.task != null;
-        if (!line.trimLeft().startsWith('/') &&
-            target.task != null &&
-            receiver is ConsoleInputReceiver &&
-            (receiver as ConsoleInputReceiver).offerInput(line)) {
-          _queued(target);
-          return;
-        }
-        target.queue.add(line);
-        if (busy) _queued(target);
-        target.task ??= _drain(target);
+        late final Future<void> work;
+        work = target.session.submit(line).catchError((Object error) {
+          if (!target.closed && !stopped)
+            target.session.notice('Panel error: $error');
+        }).whenComplete(() => target.submissions.remove(work));
+        target.submissions.add(work);
     }
   }
 
@@ -193,7 +178,7 @@ final class _Workspace implements ConsolePanels {
         },
         panels: this);
     view.unbindQueueStatus = view.context.bindStatus(() {
-      final count = _pending(view);
+      final count = session.pendingInputCount;
       return count == 0
           ? []
           : [
@@ -220,6 +205,18 @@ final class _Workspace implements ConsolePanels {
     try {
       // Install scoped bindings before focus so the new model owns its prompt.
       session.attachConsole(view.context);
+      view.releaseActivity = session.listenActivity(() {
+        if (stopped || view.closed) return;
+        final label = '${frame.label.split(':').first}: ${session.label}';
+        if (frame.label != label) {
+          frame.relabel(label);
+          panelStatus.refresh();
+          if (identical(active, view)) view.context.refreshInput();
+        }
+        frame.setBusy(session.busy);
+        view.context.refreshStatus();
+        if (session.quitRequested && !done.isCompleted) done.complete();
+      });
       // Keep status controls after conversation/plugin views in the ring.
       focus.unregister(panelStatus);
       focus.register(panelStatus);
@@ -232,6 +229,7 @@ final class _Workspace implements ConsolePanels {
       views.remove(view);
       focus.unregister(frame);
       session.detachConsole();
+      view.releaseActivity?.call();
       view.unbindQueueStatus?.call();
       chat.detach();
       frame.dispose();
@@ -397,7 +395,7 @@ final class _Workspace implements ConsolePanels {
     if (event is EscapeKey &&
         !editor.isCompleting &&
         identical(focus.focused, active?.frame) &&
-        (active?.task != null || active?.commands.isNotEmpty == true)) {
+        active?.session.busy == true) {
       if (editor.editState.buffer.isNotEmpty)
         editor.loadEditState('', 0);
       else
@@ -405,41 +403,6 @@ final class _Workspace implements ConsolePanels {
       return true;
     }
     return false;
-  }
-
-  Future<void> _drain(_View view) async {
-    view.frame.setBusy(true);
-    try {
-      while (!stopped && !view.closed && view.queue.isNotEmpty) {
-        final line = view.queue.removeFirst();
-        context.refreshStatus();
-        await view.session.submit(line);
-        if (!stopped && !view.closed && view.session.quitRequested) {
-          if (!done.isCompleted) done.complete();
-          break;
-        }
-      }
-    } catch (error) {
-      if (!view.closed && !stopped) view.session.notice('Panel error: $error');
-    } finally {
-      view.task = null;
-      if (!view.closed && !stopped) {
-        view.frame.setBusy(false);
-        _layout();
-      }
-    }
-  }
-
-  int _pending(_View view) =>
-      view.queue.length +
-      (view.session is ConsolePendingInput
-          ? (view.session as ConsolePendingInput).pendingInputCount
-          : 0);
-
-  void _queued(_View view) {
-    view.session.notice('Message queued; waiting for current work.');
-    context.refreshStatus();
-    context.refreshInput();
   }
 
   @override
@@ -478,7 +441,6 @@ final class _Workspace implements ConsolePanels {
       return;
     }
     view.closed = true;
-    view.queue.clear();
     final index = views.indexOf(view);
     views.remove(view);
     focus.unregister(view.frame);
@@ -493,18 +455,15 @@ final class _Workspace implements ConsolePanels {
 
   Future<void> _closeView(_View view) async {
     view.closed = true;
-    view.queue.clear();
-    final pending = Future.wait<void>([
-      if (view.task != null) view.task!,
-      ...view.commands,
-    ]).then<void>((_) {});
-    // The owner may choose not to wait. _drain and command handlers already
+    final pending = Future.wait<void>(view.submissions).then<void>((_) {});
+    // The owner may choose not to wait. Submission handlers already
     // report failures while attached; retain no unhandled future on detach.
     pending.ignore();
     try {
       return _releaseSession(view.session, pending);
     } finally {
       view.unbindQueueStatus?.call();
+      view.releaseActivity?.call();
       view.chat.detach();
       view.frame.dispose();
     }
@@ -522,6 +481,6 @@ final class _Workspace implements ConsolePanels {
   @override
   List<String> describe() => [
         for (final view in views)
-          '${identical(view, active) ? '*' : ' '} ${view.frame.label} · ${view.task == null ? 'idle' : 'running'} · ${view.session.id}'
+          '${identical(view, active) ? '*' : ' '} ${view.frame.label} · ${view.session.busy ? 'running' : 'idle'} · ${view.session.id}'
       ];
 }

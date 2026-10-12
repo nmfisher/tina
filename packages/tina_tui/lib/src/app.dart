@@ -1,7 +1,6 @@
 library;
 
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io' as io;
 
 import 'package:tina_console/tina_console.dart';
@@ -36,11 +35,13 @@ Future<int> runApp(
   StartupTerminal? startup,
   Map<String, String>? environment,
 }) async {
-  final queued = Queue<String>();
-  final commands = <Future<void>>{};
-  Future<void>? activeWork;
+  final submissions = <Future<void>>{};
+  final done = Completer<void>();
   var stopping = false;
-  void Function()? releaseQueueStatus, releaseBackendStatus;
+  void Function()? releaseQueueStatus,
+      releaseBackendStatus,
+      releaseActivity,
+      releaseEscape;
   StreamSubscription<ScreenLayout>? resizeSubscription;
   StreamSubscription<io.ProcessSignal>? interruptSubscription;
   Screen? terminalScreen;
@@ -122,7 +123,7 @@ Future<int> runApp(
     }
     view.attachConsole(console);
     releaseQueueStatus = console.bindStatus(() {
-      final count = queued.length + view.pendingInputCount;
+      final count = view.pendingInputCount;
       return count == 0
           ? []
           : [
@@ -144,38 +145,39 @@ Future<int> runApp(
       view.cancel();
       return true;
     };
-    while (!view.quitRequested && !editor.quitRequested) {
-      view.repaintConsole();
-      final line =
-          queued.isEmpty ? await editor.readLine('› ') : queued.removeFirst();
-      if (line == null) break;
-      console.refreshStatus();
-      if (line.isEmpty) continue;
-      editor.beginCancelMonitor(() {
-        if (view.canCancel) view.cancel();
-      }, onQueueSubmit: (text) {
-        final command = view.offerCommand(text);
-        if (command != null) {
-          late final Future<void> task;
-          task = command.catchError((Object error) {
-            if (!stopping) view.notice('Command error: $error');
-          }).whenComplete(() => commands.remove(task));
-          commands.add(task);
-          return;
-        }
-        if (!view.offerInput(text)) queued.addLast(text);
-        view.notice('Message queued; waiting for current work.');
-        console.refreshStatus();
-      }, queueCountProvider: () => queued.length + view.pendingInputCount);
-      try {
-        activeWork = view.submit(line);
-        await Future.any([activeWork, editor.whenQuit]);
-        if (editor.quitRequested) break;
-        activeWork = null;
-      } finally {
-        editor.endInputCaptureWindow();
+    releaseEscape = console.bindShortcut((event) {
+      if (event is! EscapeKey ||
+          editor.isReadingKey ||
+          editor.isCompleting ||
+          !view.busy) return false;
+      final focus = editor.focusManager;
+      if (focus != null && (focus.isCycling || focus.focused != focus.home))
+        return false;
+      if (editor.editState.buffer.isNotEmpty) {
+        editor.loadEditState('', 0);
+      } else if (view.canCancel) {
+        view.cancel();
       }
-    }
+      return true;
+    });
+    releaseActivity = view.listenActivity(() {
+      console.refreshStatus();
+      if ((view.quitRequested || view.status.closed || view.status.stopping) &&
+          !done.isCompleted) done.complete();
+    });
+    // One editor remains armed while work starts, ends or transfers between
+    // clients. Submission futures track teardown only; shared status owns busy.
+    await Future.any([
+      editor.readLines('› ', onLine: (line) {
+        if (stopping || done.isCompleted || line.isEmpty) return;
+        late final Future<void> work;
+        work = view.submit(line).catchError((Object error) {
+          if (!stopping) view.notice('Command error: $error');
+        }).whenComplete(() => submissions.remove(work));
+        submissions.add(work);
+      }),
+      done.future,
+    ]);
     return 0;
   } finally {
     stopping = true;
@@ -185,6 +187,8 @@ Future<int> runApp(
     // runtime work, including submissions made through another connection.
     releaseQueueStatus?.call();
     releaseBackendStatus?.call();
+    releaseActivity?.call();
+    releaseEscape?.call();
     view.close();
     editor?.onDoubleEscape = null;
     try {
@@ -194,8 +198,7 @@ Future<int> runApp(
       if (onExit != null) {
         await Future.wait([
           Future.sync(onExit),
-          if (activeWork != null) activeWork,
-          ...commands,
+          ...submissions,
         ]);
       }
     } finally {

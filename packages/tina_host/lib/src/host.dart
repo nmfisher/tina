@@ -126,6 +126,12 @@ final class Host {
           model: model,
           workingDirectory: config.workingDirectory,
           running: session.loop.running,
+          busy: session.loop.running || _commandWork.isNotEmpty,
+          acceptsInput: !_closed &&
+              !_stopping &&
+              (session.loop.running
+                  ? session.loop.acceptsInput
+                  : _commandWork.isEmpty),
           pendingInputCount: session.loop.pendingInputCount,
           stopping: _stopping,
           closed: _closed,

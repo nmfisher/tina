@@ -309,13 +309,16 @@ final class AgentLoop {
 
   /// Inputs accepted during a turn, awaiting their own transcript turn.
   int get pendingInputCount => _inputs.length;
+
+  /// Whether a running turn can accept steering input right now. False during
+  /// post-turn work, between-turn operations, and cancellation cleanup.
+  bool get acceptsInput => _running && _inTurn && !_cancel.cancelled;
   Completer<void> _inputPending = Completer<void>();
 
   /// Accept input while work is running. Only the loop writes it to the log,
   /// after pending tool calls are paired and before the next request.
   bool offerInput(Input input) {
-    if (!_running || !_inTurn || _cancel.cancelled || input.text.trim().isEmpty)
-      return false;
+    if (!acceptsInput || input.text.trim().isEmpty) return false;
     _inputs.add(input);
     if (!_inputPending.isCompleted) _inputPending.complete();
     final call = _modelCall;

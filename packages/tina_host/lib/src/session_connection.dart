@@ -32,6 +32,8 @@ final class SessionStatus {
       required this.model,
       required this.workingDirectory,
       required this.running,
+      required this.busy,
+      required this.acceptsInput,
       required this.pendingInputCount,
       required this.stopping,
       required this.closed,
@@ -39,6 +41,12 @@ final class SessionStatus {
       : cancellableWork = List.unmodifiable(cancellableWork);
   final String id, model, workingDirectory;
   final bool running, stopping, closed;
+
+  /// Includes host-managed commands, even those without a cancellation hook.
+  final bool busy;
+
+  /// Plain input can start or steer now. An availability hint, not acceptance.
+  final bool acceptsInput;
   final int pendingInputCount;
   final List<SessionWork> cancellableWork;
   bool get canCancel => cancellableWork.isNotEmpty;

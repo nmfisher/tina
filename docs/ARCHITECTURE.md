@@ -235,6 +235,20 @@ commands, and cancellation names existing work IDs. The one-shot `submit`,
 without a retry guarantee. No request journal, daemon or transport is introduced;
 in-memory deduplication does not survive a process restart.
 
+Both TUI layouts submit through `SessionView`, which assigns one request ID per
+runtime action and waits for its receipt. Failed, rejected or expired requests
+are reported without automatically creating a replacement ID. Settings and
+other presentation commands remain local to the submitting view. Shared status
+reports activity across all connections, including uncancellable commands, and
+whether the engine can currently accept input. Busy indicators and Escape use
+that status even when a view attaches during work started elsewhere.
+
+The editor stays armed while work runs. `SessionView` holds only unsent lines:
+idle-only commands and input entered during cancellation or post-turn cleanup
+wait for shared idle, then run sequentially. Once accepted, input belongs solely
+to the engine queue. Closing a view discards its unsent lines and detaches its
+listeners; accepted work continues under the application owner's lifetime.
+
 ## Principles
 
 - **One loop.** Every agent — interactive, headless, sub-agent, workflow

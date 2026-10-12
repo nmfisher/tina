@@ -7,8 +7,7 @@ abstract interface class ConsoleInputReceiver {
   bool offerInput(String text);
 }
 
-/// Read-only delivery state for input already accepted by the session.
-/// The workspace combines this with its own queue without knowing the engine.
+/// Read-only count of input waiting to run, including this view's unsent lines.
 abstract interface class ConsolePendingInput {
   int get pendingInputCount;
 }
@@ -29,6 +28,15 @@ abstract interface class ConsoleSessionView implements ConsoleContribution {
   String get id;
   String get label;
   bool get quitRequested;
+
+  /// Shared runtime activity, including work started through another view.
+  bool get busy;
+  bool get canCancel;
+  int get pendingInputCount;
+
+  /// Starts with current state. Also reports changes to this view's unsent
+  /// input; callbacks never confer execution or session shutdown authority.
+  void Function() listenActivity(void Function() listener);
   CompletionProvider? get commandCompletion;
   CompletionProvider? get fileCompletion;
   Future<void> submit(String text);
