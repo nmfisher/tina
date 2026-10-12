@@ -33,6 +33,7 @@ final class HostConfig {
     this.details,
     this.questions,
     this.snapshotFeatureFor,
+    this.requestHistoryLimit = 256,
   });
 
   /// Builds the provider for **one** session. Called once per
@@ -70,4 +71,8 @@ final class HostConfig {
   /// Application adapters select public observations without teaching the host
   /// about concrete plugins. Called for startup and dynamically loaded plugins.
   final SnapshotFeature? Function(AgentPlugin)? snapshotFeatureFor;
+
+  /// Maximum retained retry receipts, including active requests. At capacity,
+  /// terminal receipts may expire; if all are active, new requests are refused.
+  final int requestHistoryLimit;
 }

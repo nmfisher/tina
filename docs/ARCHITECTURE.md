@@ -204,6 +204,37 @@ feature clients and settings adapters to the same connection. Plugins retain
 their approval policy and persistence. This is an in-process capability boundary;
 transport authentication and cross-process isolation remain future work.
 
+Retry-aware clients use `SessionConnection.submitRequest(line, id:)`. A caller
+creates an ID from the host's current `requestWindow`, saves it before sending,
+and reuses the whole ID and exact payload on retry:
+
+```dart
+final id = connection.requestWindow.id('caller-generated-uuid');
+final receipt = connection.submitRequest('inspect the failing test', id: id);
+// Acceptance is in memory; this can be awaited independently of the connection.
+final finished = await receipt.completed;
+// After reconnecting to the same running host:
+final sameRequest = reconnected.submitRequest('inspect the failing test', id: id);
+```
+
+Receipts expose immutable state and input/work IDs, are included in attachment
+snapshots, and are observable through `connection.request(id)`. The host retains
+at most `requestHistoryLimit` receipts (256 by default), with bounded payloads
+and result summaries. Eviction retires a retry window: retained IDs still replay,
+but unknown old IDs explicitly expire and cannot execute again. Clients must
+never turn an expired retry into a fresh ID automatically. Runtime epochs also
+prevent replay into a reopened session. Every submit/retry requires controller
+authority; observer lookup is read-only.
+
+The engine still owns the sole input queue. Its settlement events report each
+input's outcome or that it was dropped, including on cancellation or failure.
+The host completes metadata notifications per input before reporting success;
+publication and metadata errors still fail receipts. Plugins still implement
+commands, and cancellation names existing work IDs. The one-shot `submit`,
+`offerInput` and `offerCommand` conveniences keep their embedded-client behavior
+without a retry guarantee. No request journal, daemon or transport is introduced;
+in-memory deduplication does not survive a process restart.
+
 ## Principles
 
 - **One loop.** Every agent — interactive, headless, sub-agent, workflow

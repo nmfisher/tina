@@ -165,13 +165,16 @@ final class AgentLoop {
   bool get publishing => _dispatchDepth != 0;
   List<Input> get pendingInputs => List.unmodifiable(_inputs);
 
-  List<SessionEntry> publishedEntries({required int afterSeq,
-      required int throughSeq, required int limit}) {
-    if (afterSeq < -1 || throughSeq < afterSeq || throughSeq > publishedSeq || limit < 1) {
+  List<SessionEntry> publishedEntries(
+      {required int afterSeq, required int throughSeq, required int limit}) {
+    if (afterSeq < -1 ||
+        throughSeq < afterSeq ||
+        throughSeq > publishedSeq ||
+        limit < 1) {
       throw RangeError('Invalid published history bounds');
     }
-    return List.unmodifiable(_log.skip(afterSeq + 1)
-        .take((throughSeq - afterSeq).clamp(0, limit)));
+    return List.unmodifiable(
+        _log.skip(afterSeq + 1).take((throughSeq - afterSeq).clamp(0, limit)));
   }
 
   /// Structural settings for request derivation.
@@ -278,9 +281,24 @@ final class AgentLoop {
   /// No-op when no call is in flight: the flag alone stops the turn at
   /// the next check.
   void cancel(String why) {
-    _inputs.clear();
     _cancel.cancel(why);
+    _dropInputs(StopReason.cancelled, why);
     _modelCall?.close();
+  }
+
+  final _inputSettlements = StreamController<InputSettlement>.broadcast();
+
+  /// One settlement per consumed or dropped input, after turn publication and
+  /// post-turn hooks have settled. Errors still propagate from [runTurn].
+  Stream<InputSettlement> get inputSettlements => _inputSettlements.stream;
+
+  void _dropInputs(StopReason reason, String detail) {
+    final dropped = _inputs.toList();
+    _inputs.clear();
+    for (final input in dropped) {
+      _inputSettlements
+          .add(InputSettlement(input.id, reason, detail, started: false));
+    }
   }
 
   /// Cancellation of the current turn. Capture on TurnStartedEntry; a later
@@ -467,8 +485,8 @@ final class AgentLoop {
     }
     for (final plugin in _byId.values) {
       if (plugin case MessageProjection projection
-          when projection.applyCompaction(
-              (from: from, to: to, summary: summary))) {
+          when projection
+              .applyCompaction((from: from, to: to, summary: summary))) {
         return;
       }
     }
@@ -659,26 +677,45 @@ final class AgentLoop {
           withTurnScope}) async {
     if (_running) throw StateError('a turn is already running');
     _running = true;
-    Future<Outcome> run(Input input) => withTurnScope == null
-        ? _runTurn(input)
-        : withTurnScope(() => _runTurn(input));
+    Future<Outcome> run(Input input) async {
+      try {
+        final outcome = await (withTurnScope == null
+            ? _runTurn(input)
+            : withTurnScope(() => _runTurn(input)));
+        onOutcome?.call(outcome);
+        _inputSettlements.add(InputSettlement(
+            input.id, outcome.stopReason, outcome.detail,
+            started: true));
+        return outcome;
+      } catch (error) {
+        _inputSettlements.add(InputSettlement(
+            input.id, StopReason.error, 'Input failed (${error.runtimeType})',
+            started: true));
+        rethrow;
+      }
+    }
+
+    var dropReason = StopReason.cancelled;
+    var dropDetail = 'Input queue closed';
     try {
       var outcome = await run(raw);
-      onOutcome?.call(outcome);
       while (_inputs.isNotEmpty) {
         final next = _inputs.removeFirst();
         _inputPending = Completer<void>();
         if (_inputs.isNotEmpty) _inputPending.complete();
         _cancel = CancelToken();
         outcome = await run(next);
-        onOutcome?.call(outcome);
       }
       return outcome;
+    } catch (_) {
+      dropReason = StopReason.error;
+      dropDetail = 'Input dropped after execution failed';
+      rethrow;
     } finally {
       _running = false;
       _inTurn = false;
       _cancel = CancelToken();
-      _inputs.clear();
+      _dropInputs(dropReason, dropDetail);
       _inputPending = Completer<void>();
     }
   }

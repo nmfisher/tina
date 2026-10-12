@@ -498,7 +498,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
           input: {'filePath': 'reviewed.txt', 'content': 'approved contents'})
     ], stopReason: 'tool_use'));
     await provider.streams.first.close();
-    await Future<void>.delayed(const Duration(milliseconds: 40));
+    await waitFor(() => approvalUi(session).interaction.pending.isNotEmpty);
     expect(approvalUi(session).interaction.pending, hasLength(1),
         reason: 'the runtime retains the question while Settings owns input');
     expect(File('${dir.path}/reviewed.txt').existsSync(), false);

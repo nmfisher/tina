@@ -14,6 +14,7 @@ import 'snapshot_feature.dart';
 
 part 'session_connection.dart';
 part 'session_attachment.dart';
+part 'session_requests.dart';
 
 final class Host {
   Host._(this.config, this.session, this.context, this.commands, this._plugins,
@@ -23,6 +24,7 @@ final class Host {
       if (event != LogEvent.appended) return;
       if (entry is TurnStartedEntry) {
         _turnWork = SessionWork('work-${++_nextWork}', 'turn');
+        _requests.byInput[entry.turnId]?.start(_turnWork!.id);
         final scope = _turnQuestions = questions.currentScope;
         if (scope != null) {
           unawaited(session.loop.whenCancelled.then((_) => scope.cancel()));
@@ -35,6 +37,8 @@ final class Host {
       _changed();
     });
     _toolObservation = session.loop.toolActivity.listen(_observeTool);
+    _inputObservation =
+        session.loop.inputSettlements.listen(_requests.settleInput);
     for (final plugin in _plugins) _observeFeature(plugin);
   }
 
@@ -66,6 +70,8 @@ final class Host {
   final _featureFailures = <String>{};
   final _activeTools = <String, Object?>{};
   late final StreamSubscription<ToolActivity> _toolObservation;
+  late final StreamSubscription<InputSettlement> _inputObservation;
+  late final _requests = _SessionRequests(this);
   bool _capturing = false;
 
   void _observeFeature(AgentPlugin plugin) {
@@ -158,6 +164,7 @@ final class Host {
           session.loop.publishedSeq,
           session.loop.publicationFailed,
           session.loop.pendingInputs,
+          _requests.records.values.map((r) => r.snapshot),
           [
             if (_turnWork case final work?) work,
             for (final entry in _commandWork.entries)
@@ -299,6 +306,10 @@ final class Host {
       _open(config, sessionId, true);
 
   static Host _open(HostConfig config, String id, bool resuming) {
+    if (config.requestHistoryLimit < 1) {
+      throw ArgumentError.value(config.requestHistoryLimit,
+          'requestHistoryLimit', 'must be positive');
+    }
     // Validate declarations before opening any resources.
     final commands = Commands();
     final ids = <String>{};
@@ -407,9 +418,14 @@ final class Host {
     final settled = Completer<void>();
     _pendingWork.add(settled);
     try {
-      final outcome = await session.loop.runTurn(
-          Input(text, id: turnId ?? 't-${session.loop.seq}'),
-          onOutcome: session.turns.add, withTurnScope: (run) async {
+      final outcome = await session.loop
+          .runTurn(Input(text, id: turnId ?? 't-${session.loop.seq}'),
+              onOutcome: (outcome) {
+        session.turns.add(outcome);
+        // A receipt describes one input, so its metadata save must also settle
+        // per input, before the engine reports success or starts its successor.
+        context.notifyChanged();
+      }, withTurnScope: (run) async {
         final scope = questions.openScope();
         try {
           return await scope.run(run);
@@ -417,7 +433,6 @@ final class Host {
           scope.cancel();
         }
       });
-      context.notifyChanged();
       if (!_stopping) onIdle?.call();
       return outcome;
     } finally {
@@ -458,10 +473,17 @@ final class Host {
 
     try {
       // Settle questions before awaiting work which may be parked on an answer.
+      for (final entry in _commandWork.entries) {
+        if (entry.value.cancel != null ||
+            _commandQuestions[entry.key]?.hasPending == true) {
+          _requests.byCommand[entry.key]?.cancellationRequested = true;
+        }
+      }
       questions.close();
       attempt(() => session.loop.cancel('shutdown'));
-      for (final command in _commandWork.values.toSet())
-        attempt(() => command.cancel?.call());
+      for (final entry in _commandWork.entries.toList()) {
+        attempt(() => entry.value.cancel?.call());
+      }
       await Future.wait([for (final pending in _pendingWork) pending.future]);
     } finally {
       attempt(close);
@@ -484,6 +506,7 @@ final class Host {
     questions.close();
     _publishSnapshots();
     unawaited(_toolObservation.cancel());
+    unawaited(_inputObservation.cancel());
     for (final id in _features.keys.toList()) _forgetFeature(id);
     _releaseQuestions();
     session.loop.unsubscribe(_statusSubscription);

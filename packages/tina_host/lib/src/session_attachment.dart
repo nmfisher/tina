@@ -17,6 +17,7 @@ final class SessionSnapshot {
       this.throughSeq,
       this.historyPublicationFailed,
       Iterable<Input> inputs,
+      Iterable<SessionRequestSnapshot> requests,
       Iterable<SessionWork> work,
       Iterable<SessionQuestion> questions,
       Iterable<String> plugins,
@@ -24,6 +25,7 @@ final class SessionSnapshot {
       Iterable<String> unavailableFeatures,
       Map<String, Object?> tools)
       : pendingInputs = List.unmodifiable(inputs),
+        requests = List.unmodifiable(requests),
         activeWork = List.unmodifiable(work),
         questions = List.unmodifiable(questions),
         plugins = List.unmodifiable(plugins),
@@ -38,6 +40,10 @@ final class SessionSnapshot {
   final int throughSeq;
   final bool historyPublicationFailed;
   final List<Input> pendingInputs;
+
+  /// Bounded request receipts; use the original ID to query or retry. Missing
+  /// receipts are not evidence that an operation was never executed.
+  final List<SessionRequestSnapshot> requests;
   final List<SessionWork> activeWork;
   final List<SessionQuestion> questions;
   final List<String> plugins, unavailableFeatures;

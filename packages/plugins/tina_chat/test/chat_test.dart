@@ -44,21 +44,34 @@ void main() {
     },
   );
 
-  test('unattached model previews replay independently to each subscriber', () async {
-    final chat = ChatPlugin(model: 'fallback');
-    addTearDown(chat.closeSession);
-    chat.watch(const SawThinking('thought', startsBlock: true));
-    chat.watch(const SawText('partial'));
-    final first = <SessionObservationEvent>[],
-        second = <SessionObservationEvent>[];
-    final release = chat.observation.events.listen(first.add);
-    chat.observation.events.listen(second.add);
-    expect(first, second);
-    release();
-    chat.watch(const SawText(' more'));
-    expect(first, hasLength(2));
-    expect(second, hasLength(2), reason: 'live callbacks are deferred');
-    await Future<void>.delayed(Duration.zero);
-    expect(second, hasLength(3));
-  });
+  test(
+    'unattached model previews replay independently to each subscriber',
+    () async {
+      final chat = ChatPlugin(model: 'fallback');
+      addTearDown(chat.closeSession);
+      chat.watch(const SawThinking('thought', startsBlock: true));
+      chat.watch(const SawText('partial'));
+      final first = <SessionObservationEvent>[],
+          second = <SessionObservationEvent>[];
+      final release = chat.observation.events.listen(first.add);
+      chat.observation.events.listen(second.add);
+      // Replays rebuild preview events for each subscriber; compare their public
+      // content rather than requiring the same wrapper objects.
+      for (final replay in [first, second]) {
+        expect(replay, hasLength(2));
+        final thinking = (replay.first as ObservedModel).event as SawThinking;
+        expect(thinking.text, 'thought');
+        expect(thinking.startsBlock, isTrue);
+        final text = (replay.last as ObservedModel).event as SawText;
+        expect(text.text, 'partial');
+      }
+      release();
+      chat.watch(const SawText(' more'));
+      expect(first, hasLength(2));
+      expect(second, hasLength(2), reason: 'live callbacks are deferred');
+      await Future<void>.delayed(Duration.zero);
+      expect(second, hasLength(3));
+      expect(((second.last as ObservedModel).event as SawText).text, ' more');
+    },
+  );
 }

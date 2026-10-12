@@ -212,6 +212,87 @@ final class SessionConnection {
     return SessionResult(stopReason: result.stopReason, detail: result.detail);
   }
 
+  /// Namespace for new caller-supplied IDs. Persist the resulting whole ID on
+  /// the client before sending; never refresh its window when retrying.
+  SessionRequestWindow get requestWindow {
+    _checkOpen();
+    _host._checkOpen();
+    return _host._requests.window;
+  }
+
+  /// Observe a retained receipt without executing it. Null means unknown in a
+  /// current window; an unknown retired ID explicitly throws expiry instead.
+  SessionRequest? request(SessionRequestId id) {
+    _checkOpen();
+    return _host._requests.find(id)?.client;
+  }
+
+  /// Synchronously admit a retryable submission and return its receipt. Plain
+  /// input steers a running turn through the engine's existing queue; commands
+  /// retain their plugin's allowWhileRunning policy. Rejected admissions are
+  /// also retained, so a retry cannot change meaning when session state changes.
+  /// Unlike [submit], completion describes this individual input, not the whole
+  /// drain of subsequent steered inputs. Existing one-shot methods retain their
+  /// embedded-client behavior and do not promise retry safety.
+  SessionRequest submitRequest(String line, {required SessionRequestId id}) {
+    _checkOpen();
+    _host._checkOpen();
+    access.requireControl();
+    final requests = _host._requests;
+    final existing = requests.find(id);
+    if (existing != null) {
+      if (existing.text != line) {
+        throw const SessionRequestError(SessionRequestErrorCode.conflict);
+      }
+      return existing.client;
+    }
+    final record = requests.accept(id, line);
+    void reject(String detail) => record.finish(
+        SessionRequestState.rejected, SessionResult(detail: detail));
+    final trimmed = line.trim();
+    final call = _commandFor(trimmed);
+    if (call != null) {
+      if (_host.session.loop.running && !call.command.allowWhileRunning) {
+        reject('Command requires an idle session.');
+      } else if (call.command.cancel != null &&
+          _host._commandWork.containsValue(call.command)) {
+        reject(
+            'A ${call.command.name} command is already running in this session.');
+      } else {
+        // Receipt completion handles failures even when all clients detach.
+        unawaited(_runCommand(call.command, call.argument, request: record)
+            .then<void>((_) {}, onError: (Object error, StackTrace stack) {}));
+      }
+    } else if (trimmed.startsWith('/')) {
+      reject(
+          'unknown command: /${trimmed.substring(1).split(RegExp(r'\s')).first}');
+    } else if (trimmed.isEmpty) {
+      reject('Input is empty.');
+    } else {
+      final inputId = 't-${_host.session.loop.seq}-input-${++_host._nextInput}';
+      record.setInput(inputId);
+      if (_host.session.loop.running) {
+        if (!_host.session.loop.offerInput(Input(line, id: inputId))) {
+          reject('Session is between turns or stopping; input was not queued.');
+        } else {
+          _host._changed();
+        }
+      } else {
+        // Input settlements report each turn independently. This future drains
+        // the existing queue and may finish after this receipt's own turn.
+        unawaited(_host.send(trimmed, turnId: inputId).then<void>((_) {},
+            onError: (Object error, StackTrace stack) {
+          record.finish(
+              SessionRequestState.failed,
+              SessionResult(
+                  stopReason: StopReason.error,
+                  detail: 'Input failed (${error.runtimeType})'));
+        }));
+      }
+    }
+    return record.client;
+  }
+
   /// Retains the loop's existing steering queue; commands never enter it.
   bool offerInput(String line) {
     if (_closed ||
@@ -232,7 +313,8 @@ final class SessionConnection {
         : null;
   }
 
-  Future<SessionResult> _runCommand(Command command, String argument) async {
+  Future<SessionResult> _runCommand(Command command, String argument,
+      {_RequestRecord? request}) async {
     _host._checkOpen();
     access.requireControl();
     // Legacy command cancellation belongs to the command instance. Admit one
@@ -246,16 +328,35 @@ final class SessionConnection {
     final id = 'work-${++_host._nextWork}';
     final settled = Completer<void>();
     _host._commandWork[id] = command;
+    if (request != null) {
+      _host._requests.byCommand[id] = request;
+      request.start(id);
+    }
     final scope = _host._commandQuestions[id] = _host.questions.openScope();
     _host._pendingWork.add(settled);
     _host._changed();
     try {
       await scope.run(() => command.handler(argument));
+      request?.finish(
+          request.cancellationRequested
+              ? SessionRequestState.cancelled
+              : SessionRequestState.completed,
+          SessionResult(
+              stopReason:
+                  request.cancellationRequested ? StopReason.cancelled : null));
       return const SessionResult();
+    } catch (error) {
+      request?.finish(
+          SessionRequestState.failed,
+          SessionResult(
+              stopReason: StopReason.error,
+              detail: 'Command failed (${error.runtimeType})'));
+      rethrow;
     } finally {
       scope.cancel();
       _host._commandQuestions.remove(id);
       _host._commandWork.remove(id);
+      _host._requests.byCommand.remove(id);
       _host._pendingWork.remove(settled);
       settled.complete();
       _host._changed();
@@ -277,11 +378,13 @@ final class SessionConnection {
     for (final id in ids) {
       final questions = _host._commandQuestions[id];
       if (questions?.hasPending == true) {
+        _host._requests.byCommand[id]?.cancellationRequested = true;
         questions!.cancel();
         cancelled = true;
       }
       final command = _host._commandWork[id];
       if (command?.cancel case final cancel?) {
+        _host._requests.byCommand[id]?.cancellationRequested = true;
         cancel();
         cancelled = true;
       }

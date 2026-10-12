@@ -597,8 +597,8 @@ behavioral tests moved to the host. Disposable status listeners are isolated
 from one another and delivered outside synchronous persistence callbacks.
 
 This is an in-process operation boundary, not the complete remote-client
-contract below. Retry/deduplication IDs remain pending. Owner-issued
-observer/controller authority is implemented as described below. Attachment
+contract below. Retryable submission receipts and owner-issued
+observer/controller authority are implemented as described below. Attachment
 snapshots use runtime epochs and revisions; see
 phase 6 for coalescing and history paging. The configuration adapter
 now lives with application composition in the CLI; ordinary questions use the
@@ -623,6 +623,51 @@ do not trigger owner reloads. Legacy combined plugin/view extensions are omitted
 from observer presentations because they have no checked capability boundary.
 These are in-process checks with a trusted issuer, not transport authentication
 or isolation from arbitrary code running inside the application.
+
+Implemented retryable submissions: `SessionConnection.submitRequest(line, id:)`
+returns a read-only receipt synchronously. Its `snapshot` and `completed` future
+describe the individual request, with accepted, running, completed, failed,
+cancelled and rejected states. Input/turn IDs and active work IDs correlate it
+with the existing log and cancellation boundary. Attachment snapshots include
+retained receipts, and `connection.request(id)` looks one up without executing.
+Observer connections can read these values but cannot submit or retry requests.
+The existing `submit`, `offerInput` and `offerCommand` methods retain their
+one-shot embedded-client behavior; clients requiring retries use `submitRequest`.
+
+The caller chooses an ID value within `connection.requestWindow` and saves the
+whole ID (runtime epoch, window generation, value) before sending. Reconnect
+reuses that exact ID and exact input, returning the retained receipt even after
+failure, cancellation or rejection. A different payload conflicts. This check
+precedes command lookup and busy-state checks, so changes in plugin registration
+or session activity cannot give a retry new meaning. New plain input steers a
+running turn through the engine queue. During post-turn/between-turn work where
+that queue cannot accept input, the receipt is explicitly rejected; commands
+retain their plugin's busy policy. No host input queue or transcript is added.
+
+The history has a configurable count limit (`HostConfig.requestHistoryLimit`,
+default 256), including active requests. Input and ID sizes are limited to
+1,048,576 and 128 UTF-16 code units, respectively; receipt detail is capped at
+16,384 code units with `resultTruncated` set. The original output remains in its
+owning log/feature. At capacity the oldest terminal receipt is removed and the
+retry window advances. Retained older IDs remain replayable, including active
+work; unknown IDs in retired windows return `expired` and never execute. An
+unknown current-window ID returns null on lookup. When all retained requests are
+active, admission returns `capacity` without executing. There are no tombstone
+or per-client tables that grow indefinitely. A client must not automatically
+copy an expired ID's value into a new window: expiry cannot establish whether
+its previous execution had side effects. Restart/resume changes the runtime
+epoch and rejects old IDs even for the same persisted session ID.
+
+The engine publishes input settlements for consumed and dropped inputs. Host
+metadata notifications now settle per input before its success receipt, so
+storage failures still fail that input and queued inputs dropped with it. The
+existing synchronous log persistence and SQLite policy are unchanged. Closing a
+client never cancels its accepted work; cancellation/shutdown settles discarded
+queued receipts explicitly. Command cancellation means cancellation was
+requested, not that prior effects were rolled back. This contract is in memory:
+acceptance is not a durable acknowledgement and does not give exactly-once
+execution across a process crash. A daemon, transport and persistent request
+journal remain deferred.
 
 Implemented settings/provider subset: `SettingsClient` in `tina_settings`
 provides immutable metadata, values, inheritance and application errors, plus

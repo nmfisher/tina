@@ -47,6 +47,16 @@ final class Request {
 /// Why a turn stopped.
 enum StopReason { complete, cancelled, error }
 
+/// In-memory completion of one input, including accepted inputs dropped before
+/// a turn starts. This is lifecycle observation, not a persistence receipt.
+final class InputSettlement {
+  const InputSettlement(this.inputId, this.stopReason, this.detail,
+      {required this.started});
+  final String inputId, detail;
+  final StopReason stopReason;
+  final bool started;
+}
+
 /// A plugin's request to stop the turn: one generic stop, attributed to
 /// the plugin that asked, with an optional free-text detail. `code` is
 /// deliberately not an enum — plugins define their own vocabulary and the
