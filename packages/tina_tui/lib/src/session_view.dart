@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_host/tina_host.dart';
 import 'completion_sources.dart';
@@ -24,6 +25,7 @@ final class SessionView
   ConsoleContext? _context;
   SessionSettingsView? _settings;
   ConsoleAttachment? _questions;
+  SessionAttachment? _observation;
   Future<void> Function()? _openSettings;
   final _releases = <void Function()>[];
   bool _closed = false, _quitRequested = false;
@@ -111,9 +113,10 @@ final class SessionView
       throw StateError('session view is closed or stopping');
     detachConsole();
     _context = context;
+    final observation = _observation = connection.attach();
+    unawaited(_observe(observation, context));
     _questions =
         ConsoleAttachment.attach(QuestionView(connection.questions), context);
-    _releases.add(connection.listen((_) => context.refreshStatus()));
     _releases.add(presentation.listenNotices(notice));
     void attach(String id, ConsoleContribution contribution) {
       _attached[id] = ConsoleAttachment.attach(contribution, context);
@@ -158,6 +161,8 @@ final class SessionView
 
   @override
   void detachConsole() {
+    _observation?.close();
+    _observation = null;
     _questions?.dispose();
     _questions = null;
     _settings?.close();
@@ -172,6 +177,20 @@ final class SessionView
     _attached.clear();
     _context = null;
     _settings = null;
+  }
+
+  Future<void> _observe(
+      SessionAttachment attachment, ConsoleContext context) async {
+    try {
+      while (identical(_observation, attachment)) {
+        final update = await attachment.next();
+        if (update == null || !identical(_observation, attachment)) return;
+        context.refreshStatus();
+      }
+    } catch (_) {
+      // Presentation failure retires this observer, never the shared session.
+      attachment.close();
+    }
   }
 
   @override

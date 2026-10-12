@@ -130,6 +130,9 @@ final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
     model.describe = activity.describe;
     _unlisten = context.own(activity.listen((event) {
       switch (event) {
+        case ObservedReset():
+          model.records.clear();
+          repaintConsole();
         case ObservedEntry():
           final completed = model.entry(event.entry, event.event);
           if (event.event == LogEvent.appended) {

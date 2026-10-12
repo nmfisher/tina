@@ -106,6 +106,7 @@ void main() {
     await view.submit('/classification hierarchy');
     expect(input.written.toString(), contains('classification · hierarchy'));
     await view.submit('/classification categories');
+    await waitFor(() => input.written.toString().contains('selections'));
     expect(input.written.toString(), contains('selections'));
     view.detachConsole();
     final output = <String>[];

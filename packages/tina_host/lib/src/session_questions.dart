@@ -42,6 +42,9 @@ final class SessionQuestions {
   int _nextId = 0;
   bool _closed = false, _notificationQueued = false;
 
+  List<SessionQuestion> get pending =>
+      List.unmodifiable(_pending.values.map((item) => item.question));
+
   QuestionClient connect() {
     if (_closed) throw StateError('questions are closed');
     final client = QuestionClient._(this);

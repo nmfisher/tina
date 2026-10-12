@@ -52,6 +52,30 @@ with the existing feature contracts. Closing a connection leaves accepted work
 running. A cancellable command has one active invocation per command instance,
 so its legacy cancellation callback cannot stop another concurrent invocation.
 
+`connection.attach()` atomically returns current `initial` state and a bounded
+pull subscription. Await `attachment.next()` for replacement snapshots, then
+process the update before requesting another. One unread snapshot is retained;
+`coalesced` signals replaced transient states. Read committed entries through
+`attachment.history(snapshot: snapshot, afterSeq: lastSeq)` until `hasMore` is
+false. The snapshot fixes the upper history position even while the session runs.
+An epoch change requires a fresh attachment. Closing the attachment settles a
+waiting read with null and leaves the connection and session alive. After the
+final `status.closed` snapshot, release the attachment when history reads finish.
+
+Snapshots contain public plugin projections, never plugin instances or response
+tickets. Approvals remain owned by their configured channel. A snapshot's
+questions/approvals may be answered elsewhere before a view handles it; response
+operations must still validate the exact active ID. Feature adapters must expose
+only read-only JSON data and release their own change subscription on unload.
+
+Chat/activity's typed event listeners replay immediately on attachment and
+deliver subsequent events asynchronously outside persistence callbacks. A
+bounded queue overflow delivers `ObservedReset` followed by current replay;
+views must discard their previous projection before consuming it. Truncated
+previews are announced and reconcile with the eventual committed response.
+Application notice listeners are also deferred, so a command's confirmation
+follows its history update; detaching cancels pending notice delivery.
+
 Presentation dependencies create fresh feature views and attachment-local
 settings UI. The transitional `tui_presentation.dart` adapter owns that wiring;
 views cannot import it or the assembly. `/quit` is interpreted by the invoking

@@ -94,6 +94,20 @@ void main() {
     unawaited(io.input.close());
   });
   String transcript() => screen.chat.snapshotLines().join('\n');
+
+  test('overflow resets and replays the projection without duplicate history', () async {
+    final runtime = chatRuntimes[chat]!;
+    final loop = AgentLoop(provider: ScriptedProvider([]), plugins: []);
+    runtime.mountOn(loop);
+    for (var i = 0; i < 5000; i++) runtime.watch(const SawText('x'));
+    await tick();
+    expect(transcript(), contains('Earlier live preview omitted'));
+    await loop.runTurn(const Input('new turn', id: 'next'));
+    await tick();
+    final text = transcript();
+    expect('new turn'.allMatches(text), hasLength(1));
+    expect('(script exhausted)'.allMatches(text), hasLength(1));
+  });
   String visible() {
     final vt = VirtualTerminal(width: 80, height: 24)
       ..feed(io.output.toString());

@@ -94,6 +94,7 @@ final class AgentLoop {
         ? SessionEntry.fromJson(entry.toJson())
         : entry));
     _seq = _log.length;
+    _publishedSeq = _seq - 1;
     for (final p in plugins) {
       addPlugin(p);
     }
@@ -153,6 +154,25 @@ final class AgentLoop {
   /// position can detect a gap (corruption) and can never delete.
   final List<SessionEntry> _log = [];
   int _seq = 0;
+  int _publishedSeq = -1;
+  bool _publicationFailed = false;
+
+  /// Observers may only claim the contiguous prefix whose synchronous
+  /// subscribers (including persistence) completed. A failed publication
+  /// prevents later entries from hiding that gap until the session is reopened.
+  int get publishedSeq => _publishedSeq;
+  bool get publicationFailed => _publicationFailed;
+  bool get publishing => _dispatchDepth != 0;
+  List<Input> get pendingInputs => List.unmodifiable(_inputs);
+
+  List<SessionEntry> publishedEntries({required int afterSeq,
+      required int throughSeq, required int limit}) {
+    if (afterSeq < -1 || throughSeq < afterSeq || throughSeq > publishedSeq || limit < 1) {
+      throw RangeError('Invalid published history bounds');
+    }
+    return List.unmodifiable(_log.skip(afterSeq + 1)
+        .take((throughSeq - afterSeq).clamp(0, limit)));
+  }
 
   /// Structural settings for request derivation.
   final SessionSettings _settings;
@@ -394,6 +414,12 @@ final class AgentLoop {
       rethrow;
     } finally {
       if (--_dispatchDepth == 0) {
+        if (_dispatchFailure != null && _seq - 1 > _publishedSeq) {
+          _publicationFailed = true;
+        }
+        if (_dispatchFailure == null && !_publicationFailed) {
+          _publishedSeq = _seq - 1;
+        }
         for (final listener in _listeners) {
           listener.pending.clear();
         }

@@ -3,6 +3,7 @@
 /// It owns no screen or terminal modes. Listeners detach independently.
 library;
 
+import 'dart:async';
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_host/tina_host.dart' show SessionQuestions;
 
@@ -26,7 +27,7 @@ final class ConversationLine {
 /// asks use the session-owned question service.
 final class SessionTerminal implements Terminal {
   SessionTerminal({this.onLine, SessionQuestions? questions})
-      : questions = questions ?? SessionQuestions();
+    : questions = questions ?? SessionQuestions();
 
   final SessionQuestions questions;
 
@@ -35,6 +36,9 @@ final class SessionTerminal implements Terminal {
   /// terminal has no hook: the capture in [lines] is the whole story.
   void Function(String line)? onLine;
   final _listeners = <Object, void Function(String)>{};
+
+  /// Presentation notices follow already queued history updates. Delivery is
+  /// deferred and detaching cancels notices that have not yet been delivered.
   void Function() listenLines(void Function(String) listener) {
     final owner = Object();
     _listeners[owner] = listener;
@@ -52,14 +56,17 @@ final class SessionTerminal implements Terminal {
     final text = line ?? '';
     _lines.add(ConversationLine(text, fromUser: false));
     onLine?.call(text);
-    for (final item in _listeners.entries.toList()) {
-      if (!_listeners.containsKey(item.key)) continue;
-      try {
-        item.value(text);
-      } catch (_) {
-        _listeners.remove(item.key);
+    final listeners = _listeners.entries.toList();
+    scheduleMicrotask(() {
+      for (final item in listeners) {
+        if (!_listeners.containsKey(item.key)) continue;
+        try {
+          item.value(text);
+        } catch (_) {
+          _listeners.remove(item.key);
+        }
       }
-    }
+    });
   }
 
   @override

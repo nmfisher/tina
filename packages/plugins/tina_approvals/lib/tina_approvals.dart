@@ -102,6 +102,21 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
   /// No deadline by default. Embedders may explicitly opt into expiry.
   final Duration? timeout;
   final _pending = <String, ApprovalTicket>{};
+  final _observers = <Object, void Function()>{};
+  /// Observe pending state without registering a responder or changing delivery
+  /// authority. Observation never makes a headless ask interactive.
+  void Function() listenPending(void Function() listener) {
+    if (_closed) throw StateError('Approvals are closed');
+    final key = Object();
+    _observers[key] = listener;
+    return () => _observers.remove(key);
+  }
+  void _changed() {
+    for (final entry in _observers.entries.toList()) {
+      if (!_observers.containsKey(entry.key)) continue;
+      try { entry.value(); } catch (_) { _observers.remove(entry.key); }
+    }
+  }
   final _prefix = List.generate(16,
           (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
       .join();
@@ -142,6 +157,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       final invalid = _closed || (_turnCancelled?.call() ?? false);
       ticket._active = false;
       _pending.remove(request.id);
+      _changed();
       timer?.cancel();
       final directoryGrant =
           decision == ApprovalDecision.allowReadsInDirectory ||
@@ -202,6 +218,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       return !invalid && !invalidScope && !invalidPattern;
     }, result.future);
     _pending[request.id] = ticket;
+    _changed();
     final deadline = timeout;
     if (deadline != null) {
       timer = Timer(deadline, () => ticket.respond(ApprovalDecision.deny));
@@ -238,6 +255,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
   void closeSession() {
     _closed = true;
     _denyPending();
+    _observers.clear();
   }
 }
 

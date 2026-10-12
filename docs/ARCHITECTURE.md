@@ -183,7 +183,17 @@ while the session retains requests across detach. Answers, explicit dismissal,
 operation cancellation, expiry and shutdown retire the ID. Headless requests
 settle immediately as unavailable. Every command and individual turn (including
 queued inputs) has its own question scope, so late continuations cannot affect
-a successor. Complete attachment snapshots remain pending. Reusable contracts belong in
+a successor. `SessionConnection.attach()` now captures an immutable snapshot
+and registers bounded delivery in one synchronous operation. Snapshots include
+runtime epoch/revision, published history position, accepted inputs, active work
+and tools, questions and public feature projections. The CLI's `snapshot_catalog`
+adapts plugin observations; the host has no concrete feature dependencies.
+Each attachment keeps one unread replacement snapshot, explicitly marking
+coalescing. History pages retain the snapshot's fixed upper position. Live
+chat/activity callbacks run outside synchronous persistence callbacks and replay
+from the log if their bounded delivery queue overflows. A failed publication
+prevents the advertised history watermark from moving past the gap.
+Reusable contracts belong in
 `tina_host`; no additional runtime package is planned. The current in-process
 connection is not a transport protocol or an authorization boundary.
 

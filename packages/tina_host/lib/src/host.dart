@@ -3,14 +3,17 @@
 library;
 
 import 'dart:async';
+import 'dart:math';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
 import 'commands.dart';
 import 'host_config.dart';
 import 'session.dart';
 import 'session_questions.dart';
+import 'snapshot_feature.dart';
 
 part 'session_connection.dart';
+part 'session_attachment.dart';
 
 final class Host {
   Host._(this.config, this.session, this.context, this.commands, this._plugins,
@@ -29,10 +32,10 @@ final class Host {
         _turnWork = null;
         _turnQuestions = null;
       }
-      if (entry is TurnStartedEntry ||
-          entry is TurnEndedEntry ||
-          entry is InputRecordedEntry) _changed();
+      _changed();
     });
+    _toolObservation = session.loop.toolActivity.listen(_observeTool);
+    for (final plugin in _plugins) _observeFeature(plugin);
   }
 
   final HostConfig config;
@@ -54,6 +57,128 @@ final class Host {
   final _pendingWork = <Completer<void>>{};
   final _connections = <SessionConnection>{};
   bool _notificationQueued = false;
+  final _epoch = List.generate(16,
+          (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
+      .join();
+  int _snapshotRevision = 0;
+  SessionSnapshot? _lastSnapshot;
+  final _features = <String, _FeatureObservation>{};
+  final _featureFailures = <String>{};
+  final _activeTools = <String, Object?>{};
+  late final StreamSubscription<ToolActivity> _toolObservation;
+  bool _capturing = false;
+
+  void _observeFeature(AgentPlugin plugin) {
+    try {
+      final source = config.snapshotFeatureFor?.call(plugin);
+      if (source == null) return;
+      final release = source.listen?.call(_changed) ?? () {};
+      _features[plugin.id] = _FeatureObservation(source, release);
+      _featureFailures.remove(plugin.id);
+    } catch (_) {
+      _featureFailures.add(plugin.id);
+    }
+  }
+
+  void _forgetFeature(String id) {
+    final feature = _features.remove(id);
+    _featureFailures.remove(id);
+    try {
+      feature?.release();
+    } catch (_) {/* Observation cleanup cannot break plugin ownership. */}
+  }
+
+  void _observeTool(ToolActivity event) {
+    final id = event.call.id;
+    if (event is ToolFinished) {
+      _activeTools.remove(id);
+    } else {
+      final state =
+          Map<String, Object?>.of(_activeTools[id] as Map<String, Object?>? ??
+              {
+                'id': id,
+                'name': event.call.name,
+                'input': freezeSnapshotValue(event.call.input),
+                'output': '',
+                'output_truncated': false,
+              });
+      if (event is ToolProgress) state['status'] = event.status;
+      if (event is ToolOutput) {
+        final text = '${state['output']}${event.text}';
+        const limit = 65536;
+        state['output'] =
+            text.length <= limit ? text : text.substring(0, limit);
+        if (text.length > limit) state['output_truncated'] = true;
+      }
+      _activeTools[id] = state;
+    }
+    _changed();
+  }
+
+  SessionStatus _status() => SessionStatus(
+          id: session.id,
+          model: model,
+          workingDirectory: config.workingDirectory,
+          running: session.loop.running,
+          pendingInputCount: session.loop.pendingInputCount,
+          stopping: _stopping,
+          closed: _closed,
+          cancellableWork: [
+            if (_turnWork case final work?) work,
+            for (final entry in _commandWork.entries)
+              if (entry.value.cancel != null ||
+                  _commandQuestions[entry.key]?.hasPending == true)
+                SessionWork(entry.key, 'command', command: entry.value.name),
+          ]);
+
+  /// Re-read public projections after application configuration changes that
+  /// do not append a log entry. No client callbacks run in this call.
+  void refreshSnapshot() => _changed();
+
+  SessionSnapshot _captureSnapshot() {
+    if (_capturing || session.loop.publishing) {
+      throw StateError(
+          'Cannot attach or capture during synchronous publication');
+    }
+    if (_closed && _lastSnapshot?.status.closed == true) return _lastSnapshot!;
+    _capturing = true;
+    try {
+      final features = <String, Object?>{};
+      final unavailable = <String>{..._featureFailures};
+      for (final entry in _features.entries.toList()) {
+        try {
+          features[entry.key] = freezeSnapshotValue(entry.value.source.read());
+        } catch (_) {
+          unavailable.add(entry.key);
+        }
+      }
+      return _lastSnapshot = SessionSnapshot._(
+          SessionCursor(_epoch, ++_snapshotRevision),
+          _status(),
+          session.loop.publishedSeq,
+          session.loop.publicationFailed,
+          session.loop.pendingInputs,
+          [
+            if (_turnWork case final work?) work,
+            for (final entry in _commandWork.entries)
+              SessionWork(entry.key, 'command', command: entry.value.name),
+          ],
+          questions.pending,
+          _plugins.map((p) => p.id),
+          features,
+          unavailable,
+          _activeTools);
+    } finally {
+      _capturing = false;
+    }
+  }
+
+  void _publishSnapshots() {
+    final clients = [for (final c in _connections) ...c._attachments];
+    if (clients.isEmpty) return;
+    final snapshot = _captureSnapshot();
+    for (final client in clients) client._offer(snapshot);
+  }
 
   /// A disposable client capability; its lifetime never owns this host.
   SessionConnection connect() {
@@ -73,6 +198,7 @@ final class Host {
     // UI callbacks run outside the loop's synchronous persistence callbacks.
     scheduleMicrotask(() {
       _notificationQueued = false;
+      _publishSnapshots();
       for (final connection in _connections.toList()) connection._notify();
     });
   }
@@ -107,6 +233,7 @@ final class Host {
       }
       activate?.call(plugin);
       _plugins.add(plugin);
+      _observeFeature(plugin);
       _plugins.sort((a, b) => a.order != b.order
           ? a.order.compareTo(b.order)
           : a.id.compareTo(b.id));
@@ -126,6 +253,7 @@ final class Host {
     final matches = _plugins.where((plugin) => plugin.id == id);
     if (matches.isEmpty) return;
     final plugin = matches.single;
+    _forgetFeature(id);
     Object? failure;
     try {
       deactivate?.call(plugin);
@@ -354,6 +482,9 @@ final class Host {
     }
     _closed = true;
     questions.close();
+    _publishSnapshots();
+    unawaited(_toolObservation.cancel());
+    for (final id in _features.keys.toList()) _forgetFeature(id);
     _releaseQuestions();
     session.loop.unsubscribe(_statusSubscription);
     _changed();

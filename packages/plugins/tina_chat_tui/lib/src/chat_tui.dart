@@ -122,6 +122,25 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       _frame++;
       context.refreshInput();
     });
+    _resetProjection();
+    _unlisten = context.own(chat.events.listen((event) {
+      switch (event) {
+        case ObservedReset():
+          _resetProjection();
+        case ObservedEntry():
+          entry(event.entry, event.event);
+        case ObservedActivity():
+          observe(event.activity);
+        case ObservedModel():
+          watch(event.event);
+      }
+    }));
+    _busy = chat.events.running;
+    _width = -1;
+    repaintConsole();
+  }
+
+  void _resetProjection() {
     _blocks.clear();
     _rows.clear();
     _renderedRows = _trailingBlankRows = 0;
@@ -137,20 +156,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _preview = _thinkingPreview = null;
     _markdown = null;
     _previewDirty = _thinkingDirty = false;
-    context.chat.resetAfterClear();
-    _unlisten = context.own(chat.events.listen((event) {
-      switch (event) {
-        case ObservedEntry():
-          entry(event.entry, event.event);
-        case ObservedActivity():
-          observe(event.activity);
-        case ObservedModel():
-          watch(event.event);
-      }
-    }));
-    _busy = chat.events.running;
-    _width = -1;
-    repaintConsole();
+    _console?.chat.resetAfterClear();
   }
 
   void watch(WatchEvent event) {

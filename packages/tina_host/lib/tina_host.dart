@@ -9,6 +9,7 @@ export 'src/host.dart';
 export 'src/host_config.dart';
 export 'src/session.dart';
 export 'src/session_questions.dart';
+export 'src/snapshot_feature.dart';
 
 export 'src/commands.dart';
 

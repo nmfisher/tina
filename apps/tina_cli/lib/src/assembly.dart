@@ -20,6 +20,7 @@ import 'scoped_config.dart';
 import 'settings_catalog.dart';
 import 'settings_stack.dart';
 import 'config_document.dart';
+import 'snapshot_catalog.dart';
 
 /// Optional instrumentation of the real startup path. Callbacks must not
 /// mutate the assembly. No extra config or store reads are made for profiling.
@@ -198,6 +199,7 @@ final class SessionAssembly {
   }
 
   void _settingsChanged() {
+    host.refreshSnapshot();
     for (final item in _settingsListeners.entries.toList()) {
       if (!_settingsListeners.containsKey(item.key)) continue;
       try {
@@ -430,6 +432,7 @@ final class SessionAssembly {
     final plugins = registry.build(pluginSettings.selected, context);
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     final hostConfig = HostConfig(
+      snapshotFeatureFor: snapshotFeatureFor,
       questions: output is SessionTerminal
           ? output.questions
           : SessionQuestions(interactive: options.interactive),

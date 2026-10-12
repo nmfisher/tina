@@ -113,6 +113,7 @@ void main() {
     first.detach();
     expect(runtime.host.session.loop.inTurn, true);
     runtime.terminal.writeln('shared runtime notice');
+    await waitFor(() => second.transcript.contains('shared runtime notice'));
     expect(second.transcript, contains('shared runtime notice'));
     provider.requests.single.add(const TextDelta(' finished'));
     provider.requests.single.add(MessageComplete(
@@ -162,6 +163,8 @@ void main() {
     expect(first.feature<ActivityView>(),
         isNot(same(second.feature<ActivityView>())));
     runtime.terminal.writeln('notice to both');
+    await waitFor(() => first.transcript.contains('notice to both') &&
+        second.transcript.contains('notice to both'));
     expect(first.transcript, contains('notice to both'));
     expect(second.transcript, contains('notice to both'));
   });

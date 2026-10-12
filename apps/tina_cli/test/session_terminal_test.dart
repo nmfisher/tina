@@ -5,16 +5,24 @@ import 'package:tina_host/tina_host.dart';
 void main() {
   test(
     'terminal records notices and notifies independently disposable listeners',
-    () {
+    () async {
       final terminal = SessionTerminal();
       addTearDown(terminal.closeInput);
       final lines = <String>[];
       final detach = terminal.listenLines(lines.add);
       terminal.writeln('one');
+      expect(lines, isEmpty);
+      await Future<void>.delayed(Duration.zero);
+      terminal.writeln('pending');
       detach();
       terminal.writeln('two');
+      await Future<void>.delayed(Duration.zero);
       expect(lines, ['one']);
-      expect(terminal.lines.map((line) => line.text), ['one', 'two']);
+      expect(terminal.lines.map((line) => line.text), [
+        'one',
+        'pending',
+        'two',
+      ]);
     },
   );
 

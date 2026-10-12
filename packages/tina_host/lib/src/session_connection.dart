@@ -65,6 +65,43 @@ final class SessionConnection {
   }
 
   final _listeners = <Object, void Function(SessionStatus)>{};
+  final _attachments = <SessionAttachment>{};
+
+  /// Capture current state and register delivery synchronously, without an
+  /// await or a user callback between them. Updates replace the initial state.
+  SessionAttachment attach() {
+    _checkOpen();
+    _host._checkOpen();
+    final snapshot = _host._captureSnapshot();
+    final attachment = SessionAttachment._(this, snapshot);
+    _attachments.add(attachment);
+    return attachment;
+  }
+
+  SessionHistoryPage history(
+      {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128}) {
+    _checkOpen();
+    if (snapshot.cursor.epoch != _host._epoch) {
+      throw ArgumentError('Snapshot belongs to another running session');
+    }
+    if (limit < 1 ||
+        limit > 512 ||
+        afterSeq < -1 ||
+        afterSeq > snapshot.throughSeq) {
+      throw RangeError('Invalid history page bounds');
+    }
+    final entries = _host.session.loop.publishedEntries(
+        afterSeq: afterSeq, throughSeq: snapshot.throughSeq, limit: limit);
+    final next = entries.isEmpty ? afterSeq : entries.last.seq;
+    return SessionHistoryPage._(
+        _host._epoch,
+        snapshot.throughSeq,
+        next,
+        next < snapshot.throughSeq,
+        entries.map((entry) =>
+            freezeSnapshotValue({...entry.toJson(), 'seq': entry.seq})
+                as Map<String, Object?>));
+  }
 
   void _checkOpen() {
     if (_closed) throw StateError('session connection is closed');
@@ -72,23 +109,7 @@ final class SessionConnection {
 
   SessionStatus get status {
     _checkOpen();
-    final host = _host;
-    return SessionStatus(
-      id: host.session.id,
-      model: host.model,
-      workingDirectory: host.config.workingDirectory,
-      running: host.session.loop.running,
-      pendingInputCount: host.session.loop.pendingInputCount,
-      stopping: host._stopping,
-      closed: host._closed,
-      cancellableWork: [
-        if (host._turnWork case final work?) work,
-        for (final entry in host._commandWork.entries)
-          if (entry.value.cancel != null ||
-              _host._commandQuestions[entry.key]?.hasPending == true)
-            SessionWork(entry.key, 'command', command: entry.value.name),
-      ],
-    );
+    return _host._status();
   }
 
   List<String> get inputHistory {
@@ -279,6 +300,7 @@ final class SessionConnection {
   void close() {
     if (_closed) return;
     _closed = true;
+    for (final attachment in _attachments.toList()) attachment.close();
     _questions?.close();
     _listeners.clear();
     _host._connections.remove(this);

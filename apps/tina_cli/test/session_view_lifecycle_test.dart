@@ -23,6 +23,35 @@ void main() {
   });
   tearDown(() => root.deleteSync(recursive: true));
 
+  test('clear confirmation follows the history reset in every attached view',
+      () async {
+    final session = TuiSession.wrap(SessionAssembly.start(
+        providerFactory: (_) => ScriptedProvider([scriptedReply('old reply')]),
+        options: AssemblyOptions(
+            configPath: '${root.path}/global',
+            workingDirectory: workspace.path,
+            plugins: ['tina/chat-tui', 'tina/session-controls'])));
+    final screens = [_Presentation(), _Presentation()];
+    final views = [session.createView(), session.createView()];
+    addTearDown(() async {
+      for (final view in views) view.close();
+      await session.shutdown();
+      for (final screen in screens) screen.dispose();
+    });
+    for (var i = 0; i < views.length; i++) {
+      views[i].attachConsole(screens[i].context);
+    }
+    await views.first.submit('old input');
+    expect(screens.every((s) => s.transcript.contains('old reply')), isTrue);
+    await views.first.submit('/clear');
+    await Future<void>.delayed(Duration.zero);
+    for (final screen in screens) {
+      expect(screen.transcript, contains('Conversation cleared.'));
+      expect(screen.transcript, isNot(contains('old reply')));
+      expect(screen.transcript, isNot(contains('old input')));
+    }
+  });
+
   test('quit is local to its view and another view can keep submitting',
       () async {
     final provider = _TrackedProvider();

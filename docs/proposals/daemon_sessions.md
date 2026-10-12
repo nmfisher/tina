@@ -33,7 +33,8 @@ data through `SettingsManagement`, backed by the application adapter
 `ConfigSettingsManagement`. Application composition now lives in `apps/tina_cli`;
 `tina_tui` has no feature-plugin dependencies. Ordinary questions now use host-owned
 IDs with independent client drafts and cancellation scoped to commands and turns.
-Complete attach snapshots remain pending; no daemon has been built.
+Attachment snapshots and bounded in-process delivery are now implemented;
+no daemon has been built.
 
 ## Assessment
 
@@ -596,8 +597,9 @@ behavioral tests moved to the host. Disposable status listeners are isolated
 from one another and delivered outside synchronous persistence callbacks.
 
 This is an in-process operation boundary, not the complete remote-client
-contract below. Retry/deduplication IDs, read-only/control authorization and
-complete snapshots/event cursors remain pending. The configuration adapter
+contract below. Retry/deduplication IDs and read-only/control authorization
+remain pending. Attachment snapshots use runtime epochs and revisions; see
+phase 6 for coalescing and history paging. The configuration adapter
 now lives with application composition in the CLI; ordinary questions use the
 correlated host service described in phase 2.
 
@@ -662,6 +664,46 @@ Simultaneous input, stale cancels, conflicting edits, live plugin changes and
 approval revocation behave consistently in both attachments.
 
 ### Phase 6 — implement complete attach snapshots and bounded delivery
+
+**Implemented in process.** `SessionConnection.attach()` returns an immutable
+initial `SessionSnapshot` and a disposable `SessionAttachment` with `next()`.
+Capture and registration have no intervening await or client callback. Updates
+are complete replacements, not deltas to append. Each attachment keeps one
+unread update; overwriting it sets `coalesced`. Clients recover all intervening
+committed entries through bounded `history(snapshot:, afterSeq:, limit:)` pages.
+Page bounds stay fixed while the session continues. Runtime epochs distinguish
+reopened hosts even when their persisted session ID is identical.
+
+Snapshots include status, accepted input IDs/text, all host-managed active work,
+active tool calls/progress and bounded output, ordinary questions, installed
+plugin IDs and public feature projections. The application's `snapshot_catalog`
+adapts existing plugin observations for chat preview, mode, plans, context
+revision/budget, classification, model choices, updates, MCP status and approvals.
+Full accepted context remains recoverable from its plugin-owned log entries;
+snapshots name its revision and position instead of copying every message per
+token. Unsupported features have no projection; failed projections are explicitly
+listed as unavailable. Snapshot adapters omit provider configuration and MCP
+URLs/arguments/environment/headers. Approval observation registers no responder
+and preserves third-party delivery authority and unattended denial.
+
+`AgentLoop.publishedSeq` advances only after the entire synchronous dispatch,
+including reentrant appends, succeeds. Publication failure freezes that prefix
+and sets `historyPublicationFailed`; later writes cannot hide the gap. This
+changes observation, not SQLite's transaction or durability policy. Attach during
+synchronous publication is rejected. Feature reads are synchronous, read-only
+projections; client delivery is deferred and never calls a renderer from the
+persistence path.
+
+`SessionView` uses attachment updates for status repaint notifications. Feature
+views retain their typed contracts. Chat/activity live delivery has bounded
+queues and emits `ObservedReset` followed by a fresh replay after overflow;
+adjacent preview tokens are combined during replay to avoid one redraw per token.
+Existing preview limits report omissions explicitly. Detaching releases only
+the subscription; shutdown delivers final closed state. History and pending
+interaction state are not copied to another store. Transport serialization,
+cross-process ownership and restart recovery remain later work.
+
+The requirements below describe the boundary implemented by this contract:
 
 Define a snapshot containing session identity and runtime epoch, committed log
 position, model/status, accepted inputs, active jobs/tools, pending interactions,

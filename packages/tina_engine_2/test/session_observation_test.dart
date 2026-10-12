@@ -114,6 +114,7 @@ void main() {
     });
     final received = <int>[];
     source.observation.listen((event) {
+      expect(loop.publishing, isFalse);
       if (event is ObservedEntry) {
         expect(persisted, contains(event.entry.seq));
         received.add(event.entry.seq);
@@ -125,17 +126,24 @@ void main() {
     expect(received, loop.log.map((e) => e.seq));
   });
 
-  test('transient replay is bounded and announces omitted preview', () {
+  test(
+      'transient delivery and replay are bounded and announce resynchronization',
+      () async {
     final source = SessionObservationSource();
     addTearDown(source.close);
     final live = <SessionObservationEvent>[];
     final release = source.observation.listen(live.add);
     for (var i = 0; i < 5000; i++) source.watch(const SawText('x'));
-    expect(live, hasLength(5000));
+    expect(live, isEmpty,
+        reason: 'rendering never runs in the publishing callback');
+    await Future<void>.delayed(Duration.zero);
+    expect(live.first, isA<ObservedReset>());
+    expect(live, hasLength(3));
+    expect(((live[1] as ObservedModel).event as SawText).text, hasLength(4096));
     release();
     final late = <SessionObservationEvent>[];
     source.observation.listen(late.add);
-    expect(late, hasLength(4097));
+    expect(late, hasLength(2));
     expect((late.last as ObservedModel).event, isA<SawNotice>());
     source.close();
     expect(() => source.observation.listen((_) {}), throwsStateError);

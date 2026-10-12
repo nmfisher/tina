@@ -44,7 +44,7 @@ void main() {
     },
   );
 
-  test('unattached model previews replay independently to each subscriber', () {
+  test('unattached model previews replay independently to each subscriber', () async {
     final chat = ChatPlugin(model: 'fallback');
     addTearDown(chat.closeSession);
     chat.watch(const SawThinking('thought', startsBlock: true));
@@ -57,6 +57,8 @@ void main() {
     release();
     chat.watch(const SawText(' more'));
     expect(first, hasLength(2));
+    expect(second, hasLength(2), reason: 'live callbacks are deferred');
+    await Future<void>.delayed(Duration.zero);
     expect(second, hasLength(3));
   });
 }

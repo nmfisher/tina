@@ -8,6 +8,12 @@ sealed class SessionObservationEvent {
   const SessionObservationEvent();
 }
 
+/// A bounded live subscriber fell behind. Clear its projection; a fresh replay
+/// follows in this delivery. Durable history remains in the engine log.
+final class ObservedReset extends SessionObservationEvent {
+  const ObservedReset();
+}
+
 final class ObservedEntry extends SessionObservationEvent {
   const ObservedEntry(this.entry, this.event);
   final SessionEntry entry;
@@ -34,6 +40,9 @@ final class SessionObservation {
   bool get running => _source._loop?.inTurn ?? false;
   String? get model => _source._loop?.provider.model;
   ToolDescription? describe(ToolUse call) => _source._describe(call);
+  Map<String, Object?> get snapshot => _source._snapshotState();
+  void Function() listenChanges(void Function() listener) =>
+      _source._listenChanges(listener);
   void Function() listen(void Function(SessionObservationEvent) listener) =>
       _source._listen(listener);
 }
@@ -45,7 +54,8 @@ final class SessionObservationSource implements WatchObserver {
   AgentLoop? _loop;
   int? _handle;
   StreamSubscription<ToolActivity>? _activity;
-  final _listeners = <Object, void Function(SessionObservationEvent)>{};
+  final _listeners = <Object, _ObservationListener>{};
+  final _stateListeners = <Object, void Function()>{};
   final _tail = <SessionObservationEvent>[];
   final _snapshots = Expando<SessionEntry>();
   final _calls = Expando<ToolUse>();
@@ -54,6 +64,40 @@ final class SessionObservationSource implements WatchObserver {
   static const _eventLimit = 4096;
   bool _previewTruncated = false;
   bool _closed = false;
+  bool _scheduled = false;
+
+  Map<String, Object?> _snapshotState() => Map.unmodifiable({
+        'model': observation.model,
+        'running': observation.running,
+        'preview_truncated': _previewTruncated,
+        'preview': List.unmodifiable([
+          for (final event in _compactPreview(_tail))
+            if (event case ObservedModel(:final event))
+              switch (event) {
+                SawText(:final text) => Map<String, Object?>.unmodifiable(
+                    {'kind': 'text', 'text': text}),
+                SawThinking(:final text, :final startsBlock) =>
+                  Map<String, Object?>.unmodifiable({
+                    'kind': 'thinking',
+                    'text': text,
+                    'starts_block': startsBlock
+                  }),
+                SawThinkingEnd() => const <String, Object?>{
+                    'kind': 'thinking_end'
+                  },
+                SawNotice(:final text) => Map<String, Object?>.unmodifiable(
+                    {'kind': 'notice', 'text': text}),
+                _ => const <String, Object?>{},
+              },
+        ]),
+      });
+
+  void Function() _listenChanges(void Function() listener) {
+    if (_closed) throw StateError('Observation is closed');
+    final owner = Object();
+    _stateListeners[owner] = listener;
+    return () => _stateListeners.remove(owner);
+  }
 
   void mountOn(AgentLoop loop) {
     if (_loop != null || _closed)
@@ -175,16 +219,14 @@ final class SessionObservationSource implements WatchObserver {
 
   void Function() _listen(void Function(SessionObservationEvent) listener) {
     if (_closed) throw StateError('Observation is closed');
+    if (_loop?.publishing == true) {
+      throw StateError('Cannot attach during synchronous publication');
+    }
     final owner = Object();
-    _listeners[owner] = listener;
+    final subscription = _ObservationListener(listener);
+    _listeners[owner] = subscription;
     try {
-      for (final entry in _loop?.log ?? <SessionEntry>[]) {
-        listener(ObservedEntry(_snapshot(entry), LogEvent.replay));
-      }
-      for (final event in _tail.toList()) listener(event);
-      if (_previewTruncated)
-        listener(const ObservedModel(SawNotice(
-            'Earlier live preview omitted; the completed response will reconcile it.')));
+      _replay(subscription);
     } catch (_) {
       _listeners.remove(owner);
       rethrow;
@@ -192,11 +234,76 @@ final class SessionObservationSource implements WatchObserver {
     return () => _listeners.remove(owner);
   }
 
+  void _replay(_ObservationListener subscription) {
+    final loop = _loop;
+    // Capture all replay inputs before invoking a re-entrant client callback.
+    final through = loop?.publishedSeq ?? -1;
+    final tail = _compactPreview(_tail);
+    final truncated = _previewTruncated;
+    subscription.pending.clear();
+    subscription.characters = 0;
+    subscription.resync = false;
+    for (var after = -1; after < through;) {
+      final page = loop!
+          .publishedEntries(afterSeq: after, throughSeq: through, limit: 128);
+      for (final entry in page)
+        subscription.listener(ObservedEntry(_snapshot(entry), LogEvent.replay));
+      after += page.length;
+    }
+    for (final event in tail) subscription.listener(event);
+    if (truncated)
+      subscription.listener(const ObservedModel(SawNotice(
+          'Earlier live preview omitted; the completed response will reconcile it.')));
+  }
+
   void _publish(SessionObservationEvent event) {
+    for (final subscription in _listeners.values) {
+      if (subscription.resync) continue;
+      final size = _size(event);
+      if (subscription.pending.length >= _eventLimit ||
+          subscription.characters + size > _retentionLimit) {
+        subscription.pending.clear();
+        subscription.characters = 0;
+        subscription.resync = true;
+      } else {
+        subscription.pending.add(event);
+        subscription.characters += size;
+      }
+    }
+    if (_scheduled) return;
+    _scheduled = true;
+    scheduleMicrotask(_deliver);
+  }
+
+  void _deliver() {
+    _scheduled = false;
+    if (_closed) return;
+    for (final entry in _stateListeners.entries.toList()) {
+      if (!_stateListeners.containsKey(entry.key)) continue;
+      try {
+        entry.value();
+      } catch (_) {
+        _stateListeners.remove(entry.key);
+      }
+    }
     for (final item in _listeners.entries.toList()) {
       if (!_listeners.containsKey(item.key)) continue;
       try {
-        item.value(event);
+        final subscription = item.value;
+        if (subscription.resync) {
+          subscription.listener(const ObservedReset());
+          if (_listeners.containsKey(item.key)) _replay(subscription);
+        } else {
+          final events = subscription.pending.toList();
+          subscription.pending.clear();
+          subscription.characters = 0;
+          for (final event in events) {
+            if (!_listeners.containsKey(item.key)) break;
+            if (event is ObservedEntry &&
+                event.entry.seq > (_loop?.publishedSeq ?? -1)) continue;
+            subscription.listener(event);
+          }
+        }
       } catch (_) {
         // An optional presentation failure must not stop a turn or a sibling.
         _listeners.remove(item.key);
@@ -214,7 +321,54 @@ final class SessionObservationSource implements WatchObserver {
     _loop = null;
     _tail.clear();
     _listeners.clear();
+    _stateListeners.clear();
   }
+}
+
+final class _ObservationListener {
+  _ObservationListener(this.listener);
+  final void Function(SessionObservationEvent) listener;
+  final pending = <SessionObservationEvent>[];
+  int characters = 0;
+  bool resync = false;
+}
+
+/// Replaying thousands of tiny tokens must not cause thousands of redraws.
+/// Preserve block boundaries while delivering each adjacent text run once.
+List<SessionObservationEvent> _compactPreview(
+    List<SessionObservationEvent> events) {
+  final result = <SessionObservationEvent>[];
+  StringBuffer? text;
+  bool? thinking;
+  var startsBlock = false;
+  void flush() {
+    if (text == null) return;
+    result.add(ObservedModel(thinking!
+        ? SawThinking(text.toString(), startsBlock: startsBlock)
+        : SawText(text.toString())));
+    text = null;
+  }
+
+  for (final event in events) {
+    if (event case ObservedModel(event: SawText(text: final chunk))) {
+      if (thinking == true) flush();
+      thinking = false;
+      (text ??= StringBuffer()).write(chunk);
+    } else if (event
+        case ObservedModel(
+          event: SawThinking(text: final chunk, startsBlock: final starts)
+        )) {
+      if (thinking == false || starts) flush();
+      if (text == null) startsBlock = starts;
+      thinking = true;
+      (text ??= StringBuffer()).write(chunk);
+    } else {
+      flush();
+      result.add(event);
+    }
+  }
+  flush();
+  return result;
 }
 
 Map<String, dynamic> _freezeMap(Map<String, dynamic> input) =>
