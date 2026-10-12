@@ -37,17 +37,20 @@ void main() {
   late Io io;
   late Screen screen;
   late LineEditor editor;
-  late ActivityTuiPlugin plugin;
+  late ActivityView plugin;
+  late SessionObservationSource source;
   setUp(() {
     io = Io();
     screen =
         Screen(io: io, layout: ScreenLayout.fromSize(80, 24, split: false));
     editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-    plugin = ActivityTuiPlugin(terminal: Output(screen));
+    source = SessionObservationSource();
+    plugin = ActivityView(source.observation);
     plugin.attachConsole(ConsoleContext(screen: screen, editor: editor));
   });
   tearDown(() {
-    plugin.closeSession();
+    plugin.detachConsole();
+    source.close();
     editor.close(reportLatency: false);
     screen.dispose();
     unawaited(io.input.close());
@@ -196,7 +199,9 @@ void main() {
             ToolResultBlock(toolUseId: 'a', content: 'denied', isError: true)
           ])),
     ]);
-    plugin.mountOn(loop);
+    plugin.detachConsole();
+    source.mountOn(loop);
+    plugin.attachConsole(ConsoleContext(screen: screen, editor: editor));
     expect(plugin.model.records.single.state, 'error');
     expect(plugin.model.records.single.summary, 'denied');
     expect(chat(), isNot(contains('denied')));

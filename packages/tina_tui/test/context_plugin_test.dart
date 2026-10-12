@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:tina_context/tina_context.dart';
-import 'package:tina_context_tui/tina_context_tui.dart';
+import 'package:tina_host/tina_host.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/tina_tui.dart';
@@ -94,8 +94,12 @@ void main() {
         'tina/context-tui', true, PluginScope.workspace, app.pluginManager);
     expect(app.pluginManager.lastError, isNull);
     expect(app.commands['context'], isNotNull);
-    expect(app.host.plugins.whereType<ContextTuiPlugin>().single.context,
-        same(plugin));
+    expect(
+        app.host.plugins
+            .whereType<PresentationPlugin<ContextObservation>>()
+            .single
+            .source,
+        same(plugin.observation));
     expect(app.host.session.loop.log.length, before);
     expect(
         () => app.pluginSettings.apply(
@@ -126,8 +130,12 @@ void main() {
         options: options(), providerFactory: (_) => ScriptedProvider([]));
     addTearDown(restarted.close);
     expect(restarted.commands['context'], isNotNull);
-    expect(restarted.host.plugins.whereType<ContextTuiPlugin>().single.context,
-        same(context(restarted)));
+    expect(
+        restarted.host.plugins
+            .whereType<PresentationPlugin<ContextObservation>>()
+            .single
+            .source,
+        same(context(restarted).observation));
   });
 
   test(

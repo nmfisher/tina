@@ -238,7 +238,7 @@ final class ActivityModel {
     return row;
   }
 
-  void event(ToolActivity event) {
+  void event(ToolActivity event, {DateTime? at}) {
     final previous = record(event.call);
     if (previous.finished && event is! ToolStarted) return;
     final row = event is ToolStarted && previous.finished
@@ -247,7 +247,7 @@ final class ActivityModel {
     switch (event) {
       case ToolStarted():
         row.state = 'running';
-        row.started = DateTime.now();
+        row.started = at ?? DateTime.now();
       case ToolOutput(:final text):
         row.append(text);
       case ToolProgress(:final status):

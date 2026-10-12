@@ -1,35 +1,24 @@
 import 'dart:async';
 import 'dart:collection';
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart';
 import 'panels_status.dart';
 
 /// UI-only workspace: session creation/execution is supplied by the app.
-final class PanelsTuiPlugin extends AgentPlugin
-    implements ConsoleContribution, ConsoleWorkspace {
-  PanelsTuiPlugin({required this.terminal});
-  final Terminal terminal;
-  @override
-  String get id => 'tina/panels-tui';
+final class PanelsView
+    implements ConsoleContribution, ConsoleWorkspace, ConsoleCommandHandler {
+  PanelsView();
   ConsoleContext? _console;
   _Workspace? _workspace;
   @override
-  List<Command> get commands => [
-        Command(
-            name: 'spawn',
-            description: 'open a conversation panel [/spawn provider/model]',
-            handler: (argument) async => _panels
-                ?.spawn(argument.trim().isEmpty ? null : argument.trim())),
-        Command(
-            name: 'close',
-            description: 'close the focused panel (Ctrl+X)',
-            handler: (_) async => _panels?.closeFocused()),
-      ];
-  ConsolePanels? get _panels {
+  Future<void>? handleConsoleCommand(String name, String arguments) {
     final panels = _console?.panels;
-    if (panels == null)
-      terminal.writeln('Panels require the interactive console.');
-    return panels;
+    if (panels == null) return null;
+    return switch (name) {
+      'spawn' =>
+        panels.spawn(arguments.trim().isEmpty ? null : arguments.trim()),
+      'close' => panels.closeFocused(),
+      _ => null,
+    };
   }
 
   @override

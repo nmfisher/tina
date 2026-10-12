@@ -1,23 +1,34 @@
 # Daemon sessions — one runtime, multiple TUI clients
 
 Status: **preparatory refactors in progress; daemon not implemented**.
-Updated: 2026-10-11, against v0.9.56.
+Updated: 2026-10-12, against v0.9.56.
 
-Preparation status: phase 0 is complete. The
+Preparation status: phases 0 and 1 are complete. The
 [ownership and behavior baseline](session_ownership_baseline.md) records the
-command/settings inventory, existing coverage and added lifecycle
-characterization tests. Phase 1's plans and classification slices are implemented:
-one runtime `PlansPlugin` supplies read-only state to independent `PlansView` instances.
+original command/settings inventory and lifecycle characterization tests.
+All first-party runtime factories are now independent of presentation.
+One runtime `PlansPlugin` supplies read-only state to independent `PlansView`
+instances.
 One runtime `ClassificationPlugin` supplies status and immutable trace snapshots
 to independent `ClassificationView` inspectors.
-The remaining feature views and later runtime/attachment phases are still pending.
+Step-limit policy now uses a plain runtime plugin and the existing generic
+Settings panel, with no feature-specific console adapter.
+One runtime `McpPlugin` owns configuration, connections, tools and session grants;
+independent `McpView` attachments edit settings through `McpManagement`.
+Chat, activity, model controls, mode, context, updates, status layout, workspace
+panels and approvals now have independent views. Two in-process `SessionView`
+attachments share one runtime, including direct host turns and live plugin changes.
+The approval portion of phase 2 and the disposable notification portion of phase 4
+are implemented. Correlated ordinary questions, a separate runtime package and
+session operation contracts remain pending; no daemon has been built.
 
 ## Assessment
 
-Multiple TUI instances can share a live session without rewriting the engine.
-The engine and host provide the right foundation, but the application and
-presentation layers do not yet support independent attachments. A socket around
-`TuiAssembly` would preserve those problems rather than solve them.
+Two in-process session views now share a live runtime with independent
+presentation and disposable observations. The engine and host remain the
+foundation. Separate runtime packaging, correlated ordinary questions and
+session operation contracts still precede a remote client or daemon; wrapping
+`TuiAssembly` directly in a socket would bypass those remaining boundaries.
 
 The immediate work is to separate concerns in the existing embedded application.
 Do not implement a daemon, socket protocol or background startup in this pass.
@@ -35,12 +46,12 @@ replacement for their stores or change SQLite durability.
 |---|---|---|
 | Engine and host | `tina_engine_2` and `tina_host` have no terminal dependency. `Host` owns the loop, provider and mounted plugins. | Retain both; put the application runtime above them. |
 | Committed history | `AgentLoop.subscribe` and `subscribeBatches` replay existing entries before delivering new ones. Entries carry `seq`. Batch listeners run before per-entry observers. | Reuse the log for history and preserve persistence before client notification. |
-| Application assembly | `TuiAssembly` runs without a screen, but its catalog constructs TUI plugins and supplies concrete tools, providers and settings to them. | A presentation-free runtime requires more than a file move. |
+| Application assembly | `TuiAssembly` runs without a screen. Its runtime catalog imports no TUI view package, while the assembly remains in `tina_tui` and supplies concrete tools, providers and settings. | A presentation-free runtime requires more than a file move. |
 | TUI lifetime | `app.dart` cancels the session on exit; `TuiSession.close` closes the assembly and host. | Detaching a client must become separate from stopping the runtime. |
-| Notifications | Assembly settings/watch callbacks, terminal output and plugin-manager callbacks each have one mutable callback slot. | Two clients would replace one another's callbacks. Introduce independently disposable subscriptions. |
-| Presentation | Plans and classification now have independent views over read-only feature observations. `ChatTuiPlugin` still holds one `ConsoleContext`; attaching a new console detaches the previous one. Step-limit and MCP adapters still inherit their runtime plugins. | Continue creating presentation objects per attachment; compose them with feature capabilities instead of sharing or duplicating runtime plugins. |
-| Live model output | `_ObservedProvider` delivers watch events only while the assembly's `turnObservation` marker is active. `TuiSession.runLine` controls that marker. | Observation must continue regardless of which client initiated a turn or remains attached. |
-| Approvals | `ApprovalsPlugin` has request IDs, pending requests, cancellation and single-response tickets. `StreamApprovalChannel` has one subscriber and denies pending requests when it unsubscribes. | Keep the approval service; add a runtime-owned broker instead of subscribing each TUI directly to this channel. |
+| Notifications | Settings changes, terminal output and plugin lifecycle events support independently disposable listeners; foreground watch lifetime follows runtime log events. | Attachments release only their own listeners. Application commands that open Settings route to the submitting view. |
+| Presentation | Every first-party feature view is independent of its runtime plugin. Chat and activity consume immutable session observations; frontend-only IDs have stateless declarations. | Keep one runtime feature instance and a fresh presentation object per attachment. Existing third-party combined contributions retain their compatibility fallback. |
+| Live model output | `_ObservedProvider` observes foreground turns through runtime-owned log markers. Chat retains bounded previews independently of attachments. | Direct `Host.send` and turns continuing after detach deliver observations. Background requests remain excluded; late views replay canonical history plus the current preview. |
+| Approvals | `ApprovalsPlugin` has request IDs, pending requests, cancellation and single-response tickets. `StreamApprovalChannel` has one subscriber and denies pending requests when it unsubscribes. | The interactive channel is now `AttachmentApprovalChannel`. Each view gets a question facade; the ticket and channel lifetime remain private. Detach retains pending approvals; new headless requests fail closed. |
 | Other questions | `TuiTerminal.ask` and `submitAnswer` match questions and answers by FIFO order, without request IDs. | Questions crossing the attachment boundary need correlated IDs and stale-response rejection too. |
 | Persistence | Each persistence plugin owns a connection. SQLite uses WAL, a busy timeout and `synchronous=FULL`; session sequence gaps are checked on resume. | Preserve these guarantees. WAL serializes database transactions; it does not enforce one live engine for a particular session. |
 
@@ -244,9 +255,9 @@ migrate. No plans compatibility wrapper remains.
 Coverage includes two views sharing updates with independent presentation state,
 detaching either view while the other continues, reattachment from the latest
 snapshot, defensive snapshot immutability, and initial/live load/unload/reload
-through both TUI entry paths. This completes the plans slice only; the shared
-callback slots and interaction lifetimes still prevent general simultaneous
-session attachments until the later phases.
+through both TUI entry paths. At this initial checkpoint only the plans slice was complete. The later
+feature and notification work below now supports two in-process views; the
+remaining application/operation phases still precede a daemon.
 
 Initial slice validation: plans runtime tests passed (15); the complete TUI
 suite passed (353, with three existing opt-in PTY suites skipped). After the
@@ -289,19 +300,116 @@ through both entry paths. Architecture tests passed (43), analysis is clean in
 all five affected packages, and the architecture check has no new exceptions.
 The new package has a CI job selected through the existing dependency graph.
 
-Convert the remaining presentation adapters that inherit runtime plugins into
-separate views that receive the feature's state/operation capability. Continue
-with step limits and MCP; then separate mode, context, activity,
-chat, updates, session controls and workspace panels.
+**Step-limit slice implemented.** The runtime catalog constructs a plain
+`StepLimitPlugin.configured`, reading the effective numeric policy at the start
+of each input turn. Its existing setting definition remains installed even when
+the plugin is disabled. The application already rendered that definition in the
+generic Settings panel; the former `StepLimitConsolePlugin` registered no UI
+when scoped settings were supplied. That redundant adapter and chat's dependency
+on step-limit policy are removed.
+
+No dedicated step-limit UI package or view factory is needed. Each Settings
+panel owns its input, rendering and subscriptions while the runtime retains the
+turn's allowance and round counter. Settings edits affect the next input turn;
+closing an editor or detaching/replacing a session view does not reset either
+value during ongoing work. `StepLimitConfig` still supports the global file
+format for standalone callers, and the configured runtime factory accepts that
+file path when scoped settings are absent. Application settings retain their
+existing session, workspace and global scopes, validation and live enablement.
+
+Step-limit validation: runtime tests passed (12), the remaining chat suite passed
+(98), and affected settings, assembly, workspace and lifecycle tests passed (92).
+Coverage includes independent scoped editors, rejected numeric input, active
+allowance/counter preservation across detach and reattach, next-turn application,
+and live unload/reload through both TUI entry paths. Architecture tests passed
+(43). Analysis is clean in the three affected packages; the architecture check
+passes without new exceptions.
+
+**MCP slice implemented.** The runtime catalog constructs a plain
+`McpPlugin.configured`, which owns its config store, connections, discovery,
+execution and exact conversation grants. Its `McpManagement` capability exposes
+server configuration, immutable status maps, field edits and value-free change
+notifications. It provides no tool executor or server-close operation to views.
+The original callback-based constructor remains usable without persisted settings.
+
+The dedicated `tina_mcp_tui` package owns `McpView`. Each presentation factory call
+creates a new view over the same management capability; each attachment owns
+its settings registration and subscription. Status actions write to the invoking
+view's chat region. Closing a settings view does not close connections, interrupt
+an active call, clear discovered tools or reset exact session grants. Paused
+presentation subscriptions cannot delay runtime shutdown.
+
+The settings format, global scope, secret environment/header editors and
+next-turn application remain unchanged. Runtime-owned field edits read the latest
+saved server before merging a change, preserving other fields edited in another
+view. A stale editor cannot recreate a server removed on disk or write after the
+runtime closes. Adding/editing settings does not launch a server or request tool
+approval; connections still start in `prepareTurn` and calls use the existing
+approval policy.
+
+MCP validation: the complete runtime suite passed (19; the optional official
+Blender interoperability test remains skipped), the new view suite passed (5),
+and affected TUI settings, factory, live-plugin, assembly, workspace and lifecycle
+tests passed (119). Tests include two editors merging captured controls,
+one shared real subprocess connection, detachment during an active call,
+retained session approvals, next-turn disabling and unload/reload while Settings
+is open through both TUI entry paths. Architecture tests passed (43); analysis is
+clean in all three affected packages. The new package has a dependency-selected
+CI job and the architecture check has no new exceptions.
+
+**Remaining feature splits implemented.** Pure `tina_chat`, `tina_activity` and
+`tina_session_controls` packages own observation/model state and settings.
+`SessionObservationSource` freezes shared log and tool payloads before notifying
+views; canonical history remains in the loop. Incomplete previews are bounded
+by characters and event count, announce omitted data to late attachments, and
+reconcile against committed completion. Persistence still receives batches first.
+A detached or throwing observer cannot cancel execution or affect a sibling.
+
+`ModeObservation` exposes policy controls with disposable observation;
+`ContextObservation` exposes immutable accepted context and mirror diagnostics.
+Mode/context/update/status/panels IDs retain their existing catalog declarations,
+commands, settings and dependencies through stateless `PresentationPlugin`s.
+Their view objects own overlays, subscriptions, timers, selection and scrolling.
+Model pickers have independent filters; a stale picker cannot change a closed
+runtime. `/model`, `/context`, `/activity`, `/spawn`, `/close` and `/settings`
+open presentation in the invoking attachment. Runtime command registration and
+busy-turn policy remain authoritative, with headless fallback diagnostics.
+
+`AttachmentApprovalChannel` owns pending delivery and model suggestions. Each
+`ApprovalView` owns its dialog, input capture, regex editor and suggestion
+cancellation. Views get immutable requests and a correlated response facade,
+never the runtime ticket. The service retains validation and remembered grant
+storage. The first accepted answer resolves the question for every view; late
+answers cannot apply to a successor. Detaching a view leaves a pending question
+available to siblings or reattachment. Session cancellation/expiry/shutdown
+still denies it, and requests arriving without a responder fail closed.
+
+The application runner and workspace sessions use independently disposable
+terminal/configuration/plugin observers. Workspace mode releases the outer
+runner's regular-view observers before creating panel views, so live reload
+cannot mount a hidden second copy of the feature. Detaching a `SessionView`
+releases only its observers. Its explicit `close` still shuts down the embedded
+runtime it owns; a remote lifecycle API remains a later phase.
+
+Architecture coverage now forbids runtime feature construction from importing
+presentation packages. CI and dependency-selection policy include the new
+runtime and MCP presentation packages without additional baseline exceptions.
+
+Final validation: the TUI suite passed 365 tests with three existing opt-in PTY
+suites skipped and the compiled-smoke tag excluded. The engine passed 94 tests,
+host 28, chat views 100, approval runtime/views 16/57, context runtime/views
+69/10, mode 23, activity views 8 and MCP runtime/views 19/5 (one optional Blender
+interoperability test skipped). The new chat/activity/model runtime suites,
+step-limit ownership checks and 44 architecture checks also pass. Changed
+packages analyze cleanly and formatting/diff checks pass.
 
 Chat views must own their own renderer, markdown state, folds, selection,
 scroll-related bookkeeping and console bindings. Runtime features remain single
 instances. Read-only projection of their state into multiple views is allowed;
 creating another runtime plugin for a second view is not.
 
-Split factory registration into runtime factories and presentation factories.
-Keep a compatibility composition wrapper where needed while the current
-assembly still constructs both. Remove that wrapper once callers migrate.
+Runtime and presentation factories are separate. No first-party combined
+wrapper remains; the compatibility fallback is limited to external contributions.
 
 Preserve existing plugin IDs, defaults, dependency declarations, global/
 workspace/session overrides and restart-versus-idle application rules. Catalog

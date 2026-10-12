@@ -38,8 +38,27 @@ class McpPlugin extends AgentPlugin {
       required this.approve,
       this.terminal,
       McpConnector? connect})
-      : connect =
+      : _store = null,
+        connect =
             connect ?? ((config, workspace) => connectMcp(config, workspace));
+
+  /// Configuration and connections belong to the session. Console views get
+  /// [management], which cannot execute tools or close a server.
+  McpPlugin.configured(
+      {required McpConfigStore store,
+      required this.workingDirectory,
+      required this.approve,
+      this.terminal,
+      McpConnector? connect})
+      : _store = store,
+        readServers = store.read,
+        connect =
+            connect ?? ((config, workspace) => connectMcp(config, workspace));
+
+  final McpConfigStore? _store;
+  late final McpManagement? management =
+      _store == null ? null : McpManagement._(this, _store);
+  final _changes = StreamController<void>.broadcast();
   final String workingDirectory;
   final List<McpServerConfig> Function() readServers;
   final McpApprover approve;
@@ -51,6 +70,17 @@ class McpPlugin extends AgentPlugin {
   final _grants = <String>{};
   final _status = <String, String>{};
   Map<String, String> get serverStatus => Map.unmodifiable(_status);
+
+  void _notifyChanged() {
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
+  void _setStatus(String name, String value) {
+    if (_status[name] == value) return;
+    _status[name] = value;
+    _notifyChanged();
+  }
+
   AgentLoop? _loop;
   bool _closed = false;
   int _preparation = 0;
@@ -75,10 +105,12 @@ class McpPlugin extends AgentPlugin {
     bool abandoned() =>
         _closed || context.cancelled || preparation != _preparation;
     final allConfigs = readServers();
+    final previousStatusCount = _status.length;
     _status.removeWhere(
         (name, _) => !allConfigs.any((server) => server.name == name));
+    if (_status.length != previousStatusCount) _notifyChanged();
     for (final server in allConfigs.where((server) => !server.enabled)) {
-      _status[server.name] = 'Disabled';
+      _setStatus(server.name, 'Disabled');
     }
     final configs = allConfigs.where((s) => s.enabled).toList();
     final desired = {for (final config in configs) config.name: config};
@@ -99,7 +131,7 @@ class McpPlugin extends AgentPlugin {
       var server = _servers[config.name];
       try {
         if (server == null) {
-          _status[config.name] = 'Connecting';
+          _setStatus(config.name, 'Connecting');
           final transport = await connect(config, workingDirectory);
           connecting = McpClient(transport,
               timeout: config.timeout,
@@ -113,7 +145,7 @@ class McpPlugin extends AgentPlugin {
           server.client.onToolsChanged = () => server!.dirty = true;
           server.client.onDisconnected = () {
             if (identical(_servers[config.name], server)) {
-              _status[config.name] = 'Disconnected';
+              _setStatus(config.name, 'Disconnected');
             }
           };
           if (abandoned()) {
@@ -137,7 +169,7 @@ class McpPlugin extends AgentPlugin {
           server.tools = List<Map<String, dynamic>>.from(discovered);
         }
         if (abandoned()) return;
-        _status[config.name] = '${server.tools.length} tools connected';
+        _setStatus(config.name, '${server.tools.length} tools connected');
       } catch (error) {
         if (abandoned()) {
           // A cancelled hook may finish after a fresh turn has connected the
@@ -153,7 +185,7 @@ class McpPlugin extends AgentPlugin {
         if (server != null && identical(_servers[config.name], server))
           _servers.remove(config.name);
         await (server?.client ?? connecting)?.close();
-        _status[config.name] = 'Unavailable';
+        _setStatus(config.name, 'Unavailable');
         // Connection diagnostics never include credentials, env values or URLs.
         terminal?.writeln(
             'MCP ${config.name}: unavailable (${error.runtimeType}). Check its configuration and server.');
@@ -339,11 +371,63 @@ class McpPlugin extends AgentPlugin {
     _grants.clear();
     final servers = _servers.values.toList();
     _servers.clear();
+    for (final server in servers) {
+      _setStatus(server.config.name, 'Disconnected');
+    }
+    // A paused presentation subscription must not delay server shutdown.
+    unawaited(_changes.close());
     await Future.wait(servers.map((server) => server.client.close()));
   }
 
   @override
   void closeSession() {
     unawaited(shutdown());
+  }
+}
+
+/// The settings editor's capability over a configured MCP feature. Credentials
+/// are read only for explicit editing; change notifications contain no values.
+/// Connection lifecycle, tool execution and approvals remain in [McpPlugin].
+final class McpManagement {
+  McpManagement._(this._plugin, this._store);
+  final McpPlugin _plugin;
+  final McpConfigStore _store;
+
+  List<McpServerConfig> get servers => List.unmodifiable(_store.read());
+  Map<String, String> get serverStatus => _plugin.serverStatus;
+  Stream<void> get changes => _plugin._changes.stream;
+
+  void _checkOpen() {
+    if (_plugin._closed) throw StateError('MCP session is closed');
+  }
+
+  void _add(String name, Map<String, dynamic> values) {
+    _checkOpen();
+    name = name.trim();
+    if (servers.any((server) => server.name == name)) {
+      throw StateError('Server already exists');
+    }
+    _store.save(McpServerConfig(name, values));
+    _plugin._notifyChanged();
+  }
+
+  void addLocalServer(String name) => _add(name, {
+        'command': name.trim() == 'blender' ? 'blender-mcp' : name.trim(),
+        'enabled': false,
+      });
+
+  void addHttpServer(String name) => _add(name, {
+        'url': 'http://localhost:8000/mcp',
+        'enabled': false,
+      });
+
+  /// Merge into the current saved server, not an editor's captured snapshot.
+  /// The runtime applies the resulting configuration at the next turn.
+  void setValue(String name, String key, Object? value) {
+    _checkOpen();
+    final current = servers.where((server) => server.name == name).firstOrNull;
+    if (current == null) throw StateError('MCP server no longer exists');
+    _store.save(current.withValue(key, value));
+    _plugin._notifyChanged();
   }
 }

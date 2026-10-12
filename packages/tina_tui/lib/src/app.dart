@@ -85,7 +85,7 @@ Future<int> runApp(
   }
 
   var appliedTheme = jsonEncode(session.assembly.theme);
-  session.assembly.onSettingsChanged = () {
+  final releaseSettings = session.assembly.listenSettings(() {
     final next = jsonEncode(session.assembly.theme);
     if (next != appliedTheme) {
       appliedTheme = next;
@@ -99,8 +99,8 @@ Future<int> runApp(
       repaintContributions();
     }
     settings.repaint();
-  };
-  session.assembly.openSettings = () => console.interact(() async {
+  });
+  Future<void> openSettings() => console.interact(() async {
         if (stopping) return;
         try {
           final saved = await settings.run(
@@ -140,7 +140,7 @@ Future<int> runApp(
           workingDir: session.assembly.host.config.workingDirectory);
   }
 
-  terminal.onLine = (text) {
+  final releaseLines = terminal.listenLines((text) {
     final transcripts = attached.values
         .map((attachment) => attachment.contribution)
         .whereType<ConsoleTranscript>();
@@ -149,7 +149,7 @@ Future<int> runApp(
     } else {
       transcripts.first.writeNotice(text);
     }
-  };
+  });
 
   void attachContribution(AgentPlugin plugin) {
     final contribution = createConsoleView(plugin);
@@ -161,8 +161,8 @@ Future<int> runApp(
     attached.remove(plugin)?.dispose();
   }
 
-  session.assembly.pluginManager.onLoaded = attachContribution;
-  session.assembly.pluginManager.onUnloading = detachContribution;
+  final releasePlugins = session.assembly.pluginManager
+      .listen(loaded: attachContribution, unloading: detachContribution);
 
   var ownsTty = false;
   bool? previousEchoMode;
@@ -207,9 +207,16 @@ Future<int> runApp(
     interruptSubscription = s.io
         .watchSignal(io.ProcessSignal.sigint)
         .listen((_) => editor.inject(ControlKey(ControlCode.ctrlC)));
-    final workspace =
-        session.host.plugins.whereType<ConsoleWorkspace>().firstOrNull;
+    final workspace = session.host.plugins
+        .map(createConsoleView)
+        .whereType<ConsoleWorkspace>()
+        .firstOrNull;
     if (workspace != null) {
+      // Workspace sessions own their own views and observations. This outer
+      // runner owns only the terminal and workspace layout.
+      releasePlugins();
+      releaseLines();
+      releaseSettings();
       resizeSubscription = (resizes ??
               (screen == null
                   ? s.io.watchSignal(io.ProcessSignal.sigwinch).map((_) =>
@@ -289,8 +296,9 @@ Future<int> runApp(
       editor.beginCancelMonitor(() {
         if (session.canCancel) session.cancel();
       }, onQueueSubmit: (text) {
-        final command = offerConsoleCommand(
-                session.commands, attached.values, text,
+        final command = offerSettingsCommand(
+                session.commands, text, openSettings, whileRunning: true) ??
+            offerConsoleCommand(session.commands, attached.values, text,
                 whileRunning: true) ??
             session.offerCommand(text);
         if (command != null) {
@@ -309,7 +317,9 @@ Future<int> runApp(
               queued.length + session.host.session.loop.pendingInputCount);
       try {
         final work =
-            offerConsoleCommand(session.commands, attached.values, line)
+            (offerSettingsCommand(session.commands, line, openSettings) ??
+                        offerConsoleCommand(
+                            session.commands, attached.values, line))
                     ?.then((_) => session.assembly.quitRequested) ??
                 session.runLine(line, renderReply: false);
         await Future.any([work, editor.whenQuit]);
@@ -334,19 +344,17 @@ Future<int> runApp(
       session.host.session.loop.unsubscribe(listener);
     releaseQueueStatus?.call();
     settings.cancel();
-    session.assembly.onSettingsChanged = null;
+    releaseSettings();
     await Future.wait(commands.toList());
     await resizeSubscription?.cancel();
-    session.assembly.openSettings = null;
-    session.assembly.pluginManager.onLoaded = null;
-    session.assembly.pluginManager.onUnloading = null;
+    releasePlugins();
     editor.onDoubleEscape = null;
     for (final attachment in attached.values.toList().reversed) {
       try {
         attachment.dispose();
       } catch (_) {/* Restore the terminal regardless. */}
     }
-    terminal.onLine = null;
+    releaseLines();
     if (ownsTty) {
       try {
         if (previousEchoMode != null) io.stdin.echoMode = previousEchoMode;

@@ -5,7 +5,14 @@ import 'package:toml/toml.dart';
 
 final class McpServerConfig {
   McpServerConfig(this.name, Map<String, dynamic> values)
-      : values = Map.unmodifiable(values) {
+      : values = Map.unmodifiable({
+          for (final entry in values.entries)
+            entry.key: switch (entry.value) {
+              List value => List.unmodifiable(value),
+              Map value => Map.unmodifiable(value),
+              final value => value,
+            }
+        }) {
     if (!RegExp(r'^[a-z][a-z0-9_-]*$').hasMatch(name)) {
       throw const FormatException(
           'MCP server names must be lowercase identifiers');

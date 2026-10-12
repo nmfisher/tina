@@ -1,0 +1,19 @@
+name: tina_mcp_tui
+description: Independent console settings views for tina's MCP client plugin.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  tina_mcp:
+    path: ../tina_mcp
+  tina_console:
+    path: ../../tina_console
+  tina_settings:
+    path: ../../libraries/tina_settings
+dev_dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_approvals:
+    path: ../tina_approvals
+  test: ^1.25.0

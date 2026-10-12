@@ -41,7 +41,7 @@ void main() {
   late Directory dir;
   late File mirror;
   late ContextPlugin context;
-  late ContextTuiPlugin viewer;
+  late ContextView viewer;
   late AgentLoop loop;
   late TestIo io;
   late Screen screen;
@@ -70,11 +70,11 @@ void main() {
         backend: AnsiBackend(io: io, ansi: AnsiCapable.yes),
         layout: ScreenLayout.fromSize(100, 24, split: false));
     editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-    viewer = ContextTuiPlugin(context: context, terminal: TestTerminal());
+    viewer = ContextView(context: context.observation);
     viewer.attachConsole(ConsoleContext(screen: screen, editor: editor));
   });
   tearDown(() {
-    viewer.closeSession();
+    viewer.detachConsole();
     context.closeSession();
     editor.close(reportLatency: false);
     screen.dispose();
@@ -252,10 +252,9 @@ void main() {
       layout: ScreenLayout.fromSize(100, 24, split: false),
     );
     final monoEditor = LineEditor(screen: monoScreen);
-    final monoViewer =
-        ContextTuiPlugin(context: overflow, terminal: TestTerminal());
+    final monoViewer = ContextView(context: overflow.observation);
     addTearDown(() {
-      monoViewer.closeSession();
+      monoViewer.detachConsole();
       overflow.closeSession();
       monoEditor.close(reportLatency: false);
       monoScreen.dispose();

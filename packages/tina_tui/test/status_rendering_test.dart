@@ -1,3 +1,4 @@
+import 'package:tina_chat/tina_chat.dart';
 import 'dart:async';
 
 import 'package:test/test.dart';
@@ -42,14 +43,17 @@ void main() {
           editor: editor,
           readKey: (_) async =>
               await keyIterator.moveNext() ? keyIterator.current : null);
-      final chat = ChatTuiPlugin(model: 'test')..attachConsole(context);
-      final ui = ApprovalTuiPlugin()..attachConsole(context);
-      final approvals = ApprovalsPlugin(channel: ui);
+      final chat = ChatView(ChatPlugin(model: 'test').observation)
+        ..attachConsole(context);
+      final channel = AttachmentApprovalChannel();
+      final ui = ApprovalView(channel.interaction)..attachConsole(context);
+      final approvals = ApprovalsPlugin(channel: channel);
       final terminal = VirtualTerminal(width: width, height: height);
       addTearDown(() async {
         approvals.closeSession();
-        ui.closeSession();
-        chat.closeSession();
+        ui.detachConsole();
+        channel.closeSession();
+        chat.detachConsole();
         editor.close(reportLatency: false);
         screen.dispose();
         await keyIterator.cancel();

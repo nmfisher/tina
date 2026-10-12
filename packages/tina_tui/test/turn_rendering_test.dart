@@ -216,7 +216,8 @@ enabled = ["tina/chat-tui"]
           input: {'filePath': 'denied.txt', 'content': 'no'})
     ], stopReason: 'tool_use'));
     await provider.requests.first.close();
-    await waitFor(() => approvalUi(session).asker!.current != null);
+    await waitFor(
+        () => approvalUi(session).interaction.pending.firstOrNull != null);
     expect(File('${directory.path}/denied.txt').existsSync(), false);
     io.feedBytes('n'.codeUnits);
     await waitFor(() => provider.requests.length == 2);

@@ -853,6 +853,32 @@ jobs:
         working-directory: packages/plugins/tina_classification_tui
         run: dart test -j 4
 
+  tina_mcp_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_mcp_tui')
+    name: tina_mcp_tui (packages/plugins/tina_mcp_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install native console dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+      - name: pub get (tina_mcp_tui)
+        working-directory: packages/plugins/tina_mcp_tui
+        run: dart pub get
+      - name: analyze (tina_mcp_tui)
+        working-directory: packages/plugins/tina_mcp_tui
+        run: dart analyze
+      - name: test (tina_mcp_tui)
+        working-directory: packages/plugins/tina_mcp_tui
+        run: dart test -j 4
+
   tina_goals:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'tina_goals')
@@ -1104,3 +1130,54 @@ jobs:
       - name: test (tina_mcp)
         working-directory: packages/plugins/tina_mcp
         run: dart test -j 4
+
+  tina_chat:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_chat')
+    name: tina_chat (packages/plugins/tina_chat)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+        working-directory: packages/plugins/tina_chat
+      - run: dart analyze
+        working-directory: packages/plugins/tina_chat
+      - run: dart test -j 4
+        working-directory: packages/plugins/tina_chat
+
+  tina_activity:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_activity')
+    name: tina_activity (packages/plugins/tina_activity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+        working-directory: packages/plugins/tina_activity
+      - run: dart analyze
+        working-directory: packages/plugins/tina_activity
+      - run: dart test -j 4
+        working-directory: packages/plugins/tina_activity
+
+  tina_session_controls:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_session_controls')
+    name: tina_session_controls (packages/plugins/tina_session_controls)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+        working-directory: packages/plugins/tina_session_controls
+      - run: dart analyze
+        working-directory: packages/plugins/tina_session_controls
+      - run: dart test -j 4
+        working-directory: packages/plugins/tina_session_controls

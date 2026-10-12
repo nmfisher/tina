@@ -1,21 +1,13 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_mode/tina_mode.dart';
 
 /// Keyboard and status presentation only. Both this shortcut and /mode write
 /// the same control, which updates the sandbox and process runner together.
-final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
-  ModeTuiPlugin({required this.policy});
-  final ModePlugin policy;
-  ModeControl get mode => policy;
+final class ModeView implements ConsoleContribution {
+  ModeView({required this.mode});
+  final ModeObservation mode;
   ConsoleContext? _console;
-  void Function()? _unbind;
-  @override
-  String get id => policy.id;
-  @override
-  int get order => policy.order;
-  @override
-  List<Command> get commands => policy.commands;
+  void Function()? _unbind, _unlisten;
   @override
   void attachConsole(ConsoleContext context) {
     detachConsole();
@@ -27,6 +19,7 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
       repaintConsole();
       return true;
     });
+    _unlisten = context.own(mode.listen((_) => repaintConsole()));
     repaintConsole();
   }
 
@@ -38,14 +31,11 @@ final class ModeTuiPlugin extends AgentPlugin implements ConsoleContribution {
 
   @override
   void detachConsole() {
+    _unlisten?.call();
+    _unlisten = null;
     _unbind?.call();
     _unbind = null;
     if (_console?.isActive == true) _console?.screen.setModeLabel(null);
     _console = null;
-  }
-
-  @override
-  void closeSession() {
-    detachConsole();
   }
 }

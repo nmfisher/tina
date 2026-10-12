@@ -104,8 +104,18 @@ Dependency direction, top down only:
     `ClassificationView` from `tina_classification_tui`, reading immutable
     trace snapshots through `ClassificationObservation`. View-local inspection
     commands are routed to the submitting attachment without replacing runtime
-    command handlers. Other features still use combined contributions while
-    their views migrate.
+    command handlers. Step limits use a plain `StepLimitPlugin`; the generic
+    Settings panel renders its declared setting, so it needs no custom console
+    view. MCP uses a configured `McpPlugin` for connections, discovery, execution
+    and session grants. Each `McpView` from `tina_mcp_tui` receives its settings
+    capability, `McpManagement`; detaching a view releases only its settings
+    registration and change subscription. Chat, activity, model controls, mode,
+    context, updates, status layout and workspace panels also have fresh views.
+    `tina_chat`, `tina_activity` and `tina_session_controls` own runtime state;
+    frontend-only IDs use `PresentationPlugin` declarations. The runtime catalog
+    imports no presentation package. Approval views receive a narrow interaction
+    capability from the session-owned `AttachmentApprovalChannel`; dialog drafts
+    and cancellation belong to each attachment.
   - `tui_terminal.dart` is the `Terminal` implementation a TUI session
     contributes: a text buffer plugins write lines into, and a queue of
     answers `ask` waits on. No terminal code in it despite the name.
@@ -154,10 +164,13 @@ The planned daemon split (see
 [`proposals/daemon_sessions.md`](proposals/daemon_sessions.md)) separates
 the application runtime from independent TUI attachments so one process
 can own a live session while multiple clients observe it. The engine and
-host already provide the foundation. The remaining work includes splitting
-runtime and presentation plugin construction, separating detach from
-shutdown, and replacing direct runtime access and single UI callbacks with
-session operations and subscriptions. Headless execution alone does not
+host already provide the foundation. Built-in runtime and presentation factories are now separate. Terminal notices,
+configuration notifications and plugin lifecycle events have disposable observers;
+Settings opens in the submitting attachment. Two in-process session views can
+observe one runtime and detach independently. The remaining work includes a
+separate runtime package, correlated non-approval questions, explicit session
+operations and the distinction between an embedded owner's shutdown and a
+remote client's detach. Headless execution alone does not
 establish those boundaries.
 
 ## Principles

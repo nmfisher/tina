@@ -437,6 +437,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_chat:
+    dependency: "direct main"
+    description:
+      path: "../tina_chat"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_console:
     dependency: "direct main"
     description:
@@ -466,7 +473,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_host:
-    dependency: "direct main"
+    dependency: transitive
     description:
       path: "../../tina_host"
       relative: true
@@ -486,22 +493,22 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_settings:
+  tina_session_controls:
     dependency: "direct main"
+    description:
+      path: "../tina_session_controls"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_settings:
+    dependency: transitive
     description:
       path: "../../libraries/tina_settings"
       relative: true
     source: path
     version: "0.1.0"
-  tina_step_limit:
-    dependency: "direct main"
-    description:
-      path: "../tina_step_limit"
-      relative: true
-    source: path
-    version: "0.1.0"
   tina_tools:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       path: "../tina_tools"
       relative: true

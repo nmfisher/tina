@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_step_limit/tina_step_limit.dart';
@@ -23,6 +25,31 @@ AgentLoop loopFor(ScriptedProvider provider, [StepLimitPlugin? limit]) {
 }
 
 void main() {
+  test('configured file policy reloads between turns, with no UI lifetime',
+      () async {
+    final directory = Directory.systemTemp.createTempSync('configured-steps-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final config = StepLimitConfig('${directory.path}/config')..save(2);
+    final plugin = StepLimitPlugin.configured(configPath: config.path);
+    final provider = ScriptedProvider([
+      round(1),
+      scriptedReply('first complete'),
+      round(2),
+      scriptedReply('unreachable'),
+    ]);
+    final loop = loopFor(provider, plugin);
+    loop.registerExecutor('echo', (_) async {
+      config.save(1);
+      return const ToolResult('ok');
+    });
+    expect((await loop.runTurn(const Input('first', id: 'one'))).stopReason,
+        StopReason.complete);
+    expect(provider.callCount, 2);
+    final second = await loop.runTurn(const Input('second', id: 'two'));
+    expect(second.detail, contains('limit (1)'));
+    expect(provider.callCount, 3);
+  });
+
   test('invalid config fails before any foreground request', () async {
     final provider = ScriptedProvider([scriptedReply('unreachable')]);
     final outcome =

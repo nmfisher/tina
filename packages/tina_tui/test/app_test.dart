@@ -9,6 +9,8 @@
 // Run: dart test
 library;
 
+import 'package:tina_approvals/tina_approvals.dart';
+
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
@@ -143,7 +145,7 @@ void main() {
           providerFactory: (_) => ScriptedProvider(const []),
           workingDirectory: ws.path);
       addTearDown(session.close);
-      expect(session.host.config.plugins.whereType<ApprovalTuiPlugin>(),
+      expect(session.host.config.plugins.whereType<AttachmentApprovalChannel>(),
           hasLength(1));
       await expectLater(
           session.assembly.tools.sandbox.approver!(
@@ -238,18 +240,16 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('x'.codeUnits);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(approvalUi(session).asker!.current, isNotNull,
+      expect(approvalUi(session).interaction.pending.firstOrNull, isNotNull,
           reason: 'an unrelated key must not close the approval');
       io.feedBytes('\x1b[A'.codeUnits);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(approvalUi(session).asker!.currentDialog!.current.decision,
-          ApprovalDecision.allow);
       final latestPaint = io.written.toString();
       expect(latestPaint, contains('❯ [y] allow once'),
           reason: 'the painted selection follows the deciding dialog');
       io.feedBytes('\r'.codeUnits);
       expect(await approval.timeout(const Duration(seconds: 2)), Approval.yes);
-      expect(approvalUi(session).asker!.currentDialog, isNull);
+      expect(approvalUi(session).interaction.pending.firstOrNull, isNull);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('/quit\r'.codeUnits);
       expect(await done.timeout(const Duration(seconds: 2)), 0);
@@ -294,13 +294,12 @@ void main() {
             () => ScriptedKeySource(const [ApprovalKey.confirm])),
       );
       // The loop wired the dialog asker; the observer rides on it.
-      final asker = approvalUi(session).asker!;
-      asker.onChange = () {
-        final a = asker.current;
-        if (a != null && seenApprovals.add(a.id)) {
+      final unlisten = approvalUi(session).interaction.listen((question) {
+        final a = question.request;
+        if (seenApprovals.add(a.id))
           approvals.add('${a.operation}:${a.target}');
-        }
-      };
+      });
+      addTearDown(unlisten);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('do the write\r'.codeUnits);
       // The question opens mid-turn; the scripted key source answers
@@ -380,7 +379,7 @@ void main() {
         consoleContextFor: scriptedConsole(
             () => ScriptedKeySource(const [ApprovalKey.always])),
       );
-      final asker = approvalUi(session).asker!;
+      final interaction = approvalUi(session).interaction;
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('write both\r'.codeUnits);
       await feedWhen(io, '/quit',
@@ -388,15 +387,16 @@ void main() {
       expect(await done, 0);
       // The explicit always shortcut selects the remembered grant; the sandbox remembers
       // the grant, so the second identical write never asked.
-      expect(asker.current, isNull, reason: 'no question left on the screen');
+      expect(interaction.pending, isEmpty,
+          reason: 'no question left on the screen');
       expect(File('/tmp/tina_app_always_probe').readAsStringSync(), 'two',
           reason: 'both writes ran, the second after the first');
     });
   });
 }
 
-ApprovalTuiPlugin approvalUi(TuiSession session) =>
-    session.host.config.plugins.whereType<ApprovalTuiPlugin>().single;
+AttachmentApprovalChannel approvalUi(TuiSession session) =>
+    session.host.config.plugins.whereType<AttachmentApprovalChannel>().single;
 
 ConsoleContext Function(Screen, LineEditor) scriptedConsole(
         KeySource Function() keys) =>

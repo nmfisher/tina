@@ -2,8 +2,6 @@ library;
 
 export 'src/settings.dart';
 
-export 'src/step_limit_tui.dart';
-
 export 'src/chat_tui.dart';
 export 'src/mode_tui.dart';
 export 'src/chat_transcript.dart';

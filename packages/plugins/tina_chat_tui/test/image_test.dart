@@ -1,3 +1,4 @@
+import 'support/chat_fixture.dart';
 import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
@@ -32,7 +33,7 @@ void main() {
   late Images backend;
   late Screen screen;
   late LineEditor editor;
-  late ChatTuiPlugin chat;
+  late ChatView chat;
   setUp(() {
     io = Io();
     backend = Images(io);
@@ -41,11 +42,11 @@ void main() {
         backend: backend,
         layout: ScreenLayout.fromSize(40, 24, split: false));
     editor = LineEditor(screen: screen);
-    chat = ChatTuiPlugin(model: 'test')
+    chat = testChat(model: 'test')
       ..attachConsole(ConsoleContext(screen: screen, editor: editor));
   });
   tearDown(() {
-    chat.closeSession();
+    chat.detachConsole();
     editor.close(reportLatency: false);
     screen.dispose();
     unawaited(io.input.close());
@@ -88,8 +89,9 @@ void main() {
     expect(chat.blocks.where((b) => b.subject.startsWith('Image ·')),
         hasLength(1));
     final before = screen.chat.snapshotLines();
-    chat.closeSession();
-    chat = ChatTuiPlugin(model: 'test');
+    chat.detachConsole();
+    chat = testChat(model: 'test')
+      ..attachConsole(ConsoleContext(screen: screen, editor: editor));
     chat.entry(
         MessageAppendedEntry(
             turnId: 'shot',
@@ -98,7 +100,6 @@ void main() {
             ])),
         LogEvent.replay);
     chat.entry(resultEntry, LogEvent.replay);
-    chat.attachConsole(ConsoleContext(screen: screen, editor: editor));
     expect(chat.blocks.where((b) => b.subject.startsWith('Image ·')),
         hasLength(1));
     expect(backend.visible[screen.chat], isNotEmpty);
@@ -126,7 +127,7 @@ void main() {
   });
 
   test('ANSI keeps a readable caption and bad images never stop output', () {
-    chat.closeSession();
+    chat.detachConsole();
     final ansiScreen =
         Screen(io: io, layout: ScreenLayout.fromSize(40, 24, split: false));
     final ansiEditor = LineEditor(screen: ansiScreen);
@@ -134,7 +135,7 @@ void main() {
       ansiEditor.close(reportLatency: false);
       ansiScreen.dispose();
     });
-    chat = ChatTuiPlugin(model: 'test')
+    chat = testChat(model: 'test')
       ..attachConsole(ConsoleContext(screen: ansiScreen, editor: ansiEditor));
     chat.entry(
         MessageAppendedEntry(

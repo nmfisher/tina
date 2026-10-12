@@ -63,8 +63,8 @@ void main() {
   });
 
   test('takeover arranges inherited producers under width pressure', () {
-    final plugin = StatusStripTuiPlugin()..attachConsole(context);
-    addTearDown(plugin.closeSession);
+    final plugin = StatusStripView()..attachConsole(context);
+    addTearDown(plugin.detachConsole);
     vt.feed(io.output.toString());
     final row = stripRow();
     expect(row, contains('v0.9.0'));
@@ -73,8 +73,8 @@ void main() {
   });
 
   test('a narrow strip drops the left line before the right slot', () {
-    final plugin = StatusStripTuiPlugin()..attachConsole(context);
-    addTearDown(plugin.closeSession);
+    final plugin = StatusStripView()..attachConsole(context);
+    addTearDown(plugin.detachConsole);
     io.output.clear();
     screen.resize(ScreenLayout.fromSize(40, 24, split: false));
     plugin.repaintConsole();
@@ -86,7 +86,7 @@ void main() {
   });
 
   test('detaching restores the default arrangement', () {
-    final plugin = StatusStripTuiPlugin()..attachConsole(context);
+    final plugin = StatusStripView()..attachConsole(context);
     vt.feed(io.output.toString());
     expect(stripRow(), contains('v0.9.0'));
     plugin.detachConsole();
@@ -101,8 +101,8 @@ void main() {
   });
 
   test('arrangement tracks terminal width on resize', () {
-    final plugin = StatusStripTuiPlugin()..attachConsole(context);
-    addTearDown(plugin.closeSession);
+    final plugin = StatusStripView()..attachConsole(context);
+    addTearDown(plugin.detachConsole);
     io.output.clear();
     screen.resize(ScreenLayout.fromSize(120, 24, split: false));
     plugin.repaintConsole();
@@ -115,7 +115,7 @@ void main() {
   test('a background view attach does not rearrange the focused strip', () {
     // The plugin was never attached to the active root here: attaching it to
     // a background view, and every later call, must be a no-op.
-    final plugin = StatusStripTuiPlugin();
+    final plugin = StatusStripView();
     io.output.clear();
     final background = context.forView(
         chat: screen.chat,

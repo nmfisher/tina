@@ -144,4 +144,20 @@ Future<void> main() async {
       isEmpty,
     );
   });
+  test('runtime feature construction cannot import a presentation package', () {
+    expect(
+      violations('packages/tina_tui/lib/src/plugin_catalog.dart', {
+        'tina_console',
+        'dart_notcurses',
+        'tina_chat_tui',
+        'tina_activity_tui',
+        'tina_context_tui',
+        'tina_approvals_tui',
+        'tina_plans_tui',
+        'tina_classification_tui',
+        'tina_mcp_tui',
+      }),
+      isEmpty,
+    );
+  });
 }

@@ -5,12 +5,12 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
-  tina_settings:
-    path: ../../libraries/tina_settings
+  tina_chat:
+    path: ../tina_chat
+  tina_session_controls:
+    path: ../tina_session_controls
   tina_goals:
     path: ../tina_goals
-  tina_step_limit:
-    path: ../tina_step_limit
   tina_mode:
     path: ../tina_mode
   markdown: ^7.3.1
@@ -18,11 +18,9 @@ dependencies:
     path: ../../tina_console
   tina_engine_2:
     path: ../../tina_engine_2
-  tina_tools:
-    path: ../tina_tools
-  tina_host:
-    path: ../../tina_host
   tina_self_update:
     path: ../tina_self_update
 dev_dependencies:
+  tina_tools:
+    path: ../tina_tools
   test: ^1.25.0

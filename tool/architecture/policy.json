@@ -24,6 +24,7 @@
     "tina_plans",
     "tina_plans_tui",
     "tina_classification_tui",
+    "tina_mcp_tui",
     "tina_goals",
     "tina_persistence",
     "tina_approvals",
@@ -37,7 +38,10 @@
     "tina_mode",
     "tina_step_limit",
     "tina_mcp",
-    "tina_settings"
+    "tina_settings",
+    "tina_chat",
+    "tina_activity",
+    "tina_session_controls"
   ],
   "vendoredPackages": [
     "dart_notcurses"
@@ -51,7 +55,8 @@
     "tina_context_tui",
     "tina_chat_tui",
     "tina_plans_tui",
-    "tina_classification_tui"
+    "tina_classification_tui",
+    "tina_mcp_tui"
   ],
   "sourceRoots": {
     "tina_step_limit": [
@@ -213,6 +218,22 @@
     "tina_context_tui": [
       "lib",
       "test"
+    ],
+    "tina_mcp_tui": [
+      "lib",
+      "test"
+    ],
+    "tina_chat": [
+      "lib",
+      "test"
+    ],
+    "tina_activity": [
+      "lib",
+      "test"
+    ],
+    "tina_session_controls": [
+      "lib",
+      "test"
     ]
   },
   "frontendRoots": [
@@ -307,7 +328,11 @@
     "tina_mode": "packages/plugins/tina_mode",
     "tina_mcp": "packages/plugins/tina_mcp",
     "tina_settings": "packages/libraries/tina_settings",
-    "tina_context_tui": "packages/plugins/tina_context_tui"
+    "tina_context_tui": "packages/plugins/tina_context_tui",
+    "tina_mcp_tui": "packages/plugins/tina_mcp_tui",
+    "tina_chat": "packages/plugins/tina_chat",
+    "tina_activity": "packages/plugins/tina_activity",
+    "tina_session_controls": "packages/plugins/tina_session_controls"
   },
   "runtimeDependencies": {
     "tina_context": [
@@ -343,8 +368,6 @@
     ],
     "tina_approvals_tui": [
       "tina_core",
-      "tina_engine_2",
-      "tina_host",
       "tina_console",
       "tina_approvals"
     ],
@@ -356,19 +379,18 @@
     "tina_activity_tui": [
       "tina_core",
       "tina_engine_2",
-      "tina_console"
+      "tina_console",
+      "tina_activity"
     ],
     "tina_chat_tui": [
-      "tina_step_limit",
       "tina_console",
       "tina_engine_2",
-      "tina_host",
       "tina_self_update",
-      "tina_tools",
       "markdown",
       "tina_mode",
       "tina_goals",
-      "tina_settings"
+      "tina_chat",
+      "tina_session_controls"
     ],
     "tina_plans_tui": [
       "tina_plans",
@@ -408,6 +430,22 @@
       "tina_engine_2",
       "tina_console",
       "tina_context"
+    ],
+    "tina_mcp_tui": [
+      "tina_mcp",
+      "tina_console",
+      "tina_settings"
+    ],
+    "tina_chat": [
+      "tina_engine_2",
+      "tina_settings"
+    ],
+    "tina_activity": [
+      "tina_engine_2"
+    ],
+    "tina_session_controls": [
+      "tina_engine_2",
+      "tina_settings"
     ]
   },
   "pluginFreePackages": [

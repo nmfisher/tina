@@ -7,13 +7,9 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_context/tina_context.dart';
 
 /// Read-only presentation: never synchronizes the mirror or writes session state.
-final class ContextTuiPlugin extends AgentPlugin
-    implements ConsoleContribution {
-  ContextTuiPlugin({required this.context, required this.terminal});
-  final ContextPlugin context;
-  final Terminal terminal;
-  @override
-  String get id => 'tina/context-tui';
+final class ContextView implements ConsoleContribution, ConsoleCommandHandler {
+  ContextView({required this.context});
+  final ContextObservation context;
   ConsoleContext? _console;
   OverlayRegion? _overlay;
   void Function()? _removeModal, _releaseCursor;
@@ -28,17 +24,14 @@ final class ContextTuiPlugin extends AgentPlugin
   List<String> visibleLines = const [];
 
   @override
-  List<Command> get commands => [
-        Command(
-            name: 'context',
-            description: 'inspect accepted working context and edits',
-            allowWhileRunning: true,
-            handler: (_) => toggle()),
-      ];
+  Future<void>? handleConsoleCommand(String name, String arguments) {
+    if (name != 'context' || _console == null) return null;
+    toggle();
+    return Future.value();
+  }
 
   void toggle() {
     if (_console == null) {
-      terminal.writeln('The context viewer requires the interactive console.');
       return;
     }
     if (_open) {
@@ -129,8 +122,8 @@ final class ContextTuiPlugin extends AgentPlugin
           'Revision: ${current.revision}',
           'Session log position: ${current.throughSeq}',
           'File status: ${context.fileStatus}',
-          if (context.mirrorFile != null)
-            'Context file: ${context.mirrorFile!.path}',
+          if (context.mirrorPath != null)
+            'Context file: ${context.mirrorPath!}',
           if (context.lastEditReceipt != null)
             'Last file edit: ${context.lastEditReceipt!.message}',
           'Accepted messages are shown in working-context order, not original turn numbers.',
@@ -310,9 +303,6 @@ final class ContextTuiPlugin extends AgentPlugin
     _overlay = null;
     _console = null;
   }
-
-  @override
-  void closeSession() => detachConsole();
 }
 
 String _tokens(int value) =>
@@ -323,14 +313,14 @@ String _safe(String text) =>
 String _preview(String text) =>
     clipDialogText(_safe(text).replaceAll(RegExp(r'\s+'), ' ').trim(), 100);
 
-String _fileState(ContextPlugin context) {
+String _fileState(ContextObservation context) {
   if (context.fileStatus.startsWith('Pending'))
     return 'Edits awaiting validation · showing saved context';
   if (context.fileStatus.startsWith('Missing'))
     return 'Context file unavailable · showing saved context';
   if (context.lastEditReceipt?.status == ContextEditStatus.rejected)
     return 'Edit rejected: ${context.lastEditReceipt!.message.replaceFirst('Context edit rejected: ', '')}';
-  return context.mirrorFile == null
+  return context.mirrorPath == null
       ? 'Context saved · file editing unavailable'
       : 'Context saved · no pending edits';
 }
@@ -427,7 +417,7 @@ List<_ContextRow> _contextRows(List<Message> messages, {String prefix = ''}) {
 
 final class _ContextModal extends ModalSurface {
   _ContextModal(this.owner);
-  final ContextTuiPlugin owner;
+  final ContextView owner;
   @override
   bool get isActive => owner.isOpen && owner._console?.isReadingKey != true;
   @override

@@ -1,0 +1,11 @@
+name: tina_activity
+description: Session-owned observations for independent activity presentations.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+dev_dependencies:
+  test: ^1.25.0

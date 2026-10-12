@@ -1,4 +1,5 @@
 import 'package:tina_goals/tina_goals.dart';
+import 'package:tina_chat/tina_chat.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
@@ -8,42 +9,19 @@ import 'markdown_renderer.dart';
 import 'prompt.dart';
 import 'timestamp_chat.dart';
 
-/// Legacy transcript presentation driven by engine2's read-only observations.
-/// This plugin owns chat rows, folds, timestamps and the live model prompt.
+/// Transcript presentation driven by the runtime's read-only observations.
+/// This view owns chat rows, folds, timestamps and the live model prompt.
 /// No UI state is written into the model's messages.
-final class ChatTuiPlugin extends AgentPlugin
-    implements ConsoleContribution, ConsoleTranscript, WatchObserver {
-  ChatTuiPlugin(
-      {required this.model,
-      this.tokenCap = 0,
-      this.currentTokenCap,
-      this.sessionTokens,
-      this.sessionEstimatedTokens,
-      this.showSessionId = true,
-      this.terminalAlertsEnabled,
-      DateTime Function()? now})
+final class ChatView implements ConsoleContribution, ConsoleTranscript {
+  ChatView(this.chat, {DateTime Function()? now})
       : _now = now ?? DateTime.now,
         renderer = TimestampChatRenderer(now: now ?? DateTime.now);
-  final String model;
-  final int tokenCap;
-  final int Function()? currentTokenCap;
-  final int Function()? sessionTokens;
-  final int Function()? sessionEstimatedTokens;
-  final bool showSessionId;
-  final bool Function()? terminalAlertsEnabled;
-  String? _sessionId;
+  final ChatObservation chat;
   int _tokens = 0;
   GoalChangedEntry? _goal;
-  @override
-  SessionSeed? openSession(PluginSession session) {
-    _sessionId = session.id;
-    return null;
-  }
-
+  void Function()? _unlisten;
   final DateTime Function() _now;
   final TimestampChatRenderer renderer;
-  @override
-  String get id => 'tina/chat-tui';
   final List<ChatBlock> _blocks = [];
   List<ChatBlock> get blocks => List.unmodifiable(_blocks);
   final _calls = <String, ChatBlock>{};
@@ -56,9 +34,6 @@ final class ChatTuiPlugin extends AgentPlugin
   final _responseBlocks = <ChatBlock>[];
   final _recordedInputs = <String>{};
   static const _speaker = ChatSpeaker(id: 'assistant', label: 'tina');
-  AgentLoop? _loop;
-  int? _handle;
-  StreamSubscription<ToolActivity>? _activity;
   ConsoleContext? _console;
   void Function()? _unbindPrompt, _unbindKey, _unbindModal;
   void Function()? _unbindStatus;
@@ -82,19 +57,11 @@ final class ChatTuiPlugin extends AgentPlugin
       _console?.screen.theme.chat ?? const Theme.defaults().chat);
 
   @override
-  void mountOn(AgentLoop loop) {
-    _loop = loop;
-    _handle = loop.subscribe(entry);
-    _activity = loop.toolActivity.listen(observe);
-  }
-
-  @override
   void attachConsole(ConsoleContext context) {
     detachConsole();
     _console = context;
-    if (terminalAlertsEnabled case final enabled?) {
-      _unbindAttention = context.bindAttentionPreference(enabled);
-    }
+    _unbindAttention =
+        context.bindAttentionPreference(() => chat.terminalAlertsEnabled);
     _unbindStatus = context.bindStatus(_statusLines);
     for (final block in _blocks) {
       final source = _sources[block];
@@ -103,7 +70,7 @@ final class ChatTuiPlugin extends AgentPlugin
     _unbindPrompt = context.bindPrompt(() => renderConversationPrompt(
         ConversationPrompt(
             conversationId: '',
-            model: _loop?.provider.model ?? model,
+            model: chat.model,
             busy: _busy,
             shell: context.input.draftText.trimLeft().startsWith('!'),
             focused: true,
@@ -155,11 +122,37 @@ final class ChatTuiPlugin extends AgentPlugin
       _frame++;
       context.refreshInput();
     });
+    _blocks.clear();
+    _rows.clear();
+    _renderedRows = _trailingBlankRows = 0;
+    _calls.clear();
+    _outputs.clear();
+    _finished.clear();
+    _recordedInputs.clear();
+    _tokens = 0;
+    _goal = null;
+    _streamed = _thinking = '';
+    _sawThinking = false;
+    _responseBlocks.clear();
+    _preview = _thinkingPreview = null;
+    _markdown = null;
+    _previewDirty = _thinkingDirty = false;
+    context.chat.resetAfterClear();
+    _unlisten = context.own(chat.events.listen((event) {
+      switch (event) {
+        case ObservedEntry():
+          entry(event.entry, event.event);
+        case ObservedActivity():
+          observe(event.activity);
+        case ObservedModel():
+          watch(event.event);
+      }
+    }));
+    _busy = chat.events.running;
     _width = -1;
     repaintConsole();
   }
 
-  @override
   void watch(WatchEvent event) {
     if (_console == null) return;
     switch (event) {
@@ -403,8 +396,7 @@ final class ChatTuiPlugin extends AgentPlugin
 
   String _describe(ToolUse call) {
     try {
-      return _loop?.toolSchema(call.name)?.describe?.call(call.input).summary ??
-          _subject(call);
+      return chat.events.describe(call)?.summary ?? _subject(call);
     } catch (_) {
       // A broken description must never hide the actual call or stop a turn.
       return _subject(call);
@@ -606,10 +598,10 @@ final class ChatTuiPlugin extends AgentPlugin
   List<RenderLine> _statusLines() {
     final console = _console;
     if (console == null) return const [];
-    final tokens = sessionTokens?.call() ?? _tokens;
-    final estimated = sessionEstimatedTokens?.call() ?? 0;
+    final tokens = chat.sessionTokens ?? _tokens;
+    final estimated = chat.sessionEstimatedTokens;
     final theme = console.screen.theme.chat;
-    final tokenCap = currentTokenCap?.call() ?? this.tokenCap;
+    final tokenCap = chat.tokenCap;
     final fraction = tokenCap > 0 ? (tokens + estimated) / tokenCap : 0.0;
     final goal = _goal;
     return [
@@ -627,10 +619,10 @@ final class ChatTuiPlugin extends AgentPlugin
               ].join(' '),
               null)
         ]),
-      if (showSessionId && _sessionId != null)
+      if (chat.showSessionId && chat.sessionId != null)
         RenderLine(runs: [
           RenderRun('session ', theme.dim),
-          RenderRun(_sessionId!, null)
+          RenderRun(chat.sessionId!, null)
         ]),
       RenderLine(align: StatusAlign.right, runs: [
         if (fraction >= 1)
@@ -706,6 +698,8 @@ final class ChatTuiPlugin extends AgentPlugin
 
   @override
   void detachConsole() {
+    _unlisten?.call();
+    _unlisten = null;
     _ticker?.cancel();
     _ticker = null;
     _unbindPrompt?.call();
@@ -721,16 +715,6 @@ final class ChatTuiPlugin extends AgentPlugin
     _unbindAttention = null;
     _console = null;
     _width = -1;
-  }
-
-  @override
-  void closeSession() {
-    detachConsole();
-    unawaited(_activity?.cancel());
-    _activity = null;
-    if (_handle != null) _loop?.unsubscribe(_handle!);
-    _handle = null;
-    _loop = null;
   }
 }
 
@@ -755,7 +739,7 @@ int _lineScrollRows(InputEvent event) => switch (event) {
 
 final class _TranscriptModal extends ModalSurface {
   _TranscriptModal(this.owner);
-  final ChatTuiPlugin owner;
+  final ChatView owner;
   @override
   bool get isActive =>
       owner._selected != null && owner._console?.isReadingKey != true;

@@ -19,6 +19,59 @@ final class PluginManager<C> {
   Set<String> _desired;
   void Function(AgentPlugin)? onLoaded;
   void Function(AgentPlugin)? onUnloading;
+  final _observers = <Object,
+      ({
+    void Function(AgentPlugin) loaded,
+    void Function(AgentPlugin) unloading
+  })>{};
+
+  /// Each attachment releases its own lifecycle observation. A failed
+  /// activation rolls back the views already attached to that new plugin.
+  void Function() listen(
+      {required void Function(AgentPlugin) loaded,
+      required void Function(AgentPlugin) unloading}) {
+    final owner = Object();
+    _observers[owner] = (loaded: loaded, unloading: unloading);
+    return () => _observers.remove(owner);
+  }
+
+  void _loaded(AgentPlugin plugin) {
+    onLoaded?.call(plugin);
+    final activated = <void Function(AgentPlugin)>[];
+    try {
+      for (final item in _observers.entries.toList()) {
+        if (!_observers.containsKey(item.key)) continue;
+        activated.add(item.value.unloading);
+        item.value.loaded(plugin);
+      }
+    } catch (_) {
+      for (final release in activated.reversed) {
+        try {
+          release(plugin);
+        } catch (_) {}
+      }
+      try {
+        onUnloading?.call(plugin);
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  void _unloading(AgentPlugin plugin) {
+    Object? failure;
+    for (final release in [
+      if (onUnloading != null) onUnloading!,
+      ..._observers.values.toList().map((item) => item.unloading)
+    ]) {
+      try {
+        release(plugin);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure != null) throw failure;
+  }
+
   String? lastError;
   bool waitingForIdle = false;
 
@@ -77,13 +130,13 @@ final class PluginManager<C> {
       try {
         for (final plugin in additions) {
           attempted++;
-          host.attachPlugin(plugin, activate: onLoaded);
+          host.attachPlugin(plugin, activate: _loaded);
           attached.add(plugin);
         }
       } catch (_) {
         for (final plugin in attached.reversed) {
           try {
-            host.detachPlugin(plugin.id, deactivate: onUnloading);
+            host.detachPlugin(plugin.id, deactivate: _unloading);
           } catch (_) {}
         }
         for (final plugin in additions.skip(attempted)) {
@@ -97,7 +150,7 @@ final class PluginManager<C> {
       for (final id in registry.orderedIds(current).reversed) {
         if (!target.contains(id)) {
           try {
-            host.detachPlugin(id, deactivate: onUnloading);
+            host.detachPlugin(id, deactivate: _unloading);
           } catch (e) {
             cleanupFailure ??= e;
           }

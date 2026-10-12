@@ -39,9 +39,13 @@ service lookup available to running plugins.
   `approvalRequester`.
 - The tools package's `toolsDefinition<C>()` requires `approvalRequester` and
   adapts it to the sandbox's existing `Approver` interface.
-- `approvalTuiDefinition<C>()` supplies the TUI channel. The plugin implements
-  `ConsoleContribution`; the frontend generically attaches, repaints and
-  detaches it using the console toolkit. It imports neither tina_tui nor tools.
+- `AttachmentApprovalChannel` supplies session-owned interactive delivery.
+  Its `ApprovalInteraction` capability supplies independent `ApprovalView`
+  attachments from `tina_approvals_tui`. Each view owns its dialog, regex draft
+  and input capture; it receives a response facade rather than the runtime
+  ticket. Detaching preserves existing pending requests for another attachment.
+  New requests without a responder fail closed. Session cancellation, expiry
+  or shutdown still denies pending requests.
 
 For an embedding application, register an alternate channel:
 

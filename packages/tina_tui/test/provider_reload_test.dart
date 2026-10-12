@@ -147,9 +147,11 @@ enabled = ["tina/providers", "tina/session-controls"]
     final controls =
         assembly.host.plugins.whereType<SessionControlsPlugin>().single;
     final attachment = ConsoleAttachment.attach(
-        controls, ConsoleContext(screen: screen, editor: editor));
+        SessionControlsView(controls.observation),
+        ConsoleContext(screen: screen, editor: editor));
     try {
-      final pick = assembly.handleCommand('/model');
+      final pick = (attachment.contribution as SessionControlsView)
+          .handleConsoleCommand('model', '')!;
       await waitFor(() => editor.isReadingKey);
       expect(io.written.toString(), contains('org/new-model'));
       editor.inject(PasteInput('Live custom model'));

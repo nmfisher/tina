@@ -8,22 +8,17 @@ export 'src/activity_model.dart';
 
 /// Optional console presentation. It consumes ordinary log/tool observations;
 /// neither the host nor the application needs to recognize an activity panel.
-final class ActivityTuiPlugin extends AgentPlugin
-    implements ConsoleContribution {
-  ActivityTuiPlugin({required this.terminal, this.printTranscript = true});
+final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
+  ActivityView(this.activity, {this.printTranscript = true});
+  final SessionObservation activity;
   final bool printTranscript;
-  final Terminal terminal;
   final model = ActivityModel();
-  @override
-  String get id => 'tina/activity-tui';
   ConsoleContext? _console;
   OverlayRegion? _overlay;
   void Function()? _releaseCursor;
   _ActivityModal? _modal;
   void Function()? _removeModal, _removeShortcut;
-  StreamSubscription<ToolActivity>? _subscription;
-  AgentLoop? _loop;
-  int? _logHandle;
+  void Function()? _unlisten;
   Timer? _ticker;
   bool _open = false;
   bool _liveLine = false;
@@ -33,37 +28,19 @@ final class ActivityTuiPlugin extends AgentPlugin
   bool get isOpen => _open;
   List<String> visibleLines = const [];
   @override
-  List<Command> get commands => [
-        Command(
-            name: 'activity',
-            description: 'browse tool results, diffs and child progress (F4)',
-            handler: (_) => toggle())
-      ];
-
-  @override
-  void mountOn(AgentLoop loop) {
-    _loop = loop;
-    model.describe =
-        (call) => loop.toolSchema(call.name)?.describe?.call(call.input);
-    _logHandle = loop.subscribe((entry, event) {
-      final completed = model.entry(entry, event);
-      if (event == LogEvent.appended) {
-        for (final row in completed) {
-          _completion(row);
-        }
-      }
-      repaintConsole();
-    });
-    _subscription = loop.toolActivity.listen(observe);
+  Future<void>? handleConsoleCommand(String name, String arguments) {
+    if (name != 'activity' || _console == null) return null;
+    toggle();
+    return Future.value();
   }
 
   /// Public event seam also used by embedders and deterministic view tests.
-  void observe(ToolActivity event) {
+  void observe(ToolActivity event, {DateTime? at}) {
     final previous = model.record(event.call);
     if (previous.finished && event is! ToolStarted) return;
     final outputStart = event is ToolStarted ? 0 : previous.output.length;
     final wasTruncated = previous.truncated;
-    model.event(event);
+    model.event(event, at: at);
     final row = model.record(event.call);
     if (printTranscript)
       switch (event) {
@@ -92,7 +69,7 @@ final class ActivityTuiPlugin extends AgentPlugin
       _console?.screen.frame(() => _console!.chat.writeln());
       _liveLine = false;
     }
-    terminal.writeln(text);
+    _console?.chat.writeln(text);
   }
 
   void _completion(ActivityRecord row) {
@@ -116,7 +93,6 @@ final class ActivityTuiPlugin extends AgentPlugin
 
   void toggle() {
     if (_console == null) {
-      terminal.writeln('Activity requires the interactive console.');
       return;
     }
     if (_open) {
@@ -150,6 +126,22 @@ final class ActivityTuiPlugin extends AgentPlugin
         context.screen, const Rect(row: 0, col: 0, width: 0, height: 0));
     _modal = _ActivityModal(this);
     _removeModal = context.addModal(_modal!);
+    model.records.clear();
+    model.describe = activity.describe;
+    _unlisten = context.own(activity.listen((event) {
+      switch (event) {
+        case ObservedEntry():
+          final completed = model.entry(event.entry, event.event);
+          if (event.event == LogEvent.appended) {
+            for (final row in completed) _completion(row);
+          }
+          repaintConsole();
+        case ObservedActivity():
+          observe(event.activity, at: event.at);
+        case ObservedModel():
+          break;
+      }
+    }));
     _removeShortcut = context.bindShortcut((event) {
       if (event is FunctionKey && event.code == FunctionKeyCode.f4) {
         toggle();
@@ -268,6 +260,8 @@ final class ActivityTuiPlugin extends AgentPlugin
 
   @override
   void detachConsole() {
+    _unlisten?.call();
+    _unlisten = null;
     _hide();
     _removeShortcut?.call();
     _removeModal?.call();
@@ -278,22 +272,11 @@ final class ActivityTuiPlugin extends AgentPlugin
     _console = null;
     _modal = null;
   }
-
-  @override
-  void closeSession() {
-    detachConsole();
-    unawaited(_subscription?.cancel());
-    _subscription = null;
-    final handle = _logHandle;
-    if (handle != null) _loop?.unsubscribe(handle);
-    _logHandle = null;
-    _loop = null;
-  }
 }
 
 final class _ActivityModal extends ModalSurface {
   _ActivityModal(this.owner);
-  final ActivityTuiPlugin owner;
+  final ActivityView owner;
   @override
   bool get isActive => owner.isOpen && owner._console?.isReadingKey != true;
   @override

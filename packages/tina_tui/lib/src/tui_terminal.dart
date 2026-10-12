@@ -38,6 +38,12 @@ final class TuiTerminal implements Terminal {
   /// — the full-screen loop paints it into the chat region. A test's
   /// terminal has no hook: the capture in [lines] is the whole story.
   void Function(String line)? onLine;
+  final _listeners = <Object, void Function(String)>{};
+  void Function() listenLines(void Function(String) listener) {
+    final owner = Object();
+    _listeners[owner] = listener;
+    return () => _listeners.remove(owner);
+  }
 
   final List<ConversationLine> _lines = [];
 
@@ -55,6 +61,14 @@ final class TuiTerminal implements Terminal {
     final text = line ?? '';
     _lines.add(ConversationLine(text, fromUser: false));
     onLine?.call(text);
+    for (final item in _listeners.entries.toList()) {
+      if (!_listeners.containsKey(item.key)) continue;
+      try {
+        item.value(text);
+      } catch (_) {
+        _listeners.remove(item.key);
+      }
+    }
   }
 
   @override

@@ -6,6 +6,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'src/command_pattern.dart';
 export 'src/command_pattern.dart';
+part 'src/attachment_channel.dart';
 
 /// No channel, UI or filesystem types appear in the request protocol.
 enum ApprovalDecision {
@@ -62,7 +63,14 @@ abstract interface class ApprovalChannel {
 
 /// A single pending request. A channel may reply once, while it remains active.
 /// [done] also signals cancellation, expiry and shutdown to channel resources.
-final class ApprovalTicket {
+abstract interface class ApprovalQuestion {
+  ApprovalRequest get request;
+  Future<ApprovalDecision> get done;
+  bool get isActive;
+  bool respond(ApprovalDecision decision, {String? commandPattern});
+}
+
+final class ApprovalTicket implements ApprovalQuestion {
   ApprovalTicket._(this.request, this._respond, this.done);
   final ApprovalRequest request;
   final bool Function(ApprovalDecision, String?) _respond;
@@ -125,7 +133,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
         target: target,
         reason: reason,
         kind: kind,
-        details: Map.unmodifiable(details));
+        details: _freezeApprovalDetails(details));
     final result = Completer<ApprovalDecision>();
     Timer? timer;
     late final ApprovalTicket ticket;

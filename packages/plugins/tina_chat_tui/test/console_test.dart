@@ -1,3 +1,4 @@
+import 'support/chat_fixture.dart';
 import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
@@ -69,8 +70,8 @@ void main() {
   late Screen screen;
   late LineEditor editor;
   late ConsoleContext context;
-  late ChatTuiPlugin chat;
-  late ModeTuiPlugin modes;
+  late ChatView chat;
+  late ModeView modes;
   late ModePlugin control;
   setUp(() {
     io = Io();
@@ -78,16 +79,16 @@ void main() {
         Screen(io: io, layout: ScreenLayout.fromSize(80, 24, split: false));
     editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
     context = ConsoleContext(screen: screen, editor: editor);
-    chat = ChatTuiPlugin(
+    chat = testChat(
         model: 'provider/test-model',
         now: () => DateTime(2026, 9, 28, 3, 4, 5));
     chat.attachConsole(context);
     control = ModePlugin();
-    modes = ModeTuiPlugin(policy: control)..attachConsole(context);
+    modes = ModeView(mode: control.observation)..attachConsole(context);
   });
   tearDown(() {
-    chat.closeSession();
-    modes.closeSession();
+    chat.detachConsole();
+    modes.detachConsole();
     editor.close(reportLatency: false);
     screen.dispose();
     unawaited(io.input.close());
@@ -117,9 +118,9 @@ void main() {
         backend: AnsiBackend(io: themedIo, ansi: AnsiCapable.yes),
         layout: ScreenLayout.fromSize(80, 24, split: false));
     final themedEditor = LineEditor(screen: themedScreen);
-    final themedChat = ChatTuiPlugin(model: 'test');
+    final themedChat = testChat(model: 'test');
     addTearDown(() {
-      themedChat.closeSession();
+      themedChat.detachConsole();
       themedEditor.close(reportLatency: false);
       themedScreen.dispose();
       unawaited(themedIo.input.close());
@@ -172,9 +173,9 @@ void main() {
 
   test('live attention preference also gates requests from other contributions',
       () {
-    chat.closeSession();
+    chat.detachConsole();
     var enabled = true;
-    chat = ChatTuiPlugin(model: 'test', terminalAlertsEnabled: () => enabled)
+    chat = testChat(model: 'test', terminalAlertsEnabled: () => enabled)
       ..attachConsole(context);
     screen.enterAltScreen();
     io.output.clear();
@@ -199,9 +200,9 @@ void main() {
       'tool-owned descriptions label calls and structured failures read as text',
       () {
     final tools = _Descriptions();
-    final loop =
-        AgentLoop(provider: ScriptedProvider([]), plugins: [tools, chat]);
-    chat.mountOn(loop);
+    final loop = AgentLoop(
+        provider: ScriptedProvider([]), plugins: [tools, chatRuntimes[chat]!]);
+    chatRuntimes[chat]!.mountOn(loop);
     const custom = ToolUse(
         id: 'custom', name: 'third_party', input: {'path': 'notes.txt'});
     chat.observe(const ToolStarted(custom));
@@ -226,18 +227,18 @@ void main() {
 
   test('estimated spend shares the strip with update status and trips the cap',
       () async {
-    chat.closeSession();
+    chat.detachConsole();
     var estimated = 15;
-    chat = ChatTuiPlugin(
+    chat = testChat(
         model: 'test',
         tokenCap: 100,
         sessionTokens: () => 60,
         sessionEstimatedTokens: () => estimated);
     chat.attachConsole(context);
     final source = Updates();
-    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    final update = UpdateView(source)..attachConsole(context);
     addTearDown(() {
-      update.closeSession();
+      update.detachConsole();
       unawaited(source.notifications.close());
     });
     await tick();
@@ -262,9 +263,9 @@ void main() {
       'update state changes repaint without a turn and detach removes the subscription',
       () async {
     final source = Updates();
-    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    final update = UpdateView(source)..attachConsole(context);
     addTearDown(() {
-      update.closeSession();
+      update.detachConsole();
       unawaited(source.notifications.close());
     });
     source.status = const UpdateStatus(UpdatePhase.failed, reason: 'HTTP 429');
@@ -288,8 +289,8 @@ void main() {
   test(
       'version and update availability fit beside comma-formatted spend at 80 columns',
       () async {
-    chat.closeSession();
-    chat = ChatTuiPlugin(
+    chat.detachConsole();
+    chat = testChat(
         model: 'test',
         sessionTokens: () => 58,
         sessionEstimatedTokens: () => 8525);
@@ -298,9 +299,9 @@ void main() {
     modes.repaintConsole();
     final source = Updates(currentVersion: '0.9.19')
       ..status = const UpdateStatus(UpdatePhase.available, tag: 'v999.0.0');
-    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    final update = UpdateView(source)..attachConsole(context);
     addTearDown(() {
-      update.closeSession();
+      update.detachConsole();
       unawaited(source.notifications.close());
     });
     final rendered = visible();
@@ -323,9 +324,9 @@ void main() {
         priority: -10);
     final source = Updates(currentVersion: '0.9.29')
       ..status = const UpdateStatus(UpdatePhase.available, tag: 'v999.0.0');
-    final update = UpdateTuiPlugin(source)..attachConsole(context);
+    final update = UpdateView(source)..attachConsole(context);
     addTearDown(() {
-      update.closeSession();
+      update.detachConsole();
       unawaited(source.notifications.close());
     });
     final narrow = visible().split('\n').last;
@@ -588,7 +589,7 @@ void main() {
                 toolUseId: 'a', content: 'Permission denied', isError: true)
           ])),
     ]);
-    chat.mountOn(loop);
+    chatRuntimes[chat]!.mountOn(loop);
     chat.attachConsole(context);
     expect(transcript(), contains('03:04  old prompt'));
     expect(transcript(), contains('failed · Permission denied'));

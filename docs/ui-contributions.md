@@ -1,8 +1,12 @@
 # Plugin UI contributions
 
-UI plugins implement `ConsoleContribution` from `tina_console` alongside
-`AgentPlugin`. The TUI detects the interface at startup and through the plugin
-manager's live load/unload callbacks. No engine-loop hooks are involved.
+First-party feature views implement `ConsoleContribution` from `tina_console`
+separately from their session-owned runtime plugins. `console_catalog.dart`
+constructs a fresh view for each attachment; the runtime catalog imports no
+presentation package. Runtime plugin IDs, settings and command registration
+remain authoritative. Existing extension plugins may still implement the
+contribution alongside `AgentPlugin` through the compatibility fallback shown
+below. Live plugin changes notify each attachment through disposable observers.
 
 Each attachment receives its own `ConsoleContext` scope. Registration methods
 track their cleanup automatically. The TUI disposes that scope on unload,
@@ -44,8 +48,8 @@ class ExampleUi extends AgentPlugin implements ConsoleContribution {
 }
 ```
 
-Sections appear in `/settings` for the current session. Section IDs are
-namespaced and unique within that session; ordering uses `order`, then ID.
+Sections appear in `/settings` for the invoking attachment. Section IDs are
+namespaced and unique within that attachment; ordering uses `order`, then ID.
 Control IDs must be unique and stable within a section. Separate conversation
 panels have separate registries, so the same plugin can contribute to each.
 
@@ -75,7 +79,7 @@ passing null restores the stock `DefaultStatusLayout` and bar. The slot is
 exclusive by construction — one `StatusLayout` at a time, with a safe fallback
 when it is cleared or throws.
 
-The shipped `StatusStripTuiPlugin` (`tina/status-strip-tui`) demonstrates the
+The shipped `StatusStripView` (`tina/status-strip-tui`) demonstrates the
 pattern: it installs `PriorityStatusLayout` on the active conversation's
 screen (a background view must not rearrange the focused view's bar) and
 restores the default on detach, so unloading it returns the stock bar. A plugin

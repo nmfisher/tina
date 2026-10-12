@@ -18,3 +18,4 @@ export 'src/plugin_registry.dart';
 export 'src/plugin_definition.dart';
 
 export 'src/plugin_manager.dart';
+export 'src/presentation_plugin.dart';

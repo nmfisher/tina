@@ -29,6 +29,7 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   @override
   PermissionMode get mode => _mode;
   PermissionMode _mode;
+  late final observation = ModeObservation._(this);
   void Function(PluginStateEntry)? _writeState;
   @override
   void mountOn(AgentLoop loop) => mountPolicy(loop, ownerId: id);
@@ -74,13 +75,17 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     _callApprovals.clear();
     _changed.complete();
     _changed = Completer<void>();
-    for (final listener in _listeners) {
-      listener(value);
+    for (final listener in _listeners.toList()) {
+      if (_listeners.contains(listener)) listener(value);
     }
   }
 
-  void listen(void Function(PermissionMode) listener) =>
-      _listeners.add(listener);
+  void Function() listen(void Function(PermissionMode) listener) {
+    if (_closed) throw StateError('Mode policy is closed');
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
   Terminal? terminal;
   ApprovalRequester? approvals;
   PermissionClassifier? classifier;
@@ -327,5 +332,30 @@ class ModePlugin extends AgentPlugin implements ModeControl {
     _writeState = null;
     _closedSignal.complete();
     _listeners.clear();
+  }
+}
+
+/// Permission controls for presentation, without approval or lifecycle access.
+final class ModeObservation implements ModeControl {
+  ModeObservation._(this._policy);
+  final ModePlugin _policy;
+  @override
+  PermissionMode get mode => _policy.mode;
+  @override
+  set mode(PermissionMode value) {
+    if (_policy._closed) throw StateError('Mode policy is closed');
+    _policy.mode = value;
+  }
+
+  void Function() listen(void Function(PermissionMode) listener) {
+    late final void Function() release;
+    release = _policy.listen((value) {
+      try {
+        listener(value);
+      } catch (_) {
+        release();
+      }
+    });
+    return release;
   }
 }

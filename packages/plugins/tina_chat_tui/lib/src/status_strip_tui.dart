@@ -1,5 +1,4 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart';
 
 import 'status_layout.dart';
 
@@ -17,12 +16,8 @@ import 'status_layout.dart';
 /// that wants a different bar ships its own `StatusLayout` and takes the
 /// slot the same way — arranging is data-in/rows-out, testable without a
 /// screen.
-final class StatusStripTuiPlugin extends AgentPlugin
-    implements ConsoleContribution {
-  StatusStripTuiPlugin();
-
-  @override
-  String get id => 'tina/status-strip-tui';
+final class StatusStripView implements ConsoleContribution {
+  StatusStripView();
 
   ConsoleContext? _console;
 
@@ -51,7 +46,4 @@ final class StatusStripTuiPlugin extends AgentPlugin
     _console = null;
     if (console?.isActive == true) console!.screen.setStatusLayout(null);
   }
-
-  @override
-  void closeSession() => detachConsole();
 }

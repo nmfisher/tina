@@ -3,13 +3,8 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_console/tina_console.dart';
 import 'approval_dialog.dart';
 
-typedef CommandPatternSuggestion = ({
-  String? pattern,
-  String? explanation,
-  String? failure
-});
-typedef SuggestCommandPattern = Future<CommandPatternSuggestion> Function(
-    ApprovalRequest request, Future<void> whenCancelled);
+export 'package:tina_approvals/tina_approvals.dart'
+    show CommandPatternSuggestion, SuggestCommandPattern;
 
 /// Raw events are needed only while the user edits a command approval rule.
 abstract interface class CommandPatternKeySource implements KeySource {

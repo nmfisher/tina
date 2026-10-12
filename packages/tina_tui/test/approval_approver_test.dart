@@ -6,7 +6,7 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 import 'package:tina_tools/tina_tools.dart';
 
 final class DialogChannel implements ApprovalChannel {
-  DialogChannel(KeySource Function(ApprovalTicket) keys)
+  DialogChannel(KeySource Function(ApprovalQuestion) keys)
       : asker = QueuedDialogAsker(keysFor: keys);
   final QueuedDialogAsker asker;
   @override

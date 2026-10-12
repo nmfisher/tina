@@ -1,24 +1,12 @@
 import 'dart:async';
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_host/tina_host.dart';
 import 'package:tina_self_update/tina_self_update.dart';
-
-PluginDefinition<C> updateTuiDefinition<C>() => PluginDefinition.dependingOn<C,
-        UpdateStatusSource>('tina/update-tui',
-    dependency: updateStatusSource,
-    live: true,
-    create: (_, status) => UpdateTuiPlugin(status),
-    description:
-        'Shows the running version and update availability in the status bar.');
 
 /// Presentation subscribes to the updater's state, without coupling it to a
 /// terminal. Other channels can consume the same source.
-final class UpdateTuiPlugin extends AgentPlugin implements ConsoleContribution {
-  UpdateTuiPlugin(this.source);
+final class UpdateView implements ConsoleContribution {
+  UpdateView(this.source);
   final UpdateStatusSource source;
-  @override
-  String get id => 'tina/update-tui';
   ConsoleContext? _console;
   StreamSubscription<void>? _changes;
   Timer? _timer;
@@ -97,7 +85,4 @@ final class UpdateTuiPlugin extends AgentPlugin implements ConsoleContribution {
     _unbind = null;
     _console = null;
   }
-
-  @override
-  void closeSession() => detachConsole();
 }

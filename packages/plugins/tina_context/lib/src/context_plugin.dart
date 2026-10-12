@@ -36,6 +36,7 @@ final class ContextPersistenceFailure extends StateError {
 
 /// Explicitly opt-in. A file mirror is enabled only with an explicit path.
 final class ContextPlugin extends AgentPlugin implements MessageProjection {
+  late final observation = ContextObservation._(this);
   ContextPlugin(
       {File? mirrorFile,
       int budgetTokens = defaultContextBudgetTokens,
@@ -327,4 +328,20 @@ final class ContextPlugin extends AgentPlugin implements MessageProjection {
       if (directory.existsSync()) directory.deleteSync(recursive: true);
     }
   }
+}
+
+/// Accepted state for inspectors. No mirror writes, file handles, loop or
+/// session-close operations cross this capability.
+final class ContextObservation {
+  ContextObservation._(this._plugin);
+  final ContextPlugin _plugin;
+  WorkingContext get workingContext => _plugin.workingContext;
+  ContextBudgetUsage? get budgetUsage => _plugin.budgetUsage;
+  int get budgetTokens => _plugin.budgetTokens;
+  int? get latestEditTokensSaved => _plugin.latestEditTokensSaved;
+  String get fileStatus => _plugin.fileStatus;
+  String? get mirrorPath => _plugin.mirrorFile?.path;
+  ContextEditReceipt? get lastEditReceipt => _plugin.lastEditReceipt;
+  ({WorkingContext before, WorkingContextSnapshot after})? get latestChange =>
+      _plugin.latestChange;
 }

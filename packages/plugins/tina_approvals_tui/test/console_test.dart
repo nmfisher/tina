@@ -39,20 +39,23 @@ void main() {
   late Io io;
   late Screen screen;
   late LineEditor editor;
-  late ApprovalTuiPlugin ui;
+  late ApprovalView ui;
+  late AttachmentApprovalChannel channel;
   late ApprovalsPlugin service;
   setUp(() {
     io = Io();
     screen =
         Screen(io: io, layout: ScreenLayout.fromSize(80, 24, split: false));
     editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-    ui = ApprovalTuiPlugin()
+    channel = AttachmentApprovalChannel();
+    ui = ApprovalView(channel.interaction)
       ..attachConsole(ConsoleContext(screen: screen, editor: editor));
-    service = ApprovalsPlugin(channel: ui);
+    service = ApprovalsPlugin(channel: channel);
   });
   tearDown(() {
     service.closeSession();
-    ui.closeSession();
+    ui.detachConsole();
+    channel.closeSession();
     editor.close(reportLatency: false);
     screen.dispose();
     unawaited(io.input.close());
@@ -73,6 +76,43 @@ void main() {
               'Your message contains grok, this is a no-no. Are you sure you want to proceed?',
           kind: kind);
 
+  test(
+      'two views keep regex drafts independent and detaching leaves the sibling question',
+      () async {
+    final otherIo = Io();
+    final otherScreen = Screen(
+        io: otherIo, layout: ScreenLayout.fromSize(80, 24, split: false));
+    final otherEditor =
+        LineEditor(screen: otherScreen, escapeTimeout: Duration.zero);
+    final other = ApprovalView(channel.interaction)
+      ..attachConsole(ConsoleContext(screen: otherScreen, editor: otherEditor));
+    addTearDown(() {
+      other.detachConsole();
+      otherEditor.close(reportLatency: false);
+      otherScreen.dispose();
+      unawaited(otherIo.input.close());
+    });
+    final pending = service.request(
+        operation: 'run command',
+        target: 'head -n2',
+        reason: 'execute',
+        details: {'command_pattern_target': 'head -n2'},
+        onCommandPattern: (_) => fail('the sibling allows only once'));
+    await tick();
+    expect(other.asker!.current!.id, ui.asker!.current!.id);
+    io.feed('e');
+    await tick();
+    expect(ui.asker!.currentPatternReview, isNotNull);
+    expect(other.asker!.currentPatternReview, isNull);
+    ui.detachConsole();
+    await tick();
+    expect(channel.interaction.pending, hasLength(1));
+    otherIo.feed('y');
+    expect(await pending, ApprovalDecision.allow);
+    await tick();
+    expect(other.asker!.current, isNull);
+  });
+
   test('approval releases input before the tool receives its decision',
       () async {
     final decision = ask();
@@ -91,19 +131,22 @@ void main() {
       'regex choice asks model, edits without shortcuts, reviews then saves workspace scope',
       () async {
     service.closeSession();
-    ui.closeSession();
+    ui.detachConsole();
+    channel.closeSession();
     var suggestions = 0;
     const pattern = r'dart test sometest \| head -n[0-9]+';
-    ui = ApprovalTuiPlugin(suggestCommandPattern: (request, cancelled) async {
+    channel = AttachmentApprovalChannel(
+        suggestCommandPattern: (request, cancelled) async {
       suggestions++;
       return (
         pattern: pattern,
         explanation: 'Only line count varies.',
         failure: null
       );
-    })
+    });
+    ui = ApprovalView(channel.interaction)
       ..attachConsole(ConsoleContext(screen: screen, editor: editor));
-    service = ApprovalsPlugin(channel: ui);
+    service = ApprovalsPlugin(channel: channel);
     final line = editor.readLine('model > ');
     io.feed('draft');
     await tick();
@@ -214,12 +257,12 @@ void main() {
   test('cancelling a dialog discards its batched controls before the next ask',
       () async {
     service.closeSession();
-    final channel = RecordingChannel(ui);
-    service = ApprovalsPlugin(channel: channel);
+    final recording = RecordingChannel(channel);
+    service = ApprovalsPlugin(channel: recording);
     final first = ask(kind: ApprovalKind.permission);
     final second = ask(kind: ApprovalKind.permission);
     await tick();
-    channel.tickets.first.respond(ApprovalDecision.deny);
+    recording.tickets.first.respond(ApprovalDecision.deny);
     io.feed('\x1b[B\r');
     expect(await first, ApprovalDecision.deny);
     var answered = false;
@@ -303,7 +346,7 @@ void main() {
     expect(visible().cursorVisible, isTrue);
   });
 
-  test('queued questions replace each other and close restores the draft',
+  test('queued questions replace each other and detach restores the draft',
       () async {
     final line = editor.readLine('test-model > ');
     io.feed('draft');
@@ -316,6 +359,11 @@ void main() {
     await tick();
     expect(all(), contains('❯ [y] allow once'));
     ui.detachConsole();
+    var completed = false;
+    unawaited(second.then((_) => completed = true));
+    await tick();
+    expect(completed, false, reason: 'the session owns the pending question');
+    service.closeSession();
     expect(await second, ApprovalDecision.deny);
     await tick();
     expect(input(), contains('test-model > draft'));

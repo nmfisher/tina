@@ -2,14 +2,13 @@ import 'dart:io';
 import 'package:classification/command_regex.dart';
 import 'package:classification/plugin.dart';
 import 'package:tina_mcp/tina_mcp.dart';
-import 'mcp_console_plugin.dart';
 import 'package:tina_grok_guard/tina_grok_guard.dart';
-import 'package:tina_chat_tui/tina_chat_tui.dart';
-import 'package:tina_activity_tui/tina_activity_tui.dart';
+import 'package:tina_activity/tina_activity.dart';
+import 'package:tina_chat/tina_chat.dart';
+import 'package:tina_session_controls/tina_session_controls.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_approvals/tina_approvals.dart';
-import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
@@ -20,7 +19,6 @@ import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_context/tina_context.dart';
-import 'package:tina_context_tui/tina_context_tui.dart';
 import 'package:tina_subagents/tina_subagents.dart';
 import 'package:tina_file_resources/tina_file_resources.dart';
 import 'package:tina_settings/tina_settings.dart';
@@ -85,7 +83,11 @@ List<PluginDefinition<TuiPluginContext>> basePluginDefinitions() => [
           'tina/mode',
           settings: [classifierInstructionSetting],
           dependency: modePolicySource,
-          create: (c, source) => ModeTuiPlugin(policy: source.modePolicy),
+          create: (c, source) => PresentationPlugin(
+              id: 'tina/mode',
+              source: source.modePolicy.observation,
+              order: source.modePolicy.order,
+              commands: source.modePolicy.commands),
           live: true,
           description:
               'Adds /mode and Shift-Tab controls for the tools permission policy.'),
@@ -125,7 +127,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             live: true),
         PluginDefinition<TuiPluginContext>(
             'tina/step-limit',
-            (c) => StepLimitConsolePlugin(
+            (c) => StepLimitPlugin.configured(
                 configPath: c.configPath, settings: c.settings),
             settings: [stepLimitSetting],
             description:
@@ -135,7 +137,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         PluginDefinition.dependingOn<TuiPluginContext, ModePolicySource>(
             'tina/mcp',
             dependency: modePolicySource,
-            create: (c, source) => McpConsolePlugin(
+            create: (c, source) => McpPlugin.configured(
                 store: McpConfigStore(c.configPath),
                 workingDirectory: c.workingDirectory,
                 terminal: c.terminal,
@@ -143,9 +145,18 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             live: true,
             description:
                 'Connects configured MCP servers, discovers their tools and resources, and routes calls through the current approval mode. Local server commands run with your account privileges.'),
-        updateTuiDefinition<TuiPluginContext>(),
+        PluginDefinition.dependingOn<TuiPluginContext, UpdateStatusSource>(
+            'tina/update-tui',
+            dependency: updateStatusSource,
+            live: true,
+            create: (_, status) =>
+                PresentationPlugin(id: 'tina/update-tui', source: status),
+            description:
+                'Shows the running version and update availability in the status bar.'),
         PluginDefinition<TuiPluginContext>(
-            'tina/status-strip-tui', (_) => StatusStripTuiPlugin(),
+            'tina/status-strip-tui',
+            (_) =>
+                PresentationPlugin(id: 'tina/status-strip-tui', source: null),
             description:
                 'Arranges the status bar: how plugin lines and the mode label share the strip under width pressure.',
             live: true),
@@ -158,7 +169,7 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             'tina/approvals-tui',
             dependency: modelAccess,
             provides: [approvalChannel],
-            create: (c, models) => ApprovalTuiPlugin(
+            create: (c, models) => AttachmentApprovalChannel(
                     suggestCommandPattern: (request, cancelled) async {
                   final suggestion = await CommandRegexSuggester(
                           () => models.mainProvider(c.currentModel()))
@@ -211,13 +222,29 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Classifies user input and Git operations, learns reusable categories from Other using the active model, and counts selections. Displays results without changing how the agent responds.',
             live: true),
         PluginDefinition<TuiPluginContext>(
-            'tina/panels-tui', (c) => PanelsTuiPlugin(terminal: c.terminal),
+            'tina/panels-tui',
+            (c) => PresentationPlugin(
+                    id: 'tina/panels-tui',
+                    source: null,
+                    commands: [
+                      Command(
+                          name: 'spawn',
+                          description:
+                              'open a conversation panel [/spawn provider/model]',
+                          handler: (_) => c.terminal.writeln(
+                              'Panels require the interactive console.')),
+                      Command(
+                          name: 'close',
+                          description: 'close the focused panel (Ctrl+X)',
+                          handler: (_) => c.terminal.writeln(
+                              'Panels require the interactive console.')),
+                    ]),
             description:
                 'Opens multiple conversations in terminal panels and lets you switch between them.',
             live: false),
         PluginDefinition<TuiPluginContext>(
             'tina/chat-tui',
-            (c) => ChatTuiPlugin(
+            (c) => ChatPlugin(
                 model: c.model,
                 tokenCap: c.limits.sessionTokens,
                 currentTokenCap: () => c.currentLimits.sessionTokens,
@@ -234,10 +261,8 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
             description:
                 'Displays conversation history, model responses, tool calls, timestamps and token spend.',
             live: true),
-        PluginDefinition<TuiPluginContext>(
-            'tina/activity-tui',
-            (c) =>
-                ActivityTuiPlugin(terminal: c.terminal, printTranscript: false),
+        PluginDefinition<TuiPluginContext>('tina/activity-tui',
+            (c) => ActivityPlugin(terminal: c.terminal, printTranscript: false),
             description:
                 'Shows tool progress, results, file diffs and subagent activity in the activity browser.',
             live: true),
@@ -302,8 +327,18 @@ PluginRegistry<TuiPluginContext> firstPartyPlugins() => PluginRegistry(
         PluginDefinition.dependingOn<TuiPluginContext, ContextPlugin>(
             'tina/context-tui',
             dependency: _workingContext,
-            create: (c, context) =>
-                ContextTuiPlugin(context: context, terminal: c.terminal),
+            create: (c, context) => PresentationPlugin(
+                    id: 'tina/context-tui',
+                    source: context.observation,
+                    commands: [
+                      Command(
+                          name: 'context',
+                          description:
+                              'inspect accepted working context and edits',
+                          allowWhileRunning: true,
+                          handler: (_) => c.terminal.writeln(
+                              'The context viewer requires the interactive console.'))
+                    ]),
             description:
                 'Adds /context to inspect accepted working messages, estimated tokens, pending file edits and the latest accepted changes. Requires tina/context.',
             live: true),

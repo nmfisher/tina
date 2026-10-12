@@ -421,14 +421,14 @@ packages:
     source: path
     version: "0.1.0"
   tina_engine_2:
-    dependency: "direct main"
+    dependency: transitive
     description:
       path: "../../tina_engine_2"
       relative: true
     source: path
     version: "0.1.0"
   tina_host:
-    dependency: "direct main"
+    dependency: transitive
     description:
       path: "../../tina_host"
       relative: true

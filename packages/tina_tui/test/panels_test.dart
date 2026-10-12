@@ -46,6 +46,7 @@ class Provider implements LlmProvider {
 class AttachCheck extends AgentPlugin implements ConsoleContribution {
   AttachCheck(this.model);
   final String model;
+  ConsoleContext? console;
   @override
   String get id => 'acme/attach-check';
   @override
@@ -57,6 +58,7 @@ class AttachCheck extends AgentPlugin implements ConsoleContribution {
       ];
   @override
   void attachConsole(ConsoleContext context) {
+    console = context;
     context.settings.registerSection(
         id: 'acme/attach-check', title: model, build: () => []);
     if (model == 'bad') throw StateError('fixture attach failure');
@@ -127,7 +129,12 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
   }
 
   Future<void> spawn(String model) async {
-    await session.commands['spawn']!.handler(model);
+    await session.host.plugins
+        .whereType<AttachCheck>()
+        .single
+        .console!
+        .panels!
+        .spawn(model);
     await Future<void>.delayed(const Duration(milliseconds: 35));
   }
 
@@ -361,7 +368,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         })
       ], stopReason: 'tool_use'));
       await provider.streams[0].close();
-      await waitFor(() => approvalUi(session).asker!.current != null);
+      await waitFor(
+          () => approvalUi(session).interaction.pending.firstOrNull != null);
       if (burst) {
         editor.inject(EscapeKey());
         editor.inject(CharInput('f'));
@@ -369,7 +377,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         editor.inject(ControlKey(ControlCode.enter));
       } else {
         await keys('\x1b');
-        await waitFor(() => approvalUi(session).asker!.current == null);
+        await waitFor(
+            () => approvalUi(session).interaction.pending.firstOrNull == null);
         await keys('$replacement\r');
       }
       // A replacement submitted during approval cleanup must start a new turn
@@ -490,13 +499,15 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     ], stopReason: 'tool_use'));
     await provider.streams.first.close();
     await Future<void>.delayed(const Duration(milliseconds: 40));
-    expect(approvalUi(session).asker!.current, isNull,
-        reason: 'settings retains input until dismissed');
+    expect(approvalUi(session).interaction.pending, hasLength(1),
+        reason: 'the runtime retains the question while Settings owns input');
     expect(File('${dir.path}/reviewed.txt').existsSync(), false);
     await keys('\x1b');
     expect(session.host.session.loop.running, true);
-    await waitFor(() => approvalUi(session).asker!.current != null);
-    expect(approvalUi(session).asker!.current!.reason, contains('read-only'));
+    await waitFor(
+        () => approvalUi(session).interaction.pending.firstOrNull != null);
+    expect(approvalUi(session).interaction.pending.firstOrNull!.reason,
+        contains('read-only'));
     await keys('y');
     await waitFor(() => provider.requests.length == 2);
     expect(File('${dir.path}/reviewed.txt').readAsStringSync(),
@@ -527,8 +538,14 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('first write\r');
     await waitFor(() => provider.requests.length == 1);
     await write(0, 'remembered.txt', 'first');
-    await waitFor(() => approvalUi(session).asker!.current != null);
-    expect(approvalUi(session).asker!.current!.details['permission_scope'],
+    await waitFor(
+        () => approvalUi(session).interaction.pending.firstOrNull != null);
+    expect(
+        approvalUi(session)
+            .interaction
+            .pending
+            .firstOrNull!
+            .details['permission_scope'],
         'file');
     await keys('a');
     await waitFor(() => provider.requests.length == 2);
@@ -543,7 +560,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await waitFor(() => provider.requests.length == 3);
     await write(2, './remembered.txt', 'second');
     await waitFor(() => provider.requests.length == 4);
-    expect(approvalUi(session).asker!.current, isNull);
+    expect(approvalUi(session).interaction.pending.firstOrNull, isNull);
     expect(target.readAsStringSync(), 'second');
     expect(session.assembly.tools.sandbox.grants.length, 1);
     provider.answer(3, 'saved again');
@@ -552,7 +569,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('write another file\r');
     await waitFor(() => provider.requests.length == 5);
     await write(4, 'other.txt', 'denied');
-    await waitFor(() => approvalUi(session).asker!.current != null);
+    await waitFor(
+        () => approvalUi(session).interaction.pending.firstOrNull != null);
     await keys('n');
     await waitFor(() => provider.requests.length == 6);
     expect(File('${dir.path}/other.txt').existsSync(), false);
@@ -596,13 +614,23 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         await keys('run command\r');
         await waitFor(() => provider.requests.length == 1);
         await command(0, 'remembered command');
-        await waitFor(() => approvalUi(session).asker!.current != null);
-        expect(approvalUi(session).asker!.current!.details['permission_scope'],
+        await waitFor(
+            () => approvalUi(session).interaction.pending.firstOrNull != null);
+        expect(
+            approvalUi(session)
+                .interaction
+                .pending
+                .firstOrNull!
+                .details['permission_scope'],
             'command');
+        expect(approvalUi(session).interaction.pending.firstOrNull!.kind,
+            ApprovalKind.permission);
         expect(
-            approvalUi(session).asker!.current!.kind, ApprovalKind.permission);
-        expect(
-            approvalUi(session).asker!.current!.details['required_permissions'],
+            approvalUi(session)
+                .interaction
+                .pending
+                .firstOrNull!
+                .details['required_permissions'],
             [
               'execution',
               if (network || outside) 'network',
@@ -632,7 +660,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         await waitFor(() => provider.requests.length == 3);
         await command(2, 'remembered command');
         await waitFor(() => provider.requests.length == 4);
-        expect(approvalUi(session).asker!.current, isNull);
+        expect(approvalUi(session).interaction.pending.firstOrNull, isNull);
         final results = session.host.session.loop.log
             .whereType<MessageAppendedEntry>()
             .expand((entry) => entry.message.content)
@@ -647,7 +675,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         await keys('run different command\r');
         await waitFor(() => provider.requests.length == 5);
         await command(4, 'different arguments');
-        await waitFor(() => approvalUi(session).asker!.current != null);
+        await waitFor(
+            () => approvalUi(session).interaction.pending.firstOrNull != null);
         await keys('n');
         await waitFor(() => provider.requests.length == 6);
         expect(rememberedCommands(), 1);

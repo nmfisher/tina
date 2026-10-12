@@ -10,6 +10,12 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_chat:
+    path: ../plugins/tina_chat
+  tina_activity:
+    path: ../plugins/tina_activity
+  tina_session_controls:
+    path: ../plugins/tina_session_controls
   tina_shell:
     path: ../plugins/tina_shell
   tina_settings:
@@ -18,6 +24,8 @@ dependencies:
     path: ../plugins/tina_step_limit
   tina_mcp:
     path: ../plugins/tina_mcp
+  tina_mcp_tui:
+    path: ../plugins/tina_mcp_tui
   ffi: ^2.1.0
   tina_mode:
     path: ../plugins/tina_mode

@@ -120,14 +120,9 @@ final class TuiSession {
       case PlainLine(:final text) when text.isEmpty:
         break; // no turn for an empty line
       case PlainLine(:final text):
-        assembly.turnObservation = Object();
-        try {
-          final outcome = await host.send(text);
-          if (renderReply || outcome.stopReason != StopReason.complete) {
-            terminal.writeln(outcome.detail);
-          }
-        } finally {
-          assembly.turnObservation = null;
+        final outcome = await host.send(text);
+        if (renderReply || outcome.stopReason != StopReason.complete) {
+          terminal.writeln(outcome.detail);
         }
     }
     return assembly.quitRequested;

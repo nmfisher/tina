@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart' show AnsiBackend;
+import 'package:tina_tui/src/console_catalog.dart';
 import 'package:tina_context_tui/tina_context_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_mode/tina_mode.dart' show ModePlugin;
@@ -88,10 +89,14 @@ void main() {
         backend: AnsiBackend(io: io, ansi: AnsiCapable.yes),
         layout: ScreenLayout.fromSize(100, 24, split: false));
     final editor = LineEditor(screen: screen);
-    final viewer = session.host.plugins.whereType<ContextTuiPlugin>().single;
-    viewer.attachConsole(ConsoleContext(screen: screen, editor: editor));
+    final viewer = createConsoleView(
+            session.host.plugins.singleWhere((p) => p.id == 'tina/context-tui'))
+        as ContextView;
+    final attachment = ConsoleAttachment.attach(
+        viewer, ConsoleContext(screen: screen, editor: editor));
     addTearDown(() {
       if (!release.isCompleted) release.complete();
+      attachment.dispose();
       session.close();
       editor.close(reportLatency: false);
       screen.dispose();
@@ -99,7 +104,7 @@ void main() {
     });
     final turn = session.runLine('normal message');
     await ready.future;
-    final command = session.offerCommand('/context');
+    final command = viewer.handleConsoleCommand('context', '');
     expect(command, isNotNull);
     await command!.timeout(const Duration(seconds: 3));
     expect(viewer.isOpen, isTrue);

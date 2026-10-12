@@ -1,7 +1,10 @@
 # Session ownership and behavior baseline
 
 Status: **first preparatory step complete; no production behavior changed**.
-Checked against v0.9.56 on 2026-10-11.
+Original inventory checked against v0.9.56 on 2026-10-11. The completed
+feature splits and disposable attachment observations are recorded in
+[the implementation status](daemon_sessions.md#phase-1--extract-independent-feature-views);
+rows below retain the original behavior as the compatibility baseline.
 
 This is the inventory for phase 0 of
 [daemon sessions](daemon_sessions.md). It records current behavior separately
@@ -109,7 +112,7 @@ Sources:
 [plugin settings](../../packages/tina_tui/lib/src/plugin_settings.dart),
 [settings panel](../../packages/tina_tui/lib/src/settings_panel.dart),
 [provider panel](../../packages/tina_tui/lib/src/providers_panel.dart),
-[MCP contribution](../../packages/tina_tui/lib/src/mcp_console_plugin.dart),
+[MCP settings view](../../packages/plugins/tina_mcp_tui/lib/src/mcp_view.dart),
 [approval store](../../packages/plugins/tina_tools/lib/src/command_approval_store.dart).
 
 ## Lifecycle and observation baseline

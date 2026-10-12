@@ -7,7 +7,8 @@ import 'dart:convert';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_chat_tui/tina_chat_tui.dart' show ModelCatalog;
+import 'package:tina_session_controls/tina_session_controls.dart'
+    show ModelCatalog;
 import 'tui_terminal.dart';
 import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 
@@ -187,11 +188,27 @@ final class TuiAssembly {
   final PluginManager<TuiPluginContext> pluginManager;
   final ScopedSettings settings;
   final ConfigSettingsBackend settingsBackend;
-  void Function()? onSettingsChanged;
+  final _settingsListeners = <Object, void Function()>{};
+  void Function() listenSettings(void Function() listener) {
+    final owner = Object();
+    _settingsListeners[owner] = listener;
+    return () => _settingsListeners.remove(owner);
+  }
+
+  void _settingsChanged() {
+    for (final item in _settingsListeners.entries.toList()) {
+      if (!_settingsListeners.containsKey(item.key)) continue;
+      try {
+        item.value();
+      } catch (_) {
+        _settingsListeners.remove(item.key);
+      }
+    }
+  }
+
   final String configPath;
   final List<ProviderDescriptor> descriptors;
   final void Function(Iterable<String>) validatePlugins;
-  Future<void> Function()? openSettings;
   final void Function() applySavedConfiguration;
   final void Function() _stopConfigurationUpdates;
 
@@ -217,9 +234,9 @@ final class TuiAssembly {
 
   /// Transient model output for the active foreground turn. Background
   /// requests and child providers do not feed the conversation renderer.
-  WatchSink? onWatch;
-  Object? turnObservation;
-  bool get watchingTurn => turnObservation != null;
+  Object? _turnObservation;
+  int? _turnListener;
+  bool get watchingTurn => host.session.loop.inTurn;
 
   static TuiAssembly start({
     AssemblyWriter writer = const _NullWriter(),
@@ -412,16 +429,16 @@ final class TuiAssembly {
       providerFactory: (model) => _ObservedProvider(factory(model), () {
         diagnostics?.stage?.call('provider-send');
         final current = assembled;
-        if (current == null ||
-            !current.watchingTurn ||
-            !current.host.session.loop.inTurn) return null;
-        final observation = current.turnObservation;
+        if (current == null || !current.host.session.loop.inTurn) return null;
+        final loop = current.host.session.loop;
+        final turn = current._turnObservation;
         return (event) {
-          if (identical(observation, current.turnObservation)) {
-            current.onWatch?.call(event);
+          if (loop.inTurn && identical(turn, current._turnObservation)) {
             for (final observer
                 in current.host.plugins.whereType<WatchObserver>()) {
-              observer.watch(event);
+              try {
+                observer.watch(event);
+              } catch (_) {}
             }
           }
         };
@@ -463,7 +480,7 @@ final class TuiAssembly {
         assembled?._theme = next.theme;
         assembled?.pluginManager.select(pluginSettings.selected);
         settings.applicationErrors.remove('configuration');
-        assembled?.onSettingsChanged?.call();
+        assembled?._settingsChanged();
       } catch (_) {
         settings.applicationErrors['configuration'] =
             'Saved configuration could not be applied; check Settings.';
@@ -512,6 +529,11 @@ final class TuiAssembly {
     assembled = assembly;
     // Built-ins are the assembly's, registered by the assembly — the
     // same registry, the same dispatch.
+    assembly._turnListener = host.session.loop.subscribe((entry, event) {
+      if (entry is TurnStartedEntry) assembly._turnObservation = Object();
+      if (entry is TurnEndedEntry || entry is ContextClearedEntry)
+        assembly._turnObservation = null;
+    });
     host.commands.publish(Command(
       name: 'quit',
       description: 'leave the app',
@@ -524,13 +546,8 @@ final class TuiAssembly {
       description: 'edit session, workspace and global settings',
       allowWhileRunning: true,
       handler: (_) async {
-        final open = assembly.openSettings;
-        if (open != null) {
-          await open();
-        } else {
-          output.writeln(
-              'Settings requires the interactive TUI. Edit ${assembly.configPath}.');
-        }
+        output.writeln(
+            'Settings requires the interactive TUI. Edit ${assembly.configPath}.');
       },
     ));
     host.commands.publish(Command(
@@ -582,6 +599,11 @@ final class TuiAssembly {
 
   /// Close plugin resources and the session's provider through the host.
   void close() {
+    if (_turnListener case final listener?)
+      host.session.loop.unsubscribe(listener);
+    _turnListener = null;
+    _turnObservation = null;
+    _settingsListeners.clear();
     _stopConfigurationUpdates();
     host.close();
     settings.close();

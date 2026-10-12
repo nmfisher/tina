@@ -22,9 +22,13 @@ final class SessionView
   final TuiSession session;
   final bool showConfig;
   final _attached = <AgentPlugin, ConsoleAttachment>{};
+  Iterable<ConsoleContribution> get contributions => List.unmodifiable(
+      _attached.values.map((attachment) => attachment.contribution));
   ConsoleContext? _context;
   int? _inputStatusListener;
   SettingsPanel? _settings;
+  Future<void> Function()? _openSettings;
+  final _releases = <void Function()>[];
   @override
   String get id => session.host.session.id;
   @override
@@ -42,7 +46,8 @@ final class SessionView
   @override
   Future<void> submit(String text) async {
     final command =
-        offerConsoleCommand(session.commands, _attached.values, text);
+        offerSettingsCommand(session.commands, text, _openSettings) ??
+            offerConsoleCommand(session.commands, _attached.values, text);
     if (command != null) {
       await command;
     } else {
@@ -58,6 +63,8 @@ final class SessionView
 
   @override
   Future<void>? offerCommand(String text) =>
+      offerSettingsCommand(session.commands, text, _openSettings,
+          whileRunning: true) ??
       offerConsoleCommand(session.commands, _attached.values, text,
           whileRunning: true) ??
       session.offerCommand(text);
@@ -83,6 +90,7 @@ final class SessionView
 
   @override
   void attachConsole(ConsoleContext context) {
+    detachConsole();
     _context = context;
     _inputStatusListener = session.host.session.loop.subscribe((entry, event) {
       if (entry is InputRecordedEntry || entry is TurnEndedEntry) {
@@ -90,23 +98,22 @@ final class SessionView
       }
     });
     final terminal = session.terminal as TuiTerminal;
-    terminal.onLine = notice;
+    _releases.add(terminal.listenLines(notice));
     void attach(AgentPlugin plugin) {
       final contribution = createConsoleView(plugin);
       if (contribution == null) return;
       _attached[plugin] = ConsoleAttachment.attach(contribution, context);
     }
 
-    session.assembly.pluginManager.onLoaded = attach;
-    session.assembly.pluginManager.onUnloading = (plugin) {
-      _attached.remove(plugin)?.dispose();
-    };
+    _releases.add(session.assembly.pluginManager.listen(
+        loaded: attach,
+        unloading: (plugin) => _attached.remove(plugin)?.dispose()));
     for (final plugin in session.host.plugins) {
       attach(plugin);
     }
     _settings = SettingsPanel(context.screen, context.input);
     var appliedTheme = jsonEncode(session.assembly.theme);
-    session.assembly.onSettingsChanged = () {
+    _releases.add(session.assembly.listenSettings(() {
       final next = jsonEncode(session.assembly.theme);
       if (next != appliedTheme) {
         appliedTheme = next;
@@ -120,8 +127,8 @@ final class SessionView
         repaintConsole();
       }
       _settings?.repaint();
-    };
-    session.assembly.openSettings = () => context.interact(() async {
+    }));
+    _openSettings = () => context.interact(() async {
           if (!context.isActive) return;
           final saved = await _settings!.run(
               scopedSettings: session.assembly.settings,
@@ -163,17 +170,15 @@ final class SessionView
       _inputStatusListener = null;
     }
     _settings?.cancel();
-    session.assembly.openSettings = null;
-    session.assembly.onSettingsChanged = null;
-    session.assembly.pluginManager.onLoaded = null;
-    session.assembly.pluginManager.onUnloading = null;
+    _openSettings = null;
+    for (final release in _releases.reversed) release();
+    _releases.clear();
     for (final attachment in _attached.values.toList().reversed) {
       try {
         attachment.dispose();
       } catch (_) {/* Continue releasing views. */}
     }
     _attached.clear();
-    (session.terminal as TuiTerminal).onLine = null;
     _context = null;
     _settings = null;
   }

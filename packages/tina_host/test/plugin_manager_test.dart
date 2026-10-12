@@ -61,6 +61,42 @@ void main() {
   }
 
   test(
+      'attachment lifecycle observers detach independently and roll back failed activation',
+      () {
+    final runtime = host();
+    final registry = PluginRegistry<void>()
+      ..register('test/probe', (_) => Probe('test/probe'),
+          description: 'Test lifecycle observation.', live: true);
+    final manager =
+        PluginManager<void>(host: runtime, registry: registry, context: null);
+    final first = <String>[], second = <String>[];
+    final release = manager.listen(
+        loaded: (p) => first.add('+${p.id}'),
+        unloading: (p) => first.add('-${p.id}'));
+    manager.listen(
+        loaded: (p) => second.add('+${p.id}'),
+        unloading: (p) => second.add('-${p.id}'));
+    manager.select(['test/probe']);
+    expect(first, ['+test/probe']);
+    expect(second, first);
+    release();
+    manager.select([]);
+    expect(first, ['+test/probe']);
+    expect(second, ['+test/probe', '-test/probe']);
+    final fail = manager.listen(
+        loaded: (_) => throw StateError('view failed'), unloading: (_) {});
+    manager.select(['test/probe']);
+    expect(manager.lastError, contains('view failed'));
+    expect(runtime.plugins.where((p) => p.id == 'test/probe'), isEmpty);
+    expect(
+        second, ['+test/probe', '-test/probe', '+test/probe', '-test/probe']);
+    fail();
+    manager.reconcile();
+    expect(manager.lastError, isNull);
+    expect(runtime.plugins.where((p) => p.id == 'test/probe'), hasLength(1));
+  });
+
+  test(
       'unload removes commands, executors and subscriptions; reload gets a fresh instance',
       () async {
     final instances = <Probe>[];
