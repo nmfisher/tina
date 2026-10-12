@@ -270,7 +270,7 @@ headers = { Authorization = "hidden" }
   );
 
   test(
-    'observer factories exclude combined extensions with unchecked callbacks',
+    'unregistered combined plugins supply no view for either client role',
     () {
       final plugin = _CombinedPlugin();
       expect(
@@ -280,7 +280,7 @@ headers = { Authorization = "hidden" }
         ),
         isNull,
       );
-      expect(createConsoleView(plugin), same(plugin));
+      expect(createConsoleView(plugin), isNull);
     },
   );
 }

@@ -1,4 +1,5 @@
 import 'package:tina/tui.dart';
+import 'package:tina/src/console_catalog.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:test/test.dart';
@@ -43,10 +44,9 @@ class Provider implements LlmProvider {
   }
 }
 
-class AttachCheck extends AgentPlugin implements ConsoleContribution {
+class AttachCheck extends AgentPlugin {
   AttachCheck(this.model);
   final String model;
-  ConsoleContext? console;
   @override
   String get id => 'acme/attach-check';
   @override
@@ -56,6 +56,12 @@ class AttachCheck extends AgentPlugin implements ConsoleContribution {
             description: 'Hold cleanup for input delivery testing',
             inputSchema: {})
       ];
+}
+
+class AttachCheckView implements ConsoleContribution {
+  AttachCheckView(this.model);
+  final String model;
+  ConsoleContext? console;
   @override
   void attachConsole(ConsoleContext context) {
     console = context;
@@ -79,6 +85,7 @@ void main() {
   late Future<int> app;
   late StreamController<ScreenLayout> sizes;
   final providers = <Provider>[];
+  final checkViews = <AttachCheckView>[];
   setUp(() async {
     dir = Directory.systemTemp.createTempSync('tina-panels-');
     final config = File('${dir.path}/config')..writeAsStringSync('''
@@ -92,17 +99,26 @@ models = ["main|Main model", "other|Other model"]
 enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "tina/persistence", "tina/grok-guard", "tina/session-controls", "acme/attach-check"]
 ''');
     providers.clear();
-    session = TuiSession.wrap(SessionAssembly.start(
-        options: AssemblyOptions(
-            configPath: config.path, workingDirectory: dir.path),
-        registerPlugins: (registry) => registry.register(
-            'acme/attach-check', (context) => AttachCheck(context.model),
-            description: 'Test plugin registration.'),
-        providerFactory: (model) {
-          final p = Provider(model);
-          providers.add(p);
-          return p;
-        }));
+    checkViews.clear();
+    session = TuiSession.wrap(
+        SessionAssembly.start(
+            options: AssemblyOptions(
+                configPath: config.path, workingDirectory: dir.path),
+            registerPlugins: (registry) => registry.register(
+                'acme/attach-check', (context) => AttachCheck(context.model),
+                description: 'Test plugin registration.'),
+            providerFactory: (model) {
+              final p = Provider(model);
+              providers.add(p);
+              return p;
+            }), viewFactory: (plugin, {required access}) {
+      if (plugin is AttachCheck) {
+        final view = AttachCheckView(plugin.model);
+        checkViews.add(view);
+        return view;
+      }
+      return createConsoleView(plugin, access: access);
+    });
     io = FakeIo();
     screen = Screen(
         io: io,
@@ -129,9 +145,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
   }
 
   Future<void> spawn(String model) async {
-    await session.host.plugins
-        .whereType<AttachCheck>()
-        .single
+    await checkViews
+        .firstWhere((view) => view.console != null)
         .console!
         .panels!
         .spawn(model);

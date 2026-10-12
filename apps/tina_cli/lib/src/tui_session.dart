@@ -20,8 +20,10 @@ final class TuiSession {
   TuiSession._({
     required this.assembly,
     required this.terminal,
+    ConsoleViewFactory viewFactory = createConsoleView,
   })  : host = assembly.host,
         commands = assembly.commands,
+        _viewFactory = viewFactory,
         _connection = assembly.host.connect();
 
   /// The assembly this session wraps — the app, wiring and all.
@@ -39,24 +41,27 @@ final class TuiSession {
   /// The registry the command plugins published into.
   final Commands commands;
   final SessionConnection _connection;
+  final ConsoleViewFactory _viewFactory;
   bool _closed = false;
   List<String>? _closedHistory;
-  late final presentation =
-      presentationForAssembly(assembly, connection: _connection);
+  late final presentation = presentationForAssembly(assembly,
+      connection: _connection, viewFactory: _viewFactory);
 
   SessionView createView(
       {bool showConfig = false, SessionRole role = SessionRole.controller}) {
     final connection = host.connect(role: role);
     return SessionView(
-        connection, presentationForAssembly(assembly, connection: connection),
+        connection,
+        presentationForAssembly(assembly,
+            connection: connection, viewFactory: _viewFactory),
         showConfig: showConfig);
   }
 
   TuiSession spawn([String? model]) =>
-      TuiSession.wrap(assembly.newSession(model));
+      TuiSession.wrap(assembly.newSession(model), viewFactory: _viewFactory);
 
   ConsoleWorkspace? createWorkspace() => assembly.host.plugins
-      .map(createConsoleView)
+      .map((plugin) => _viewFactory(plugin, access: _connection.access))
       .whereType<ConsoleWorkspace>()
       .firstOrNull;
 
@@ -105,9 +110,14 @@ final class TuiSession {
     return TuiSession._(assembly: assembly, terminal: tui);
   }
 
-  /// Wrap an assembly, retaining the terminal supplied to its plugins.
-  factory TuiSession.wrap(SessionAssembly assembly) {
-    return TuiSession._(assembly: assembly, terminal: assembly.terminal);
+  /// Wrap an assembly with application-owned view construction. The factory
+  /// creates a fresh view per attachment and receives that client's authority.
+  factory TuiSession.wrap(SessionAssembly assembly,
+      {ConsoleViewFactory viewFactory = createConsoleView}) {
+    return TuiSession._(
+        assembly: assembly,
+        terminal: assembly.terminal,
+        viewFactory: viewFactory);
   }
 
   /// Run one entered line through the pure dispatch: a published command

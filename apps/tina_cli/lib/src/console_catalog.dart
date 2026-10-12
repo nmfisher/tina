@@ -18,6 +18,10 @@ import 'package:tina_mcp_tui/tina_mcp_tui.dart';
 import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_plans_tui/tina_plans_tui.dart';
 
+/// Application-owned construction of a fresh view for each attachment.
+typedef ConsoleViewFactory = ConsoleContribution? Function(AgentPlugin plugin,
+    {required ClientAccess access});
+
 /// Presentation factories are separate from runtime plugin construction. Each
 /// call creates a view for one attachment to the existing feature instance.
 final _viewFactories =
@@ -53,17 +57,11 @@ final _viewFactories =
   },
 };
 
-/// Existing extensions may still supply a combined contribution. All built-in
-/// presentation is constructed through the factories above.
+/// Only registered factories provide presentation. Runtime-only plugins have
+/// no console view; a runtime plugin is never itself used as a view.
 ConsoleContribution? createConsoleView(AgentPlugin plugin,
-    {ClientAccess access = const ClientAccess()}) {
-  final factory = _viewFactories[plugin.id];
-  if (factory != null) return factory(plugin, access);
-  // Combined extensions have no checked client contract. An observer must
-  // never receive their unrestricted runtime callbacks.
-  if (!access.canControl) return null;
-  return plugin is ConsoleContribution ? plugin as ConsoleContribution : null;
-}
+        {ClientAccess access = const ClientAccess()}) =>
+    _viewFactories[plugin.id]?.call(plugin, access);
 
 final class _ClientUpdateStatus implements UpdateStatusSource {
   _ClientUpdateStatus(this._source, this._access);

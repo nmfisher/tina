@@ -10,21 +10,21 @@ import 'session_terminal.dart';
 /// Application composition: concrete feature instances and configuration
 /// services are wired here, never reached through by a view.
 SessionPresentation presentationForAssembly(SessionAssembly assembly,
-        {required SessionConnection connection}) =>
+        {required SessionConnection connection,
+        ConsoleViewFactory viewFactory = createConsoleView}) =>
     SessionPresentation(
       theme: () => resolveTheme(assembly.theme),
       configNote: assembly.configNote,
       quitRequested: () => assembly.quitRequested,
       createViews: () => {
         for (final plugin in assembly.host.plugins)
-          if (createConsoleView(plugin, access: connection.access)
-              case final view?)
+          if (viewFactory(plugin, access: connection.access) case final view?)
             plugin.id: view,
       },
       listenViews: (loaded, unloading) => assembly.pluginManager.listen(
         loaded: (plugin) {
-          if (createConsoleView(plugin, access: connection.access)
-              case final view?) loaded(plugin.id, view);
+          if (viewFactory(plugin, access: connection.access) case final view?)
+            loaded(plugin.id, view);
         },
         unloading: (plugin) => unloading(plugin.id),
       ),

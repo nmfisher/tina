@@ -63,7 +63,7 @@ replacement for their stores or change SQLite durability.
 | Application assembly | `SessionAssembly` lives in `apps/tina_cli`. Its headless `session.dart` entry point cannot reach a renderer or frontend package. | Application wiring stays above reusable host and frontend packages; scripted turns and resume use the same assembly. |
 | TUI lifetime | `SessionView.close` disposes presentation and its connection only. The workspace calls an optional application `onViewClosed` policy. `runTui` in the CLI owns embedded sessions and uses host shutdown to drain accepted work before closing resources. | Borrowed views close independently; frontend quit is local. Settings and ordinary-question dialogs use disposable clients. |
 | Notifications | Settings changes, terminal output and plugin lifecycle events support independently disposable listeners; foreground watch lifetime follows runtime log events. | Attachments release only their own listeners. Application commands that open Settings route to the submitting view. |
-| Presentation | Every first-party feature view is independent of its runtime plugin. Chat and activity consume immutable session observations; frontend-only IDs have stateless declarations. | Keep one runtime feature instance and a fresh presentation object per attachment. Existing third-party combined contributions retain their compatibility fallback. |
+| Presentation | Feature views are constructed by explicit application factories independently of runtime plugins. Chat and activity consume immutable session observations; frontend-only IDs have stateless declarations. | Keep one runtime feature instance and a fresh presentation object per attachment. Plugins without a view factory contribute no UI. |
 | Live model output | `_ObservedProvider` observes foreground turns through runtime-owned log markers. Chat retains bounded previews independently of attachments. | Direct `Host.send` and turns continuing after detach deliver observations. Background requests remain excluded; late views replay canonical history plus the current preview. |
 | Approvals | `ApprovalsPlugin` has request IDs, pending requests, cancellation and single-response tickets. `StreamApprovalChannel` has one subscriber and denies pending requests when it unsubscribes. | The interactive channel is now `AttachmentApprovalChannel`. Each view gets a question facade; the ticket and channel lifetime remain private. Detach retains pending approvals; new headless requests fail closed. |
 | Other questions | `SessionTerminal.ask` adapts to `SessionQuestions` in `tina_host`. Each connection receives immutable pending requests and answers by ID. | Detach retains requests. Duplicate, stale and foreign-session responses fail; cancellation, expiry, shutdown and unattended execution settle without an answer. |
@@ -267,8 +267,8 @@ Runtime construction in `plugin_catalog.dart` now creates a plain `PlansPlugin`.
 The separate `console_catalog.dart` creates a fresh plans view for each
 attachment; both `runApp` and the workspace's `SessionView` use it. Plans retain
 their existing ID, dependencies, commands, approval flow and live settings.
-Existing combined contributions remain compatible while their own factories
-migrate. No plans compatibility wrapper remains.
+No plans compatibility wrapper remains. The temporary combined-contribution
+fallback has also been removed; additional views use explicit application factories.
 
 Coverage includes two views sharing updates with independent presentation state,
 detaching either view while the other continues, reattachment from the latest
@@ -426,8 +426,9 @@ scroll-related bookkeeping and console bindings. Runtime features remain single
 instances. Read-only projection of their state into multiple views is allowed;
 creating another runtime plugin for a second view is not.
 
-Runtime and presentation factories are separate. No first-party combined
-wrapper remains; the compatibility fallback is limited to external contributions.
+Runtime and presentation factories are separate. Combined plugin/view objects
+are never automatically attached. Application-supplied factories construct fresh
+views and receive the attachment's authority, including for spawned sessions.
 
 Preserve existing plugin IDs, defaults, dependency declarations, global/
 workspace/session overrides and restart-versus-idle application rules. Catalog
@@ -619,8 +620,8 @@ checks, regex suggestions and responses. Derived clients can only restrict this
 authority. Closing the originating connection invalidates retained mutation
 handles; accepted work remains session-owned. MCP observers receive public
 names/status, not credential-bearing configuration. Read-only settings snapshots
-do not trigger owner reloads. Legacy combined plugin/view extensions are omitted
-from observer presentations because they have no checked capability boundary.
+do not trigger owner reloads. All presentations use explicit view factories;
+there is no automatic attachment of combined runtime/UI extensions for either role.
 These are in-process checks with a trusted issuer, not transport authentication
 or isolation from arbitrary code running inside the application.
 

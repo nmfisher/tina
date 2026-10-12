@@ -1,12 +1,17 @@
 # Plugin UI contributions
 
-First-party feature views implement `ConsoleContribution` from `tina_console`
+Feature views implement `ConsoleContribution` from `tina_console`
 separately from their session-owned runtime plugins. `apps/tina_cli/lib/src/console_catalog.dart`
 constructs a fresh view for each attachment; the runtime catalog imports no
 presentation package. Runtime plugin IDs, settings and command registration
-remain authoritative. Existing extension plugins may still implement the
-contribution alongside `AgentPlugin` through the compatibility fallback shown
-below. Live plugin changes notify each attachment through disposable observers.
+remain authoritative. Plugins without an explicit view factory contribute no UI.
+Live plugin changes notify each attachment through disposable observers.
+
+Application composition can supply a `viewFactory` to `TuiSession.wrap` for
+additional features. It receives the runtime plugin and the attachment's
+`ClientAccess`, and must create a fresh view on each call. Pass that authority to
+any mutable feature client. Spawned sessions retain the same factory; runtime
+plugin construction remains separate.
 
 Each attachment receives its own `ConsoleContext` scope. Registration methods
 track their cleanup automatically. The TUI disposes that scope on unload,
@@ -66,8 +71,7 @@ focus. Observer approval listeners never count as responders, and cannot request
 a model-generated regex suggestion. MCP observers receive names/status rather
 than credential-bearing configuration. Settings editors require control;
 read-only settings clients can inspect data without applying external reloads.
-Legacy combined plugin/view extensions have no checked client contract and are
-excluded from observer presentations. The application issuer is trusted: this
+The application issuer and its view factories are trusted: this
 in-process capability boundary is not an OS sandbox or a transport authenticator.
 
 The connection exposes immutable status, command descriptions, input history,
@@ -142,10 +146,7 @@ own contribution contracts; MCP config is absent from generic snapshots.
 ## Settings sections
 
 ```dart
-class ExampleUi extends AgentPlugin implements ConsoleContribution {
-  @override
-  String get id => 'acme/example-ui';
-
+class ExampleView implements ConsoleContribution {
   bool showDetails = false;
 
   @override
@@ -172,6 +173,21 @@ class ExampleUi extends AgentPlugin implements ConsoleContribution {
   void detachConsole() {}
 }
 ```
+
+Wire the view separately from the runtime plugin's registration:
+
+```dart
+final session = TuiSession.wrap(assembly,
+    viewFactory: (plugin, {required access}) {
+  if (plugin.id == 'acme/example') return ExampleView();
+  return createConsoleView(plugin, access: access);
+});
+```
+
+`createConsoleView` comes from the application's `console_catalog.dart` and
+constructs the built-in views. In this example, `showDetails` belongs only to
+the view. Settings that change shared runtime behavior use a feature client
+bound to `access`.
 
 Sections appear in `/settings` for the invoking attachment. Section IDs are
 namespaced and unique within that attachment; ordering uses `order`, then ID.
