@@ -41,8 +41,7 @@ class Screen {
   final AnsiCapable ansi;
 
   /// When true, all region writes pass straight through to [io] with no
-  /// positioning, no row buffering, no frame. Used for `--prompt` runs and
-  /// piped non-TTY output.
+  /// positioning, no row buffering, no frame. Used for piped non-TTY output.
   final bool passthrough;
 
   /// Visual theme: SGR strings and RGB triples used by regions and the frame
@@ -218,7 +217,7 @@ class Screen {
   static final Stopwatch _clock = Stopwatch()..start();
 
   /// A Screen that writes plain text directly to [io] — no alt-screen, no
-  /// frame, no region management. Use for `--prompt` and any non-TTY run.
+  /// frame, no region management. Use for non-TTY output.
   factory Screen.passthrough(Stdio io, {AnsiCapable? ansi, Theme? theme}) {
     return Screen(
       io: io,
@@ -1405,7 +1404,7 @@ final class ScreenCursor {
 /// (chat streaming, input prompt) can wrap before they call put.
 List<String> wrapForWidth(String text, int width) => wrapAnsiAware(text, width);
 
-/// [BackendSurface] for passthrough mode (`--prompt` / non-TTY runs). Writes
+/// [BackendSurface] for passthrough mode (non-TTY output). Writes
 /// content straight to [Stdio] with no positioning; geometry and z-order are
 /// no-ops. Panels aren't meaningful without a frame, but this keeps the
 /// abstraction total so [Panel] code paths don't need a passthrough branch.

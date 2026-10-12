@@ -28,12 +28,13 @@ class Stub(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        body = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
+        reply = 'ok' if body.get('tools') else 'VERDICT: yes — completed'
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()
         for delta, finish in [({'role': 'assistant'}, None),
-                              ({'content': 'ok'}, None), ({}, 'stop')]:
+                              ({'content': reply}, None), ({}, 'stop')]:
             data = {'id': 'bench', 'object': 'chat.completion.chunk',
                     'choices': [{'index': 0, 'delta': delta,
                                  'finish_reason': finish}]}
@@ -123,7 +124,7 @@ models = ["stub-1|Stub model"]
             for build in options.builds:
                 command = ([options.dart, 'run', str(REPO / 'tool/perf/startup_stages.dart')]
                            if build == 'jit' else [str(options.aot.resolve())])
-                base = ['--config', str(config), '--cwd', str(workspace), '--prompt', 'hi']
+                base = ['--config', str(config), '--cwd', str(workspace), '--goal', 'hi']
                 seed = root / f'{build}-seed.db'
                 # Closed CLI checkpoints the seed. Copy only after successful exit.
                 seeded = run_one(command, base + ['--store', str(seed)], env)

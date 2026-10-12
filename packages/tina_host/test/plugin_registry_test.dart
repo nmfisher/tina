@@ -26,6 +26,36 @@ const other = PluginCapability<AgentPlugin>('acme/other');
 
 void main() {
   test(
+      'CLI contributions survive every definition factory without construction',
+      () {
+    const cli = PluginCli(options: [
+      CliOption('example', description: 'Example command'),
+    ]);
+    final definitions = [
+      PluginDefinition<void>('acme/plain', (_) => throw StateError('not built'),
+          description: 'Plain', cli: cli),
+      PluginDefinition.dependingOn<void, Service>('acme/one',
+          dependency: service,
+          create: (context, dependency) => throw StateError('not built'),
+          description: 'One dependency',
+          cli: cli),
+      PluginDefinition.dependingOn2<void, Service, AgentPlugin>('acme/two',
+          first: service,
+          second: other,
+          create: (context, first, second) => throw StateError('not built'),
+          description: 'Two dependencies',
+          cli: cli),
+    ];
+    for (final definition in definitions) {
+      expect(definition.cli, same(cli));
+    }
+    final registry = PluginRegistry<void>()
+      ..register('acme/example', (_) => throw StateError('not built'),
+          description: 'Example', cli: cli);
+    expect(registry.definition('acme/example').cli, same(cli));
+  });
+
+  test(
       'setting definitions are available without building plugins and enforce ownership',
       () {
     final setting = SettingDefinition<int>(

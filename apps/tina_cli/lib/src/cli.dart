@@ -1,7 +1,10 @@
 import 'dart:io';
 import 'dart:async';
-import 'package:tina_goals/tina_goals.dart';
-import 'package:tina_engine_2/tina_engine_2.dart' show StopReason;
+import 'package:tina_host/tina_host.dart';
+import 'package:tina_providers/tina_providers.dart';
+import 'package:tina_tools/tina_tools.dart' show noSandboxOption;
+import 'cli_options.dart';
+import 'plugin_catalog.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/tui.dart';
@@ -9,145 +12,72 @@ import 'shell_completion.dart';
 import 'restart.dart';
 import 'session_selection.dart';
 
-const cliHelp =
-    '''usage: tina [--config FILE] [--cwd DIR] [--store FILE] [--resume [ID] | --continue]
-            [--model PROVIDER/MODEL] [--models [PROVIDER]] [--prompt TEXT|-]
-            [--goal TEXT [--max-goal-turns N]]
-            [--configure] [--version] [--completion bash|zsh|fish]
-            [--backend auto|ansi|notcurses] [--no-sandbox]
-            [--import-sessions PATH [--dry-run]]
-
-Starts the engine2 terminal app. /help lists loaded commands.
-Interactive launches default to notcurses with inline images, falling back to
-ANSI if native initialization fails. --backend selects an explicit renderer;
-auto restores the default. The status bar shows the active backend. Inside
-tmux, auto picks ANSI because notcurses renders unpredictably there; the
-status bar says when that happened, and --backend notcurses overrides it.
---no-sandbox disables OS filesystem and network confinement for this run.
-Permission modes and approval checks still apply; child environments remain filtered.
---model overrides the model for this run; resume otherwise restores its saved model.
---models prints available models without starting a session.
---prompt runs one turn without the TUI; use - to read the prompt from stdin.
---goal runs until its judge reports success; --max-goal-turns optionally bounds it.
-Headless approval requests are denied; the permission mode is never escalated.
---configure edits global provider, model, plugin and request settings.
---resume shows saved sessions: Up/Down selects, Enter resumes, Escape cancels.
-Rows show last saved time and a short preview; --resume ID reopens it directly.
---continue (-c) reopens the most recently updated main session in the workspace store.
---import-sessions converts a legacy session root, directory, manifest or JSONL
-file into --store (default: the current workspace store). --dry-run writes nothing.
-Each imported conversation gets its own ID, printed for --resume. Sources stay unchanged.
-''';
+String get cliHelp => applicationCliSchema().help;
 
 Future<int> runCli(
   List<String> args, {
   String version = '0.0.0',
   AssemblyDiagnostics? diagnostics,
+  void Function(PluginRegistry<SessionPluginContext>)? registerPlugins,
   String? Function() locateTerminalDevice = terminalDevicePath,
 }) async {
-  String? configPath;
-  String? model;
-  var backend = 'auto';
-  var osSandbox = true;
-  String? prompt;
-  String? goal;
-  int? maxGoalTurns;
-  String? listProvider;
-  var listModels = false;
-  String? storePath;
-  String? sessionId;
-  var resume = false;
-  var continueLatest = false;
-  var configure = false;
-  String? legacySource;
-  var dryRun = false;
-  var workingDirectory = Directory.current.path;
-  for (var i = 0; i < args.length; i++) {
-    final a = args[i];
-    if (a == '--backend' && i + 1 < args.length) {
-      backend = args[++i];
-      if (backend != 'auto' && backend != 'ansi' && backend != 'notcurses') {
-        stderr.writeln('tina: --backend must be auto, ansi or notcurses');
-        return 64;
-      }
-    } else if (a == '--no-sandbox') {
-      osSandbox = false;
-    } else if (a == '--model' && i + 1 < args.length) {
-      model = args[++i];
-    } else if (a == '--goal' && i + 1 < args.length) {
-      goal = args[++i];
-    } else if (a == '--max-goal-turns' && i + 1 < args.length) {
-      maxGoalTurns = int.tryParse(args[++i]);
-      if (maxGoalTurns == null || maxGoalTurns < 1) {
-        stderr.writeln('tina: --max-goal-turns requires a positive integer');
-        return 64;
-      }
-    } else if (a == '--prompt' && i + 1 < args.length) {
-      prompt = args[++i];
-    } else if (a == '--models') {
-      listModels = true;
-      if (i + 1 < args.length && !args[i + 1].startsWith('-'))
-        listProvider = args[++i];
-    } else if (a == '--config' && i + 1 < args.length) {
-      configPath = args[++i];
-    } else if (a == '--cwd' && i + 1 < args.length) {
-      workingDirectory = args[++i];
-    } else if (a == '--store' && i + 1 < args.length) {
-      storePath = args[++i];
-    } else if (a == '--resume') {
-      resume = true;
-      if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-        sessionId = args[++i];
-      }
-    } else if (a.startsWith('--resume=') && a.length > '--resume='.length) {
-      resume = true;
-      sessionId = a.substring('--resume='.length);
-    } else if (a == '--continue' || a == '-c') {
-      continueLatest = true;
-    } else if (a == '--configure') {
-      configure = true;
-    } else if (a == '--import-sessions' && i + 1 < args.length) {
-      legacySource = args[++i];
-    } else if (a == '--dry-run') {
-      dryRun = true;
-    } else if (a == '--version' || a == '-v') {
+  final registry = firstPartyPlugins();
+  registerPlugins?.call(registry);
+  final schema = applicationCliSchema(registry: registry);
+  final CliArguments parsed;
+  final ({String owner, CliSessionCommand command})? selected;
+  try {
+    parsed = schema.parse(args);
+    if (parsed.contains(versionOption)) {
       stdout.writeln('tina $version (engine2)');
       return 0;
-    } else if (a == '--completion' && i + 1 < args.length) {
-      try {
-        stdout.writeln(shellCompletion(args[++i]));
-        return 0;
-      } on FormatException catch (e) {
-        stderr.writeln(e.message);
-        return 64;
-      }
-    } else if (a == '--help' || a == '-h') {
-      stdout.writeln(cliHelp);
-      return 0;
-    } else {
-      stderr.writeln('unknown or incomplete argument: $a');
-      stderr.writeln(cliHelp);
-      return 64;
     }
-  }
-  final headless = prompt != null || goal != null;
-  if ((maxGoalTurns != null && goal == null) ||
-      (goal != null &&
-          (goal.trim().isEmpty || goal.trim().length > goalMaxTextLength))) {
-    stderr.writeln(
-      'tina: --goal must be 1–$goalMaxTextLength characters; --max-goal-turns requires --goal',
-    );
+    if (parsed[completionOption] case final shell?) {
+      stdout.writeln(shellCompletion(shell, schema: schema));
+      return 0;
+    }
+    if (parsed.contains(helpOption)) {
+      stdout.writeln(schema.help);
+      return 0;
+    }
+    schema.validate(parsed);
+    selected = schema.sessionCommand(parsed);
+  } on FormatException catch (e) {
+    stderr.writeln('tina: ${e.message}');
+    stderr.writeln(schema.help);
     return 64;
   }
+  final configPath = parsed[configOption];
+  final model = parsed[modelOption];
+  final backend = parsed[backendOption] ?? 'auto';
+  final osSandbox = !parsed.contains(noSandboxOption);
+  final listProvider = parsed[modelsOption];
+  final listModels = parsed.contains(modelsOption);
+  final storePath = parsed[storeOption];
+  var sessionId = parsed[resumeOption];
+  final resume = parsed.contains(resumeOption);
+  final continueLatest = parsed.contains(continueOption);
+  final configure = parsed.contains(configureOption);
+  final legacySource = parsed[importSessionsOption];
+  final dryRun = parsed.contains(dryRunOption);
+  final workingDirectory = parsed[cwdOption] ?? Directory.current.path;
+  final command = selected?.command;
+  final headless = command != null;
   if (!Directory(workingDirectory).existsSync()) {
     stderr.writeln('tina: workspace does not exist: $workingDirectory');
     return 66;
   }
-  if ((headless && (configure || legacySource != null || listModels)) ||
-      (listModels &&
-          (resume || continueLatest || configure || legacySource != null))) {
+  if (headless && (configure || legacySource != null || listModels)) {
     stderr.writeln(
-      'tina: --prompt and --models cannot be combined with configure or import; --models cannot resume a session',
+      'tina: ${command.option.flag} cannot be combined with '
+      '--configure, --import-sessions or --models',
+    );
+    return 64;
+  }
+  if (listModels &&
+      (resume || continueLatest || configure || legacySource != null)) {
+    stderr.writeln(
+      'tina: --models cannot configure, import or resume a session',
     );
     return 64;
   }
@@ -204,9 +134,9 @@ Future<int> runCli(
     }
   }
 
-  if (prompt == '-' && resume && sessionId == null) {
+  if (command?.readsStdin == true && resume && sessionId == null) {
     stderr.writeln(
-      'tina: use --continue or --resume ID when reading a prompt from stdin',
+      'tina: use --continue or --resume ID when reading ${command!.option.flag} from stdin',
     );
     return 64;
   }
@@ -249,10 +179,12 @@ Future<int> runCli(
     }
   }
   try {
-    if (prompt == '-')
-      prompt = await stdin.transform(systemEncoding.decoder).join();
-    if (prompt != null && prompt.trim().isEmpty) {
-      stderr.writeln('tina: prompt is empty');
+    try {
+      await command?.prepare?.call(
+        () => stdin.transform(systemEncoding.decoder).join(),
+      );
+    } on FormatException catch (e) {
+      stderr.writeln('tina: ${e.message}');
       return 64;
     }
     final path = configPath ?? defaultConfigPath();
@@ -294,6 +226,13 @@ Future<int> runCli(
     String? restartSession;
     final assembly = SessionAssembly.start(
       diagnostics: diagnostics,
+      // Reuse the declarations that supplied parsing/help, without calling
+      // extension registration a second time during assembly.
+      registerPlugins: (target) {
+        for (final id in registry.ids.where((id) => !id.startsWith('tina/'))) {
+          target.registerDefinition(registry.definition(id));
+        }
+      },
       options: AssemblyOptions(
         configPath: configPath,
         version: version,
@@ -315,60 +254,33 @@ Future<int> runCli(
 
     if (headless) {
       try {
-        final text = prompt ?? goal!;
         final interrupted = Completer<void>();
         final interruption = ProcessSignal.sigint.watch().listen((_) {
           assembly.host.session.loop.cancel('interrupt');
           if (!interrupted.isCompleted) interrupted.complete();
         });
         try {
-          if (goal != null) {
-            final owner = assembly.host.plugins
-                .whereType<GoalsPlugin>()
-                .firstOrNull;
-            if (owner == null) {
-              stderr.writeln('tina: --goal requires tina/goals');
-              return 78;
-            }
-            var cancelled = false;
-            final achieved = await Future.any([
-              owner.runToGoal(
-                text: goal,
-                initialPrompt: text,
-                maxTurns: maxGoalTurns,
+          final owner = assembly.host.plugins
+              .where((plugin) => plugin.id == selected!.owner)
+              .firstOrNull;
+          if (owner == null) {
+            stderr.writeln(
+              'tina: ${command.option.flag} requires ${selected!.owner}',
+            );
+            return 78;
+          }
+          return await Future.any([
+            command.run(
+              owner,
+              CliSessionContext(
                 send: (line) => assembly.host.send(line),
-                onTurn: (outcome) {
-                  final reply = assembly.host.session.lastReply;
-                  if (reply != null && reply.isNotEmpty) stdout.writeln(reply);
-                  if (outcome.stopReason != StopReason.complete) {
-                    cancelled = outcome.stopReason == StopReason.cancelled;
-                    stderr.writeln(outcome.detail);
-                  }
-                },
+                lastReply: () => assembly.host.session.lastReply,
+                writeLine: stdout.writeln,
+                writeError: stderr.writeln,
               ),
-              interrupted.future.then((_) {
-                cancelled = true;
-                return false;
-              }),
-            ]);
-            if (!achieved && !cancelled)
-              stderr.writeln(
-                'tina: goal was not achieved or completion could not be verified',
-              );
-            return achieved
-                ? 0
-                : cancelled
-                ? 130
-                : 1;
-          }
-          final outcome = await assembly.host.send(text);
-          final reply = assembly.host.session.lastReply;
-          if (reply != null && reply.isNotEmpty) stdout.writeln(reply);
-          if (outcome.stopReason != StopReason.complete) {
-            stderr.writeln(outcome.detail);
-            return outcome.stopReason == StopReason.cancelled ? 130 : 1;
-          }
-          return 0;
+            ),
+            interrupted.future.then((_) => 130),
+          ]);
         } finally {
           await interruption.cancel();
         }

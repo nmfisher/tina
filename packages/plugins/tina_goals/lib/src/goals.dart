@@ -304,7 +304,6 @@ final class GoalsPlugin extends AgentPlugin {
   Future<bool> runToGoal(
       {required String text,
       required Future<Outcome> Function(String) send,
-      String? initialPrompt,
       int? maxTurns,
       void Function(Outcome)? onTurn}) async {
     if (_loop == null) throw StateError('goal plugin is not mounted');
@@ -317,7 +316,7 @@ final class GoalsPlugin extends AgentPlugin {
         !_closed && (maxTurns == null || turn < maxTurns);
         turn++) {
       final outcome = await send(turn == 0
-          ? initialPrompt ?? text
+          ? text
           : 'Continue working toward the current goal. Last assessment: ${goal?.evidence ?? "not yet achieved"}');
       onTurn?.call(outcome);
       if (outcome.stopReason != StopReason.complete) return false;

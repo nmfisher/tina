@@ -278,7 +278,21 @@ features still need work. Session commands are deliberately deferred.
 
 
 The CLI supports `--configure`, `--version`, and `--completion bash|zsh|fish`.
-Command arguments are completed by plugin-owned `Command.complete` callbacks.
+Startup flags, help and shell completions use one declaration schema. Plugins
+contribute feature flags through `PluginDefinition.cli` (`PluginCli` in
+`tina_host`); the application keeps configuration, workspace, store, resume,
+import and terminal startup options. Declarations are available before plugins
+are constructed, so `--help` and completions need no configuration or provider.
+Duplicate names and short aliases are rejected across the whole catalog.
+
+`PluginCli.sessionCommand` can select a headless handler from the parsed options.
+The CLI prepares its input, starts a session, resolves the enabled owner by ID
+and invokes the handler with session operations and output callbacks. It handles
+signals and shutdown. A disabled command owner produces an error; using its flag
+does not enable it. Embedders register extensions with `runCli(registerPlugins:)`;
+the same definitions are used for parsing and session construction.
+
+Inside a session, arguments are completed by plugin-owned `Command.complete` callbacks.
 Settings menus filter as you type; Tab completes supported text fields.
 
 ## Conversation controls and headless runs
@@ -306,14 +320,16 @@ Resume restores submitted messages into Up/Down editor recall, including those
 before compaction or `/clear`. Each panel keeps its own history and draft.
 
 `--model provider/model` selects a model at startup; `--models [provider]` lists
-models. `--prompt "text"` runs one turn without a TUI, and `--prompt -` reads stdin.
-These can use `--continue` or `--resume ID`. The final reply goes to stdout,
-failures to stderr, and failed/cancelled turns return nonzero. Headless approval
-requests are denied rather than waiting for input or widening permissions.
+models. `--goal "objective"` runs headlessly until the goals plugin judges it
+achieved; `--goal -` reads the objective from stdin. The goal is also the first
+instruction. These can use `--continue` or `--resume ID`.
 
-`--goal "objective"` runs headlessly until the goals plugin judges it achieved.
-`--prompt` can supply a different first instruction, and `--max-goal-turns N`
-sets an explicit positive turn bound. Without that bound the plugin continues
-while judgments report more work is needed; uncertain/failed judgments stop the
-run. `tina/goals` must be enabled. Achieved goals return zero; incomplete goals
-and provider failures return nonzero. Ctrl-C cancels the run.
+`--max-goal-turns N` sets an explicit positive turn bound. Without that bound the
+plugin continues while judgments report more work is needed; uncertain/failed
+judgments stop the run. `tina/goals` must be enabled. Goals accept 1–500 characters
+after trimming whitespace, including when read from stdin.
+
+Each turn's final reply goes to stdout and failures go to stderr. Achieved goals
+return zero; incomplete goals and provider failures return nonzero. Ctrl-C
+cancels the run. Headless approval requests are denied rather than waiting for
+input or widening permissions.

@@ -28,18 +28,20 @@ base_url = "http://127.0.0.1:${server.port}/v1"
 api_key = "fixture"
 models = ["fixture"]
 [plugins]
-enabled = []
+enabled = ["tina/goals"]
 ''');
       final requests = <Map<String, dynamic>>[];
       server.listen((request) async {
         final body =
             jsonDecode(await utf8.decoder.bind(request).join())
                 as Map<String, dynamic>;
-        requests.add(body);
-        final tool = requests.length == 1;
+        final judging = (body['tools'] as List?)?.isNotEmpty != true;
+        if (!judging) requests.add(body);
+        final tool = !judging && requests.length == 1;
         request.response.headers.contentType = ContentType(
           'text',
           'event-stream',
+          charset: 'utf-8',
         );
         request.response.write(
           'data: ${jsonEncode({
@@ -61,7 +63,7 @@ enabled = []
                             },
                           },
                         ],
-                      } : {'content': 'done'},
+                      } : {'content': judging ? 'VERDICT: unclear — command was denied' : 'done'},
                 'finish_reason': tool ? 'tool_calls' : 'stop',
               },
             ],
@@ -77,10 +79,10 @@ enabled = []
           '--cwd',
           dir.path,
           '--no-sandbox',
-          '--prompt',
+          '--goal',
           'try command',
         ]),
-        0,
+        1,
       );
       final messages = requests.first['messages'] as List;
       final system =

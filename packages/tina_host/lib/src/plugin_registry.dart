@@ -1,6 +1,7 @@
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'plugin_definition.dart';
+import 'cli_contribution.dart';
 
 typedef PluginFactory<C> = AgentPlugin Function(C context);
 
@@ -45,9 +46,10 @@ final class PluginRegistry<C> {
   void register(String id, PluginFactory<C> factory,
           {required String description,
           bool live = false,
+          PluginCli? cli,
           List<SettingDefinition<Object>> settings = const []}) =>
       registerDefinition(PluginDefinition(id, factory,
-          description: description, live: live, settings: settings));
+          description: description, live: live, settings: settings, cli: cli));
 
   void registerDefinition(PluginDefinition<C> definition) {
     if (definition.id.startsWith('tina/')) {

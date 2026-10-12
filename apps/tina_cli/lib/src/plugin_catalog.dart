@@ -74,6 +74,7 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
           description:
               'Supplies the agent identity and base instructions for conversations.'),
       PluginDefinition('tina/providers', (c) => c.providerPolicy!,
+          cli: providersCli,
           settings: providerLimitSettings,
           provides: [modelAccess],
           description:
@@ -198,6 +199,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Delivers approval requests through a stream for an external interaction channel.'),
         PluginDefinition.dependingOn2<SessionPluginContext, ApprovalRequester,
                 ModelAccess>('tina/tools',
+            cli: toolsCli,
             settings: [
               readOnlyDirectoriesSetting,
               writeDirectoriesSetting,
@@ -303,6 +305,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             live: true),
         PluginDefinition<SessionPluginContext>(
             'tina/goals', (c) => GoalsPlugin(terminal: c.terminal),
+            cli: goalsCli,
             description:
                 'Tracks an active goal and its progress across turns, with optional token budgets.',
             live: true),

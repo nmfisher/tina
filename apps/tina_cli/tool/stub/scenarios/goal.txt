@@ -1,0 +1,8 @@
+# One headless goal: an answer followed by the separate judge request.
+data: {"choices":[{"index":0,"delta":{"content":"EventBus.publish queues reentrant publishes until the current batch finishes."},"finish_reason":"stop"}]}
+
+data: [DONE]
+!step
+data: {"choices":[{"index":0,"delta":{"content":"VERDICT: yes — the answer explains how reentrant publishes are queued."},"finish_reason":"stop"}]}
+
+data: [DONE]

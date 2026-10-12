@@ -41,20 +41,24 @@ base_url = "http://127.0.0.1:8787"
 wire     = "openai"
 ```
 
-Then run tina as usual — headless smoke test:
+For a successful headless smoke test, start the stub with `--scenario goal`
+instead of `normal`, then run:
 
 ```sh
-dart run apps/tina_cli/bin/tina.dart --prompt "What does EventBus.publish do when a subscriber publishes during dispatch?"
+dart run apps/tina_cli/bin/tina.dart --goal "What does EventBus.publish do when a subscriber publishes during dispatch?" --max-goal-turns 1
 ```
 
 The answer is whatever the scenario script canned; the same scenario + same
-request produces identical bytes every run.
+request produces identical bytes every run. The `goal` scenario follows its
+answer with a successful judge verdict. Other scenarios without a verdict
+produce their canned answer but exit unsuccessfully when judged.
 
 ## Scenarios
 
 | Name | What it replays |
 |------|-----------------|
 | `normal` | plain streaming turn: text deltas, finish, usage, `[DONE]` |
+| `goal` | a plain answer followed by a successful goal-judge verdict |
 | `abort_midstream` | three deltas, then the connection is destroyed mid-tokens — no finish frame, no `[DONE]`; step 2 is a clean retry turn |
 | `long_line` | one 48 KiB token with no break, plus a single ~7 KiB word line |
 | `emoji_cjk` | CJK, wide chars, ZWJ sequences, skin tones, flags, CJK punctuation |

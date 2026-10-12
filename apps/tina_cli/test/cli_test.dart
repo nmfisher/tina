@@ -43,6 +43,8 @@ void main() {
     for (final shell in ['bash', 'zsh', 'fish']) {
       expect(shellCompletion(shell), contains('tina')); // shell-specific script
       expect(shellCompletion(shell), contains('no-sandbox'));
+      expect(shellCompletion(shell), contains('goal'));
+      expect(shellCompletion(shell), isNot(contains('prompt')));
     }
   });
   test(
@@ -53,6 +55,12 @@ void main() {
       expect(await runCli(['--backend', 'unknown']), 64);
       expect(await runCli(['--backend', 'notcurses', '--help']), 0);
       expect(await runCli(['--unknown']), 64);
+      expect(await runCli(['--prompt', 'hello']), 64);
+      expect(await runCli(['--goal']), 64);
+      expect(await runCli(['--goal', 'hello', '--models']), 64);
+      expect(await runCli(['--goal', 'hello', '--configure']), 64);
+      expect(await runCli(['--goal', 'hello', '--import-sessions', 'x']), 64);
+      expect(await runCli(['--goal', '-', '--resume']), 64);
       expect(await runCli(['--sessions', '--resume', 'id']), 64);
       expect(await runCli(['--continue', '--resume']), 64);
       expect(await runCli(['-c', '--configure']), 64);

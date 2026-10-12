@@ -12,6 +12,7 @@ export 'src/session_questions.dart';
 export 'src/snapshot_feature.dart';
 
 export 'src/commands.dart';
+export 'src/cli_contribution.dart';
 
 export 'package:tina_core/tina_core.dart'
     show

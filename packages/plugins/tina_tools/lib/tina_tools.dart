@@ -45,6 +45,7 @@ export 'src/tool_descriptions.dart';
 export 'src/write_tool.dart';
 
 export 'src/tools_plugin.dart';
+export 'src/cli.dart';
 
 export 'src/approval_plugin.dart';
 export 'src/command_approval_store.dart';

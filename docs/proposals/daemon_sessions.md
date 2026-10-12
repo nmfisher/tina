@@ -520,7 +520,7 @@ headless runtime without importing terminal rendering. Preserve its trampoline,
 pipes, process detachment and cancellation behavior.
 
 Replace `SessionAssembly` call sites with application composition and a TUI receiving
-session capabilities. Switch both normal CLI execution and `--prompt`/`--goal`
+session capabilities. Switch both normal CLI execution and `--goal`
 to the new composition. Keep the current CLI flags, configuration format and
 session-store format.
 

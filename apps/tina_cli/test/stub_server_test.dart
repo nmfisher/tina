@@ -65,6 +65,7 @@ Future<void> main() async {
       names,
       containsAll(<String>[
         'normal',
+        'goal',
         'abort_midstream',
         'long_line',
         'emoji_cjk',

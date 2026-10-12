@@ -9,7 +9,7 @@ a plugin system for everything that varies.
 
 Nothing in the core assumes a terminal or a coding project; those are
 contributions. The shipped binary mounts a terminal front end and a
-headless runner (`--prompt`, `--goal`) over one assembly. This document
+headless runner (`--goal`) over one assembly. This document
 explains the core first, then says what is **baked in** and what is
 **mounted as a plugin**.
 
@@ -38,9 +38,10 @@ derived per request via `deriveSession` (`tina_core`).
 
 **Where input comes from.** Usually a person: the TUI hands a line to the
 host, which runs it as a turn (`Host.send`). But a user is optional.
-Headless, the input is the `--prompt` argument or stdin. A `--goal` run
-synthesizes its own input: after each turn a judge reads the transcript
-against the goal and prepends a correction nudge until the goal is met.
+Headless, the initial input is the `--goal` argument or stdin (`--goal -`).
+After each turn a judge reads the transcript against the goal. An in-progress
+verdict supplies the next continuation instruction; success ends the run, and
+uncertain or failed judgments stop it unsuccessfully.
 The main place a person is consulted mid-run is an approval ask —
 headless, even that is answered by policy.
 
@@ -97,9 +98,18 @@ Dependency direction, top down only:
   transitive terminal dependency. `Terminal`, writer and provider factory remain
   injectable. `SessionTerminal` buffers notices and adapts ordinary questions
   to the host's `SessionQuestions` service without physical terminal I/O.
-  - `cli.dart` routes interactive TUI, headless `--prompt`/`--goal`, configuration,
+  - `cli.dart` routes interactive TUI, headless `--goal`, configuration,
     model listing, resume and import. The app owns release version, process
     startup and restart, plus reading the store for resume selection.
+    `PluginDefinition.cli` exposes feature options before plugin construction:
+    goals owns `--goal`/`--max-goal-turns`, providers owns `--model`/`--models`,
+    and tools owns `--no-sandbox`. The application declares bootstrap options
+    in `cli_options.dart`; `CliSchema` combines the catalog contributions,
+    rejects flag/alias collisions and drives parsing, help and all shell
+    completions. Headless handlers belong to their plugins and receive session
+    operations/output callbacks through `CliSessionContext`. The CLI owns stdin,
+    signals and shutdown and resolves handlers by plugin ID, without concrete
+    feature type checks. Declaring a command does not enable its plugin.
   - `console_catalog.dart` constructs fresh presentation views for existing
     runtime features. `tui_presentation.dart` supplies those factories and
     settings operations to the reusable frontend. `ConfigSettingsManagement`
@@ -152,7 +162,7 @@ SessionAssembly.start ──► config + scoped settings stack + plugin registry
 ```
 
 The interactive path wraps it (`TuiSession.wrap`) and attaches the
-renderer. The headless path (`--prompt`, `--goal`) runs turns against the
+renderer. The headless path (`--goal`) runs turns against the
 same assembly with no renderer and an approval channel that denies by
 policy. Settings and plugin changes travel through config files plus the
 assembly's configuration watcher — the assembly hot-reloads when they

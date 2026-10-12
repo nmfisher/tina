@@ -3,7 +3,7 @@
 The agent core: runs turns, calls models, executes tools, checks
 permissions, records sessions. No terminal dependency, no root-package
 dependency — the TUI and the headless runner are both consumers, so
-`--prompt` runs and sub-agents use the same loop as the interactive TUI.
+`--goal` runs and sub-agents use the same loop as the interactive TUI.
 
 **Baked in vs pluggable.** "Baked in" means compiled into the binary and
 always mounted. The engine's baked-in surface: the agent loop (`agent/`);

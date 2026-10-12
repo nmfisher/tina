@@ -5,10 +5,11 @@ import 'package:tina/tina.dart';
 import 'package:tina/session.dart';
 import 'package:tina/tui.dart';
 import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_goals/tina_goals.dart';
 
 void main() {
   test(
-    'headless prompt, model override, continue and unattended approvals',
+    'headless goal, model override, continue and unattended approvals',
     () async {
       final directory = Directory.systemTemp.createTempSync('tina-headless-');
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -32,16 +33,20 @@ base_url = "http://127.0.0.1:${server.port}/v1"
 api_key = "another-fixture"
 models = ["remote"]
 [plugins]
-enabled = ["tina/persistence", "tina/session-controls"]
+enabled = ["tina/persistence", "tina/session-controls", "tina/goals"]
 ''');
       var tools = false;
       var fail = false;
+      var verdict = 'VERDICT: yes — completed';
       server.listen((request) async {
         final body =
             jsonDecode(await utf8.decoder.bind(request).join())
                 as Map<String, dynamic>;
-        requests.add(body);
-        credentials.add(request.headers.value('authorization'));
+        final judging = (body['tools'] as List?)?.isNotEmpty != true;
+        if (!judging) {
+          requests.add(body);
+          credentials.add(request.headers.value('authorization'));
+        }
         request.response.headers.contentType = ContentType(
           'text',
           'event-stream',
@@ -51,7 +56,10 @@ enabled = ["tina/persistence", "tina/session-controls"]
           await request.response.close();
           return;
         }
-        final delta = tools
+        final toolCall = tools && !judging;
+        final delta = judging
+            ? {'content': verdict}
+            : toolCall
             ? {
                 'tool_calls': [
                   {
@@ -72,21 +80,21 @@ enabled = ["tina/persistence", "tina/session-controls"]
         request.response.write(
           'data: ${jsonEncode({
             'choices': [
-              {'index': 0, 'delta': delta, 'finish_reason': tools ? 'tool_calls' : 'stop'},
+              {'index': 0, 'delta': delta, 'finish_reason': toolCall ? 'tool_calls' : 'stop'},
             ],
           })}\n\n',
         );
         request.response.write('data: [DONE]\n\n');
-        tools = false;
+        if (!judging) tools = false;
         await request.response.close();
       });
       final args = ['--config', config.path, '--cwd', directory.path];
       expect(
-        await runCli([...args, '--prompt', 'hello', '--model', 'second']),
+        await runCli([...args, '--goal', 'hello', '--model', 'second']),
         0,
       );
       expect(requests.single['model'], 'second');
-      expect(await runCli([...args, '--continue', '--prompt', 'next']), 0);
+      expect(await runCli([...args, '--continue', '--goal', 'next']), 0);
       expect(requests.last['model'], 'second');
       expect(
         (requests.last['messages'] as List).where((m) => m['role'] != 'system'),
@@ -95,7 +103,7 @@ enabled = ["tina/persistence", "tina/session-controls"]
       expect(
         await runCli([
           ...args,
-          '--prompt',
+          '--goal',
           'cross provider',
           '--model',
           'another/remote',
@@ -104,21 +112,23 @@ enabled = ["tina/persistence", "tina/session-controls"]
       );
       expect(requests.last['model'], 'remote');
       expect(credentials.last, 'Bearer another-fixture');
-      expect(await runCli([...args, '--continue', '--prompt', 'restored']), 0);
+      expect(await runCli([...args, '--continue', '--goal', 'restored']), 0);
       expect(requests.last['model'], 'remote');
       expect(credentials.last, 'Bearer another-fixture');
       tools = true;
+      verdict = 'VERDICT: unclear — requested write was denied';
       expect(
         await runCli([
           ...args,
-          '--prompt',
+          '--goal',
           'write a file',
         ]).timeout(const Duration(seconds: 10)),
-        0,
+        1,
       );
       expect(File('${directory.path}/should-not-exist').existsSync(), false);
       final messages = requests.last['messages'] as List;
       expect(messages.any((m) => m['role'] == 'tool'), true);
+      verdict = 'VERDICT: yes — completed';
       var root = Directory.current;
       while (!File('${root.path}/bin/tina.dart').existsSync()) {
         if (root.parent.path == root.path) {
@@ -131,12 +141,12 @@ enabled = ["tina/persistence", "tina/session-controls"]
         'bin/tina.dart',
         ...args,
         '--no-sandbox',
-        '--prompt',
+        '--goal',
         '-',
       ], workingDirectory: root.path);
       final output = child.stdout.transform(utf8.decoder).join();
       final errors = child.stderr.transform(utf8.decoder).join();
-      child.stdin.writeln('piped prompt');
+      child.stdin.writeln('piped goal');
       await child.stdin.close();
       expect(
         await child.exitCode.timeout(const Duration(seconds: 30)),
@@ -149,9 +159,34 @@ enabled = ["tina/persistence", "tina/session-controls"]
         (requests.last['messages'] as List).first['content'],
         contains('OS sandbox deliberately disabled'),
       );
+      expect(
+        (requests.last['messages'] as List).last['content'],
+        'piped goal\n',
+      );
+
+      // Validate stdin after reading it, before opening a session or contacting
+      // the provider. The literal '-' must never become the objective.
+      for (final invalid in ['   ', 'x' * (goalMaxTextLength + 1)]) {
+        final count = requests.length;
+        final child = await Process.start(Platform.resolvedExecutable, [
+          'run',
+          'bin/tina.dart',
+          ...args,
+          '--goal',
+          '-',
+        ], workingDirectory: root.path);
+        final output = child.stdout.transform(utf8.decoder).join();
+        final errors = child.stderr.transform(utf8.decoder).join();
+        child.stdin.write(invalid);
+        await child.stdin.close();
+        expect(await child.exitCode.timeout(const Duration(seconds: 30)), 64);
+        expect(await errors, contains('--goal must be'));
+        await output;
+        expect(requests, hasLength(count));
+      }
       fail = true;
-      expect(await runCli([...args, '--prompt', 'fail']), 1);
-      expect(await runCli([...args, '--prompt', '   ']), 64);
+      expect(await runCli([...args, '--goal', 'fail']), 1);
+      expect(await runCli([...args, '--goal', '   ']), 64);
       expect(await runCli([...args, '--models', 'local']), 0);
       final store = SessionStore.open(defaultSessionStorePath(directory.path));
       try {
@@ -260,6 +295,15 @@ enabled = ["tina/goals"]
         64,
       );
       expect(await runCli([...args, '--max-goal-turns', '2']), 64);
+      config.writeAsStringSync(
+        config.readAsStringSync().replaceFirst(
+          'enabled = ["tina/goals"]',
+          'enabled = []',
+        ),
+      );
+      final requestsBefore = turns + judgments;
+      expect(await runCli([...args, '--goal', 'Work']), 78);
+      expect(turns + judgments, requestsBefore);
     },
   );
 }
