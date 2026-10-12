@@ -5,7 +5,6 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_step_limit/tina_step_limit.dart';
 import 'package:tina_tui/src/console_catalog.dart';
-import 'package:tina_tui/src/session_view.dart';
 import 'package:tina_tui/tina_tui.dart';
 
 import 'app_test.dart' show FakeIo, fakeScreen;
@@ -135,7 +134,7 @@ void main() {
     final session = TuiSession.wrap(assemble(provider));
     final policy = session.host.plugins.whereType<StepLimitPlugin>().single;
     session.assembly.settings.set(stepLimitSetting, 2, SettingScope.session);
-    final view = SessionView(session);
+    final view = session.createView();
     final first = _Presentation(), replacement = _Presentation();
     Future<bool>? work;
     addTearDown(() async {

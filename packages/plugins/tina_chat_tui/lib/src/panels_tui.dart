@@ -35,8 +35,9 @@ final class PanelsView
   void repaintConsole() => _workspace?.repaint();
   @override
   Future<int> runConsole(ConsoleContext context, ConsoleSessionView initial,
-      Future<ConsoleSessionView> Function(String? model) createSession) async {
-    final workspace = _Workspace(context, initial, createSession);
+      Future<ConsoleSessionView> Function(String? model) createSession,
+      {ConsoleViewClosed? onViewClosed}) async {
+    final workspace = _Workspace(context, initial, createSession, onViewClosed);
     _workspace = workspace;
     try {
       return await workspace.run();
@@ -61,10 +62,11 @@ final class _View {
 }
 
 final class _Workspace implements ConsolePanels {
-  _Workspace(this.context, this.initial, this.createSession);
+  _Workspace(this.context, this.initial, this.createSession, this.onViewClosed);
   final ConsoleContext context;
   final ConsoleSessionView initial;
   final Future<ConsoleSessionView> Function(String? model) createSession;
+  final ConsoleViewClosed? onViewClosed;
   final focus = FocusManager();
   final views = <_View>[];
   final done = Completer<void>();
@@ -120,26 +122,15 @@ final class _Workspace implements ConsolePanels {
       releasePanelStatus();
       removeKey();
       editor.focusManager = previousFocus;
-      for (final view in views) {
-        view.queue.clear();
-        view.session.cancel();
-      }
-      await _spawns;
-      await Future.wait([
-        for (final view in views)
-          if (view.task != null) view.task!,
-        for (final view in views) ...view.commands,
-        ...closing
-      ]);
       for (final view in views.reversed) {
-        view.session.detachConsole();
-        view.unbindQueueStatus?.call();
-        view.chat.detach();
-        view.frame.dispose();
-        if (!identical(view.session, initial)) view.session.close();
+        closing.add(_closeView(view));
       }
       views.clear();
       screen.input.setBoundsOverride(null);
+      // Late creations also release their view and notify its application
+      // owner. Borrowed sessions never hold workspace teardown open.
+      await _spawns;
+      await Future.wait(closing);
     }
   }
 
@@ -423,7 +414,7 @@ final class _Workspace implements ConsolePanels {
         final line = view.queue.removeFirst();
         context.refreshStatus();
         await view.session.submit(line);
-        if (view.session.quitRequested) {
+        if (!stopped && !view.closed && view.session.quitRequested) {
           if (!done.isCompleted) done.complete();
           break;
         }
@@ -432,8 +423,10 @@ final class _Workspace implements ConsolePanels {
       if (!view.closed && !stopped) view.session.notice('Panel error: $error');
     } finally {
       view.task = null;
-      view.frame.setBusy(false);
-      if (!view.closed && !stopped) _layout();
+      if (!view.closed && !stopped) {
+        view.frame.setBusy(false);
+        _layout();
+      }
     }
   }
 
@@ -457,14 +450,14 @@ final class _Workspace implements ConsolePanels {
       try {
         final session = await createSession(model);
         if (stopped) {
-          session.close();
+          await _releaseSession(session, Future.value());
           return;
         }
         final chat = ScrollingTextRegion(screen)..detach();
         try {
           _add(session, chat);
         } catch (_) {
-          session.close();
+          await _releaseSession(session, Future.value());
           rethrow;
         }
       } catch (error) {
@@ -486,27 +479,44 @@ final class _Workspace implements ConsolePanels {
     }
     view.closed = true;
     view.queue.clear();
-    view.session.cancel();
     final index = views.indexOf(view);
     views.remove(view);
     focus.unregister(view.frame);
-    view.chat.detach();
-    view.frame.dispose();
+    final close = _closeView(view);
     active = null;
     focus.home = views.first.frame;
     focus.focusPanel(views[index.clamp(0, views.length - 1)].frame);
     _layout();
-    final close = () async {
-      await Future.wait([
-        if (view.task != null) view.task!,
-        ...view.commands,
-      ]);
-      view.session.detachConsole();
-      view.unbindQueueStatus?.call();
-      if (!identical(view.session, initial)) view.session.close();
-    }();
     closing.add(close);
     await close;
+  }
+
+  Future<void> _closeView(_View view) async {
+    view.closed = true;
+    view.queue.clear();
+    final pending = Future.wait<void>([
+      if (view.task != null) view.task!,
+      ...view.commands,
+    ]).then<void>((_) {});
+    // The owner may choose not to wait. _drain and command handlers already
+    // report failures while attached; retain no unhandled future on detach.
+    pending.ignore();
+    try {
+      return _releaseSession(view.session, pending);
+    } finally {
+      view.unbindQueueStatus?.call();
+      view.chat.detach();
+      view.frame.dispose();
+    }
+  }
+
+  Future<void> _releaseSession(
+      ConsoleSessionView session, Future<void> pending) async {
+    try {
+      session.close();
+    } finally {
+      await onViewClosed?.call(session, pending);
+    }
   }
 
   @override

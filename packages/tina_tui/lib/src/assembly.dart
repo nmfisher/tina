@@ -577,27 +577,32 @@ final class TuiAssembly {
   /// front end should stop ([quitRequested] after `/quit`). An empty or
   /// non-command line is nothing to this method.
   Future<bool> handleCommand(String line) async {
-    final trimmed = line.trim();
-    final prefixed = commands.matchPrefix(trimmed);
-    if (prefixed != null) {
-      await prefixed.command.handler(prefixed.argument);
+    final connection = host.connect();
+    try {
+      if (!line.trimLeft().startsWith('/') &&
+          connection.commandFor(line) == null) return true;
+      final result = await connection.submit(line);
+      if (result.notice case final notice?) writer.writeln(notice);
       return !_quit;
+    } finally {
+      connection.close();
     }
-    if (!trimmed.startsWith('/')) return true;
-    final rest = trimmed.substring(1);
-    final split = RegExp(r'\s').firstMatch(rest);
-    final word = split == null ? rest : rest.substring(0, split.start);
-    final argument = split == null ? '' : rest.substring(split.end).trim();
-    final command = commands[word];
-    if (command == null) {
-      writer.writeln('unknown command: /$word');
-      return true;
-    }
-    await command.handler(argument);
-    return !_quit;
   }
 
-  /// Close plugin resources and the session's provider through the host.
+  /// Owner shutdown drains all accepted host operations before releasing the
+  /// provider, plugin stores and configuration subscriptions.
+  Future<void> shutdown() async {
+    final stopped = host.shutdown();
+    final output = terminal;
+    if (output is TuiTerminal) output.closeInput();
+    try {
+      await stopped;
+    } finally {
+      close();
+    }
+  }
+
+  /// Close an idle assembly; active work requires [shutdown].
   void close() {
     if (_turnListener case final listener?)
       host.session.loop.unsubscribe(listener);
@@ -605,8 +610,11 @@ final class TuiAssembly {
     _turnObservation = null;
     _settingsListeners.clear();
     _stopConfigurationUpdates();
-    host.close();
-    settings.close();
+    try {
+      host.close();
+    } finally {
+      settings.close();
+    }
   }
 }
 

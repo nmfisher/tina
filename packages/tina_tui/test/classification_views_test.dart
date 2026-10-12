@@ -8,7 +8,6 @@ import 'package:tina_console/testing.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tui/src/console_catalog.dart';
 import 'package:tina_tui/src/console_commands.dart';
-import 'package:tina_tui/src/session_view.dart';
 import 'package:tina_tui/tina_tui.dart';
 
 import 'app_test.dart' show FakeIo, fakeScreen;
@@ -38,6 +37,8 @@ void main() {
     final feature =
         assembly.host.plugins.whereType<ClassificationPlugin>().single;
     expect(feature, isNot(isA<ConsoleContribution>()));
+    final connection = assembly.host.connect();
+    addTearDown(connection.close);
     final command = assembly.commands['classification'];
     final first = createConsoleView(feature) as ClassificationView;
     final second = createConsoleView(feature) as ClassificationView;
@@ -60,31 +61,28 @@ void main() {
       for (final input in inputs) input.closeInput();
     });
     await offerConsoleCommand(
-        assembly.commands, [attachments.first], '/classification hierarchy')!;
+        connection, [attachments.first], '/classification hierarchy')!;
     expect(first.panel!.hierarchy, isTrue);
     expect(second.panel!.hierarchy, isFalse);
     expect(second.panel!.regionVisible, isFalse);
     expect(assembly.commands['classification'], same(command));
     expect(
         offerConsoleCommand(
-            assembly.commands, attachments, '/classification categories'),
+            connection, attachments, '/classification categories'),
         isNull);
     expect(
-        offerConsoleCommand(assembly.commands, attachments, '/classification',
+        offerConsoleCommand(connection, attachments, '/classification',
             whileRunning: true),
         isNull);
-    expect(offerConsoleCommand(assembly.commands, attachments, '/unknown'),
-        isNull);
+    expect(offerConsoleCommand(connection, attachments, '/unknown'), isNull);
     expect(
-        offerConsoleCommand(assembly.commands, attachments, 'classification'),
-        isNull);
+        offerConsoleCommand(connection, attachments, 'classification'), isNull);
     attachments.first.dispose();
     expect(
-        offerConsoleCommand(
-            assembly.commands, [attachments.first], '/classification'),
+        offerConsoleCommand(connection, [attachments.first], '/classification'),
         isNull);
     await offerConsoleCommand(
-        assembly.commands, [attachments.last], '/classification')!;
+        connection, [attachments.last], '/classification')!;
     expect(second.panel!.regionVisible, isTrue);
     expect(
         assembly.host.plugins.whereType<ClassificationPlugin>(), hasLength(1));
@@ -94,7 +92,7 @@ void main() {
       'SessionView submission opens its local inspector; headless prints status',
       () async {
     final session = TuiSession.wrap(assemble());
-    final view = SessionView(session);
+    final view = session.createView();
     final input = FakeIo();
     final screen = fakeScreen(input);
     final editor = LineEditor(screen: screen);

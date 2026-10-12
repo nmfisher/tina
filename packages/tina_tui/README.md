@@ -1,14 +1,15 @@
 # tina_tui
 
-The engine2 terminal application. The root executable calls `runCli` from this package. `bin/tina_tui.dart` reads configuration,
-constructs `TuiAssembly`, and runs the console through `TuiSession`.
+The reusable engine2 terminal frontend. The executable in `apps/tina_cli`
+reads configuration, constructs `TuiAssembly` (still housed here), and runs
+the console through `TuiSession`.
 The loop remains in `tina_engine_2`; terminal code stays here, in `tina_console`, and in frontend plugin packages.
 
-From this directory:
+From `apps/tina_cli`:
 
 ```sh
 dart pub get
-dart run bin/tina_tui.dart --config ~/.tina/config --cwd /path/to/project
+dart run bin/tina.dart --config ~/.tina/config --cwd /path/to/project
 ```
 
 The global configuration is `~/.tina/config`, overridable with `--config`.
@@ -228,9 +229,9 @@ store opener; the host has no filesystem or SQLite dependency. Override the
 location with `--store FILE`. List or resume using the default location:
 
 ```sh
-dart run bin/tina_tui.dart --cwd /path/to/project --resume
-dart run bin/tina_tui.dart --cwd /path/to/project --continue
-dart run bin/tina_tui.dart --cwd /path/to/project --resume SESSION_ID
+dart run bin/tina.dart --cwd /path/to/project --resume
+dart run bin/tina.dart --cwd /path/to/project --continue
+dart run bin/tina.dart --cwd /path/to/project --resume SESSION_ID
 ```
 
 Use `--import-sessions PATH` to convert legacy files into the new store;
@@ -244,9 +245,16 @@ the last updated main session.
 
 ## Verification
 
+From this package directory:
+
 ```sh
 dart analyze
 dart test -j 4
+```
+
+From `apps/tina_cli`:
+
+```sh
 dart test --tags tty --run-skipped test/app_smoke_test.dart
 ```
 
@@ -271,7 +279,7 @@ I/O and lifecycle; human visual acceptance and the remaining interaction
 features still need work. Session commands are deliberately deferred.
 
 
-The root CLI supports `--configure`, `--version`, and `--completion bash|zsh|fish`.
+The CLI supports `--configure`, `--version`, and `--completion bash|zsh|fish`.
 Command arguments are completed by plugin-owned `Command.complete` callbacks.
 Settings menus filter as you type; Tab completes supported text fields.
 

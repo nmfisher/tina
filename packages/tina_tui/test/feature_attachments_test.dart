@@ -12,7 +12,7 @@ import 'app_test.dart' show FakeIo, fakeScreen;
 import 'turn_rendering_test.dart' show ControlledProvider, waitFor;
 
 final class _Client {
-  _Client(TuiSession session) : view = SessionView(session);
+  _Client(TuiSession session) : view = session.createView();
   final SessionView view;
   final io = FakeIo();
   late final screen = fakeScreen(io);

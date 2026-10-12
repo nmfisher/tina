@@ -6,12 +6,12 @@ import 'package:tina_engine_2/tina_engine_2.dart' show StopReason;
 import 'package:tina_mode/tina_mode.dart' show ModePlugin;
 
 import 'assembly.dart';
-import 'tui_commands.dart';
 import 'tui_terminal.dart';
+import 'session_view.dart';
+import 'tui_presentation.dart';
 
 export 'assembly.dart';
 export 'assembly_config.dart';
-export 'tui_commands.dart';
 export 'tui_terminal.dart';
 
 /// One TUI session: the assembly with the TUI's terminal in the slot.
@@ -20,7 +20,8 @@ final class TuiSession {
     required this.assembly,
     required this.terminal,
   })  : host = assembly.host,
-        commands = assembly.commands;
+        commands = assembly.commands,
+        _connection = assembly.host.connect();
 
   /// The assembly this session wraps — the app, wiring and all.
   final TuiAssembly assembly;
@@ -36,40 +37,32 @@ final class TuiSession {
 
   /// The registry the command plugins published into.
   final Commands commands;
-  final _activeCommands = <Command>[];
+  final SessionConnection _connection;
+  bool _closed = false;
+  List<String>? _closedHistory;
+  late final presentation = presentationForAssembly(assembly);
 
-  bool get canCancel =>
-      _activeCommands.any((command) => command.cancel != null) ||
-      assembly.watchingTurn;
+  SessionView createView({bool showConfig = false}) =>
+      SessionView(host.connect(), presentation, showConfig: showConfig);
+
+  TuiSession spawn([String? model]) =>
+      TuiSession.wrap(assembly.newSession(model));
+
+  bool get canCancel => !_closed && _connection.status.canCancel;
 
   void cancel() {
-    for (final command in _activeCommands.toSet()) {
-      command.cancel?.call();
-    }
-    if (host.session.loop.running) host.session.loop.cancel('escape');
+    if (_closed) return;
+    _connection.cancel(
+        _connection.status.cancellableWork.map((work) => work.id),
+        reason: 'escape');
   }
 
   /// Only plain messages may enter the model input queue.
-  bool offerInput(String text) =>
-      dispatchLine(commands, text) is PlainLine && host.offerInput(text);
+  bool offerInput(String text) => _connection.offerInput(text);
 
   /// Raw submitted messages in transcript order, including inputs before
   /// compaction or clear. Legacy logs without input records use user text.
-  List<String> get inputHistory {
-    final log = host.session.loop.log;
-    final recorded =
-        log.whereType<InputRecordedEntry>().map((e) => e.turnId).toSet();
-    return [
-      for (final entry in log)
-        if (entry is InputRecordedEntry && entry.text.isNotEmpty)
-          entry.text
-        else if (entry is MessageAppendedEntry &&
-            entry.message.role == Role.user &&
-            !recorded.contains(entry.turnId))
-          for (final block in entry.message.content.whereType<TextBlock>())
-            if (block.text.isNotEmpty) block.text,
-    ];
-  }
+  List<String> get inputHistory => _closedHistory ?? _connection.inputHistory;
 
   /// The session's permission mode as the vocabulary's word — the status
   /// strip's label. The enum never leaves the tools package.
@@ -109,51 +102,45 @@ final class TuiSession {
   /// runs its handler (which tells through the terminal), an unknown
   /// `/word` is reported — never swallowed, never a turn — and an
   /// ordinary line runs one turn. An empty line is nothing at all. The
-  /// rules are [dispatchLine]'s and the assembly's, kept identical so a
+  /// rules belong to the host connection, shared with the assembly so a
   /// rendered run and a headless `handleCommand` run agree.
   Future<bool> runLine(String line, {bool renderReply = true}) async {
-    switch (dispatchLine(commands, line)) {
-      case final RunCommand decision:
-        await _runCommand(decision);
-      case UnknownCommand(:final name):
-        terminal.writeln('unknown command: /$name');
-      case PlainLine(:final text) when text.isEmpty:
-        break; // no turn for an empty line
-      case PlainLine(:final text):
-        final outcome = await host.send(text);
-        if (renderReply || outcome.stopReason != StopReason.complete) {
-          terminal.writeln(outcome.detail);
-        }
+    final result = await _connection.submit(line);
+    if (result.detail.isNotEmpty &&
+        (renderReply || result.stopReason != StopReason.complete)) {
+      terminal.writeln(result.detail);
     }
     return assembly.quitRequested;
   }
 
   /// UI dispatchers can offer a line without naming individual commands.
   /// Only an explicit opt-in may bypass the active conversation's queue.
-  Future<void>? offerCommand(String line) {
-    final decision = dispatchLine(commands, line);
-    if (decision is RunCommand && decision.command.allowWhileRunning) {
-      return _runCommand(decision);
-    }
-    return null;
-  }
+  Future<void>? offerCommand(String line) =>
+      _connection.offerCommand(line)?.then((result) {
+        if (result.notice case final notice?) terminal.writeln(notice);
+      });
 
-  Future<void> _runCommand(RunCommand decision) async {
-    _activeCommands.add(decision.command);
+  Future<void> shutdown() async {
     try {
-      await decision.run();
+      await assembly.shutdown();
     } finally {
-      _activeCommands.remove(decision.command);
+      close();
     }
   }
 
-  /// Close the host. The terminal's pending asks resolve with the empty
+  /// Owner-only cleanup after cancelling and awaiting active work. Views use
+  /// their own close/detach operation and must not call this method.
+  /// The terminal's pending asks resolve with the empty
   /// answer — a closing front end never leaves a plugin hanging. (Only
   /// a [TuiTerminal] promises that; a foreign terminal is left alone.)
   void close() {
+    if (_closed) return;
+    _closedHistory = _connection.inputHistory;
     final t = terminal;
     if (t is TuiTerminal) t.closeInput();
     assembly.close();
+    _connection.close();
+    _closed = true;
   }
 }
 

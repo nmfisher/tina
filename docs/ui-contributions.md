@@ -14,6 +14,51 @@ shutdown, or failed attachment, even if `detachConsole()` throws. A disposed
 scope rejects new registrations. Plugins must register resources through the
 context to receive this guarantee; direct screen/editor mutations are not tracked.
 
+## Session view ownership
+
+`ConsoleSessionView.close()` releases presentation only. It must be idempotent
+and must not cancel a turn, answer a pending question or close the underlying
+session. `SessionView` rejects new submissions after close; `detachConsole()`
+remains available for temporary detachment and later reattachment.
+
+The panel workspace accepts an optional `onViewClosed(view, pendingWork)`
+application callback. It closes the view first and supplies a future for work
+already submitted through that panel. An application owning the session can
+cancel that work, await the future and close the runtime. Without the callback,
+closing a panel or exiting the workspace leaves shared work running. Callbacks
+also cover sessions created during exit and failed child attachment. View-local
+queued input is discarded on close; accepted session input remains runtime-owned.
+
+`runApp` is the embedded owner used by the CLI. It supplies this policy for
+spawned sessions, retains the initial assembly for configuration and child
+creation until application exit, and restores the terminal during teardown.
+Independent `SessionView` users retain responsibility for their session's
+lifetime. `Host.shutdown()` rejects new work, cancels/drains host-managed turns
+and commands, waits for accepted completions and closes resources. CLI exit and
+startup-failure cleanup use it.
+
+## Session operations and presentation wiring
+
+`SessionView` receives a `SessionConnection` and `SessionPresentation` instead
+of a TUI session wrapper containing the host. `TuiSession.createView()` is the
+current application's constructor for that pair. Both regular and workspace
+layouts use the same view and command routing.
+
+The connection exposes immutable status, command descriptions, input history,
+command completion, submission, steering and cancellation of named work. Status
+listeners are independently disposable and run in coalesced microtasks outside
+the log's persistence callbacks. Feature history and streaming observations stay
+with the existing feature contracts. Closing a connection leaves accepted work
+running. A cancellable command has one active invocation per command instance,
+so its legacy cancellation callback cannot stop another concurrent invocation.
+
+Presentation dependencies create fresh feature views and attachment-local
+settings UI. The transitional `tui_presentation.dart` adapter owns that wiring;
+views cannot import it or the assembly. Settings/provider configuration still
+uses its existing backend inside the settings presenter; its transport-friendly
+operation API remains a separate step. `/quit` is interpreted by the invoking
+view, while the headless command retains its existing application-exit flag.
+
 ## Settings sections
 
 ```dart

@@ -1,16 +1,11 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_engine_2/tina_engine_2.dart';
-import 'dart:convert';
-import 'app.dart' show resolveTheme;
+import 'package:tina_host/tina_host.dart';
 import 'completion_sources.dart';
-import 'settings_panel.dart';
-import 'plugin_catalog.dart';
-import 'console_catalog.dart';
 import 'console_commands.dart';
-import 'tui_session.dart';
+import 'session_presentation.dart';
 
-/// Adapts a session to UI capabilities. The workspace plugin never imports
-/// this application or constructs an engine, provider, or persistence store.
+/// A disposable frontend over session operations and presentation capabilities.
+/// Runtime implementations and shutdown authority stay with the application.
 final class SessionView
     implements
         ConsoleSessionView,
@@ -18,140 +13,133 @@ final class SessionView
         ConsolePendingInput,
         ConsoleInputHistory,
         ConsoleCommandReceiver {
-  SessionView(this.session, {this.showConfig = false});
-  final TuiSession session;
+  SessionView(this.connection, this.presentation, {this.showConfig = false});
+  final SessionConnection connection;
+  final SessionPresentation presentation;
   final bool showConfig;
-  final _attached = <AgentPlugin, ConsoleAttachment>{};
+  final _attached = <String, ConsoleAttachment>{};
   Iterable<ConsoleContribution> get contributions => List.unmodifiable(
       _attached.values.map((attachment) => attachment.contribution));
   ConsoleContext? _context;
-  int? _inputStatusListener;
-  SettingsPanel? _settings;
+  SessionSettingsView? _settings;
   Future<void> Function()? _openSettings;
   final _releases = <void Function()>[];
+  bool _closed = false, _quitRequested = false;
+
+  SessionStatus get status => connection.status;
+  Theme get theme => presentation.theme();
+  bool get canCancel => !_closed && status.canCancel;
+  void Function() listenStatus(void Function(SessionStatus) listener) =>
+      connection.listen(listener);
   @override
-  String get id => session.host.session.id;
+  String get id => status.id;
   @override
-  String get label => session.host.model;
+  String get label => status.model;
   @override
-  Iterable<String> get inputHistory => session.inputHistory;
+  Iterable<String> get inputHistory => connection.inputHistory;
   @override
-  bool get quitRequested => session.assembly.quitRequested;
+  bool get quitRequested => _quitRequested || presentation.quitRequested();
   @override
   CompletionProvider get commandCompletion =>
-      CommandNameCompletionSource(session.commands);
+      CommandNameCompletionSource(connection);
   @override
   CompletionProvider get fileCompletion =>
-      GitFileCompletionSource(workingDir: session.host.config.workingDirectory);
+      GitFileCompletionSource(workingDir: status.workingDirectory);
+
+  Future<void>? _offerLocalCommand(String text, {bool whileRunning = false}) {
+    final call = connection.commandFor(text);
+    if (call != null &&
+        call.command.name == 'quit' &&
+        (!whileRunning || call.command.allowWhileRunning)) {
+      _quitRequested = true;
+      return Future.value();
+    }
+    return offerSettingsCommand(connection, text, _openSettings,
+            whileRunning: whileRunning) ??
+        offerConsoleCommand(connection, _attached.values, text,
+            whileRunning: whileRunning);
+  }
+
   @override
   Future<void> submit(String text) async {
-    final command =
-        offerSettingsCommand(session.commands, text, _openSettings) ??
-            offerConsoleCommand(session.commands, _attached.values, text);
+    if (_closed || status.closed || status.stopping)
+      throw StateError('session view is closed or stopping');
+    final command = _offerLocalCommand(text);
     if (command != null) {
       await command;
     } else {
-      await session.runLine(text, renderReply: false);
+      final result = await connection.submit(text);
+      if (!_closed && result.notice != null) notice(result.notice!);
     }
   }
 
   @override
-  bool offerInput(String text) => session.offerInput(text);
-
+  bool offerInput(String text) => !_closed && connection.offerInput(text);
   @override
-  int get pendingInputCount => session.host.session.loop.pendingInputCount;
-
+  int get pendingInputCount => status.pendingInputCount;
   @override
-  Future<void>? offerCommand(String text) =>
-      offerSettingsCommand(session.commands, text, _openSettings,
-          whileRunning: true) ??
-      offerConsoleCommand(session.commands, _attached.values, text,
-          whileRunning: true) ??
-      session.offerCommand(text);
+  Future<void>? offerCommand(String text) {
+    if (_closed || status.closed || status.stopping) return null;
+    return _offerLocalCommand(text, whileRunning: true) ??
+        connection.offerCommand(text)?.then((result) {
+          if (!_closed && result.notice != null) notice(result.notice!);
+        });
+  }
 
   @override
   void cancel() {
-    _settings?.cancel();
-    session.cancel();
+    if (_closed) return;
+    _settings?.close();
+    connection.cancel(status.cancellableWork.map((work) => work.id),
+        reason: 'escape');
   }
 
   @override
   void notice(String text) {
-    final transcript = _attached.values
-        .map((attachment) => attachment.contribution)
-        .whereType<ConsoleTranscript>()
-        .firstOrNull;
-    if (transcript != null) {
+    final transcript = contributions.whereType<ConsoleTranscript>().firstOrNull;
+    if (transcript != null)
       transcript.writeNotice(text);
-    } else {
+    else
       _context?.chat.writeln(text);
-    }
   }
 
   @override
   void attachConsole(ConsoleContext context) {
+    if (_closed || status.closed || status.stopping)
+      throw StateError('session view is closed or stopping');
     detachConsole();
     _context = context;
-    _inputStatusListener = session.host.session.loop.subscribe((entry, event) {
-      if (entry is InputRecordedEntry || entry is TurnEndedEntry) {
-        context.refreshStatus();
-      }
-    });
-    final terminal = session.terminal as TuiTerminal;
-    _releases.add(terminal.listenLines(notice));
-    void attach(AgentPlugin plugin) {
-      final contribution = createConsoleView(plugin);
-      if (contribution == null) return;
-      _attached[plugin] = ConsoleAttachment.attach(contribution, context);
+    _releases.add(connection.listen((_) => context.refreshStatus()));
+    _releases.add(presentation.listenNotices(notice));
+    void attach(String id, ConsoleContribution contribution) {
+      _attached[id] = ConsoleAttachment.attach(contribution, context);
     }
 
-    _releases.add(session.assembly.pluginManager.listen(
-        loaded: attach,
-        unloading: (plugin) => _attached.remove(plugin)?.dispose()));
-    for (final plugin in session.host.plugins) {
-      attach(plugin);
+    _releases.add(presentation.listenViews(
+        attach, (id) => _attached.remove(id)?.dispose()));
+    for (final entry in presentation.createViews().entries) {
+      attach(entry.key, entry.value);
     }
-    _settings = SettingsPanel(context.screen, context.input);
-    var appliedTheme = jsonEncode(session.assembly.theme);
-    _releases.add(session.assembly.listenSettings(() {
-      final next = jsonEncode(session.assembly.theme);
-      if (next != appliedTheme) {
-        appliedTheme = next;
-        context.screen.setTheme(resolveTheme(session.assembly.theme));
-        // setTheme only invalidates retained paint state; without an eager
-        // global repaint the new theme reaches the screen lazily — regions
-        // behind an open settings panel keep the old colors until they
-        // repaint for their own reasons. Repaint now, then let contributions
-        // re-render any styled content they cache.
-        context.screen.repaintAfterThemeChange();
-        repaintConsole();
-      }
-      _settings?.repaint();
+    final settings = _settings = presentation.settingsFor(context);
+    _releases.add(presentation.listenTheme((theme) {
+      context.screen.setTheme(theme);
+      context.screen.repaintAfterThemeChange();
+      repaintConsole();
     }));
     _openSettings = () => context.interact(() async {
-          if (!context.isActive) return;
-          final saved = await _settings!.run(
-              scopedSettings: session.assembly.settings,
-              settingsBackend: session.assembly.settingsBackend,
-              applyConfiguration: session.assembly.applySavedConfiguration,
-              path: session.assembly.configPath,
-              sections: context.settings,
-              descriptors: session.assembly.descriptors,
-              validatePlugins: session.assembly.validatePlugins,
-              pluginDescriptions:
-                  pluginDescriptions(session.assembly.pluginSettings.registry),
-              pluginSettings: session.assembly.pluginSettings,
-              pluginManager: session.assembly.pluginManager);
-          notice(saved
-              ? session.assembly.settings.applicationErrors.isEmpty
-                  ? 'Settings saved. Request settings affect the next request; plugin changes may wait for idle or restart.'
-                  : 'Settings saved, but some changes could not apply. Reopen Settings for details.'
-              : 'Settings closed.');
-          context.chat.repaint();
+          if (_closed || _context != context || !context.isActive) return;
+          try {
+            final message = await settings.open();
+            if (!_closed && _context == context) notice(message);
+          } catch (_) {
+            if (!_closed && _context == context)
+              notice(
+                  'Could not open settings. Check the config file and its permissions.');
+          }
+          if (!_closed && _context == context) context.chat.repaint();
         });
     if (showConfig) {
-      final note = session.assembly.configNote;
-      if (note != null) notice(note);
+      if (presentation.configNote case final note?) notice(note);
     }
   }
 
@@ -165,18 +153,14 @@ final class SessionView
 
   @override
   void detachConsole() {
-    if (_inputStatusListener case final listener?) {
-      session.host.session.loop.unsubscribe(listener);
-      _inputStatusListener = null;
-    }
-    _settings?.cancel();
+    _settings?.close();
     _openSettings = null;
     for (final release in _releases.reversed) release();
     _releases.clear();
     for (final attachment in _attached.values.toList().reversed) {
       try {
         attachment.dispose();
-      } catch (_) {/* Continue releasing views. */}
+      } catch (_) {/* Release every view. */}
     }
     _attached.clear();
     _context = null;
@@ -185,7 +169,12 @@ final class SessionView
 
   @override
   void close() {
-    detachConsole();
-    session.close();
+    if (_closed) return;
+    _closed = true;
+    try {
+      detachConsole();
+    } finally {
+      connection.close();
+    }
   }
 }

@@ -80,12 +80,15 @@ LineEditor editorWith(FlushIo io, {CompletionProvider? commands, files}) {
   return ed;
 }
 
-Commands registryWith(List<String> names) {
-  final c = Commands();
+Host sessionWithCommands(List<String> names) {
+  final host = Host.start(HostConfig(
+      workingDirectory: '.', providerFactory: (_) => ScriptedProvider([])));
+  addTearDown(host.close);
+  final c = host.commands;
   for (final n in names) {
     c.publish(Command(name: n, description: 'the $n command', handler: (_) {}));
   }
-  return c;
+  return host;
 }
 
 /// A scratch git repository with [files] written into it (untracked —
@@ -107,15 +110,15 @@ Directory gitRepoWith(List<String> files) {
 void main() {
   test('argument completion is supplied by the live command registration',
       () async {
-    final commands = Commands();
-    commands.publish(Command(
+    final commands = sessionWithCommands([]);
+    commands.commands.publish(Command(
         name: 'example',
         description: 'example',
         handler: (_) {},
         complete: (prefix) => ['alpha', 'beta']
             .where((word) => word.startsWith(prefix))
             .toList()));
-    final source = CommandNameCompletionSource(commands);
+    final source = CommandNameCompletionSource(commands.connect());
     expect(await source.complete('example b'), ['/example beta']);
     expect(await source.complete('unknown b'), isEmpty);
   });
@@ -130,8 +133,8 @@ void main() {
 
   group('the / command source reads the registry', () {
     test('a prefix returns the registered command names', () async {
-      final source =
-          CommandNameCompletionSource(registryWith(['mode', 'quit']));
+      final source = CommandNameCompletionSource(
+          sessionWithCommands(['mode', 'quit']).connect());
       expect(await source.complete('m'), ['/mode']);
       expect(await source.complete('q'), ['/quit']);
       expect(await source.complete('mode'), ['/mode']);
@@ -141,14 +144,16 @@ void main() {
 
     test('published-after-construction names still suggest (read at use)',
         () async {
-      final registry = registryWith(['mode']);
-      final source = CommandNameCompletionSource(registry);
-      registry.publish(Command(name: 'zap', description: 'z', handler: (_) {}));
+      final registry = sessionWithCommands(['mode']);
+      final source = CommandNameCompletionSource(registry.connect());
+      registry.commands
+          .publish(Command(name: 'zap', description: 'z', handler: (_) {}));
       expect(await source.complete('z'), ['/zap']);
     });
 
     test('an unknown prefix is an empty list, never an error', () async {
-      final source = CommandNameCompletionSource(registryWith(['mode']));
+      final source =
+          CommandNameCompletionSource(sessionWithCommands(['mode']).connect());
       expect(await source.complete('nope'), isEmpty);
     });
   });
@@ -384,7 +389,8 @@ void main() {
     test('each source answers only from its own world', () async {
       final repo = gitRepoWith(['readme.md']);
       try {
-        final commands = CommandNameCompletionSource(registryWith(['mode']));
+        final commands = CommandNameCompletionSource(
+            sessionWithCommands(['mode']).connect());
         final files = GitFileCompletionSource(workingDir: repo.path);
 
         // A file name is not a command; a command word is not a path.
@@ -495,7 +501,8 @@ void main() {
       // Buffer is empty again; '/quit' rides accept + submit.
       io.feedBytes('/quit\r'.codeUnits);
       expect(await done.timeout(const Duration(seconds: 10)), 0);
-      expect(session.assembly.quitRequested, isTrue);
+      expect(session.assembly.quitRequested, isFalse,
+          reason: 'quit is local to the frontend');
       final told = (session.terminal as TuiTerminal).lines.map((l) => l.text);
       expect(told, contains('mode: ask'),
           reason: 'the / picker was fed from the Commands registry');

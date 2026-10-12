@@ -39,7 +39,6 @@ export 'src/completion_sources.dart';
 export 'src/status_strip.dart';
 export 'src/stream_view.dart';
 export 'src/tool_chip_view.dart';
-export 'src/tui_commands.dart';
 export 'src/tui_session.dart';
 export 'src/tui_terminal.dart';
 

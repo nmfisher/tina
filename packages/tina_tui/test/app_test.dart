@@ -176,7 +176,9 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('/quit\r'.codeUnits);
       expect(await done, 0);
-      expect(session.assembly.quitRequested, isTrue);
+      expect(session.assembly.quitRequested, isFalse,
+          reason:
+              'frontend quit belongs to this client, not the shared session');
       // Model output is painted from deltas/the log; plugin lines use Terminal.
       expect(io.written.toString(), contains('the model answered'));
     });

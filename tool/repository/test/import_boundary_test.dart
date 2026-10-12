@@ -158,4 +158,21 @@ Future<void> main() async {
       isEmpty,
     );
   });
+  test(
+    'session view cannot reach application assembly or concrete runtime services',
+    () {
+      expect(
+        violations('packages/tina_tui/lib/src/session_view.dart', {
+          'packages/tina_tui/lib/src/assembly.dart',
+          'packages/tina_tui/lib/src/tui_session.dart',
+          'packages/tina_tui/lib/src/tui_presentation.dart',
+          'packages/tina_tui/lib/src/settings_panel.dart',
+          'tina_tools',
+          'tina_persistence',
+          'tina_llm',
+        }),
+        isEmpty,
+      );
+    },
+  );
 }

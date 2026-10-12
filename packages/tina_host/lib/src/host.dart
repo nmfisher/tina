@@ -2,14 +2,29 @@
 /// to plugins selected by the application assembly.
 library;
 
+import 'dart:async';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
 import 'commands.dart';
 import 'host_config.dart';
 import 'session.dart';
 
+part 'session_connection.dart';
+
 final class Host {
-  Host._(this.config, this.session, this.context, this.commands, this._plugins);
+  Host._(
+      this.config, this.session, this.context, this.commands, this._plugins) {
+    _statusSubscription = session.loop.subscribe((entry, event) {
+      if (event != LogEvent.appended) return;
+      if (entry is TurnStartedEntry) {
+        _turnWork = SessionWork('work-${++_nextWork}', 'turn');
+      }
+      if (entry is TurnEndedEntry) _turnWork = null;
+      if (entry is TurnStartedEntry ||
+          entry is TurnEndedEntry ||
+          entry is InputRecordedEntry) _changed();
+    });
+  }
 
   final HostConfig config;
   final Session session;
@@ -17,11 +32,43 @@ final class Host {
   final Commands commands;
   final List<AgentPlugin> _plugins;
   bool _closed = false;
+  bool _stopping = false;
+  Future<void>? _shutdown;
+  late final int _statusSubscription;
+  int _nextWork = 0;
+  SessionWork? _turnWork;
+  final _commandWork = <String, Command>{};
+  final _pendingWork = <Completer<void>>{};
+  final _connections = <SessionConnection>{};
+  bool _notificationQueued = false;
+
+  /// A disposable client capability; its lifetime never owns this host.
+  SessionConnection connect() {
+    _checkOpen();
+    final connection = SessionConnection._(this);
+    _connections.add(connection);
+    return connection;
+  }
+
+  void _checkOpen() {
+    if (_closed || _stopping) throw StateError('host is closed or stopping');
+  }
+
+  void _changed() {
+    if (_notificationQueued) return;
+    _notificationQueued = true;
+    // UI callbacks run outside the loop's synchronous persistence callbacks.
+    scheduleMicrotask(() {
+      _notificationQueued = false;
+      for (final connection in _connections.toList()) connection._notify();
+    });
+  }
+
   List<AgentPlugin> get plugins => List.unmodifiable(_plugins);
   void Function()? onIdle;
 
   void _checkIdle() {
-    if (_closed) throw StateError('host is closed');
+    _checkOpen();
     if (session.loop.running)
       throw StateError('plugin changes require an idle session');
   }
@@ -50,6 +97,7 @@ final class Host {
       _plugins.sort((a, b) => a.order != b.order
           ? a.order.compareTo(b.order)
           : a.id.compareTo(b.id));
+      _changed();
     } catch (_) {
       commands.removeOwner(plugin.id);
       if (addedToLoop) session.loop.removePlugin(plugin.id);
@@ -74,6 +122,7 @@ final class Host {
     commands.removeOwner(id);
     session.loop.removePlugin(id);
     _plugins.remove(plugin);
+    _changed();
     try {
       plugin.closeSession();
     } catch (e) {
@@ -190,10 +239,13 @@ final class Host {
   String get model => context.model!;
   int _nextInput = 0;
 
-  bool offerInput(String text) =>
-      !_closed &&
-      session.loop.offerInput(
-          Input(text, id: 't-${session.loop.seq}-input-${++_nextInput}'));
+  bool offerInput(String text) {
+    if (_closed || _stopping) return false;
+    final accepted = session.loop.offerInput(
+        Input(text, id: 't-${session.loop.seq}-input-${++_nextInput}'));
+    if (accepted) _changed();
+    return accepted;
+  }
 
   void switchModel(String model) {
     _checkIdle();
@@ -202,16 +254,65 @@ final class Host {
     session.loop.replaceProvider(provider);
     context.model = model;
     context.notifyChanged();
+    _changed();
   }
 
   Future<Outcome> send(String text, {String? turnId}) async {
-    if (_closed) throw StateError('host is closed');
-    final outcome = await session.loop.runTurn(
-        Input(text, id: turnId ?? 't-${session.loop.seq}'),
-        onOutcome: session.turns.add);
-    context.notifyChanged();
-    onIdle?.call();
-    return outcome;
+    _checkOpen();
+    if (session.loop.running) throw StateError('a turn is already running');
+    final settled = Completer<void>();
+    _pendingWork.add(settled);
+    try {
+      final outcome = await session.loop.runTurn(
+          Input(text, id: turnId ?? 't-${session.loop.seq}'),
+          onOutcome: session.turns.add);
+      context.notifyChanged();
+      if (!_stopping) onIdle?.call();
+      return outcome;
+    } finally {
+      _turnWork = null;
+      _pendingWork.remove(settled);
+      settled.complete();
+      _changed();
+    }
+  }
+
+  /// Owner-only shutdown. Reject new work, cancel current work, let its final
+  /// log entries persist, then release plugins and the provider exactly once.
+  Future<void> shutdown() {
+    if (_shutdown case final pending?) return pending;
+    final settled = Completer<void>();
+    // Publish the shared future before calling any plugin cancellation hook,
+    // which may itself request shutdown.
+    _shutdown = settled.future;
+    settled.complete(_stop());
+    return settled.future;
+  }
+
+  Future<void> _stop() async {
+    if (_closed) return;
+    _stopping = true;
+    _changed();
+    Object? failure;
+    StackTrace? trace;
+    void attempt(void Function() action) {
+      try {
+        action();
+      } catch (error, stack) {
+        failure ??= error;
+        trace ??= stack;
+      }
+    }
+
+    try {
+      attempt(() => session.loop.cancel('shutdown'));
+      for (final command in _commandWork.values.toSet())
+        attempt(() => command.cancel?.call());
+      await Future.wait([for (final pending in _pendingWork) pending.future]);
+    } finally {
+      attempt(close);
+    }
+    if (failure != null) Error.throwWithStackTrace(failure!, trace!);
   }
 
   /// Notify plugins when callers change session counters outside a turn.
@@ -222,7 +323,12 @@ final class Host {
 
   void close() {
     if (_closed) return;
+    if (_pendingWork.isNotEmpty || session.loop.running) {
+      throw StateError('active host work requires asynchronous shutdown');
+    }
     _closed = true;
+    session.loop.unsubscribe(_statusSubscription);
+    _changed();
     onIdle = null;
     Object? failure;
     StackTrace? trace;

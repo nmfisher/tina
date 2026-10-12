@@ -16,7 +16,7 @@ import 'package:path/path.dart' as p;
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_host/tina_host.dart';
 
-/// The `/` source: exact names from the session's [Commands] registry —
+/// The `/` source: command metadata from the session connection —
 /// no scanning, no parsing. The picker hands the query *without* the
 /// slash; results carry it (the console configures the command picker
 /// with `prependTriggerOnAccept: false`, so nothing re-adds the sigil).
@@ -24,24 +24,22 @@ import 'package:tina_host/tina_host.dart';
 /// Read at use, not at construction: the registry is live, so a command
 /// published after this source is built still suggests.
 final class CommandNameCompletionSource implements CompletionProvider {
-  /// The session's command registry.
-  final Commands commands;
+  final SessionConnection session;
 
-  const CommandNameCompletionSource(this.commands);
+  const CommandNameCompletionSource(this.session);
 
   @override
   Future<List<String>> complete(String query) async {
     final space = query.indexOf(' ');
     if (space >= 0) {
       final name = query.substring(0, space);
-      final complete = commands[name]?.complete;
-      if (complete == null) return [];
       final arguments = query.substring(space + 1);
       return [
-        for (final suggestion in await complete(arguments)) '/$name $suggestion'
+        for (final suggestion in await session.completeCommand(name, arguments))
+          '/$name $suggestion'
       ];
     }
-    final all = [for (final c in commands.all) '/${c.name}'];
+    final all = [for (final c in session.commands) '/${c.name}'];
     if (query.isEmpty) return all;
     final prefix = '/$query';
     return all.where((c) => c.startsWith(prefix)).toList();

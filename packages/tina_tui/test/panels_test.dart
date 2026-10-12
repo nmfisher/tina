@@ -813,9 +813,28 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
               .single
               .text,
           'other draft');
+      expect(
+          store.readEntries(otherId).whereType<TurnEndedEntry>(), hasLength(1),
+          reason: 'the owner drains cancellation before closing persistence');
     } finally {
       store.close();
     }
+  });
+
+  test('closing the initial panel retains application ownership until exit',
+      () async {
+    await spawn('other');
+    await keys('\x07\t\t\r'); // focus the initial panel
+    expect(getFrame().conversationId, session.host.session.id);
+    await keys('\x18');
+    expect(providers.first.closed, isFalse,
+        reason:
+            'the initial assembly still supplies new sessions and settings');
+    await spawn('third');
+    expect(getFrame().label, contains('third'));
+    await keys('\x03');
+    expect(await app.timeout(const Duration(seconds: 3)), 0);
+    expect(providers.every((provider) => provider.closed), isTrue);
   });
 
   test(

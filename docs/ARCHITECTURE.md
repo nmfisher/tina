@@ -82,7 +82,12 @@ Dependency direction, top down only:
   Terminal-free.
 - **tina_host** — `Host` owns one `AgentLoop` plus its mounted plugins and
   published commands; `Host.start`/`Host.resume` validate declarations
-  before opening resources and roll back on failure. Terminal-free.
+  before opening resources and roll back on failure. `Host.connect()` supplies
+  a disposable `SessionConnection`: immutable status and command metadata,
+  completion, input submission/steering and cancellation by work ID. Command
+  execution and active-work tracking are shared by all connections. Owner-only
+  `shutdown()` rejects new work, cancels and drains accepted work, then closes
+  plugins and the provider. Terminal-free.
 - **tina_llm** — `LlmProvider` implementations and the provider
   descriptors the config system reads.
 - **tina** (`apps/tina_cli`) — the executable application. `cli.dart` routes
@@ -98,7 +103,11 @@ Dependency direction, top down only:
     provider factory), so a test — or a daemon — runs the whole app with
     no renderer. This is the headless seam.
   - `app.dart` + the views/panels/dialogs are the full-screen front end
-    (`tina_console` renders it).
+    (`tina_console` renders it). Both regular and panel layouts use `SessionView`,
+    which receives a host connection and presentation capabilities. It cannot
+    reach the assembly or concrete runtime services. `tui_presentation.dart`
+    currently adapts the assembly into feature view factories and a settings
+    presenter; the latter still needs its own settings operation boundary.
   - `console_catalog.dart` constructs presentation views for existing runtime
     features. Plans use `tina_plans` for the runtime `PlansPlugin` and
     `tina_plans_tui` for a fresh `PlansView` per attachment, reading immutable
@@ -171,11 +180,18 @@ can own a live session while multiple clients observe it. The engine and
 host already provide the foundation. Built-in runtime and presentation factories are now separate. Terminal notices,
 configuration notifications and plugin lifecycle events have disposable observers;
 Settings opens in the submitting attachment. Two in-process session views can
-observe one runtime and detach independently. The remaining work includes a
-separate runtime package, correlated non-approval questions, explicit session
-operations and the distinction between an embedded owner's shutdown and a
-remote client's detach. Headless execution alone does not
-establish those boundaries.
+observe one runtime and close independently. A view releases its presentation;
+the panel workspace delegates runtime cleanup to an optional application owner.
+`runApp` owns embedded sessions and uses asynchronous host shutdown to drain
+accepted runtime work before closing them. Closing a borrowed view does not
+cancel its session; frontend `/quit` belongs to the invoking view. A cancellation
+names work from the observed status and cannot stop a successor turn. Status
+listeners run outside persistence callbacks and a failed observer is isolated.
+The remaining work includes settings/provider management operations, correlated
+non-approval questions and complete attachment snapshots, followed by moving
+application composition to `apps/tina_cli`. Reusable contracts belong in
+`tina_host`; no additional runtime package is planned. The current in-process
+connection is not a transport protocol or an authorization boundary.
 
 ## Principles
 
@@ -192,4 +208,5 @@ establish those boundaries.
   contracts; a transport interface gains its second implementation when
   the socket client is actually added.
 
-`dart test` at the repo root runs everything; packages test themselves.
+Run `dart test` from the owning package directory; the repository root is not
+a Dart package. CI selects affected packages and their dependents.

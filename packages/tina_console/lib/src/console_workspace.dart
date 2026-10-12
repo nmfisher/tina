@@ -34,8 +34,18 @@ abstract interface class ConsoleSessionView implements ConsoleContribution {
   Future<void> submit(String text);
   void cancel();
   void notice(String text);
+
+  /// Release this view's resources only. Closing a view does not cancel work
+  /// or shut down the session it presents. Safe to call more than once.
   void close();
 }
+
+/// Application ownership policy, invoked after a workspace closes a view.
+/// [pendingWork] settles submissions already dispatched by that view. An owner
+/// can cancel its session, await this work and then close runtime resources.
+/// A borrowed session needs no callback and continues after the view closes.
+typedef ConsoleViewClosed = Future<void> Function(
+    ConsoleSessionView view, Future<void> pendingWork);
 
 abstract interface class ConsolePanels {
   Future<void> spawn([String? model]);
@@ -46,6 +56,7 @@ abstract interface class ConsolePanels {
 /// Optional UI contribution that owns input routing across several views.
 abstract interface class ConsoleWorkspace {
   Future<int> runConsole(ConsoleContext context, ConsoleSessionView initial,
-      Future<ConsoleSessionView> Function(String? model) createSession);
+      Future<ConsoleSessionView> Function(String? model) createSession,
+      {ConsoleViewClosed? onViewClosed});
   void repaintConsole();
 }

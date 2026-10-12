@@ -370,7 +370,7 @@ Future<int> runCli(
           await interruption.cancel();
         }
       } finally {
-        assembly.close();
+        await assembly.shutdown();
       }
     }
 
@@ -382,7 +382,7 @@ Future<int> runCli(
     } finally {
       // Native startup can fail before runApp installs its teardown. Release
       // the already assembled plugins/provider and configuration watcher too.
-      session.close();
+      await session.shutdown();
     }
     if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
