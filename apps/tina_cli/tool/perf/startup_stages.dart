@@ -8,7 +8,8 @@ import 'dart:typed_data';
 
 import 'package:tina_core/tina_core.dart';
 import 'package:tina/tina.dart';
-import 'package:tina_tui/tina_tui.dart';
+import 'package:tina/session.dart';
+import 'package:tina/tui.dart';
 
 Future<void> main(List<String> args) async {
   if (await initializeProcessLauncher(args)) return;

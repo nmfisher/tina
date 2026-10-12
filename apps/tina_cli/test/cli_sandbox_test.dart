@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina/tina.dart';
-import 'package:tina_tui/tina_tui.dart';
+import 'package:tina/session.dart';
+import 'package:tina/tui.dart';
 
 void main() {
   test(
@@ -110,7 +111,7 @@ enabled = []
     test('OS confinement=$enabled is inherited by new panels', () {
       final dir = Directory.systemTemp.createTempSync('tina-panel-sandbox-');
       addTearDown(() => dir.deleteSync(recursive: true));
-      final assembly = TuiAssembly.start(
+      final assembly = SessionAssembly.start(
         providerFactory: (_) => ScriptedProvider([]),
         options: AssemblyOptions(
           configPath: '${dir.path}/missing',

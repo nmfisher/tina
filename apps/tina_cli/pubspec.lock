@@ -58,7 +58,7 @@ packages:
     source: hosted
     version: "1.4.1"
   classification:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/classification"
       relative: true
@@ -113,7 +113,7 @@ packages:
     source: hosted
     version: "3.0.7"
   dart_notcurses:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       path: "../../packages/dart_notcurses"
       relative: true
@@ -439,84 +439,84 @@ packages:
     source: hosted
     version: "0.6.18"
   tina_activity:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_activity"
       relative: true
     source: path
     version: "0.1.0"
   tina_activity_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_activity_tui"
       relative: true
     source: path
     version: "0.1.0"
   tina_approvals:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_approvals"
       relative: true
     source: path
     version: "0.1.0"
   tina_approvals_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_approvals_tui"
       relative: true
     source: path
     version: "0.1.0"
   tina_chat:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_chat"
       relative: true
     source: path
     version: "0.1.0"
   tina_chat_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_chat_tui"
       relative: true
     source: path
     version: "0.1.0"
   tina_classification_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_classification_tui"
       relative: true
     source: path
     version: "0.1.0"
   tina_compaction:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_compaction"
       relative: true
     source: path
     version: "0.1.0"
   tina_console:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/tina_console"
       relative: true
     source: path
     version: "0.1.0"
   tina_context:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_context"
       relative: true
     source: path
     version: "0.1.0"
   tina_context_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_context_tui"
       relative: true
     source: path
     version: "0.1.0"
   tina_core:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       path: "../../packages/tina_core"
       relative: true
@@ -530,7 +530,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_file_resources:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_file_resources"
       relative: true
@@ -544,42 +544,42 @@ packages:
     source: path
     version: "0.1.0"
   tina_grok_guard:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_grok_guard"
       relative: true
     source: path
     version: "0.1.0"
   tina_host:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/tina_host"
       relative: true
     source: path
     version: "0.1.0"
   tina_llm:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/tina_llm"
       relative: true
     source: path
     version: "0.1.0"
   tina_mcp:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_mcp"
       relative: true
     source: path
     version: "0.1.0"
   tina_mcp_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_mcp_tui"
       relative: true
     source: path
     version: "0.1.0"
   tina_mode:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_mode"
       relative: true
@@ -593,49 +593,49 @@ packages:
     source: path
     version: "0.1.0"
   tina_plans:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_plans"
       relative: true
     source: path
     version: "0.1.0"
   tina_plans_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_plans_tui"
       relative: true
     source: path
     version: "0.1.0"
   tina_providers:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_providers"
       relative: true
     source: path
     version: "0.1.0"
   tina_self_update:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_self_update"
       relative: true
     source: path
     version: "0.1.0"
   tina_session_controls:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_session_controls"
       relative: true
     source: path
     version: "0.1.0"
   tina_settings:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/libraries/tina_settings"
       relative: true
     source: path
     version: "0.1.0"
   tina_shell:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_shell"
       relative: true
@@ -649,21 +649,21 @@ packages:
     source: path
     version: "0.1.0"
   tina_step_limit:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_step_limit"
       relative: true
     source: path
     version: "0.1.0"
   tina_subagents:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_subagents"
       relative: true
     source: path
     version: "0.1.0"
   tina_system_instruction:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../packages/plugins/tina_system_instruction"
       relative: true
@@ -684,7 +684,7 @@ packages:
     source: path
     version: "0.1.0"
   toml:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: toml
       sha256: d968d149c8bd06dc14e09ea3a140f90a3f2ba71949e7a91df4a46f3107400e71

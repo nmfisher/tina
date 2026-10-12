@@ -1,6 +1,6 @@
 # Engine2 configuration
 
-The root CLI and `tina_tui` share the same reader. Global TOML lives at
+The CLI application owns one configuration reader for interactive and headless runs. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
 edit it, preserving unknown legacy tables. Live `/settings` also supports Session
 and Workspace scopes; Tab switches scope in menus. See [scoped settings](engine2-settings.md).

@@ -2,33 +2,32 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
-import 'plugin_catalog.dart';
-import 'settings_stack.dart';
 import 'dart:io' as io;
 
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/notcurses.dart';
-import 'package:tina_persistence/tina_persistence.dart';
 
 import 'settings_panel.dart';
-import 'config_settings_management.dart';
-import 'tui_session.dart';
+import 'settings_management.dart';
 import 'session_view.dart';
 export 'theme.dart';
 import 'session_selection.dart';
 import 'terminal_startup.dart';
 
-/// Run the app on [session] until the user quits or stdin ends.
-/// This embedded application owns [session] and every session it spawns:
-/// exit cancels and settles dispatched work before closing runtime resources.
-/// Use [SessionView] for an independently disposable view of a borrowed session.
+/// Render [view] until the user quits or stdin ends, then detach it.
+/// The application supplies session creation and ownership callbacks. Without
+/// them, closing the terminal leaves the observed session running.
 ///
 /// The named seams exist for tests: [screen] replaces the real
 /// full-screen one, [editorFor] replaces the raw-mode line editor and
 /// [consoleContextFor] supplies frontend capabilities to UI contributions. Returns 0 — the
 /// process exits nonzero only on a startup failure, before this runs.
 Future<int> runApp(
-  TuiSession session, {
+  SessionView view, {
+  ConsoleWorkspace? workspace,
+  Future<ConsoleSessionView> Function(String? model)? createSession,
+  ConsoleViewClosed? onViewClosed,
+  Future<void> Function()? onExit,
   Screen? screen,
   LineEditor Function(Screen screen)? editorFor,
   ConsoleContext Function(Screen, LineEditor)? consoleContextFor,
@@ -37,16 +36,6 @@ Future<int> runApp(
   StartupTerminal? startup,
   Map<String, String>? environment,
 }) async {
-  if (session.terminal is! TuiTerminal) {
-    throw ArgumentError('runApp requires a TuiTerminal');
-  }
-  final view = session.createView(showConfig: true);
-  final selection = resolveBackendSelection(backend, environment: environment);
-  final s = startup?.screen ??
-      screen ??
-      _newScreen(theme: view.theme, backend: selection.backend);
-  if (startup != null) s.setTheme(view.theme);
-  final tmuxNotice = startup?.tmuxNotice ?? selection.tmuxNotice;
   final queued = Queue<String>();
   final commands = <Future<void>>{};
   Future<void>? activeWork;
@@ -54,24 +43,36 @@ Future<int> runApp(
   void Function()? releaseQueueStatus, releaseBackendStatus;
   StreamSubscription<ScreenLayout>? resizeSubscription;
   StreamSubscription<io.ProcessSignal>? interruptSubscription;
-  late final LineEditor editor = startup?.editor ??
-      (editorFor != null
-          ? editorFor(s)
-          : LineEditor(
-              screen: s,
-              input: s.backend is NotcursesBackend
-                  ? (s.backend as NotcursesBackend).createInputBackend()
-                  : null));
-  editor.restoreHistory(view.inputHistory);
-  final console = consoleContextFor?.call(s, editor) ??
-      ConsoleContext(screen: s, editor: editor);
-  if (editorFor == null) {
-    editor.commandProvider = view.commandCompletion;
-    editor.completionProvider = view.fileCompletion;
-  }
+  Screen? terminalScreen;
+  LineEditor? terminalEditor;
   var ownsTty = false;
   bool? previousEchoMode, previousLineMode;
   try {
+    if (workspace != null && createSession == null) {
+      throw ArgumentError('A workspace requires a session factory');
+    }
+    final selection =
+        resolveBackendSelection(backend, environment: environment);
+    final s = terminalScreen = startup?.screen ??
+        screen ??
+        _newScreen(theme: view.theme, backend: selection.backend);
+    if (startup != null) s.setTheme(view.theme);
+    final tmuxNotice = startup?.tmuxNotice ?? selection.tmuxNotice;
+    final editor = terminalEditor = startup?.editor ??
+        (editorFor != null
+            ? editorFor(s)
+            : LineEditor(
+                screen: s,
+                input: s.backend is NotcursesBackend
+                    ? (s.backend as NotcursesBackend).createInputBackend()
+                    : null));
+    editor.restoreHistory(view.inputHistory);
+    final console = consoleContextFor?.call(s, editor) ??
+        ConsoleContext(screen: s, editor: editor);
+    if (editorFor == null) {
+      editor.commandProvider = view.commandCompletion;
+      editor.completionProvider = view.fileCompletion;
+    }
     ownsTty = startup == null &&
         screen == null &&
         s.io.hasTerminal &&
@@ -99,7 +100,6 @@ Future<int> runApp(
     interruptSubscription = s.io
         .watchSignal(io.ProcessSignal.sigint)
         .listen((_) => editor.inject(ControlKey(ControlCode.ctrlC)));
-    final workspace = session.presentation.createWorkspace();
     resizeSubscription = (resizes ??
             (screen == null
                 ? s.io.watchSignal(io.ProcessSignal.sigwinch).map((_) =>
@@ -117,24 +117,8 @@ Future<int> runApp(
       }
     });
     if (workspace != null) {
-      final owned = <ConsoleSessionView, TuiSession>{view: session};
-      return await workspace.runConsole(console, view, (model) async {
-        final child = session.spawn(model);
-        final childView = child.createView();
-        owned[childView] = child;
-        return childView;
-      }, onViewClosed: (closedView, pendingWork) async {
-        final owner = owned.remove(closedView);
-        if (owner == null) return;
-        // The root assembly also supplies configuration and new sessions until
-        // app exit; child sessions can release their resources immediately.
-        if (identical(owner, session)) {
-          owner.cancel();
-          await pendingWork;
-        } else {
-          await Future.wait([owner.shutdown(), pendingWork]);
-        }
-      });
+      return await workspace.runConsole(console, view, createSession!,
+          onViewClosed: onViewClosed);
     }
     view.attachConsole(console);
     releaseQueueStatus = console.bindStatus(() {
@@ -195,18 +179,25 @@ Future<int> runApp(
     return 0;
   } finally {
     stopping = true;
+    final s = terminalScreen;
+    final editor = terminalEditor;
     // Detach first, including local dialogs. The owner separately drains all
     // runtime work, including submissions made through another connection.
     releaseQueueStatus?.call();
     releaseBackendStatus?.call();
     view.close();
-    editor.onDoubleEscape = null;
+    editor?.onDoubleEscape = null;
     try {
-      await Future.wait([
-        session.shutdown(),
-        if (activeWork != null) activeWork,
-        ...commands,
-      ]);
+      // An owning application settles the session before releasing resources.
+      // A borrowed view must not wait for work that continues after detach;
+      // its submitted futures already have error handlers attached.
+      if (onExit != null) {
+        await Future.wait([
+          Future.sync(onExit),
+          if (activeWork != null) activeWork,
+          ...commands,
+        ]);
+      }
     } finally {
       await interruptSubscription?.cancel();
       await resizeSubscription?.cancel();
@@ -219,11 +210,11 @@ Future<int> runApp(
       if (startup != null)
         startup.close();
       else {
-        editor.close(reportLatency: false);
-        s.dispose();
-        if (!s.passthrough) s.leaveAltScreen();
+        editor?.close(reportLatency: false);
+        s?.dispose();
+        if (s != null && !s.passthrough) s.leaveAltScreen();
       }
-      editor.reportInputLatency();
+      editor?.reportInputLatency();
     }
   }
 }
@@ -355,7 +346,7 @@ final class StartupTerminal {
     }
   }
 
-  Future<String?> pickSession(List<StoredSession> sessions) async {
+  Future<String?> pickSession(List<SessionChoice> sessions) async {
     await editor.input.ready;
     final picker = SessionPicker(screen, editor, sessions);
     final resize = io.ProcessSignal.sigwinch.watch().listen((_) {
@@ -383,11 +374,9 @@ final class StartupTerminal {
   }
 }
 
-/// Initial configuration has no model session; it edits the scoped stack
-/// directly over the config file, so first-run and `/settings` share one
-/// editor. Without a conversation there is no session layer — writes land
-/// in Global (the workspace path aliases the same file).
-Future<bool> runConfigEditor(String path,
+/// A standalone settings screen using application-supplied operations.
+/// The application owns the configuration lifetime; the panel closes its client.
+Future<bool> runSettingsEditor(SettingsManagement management,
     {String backend = 'auto', StartupTerminal? startup}) async {
   final terminal = startup ?? StartupTerminal.open(backend: backend);
   final screen = terminal.screen;
@@ -402,19 +391,7 @@ Future<bool> runConfigEditor(String path,
           split: false));
       panel.repaint();
     });
-    final descriptors = configuredDescriptors();
-    final stack = ScopedSettingsStack.build(
-        globalPath: path, workspacePath: path, descriptors: descriptors);
-    final registry = stack.registry;
-    final saved = await panel.run(
-        management: ConfigSettingsManagement(
-            scopedSettings: stack.settings,
-            backend: stack.backend,
-            descriptors: descriptors,
-            pluginDescriptions: pluginDescriptions(registry),
-            validatePlugins: registry.validate));
-    stack.settings.close();
-    return saved;
+    return await panel.run(management: management);
   } finally {
     await resize?.cancel();
     terminal.close();

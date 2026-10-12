@@ -1,27 +1,25 @@
-import 'dart:io';
-
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_persistence/tina_persistence.dart';
 
-/// Main sessions in local activity order. Reading absent history never creates
-/// a store, and child sessions cannot accidentally become the next CLI session.
-List<StoredSession> resumableSessions(String path) {
-  if (!File(path).existsSync()) {
-    throw SessionStoreException('no session store at $path');
-  }
-  final store = SessionStore.open(path);
-  try {
-    return store.list().where((s) => (s.details?.depth ?? 0) == 0).toList()
-      ..sort((a, b) => b.lastActivityKey.compareTo(a.lastActivityKey));
-  } finally {
-    store.close();
-  }
+/// A saved-session row supplied by the application. The picker never opens a
+/// store or constructs a session.
+final class SessionChoice {
+  const SessionChoice(
+      {required this.id,
+      required this.entries,
+      this.title,
+      this.summary,
+      this.model,
+      this.lastSavedAt});
+  final String id;
+  final int entries;
+  final String? title, summary, model;
+  final DateTime? lastSavedAt;
 }
 
 /// A line-based picker before the full-screen terminal starts. Blank input,
 /// q and EOF cancel without starting an agent or contacting a provider.
 String? pickSession(
-  List<StoredSession> sessions, {
+  List<SessionChoice> sessions, {
   required String? Function() readLine,
   required void Function(String) writeLine,
 }) {
@@ -48,7 +46,7 @@ String? pickSession(
   return null;
 }
 
-String _preview(StoredSession session) {
+String _preview(SessionChoice session) {
   final title = session.title?.trim();
   final text = title != null && title.isNotEmpty
       ? title
@@ -56,7 +54,7 @@ String _preview(StoredSession session) {
   return clipDialogText(text, 160);
 }
 
-String sessionSavedTime(StoredSession session) {
+String sessionSavedTime(SessionChoice session) {
   final at = session.lastSavedAt?.toLocal();
   if (at == null) return 'Unknown save time';
   String two(int n) => n.toString().padLeft(2, '0');
@@ -69,7 +67,7 @@ class SessionPicker {
   SessionPicker(this.screen, this.editor, this.sessions, {this.readEvent});
   final Screen screen;
   final LineEditor editor;
-  final List<StoredSession> sessions;
+  final List<SessionChoice> sessions;
   final Future<InputEvent> Function()? readEvent;
   OverlayRegion? _overlay;
   int _selected = 0, _top = 0, _page = 1;

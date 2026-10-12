@@ -56,8 +56,8 @@ workflow nodes all run it.
 ## The package stack
 
 ```
-apps/tina_cli               application (package tina): CLI, headless runner, process startup
-packages/tina_tui           reusable terminal front end and injectable session assembly
+apps/tina_cli               application (package tina): composition, configuration, CLI and lifecycle
+packages/tina_tui           reusable terminal views, dialogs and render loop
 tool/repository            repository architecture checks and CI helpers
 packages/tina_host          session lifecycle: Host, HostConfig, Commands
 packages/tina_engine_2      the agent loop and plugin interface
@@ -90,49 +90,32 @@ Dependency direction, top down only:
   plugins and the provider. Terminal-free.
 - **tina_llm** — `LlmProvider` implementations and the provider
   descriptors the config system reads.
-- **tina** (`apps/tina_cli`) — the executable application. `cli.dart` routes
-  interactive TUI, headless `--prompt`/`--goal`, configuration, model listing,
-  resume and session import. It owns the release version, shell completion,
-  process launcher and terminal restart. Libraries and plugins cannot depend
-  on it.
-- **tina_tui** — the reusable front end and session assembly today:
-  - `assembly.dart` (`TuiAssembly`) is the composition root: loads
-    config, builds the scoped settings stack, the plugin registry, the
-    provider policy, the `ToolsPlugin` sandbox, and starts or resumes the
-    `Host`. Everything it needs is injectable (`Terminal`, writer,
-    provider factory), so a test — or a daemon — runs the whole app with
-    no renderer. This is the headless seam.
-  - `app.dart` + the views/panels/dialogs are the full-screen front end
-    (`tina_console` renders it). Both regular and panel layouts use `SessionView`,
-    which receives a host connection and presentation capabilities. It cannot
-    reach the assembly or concrete runtime services. `tui_presentation.dart`
-    adapts the assembly into feature view factories and a settings presenter.
-    Settings/provider dialogs receive `SettingsManagement` operations and data;
-    `ConfigSettingsManagement` owns their concrete configuration wiring.
-    `tina_settings` supplies immutable snapshots and revision-checked edits.
-  - `console_catalog.dart` constructs presentation views for existing runtime
-    features. Plans use `tina_plans` for the runtime `PlansPlugin` and
-    `tina_plans_tui` for a fresh `PlansView` per attachment, reading immutable
-    snapshots through `PlanObservation`. Classification uses the runtime
-    `ClassificationPlugin` from `classification` and an independent
-    `ClassificationView` from `tina_classification_tui`, reading immutable
-    trace snapshots through `ClassificationObservation`. View-local inspection
-    commands are routed to the submitting attachment without replacing runtime
-    command handlers. Step limits use a plain `StepLimitPlugin`; the generic
-    Settings panel renders its declared setting, so it needs no custom console
-    view. MCP uses a configured `McpPlugin` for connections, discovery, execution
-    and session grants. Each `McpView` from `tina_mcp_tui` receives its settings
-    capability, `McpManagement`; detaching a view releases only its settings
-    registration and change subscription. Chat, activity, model controls, mode,
-    context, updates, status layout and workspace panels also have fresh views.
-    `tina_chat`, `tina_activity` and `tina_session_controls` own runtime state;
-    frontend-only IDs use `PresentationPlugin` declarations. The runtime catalog
-    imports no presentation package. Approval views receive a narrow interaction
-    capability from the session-owned `AttachmentApprovalChannel`; dialog drafts
-    and cancellation belong to each attachment.
-  - `tui_terminal.dart` is the `Terminal` implementation a TUI session
-    contributes: a text buffer plugins write lines into, and a queue of
-    answers `ask` waits on. No terminal code in it despite the name.
+- **tina** (`apps/tina_cli`) — the executable application and composition root.
+  `SessionAssembly` in `assembly.dart` loads configuration, builds the scoped
+  settings stack, runtime plugin registry, provider policy and sandbox, then
+  starts or resumes a `Host`. Its public `session.dart` entry point has no
+  transitive terminal dependency. `Terminal`, writer and provider factory remain
+  injectable. `SessionTerminal` buffers notices and ordinary question answers
+  without physical terminal I/O.
+  - `cli.dart` routes interactive TUI, headless `--prompt`/`--goal`, configuration,
+    model listing, resume and import. The app owns release version, process
+    startup and restart, plus reading the store for resume selection.
+  - `console_catalog.dart` constructs fresh presentation views for existing
+    runtime features. `tui_presentation.dart` supplies those factories and
+    settings operations to the reusable frontend. `ConfigSettingsManagement`
+    keeps configuration documents, credentials and plugin management private.
+  - `tui.dart` is the terminal composition entry point. `TuiSession` connects an
+    assembled session to its presentation; `runTui` supplies creation and shutdown
+    callbacks to the render loop. Libraries and plugins cannot depend on the app.
+- **tina_tui** — reusable terminal presentation with no concrete plugin,
+  configuration or persistence dependency. `SessionView` receives a disposable
+  host connection and presentation capabilities. Normal and panel layouts use
+  the same view. `runApp` receives application callbacks for session creation
+  and cleanup; without an owner callback, exit detaches a borrowed view and its
+  session continues. Settings/provider dialogs receive `SettingsManagement`
+  operations and sanitized data; `tina_settings` supplies immutable snapshots
+  and revision-checked edits. The resume picker accepts display-only
+  `SessionChoice` records and never opens a store.
 - **tina_console** — rendering toolkit that knows nothing about agents,
   over `dart_notcurses` or plain ANSI. Used by the front end and by the
   `*_tui` plugin packages only.
@@ -158,12 +141,12 @@ packages cannot depend on repository tooling.
 
 ## The assembly seam
 
-`TuiAssembly.start` builds the whole application without a screen:
+`SessionAssembly.start` builds the whole application without a screen:
 
 ```
 AssemblyOptions (config path, cwd, store, session id, model, sandbox, …)
       │
-TuiAssembly.start ──► config + scoped settings stack + plugin registry
+SessionAssembly.start ──► config + scoped settings stack + plugin registry
       │                provider policy, ToolsPlugin (sandbox)
       └─► Host.start / Host.resume ──► AgentLoop + mounted plugins
 ```
@@ -184,7 +167,7 @@ configuration notifications and plugin lifecycle events have disposable observer
 Settings opens in the submitting attachment. Two in-process session views can
 observe one runtime and close independently. A view releases its presentation;
 the panel workspace delegates runtime cleanup to an optional application owner.
-`runApp` owns embedded sessions and uses asynchronous host shutdown to drain
+`runTui` in the CLI owns embedded sessions and uses asynchronous host shutdown to drain
 accepted runtime work before closing them. Closing a borrowed view does not
 cancel its session; frontend `/quit` belongs to the invoking view. A cancellation
 names work from the observed status and cannot stop a successor turn. Status
@@ -193,9 +176,9 @@ Settings dialogs no longer receive a backend, plugin manager, provider factory
 or credential-bearing config document. Each confirmed edit checks the revision
 it began with. Provider drafts expose public fields and credential presence;
 keep/replace/clear operations apply secrets inside the configuration adapter.
-The remaining work includes correlated non-approval questions and complete
-attachment snapshots, followed by moving
-application composition to `apps/tina_cli`. Reusable contracts belong in
+Application composition now lives in `apps/tina_cli`, with transitive import
+checks for its headless entry point and the reusable TUI. The remaining work
+includes correlated non-approval questions and complete attachment snapshots. Reusable contracts belong in
 `tina_host`; no additional runtime package is planned. The current in-process
 connection is not a transport protocol or an authorization boundary.
 

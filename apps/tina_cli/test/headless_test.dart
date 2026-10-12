@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina/tina.dart';
-import 'package:tina_tui/tina_tui.dart';
+import 'package:tina/session.dart';
+import 'package:tina/tui.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 
 void main() {

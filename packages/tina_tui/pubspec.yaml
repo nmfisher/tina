@@ -1,90 +1,21 @@
 name: tina_tui
-description: >-
-  tina's reusable terminal frontend: the full-screen front end and the headless assembly
-  it drives — engine, host, plugins and the session loop wired against an
-  injected provider factory and a captured writer, so a daemon or a test
-  runs the whole app with no renderer. Views, terminal, commands and the
-  approval dialog are the front end's pieces.
+description: Reusable terminal views over session operations and presentation data.
 publish_to: none
 version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
-  tina_chat:
-    path: ../plugins/tina_chat
-  tina_activity:
-    path: ../plugins/tina_activity
-  tina_session_controls:
-    path: ../plugins/tina_session_controls
-  tina_shell:
-    path: ../plugins/tina_shell
-  tina_settings:
-    path: ../libraries/tina_settings
-  tina_step_limit:
-    path: ../plugins/tina_step_limit
-  tina_mcp:
-    path: ../plugins/tina_mcp
-  tina_mcp_tui:
-    path: ../plugins/tina_mcp_tui
   ffi: ^2.1.0
-  tina_mode:
-    path: ../plugins/tina_mode
-  classification:
-    path: ../classification
-  tina_classification_tui:
-    path: ../plugins/tina_classification_tui
-  tina_grok_guard:
-    path: ../plugins/tina_grok_guard
-  tina_chat_tui:
-    path: ../plugins/tina_chat_tui
-  tina_activity_tui:
-    path: ../plugins/tina_activity_tui
-  tina_providers:
-    path: ../plugins/tina_providers
-  tina_self_update:
-    path: ../plugins/tina_self_update
-  tina_approvals:
-    path: ../plugins/tina_approvals
-  tina_approvals_tui:
-    path: ../plugins/tina_approvals_tui
-  toml: ^0.16.0
-  tina_core:
-    path: ../tina_core
+  path: ^1.9.0
   tina_console:
     path: ../tina_console
-  # The Terminal and Commands contracts a TUI session contributes and
-  # reads. All non-terminal, acyclic.
-  # The injectable session assembly is still owned here; CLI routing and
-  # process startup belong to apps/tina_cli.
-  tina_engine_2:
-    path: ../tina_engine_2
+  tina_core:
+    path: ../tina_core
   tina_host:
     path: ../tina_host
-  tina_llm:
-    path: ../tina_llm
-  tina_tools:
-    path: ../plugins/tina_tools
-  # The @ completion source's bounded walk (basename/posix joins).
-  path: ^1.9.0
-  tina_persistence:
-    path: ../plugins/tina_persistence
-  tina_system_instruction:
-    path: ../plugins/tina_system_instruction
-  tina_plans:
-    path: ../plugins/tina_plans
-  tina_plans_tui:
-    path: ../plugins/tina_plans_tui
-  tina_goals:
-    path: ../plugins/tina_goals
-  tina_compaction:
-    path: ../plugins/tina_compaction
-  tina_context:
-    path: ../plugins/tina_context
-  tina_context_tui:
-    path: ../plugins/tina_context_tui
-  tina_subagents:
-    path: ../plugins/tina_subagents
-  tina_file_resources:
-    path: ../plugins/tina_file_resources
+  tina_settings:
+    path: ../libraries/tina_settings
 dev_dependencies:
   test: ^1.25.0
+  tina_engine_2:
+    path: ../tina_engine_2

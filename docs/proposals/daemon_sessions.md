@@ -1,9 +1,9 @@
 # Daemon sessions — one runtime, multiple TUI clients
 
 Status: **preparatory refactors in progress; daemon not implemented**.
-Updated: 2026-10-12, after v0.9.60 and the session/settings operation refactors.
+Updated: 2026-10-12, after v0.9.60, session/settings operations and application composition separation.
 
-Preparation status: phases 0 and 1 are complete. The
+Preparation status: phases 0, 1 and 3 are complete. The
 [ownership and behavior baseline](session_ownership_baseline.md) records the
 original command/settings inventory and lifecycle characterization tests.
 All first-party runtime factories are now independent of presentation.
@@ -30,17 +30,17 @@ tracking belongs to the host; both TUI paths use the same `SessionView`, with
 `Host.shutdown()` owns asynchronous cancellation/draining and resource cleanup.
 Settings/provider editors now use revision-checked operations and sanitized
 data through `SettingsManagement`, backed by the application adapter
-`ConfigSettingsManagement`. Correlated ordinary questions, complete
-attach snapshots and moving application composition out of `tina_tui` remain
-pending; no daemon has been built.
+`ConfigSettingsManagement`. Application composition now lives in `apps/tina_cli`;
+`tina_tui` has no feature-plugin dependencies. Correlated ordinary questions and
+complete attach snapshots remain pending; no daemon has been built.
 
 ## Assessment
 
 Two in-process session views now share a live runtime with independent
 presentation and disposable observations. The engine and host remain the
-foundation. Application composition, correlated ordinary questions and the
-remaining operation/snapshot contracts still precede a remote client or daemon; wrapping
-`TuiAssembly` directly in a socket would bypass those remaining boundaries.
+foundation. Correlated ordinary questions and the remaining operation/snapshot
+contracts still precede a remote client or daemon; wrapping
+`SessionAssembly` directly in a socket would bypass those remaining boundaries.
 
 The immediate work is to separate concerns in the existing embedded application.
 Do not implement a daemon, socket protocol or background startup in this pass.
@@ -58,20 +58,20 @@ replacement for their stores or change SQLite durability.
 |---|---|---|
 | Engine and host | `tina_engine_2` and `tina_host` have no terminal dependency. `Host` owns the loop, provider and mounted plugins. | Retain both; put the application runtime above them. |
 | Committed history | `AgentLoop.subscribe` and `subscribeBatches` replay existing entries before delivering new ones. Entries carry `seq`. Batch listeners run before per-entry observers. | Reuse the log for history and preserve persistence before client notification. |
-| Application assembly | `TuiAssembly` runs without a screen. Its runtime catalog imports no TUI view package, while the assembly remains in `tina_tui` and supplies concrete tools, providers and settings. | A presentation-free runtime requires more than a file move. |
-| TUI lifetime | `SessionView.close` disposes presentation and its connection only. The workspace calls an optional application `onViewClosed` policy. `runApp` owns embedded sessions and uses host shutdown to drain accepted work before closing resources. | Borrowed views close independently; frontend quit is local. Settings dialogs use disposable operation clients; ordinary questions still need correlation. |
+| Application assembly | `SessionAssembly` lives in `apps/tina_cli`. Its headless `session.dart` entry point cannot reach a renderer or frontend package. | Application wiring stays above reusable host and frontend packages; scripted turns and resume use the same assembly. |
+| TUI lifetime | `SessionView.close` disposes presentation and its connection only. The workspace calls an optional application `onViewClosed` policy. `runTui` in the CLI owns embedded sessions and uses host shutdown to drain accepted work before closing resources. | Borrowed views close independently; frontend quit is local. Settings dialogs use disposable operation clients; ordinary questions still need correlation. |
 | Notifications | Settings changes, terminal output and plugin lifecycle events support independently disposable listeners; foreground watch lifetime follows runtime log events. | Attachments release only their own listeners. Application commands that open Settings route to the submitting view. |
 | Presentation | Every first-party feature view is independent of its runtime plugin. Chat and activity consume immutable session observations; frontend-only IDs have stateless declarations. | Keep one runtime feature instance and a fresh presentation object per attachment. Existing third-party combined contributions retain their compatibility fallback. |
 | Live model output | `_ObservedProvider` observes foreground turns through runtime-owned log markers. Chat retains bounded previews independently of attachments. | Direct `Host.send` and turns continuing after detach deliver observations. Background requests remain excluded; late views replay canonical history plus the current preview. |
 | Approvals | `ApprovalsPlugin` has request IDs, pending requests, cancellation and single-response tickets. `StreamApprovalChannel` has one subscriber and denies pending requests when it unsubscribes. | The interactive channel is now `AttachmentApprovalChannel`. Each view gets a question facade; the ticket and channel lifetime remain private. Detach retains pending approvals; new headless requests fail closed. |
-| Other questions | `TuiTerminal.ask` and `submitAnswer` match questions and answers by FIFO order, without request IDs. | Questions crossing the attachment boundary need correlated IDs and stale-response rejection too. |
+| Other questions | `SessionTerminal.ask` and `submitAnswer` match questions and answers by FIFO order, without request IDs. | Questions crossing the attachment boundary need correlated IDs and stale-response rejection too. |
 | Persistence | Each persistence plugin owns a connection. SQLite uses WAL, a busy timeout and `synchronous=FULL`; session sequence gaps are checked on resume. | Preserve these guarantees. WAL serializes database transactions; it does not enforce one live engine for a particular session. |
 
 Relevant sources:
-[`assembly.dart`](../../packages/tina_tui/lib/src/assembly.dart),
+[`assembly.dart`](../../apps/tina_cli/lib/src/assembly.dart),
 [`app.dart`](../../packages/tina_tui/lib/src/app.dart),
-[`tui_session.dart`](../../packages/tina_tui/lib/src/tui_session.dart),
-[`plugin_catalog.dart`](../../packages/tina_tui/lib/src/plugin_catalog.dart),
+[`tui_session.dart`](../../apps/tina_cli/lib/src/tui_session.dart),
+[`plugin_catalog.dart`](../../apps/tina_cli/lib/src/plugin_catalog.dart),
 [`chat_tui.dart`](../../packages/plugins/tina_chat_tui/lib/src/chat_tui.dart),
 [`tina_approvals.dart`](../../packages/plugins/tina_approvals/lib/tina_approvals.dart),
 [`loop.dart`](../../packages/tina_engine_2/lib/src/loop.dart),
@@ -474,6 +474,19 @@ and a configured third-party channel.
 
 ### Phase 3 — extract a presentation-free application assembly
 
+**Implemented.** Configuration loading, providers, runtime and view catalogs,
+settings adapters and embedded lifecycle now live in `apps/tina_cli`.
+`SessionAssembly` and `SessionTerminal` are available through `session.dart`
+without transitive terminal imports. The reusable `runApp` accepts a view and
+optional application callbacks; `runTui` supplies the CLI's ownership policy.
+The resume picker consumes display records instead of persistence objects.
+Application integration tests and config verification tooling moved with their
+owners. Dependency policy forbids any feature plugin in `tina_tui` and import
+checks exclude all terminal packages from the headless composition entry point.
+No new runtime package or compatibility dependency back to the CLI was added.
+
+Original scope:
+
 After establishing the reusable session contracts in `tina_host`, move
 configuration loading, provider wiring, concrete plugin registration, sandbox
 setup and host start/resume into the application under `apps/tina_cli`.
@@ -486,7 +499,7 @@ Keep process-launch initialization available to the executable bootstrap and
 headless runtime without importing terminal rendering. Preserve its trampoline,
 pipes, process detachment and cancellation behavior.
 
-Replace `TuiAssembly` call sites with application composition and a TUI receiving
+Replace `SessionAssembly` call sites with application composition and a TUI receiving
 session capabilities. Switch both normal CLI execution and `--prompt`/`--goal`
 to the new composition. Keep the current CLI flags, configuration format and
 session-store format.
@@ -511,7 +524,8 @@ attachment and client exit release presentation only. The workspace no longer
 cancels sessions during teardown or waits for borrowed turns. Late completions
 cannot repaint disposed panels.
 
-`runApp` is explicitly an embedded owner. Its callback cancels and awaits the
+`runTui` in `apps/tina_cli` is explicitly an embedded owner; reusable `runApp`
+has no shutdown authority of its own. Its callback cancels and awaits the
 submissions it dispatched before closing a spawned session. The initial assembly
 remains available for configuration and child creation after its panel closes,
 then closes on application exit. Existing CLI startup-failure cleanup remains.

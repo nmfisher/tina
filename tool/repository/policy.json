@@ -423,12 +423,43 @@
     ],
     "tina_settings": [],
     "tina": [
+      "classification",
       "ffi",
-      "tina_tui",
-      "tina_tools",
+      "tina_activity",
+      "tina_activity_tui",
+      "tina_approvals",
+      "tina_approvals_tui",
+      "tina_chat",
+      "tina_chat_tui",
+      "tina_classification_tui",
+      "tina_compaction",
+      "tina_console",
+      "tina_context",
+      "tina_context_tui",
+      "tina_core",
       "tina_engine_2",
+      "tina_file_resources",
       "tina_goals",
-      "tina_persistence"
+      "tina_grok_guard",
+      "tina_host",
+      "tina_llm",
+      "tina_mcp",
+      "tina_mcp_tui",
+      "tina_mode",
+      "tina_persistence",
+      "tina_plans",
+      "tina_plans_tui",
+      "tina_providers",
+      "tina_self_update",
+      "tina_session_controls",
+      "tina_settings",
+      "tina_shell",
+      "tina_step_limit",
+      "tina_subagents",
+      "tina_system_instruction",
+      "tina_tools",
+      "tina_tui",
+      "toml"
     ],
     "tina_context_tui": [
       "tina_engine_2",
@@ -455,11 +486,20 @@
       "analyzer",
       "path",
       "yaml"
+    ],
+    "tina_tui": [
+      "ffi",
+      "path",
+      "tina_console",
+      "tina_core",
+      "tina_host",
+      "tina_settings"
     ]
   },
   "pluginFreePackages": [
     "tina_host",
-    "tina_engine_2"
+    "tina_engine_2",
+    "tina_tui"
   ],
   "repositoryExcludedRoots": [
     "examples",

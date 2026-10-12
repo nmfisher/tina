@@ -124,9 +124,41 @@ Future<void> main() async {
   );
   test('configuration reader has no transitive terminal dependency', () {
     expect(
-      violations('packages/tina_tui/lib/src/config_document.dart', {
+      violations('apps/tina_cli/lib/src/config_document.dart', {
         'tina_console',
         'dart_notcurses',
+      }),
+      isEmpty,
+    );
+  });
+  test('session composition has no transitive frontend dependency', () {
+    expect(
+      violations('apps/tina_cli/lib/session.dart', {
+        'tina_tui',
+        'tina_console',
+        'dart_notcurses',
+        'tina_chat_tui',
+        'tina_activity_tui',
+        'tina_context_tui',
+        'tina_approvals_tui',
+        'tina_plans_tui',
+        'tina_classification_tui',
+        'tina_mcp_tui',
+      }),
+      isEmpty,
+    );
+  });
+  test('reusable TUI cannot reach application or concrete feature owners', () {
+    expect(
+      violations('packages/tina_tui/lib/tina_tui.dart', {
+        'tina',
+        'tina_tools',
+        'tina_llm',
+        'tina_persistence',
+        'tina_chat',
+        'tina_plans',
+        'tina_approvals',
+        'tina_mcp',
       }),
       isEmpty,
     );
@@ -144,7 +176,7 @@ Future<void> main() async {
   });
   test('runtime feature construction cannot import a presentation package', () {
     expect(
-      violations('packages/tina_tui/lib/src/plugin_catalog.dart', {
+      violations('apps/tina_cli/lib/src/plugin_catalog.dart', {
         'tina_console',
         'dart_notcurses',
         'tina_chat_tui',
@@ -163,9 +195,9 @@ Future<void> main() async {
     () {
       expect(
         violations('packages/tina_tui/lib/src/session_view.dart', {
-          'packages/tina_tui/lib/src/assembly.dart',
-          'packages/tina_tui/lib/src/tui_session.dart',
-          'packages/tina_tui/lib/src/tui_presentation.dart',
+          'apps/tina_cli/lib/src/assembly.dart',
+          'apps/tina_cli/lib/src/tui_session.dart',
+          'apps/tina_cli/lib/src/tui_presentation.dart',
           'packages/tina_tui/lib/src/settings_panel.dart',
           'tina_tools',
           'tina_persistence',
@@ -181,12 +213,12 @@ Future<void> main() async {
       for (final entry in ['settings_panel.dart', 'providers_panel.dart']) {
         expect(
           violations('packages/tina_tui/lib/src/$entry', {
-            'packages/tina_tui/lib/src/assembly.dart',
-            'packages/tina_tui/lib/src/assembly_config.dart',
-            'packages/tina_tui/lib/src/config_document.dart',
-            'packages/tina_tui/lib/src/scoped_config.dart',
-            'packages/tina_tui/lib/src/config_settings_management.dart',
-            'packages/tina_tui/lib/src/plugin_settings.dart',
+            'apps/tina_cli/lib/src/assembly.dart',
+            'apps/tina_cli/lib/src/assembly_config.dart',
+            'apps/tina_cli/lib/src/config_document.dart',
+            'apps/tina_cli/lib/src/scoped_config.dart',
+            'apps/tina_cli/lib/src/config_settings_management.dart',
+            'apps/tina_cli/lib/src/plugin_settings.dart',
             'tina_host',
             'tina_tools',
             'tina_llm',

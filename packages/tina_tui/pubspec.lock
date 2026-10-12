@@ -57,13 +57,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  classification:
-    dependency: "direct main"
-    description:
-      path: "../classification"
-      relative: true
-    source: path
-    version: "0.1.0"
   cli_config:
     dependency: transitive
     description:
@@ -166,14 +159,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.0.3"
-  http:
-    dependency: transitive
-    description:
-      name: http
-      sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.6.0"
   http_multi_server:
     dependency: transitive
     description:
@@ -214,14 +199,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.0"
-  markdown:
-    dependency: transitive
-    description:
-      name: markdown
-      sha256: ee85086ad7698b42522c6ad42fe195f1b9898e4d974a1af4576c1a3a176cada9
-      url: "https://pub.dev"
-    source: hosted
-    version: "7.3.1"
   matcher:
     dependency: transitive
     description:
@@ -278,14 +255,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
-  petitparser:
-    dependency: transitive
-    description:
-      name: petitparser
-      sha256: "07c8f0b1913bcde1ff0d26e57ace2f3012ccbf2b204e070290dad3bb22797646"
-      url: "https://pub.dev"
-    source: hosted
-    version: "6.1.0"
   pool:
     dependency: transitive
     description:
@@ -374,14 +343,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
-  sqlite3:
-    dependency: transitive
-    description:
-      name: sqlite3
-      sha256: "4c7fe79840389aaeaf05fd093f795b631b5a98e2bd28d54e555c100f4a9c7a1c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.5.2"
   stack_trace:
     dependency: transitive
     description:
@@ -438,80 +399,10 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.20"
-  tina_activity:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_activity"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_activity_tui:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_activity_tui"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_approvals:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_approvals"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_approvals_tui:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_approvals_tui"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_chat:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_chat"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_chat_tui:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_chat_tui"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_classification_tui:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_classification_tui"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_compaction:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_compaction"
-      relative: true
-    source: path
-    version: "0.1.0"
   tina_console:
     dependency: "direct main"
     description:
       path: "../tina_console"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_context:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_context"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_context_tui:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_context_tui"
       relative: true
     source: path
     version: "0.1.0"
@@ -523,30 +414,9 @@ packages:
     source: path
     version: "0.1.0"
   tina_engine_2:
-    dependency: "direct main"
+    dependency: "direct dev"
     description:
       path: "../tina_engine_2"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_file_resources:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_file_resources"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_goals:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_goals"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_grok_guard:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_grok_guard"
       relative: true
     source: path
     version: "0.1.0"
@@ -557,76 +427,6 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_llm:
-    dependency: "direct main"
-    description:
-      path: "../tina_llm"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_mcp:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_mcp"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_mcp_tui:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_mcp_tui"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_mode:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_mode"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_persistence:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_persistence"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_plans:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_plans"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_plans_tui:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_plans_tui"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_providers:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_providers"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_self_update:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_self_update"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_session_controls:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_session_controls"
-      relative: true
-    source: path
-    version: "0.1.0"
   tina_settings:
     dependency: "direct main"
     description:
@@ -634,56 +434,6 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_shell:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_shell"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_sqlite:
-    dependency: transitive
-    description:
-      path: "../tina_sqlite"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_step_limit:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_step_limit"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_subagents:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_subagents"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_system_instruction:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_system_instruction"
-      relative: true
-    source: path
-    version: "0.1.0"
-  tina_tools:
-    dependency: "direct main"
-    description:
-      path: "../plugins/tina_tools"
-      relative: true
-    source: path
-    version: "0.1.0"
-  toml:
-    dependency: "direct main"
-    description:
-      name: toml
-      sha256: d968d149c8bd06dc14e09ea3a140f90a3f2ba71949e7a91df4a46f3107400e71
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.16.0"
   typed_data:
     dependency: transitive
     description:
@@ -749,4 +499,4 @@ packages:
     source: hosted
     version: "3.1.4"
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.11.0 <4.0.0"

@@ -10,20 +10,80 @@ executables:
   tina:
 
 dependencies:
+  classification:
+    path: ../../packages/classification
   ffi: ^2.1.0
-  tina_tui:
-    path: ../../packages/tina_tui
-  tina_tools:
-    path: ../../packages/plugins/tina_tools
-  tina_engine_2:
-    path: ../../packages/tina_engine_2
-  tina_goals:
-    path: ../../packages/plugins/tina_goals
-  tina_persistence:
-    path: ../../packages/plugins/tina_persistence
-
-dev_dependencies:
-  path: ^1.9.0
+  tina_activity:
+    path: ../../packages/plugins/tina_activity
+  tina_activity_tui:
+    path: ../../packages/plugins/tina_activity_tui
+  tina_approvals:
+    path: ../../packages/plugins/tina_approvals
+  tina_approvals_tui:
+    path: ../../packages/plugins/tina_approvals_tui
+  tina_chat:
+    path: ../../packages/plugins/tina_chat
+  tina_chat_tui:
+    path: ../../packages/plugins/tina_chat_tui
+  tina_classification_tui:
+    path: ../../packages/plugins/tina_classification_tui
+  tina_compaction:
+    path: ../../packages/plugins/tina_compaction
+  tina_console:
+    path: ../../packages/tina_console
+  tina_context:
+    path: ../../packages/plugins/tina_context
+  tina_context_tui:
+    path: ../../packages/plugins/tina_context_tui
   tina_core:
     path: ../../packages/tina_core
+  tina_engine_2:
+    path: ../../packages/tina_engine_2
+  tina_file_resources:
+    path: ../../packages/plugins/tina_file_resources
+  tina_goals:
+    path: ../../packages/plugins/tina_goals
+  tina_grok_guard:
+    path: ../../packages/plugins/tina_grok_guard
+  tina_host:
+    path: ../../packages/tina_host
+  tina_llm:
+    path: ../../packages/tina_llm
+  tina_mcp:
+    path: ../../packages/plugins/tina_mcp
+  tina_mcp_tui:
+    path: ../../packages/plugins/tina_mcp_tui
+  tina_mode:
+    path: ../../packages/plugins/tina_mode
+  tina_persistence:
+    path: ../../packages/plugins/tina_persistence
+  tina_plans:
+    path: ../../packages/plugins/tina_plans
+  tina_plans_tui:
+    path: ../../packages/plugins/tina_plans_tui
+  tina_providers:
+    path: ../../packages/plugins/tina_providers
+  tina_self_update:
+    path: ../../packages/plugins/tina_self_update
+  tina_session_controls:
+    path: ../../packages/plugins/tina_session_controls
+  tina_settings:
+    path: ../../packages/libraries/tina_settings
+  tina_shell:
+    path: ../../packages/plugins/tina_shell
+  tina_step_limit:
+    path: ../../packages/plugins/tina_step_limit
+  tina_subagents:
+    path: ../../packages/plugins/tina_subagents
+  tina_system_instruction:
+    path: ../../packages/plugins/tina_system_instruction
+  tina_tools:
+    path: ../../packages/plugins/tina_tools
+  tina_tui:
+    path: ../../packages/tina_tui
+  toml: ^0.16.0
+dev_dependencies:
+  dart_notcurses:
+    path: ../../packages/dart_notcurses
+  path: ^1.9.0
   test: ^1.25.0

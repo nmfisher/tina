@@ -1,3 +1,4 @@
+import 'package:tina/src/session_selection.dart';
 import 'dart:io';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:test/test.dart';
@@ -100,7 +101,7 @@ void main() {
       final answers = ['0', '3', 'wrong', ' 2 '].iterator;
       expect(
         pickSession(
-          sessions,
+          sessionChoices(sessions),
           readLine: () {
             answers.moveNext();
             return answers.current;
@@ -113,7 +114,11 @@ void main() {
       expect(output.join('\n'), isNot(contains('\x1b')));
       for (final answer in <String?>['', 'q', null]) {
         expect(
-          pickSession(sessions, readLine: () => answer, writeLine: (_) {}),
+          pickSession(
+            sessionChoices(sessions),
+            readLine: () => answer,
+            writeLine: (_) {},
+          ),
           isNull,
         );
       }

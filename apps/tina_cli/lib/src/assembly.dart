@@ -1,0 +1,677 @@
+library;
+
+import 'dart:io' show Directory, File, stdout;
+import 'dart:async';
+import 'dart:convert';
+import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_host/tina_host.dart';
+import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_session_controls/tina_session_controls.dart'
+    show ModelCatalog;
+import 'session_terminal.dart';
+import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
+import 'assembly_config.dart';
+import 'configured_provider.dart';
+import 'plugin_catalog.dart';
+import 'plugin_settings.dart';
+import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_settings/tina_settings.dart';
+import 'scoped_config.dart';
+import 'settings_catalog.dart';
+import 'settings_stack.dart';
+import 'config_document.dart';
+
+/// Optional instrumentation of the real startup path. Callbacks must not
+/// mutate the assembly. No extra config or store reads are made for profiling.
+final class AssemblyDiagnostics {
+  const AssemblyDiagnostics({this.stage, this.modelEvent, this.ready});
+  final void Function(String name)? stage;
+  final void Function(StreamEvent event)? modelEvent;
+  final void Function(SessionAssembly assembly)? ready;
+}
+
+/// Where an entry point's lines go. One seam for everything the
+/// assembly itself prints; injectable so a test captures it.
+abstract interface class AssemblyWriter {
+  void writeln([String? line]);
+}
+
+/// A writer over any [StringSink]s — a StringBuffer in tests.
+final class SinkAssemblyWriter implements AssemblyWriter {
+  /// Everything the assembly says goes to [out]; [err] is unused today but
+  /// exists so a future split does not change the seam.
+  SinkAssemblyWriter({StringSink? out, StringSink? err})
+      : out = out ?? StringBuffer(),
+        err = err ?? StringBuffer();
+
+  final StringSink out;
+  final StringSink err;
+
+  @override
+  void writeln([String? line]) => out.writeln(line ?? '');
+}
+
+/// The process's stdout and stderr. The one place the app writes a bare
+/// line outside the full-screen loop: a session listing, which
+/// runs before any screen exists.
+final class StdoutAssemblyWriter implements AssemblyWriter {
+  const StdoutAssemblyWriter();
+
+  @override
+  void writeln([String? line]) {
+    stdout.writeln(line ?? '');
+  }
+}
+
+/// What the session was asked to run with: everything [SessionAssembly.start]
+/// needs. No argument parsing here — the entry point owns its own flags
+/// and maps them onto this.
+final class AssemblyOptions {
+  const AssemblyOptions({
+    this.configPath,
+    this.workingDirectory,
+    this.storePath,
+    this.sessionId,
+    this.onRestart,
+    this.plugins,
+    this.approvalChannel,
+    this.version = '0.0.0',
+    this.model,
+    this.osSandbox = true,
+  });
+
+  /// Explicit config file, else `~/.tina/config`.
+  final String? configPath;
+
+  /// The session's working directory, else the process's cwd.
+  final String? workingDirectory;
+
+  /// Override the persistence plugin's default workspace store location.
+  /// Persistence is enabled or disabled through the selected plugins.
+  final String? storePath;
+
+  /// Resume this session id instead of starting fresh. Requires persistence;
+  /// [storePath] is optional. New entries continue the restored log.
+  final String? sessionId;
+
+  final void Function(String bundleRoot, String? sessionId)? onRestart;
+
+  /// Embedding override; otherwise the global config selects feature plugins.
+  final List<String>? plugins;
+
+  /// Selected channel plugin; defaults to the global config.
+  final String? approvalChannel;
+  final String version;
+  final String? model;
+
+  /// Per-launch OS confinement. Permission policy remains active when false.
+  final bool osSandbox;
+}
+
+/// Default store stays separate from legacy session files and is scoped to
+/// the workspace. The global config controls whether the plugin is loaded.
+String defaultSessionStorePath(String workingDirectory) =>
+    '$workingDirectory/.tina/sessions.db';
+
+/// List a store's sessions, one line each: id, entry count, title. It
+/// opens, reads the registry rows, closes, and never builds a session.
+/// A store that cannot be opened throws; the entry point turns that into
+/// its own error line.
+void listSessions({
+  required AssemblyWriter writer,
+  required String storePath,
+}) {
+  if (!File(storePath).existsSync()) {
+    throw SessionStoreException('no session store at $storePath');
+  }
+  final store = SessionStore.open(storePath);
+  try {
+    final sessions = store.list();
+    if (sessions.isEmpty) {
+      writer.writeln('no sessions in $storePath');
+      return;
+    }
+    for (final s in sessions) {
+      writer.writeln('${s.id}  ${s.entries} entries'
+          '${s.title == null ? '' : '  ${s.title}'}');
+    }
+  } finally {
+    store.close();
+  }
+}
+
+/// Build the provider for [model] off [descriptor]: the wire picks the
+/// class, everything else comes off the descriptor. Endpoint and
+/// credentials come from the environment, as `tina_llm` already does —
+/// nothing here reads, holds, or prints a token.
+LlmProvider providerForDescriptor(
+    ProviderDescriptor? descriptor, String model) {
+  if (descriptor == null) {
+    // No provider named: the Anthropic wire, whose provider reads
+    // TINA_LLM_ENDPOINT / TINA_LLM_TOKEN itself.
+    return AnthropicProvider(model: model);
+  }
+  return configuredProvider(
+      TinaConfig(
+          providerId: descriptor.id, model: model, descriptors: [descriptor]),
+      model);
+}
+
+/// Assembles the host and concrete plugins with explicit dependencies.
+/// The default terminal buffers output without opening a physical terminal.
+final class SessionAssembly {
+  SessionAssembly._({
+    required this.host,
+    required this.terminal,
+    required this.writer,
+    required this.configNote,
+    required Map<String, dynamic> theme,
+    required this.tools,
+    required this.configPath,
+    required this.descriptors,
+    required this.validatePlugins,
+    required this.pluginSettings,
+    required this.pluginManager,
+    required this.settings,
+    required this.settingsBackend,
+    required this.newSession,
+    required this.applySavedConfiguration,
+    required void Function() stopConfigurationUpdates,
+  })  : _stopConfigurationUpdates = stopConfigurationUpdates,
+        _theme = theme,
+        commands = host.commands;
+
+  final Host host;
+  final PluginSettings<SessionPluginContext> pluginSettings;
+  final PluginManager<SessionPluginContext> pluginManager;
+  final ScopedSettings settings;
+  final ConfigSettingsBackend settingsBackend;
+  final _settingsListeners = <Object, void Function()>{};
+  void Function() listenSettings(void Function() listener) {
+    final owner = Object();
+    _settingsListeners[owner] = listener;
+    return () => _settingsListeners.remove(owner);
+  }
+
+  void _settingsChanged() {
+    for (final item in _settingsListeners.entries.toList()) {
+      if (!_settingsListeners.containsKey(item.key)) continue;
+      try {
+        item.value();
+      } catch (_) {
+        _settingsListeners.remove(item.key);
+      }
+    }
+  }
+
+  final String configPath;
+  final List<ProviderDescriptor> descriptors;
+  final void Function(Iterable<String>) validatePlugins;
+  final void Function() applySavedConfiguration;
+  final void Function() _stopConfigurationUpdates;
+
+  /// Tools expose mode/status to the frontend; approvals are loader-injected.
+  final ToolsPlugin tools;
+
+  /// Shared output supplied to the command plugins and the frontend.
+  final Terminal terminal;
+
+  final AssemblyWriter writer;
+
+  /// The config status line read at start (never printed by the
+  /// assembly — a front end decides whether a banner shows it).
+  final String? configNote;
+  Map<String, dynamic> _theme;
+  Map<String, dynamic> get theme => _theme;
+
+  /// The session's published commands.
+  final Commands commands;
+
+  var _quit = false;
+  final SessionAssembly Function(String? model) newSession;
+
+  /// Transient model output for the active foreground turn. Background
+  /// requests and child providers do not feed the conversation renderer.
+  Object? _turnObservation;
+  int? _turnListener;
+  bool get watchingTurn => host.session.loop.inTurn;
+
+  static SessionAssembly start({
+    AssemblyWriter writer = const _NullWriter(),
+    ProviderFactory? providerFactory,
+    Terminal? terminal,
+    AssemblyOptions options = const AssemblyOptions(),
+    List<ProviderDescriptor>? descriptors,
+    void Function(PluginRegistry<SessionPluginContext>)? registerPlugins,
+    AssemblyDiagnostics? diagnostics,
+  }) =>
+      _start(
+          writer: writer,
+          providerFactory: providerFactory,
+          terminal: terminal,
+          options: options,
+          descriptors: descriptors,
+          registerPlugins: registerPlugins,
+          diagnostics: diagnostics,
+          configurationUpdates: _ConfigurationUpdates());
+
+  static SessionAssembly _start({
+    required _ConfigurationUpdates configurationUpdates,
+    required AssemblyWriter writer,
+    ProviderFactory? providerFactory,
+    Terminal? terminal,
+    required AssemblyOptions options,
+    List<ProviderDescriptor>? descriptors,
+    void Function(PluginRegistry<SessionPluginContext>)? registerPlugins,
+    AssemblyDiagnostics? diagnostics,
+  }) {
+    diagnostics?.stage?.call('assembly-start');
+    descriptors ??= configuredDescriptors();
+    diagnostics?.stage?.call('descriptors-ready');
+    final config =
+        loadTinaConfig(path: options.configPath, descriptors: descriptors);
+    diagnostics?.stage?.call('config-loaded');
+    // A malformed config must not silently re-enable persistence or other
+    // defaults the user may have explicitly disabled.
+    if (config is TinaConfigProblem) throw FormatException(config.problem);
+    var resolved = config.config;
+    var model = options.model ??
+        (providerFactory == null
+            ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
+            : resolved.model);
+    if (providerFactory == null && options.model != null) {
+      model = canonicalModelReference(resolved, model);
+    }
+    final workingDirectory = options.workingDirectory ?? Directory.current.path;
+    final output = terminal ?? SessionTerminal();
+    final registry = firstPartyPlugins();
+    registerPlugins?.call(registry);
+    final stack = ScopedSettingsStack.build(
+        globalPath: options.configPath ?? defaultConfigPath(),
+        workspacePath: '$workingDirectory/.tina/config',
+        registry: registry,
+        descriptors: descriptors,
+        config: resolved,
+        onConfigurationChanged: configurationUpdates.changed);
+    final pluginSettings = PluginSettings<SessionPluginContext>(
+      globalPath: options.configPath ?? defaultConfigPath(),
+      workspacePath: '$workingDirectory/.tina/config',
+      registry: registry,
+      descriptors: descriptors,
+      sessionBaseline: options.plugins,
+      channelOverride: options.approvalChannel,
+    );
+    final catalog = stack.catalog;
+    final settingsBackend = stack.backend;
+    final settings = stack.settings;
+    resolved = ConfigDocument.validateValues(
+        settingsBackend.effectiveDocument(),
+        descriptors: descriptors);
+    model = options.model ??
+        (providerFactory == null
+            ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
+            : resolved.model);
+    if (providerFactory == null && options.model != null) {
+      model = canonicalModelReference(resolved, model);
+    }
+    final tools = ToolsPlugin(
+      workspaceRoot: workingDirectory,
+      tinaDir: Directory('$workingDirectory/.tina'),
+      protectedPaths: [options.configPath ?? defaultConfigPath()],
+      osSandbox: options.osSandbox,
+      settings: settings,
+    );
+    diagnostics?.stage?.call('settings-and-tools-ready');
+    final policy = configuredPolicy(resolved,
+        override: providerFactory, currentConfig: () => resolved);
+    final enabled = pluginSettings.features;
+    final selected = pluginSettings.selected;
+    registry.validate(selected);
+    final persists = enabled.contains('tina/persistence');
+    if (!persists && (options.storePath != null || options.sessionId != null)) {
+      throw ArgumentError('--store and --resume require tina/persistence');
+    }
+    final path = options.storePath ?? defaultSessionStorePath(workingDirectory);
+    SessionStore openStore() {
+      diagnostics?.stage?.call('store-open-start');
+      File(path).parent.createSync(recursive: true);
+      final store = SessionStore.open(path);
+      diagnostics?.stage?.call('store-open-end');
+      return store;
+    }
+
+    SessionAssembly? assembled;
+    if (options.sessionId != null) {
+      final stored = openStore();
+      try {
+        diagnostics?.stage?.call('settings-replay-start');
+        PersistencePlugin.restoreSettings(
+            settings, stored.readEntries(options.sessionId!));
+        diagnostics?.stage?.call('settings-replay-end');
+        resolved = ConfigDocument.validateValues(
+            settingsBackend.effectiveDocument(),
+            descriptors: descriptors);
+        policy.updateLimits(resolved.limits);
+        pluginSettings.restoreSessionOverrides({
+          for (final id in registry.ids)
+            if (settings.layer(SettingScope.session)['$id/enabled']
+                case final bool enabled)
+              id: enabled,
+        });
+        if (options.model == null)
+          model = stored
+                  .list()
+                  .singleWhere((s) => s.id == options.sessionId)
+                  .model ??
+              model;
+      } finally {
+        stored.close();
+      }
+    }
+    final context = SessionPluginContext(
+      configPath: options.configPath ?? defaultConfigPath(),
+      workingDirectory: workingDirectory,
+      terminal: output,
+      tools: tools,
+      providerFactory: policy.childProvider,
+      providerPolicy: policy,
+      limits: resolved.limits,
+      settings: settings,
+      readLimits: () => resolved.limits,
+      version: options.version,
+      restart: options.onRestart == null
+          ? null
+          : (root) {
+              final current = assembled!;
+              final saved = current.host.plugins
+                  .whereType<PersistencePlugin>()
+                  .any((plugin) => plugin.store
+                      .list()
+                      .any((row) => row.id == current.host.session.id));
+              options.onRestart!(root, saved ? current.host.session.id : null);
+              current._quit = true;
+            },
+      model: model,
+      currentModel: () => assembled?.host.model ?? model,
+      switchModel: (next) => assembled!.host.switchModel(providerFactory == null
+          ? canonicalModelReference(resolved, next)
+          : next),
+      modelCatalog: () => ModelCatalog(models: [
+        for (final descriptor in resolved.descriptors)
+          if (resolved.providers.containsKey(descriptor.id) ||
+              descriptor.id == resolved.providerId ||
+              (resolved.providers.isEmpty && descriptor.id == 'anthropic') ||
+              (assembled?.host.model ?? model).startsWith('${descriptor.id}/'))
+            for (final name in descriptor.models.keys)
+              if (!(resolved.providers[descriptor.id]?.disabledModels
+                      .contains(name) ??
+                  false))
+                '${descriptor.id}/$name'
+      ], providerNames: {
+        for (final descriptor in resolved.descriptors)
+          descriptor.id: descriptor.name,
+      }, modelNames: {
+        for (final descriptor in resolved.descriptors)
+          for (final entry in descriptor.models.entries)
+            '${descriptor.id}/${entry.key}': entry.value.name,
+      }),
+      openStore: persists ? openStore : null,
+      contextLoaded: () =>
+          assembled?.host.plugins
+              .any((plugin) => plugin.id == 'tina/context') ??
+          false,
+    );
+    final plugins = registry.build(pluginSettings.selected, context);
+    final factory = plugins.whereType<ModelAccess>().single.mainProvider;
+    final hostConfig = HostConfig(
+      providerFactory: (model) => _ObservedProvider(factory(model), () {
+        diagnostics?.stage?.call('provider-send');
+        final current = assembled;
+        if (current == null || !current.host.session.loop.inTurn) return null;
+        final loop = current.host.session.loop;
+        final turn = current._turnObservation;
+        return (event) {
+          if (loop.inTurn && identical(turn, current._turnObservation)) {
+            for (final observer
+                in current.host.plugins.whereType<WatchObserver>()) {
+              try {
+                observer.watch(event);
+              } catch (_) {}
+            }
+          }
+        };
+      }, diagnostics?.modelEvent),
+      model: model,
+      restoreModel: options.model == null,
+      workingDirectory: workingDirectory,
+      plugins: plugins,
+    );
+    diagnostics?.stage?.call('host-open-start');
+    final host = options.sessionId == null
+        ? Host.start(hostConfig)
+        : Host.resume(hostConfig, options.sessionId!);
+    diagnostics?.stage?.call('host-open-end');
+    var previousConfiguration = jsonEncode(settingsBackend.effectiveDocument());
+    final stopConfigurationUpdates = configurationUpdates.listen(() {
+      try {
+        final values = settingsBackend.effectiveDocument();
+        final encoded = jsonEncode(values);
+        settings.reload();
+        // Persisted layers can change while session overrides keep the
+        // effective configuration identical. Refresh scope metadata anyway.
+        pluginSettings.reload();
+        pluginSettings.restoreSessionOverrides({
+          for (final id in registry.ids)
+            if (settings.layer(SettingScope.session)['$id/enabled']
+                case final bool enabled)
+              id: enabled,
+        });
+        if (encoded == previousConfiguration) return;
+        final next =
+            ConfigDocument.validateValues(values, descriptors: descriptors);
+        refreshProviderDefinitions(catalog, next);
+        settings.reload();
+        resolved = next;
+        previousConfiguration = encoded;
+        policy.updateLimits(next.limits);
+        policy.refreshConfiguration();
+        assembled?._theme = next.theme;
+        assembled?.pluginManager.select(pluginSettings.selected);
+        settings.applicationErrors.remove('configuration');
+        assembled?._settingsChanged();
+      } catch (_) {
+        settings.applicationErrors['configuration'] =
+            'Saved configuration could not be applied; check Settings.';
+      }
+    });
+    final assembly = SessionAssembly._(
+      host: host,
+      terminal: output,
+      writer: writer,
+      configNote: config.note,
+      theme: resolved.theme,
+      tools: tools,
+      configPath: options.configPath ?? defaultConfigPath(),
+      descriptors: descriptors,
+      validatePlugins: registry.validate,
+      pluginSettings: pluginSettings,
+      settings: settings,
+      settingsBackend: settingsBackend,
+      pluginManager:
+          PluginManager(host: host, registry: registry, context: context),
+      stopConfigurationUpdates: stopConfigurationUpdates,
+      applySavedConfiguration: () {
+        final saved =
+            loadTinaConfig(path: options.configPath, descriptors: descriptors);
+        if (saved is TinaConfigProblem) throw FormatException(saved.problem);
+        configurationUpdates.changed();
+      },
+      newSession: (model) => SessionAssembly._start(
+          configurationUpdates: configurationUpdates,
+          writer: writer,
+          providerFactory: providerFactory,
+          descriptors: descriptors,
+          registerPlugins: registerPlugins,
+          diagnostics: diagnostics,
+          options: AssemblyOptions(
+              configPath: options.configPath,
+              onRestart: options.onRestart,
+              osSandbox: options.osSandbox,
+              workingDirectory: workingDirectory,
+              storePath: options.storePath,
+              plugins: options.plugins,
+              approvalChannel: options.approvalChannel,
+              version: options.version,
+              model: model)),
+    );
+    assembled = assembly;
+    // Built-ins are the assembly's, registered by the assembly — the
+    // same registry, the same dispatch.
+    assembly._turnListener = host.session.loop.subscribe((entry, event) {
+      if (entry is TurnStartedEntry) assembly._turnObservation = Object();
+      if (entry is TurnEndedEntry || entry is ContextClearedEntry)
+        assembly._turnObservation = null;
+    });
+    host.commands.publish(Command(
+      name: 'quit',
+      description: 'leave the app',
+      handler: (_) {
+        assembly._quit = true;
+      },
+    ));
+    host.commands.publish(Command(
+      name: 'settings',
+      description: 'edit session, workspace and global settings',
+      allowWhileRunning: true,
+      handler: (_) async {
+        output.writeln(
+            'Settings requires the interactive TUI. Edit ${assembly.configPath}.');
+      },
+    ));
+    host.commands.publish(Command(
+      name: 'help',
+      description: 'list loaded commands and input keys',
+      handler: (_) {
+        for (final c in host.commands.all) {
+          output.writeln('/${c.name} — ${c.description}');
+        }
+        output.writeln(
+            'Type while busy and Enter to queue. Ctrl+C clears the draft; with an empty draft it quits. Esc clears the draft; Esc with an empty draft cancels. Tab completes command arguments; @ completes files.');
+      },
+    ));
+    diagnostics?.stage?.call('assembly-ready');
+    diagnostics?.ready?.call(assembly);
+    return assembly;
+  }
+
+  /// True once `/quit` has been dispatched. A front end's loop reads
+  /// this after each command; the assembly has no loop of its own.
+  bool get quitRequested => _quit;
+
+  /// Dispatch one `/word` or registered prefix alias through the registry:
+  /// a published command
+  /// runs its handler (which reports through whatever [Terminal] is in
+  /// the slot), an unpublished word is refused. Returns false when the
+  /// front end should stop ([quitRequested] after `/quit`). An empty or
+  /// non-command line is nothing to this method.
+  Future<bool> handleCommand(String line) async {
+    final connection = host.connect();
+    try {
+      if (!line.trimLeft().startsWith('/') &&
+          connection.commandFor(line) == null) return true;
+      final result = await connection.submit(line);
+      if (result.notice case final notice?) writer.writeln(notice);
+      return !_quit;
+    } finally {
+      connection.close();
+    }
+  }
+
+  /// Owner shutdown drains all accepted host operations before releasing the
+  /// provider, plugin stores and configuration subscriptions.
+  Future<void> shutdown() async {
+    final stopped = host.shutdown();
+    final output = terminal;
+    if (output is SessionTerminal) output.closeInput();
+    try {
+      await stopped;
+    } finally {
+      close();
+    }
+  }
+
+  /// Close an idle assembly; active work requires [shutdown].
+  void close() {
+    if (_turnListener case final listener?)
+      host.session.loop.unsubscribe(listener);
+    _turnListener = null;
+    _turnObservation = null;
+    _settingsListeners.clear();
+    _stopConfigurationUpdates();
+    try {
+      host.close();
+    } finally {
+      settings.close();
+    }
+  }
+}
+
+/// Panels share saved global provider changes without sharing session state.
+final class _ConfigurationUpdates {
+  final _listeners = <void Function()>{};
+  Timer? _timer;
+  void Function() listen(void Function() listener) {
+    _listeners.add(listener);
+    _timer ??= Timer.periodic(const Duration(seconds: 1), (_) => changed());
+    return () {
+      _listeners.remove(listener);
+      if (_listeners.isEmpty) {
+        _timer?.cancel();
+        _timer = null;
+      }
+    };
+  }
+
+  void changed() {
+    for (final listener in _listeners.toList()) {
+      listener();
+    }
+  }
+}
+
+/// The assembly's writer when nobody handed one in: nowhere. Tests and
+/// the full-screen app both pass a real one.
+final class _NullWriter implements AssemblyWriter {
+  const _NullWriter();
+
+  @override
+  void writeln([String? line]) {}
+}
+
+/// Capture an observer per request. Background summaries/judgments stay quiet,
+/// and a cancelled request cannot paint into a later turn.
+final class _ObservedProvider implements LlmProvider {
+  _ObservedProvider(this.inner, this.observer, [this.modelEvent]);
+  final LlmProvider inner;
+  final WatchSink? Function() observer;
+  final void Function(StreamEvent)? modelEvent;
+  @override
+  String get model => inner.model;
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) {
+    final stream = TeeProvider(inner, sink: observer())
+        .send(system: system, messages: messages, tools: tools);
+    final observe = modelEvent;
+    if (observe == null) return stream;
+    return stream.map((event) {
+      observe(event);
+      return event;
+    });
+  }
+
+  @override
+  void close() => inner.close();
+}

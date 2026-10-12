@@ -64,12 +64,12 @@ plugin. `tina_workflows` has workflow commands/questions but is not in the shipp
 catalog; its `Terminal.ask` use still belongs in the interaction migration.
 
 Sources:
-[assembly/dispatch](../../packages/tina_tui/lib/src/assembly.dart),
-[TUI wrapper](../../packages/tina_tui/lib/src/tui_session.dart),
+[assembly/dispatch](../../apps/tina_cli/lib/src/assembly.dart),
+[TUI wrapper](../../apps/tina_cli/lib/src/tui_session.dart),
 [app](../../packages/tina_tui/lib/src/app.dart),
 [panel session view](../../packages/tina_tui/lib/src/session_view.dart),
 [panel workspace](../../packages/plugins/tina_chat_tui/lib/src/panels_tui.dart),
-[plugin catalog](../../packages/tina_tui/lib/src/plugin_catalog.dart),
+[plugin catalog](../../apps/tina_cli/lib/src/plugin_catalog.dart),
 [CLI](../../apps/tina_cli/lib/src/cli.dart).
 
 ## Settings and permission matrix
@@ -107,9 +107,9 @@ persistence connections.
 
 Sources:
 [settings definitions](../../packages/libraries/tina_settings/lib/tina_settings.dart),
-[settings catalog](../../packages/tina_tui/lib/src/settings_catalog.dart),
-[scoped backend](../../packages/tina_tui/lib/src/scoped_config.dart),
-[plugin settings](../../packages/tina_tui/lib/src/plugin_settings.dart),
+[settings catalog](../../apps/tina_cli/lib/src/settings_catalog.dart),
+[scoped backend](../../apps/tina_cli/lib/src/scoped_config.dart),
+[plugin settings](../../apps/tina_cli/lib/src/plugin_settings.dart),
 [settings panel](../../packages/tina_tui/lib/src/settings_panel.dart),
 [provider panel](../../packages/tina_tui/lib/src/providers_panel.dart),
 [MCP settings view](../../packages/plugins/tina_mcp_tui/lib/src/mcp_view.dart),
@@ -135,18 +135,18 @@ Sources:
 
 | Behavior | Existing coverage |
 |---|---|
-| Busy input, stalled streams, tool pairing and input guards | [steering_test](../../packages/tina_engine_2/test/steering_test.dart), [panels_test](../../packages/tina_tui/test/panels_test.dart) |
-| Dispatch, immediate shell/context/update, shell cancellation | [tui_session_test](../../packages/tina_tui/test/tui_session_test.dart) |
-| Drafts, focus, scroll, spawned-session attribution and panel close | [panels_test](../../packages/tina_tui/test/panels_test.dart) |
-| Draft clear, Ctrl+C, Escape, settings during requests | [turn_rendering_test](../../packages/tina_tui/test/turn_rendering_test.dart) |
+| Busy input, stalled streams, tool pairing and input guards | [steering_test](../../packages/tina_engine_2/test/steering_test.dart), [panels_test](../../apps/tina_cli/test/panels_test.dart) |
+| Dispatch, immediate shell/context/update, shell cancellation | [tui_session_test](../../apps/tina_cli/test/tui_session_test.dart) |
+| Drafts, focus, scroll, spawned-session attribution and panel close | [panels_test](../../apps/tina_cli/test/panels_test.dart) |
+| Draft clear, Ctrl+C, Escape, settings during requests | [turn_rendering_test](../../apps/tina_cli/test/turn_rendering_test.dart) |
 | Headless prompt/goal bounds, model override, continue, unattended denial | [headless_test](../../apps/tina_cli/test/headless_test.dart) |
-| Resume transcript/input history and terminal restart | [assembly_store_test](../../packages/tina_tui/test/assembly_store_test.dart), [resume_input_history_test](../../packages/tina_tui/test/resume_input_history_test.dart), [restart_terminal_test](../../apps/tina_cli/test/restart_terminal_test.dart) |
-| Model switch, clear and manual compaction | [conversation_controls_test](../../packages/tina_tui/test/conversation_controls_test.dart) |
-| Settings inheritance, atomic edits, stale drafts and session snapshots | [scoped_settings_test](../../packages/tina_tui/test/scoped_settings_test.dart), [config_batch_test](../../packages/tina_tui/test/config_batch_test.dart) |
-| Live plugin changes, dependency validation and restart-only features | [scoped_plugins_test](../../packages/tina_tui/test/scoped_plugins_test.dart), [live_plugin_ui_test](../../packages/tina_tui/test/live_plugin_ui_test.dart) |
-| Provider/configuration hot reload and next-request settings | [provider_reload_test](../../packages/tina_tui/test/provider_reload_test.dart), [generation_reload_test](../../packages/tina_tui/test/generation_reload_test.dart) |
-| Approval correlation, scope validation, cancellation and disconnect | [approvals_test](../../packages/plugins/tina_approvals/test/approvals_test.dart), [approval_channel_test](../../packages/tina_tui/test/approval_channel_test.dart) |
-| Ephemeral grant isolation and late-approval rejection | [approval_grants_test](../../packages/tina_tui/test/approval_grants_test.dart) |
+| Resume transcript/input history and terminal restart | [assembly_store_test](../../apps/tina_cli/test/assembly_store_test.dart), [resume_input_history_test](../../apps/tina_cli/test/resume_input_history_test.dart), [restart_terminal_test](../../apps/tina_cli/test/restart_terminal_test.dart) |
+| Model switch, clear and manual compaction | [conversation_controls_test](../../apps/tina_cli/test/conversation_controls_test.dart) |
+| Settings inheritance, atomic edits, stale drafts and session snapshots | [scoped_settings_test](../../apps/tina_cli/test/scoped_settings_test.dart), [config_batch_test](../../apps/tina_cli/test/config_batch_test.dart) |
+| Live plugin changes, dependency validation and restart-only features | [scoped_plugins_test](../../apps/tina_cli/test/scoped_plugins_test.dart), [live_plugin_ui_test](../../apps/tina_cli/test/live_plugin_ui_test.dart) |
+| Provider/configuration hot reload and next-request settings | [provider_reload_test](../../apps/tina_cli/test/provider_reload_test.dart), [generation_reload_test](../../apps/tina_cli/test/generation_reload_test.dart) |
+| Approval correlation, scope validation, cancellation and disconnect | [approvals_test](../../packages/plugins/tina_approvals/test/approvals_test.dart), [approval_channel_test](../../apps/tina_cli/test/approval_channel_test.dart) |
+| Ephemeral grant isolation and late-approval rejection | [approval_grants_test](../../apps/tina_cli/test/approval_grants_test.dart) |
 | Regex confirmation/edit preservation and scope/context matching | [command_pattern_review_test](../../packages/plugins/tina_approvals_tui/test/command_pattern_review_test.dart), [command_approval_store_test](../../packages/plugins/tina_tools/test/command_approval_store_test.dart) |
 | Sandbox HOME/caches/config/credential exclusions and live grants | [sandbox_home_test](../../packages/plugins/tina_tools/test/sandbox_home_test.dart), [live_os_sandbox_test](../../packages/plugins/tina_tools/test/live_os_sandbox_test.dart) |
 | Detached child-process argv/environment/cwd/pipes/cancellation | [process_launcher_test](../../apps/tina_cli/test/process_launcher_test.dart), [shell_terminal_test](../../apps/tina_cli/test/shell_terminal_test.dart) |
@@ -159,7 +159,7 @@ no production changes and does not rerun those separately.
 
 ## Added characterization coverage
 
-[session_view_lifecycle_test](../../packages/tina_tui/test/session_view_lifecycle_test.dart)
+[session_view_lifecycle_test](../../apps/tina_cli/test/session_view_lifecycle_test.dart)
 fills two uncovered boundaries:
 
 1. Detach a view while a model stream is active, steer input while detached,

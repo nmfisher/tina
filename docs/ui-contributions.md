@@ -1,7 +1,7 @@
 # Plugin UI contributions
 
 First-party feature views implement `ConsoleContribution` from `tina_console`
-separately from their session-owned runtime plugins. `console_catalog.dart`
+separately from their session-owned runtime plugins. `apps/tina_cli/lib/src/console_catalog.dart`
 constructs a fresh view for each attachment; the runtime catalog imports no
 presentation package. Runtime plugin IDs, settings and command registration
 remain authoritative. Existing extension plugins may still implement the
@@ -29,7 +29,7 @@ closing a panel or exiting the workspace leaves shared work running. Callbacks
 also cover sessions created during exit and failed child attachment. View-local
 queued input is discarded on close; accepted session input remains runtime-owned.
 
-`runApp` is the embedded owner used by the CLI. It supplies this policy for
+`runTui` in `apps/tina_cli` supplies the embedded ownership policy for
 spawned sessions, retains the initial assembly for configuration and child
 creation until application exit, and restores the terminal during teardown.
 Independent `SessionView` users retain responsibility for their session's

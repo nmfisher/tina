@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart';
-import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/src/session_selection.dart';
 
 class _Io implements Stdio {
@@ -39,9 +38,8 @@ void main() {
   });
   final sessions = List.generate(
       20,
-      (i) => StoredSession(
+      (i) => SessionChoice(
           id: 'session-$i',
-          registryKey: i,
           entries: 10,
           model: 'provider/model',
           lastSavedAt: DateTime(2026, 10, 1, 20, i),
@@ -98,12 +96,8 @@ void main() {
         isNull);
   });
   test('saved titles cannot inject controls into the terminal', () async {
-    final unsafe = StoredSession(
-        id: 's',
-        registryKey: 1,
-        entries: 1,
-        title: 'mesh\n\x1b[1;1HM',
-        summary: 'unused');
+    final unsafe = SessionChoice(
+        id: 's', entries: 1, title: 'mesh\n\x1b[1;1HM', summary: 'unused');
     await SessionPicker(screen, editor, [unsafe], readEvent: () async {
       final vt = VirtualTerminal(width: 80, height: 24)
         ..feed(io.output.toString());

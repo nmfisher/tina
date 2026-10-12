@@ -56,7 +56,7 @@ void main() {
     () async {
       final root = await repositoryRoot();
       final file = File(
-        '${root.path}/packages/tina_tui/lib/src/plugin_settings.dart',
+        '${root.path}/apps/tina_cli/lib/src/plugin_settings.dart',
       );
       final unit = parseString(content: file.readAsStringSync()).unit;
       final ids = nodes(unit)

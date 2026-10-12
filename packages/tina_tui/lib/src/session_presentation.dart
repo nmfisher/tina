@@ -11,8 +11,7 @@ final class SessionPresentation {
       required this.listenViews,
       required this.listenNotices,
       required this.listenTheme,
-      required this.settingsFor,
-      required this.createWorkspace});
+      required this.settingsFor});
 
   final Theme Function() theme;
   final String? configNote;
@@ -24,11 +23,10 @@ final class SessionPresentation {
   final void Function() Function(void Function(String)) listenNotices;
   final void Function() Function(void Function(Theme)) listenTheme;
   final SessionSettingsView Function(ConsoleContext) settingsFor;
-  final ConsoleWorkspace? Function() createWorkspace;
 }
 
-/// Attachment-local settings UI. Settings storage and plugin selection wiring
-/// remain in the application adapter until their own operation API is extracted.
+/// Attachment-local settings UI. The application supplies checked settings
+/// operations and owns their configuration backend.
 final class SessionSettingsView {
   const SessionSettingsView(
       {required this.open, required this.repaint, required this.close});

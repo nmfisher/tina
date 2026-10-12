@@ -4,8 +4,10 @@ import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show StopReason;
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart';
+import 'package:tina/tui.dart';
 import 'shell_completion.dart';
 import 'restart.dart';
+import 'session_selection.dart';
 
 const cliHelp =
     '''usage: tina [--config FILE] [--cwd DIR] [--store FILE] [--resume [ID] | --continue]
@@ -228,10 +230,10 @@ Future<int> runCli(
         sessionId = sessions.first.id;
       } else if (!headless && stdin.hasTerminal && stdout.hasTerminal) {
         startup = StartupTerminal.open(backend: backend);
-        sessionId = await startup.pickSession(sessions);
+        sessionId = await startup.pickSession(sessionChoices(sessions));
       } else {
         sessionId = pickSession(
-          sessions,
+          sessionChoices(sessions),
           readLine: stdin.readLineSync,
           writeLine: stdout.writeln,
         );
@@ -290,7 +292,7 @@ Future<int> runCli(
     // Assemble the session with a buffered terminal shared by its plugins.
     String? restartRoot;
     String? restartSession;
-    final assembly = TuiAssembly.start(
+    final assembly = SessionAssembly.start(
       diagnostics: diagnostics,
       options: AssemblyOptions(
         configPath: configPath,
@@ -378,7 +380,7 @@ Future<int> runCli(
     final session = TuiSession.wrap(assembly);
     final int result;
     try {
-      result = await runApp(session, backend: backend, startup: startup);
+      result = await runTui(session, backend: backend, startup: startup);
     } finally {
       // Native startup can fail before runApp installs its teardown. Release
       // the already assembled plugins/provider and configuration watcher too.
