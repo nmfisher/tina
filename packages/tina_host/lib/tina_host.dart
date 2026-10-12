@@ -14,7 +14,12 @@ export 'src/snapshot_feature.dart';
 export 'src/commands.dart';
 
 export 'package:tina_core/tina_core.dart'
-    show SessionDetails, PluginSession, SessionSeed;
+    show
+        SessionDetails,
+        PluginSession,
+        SessionSeed,
+        ClientAccess,
+        SessionAccessDenied;
 export 'src/plugin_registry.dart';
 
 export 'src/plugin_definition.dart';

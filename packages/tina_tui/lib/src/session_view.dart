@@ -32,7 +32,7 @@ final class SessionView
 
   SessionStatus get status => connection.status;
   Theme get theme => presentation.theme();
-  bool get canCancel => !_closed && status.canCancel;
+  bool get canCancel => !_closed && connection.canControl && status.canCancel;
   void Function() listenStatus(void Function(SessionStatus) listener) =>
       connection.listen(listener);
   @override
@@ -68,32 +68,43 @@ final class SessionView
   Future<void> submit(String text) async {
     if (_closed || status.closed || status.stopping)
       throw StateError('session view is closed or stopping');
-    final command = _offerLocalCommand(text);
-    if (command != null) {
-      await command;
-    } else {
-      final result = await connection.submit(text);
-      if (!_closed && result.notice != null) notice(result.notice!);
+    try {
+      final command = _offerLocalCommand(text);
+      if (command != null) {
+        await command;
+      } else {
+        final result = await connection.submit(text);
+        if (!_closed && result.notice != null) notice(result.notice!);
+      }
+    } on SessionAccessDenied catch (error) {
+      notice(error.toString());
     }
   }
 
   @override
-  bool offerInput(String text) => !_closed && connection.offerInput(text);
+  bool offerInput(String text) =>
+      !_closed && connection.canControl && connection.offerInput(text);
   @override
   int get pendingInputCount => status.pendingInputCount;
   @override
   Future<void>? offerCommand(String text) {
     if (_closed || status.closed || status.stopping) return null;
-    return _offerLocalCommand(text, whileRunning: true) ??
-        connection.offerCommand(text)?.then((result) {
-          if (!_closed && result.notice != null) notice(result.notice!);
-        });
+    final local = _offerLocalCommand(text, whileRunning: true);
+    if (local != null) return local;
+    if (!connection.canControl) {
+      notice(const SessionAccessDenied().toString());
+      return Future.value();
+    }
+    return connection.offerCommand(text)?.then((result) {
+      if (!_closed && result.notice != null) notice(result.notice!);
+    });
   }
 
   @override
   void cancel() {
     if (_closed) return;
     _settings?.close();
+    if (!connection.canControl) return;
     connection.cancel(status.cancellableWork.map((work) => work.id),
         reason: 'escape');
   }
@@ -135,6 +146,10 @@ final class SessionView
     }));
     _openSettings = () => context.interact(() async {
           if (_closed || _context != context || !context.isActive) return;
+          if (!connection.canControl) {
+            notice('Settings changes require a controlling connection.');
+            return;
+          }
           try {
             final message = await settings.open();
             if (!_closed && _context == context) notice(message);

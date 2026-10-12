@@ -597,11 +597,32 @@ behavioral tests moved to the host. Disposable status listeners are isolated
 from one another and delivered outside synchronous persistence callbacks.
 
 This is an in-process operation boundary, not the complete remote-client
-contract below. Retry/deduplication IDs and read-only/control authorization
-remain pending. Attachment snapshots use runtime epochs and revisions; see
+contract below. Retry/deduplication IDs remain pending. Owner-issued
+observer/controller authority is implemented as described below. Attachment
+snapshots use runtime epochs and revisions; see
 phase 6 for coalescing and history paging. The configuration adapter
 now lives with application composition in the CLI; ordinary questions use the
 correlated host service described in phase 2.
+
+Implemented client authority: `Host.connect(role:)` and `TuiSession.createView`
+issue observer or controller clients, with controllers preserving the embedded
+CLI behavior. Observers can inspect the live session and local panels but cannot
+submit, steer, cancel, answer questions or execute runtime commands/completion
+callbacks. They show passive question and approval notices. Approvals count only
+live controller listeners as responders, so an observer alone cannot make an
+unattended request interactive.
+
+Application composition creates a presentation per connection. Mutable feature
+clients carry its `ClientAccess` and check it before model/mode changes, MCP
+configuration, settings/provider writes, approval revocation, background update
+checks, regex suggestions and responses. Derived clients can only restrict this
+authority. Closing the originating connection invalidates retained mutation
+handles; accepted work remains session-owned. MCP observers receive public
+names/status, not credential-bearing configuration. Read-only settings snapshots
+do not trigger owner reloads. Legacy combined plugin/view extensions are omitted
+from observer presentations because they have no checked capability boundary.
+These are in-process checks with a trusted issuer, not transport authentication
+or isolation from arbitrary code running inside the application.
 
 Implemented settings/provider subset: `SettingsClient` in `tina_settings`
 provides immutable metadata, values, inheritance and application errors, plus

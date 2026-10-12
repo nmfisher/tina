@@ -91,16 +91,22 @@ final class SettingsConflict implements Exception {
 final class SettingsClient {
   SettingsClient(ScopedSettings settings,
       {Object? Function()? revisionSource,
-      void Function(String id, Object? value)? applyAll})
+      void Function(String id, Object? value)? applyAll,
+      void Function()? requireWrite,
+      bool Function()? canRefresh})
       : _settings = settings,
         _revisionSource = revisionSource,
         _applyAll = applyAll,
+        _requireWrite = requireWrite,
+        _canRefresh = canRefresh,
         _epoch = ++_nextEpoch;
   static int _nextEpoch = 0;
   final int _epoch;
   final ScopedSettings _settings;
   final Object? Function()? _revisionSource;
   final void Function(String, Object?)? _applyAll;
+  final void Function()? _requireWrite;
+  final bool Function()? _canRefresh;
   final _releases = <void Function()>{};
   String? _fingerprint;
   int _revision = 0;
@@ -111,7 +117,7 @@ final class SettingsClient {
 
   SettingsSnapshot snapshot({bool refresh = false}) {
     _checkOpen();
-    if (refresh) _settings.reload();
+    if (refresh && (_canRefresh?.call() ?? true)) _settings.reload();
     final definitions = _settings.catalog.definitions.toList();
     final fingerprint = jsonEncode({
       'layers': {
@@ -164,6 +170,8 @@ final class SettingsClient {
       {required String expectedRevision,
       Map<String, Object?> values = const {},
       Set<String> remove = const {}}) {
+    _checkOpen();
+    _requireWrite?.call();
     checkRevision(expectedRevision);
     // Submitted encoded values belong to the request. The owner must not keep
     // mutable objects an editor can change after the operation returns.
@@ -175,6 +183,8 @@ final class SettingsClient {
 
   void setInAllScopes(String id, Object? value,
       {required String expectedRevision}) {
+    _checkOpen();
+    _requireWrite?.call();
     checkRevision(expectedRevision);
     final apply = _applyAll;
     if (apply == null) throw UnsupportedError('All scopes is unavailable');

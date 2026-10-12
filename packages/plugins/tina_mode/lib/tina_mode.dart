@@ -337,12 +337,17 @@ class ModePlugin extends AgentPlugin implements ModeControl {
 
 /// Permission controls for presentation, without approval or lifecycle access.
 final class ModeObservation implements ModeControl {
-  ModeObservation._(this._policy);
+  ModeObservation._(this._policy, [this._access = const ClientAccess()]);
   final ModePlugin _policy;
+  final ClientAccess _access;
+  bool get canControl => _access.canControl;
+  ModeObservation forClient(ClientAccess access) =>
+      ModeObservation._(_policy, _access.restrict(access));
   @override
   PermissionMode get mode => _policy.mode;
   @override
   set mode(PermissionMode value) {
+    _access.requireControl();
     if (_policy._closed) throw StateError('Mode policy is closed');
     _policy.mode = value;
   }

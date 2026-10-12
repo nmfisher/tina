@@ -13,8 +13,10 @@ final class SessionControlsView
   @override
   Future<void>? handleConsoleCommand(String name, String arguments) {
     final console = _console;
-    if (name != 'model' || arguments.trim().isNotEmpty || console == null)
-      return null;
+    if (!controls.canControl ||
+        name != 'model' ||
+        arguments.trim().isNotEmpty ||
+        console == null) return null;
     return console.interact(() async {
       if (!console.isActive) return;
       final selected = await _pick(console);

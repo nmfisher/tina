@@ -51,6 +51,80 @@ void main() {
   });
   tearDown(() => host.shutdown());
 
+  test('observers read shared state but cannot execute or cancel work',
+      () async {
+    final observer = host.connect(role: SessionRole.observer);
+    final controller = host.connect();
+    addTearDown(observer.close);
+    addTearDown(controller.close);
+    var commands = 0, completions = 0;
+    host.commands.publish(Command(
+        name: 'mutate',
+        description: 'mutation',
+        inputPrefix: '!',
+        allowWhileRunning: true,
+        handler: (_) => commands++,
+        complete: (_) {
+          completions++;
+          return ['value'];
+        }));
+    final denied = throwsA(isA<SessionAccessDenied>());
+    expect(observer.role, SessionRole.observer);
+    expect(observer.canControl, isFalse);
+    expect(observer.commands.single.name, 'mutate');
+    for (final input in ['input', '/mutate', '!shell']) {
+      await expectLater(observer.submit(input), denied);
+      expect(() => observer.offerCommand(input), denied);
+    }
+    expect(await observer.completeCommand('mutate', ''), isEmpty);
+    expect(completions, 0);
+    expect(commands, 0);
+    expect(provider.requests, isEmpty);
+    expect(host.session.loop.log, isEmpty);
+    await controller.submit('/mutate');
+    expect(commands, 1);
+    final attachment = observer.attach();
+    final turn = controller.submit('controller input');
+    await _until(() => provider.requests.isNotEmpty);
+    final work = observer.status.cancellableWork.single.id;
+    expect(() => observer.cancel([work]), denied);
+    expect(() => observer.offerInput('steer'), denied);
+    expect(observer.status.pendingInputCount, 0);
+    final update = (await attachment.next())!;
+    expect(update.snapshot.status.running, isTrue);
+    expect(attachment.history(snapshot: update.snapshot).entries, isNotEmpty);
+    observer.close();
+    expect(observer.access.requireControl, throwsStateError);
+    expect(provider.closes, 0);
+    provider.answer('completed');
+    await turn;
+    expect(controller.inputHistory, ['controller input']);
+  });
+
+  test('observer questions cannot answer, dismiss or acquire control',
+      () async {
+    final observer = host.connect(role: SessionRole.observer);
+    final controller = host.connect();
+    addTearDown(observer.close);
+    addTearDown(controller.close);
+    final answer = host.questions.ask('Continue?');
+    final questions = observer.questions;
+    final question = questions.pending.single;
+    final denied = throwsA(isA<SessionAccessDenied>());
+    expect(questions.canAnswer, isFalse);
+    expect(() => questions.answer(question.id, 'yes'), denied);
+    expect(() => questions.dismiss(question.id), denied);
+    expect(
+        observer.access.restrict(const ClientAccess()).requireControl, denied);
+    expect(host.questions.pending.single.id, question.id);
+    expect(controller.questions.answer(question.id, 'allowed'), isTrue);
+    expect((await answer).text, 'allowed');
+    final stale = controller.questions;
+    controller.close();
+    expect(stale.answer(question.id, 'late'), isFalse);
+    expect(questions.pending, isEmpty);
+  });
+
   for (final (line, argument) in [
     ('/example value', 'value'),
     ('/example   several words  ', 'several words'),

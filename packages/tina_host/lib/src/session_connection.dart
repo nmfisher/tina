@@ -1,5 +1,7 @@
 part of 'host.dart';
 
+enum SessionRole { observer, controller }
+
 /// Immutable command vocabulary. Handlers, registry mutation and cancellation
 /// callbacks remain private to the host.
 final class SessionCommand {
@@ -55,13 +57,21 @@ final class SessionResult {
 /// Concrete in-process client connection. Closing it removes only its own
 /// observers. It cannot close the host, mutate a registry or obtain a plugin.
 final class SessionConnection {
-  SessionConnection._(this._host);
+  SessionConnection._(this._host, this.role);
   final Host _host;
+  final SessionRole role;
+  late final ClientAccess access = ClientAccess(
+      canControl: role == SessionRole.controller,
+      checkActive: () {
+        _checkOpen();
+        _host._checkOpen();
+      });
+  bool get canControl => access.canControl;
   bool _closed = false;
   QuestionClient? _questions;
   QuestionClient get questions {
     _checkOpen();
-    return _questions ??= _host.questions.connect();
+    return _questions ??= _host.questions.connect(access: access);
   }
 
   final _listeners = <Object, void Function(SessionStatus)>{};
@@ -166,6 +176,9 @@ final class SessionConnection {
   Future<List<String>> completeCommand(String name, String prefix) async {
     _checkOpen();
     _host._checkOpen();
+    // Extension completion callbacks can execute arbitrary work. Observers
+    // retain static command metadata, without invoking those callbacks.
+    if (!canControl) return const [];
     final complete = _host.commands[name]?.complete;
     if (complete == null) return const [];
     final settled = Completer<void>();
@@ -181,6 +194,7 @@ final class SessionConnection {
   Future<SessionResult> submit(String line) async {
     _checkOpen();
     _host._checkOpen();
+    access.requireControl();
     final trimmed = line.trim();
     final call = _commandFor(trimmed);
     if (call != null) {
@@ -200,13 +214,18 @@ final class SessionConnection {
 
   /// Retains the loop's existing steering queue; commands never enter it.
   bool offerInput(String line) {
-    if (_closed || line.trimLeft().startsWith('/') || _commandFor(line) != null)
-      return false;
+    if (_closed ||
+        _host._closed ||
+        _host._stopping ||
+        line.trimLeft().startsWith('/') ||
+        _commandFor(line) != null) return false;
+    access.requireControl();
     return _host.offerInput(line);
   }
 
   Future<SessionResult>? offerCommand(String line) {
     if (_closed || _host._closed || _host._stopping) return null;
+    access.requireControl();
     final call = _commandFor(line);
     return call != null && call.command.allowWhileRunning
         ? _runCommand(call.command, call.argument)
@@ -215,6 +234,7 @@ final class SessionConnection {
 
   Future<SessionResult> _runCommand(Command command, String argument) async {
     _host._checkOpen();
+    access.requireControl();
     // Legacy command cancellation belongs to the command instance. Admit one
     // cancellable invocation at a time so its callback cannot stop a different
     // invocation that happened to start later through another connection.
@@ -246,6 +266,7 @@ final class SessionConnection {
   /// another turn or invocation of the same command is now running.
   bool cancel(Iterable<String> workIds, {String reason = 'client'}) {
     if (_closed || _host._closed) return false;
+    access.requireControl();
     var cancelled = false;
     final ids = workIds.toSet();
     if (_host._turnWork case final work? when ids.contains(work.id)) {

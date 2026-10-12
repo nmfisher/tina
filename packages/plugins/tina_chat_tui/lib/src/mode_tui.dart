@@ -13,8 +13,9 @@ final class ModeView implements ConsoleContribution {
     detachConsole();
     _console = context;
     _unbind = context.bindShortcut((event) {
-      if (event is! ControlKey || event.code != ControlCode.backtab)
-        return false;
+      if (!mode.canControl ||
+          event is! ControlKey ||
+          event.code != ControlCode.backtab) return false;
       mode.mode = mode.mode.next;
       repaintConsole();
       return true;

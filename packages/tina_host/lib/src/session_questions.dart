@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:tina_core/tina_core.dart' show ClientAccess;
 
 /// Ordinary text questions, separate from permission and approval requests.
 final class SessionQuestion {
@@ -45,9 +46,9 @@ final class SessionQuestions {
   List<SessionQuestion> get pending =>
       List.unmodifiable(_pending.values.map((item) => item.question));
 
-  QuestionClient connect() {
+  QuestionClient connect({ClientAccess access = const ClientAccess()}) {
     if (_closed) throw StateError('questions are closed');
-    final client = QuestionClient._(this);
+    final client = QuestionClient._(this, access);
     _clients.add(client);
     return client;
   }
@@ -153,8 +154,10 @@ final class QuestionScope {
 /// by question ID. Closing it releases observers, leaving requests with their
 /// session. Cancellation is an explicit user action, separate from detach.
 final class QuestionClient {
-  QuestionClient._(this._questions);
+  QuestionClient._(this._questions, this._access);
   final SessionQuestions _questions;
+  final ClientAccess _access;
+  bool get canAnswer => !_closed && _access.canControl;
   final _listeners = <Object, void Function(List<SessionQuestion>)>{};
   bool _closed = false;
 
@@ -163,14 +166,19 @@ final class QuestionClient {
       : List.unmodifiable(
           _questions._pending.values.map((item) => item.question));
 
-  bool answer(String id, String text) =>
-      !_closed &&
-      _questions._settle(
-          id, QuestionResult(QuestionDisposition.answered, text));
-  bool dismiss(String id) =>
-      !_closed &&
-      _questions._settle(
-          id, const QuestionResult(QuestionDisposition.cancelled));
+  bool answer(String id, String text) {
+    if (_closed) return false;
+    _access.requireControl();
+    return _questions._settle(
+        id, QuestionResult(QuestionDisposition.answered, text));
+  }
+
+  bool dismiss(String id) {
+    if (_closed) return false;
+    _access.requireControl();
+    return _questions._settle(
+        id, const QuestionResult(QuestionDisposition.cancelled));
+  }
 
   void Function() listen(void Function(List<SessionQuestion>) listener) {
     if (_closed) throw StateError('question client is closed');

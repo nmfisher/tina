@@ -41,10 +41,16 @@ final class TuiSession {
   final SessionConnection _connection;
   bool _closed = false;
   List<String>? _closedHistory;
-  late final presentation = presentationForAssembly(assembly);
+  late final presentation =
+      presentationForAssembly(assembly, connection: _connection);
 
-  SessionView createView({bool showConfig = false}) =>
-      SessionView(host.connect(), presentation, showConfig: showConfig);
+  SessionView createView(
+      {bool showConfig = false, SessionRole role = SessionRole.controller}) {
+    final connection = host.connect(role: role);
+    return SessionView(
+        connection, presentationForAssembly(assembly, connection: connection),
+        showConfig: showConfig);
+  }
 
   TuiSession spawn([String? model]) =>
       TuiSession.wrap(assembly.newSession(model));

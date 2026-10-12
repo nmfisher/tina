@@ -59,8 +59,10 @@ final class ConfigSettingsManagement implements SettingsManagement {
       void Function(Iterable<String>)? validatePlugins,
       void Function()? applyConfiguration,
       void Function() Function(void Function())? listenConfiguration,
-      CommandApprovalStore? commandApprovals})
+      CommandApprovalStore? commandApprovals,
+      ClientAccess access = const ClientAccess()})
       : _scoped = scopedSettings,
+        _access = access,
         _backend = backend,
         _descriptors = descriptors ?? configuredDescriptors(),
         _plugins = pluginSettings,
@@ -71,6 +73,8 @@ final class ConfigSettingsManagement implements SettingsManagement {
         _approvals = commandApprovals,
         _listenConfiguration = listenConfiguration {
     settings = SettingsClient(_scoped,
+        requireWrite: _access.requireControl,
+        canRefresh: () => _access.canControl,
         revisionSource: () => [
               _backend.document(SettingScope.global),
               _backend.document(SettingScope.workspace),
@@ -84,6 +88,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
         });
   }
   final ScopedSettings _scoped;
+  final ClientAccess _access;
   final ConfigSettingsBackend _backend;
   final List<ProviderDescriptor> _descriptors;
   final PluginSettings<dynamic>? _plugins;
@@ -166,6 +171,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
   @override
   void revokeCommandApproval(String id) {
     _checkOpen();
+    _access.requireControl();
     _approvals?.revoke(id);
   }
 
@@ -268,6 +274,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
 
   @override
   void saveDraft(ProviderDraft draft) {
+    _access.requireControl();
     final edit = _edit(draft);
     final candidate = _candidate(draft, edit);
     if (!edit.providerCatalog &&
@@ -285,6 +292,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
   @override
   void saveGeneration(
       ProviderDraft draft, String provider, Map<String, dynamic> fields) {
+    _access.requireControl();
     final edit = _edit(draft);
     if (fields.keys.any((key) =>
         !['max_output', 'reasoning_effort', 'thinking_budget'].contains(key)))
@@ -373,6 +381,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
   @override
   void refresh() {
     _checkOpen();
+    _access.requireControl();
     _applyConfiguration?.call();
     _scoped.reload();
     refreshProviderDefinitions(

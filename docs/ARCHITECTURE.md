@@ -195,7 +195,14 @@ from the log if their bounded delivery queue overflows. A failed publication
 prevents the advertised history watermark from moving past the gap.
 Reusable contracts belong in
 `tina_host`; no additional runtime package is planned. The current in-process
-connection is not a transport protocol or an authorization boundary.
+connection is not a transport protocol. The owner now issues observer or
+controller connections. Host mutations and mutable feature clients check the
+connection's `ClientAccess`; closing it invalidates retained mutation handles.
+Observers retain history and local inspection, receive passive question/approval
+notices and never count as approval responders. Application composition binds
+feature clients and settings adapters to the same connection. Plugins retain
+their approval policy and persistence. This is an in-process capability boundary;
+transport authentication and cross-process isolation remain future work.
 
 ## Principles
 

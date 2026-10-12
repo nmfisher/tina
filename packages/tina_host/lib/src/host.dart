@@ -181,9 +181,9 @@ final class Host {
   }
 
   /// A disposable client capability; its lifetime never owns this host.
-  SessionConnection connect() {
+  SessionConnection connect({SessionRole role = SessionRole.controller}) {
     _checkOpen();
-    final connection = SessionConnection._(this);
+    final connection = SessionConnection._(this, role);
     _connections.add(connection);
     return connection;
   }

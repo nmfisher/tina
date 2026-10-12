@@ -5,8 +5,9 @@ import 'package:tina_self_update/tina_self_update.dart';
 /// Presentation subscribes to the updater's state, without coupling it to a
 /// terminal. Other channels can consume the same source.
 final class UpdateView implements ConsoleContribution {
-  UpdateView(this.source);
+  UpdateView(this.source, {this.checkOnAttach = true});
   final UpdateStatusSource source;
+  final bool checkOnAttach;
   ConsoleContext? _console;
   StreamSubscription<void>? _changes;
   Timer? _timer;
@@ -24,7 +25,7 @@ final class UpdateView implements ConsoleContribution {
         repaintConsole();
       }
     });
-    unawaited(source.checkInBackground());
+    if (checkOnAttach) unawaited(source.checkInBackground());
   }
 
   List<RenderLine> _lines() {

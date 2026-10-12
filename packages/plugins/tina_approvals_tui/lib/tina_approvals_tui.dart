@@ -24,6 +24,15 @@ final class ApprovalView implements ConsoleContribution {
   void attachConsole(ConsoleContext context) {
     if (_context != null) throw StateError('approval view already attached');
     _context = context;
+    if (!interaction.canRespond) {
+      _unlisten = context.own(interaction.listen((question) {
+        final text = 'Approval pending: ${question.request.operation} '
+            '${question.request.target}';
+        context.chat
+            .writeln(text.replaceAll(RegExp(r'[\x00-\x1f\x7f-\x9f]'), ' '));
+      }));
+      return;
+    }
     _overlay = OverlayRegion(
         context.screen, Rect(row: 1, col: 1, width: 1, height: 1));
     _asker = QueuedDialogAsker(

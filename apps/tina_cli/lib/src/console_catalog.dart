@@ -20,36 +20,64 @@ import 'package:tina_plans_tui/tina_plans_tui.dart';
 
 /// Presentation factories are separate from runtime plugin construction. Each
 /// call creates a view for one attachment to the existing feature instance.
-final _viewFactories = <String, ConsoleContribution? Function(AgentPlugin)>{
-  'tina/approvals-tui': (plugin) =>
-      ApprovalView((plugin as AttachmentApprovalChannel).interaction),
-  'tina/mode': (plugin) =>
-      ModeView(mode: (plugin as PresentationPlugin<ModeObservation>).source),
-  'tina/context-tui': (plugin) => ContextView(
+final _viewFactories =
+    <String, ConsoleContribution? Function(AgentPlugin, ClientAccess)>{
+  'tina/approvals-tui': (plugin, access) => ApprovalView(
+      (plugin as AttachmentApprovalChannel).interaction.forClient(access)),
+  'tina/mode': (plugin, access) => ModeView(
+      mode: (plugin as PresentationPlugin<ModeObservation>)
+          .source
+          .forClient(access)),
+  'tina/context-tui': (plugin, access) => ContextView(
       context: (plugin as PresentationPlugin<ContextObservation>).source),
-  'tina/update-tui': (plugin) =>
-      UpdateView((plugin as PresentationPlugin<UpdateStatusSource>).source),
-  'tina/status-strip-tui': (_) => StatusStripView(),
-  'tina/panels-tui': (_) => PanelsView(),
-  'tina/chat-tui': (plugin) => ChatView((plugin as ChatPlugin).observation),
-  'tina/activity-tui': (plugin) => ActivityView(
+  'tina/update-tui': (plugin, access) => UpdateView(
+      _ClientUpdateStatus(
+          (plugin as PresentationPlugin<UpdateStatusSource>).source, access),
+      checkOnAttach: access.canControl),
+  'tina/status-strip-tui': (_, access) => StatusStripView(),
+  'tina/panels-tui': (_, access) => PanelsView(),
+  'tina/chat-tui': (plugin, access) =>
+      ChatView((plugin as ChatPlugin).observation),
+  'tina/activity-tui': (plugin, access) => ActivityView(
       (plugin as ActivityPlugin).observation,
       printTranscript: plugin.printTranscript),
-  'tina/session-controls': (plugin) =>
-      SessionControlsView((plugin as SessionControlsPlugin).observation),
-  'tina/plans': (plugin) => PlansView((plugin as PlansPlugin).observation),
-  'tina/classification': (plugin) =>
+  'tina/session-controls': (plugin, access) => SessionControlsView(
+      (plugin as SessionControlsPlugin).observation.forClient(access)),
+  'tina/plans': (plugin, access) =>
+      PlansView((plugin as PlansPlugin).observation),
+  'tina/classification': (plugin, access) =>
       ClassificationView((plugin as ClassificationPlugin).observation),
-  'tina/mcp': (plugin) {
+  'tina/mcp': (plugin, access) {
     final management = (plugin as McpPlugin).management;
-    return management == null ? null : McpView(management);
+    return management == null ? null : McpView(management.forClient(access));
   },
 };
 
 /// Existing extensions may still supply a combined contribution. All built-in
 /// presentation is constructed through the factories above.
-ConsoleContribution? createConsoleView(AgentPlugin plugin) {
+ConsoleContribution? createConsoleView(AgentPlugin plugin,
+    {ClientAccess access = const ClientAccess()}) {
   final factory = _viewFactories[plugin.id];
-  if (factory != null) return factory(plugin);
+  if (factory != null) return factory(plugin, access);
+  // Combined extensions have no checked client contract. An observer must
+  // never receive their unrestricted runtime callbacks.
+  if (!access.canControl) return null;
   return plugin is ConsoleContribution ? plugin as ConsoleContribution : null;
+}
+
+final class _ClientUpdateStatus implements UpdateStatusSource {
+  _ClientUpdateStatus(this._source, this._access);
+  final UpdateStatusSource _source;
+  final ClientAccess _access;
+  @override
+  String get currentVersion => _source.currentVersion;
+  @override
+  UpdateStatus get status => _source.status;
+  @override
+  Stream<void> get changes => _source.changes;
+  @override
+  Future<void> checkInBackground() {
+    _access.requireControl();
+    return _source.checkInBackground();
+  }
 }

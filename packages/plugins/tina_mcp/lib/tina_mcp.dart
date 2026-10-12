@@ -389,15 +389,29 @@ class McpPlugin extends AgentPlugin {
 /// are read only for explicit editing; change notifications contain no values.
 /// Connection lifecycle, tool execution and approvals remain in [McpPlugin].
 final class McpManagement {
-  McpManagement._(this._plugin, this._store);
+  McpManagement._(this._plugin, this._store,
+      [this._access = const ClientAccess()]);
   final McpPlugin _plugin;
   final McpConfigStore _store;
+  final ClientAccess _access;
+  bool get canControl => _access.canControl;
+  McpManagement forClient(ClientAccess access) =>
+      McpManagement._(_plugin, _store, _access.restrict(access));
 
-  List<McpServerConfig> get servers => List.unmodifiable(_store.read());
+  /// Raw configuration can contain credentials. Observer clients see names
+  /// and status only; configuration editors require control authority.
+  List<McpServerConfig> get servers {
+    _access.requireControl();
+    return List.unmodifiable(_store.read());
+  }
+
+  List<String> get serverNames =>
+      List.unmodifiable(_store.read().map((server) => server.name));
   Map<String, String> get serverStatus => _plugin.serverStatus;
   Stream<void> get changes => _plugin._changes.stream;
 
   void _checkOpen() {
+    _access.requireControl();
     if (_plugin._closed) throw StateError('MCP session is closed');
   }
 

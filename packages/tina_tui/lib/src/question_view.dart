@@ -19,13 +19,21 @@ final class QuestionView implements ConsoleContribution {
     _unlisten = client.listen((questions) {
       final ids = questions.map((q) => q.id).toSet();
       for (final entry in _pending.entries.toList()) {
-        if (!ids.contains(entry.key)) entry.value.close();
+        if (!ids.contains(entry.key)) {
+          entry.value.close();
+          _pending.remove(entry.key);
+        }
       }
       for (final question in questions) {
         if (_pending.containsKey(question.id)) continue;
         final draft = _Draft(question);
         _pending[question.id] = draft;
-        unawaited(_present(context, draft));
+        if (client.canAnswer) {
+          unawaited(_present(context, draft));
+        } else {
+          context.chat
+              .writeln('Waiting for answer: ${_plain(question.prompt)}');
+        }
       }
     });
   }

@@ -18,78 +18,89 @@ final class McpView implements ConsoleContribution {
       id: 'tina/mcp',
       title: 'MCP servers',
       build: () => [
-        SettingText(
-          id: 'add_server',
-          scopes: const {SettingScope.global},
-          label: 'Add local server (name)',
-          read: () => '',
-          change: mcp.addLocalServer,
-        ),
-        SettingText(
-          id: 'add_http_server',
-          scopes: const {SettingScope.global},
-          label: 'Add HTTP server (name)',
-          read: () => '',
-          change: mcp.addHttpServer,
-        ),
-        for (final server in mcp.servers) ...[
-          SettingToggle(
-            id: '${server.name}/enabled',
+        if (!mcp.canControl)
+          for (final name in mcp.serverNames)
+            SettingAction(
+              id: '$name/status',
+              label: '$name: ${mcp.serverStatus[name] ?? 'Not connected'}',
+              invoke: () => context.chat.writeln(
+                'MCP $name: ${mcp.serverStatus[name] ?? 'Not connected'}',
+              ),
+            ),
+        if (mcp.canControl) ...[
+          SettingText(
+            id: 'add_server',
             scopes: const {SettingScope.global},
-            label: server.name,
-            read: () => server.enabled,
-            change: (enabled) {
-              mcp.setValue(server.name, 'enabled', enabled);
-            },
+            label: 'Add local server (name)',
+            read: () => '',
+            change: mcp.addLocalServer,
           ),
-          SettingAction(
-            id: '${server.name}/status',
-            label:
-                '${server.name}: ${mcp.serverStatus[server.name] ?? (server.enabled ? 'Connects on next message' : 'Disabled')}',
-            invoke: () => context.chat.writeln(
-              'MCP ${server.name}: ${mcp.serverStatus[server.name] ?? 'connects on next message'}; configuration changes apply to the next message.',
-            ),
+          SettingText(
+            id: 'add_http_server',
+            scopes: const {SettingScope.global},
+            label: 'Add HTTP server (name)',
+            read: () => '',
+            change: mcp.addHttpServer,
           ),
-          if (server.command != null) ...[
-            _text(server, 'command', 'Command', server.command!),
-            _json(server, 'args', 'Arguments (JSON list)', server.arguments),
-            _text(
-              server,
-              'cwd',
-              'Directory (relative to workspace)',
-              server.values['cwd'] as String? ?? '.',
+          for (final server in mcp.servers) ...[
+            SettingToggle(
+              id: '${server.name}/enabled',
+              scopes: const {SettingScope.global},
+              label: server.name,
+              read: () => server.enabled,
+              change: (enabled) {
+                mcp.setValue(server.name, 'enabled', enabled);
+              },
             ),
-            _json(
-              server,
-              'env',
-              'Environment (JSON; supports \${VARIABLE})',
-              server.environment,
-              secret: true,
+            SettingAction(
+              id: '${server.name}/status',
+              label:
+                  '${server.name}: ${mcp.serverStatus[server.name] ?? (server.enabled ? 'Connects on next message' : 'Disabled')}',
+              invoke: () => context.chat.writeln(
+                'MCP ${server.name}: ${mcp.serverStatus[server.name] ?? 'connects on next message'}; configuration changes apply to the next message.',
+              ),
             ),
-          ] else ...[
-            _text(server, 'url', 'URL', server.url!),
-            _json(
-              server,
-              'headers',
-              'Headers (JSON; supports \${VARIABLE})',
-              server.headers,
-              secret: true,
+            if (server.command != null) ...[
+              _text(server, 'command', 'Command', server.command!),
+              _json(server, 'args', 'Arguments (JSON list)', server.arguments),
+              _text(
+                server,
+                'cwd',
+                'Directory (relative to workspace)',
+                server.values['cwd'] as String? ?? '.',
+              ),
+              _json(
+                server,
+                'env',
+                'Environment (JSON; supports \${VARIABLE})',
+                server.environment,
+                secret: true,
+              ),
+            ] else ...[
+              _text(server, 'url', 'URL', server.url!),
+              _json(
+                server,
+                'headers',
+                'Headers (JSON; supports \${VARIABLE})',
+                server.headers,
+                secret: true,
+              ),
+            ],
+            SettingText(
+              id: '${server.name}/timeout_ms',
+              scopes: const {SettingScope.global},
+              label: '${server.name} timeout in milliseconds (0 = unlimited)',
+              read: () => formatInteger(server.timeout?.inMilliseconds ?? 0),
+              change: (text) {
+                final value = int.tryParse(text.replaceAll(',', '').trim());
+                if (value == null || value < 0)
+                  throw const FormatException(
+                    'Timeout must be a nonnegative integer',
+                  );
+                mcp.setValue(server.name, 'timeout_ms', value);
+              },
             ),
           ],
-          SettingText(
-            id: '${server.name}/timeout_ms',
-            scopes: const {SettingScope.global},
-            label: '${server.name} timeout in milliseconds (0 = unlimited)',
-            read: () => formatInteger(server.timeout?.inMilliseconds ?? 0),
-            change: (text) {
-              final value = int.tryParse(text.replaceAll(',', '').trim());
-              if (value == null || value < 0)
-                throw const FormatException(
-                  'Timeout must be a nonnegative integer',
-                );
-              mcp.setValue(server.name, 'timeout_ms', value);
-            },
-          ),
         ],
       ],
     );

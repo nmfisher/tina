@@ -7,6 +7,9 @@ import 'package:tina/src/config_settings_management.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/src/settings_stack.dart';
 import 'package:tina/src/config_document.dart';
+import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_host/tina_host.dart';
+import 'package:tina_tools/tina_tools.dart';
 
 const descriptors = [
   ProviderDescriptor(
@@ -61,6 +64,89 @@ token = "unknown-secret"
   Map<String, dynamic> savedProvider() =>
       (ConfigDocument.open(global.path).values['providers'] as Map)['example']
           as Map<String, dynamic>;
+
+  test('observer settings clients cannot write through any configuration route',
+      () async {
+    final host = Host.start(HostConfig(
+        workingDirectory: root.path,
+        providerFactory: (_) => ScriptedProvider([])));
+    addTearDown(host.shutdown);
+    final observer = host.connect(role: SessionRole.observer);
+    final controller = host.connect();
+    addTearDown(observer.close);
+    addTearDown(controller.close);
+    final grants = CommandApprovalStore(workspace: root.path);
+    grants.remember((
+      command: '/bin/echo',
+      arguments: ['ok'],
+      workingDirectory: root.path,
+      environment: null,
+      stdin: '',
+      timeout: null
+    ), {
+      ProcessPermission.unconfined
+    }, CommandApprovalScope.session);
+    var applications = 0;
+    ConfigSettingsManagement client(ClientAccess access) =>
+        ConfigSettingsManagement(
+            scopedSettings: stack.settings,
+            backend: stack.backend,
+            access: access,
+            commandApprovals: grants,
+            descriptors: descriptors,
+            applyConfiguration: () => applications++);
+    final read = client(observer.access), write = client(controller.access);
+    addTearDown(read.close);
+    addTearDown(write.close);
+    final original = global.readAsStringSync();
+    final draft = read.openDraft(SettingScope.global, providerCatalog: true);
+    draft.editSecret('example', 'api_key', const SecretEdit.replace('blocked'));
+    draft.table('providers')['example']['name'] = 'blocked';
+    final snapshot = read.settings.snapshot();
+    final denied = throwsA(isA<SessionAccessDenied>());
+    expect(() => read.saveDraft(draft), denied);
+    expect(() => read.saveGeneration(draft, 'example', {'max_output': 128}),
+        denied);
+    expect(
+        () => read.settings.update(SettingScope.session,
+            expectedRevision: snapshot.revision,
+            values: {'tina/providers/requests_per_minute': 3}),
+        denied);
+    expect(
+        () => read.settings.setInAllScopes('tina/goals/enabled', false,
+            expectedRevision: snapshot.revision),
+        denied);
+    final grant = read.commandApprovals.single['id'] as String;
+    expect(() => read.revokeCommandApproval(grant), denied);
+    expect(read.refresh, denied);
+    expect(applications, 0);
+    expect(global.readAsStringSync(), original);
+    expect(stack.settings.layer(SettingScope.session), isEmpty);
+    expect(grants.entries, hasLength(1));
+    expect(File(stack.backend.workspacePath).existsSync(), isFalse);
+    // Read refresh cannot apply external state to the running settings owner.
+    global.writeAsStringSync('$original\n[limits]\nrequests_per_minute = 9\n');
+    var changes = 0;
+    final stop = stack.settings.listen(() => changes++);
+    addTearDown(stop);
+    read.settings.snapshot(refresh: true);
+    expect(changes, 0);
+    write.settings.snapshot(refresh: true);
+    expect(changes, greaterThan(0));
+    write.revokeCommandApproval(grant);
+    expect(grants.entries, isEmpty);
+    final editable =
+        write.openDraft(SettingScope.global, providerCatalog: true);
+    controller.close();
+    expect(() => write.saveDraft(editable), throwsStateError);
+    expect(() => write.saveGeneration(editable, 'example', {'max_output': 64}),
+        throwsStateError);
+    expect(
+        () => write.settings.update(SettingScope.session,
+            expectedRevision: write.settings.snapshot().revision,
+            values: {'tina/providers/requests_per_minute': 1}),
+        throwsStateError);
+  });
 
   test('public drafts exclude credentials and unrelated configuration', () {
     final draft = first.openDraft(SettingScope.global, providerCatalog: true);

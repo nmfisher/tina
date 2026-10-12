@@ -4,23 +4,27 @@ import 'config_settings_management.dart';
 import 'console_catalog.dart';
 import 'plugin_catalog.dart';
 import 'package:tina_tui/tina_tui.dart';
+import 'package:tina_host/tina_host.dart';
 import 'session_terminal.dart';
 
 /// Application composition: concrete feature instances and configuration
 /// services are wired here, never reached through by a view.
-SessionPresentation presentationForAssembly(SessionAssembly assembly) =>
+SessionPresentation presentationForAssembly(SessionAssembly assembly,
+        {required SessionConnection connection}) =>
     SessionPresentation(
       theme: () => resolveTheme(assembly.theme),
       configNote: assembly.configNote,
       quitRequested: () => assembly.quitRequested,
       createViews: () => {
         for (final plugin in assembly.host.plugins)
-          if (createConsoleView(plugin) case final view?) plugin.id: view,
+          if (createConsoleView(plugin, access: connection.access)
+              case final view?)
+            plugin.id: view,
       },
       listenViews: (loaded, unloading) => assembly.pluginManager.listen(
         loaded: (plugin) {
-          if (createConsoleView(plugin) case final view?)
-            loaded(plugin.id, view);
+          if (createConsoleView(plugin, access: connection.access)
+              case final view?) loaded(plugin.id, view);
         },
         unloading: (plugin) => unloading(plugin.id),
       ),
@@ -39,9 +43,11 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly) =>
         final panel = SettingsPanel(context.screen, context.input);
         return SessionSettingsView(
             open: () async {
+              connection.access.requireControl();
               final saved = await panel.run(
                   sections: context.settings,
                   management: ConfigSettingsManagement(
+                      access: connection.access,
                       commandApprovals: assembly.tools.commandApprovals,
                       scopedSettings: assembly.settings,
                       backend: assembly.settingsBackend,

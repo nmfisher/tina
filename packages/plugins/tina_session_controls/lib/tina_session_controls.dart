@@ -81,8 +81,15 @@ final class SessionControlsPlugin extends AgentPlugin {
 /// Narrow model-picker operations. The view cannot clear history or access
 /// the loop; command dispatch remains with the runtime plugin.
 final class SessionControlsObservation {
-  SessionControlsObservation._(this._plugin);
+  SessionControlsObservation._(
+    this._plugin, [
+    this._access = const ClientAccess(),
+  ]);
   final SessionControlsPlugin _plugin;
+  final ClientAccess _access;
+  bool get canControl => _access.canControl;
+  SessionControlsObservation forClient(ClientAccess access) =>
+      SessionControlsObservation._(_plugin, _access.restrict(access));
   String get currentModel => _plugin.currentModel();
   ModelCatalog get catalog {
     final value = _plugin.modelCatalog();
@@ -95,6 +102,7 @@ final class SessionControlsObservation {
 
   List<String> get recentModels => List.unmodifiable(_plugin._recentModels);
   Future<void> select(String model) async {
+    _access.requireControl();
     await _plugin.commands.first.handler(model);
   }
 }

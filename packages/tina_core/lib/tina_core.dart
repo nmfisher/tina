@@ -3,6 +3,7 @@
 /// depending on each other. Standard library only; no feature policy or UI.
 library;
 
+export 'src/client_access.dart';
 export 'src/message.dart';
 export 'src/provider.dart';
 export 'src/session_log.dart';

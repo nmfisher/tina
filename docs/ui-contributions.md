@@ -44,6 +44,32 @@ of a TUI session wrapper containing the host. `TuiSession.createView()` is the
 current application's constructor for that pair. Both regular and workspace
 layouts use the same view and command routing.
 
+The owner issues connections with `host.connect(role: SessionRole.observer)`
+or `SessionRole.controller` (the embedded CLI default). Use the same `role`
+argument on `TuiSession.createView` for a complete checked presentation.
+Observers can read snapshots/history and browse local feature views, but cannot
+submit, steer, cancel, answer questions or invoke runtime commands. Static
+command metadata remains available; extension completion callbacks require
+control because they can execute work. A denied operation throws
+`SessionAccessDenied`; the TUI shows a notice and remains attached.
+
+Each presentation is constructed for its own connection. Mutable feature clients
+receive its `ClientAccess`: model/mode changes, MCP configuration, settings and
+provider saves, approval revocation, update probes and approval responses check
+that authority at execution time. `forClient` can only restrict an existing
+client; supplying another access object cannot elevate it. Closing a connection
+invalidates retained mutation handles, without cancelling previously accepted
+work. Plugin validation, tool approval policy and storage remain with the owner.
+
+Observer question/approval views show passive notices without taking keyboard
+focus. Observer approval listeners never count as responders, and cannot request
+a model-generated regex suggestion. MCP observers receive names/status rather
+than credential-bearing configuration. Settings editors require control;
+read-only settings clients can inspect data without applying external reloads.
+Legacy combined plugin/view extensions have no checked client contract and are
+excluded from observer presentations. The application issuer is trusted: this
+in-process capability boundary is not an OS sandbox or a transport authenticator.
+
 The connection exposes immutable status, command descriptions, input history,
 command completion, submission, steering and cancellation of named work. Status
 listeners are independently disposable and run in coalesced microtasks outside

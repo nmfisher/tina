@@ -37,8 +37,10 @@ void main() {
     final first = createConsoleView(runtime) as McpView;
     final second = createConsoleView(runtime) as McpView;
     expect(first, isNot(same(second)));
-    expect(first.mcp, same(second.mcp));
-    expect(first.mcp, same(runtime.management));
+    expect(first.mcp, isNot(same(second.mcp)));
+    first.mcp.addLocalServer('shared');
+    expect(second.mcp.serverNames, ['shared']);
+    expect(runtime.management!.serverNames, ['shared']);
   });
   test(
     'independent plugin saves merge into untouched tables while keeping settings drafts',
