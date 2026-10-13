@@ -30,6 +30,7 @@ final class SessionView
   SessionSettingsView? _settings;
   ConsoleAttachment? _questions;
   SessionAttachment? _observation;
+  int _noticeSeq = -1, _noticeHistorySeq = -1;
   Future<void> Function()? _openSettings;
   final _releases = <void Function()>[];
   bool _closed = false, _quitRequested = false;
@@ -266,10 +267,8 @@ final class SessionView
     detachConsole();
     _context = context;
     final observation = _observation = connection.attach();
-    unawaited(_observe(observation, context));
     _questions =
         ConsoleAttachment.attach(QuestionView(connection.questions), context);
-    _releases.add(presentation.listenNotices(notice));
     void attach(String id, ConsoleContribution contribution) {
       _attached[id] = ConsoleAttachment.attach(contribution, context);
     }
@@ -279,6 +278,9 @@ final class SessionView
     for (final entry in presentation.createViews().entries) {
       attach(entry.key, entry.value);
     }
+    _noticeSeq = _noticeHistorySeq = -1;
+    _showSessionNotices(observation, observation.initial, context);
+    unawaited(_observe(observation, context));
     final settings = _settings = presentation.settingsFor(context);
     _releases.add(presentation.listenTheme((theme) {
       context.screen.setTheme(theme);
@@ -341,11 +343,49 @@ final class SessionView
       while (identical(_observation, attachment)) {
         final update = await attachment.next();
         if (update == null || !identical(_observation, attachment)) return;
+        _showSessionNotices(attachment, update.snapshot, context);
         context.refreshStatus();
       }
     } catch (_) {
       // Presentation failure retires this observer, never the shared session.
       attachment.close();
+    }
+  }
+
+  void _showSessionNotices(SessionAttachment attachment,
+      SessionSnapshot snapshot, ConsoleContext context) {
+    if (contributions
+        .whereType<ConsoleTranscript>()
+        .any((view) => view.observesSessionNotices)) {
+      _noticeSeq = snapshot.throughNoticeSeq;
+      _noticeHistorySeq = snapshot.throughSeq;
+      return;
+    }
+    // With chat disabled, retain a plain notice display. A later clear retires
+    // earlier notices just as it does in the full transcript renderer.
+    var clearedThrough = -1;
+    while (_noticeHistorySeq < snapshot.throughSeq) {
+      final page =
+          attachment.history(snapshot: snapshot, afterSeq: _noticeHistorySeq);
+      for (final entry in page.entries) {
+        if (entry['type'] == 'context_cleared')
+          clearedThrough = entry['seq'] as int;
+      }
+      _noticeHistorySeq = page.nextAfterSeq;
+    }
+    if (clearedThrough >= 0) context.chat.resetAfterClear();
+    while (_noticeSeq < snapshot.throughNoticeSeq) {
+      final page = attachment.notices(snapshot: snapshot, afterSeq: _noticeSeq);
+      if (page.omittedThroughSeq != null &&
+          page.omittedAfterHistorySeq! >= clearedThrough)
+        notice(
+            'Earlier session notices expired; committed history is unchanged.');
+      for (final entry in page.entries) {
+        if (entry.afterHistorySeq >= clearedThrough)
+          notice(
+              '${entry.text}${entry.truncated ? '\n[Notice truncated.]' : ''}');
+      }
+      _noticeSeq = page.nextAfterSeq;
     }
   }
 

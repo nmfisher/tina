@@ -42,7 +42,11 @@ void main() {
     await tui.runLine('hello');
     expect(tui.host.session.lastReply, 'echo reply');
     expect(
-        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+        (tui.terminal as SessionTerminal)
+            .notices
+            .retained
+            .map((l) => l.text)
+            .join("\n"),
         contains('echo reply'));
     expect(tui.host.session.loop.log.length, greaterThanOrEqualTo(3),
         reason: 'input, response, stop — the same log a headless run keeps');
@@ -51,7 +55,11 @@ void main() {
   test('an unknown /word is refused through the terminal, no turn', () async {
     await tui.runLine('/frobnicate');
     expect(
-        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+        (tui.terminal as SessionTerminal)
+            .notices
+            .retained
+            .map((l) => l.text)
+            .join("\n"),
         contains('unknown command: /frobnicate'));
     expect(tui.host.session.loop.log, isEmpty,
         reason: 'the refusal is not a turn');
@@ -63,8 +71,11 @@ void main() {
     final before = tui.host.session.loop.log.toList();
     await tui
         .runLine('!printf "manual stdout"; printf "manual stderr" >&2; exit 7');
-    final output =
-        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join('\n');
+    final output = (tui.terminal as SessionTerminal)
+        .notices
+        .retained
+        .map((l) => l.text)
+        .join('\n');
     expect(output, contains('manual stdout'));
     expect(output, contains('manual stderr'));
     expect(output, contains('exit code: 7'));
@@ -196,7 +207,11 @@ void main() {
     expect(started.existsSync(), isTrue);
     await session.offerCommand('/shell echo duplicate > duplicate');
     expect(File('${ws.path}/duplicate').existsSync(), isFalse);
-    expect((session.terminal as SessionTerminal).lines.map((l) => l.text),
+    expect(
+        (session.terminal as SessionTerminal)
+            .notices
+            .retained
+            .map((l) => l.text),
         contains('A shell command is already running in this session.'));
     release.complete();
     await turn;
@@ -207,7 +222,8 @@ void main() {
     expect(session.canCancel, isFalse);
     expect(
         (session.terminal as SessionTerminal)
-            .lines
+            .notices
+            .retained
             .map((l) => l.text)
             .join('\n'),
         contains('cancelled: command stopped'));
@@ -236,7 +252,8 @@ void main() {
     await update;
     expect(
         (session.terminal as SessionTerminal)
-            .lines
+            .notices
+            .retained
             .map((line) => line.text)
             .join('\n'),
         contains('usage: /update'));
@@ -262,7 +279,11 @@ void main() {
     await pending.timeout(const Duration(seconds: 3));
     expect(tui.canCancel, isFalse);
     expect(
-        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join('\n'),
+        (tui.terminal as SessionTerminal)
+            .notices
+            .retained
+            .map((l) => l.text)
+            .join('\n'),
         contains('cancelled: command stopped'));
     expect(tui.host.session.loop.log, isEmpty);
   }, skip: Platform.isWindows);
@@ -294,7 +315,11 @@ void main() {
     await tui.runLine('   ');
     expect(tui.host.session.loop.log.length, before);
     expect(
-        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+        (tui.terminal as SessionTerminal)
+            .notices
+            .retained
+            .map((l) => l.text)
+            .join("\n"),
         isEmpty);
   });
 
@@ -302,7 +327,11 @@ void main() {
     await tui.runLine('/mode read-only');
     expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'read-only');
     expect(
-        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+        (tui.terminal as SessionTerminal)
+            .notices
+            .retained
+            .map((l) => l.text)
+            .join("\n"),
         contains('mode: read-only'));
     // And back, by the same word.
     await tui.runLine('/mode ask');

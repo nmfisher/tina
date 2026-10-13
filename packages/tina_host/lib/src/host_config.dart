@@ -10,7 +10,7 @@ import 'package:tina_core/tina_core.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show AgentPlugin;
 import 'session_questions.dart';
 import 'snapshot_feature.dart';
-import 'host.dart' show SessionOperationHandler;
+import 'host.dart' show SessionOperationHandler, SessionNotices;
 
 /// Builds one provider. Called **once per session, by that session's
 /// host** — never store a shared instance: a provider owns its connection
@@ -33,6 +33,7 @@ final class HostConfig {
     this.sessionTitle,
     this.details,
     this.questions,
+    this.notices,
     this.snapshotFeatureFor,
     this.operationsFor,
     this.requestHistoryLimit = 256,
@@ -69,6 +70,9 @@ final class HostConfig {
   /// Optional ordinary-question service supplied by application composition.
   /// Ownership transfers to this host; use a fresh instance for each session.
   final SessionQuestions? questions;
+
+  /// Optional owner-side output, transferred to this host at startup.
+  final SessionNotices? notices;
 
   /// Application adapters select public observations without teaching the host
   /// about concrete plugins. Called for startup and dynamically loaded plugins.

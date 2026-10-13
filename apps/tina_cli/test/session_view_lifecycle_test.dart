@@ -52,6 +52,88 @@ void main() {
     }
   });
 
+  for (final chat in [true, false]) {
+    test(
+        'notice replay, clear and local feedback across two views (chat=$chat)',
+        () async {
+      final session = TuiSession.wrap(SessionAssembly.start(
+          providerFactory: (_) => ScriptedProvider([]),
+          options: AssemblyOptions(
+              configPath: '${root.path}/global',
+              workingDirectory: workspace.path,
+              plugins: [if (chat) 'tina/chat-tui', 'tina/session-controls'])));
+      final screens = [_Presentation(), _Presentation()];
+      final views = [
+        session.createView(),
+        session.createView(role: SessionRole.observer)
+      ];
+      addTearDown(() async {
+        for (final view in views) view.close();
+        await session.shutdown();
+        for (final screen in screens) screen.dispose();
+      });
+      session.terminal.writeln('startup information');
+      for (var i = 0; i < views.length; i++) {
+        views[i].attachConsole(screens[i].context);
+        expect(screens[i].transcript, contains('startup information'));
+      }
+      await views.first.submit('/not-a-command');
+      expect(screens.first.transcript,
+          contains('unknown command: /not-a-command'));
+      expect(screens.last.transcript,
+          isNot(contains('unknown command: /not-a-command')));
+      views.last.detachConsole();
+      session.terminal.writeln('before clear');
+      await views.first.submit('/clear');
+      session.terminal.writeln('after clear');
+      await waitFor(() => screens.first.transcript.contains('after clear'));
+      views.last.attachConsole(screens.last.context);
+      for (final screen in screens) {
+        expect(screen.transcript, isNot(contains('startup information')));
+        expect(screen.transcript, isNot(contains('before clear')));
+        expect(screen.transcript, isNot(contains('not-a-command')));
+        expect('Conversation cleared.'.allMatches(screen.transcript),
+            hasLength(1));
+        expect('after clear'.allMatches(screen.transcript), hasLength(1));
+        expect(screen.transcript.indexOf('Conversation cleared.'),
+            lessThan(screen.transcript.indexOf('after clear')));
+      }
+      session.host.refreshSnapshot();
+      await Future<void>.delayed(Duration.zero);
+      for (final screen in screens) {
+        expect('after clear'.allMatches(screen.transcript), hasLength(1));
+      }
+    });
+  }
+
+  test('notice replay announces expiry and preserves retained output',
+      () async {
+    final terminal = SessionTerminal(
+        notices: SessionNotices(maxEntries: 2, maxNoticeCharacters: 64));
+    final session = TuiSession.wrap(SessionAssembly.start(
+        terminal: terminal,
+        providerFactory: (_) => ScriptedProvider([]),
+        options: AssemblyOptions(
+            configPath: '${root.path}/global',
+            workingDirectory: workspace.path,
+            plugins: ['tina/chat-tui'])));
+    final screen = _Presentation();
+    final view = session.createView();
+    addTearDown(() async {
+      view.close();
+      await session.shutdown();
+      screen.dispose();
+    });
+    terminal.writeln('expired message');
+    terminal.writeln('retained message');
+    terminal.writeln('x' * 100);
+    view.attachConsole(screen.context);
+    expect(screen.transcript, contains('Earlier session notices expired'));
+    expect(screen.transcript, contains('retained message'));
+    expect(screen.transcript, contains('[Notice truncated.]'));
+    expect(screen.transcript, isNot(contains('expired message')));
+  });
+
   test('quit is local to its view and another view can keep submitting',
       () async {
     final provider = _TrackedProvider();

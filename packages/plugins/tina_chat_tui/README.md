@@ -42,12 +42,14 @@ its own lines, so unloading one does not erase the others. Unchecking
 `tina/update-tui` in Settings → Plugins removes the view live. `COCOON_UPDATE_CHECK=0` suppresses automatic
 checks; explicit `/update` checks still work and update the same status.
 
-The plugin subscribes to the loop's log and tool activity. Provider adapters send
-transient `WatchObserver` events; final log entries reconcile streamed drafts.
+The runtime chat plugin observes the loop's log and tool activity. The TUI reads
+connection snapshots and history pages; final log entries reconcile streamed drafts.
 Reasoning, completion state and provider signatures are retained by the loop;
 partial or unsigned thoughts stay local instead of entering Anthropic requests.
 The host does not import this package. The frontend mounts generic
-`ConsoleContribution`s and routes text notices through `ConsoleTranscript`.
+`ConsoleContribution`s. Chat merges session notices with history at their recorded
+positions; local feedback uses `ConsoleTranscript`. Notice retention is bounded,
+with explicit expiry and truncation, and does not change the persisted transcript.
 `ConsoleContext` supplies scoped shortcuts and a live prompt binding. Approval
 readers and modal surfaces retain keyboard priority.
 

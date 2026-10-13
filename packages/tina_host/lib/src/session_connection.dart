@@ -146,6 +146,21 @@ final class SessionConnection {
     if (_closed) throw StateError('session connection is closed');
   }
 
+  /// Bounded session output through a fixed snapshot. Expiry is explicit;
+  /// reading never subscribes a responder or changes session state.
+  SessionNoticePage notices(
+      {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128}) {
+    _checkOpen();
+    if (snapshot.cursor.epoch != _host._epoch)
+      throw ArgumentError('Snapshot belongs to another running session');
+    if (limit < 1 ||
+        limit > 512 ||
+        afterSeq < -1 ||
+        afterSeq > snapshot.throughNoticeSeq)
+      throw RangeError('Invalid notice page bounds');
+    return _host.notices._page(snapshot, afterSeq, limit);
+  }
+
   SessionStatus get status {
     _checkOpen();
     return _host._status();

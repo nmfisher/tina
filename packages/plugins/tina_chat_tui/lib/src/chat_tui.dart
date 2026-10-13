@@ -17,6 +17,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       : _now = now ?? DateTime.now,
         renderer = TimestampChatRenderer(now: now ?? DateTime.now);
   final ChatObservation chat;
+  @override
+  bool get observesSessionNotices => chat.includesSessionNotices;
   int _tokens = 0;
   GoalChangedEntry? _goal;
   void Function()? _unlisten;

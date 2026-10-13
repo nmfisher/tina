@@ -112,10 +112,13 @@ void main() {
     await waitFor(() => input.written.toString().contains('selections'));
     expect(input.written.toString(), contains('selections'));
     view.detachConsole();
-    final output = <String>[];
-    (session.terminal as SessionTerminal).onLine = output.add;
+    final output = session.host.connect();
+    addTearDown(output.close);
+    final before = output.attach().initial.throughNoticeSeq;
     await session.runLine('/classification');
-    expect(output.single, 'Classification: no input classified yet');
+    final page =
+        output.notices(snapshot: output.attach().initial, afterSeq: before);
+    expect(page.entries.single.text, 'Classification: no input classified yet');
   });
 
   for (final panels in [false, true]) {

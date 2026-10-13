@@ -16,6 +16,7 @@ final class SessionSnapshot {
       this.status,
       this.throughSeq,
       this.historyPublicationFailed,
+      this.throughNoticeSeq,
       Iterable<Input> inputs,
       Iterable<SessionRequestSnapshot> requests,
       Iterable<SessionWork> work,
@@ -39,6 +40,7 @@ final class SessionSnapshot {
   /// With persistence installed, its writes finish before this watermark moves.
   final int throughSeq;
   final bool historyPublicationFailed;
+  final int throughNoticeSeq;
   final List<Input> pendingInputs;
 
   /// Bounded request receipts; use the original ID to query or retry. Missing
@@ -112,6 +114,13 @@ final class SessionAttachment {
       {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128}) {
     if (_closed) throw StateError('Attachment is closed');
     return _connection.history(
+        snapshot: snapshot, afterSeq: afterSeq, limit: limit);
+  }
+
+  SessionNoticePage notices(
+      {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128}) {
+    if (_closed) throw StateError('Attachment is closed');
+    return _connection.notices(
         snapshot: snapshot, afterSeq: afterSeq, limit: limit);
   }
 

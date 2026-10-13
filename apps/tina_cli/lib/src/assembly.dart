@@ -432,6 +432,7 @@ final class SessionAssembly {
     final plugins = registry.build(pluginSettings.selected, context);
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     final hostConfig = HostConfig(
+      notices: output is SessionTerminal ? output.notices : null,
       snapshotFeatureFor: snapshotFeatureFor,
       operationsFor: (plugin) => registry.definition(plugin.id).operations,
       questions: output is SessionTerminal

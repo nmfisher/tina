@@ -9,7 +9,6 @@ final class SessionPresentation {
       required this.quitRequested,
       required this.createViews,
       required this.listenViews,
-      required this.listenNotices,
       required this.listenTheme,
       required this.settingsFor});
 
@@ -20,7 +19,6 @@ final class SessionPresentation {
   final void Function() Function(
       void Function(String, ConsoleContribution) loaded,
       void Function(String) unloading) listenViews;
-  final void Function() Function(void Function(String)) listenNotices;
   final void Function() Function(void Function(Theme)) listenTheme;
   final SessionSettingsView Function(ConsoleContext) settingsFor;
 }

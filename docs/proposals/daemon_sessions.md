@@ -802,6 +802,14 @@ the subscription; shutdown delivers final closed state. History and pending
 interaction state are not copied to another store. Transport serialization,
 cross-process ownership and restart recovery remain later work.
 
+Session-wide notices now also travel through the connection. A separate bounded
+in-memory sequence records each notice's preceding history position. Chat merges
+notice pages with committed entries, including clear and replay; a plain display
+does the same when chat is disabled. Snapshots fix both read boundaries. Missing
+retained notices and truncated text are explicit, and failed history publication
+cannot expose dependent notices. Client-local feedback remains local. The old
+application notice callbacks and duplicate terminal buffer are removed.
+
 The requirements below describe the boundary implemented by this contract:
 
 Define a snapshot containing session identity and runtime epoch, committed log

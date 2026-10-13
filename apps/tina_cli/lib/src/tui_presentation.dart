@@ -5,7 +5,6 @@ import 'console_catalog.dart';
 import 'plugin_catalog.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_host/tina_host.dart';
-import 'session_terminal.dart';
 
 /// Application composition: concrete feature instances and configuration
 /// services are wired here, never reached through by a view.
@@ -28,8 +27,6 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
         },
         unloading: (plugin) => unloading(plugin.id),
       ),
-      listenNotices: (listener) =>
-          (assembly.terminal as SessionTerminal).listenLines(listener),
       listenTheme: (listener) {
         var previous = jsonEncode(assembly.theme);
         return assembly.listenSettings(() {

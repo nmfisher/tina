@@ -43,6 +43,7 @@ final class ChatPlugin extends AgentPlugin implements WatchObserver {
 final class _PluginChatObservation implements ChatObservation {
   _PluginChatObservation(this._plugin);
   final ChatPlugin _plugin;
+  bool get includesSessionNotices => false;
   SessionObservation get events => _plugin._source.observation;
   String get model => events.model ?? _plugin.model;
   String? get sessionId => _plugin._sessionId;

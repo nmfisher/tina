@@ -96,8 +96,9 @@ Dependency direction, top down only:
   settings stack, runtime plugin registry, provider policy and sandbox, then
   starts or resumes a `Host`. Its public `session.dart` entry point has no
   transitive terminal dependency. `Terminal`, writer and provider factory remain
-  injectable. `SessionTerminal` buffers notices and adapts ordinary questions
-  to the host's `SessionQuestions` service without physical terminal I/O.
+  injectable. `SessionTerminal` adapts notice writes and ordinary questions
+  to the host's `SessionNotices` and `SessionQuestions` services without physical
+  terminal I/O or frontend callbacks.
   - `cli.dart` routes interactive TUI, headless `--goal`, configuration,
     model listing, resume and import. The app owns release version, process
     startup and restart, plus reading the store for resume selection.
@@ -173,7 +174,8 @@ The planned daemon split (see
 [`proposals/daemon_sessions.md`](proposals/daemon_sessions.md)) separates
 the application runtime from independent TUI attachments so one process
 can own a live session while multiple clients observe it. The engine and
-host already provide the foundation. Built-in runtime and presentation factories are now separate. Terminal notices,
+host already provide the foundation. Built-in runtime and presentation factories
+are now separate. Session notices use connection snapshots and pages;
 configuration notifications and plugin lifecycle events have disposable observers;
 Settings opens in the submitting attachment. Two in-process session views can
 observe one runtime and close independently. A view releases its presentation;
@@ -291,6 +293,21 @@ and recent execution timing. Feature owners supply it; the host freezes it and
 isolates metadata failures from committed entries. Timing retention is limited
 to 128 recent entries and is optional after expiry or restart. None of this
 metadata changes the persisted log or SQLite guarantees.
+
+Session notices use a separate in-memory sequence. Each notice names the history
+position it follows; attachment snapshots bound notice pages as well as committed
+history. Chat merges both before rendering, so clear confirmations follow the
+clear entry and reconnect does not resurrect earlier notices. Publication failure
+also withholds notices referring to unconfirmed history. With chat disabled, the
+frontend provides the same clear/notice semantics in its plain text display.
+
+The owner retains at most 256 notices and 262144 text code units, with 16384 per
+notice. Pages explicitly report expiry and per-notice truncation; they do not
+promise recovery after process restart. A slow client still holds at most one
+unread replacement snapshot. Runtime terminal writes are shared session output;
+view-local feedback (settings results, unknown commands and local errors) stays
+in that view. The terminal adapter has no second output buffer or direct listener
+channel, and notices are never appended to the model's history or SQLite log.
 
 Both TUI layouts submit through `SessionView`, which assigns one request ID per
 runtime action and waits for its receipt. Failed, rejected or expired requests

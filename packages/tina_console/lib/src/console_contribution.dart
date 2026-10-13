@@ -347,6 +347,9 @@ final class _ScopedModal extends ModalSurface {
 /// An optional owner of transcript presentation. The frontend routes plugin
 /// notices here without knowing the renderer's block types or engine events.
 abstract interface class ConsoleTranscript {
+  /// Whether this transcript merges session notices with history itself.
+  /// Otherwise the frontend provides a plain notice display.
+  bool get observesSessionNotices;
   void writeNotice(String text);
 }
 

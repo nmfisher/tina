@@ -16,6 +16,8 @@ final class ConnectionChatObservation
   @override
   SessionObservation get events => this;
   @override
+  bool get includesSessionNotices => true;
+  @override
   bool get running => _current?.status.busy ?? _connection.status.busy;
   @override
   String get model =>
@@ -56,6 +58,7 @@ final class _ChatSubscription {
   late final SessionAttachment attachment;
   var closed = false;
   var afterSeq = -1;
+  var afterNoticeSeq = -1;
   var unavailable = false, truncated = false;
   List<Map> preview = const [];
   final calls = <String, ToolUse>{};
@@ -145,6 +148,7 @@ final class _ChatSubscription {
 
   void reset() {
     afterSeq = -1;
+    afterNoticeSeq = -1;
     preview = const [];
     tools.clear();
     calls.clear();
@@ -153,6 +157,34 @@ final class _ChatSubscription {
   }
 
   void history(SessionSnapshot snapshot, {required bool replay}) {
+    final notices = <({int afterHistorySeq, String text})>[];
+    while (afterNoticeSeq < snapshot.throughNoticeSeq) {
+      final page =
+          attachment.notices(snapshot: snapshot, afterSeq: afterNoticeSeq);
+      if (page.omittedThroughSeq != null) {
+        notices.add((
+          afterHistorySeq: page.omittedAfterHistorySeq!,
+          text:
+              'Earlier session notices expired; committed history is unchanged.'
+        ));
+      }
+      for (final notice in page.entries) {
+        notices.add((
+          afterHistorySeq: notice.afterHistorySeq,
+          text:
+              '${notice.text}${notice.truncated ? '\n[Notice truncated.]' : ''}'
+        ));
+      }
+      afterNoticeSeq = page.nextAfterSeq;
+    }
+    var noticeIndex = 0;
+    void showNotices(int through) {
+      while (noticeIndex < notices.length &&
+          notices[noticeIndex].afterHistorySeq <= through) {
+        emit(ObservedModel(SawNotice(notices[noticeIndex++].text)));
+      }
+    }
+
     while (!closed && afterSeq < snapshot.throughSeq) {
       final page = attachment.history(snapshot: snapshot, afterSeq: afterSeq);
       if (page.nextAfterSeq <= afterSeq)
@@ -160,6 +192,7 @@ final class _ChatSubscription {
       for (final data in page.entries) {
         if (closed) return;
         final entry = SessionEntry.fromJson(Map<String, dynamic>.from(data));
+        showNotices(entry.seq - 1);
         final metadata =
             (data['features'] as Map?)?['tina/chat-tui'] as Map? ?? const {};
         owner._descriptions = Map<String, Object?>.from(
@@ -204,6 +237,7 @@ final class _ChatSubscription {
         afterSeq = entry.seq;
       }
     }
+    showNotices(snapshot.throughSeq);
   }
 
   void activity(SessionSnapshot snapshot) {

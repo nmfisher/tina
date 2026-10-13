@@ -68,7 +68,7 @@ void main() {
         isFalse,
         reason: 'quit is local to the frontend',
       );
-      final told = (session.terminal as SessionTerminal).lines.map(
+      final told = (session.terminal as SessionTerminal).notices.retained.map(
         (l) => l.text,
       );
       expect(

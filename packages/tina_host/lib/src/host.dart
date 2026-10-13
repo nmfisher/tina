@@ -17,10 +17,12 @@ part 'session_connection.dart';
 part 'session_attachment.dart';
 part 'session_requests.dart';
 part 'session_operations.dart';
+part 'session_notices.dart';
 
 final class Host {
   Host._(this.config, this.session, this.context, this.commands, this._plugins,
       this.questions) {
+    notices._mount(this);
     _releaseQuestions = questions.listen(_changed);
     _statusSubscription = session.loop.subscribe((entry, event) {
       if (event != LogEvent.appended) return;
@@ -49,6 +51,7 @@ final class Host {
   final PluginSession context;
   final Commands commands;
   final SessionQuestions questions;
+  late final SessionNotices notices = config.notices ?? SessionNotices();
   late final void Function() _releaseQuestions;
   final List<AgentPlugin> _plugins;
   bool _closed = false;
@@ -177,6 +180,7 @@ final class Host {
           _status(),
           session.loop.publishedSeq,
           session.loop.publicationFailed,
+          notices._through(session.loop.publishedSeq),
           session.loop.pendingInputs,
           _requests.records.values.map((r) => r.snapshot),
           [
@@ -586,6 +590,7 @@ final class Host {
       throw StateError('active host work requires asynchronous shutdown');
     }
     _closed = true;
+    notices._close();
     questions.close();
     _publishSnapshots();
     unawaited(_toolObservation.cancel());

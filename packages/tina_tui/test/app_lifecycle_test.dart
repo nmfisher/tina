@@ -70,7 +70,6 @@ void main() {
             quitRequested: () => false,
             createViews: () => {},
             listenViews: (loaded, unloading) => listen(),
-            listenNotices: (_) => listen(),
             listenTheme: (_) => listen(),
             settingsFor: (_) => SessionSettingsView(
                 open: () async => '', repaint: () {}, close: () {}),
@@ -118,7 +117,6 @@ void main() {
           quitRequested: () => false,
           createViews: () => {},
           listenViews: (loaded, unloading) => () {},
-          listenNotices: (_) => () {},
           listenTheme: (_) => () {},
           settingsFor: (_) => throw StateError('must not attach'),
         ));
