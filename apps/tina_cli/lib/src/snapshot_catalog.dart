@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:tina_activity/tina_activity.dart';
 import 'package:classification/plugin.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_chat/tina_chat.dart';
@@ -15,6 +16,12 @@ import 'package:tina_tools/tina_tools.dart';
 /// and mutable state stay in their plugins. Never serialize a configuration
 /// document, provider, MCP environment/header values or executable callback.
 SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
+  if (plugin is ActivityPlugin) {
+    return SnapshotFeature(
+      () => {'print_transcript': plugin.printTranscript},
+      historyMetadata: plugin.historyMetadata,
+    );
+  }
   if (plugin is ChatPlugin) {
     final chat = plugin.observation;
     return SnapshotFeature(

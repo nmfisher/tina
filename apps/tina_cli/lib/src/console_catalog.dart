@@ -7,7 +7,6 @@ import 'package:tina_cwd_tui/tina_cwd_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
-import 'package:tina_activity/tina_activity.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
 import 'package:tina_context/tina_context.dart';
 import 'package:tina_context_tui/tina_context_tui.dart';
@@ -42,9 +41,6 @@ final _viewFactories =
   'tina/cwd-tui': (plugin, access) =>
       CwdView((plugin as PresentationPlugin<String>).source),
   'tina/panels-tui': (_, access) => PanelsView(),
-  'tina/activity-tui': (plugin, access) => ActivityView(
-      (plugin as ActivityPlugin).observation,
-      printTranscript: plugin.printTranscript),
   'tina/session-controls': (plugin, access) => SessionControlsView(
       (plugin as SessionControlsPlugin).observation.forClient(access)),
   'tina/plans': (plugin, access) =>
@@ -61,9 +57,11 @@ final _viewFactories =
 /// no console view; a runtime plugin is never itself used as a view.
 ConsoleContribution? createConsoleView(AgentPlugin plugin,
         {required SessionConnection connection}) =>
-    plugin.id == 'tina/chat-tui'
-        ? ChatView(ConnectionChatObservation(connection))
-        : _viewFactories[plugin.id]?.call(plugin, connection.access);
+    switch (plugin.id) {
+      'tina/chat-tui' => ChatView(ConnectionChatObservation(connection)),
+      'tina/activity-tui' => ActivityView(connection),
+      _ => _viewFactories[plugin.id]?.call(plugin, connection.access),
+    };
 
 final class _ClientUpdateStatus implements UpdateStatusSource {
   _ClientUpdateStatus(this._source, this._access);

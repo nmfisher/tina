@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_host/tina_host.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
 
 class Io implements Stdio {
@@ -33,24 +34,38 @@ class Output implements Terminal {
 Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));
 const call = ToolUse(id: 'a', name: 'third_party_tool', input: {});
 
+class History extends AgentPlugin {
+  History(this.entries);
+  final List<SessionEntry> entries;
+  @override
+  String get id => 'test/history';
+  @override
+  SessionSeed openSession(PluginSession session) =>
+      SessionSeed(log: entries, details: SessionDetails());
+}
+
 void main() {
   late Io io;
   late Screen screen;
   late LineEditor editor;
   late ActivityView plugin;
-  late SessionObservationSource source;
+  late Host host;
+  late SessionConnection connection;
   setUp(() {
     io = Io();
     screen =
         Screen(io: io, layout: ScreenLayout.fromSize(80, 24, split: false));
     editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
-    source = SessionObservationSource();
-    plugin = ActivityView(source.observation);
+    host = Host.start(HostConfig(
+        workingDirectory: '.', providerFactory: (_) => ScriptedProvider([])));
+    connection = host.connect();
+    plugin = ActivityView(connection, printTranscript: true);
     plugin.attachConsole(ConsoleContext(screen: screen, editor: editor));
   });
-  tearDown(() {
+  tearDown(() async {
     plugin.detachConsole();
-    source.close();
+    connection.close();
+    await host.shutdown();
     editor.close(reportLatency: false);
     screen.dispose();
     unawaited(io.input.close());
@@ -187,20 +202,31 @@ void main() {
   });
   test(
       'history replays completed and denied calls without executing or printing',
-      () {
-    final loop =
-        AgentLoop(provider: ScriptedProvider([]), plugins: [], seedLog: [
-      MessageAppendedEntry(
-          turnId: 'one',
-          message: Message(role: Role.assistant, content: [call.toBlock()])),
-      MessageAppendedEntry(
-          turnId: 'one',
-          message: const Message(role: Role.user, content: [
-            ToolResultBlock(toolUseId: 'a', content: 'denied', isError: true)
-          ])),
-    ]);
+      () async {
     plugin.detachConsole();
-    source.mountOn(loop);
+    connection.close();
+    await host.shutdown();
+    host = Host.start(HostConfig(
+        workingDirectory: '.',
+        providerFactory: (_) => ScriptedProvider([]),
+        plugins: [
+          History([
+            MessageAppendedEntry(
+                seq: 0,
+                turnId: 'one',
+                message:
+                    Message(role: Role.assistant, content: [call.toBlock()])),
+            MessageAppendedEntry(
+                seq: 1,
+                turnId: 'one',
+                message: const Message(role: Role.user, content: [
+                  ToolResultBlock(
+                      toolUseId: 'a', content: 'denied', isError: true)
+                ])),
+          ])
+        ]));
+    connection = host.connect();
+    plugin = ActivityView(connection, printTranscript: true);
     plugin.attachConsole(ConsoleContext(screen: screen, editor: editor));
     expect(plugin.model.records.single.state, 'error');
     expect(plugin.model.records.single.summary, 'denied');

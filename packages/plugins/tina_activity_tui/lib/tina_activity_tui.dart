@@ -3,22 +3,28 @@ library;
 import 'dart:async';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_host/tina_host.dart';
 import 'src/activity_model.dart';
 export 'src/activity_model.dart';
 
-/// Optional console presentation. It consumes ordinary log/tool observations;
-/// neither the host nor the application needs to recognize an activity panel.
+/// Optional console presentation over committed history and active-tool data.
+/// The view owns its browser state and attachment, never the shared session.
 final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
-  ActivityView(this.activity, {this.printTranscript = true});
-  final SessionObservation activity;
-  final bool printTranscript;
+  ActivityView(this.connection, {bool? printTranscript})
+      : _printTranscriptOverride = printTranscript;
+  final SessionConnection connection;
+  final bool? _printTranscriptOverride;
+  bool _printTranscript = false;
+  bool get printTranscript => _printTranscriptOverride ?? _printTranscript;
   final model = ActivityModel();
   ConsoleContext? _console;
   OverlayRegion? _overlay;
   void Function()? _releaseCursor;
   _ActivityModal? _modal;
   void Function()? _removeModal, _removeShortcut;
-  void Function()? _unlisten;
+  SessionAttachment? _attachment;
+  int _afterSeq = -1;
+  bool _historyFailed = false, _detailsUnavailable = false;
   Timer? _ticker;
   bool _open = false;
   bool _liveLine = false;
@@ -35,14 +41,14 @@ final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
   }
 
   /// Public event seam also used by embedders and deterministic view tests.
-  void observe(ToolActivity event, {DateTime? at}) {
+  void observe(ToolActivity event, {DateTime? at, bool replay = false}) {
     final previous = model.record(event.call);
     if (previous.finished && event is! ToolStarted) return;
     final outputStart = event is ToolStarted ? 0 : previous.output.length;
     final wasTruncated = previous.truncated;
     model.event(event, at: at);
     final row = model.record(event.call);
-    if (printTranscript)
+    if (printTranscript && !replay)
       switch (event) {
         case ToolStarted():
           _line(
@@ -127,24 +133,12 @@ final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
     _modal = _ActivityModal(this);
     _removeModal = context.addModal(_modal!);
     model.records.clear();
-    model.describe = activity.describe;
-    _unlisten = context.own(activity.listen((event) {
-      switch (event) {
-        case ObservedReset():
-          model.records.clear();
-          repaintConsole();
-        case ObservedEntry():
-          final completed = model.entry(event.entry, event.event);
-          if (event.event == LogEvent.appended) {
-            for (final row in completed) _completion(row);
-          }
-          repaintConsole();
-        case ObservedActivity():
-          observe(event.activity, at: event.at);
-        case ObservedModel():
-          break;
-      }
-    }));
+    _afterSeq = -1;
+    _historyFailed = false;
+    final attachment = _attachment = connection.attach();
+    context.own(attachment.close);
+    _apply(attachment, attachment.initial, replay: true);
+    unawaited(_observe(attachment));
     _removeShortcut = context.bindShortcut((event) {
       if (event is FunctionKey && event.code == FunctionKeyCode.f4) {
         toggle();
@@ -152,6 +146,94 @@ final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
       }
       return false;
     });
+  }
+
+  Future<void> _observe(SessionAttachment attachment) async {
+    try {
+      while (identical(_attachment, attachment)) {
+        final update = await attachment.next();
+        if (update == null || !identical(_attachment, attachment)) return;
+        _apply(attachment, update.snapshot);
+        if (update.snapshot.status.closed) attachment.close();
+      }
+    } catch (_) {
+      // A failed browser retires only its own subscription.
+      attachment.close();
+    }
+  }
+
+  void _apply(SessionAttachment attachment, SessionSnapshot snapshot,
+      {bool replay = false}) {
+    final feature = snapshot.features['tina/activity-tui'] as Map?;
+    if (feature?['print_transcript'] case final bool enabled)
+      _printTranscript = enabled;
+    _detailsUnavailable =
+        snapshot.unavailableFeatures.contains('tina/activity-tui');
+    if (snapshot.historyPublicationFailed && !_historyFailed) {
+      // A failed publication may have exposed transient work. Rebuild the
+      // inspector from the last confirmed prefix, without reprinting history.
+      model.records.clear();
+      _afterSeq = -1;
+      replay = true;
+    }
+    _historyFailed = snapshot.historyPublicationFailed;
+    while (_afterSeq < snapshot.throughSeq) {
+      final page = attachment.history(snapshot: snapshot, afterSeq: _afterSeq);
+      if (page.nextAfterSeq <= _afterSeq)
+        throw StateError('History cursor did not advance');
+      for (final data in page.entries) {
+        final metadata =
+            (data['features'] as Map?)?['tina/activity-tui'] as Map? ??
+                const {};
+        final descriptions = metadata['tool_descriptions'] as Map? ?? const {};
+        model.describe =
+            (call) => ToolDescription.fromJson(descriptions[call.id]);
+        final entry = SessionEntry.fromJson(Map<String, dynamic>.from(data));
+        final completed = model.entry(
+            entry, replay ? LogEvent.replay : LogEvent.appended,
+            metadata: metadata);
+        if (!replay) for (final row in completed) _completion(row);
+        _afterSeq = entry.seq;
+      }
+    }
+    // Descriptions are supplied with the committed call entry, never by asking
+    // the runtime plugin from a renderer callback.
+    model.describe = null;
+    if (!_historyFailed) {
+      for (final item in snapshot.activeTools.entries) {
+        final state = item.value as Map;
+        final call = ToolUse(
+            id: item.key,
+            name: state['name'] as String,
+            input: Map<String, dynamic>.from(state['input'] as Map));
+        final row = model.record(call);
+        if (row.finished) continue;
+        final starting = row.state != 'running';
+        final oldOutput = row.output;
+        final wasTruncated = row.truncated;
+        final started = DateTime.tryParse(state['started_at'] as String? ?? '');
+        if (starting) observe(ToolStarted(call), at: started, replay: replay);
+        final progress = plainText(state['status'] as String? ?? '');
+        if (progress != row.progress)
+          observe(ToolProgress(call, progress), replay: replay);
+        final output = plainText(state['output'] as String? ?? '');
+        if (output.startsWith(oldOutput) && output.length > oldOutput.length)
+          observe(ToolOutput(call, output.substring(oldOutput.length)),
+              replay: replay);
+        row.started = started;
+        row.progress = progress;
+        row.progressHistory
+          ..clear()
+          ..addAll((state['progress_history'] as List? ?? const [])
+              .cast<String>()
+              .map(plainText));
+        row.output = output;
+        row.truncated = state['output_truncated'] == true;
+        if (printTranscript && !replay && row.truncated && !wasTruncated)
+          _line('[further live output hidden]');
+      }
+    }
+    repaintConsole();
   }
 
   @override
@@ -172,6 +254,10 @@ final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
     _selected = _selected.clamp(
         0, model.records.isEmpty ? 0 : model.records.length - 1);
     final body = <String>[];
+    if (_historyFailed)
+      body.add('Live activity unavailable; displaying confirmed history.');
+    else if (_detailsUnavailable)
+      body.add('Some activity details are unavailable.');
     var selectedLine = 0;
     for (var i = 0; i < model.records.length; i++) {
       final row = model.records[i];
@@ -263,8 +349,8 @@ final class ActivityView implements ConsoleContribution, ConsoleCommandHandler {
 
   @override
   void detachConsole() {
-    _unlisten?.call();
-    _unlisten = null;
+    _attachment?.close();
+    _attachment = null;
     _hide();
     _removeShortcut?.call();
     _removeModal?.call();

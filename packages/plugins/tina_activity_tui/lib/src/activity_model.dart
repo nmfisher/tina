@@ -260,7 +260,8 @@ final class ActivityModel {
     }
   }
 
-  List<ActivityRecord> entry(SessionEntry entry, LogEvent event) {
+  List<ActivityRecord> entry(SessionEntry entry, LogEvent event,
+      {Map metadata = const {}}) {
     final completed = <ActivityRecord>[];
     if (entry is MessageAppendedEntry) {
       for (final block in entry.message.content) {
@@ -271,7 +272,17 @@ final class ActivityModel {
           final matches = records.where((r) => r.call.id == block.toolUseId);
           if (matches.isNotEmpty && !matches.last.finished) {
             final row = matches.last;
-            row.finish(ToolResult(block.content, isError: block.isError));
+            final details =
+                (metadata['tool_results'] as Map?)?[block.toolUseId] as Map?;
+            row.started ??=
+                DateTime.tryParse(details?['started_at'] as String? ?? '');
+            row.finish(ToolResult(block.content,
+                isError: block.isError,
+                elapsed: details?['elapsed_us'] == null
+                    ? null
+                    : Duration(microseconds: details!['elapsed_us'] as int),
+                timedOut: details?['timed_out'] as bool?,
+                emptyOutput: details?['empty_output'] as bool?));
             completed.add(row);
           }
         }

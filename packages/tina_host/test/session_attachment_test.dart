@@ -52,6 +52,46 @@ Host start(
         sessionId: 'same-session-id');
 
 void main() {
+  test('frontend activation sees projections and failure releases them',
+      () async {
+    final host = start();
+    addTearDown(host.shutdown);
+    final connection = host.connect();
+    addTearDown(connection.close);
+    host.session.loop.recordUsage(const UsageRecordedEntry(turnId: 't'));
+    final feature = _Feature()..metadata = (_) => {'description': 'ready'};
+    late SessionAttachment frontend;
+    expect(
+        () => host.attachPlugin(feature, activate: (_) {
+              frontend = connection.attach();
+              expect(frontend.initial.plugins, contains(feature.id));
+              expect(frontend.initial.features[feature.id], feature.data);
+              final entry =
+                  frontend.history(snapshot: frontend.initial).entries.single;
+              expect((entry['features'] as Map)[feature.id],
+                  {'description': 'ready'});
+              throw StateError('frontend failed');
+            }),
+        throwsStateError);
+    expect(feature.listeners, isEmpty);
+    expect(host.plugins, isEmpty);
+    final rolledBack = (await frontend.next())!.snapshot;
+    expect(rolledBack.plugins, isEmpty);
+    expect(rolledBack.features, isEmpty);
+    frontend.close();
+
+    final replacement = _Feature();
+    host.attachPlugin(replacement, activate: (_) {
+      frontend = connection.attach();
+      expect(frontend.initial.features[replacement.id], replacement.data);
+    });
+    replacement.change(3);
+    expect((await frontend.next())!.snapshot.features[replacement.id], {
+      'items': [3]
+    });
+    expect(replacement.listeners, hasLength(1));
+  });
+
   test('history projection callbacks cannot mutate the committed transcript',
       () async {
     final feature = _Feature();

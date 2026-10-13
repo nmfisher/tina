@@ -7,6 +7,8 @@ final class ActivityPlugin extends AgentPlugin {
   final bool printTranscript;
   final _source = SessionObservationSource();
   SessionObservation get observation => _source.observation;
+  Map<String, Object?> historyMetadata(SessionEntry entry) =>
+      _source.historyMetadata(entry);
   @override
   String get id => 'tina/activity-tui';
   @override

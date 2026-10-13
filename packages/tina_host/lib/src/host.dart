@@ -117,8 +117,19 @@ final class Host {
                 'input': freezeSnapshotValue(event.call.input),
                 'output': '',
                 'output_truncated': false,
+                'started_at': DateTime.now().toUtc().toIso8601String(),
+                'progress_history': <String>[],
               });
-      if (event is ToolProgress) state['status'] = event.status;
+      if (event is ToolProgress) {
+        final status = event.status.length <= 1000
+            ? event.status
+            : event.status.substring(0, 1000);
+        state['status'] = status;
+        final progress = List<String>.from(state['progress_history'] as List)
+          ..add(status);
+        if (progress.length > 20) progress.removeAt(0);
+        state['progress_history'] = progress;
+      }
       if (event is ToolOutput) {
         final text = '${state['output']}${event.text}';
         const limit = 65536;
@@ -257,19 +268,24 @@ final class Host {
       for (final command in declared) {
         commands.publish(command, owner: plugin.id);
       }
-      activate?.call(plugin);
       _plugins.add(plugin);
       _observeFeature(plugin);
       _plugins.sort((a, b) => a.order != b.order
           ? a.order.compareTo(b.order)
           : a.id.compareTo(b.id));
+      // A newly created frontend immediately captures a connection snapshot.
+      // Publish its runtime projections before invoking frontend activation.
+      activate?.call(plugin);
       _changed();
     } catch (_) {
+      _forgetFeature(plugin.id);
+      _plugins.remove(plugin);
       commands.removeOwner(plugin.id);
       if (addedToLoop) session.loop.removePlugin(plugin.id);
       try {
         plugin.closeSession();
       } catch (_) {/* Preserve activation error. */}
+      _changed();
       rethrow;
     }
   }

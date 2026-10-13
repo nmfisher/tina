@@ -385,7 +385,7 @@
       "tina_core",
       "tina_engine_2",
       "tina_console",
-      "tina_activity"
+      "tina_host"
     ],
     "tina_chat_tui": [
       "tina_host",

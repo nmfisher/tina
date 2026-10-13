@@ -202,9 +202,9 @@ runtime epoch/revision, published history position, accepted inputs, active work
 and tools, questions and public feature projections. The CLI's `snapshot_catalog`
 adapts plugin observations; the host has no concrete feature dependencies.
 Each attachment keeps one unread replacement snapshot, explicitly marking
-coalescing. History pages retain the snapshot's fixed upper position. Live
-chat/activity callbacks run outside synchronous persistence callbacks and replay
-from the log if their bounded delivery queue overflows. A failed publication
+coalescing. History pages retain the snapshot's fixed upper position. Chat and
+activity render outside synchronous persistence callbacks and recover coalesced
+entries from paged history. A failed publication
 prevents the advertised history watermark from moving past the gap.
 Reusable contracts belong in
 `tina_host`; no additional runtime package is planned. The current in-process
@@ -293,6 +293,21 @@ and recent execution timing. Feature owners supply it; the host freezes it and
 isolates metadata failures from committed entries. Timing retention is limited
 to 128 recent entries and is optional after expiry or restart. None of this
 metadata changes the persisted log or SQLite guarantees.
+
+The activity browser also attaches directly to `SessionConnection`, independently
+of the chat plugin. It pages committed calls/results and reads active tool start
+times, output and the latest 20 progress messages from snapshots. Progress text
+is limited to 1000 code units per message; live output retains a 65536-code-unit
+prefix with an explicit truncation flag. Snapshots replace that state instead of
+appending it repeatedly. Each browser keeps its own expansion, selection and
+scroll position, and replay never prints completed calls into the transcript.
+
+The activity runtime plugin supplies descriptions and optional recent completion
+metadata, including elapsed time, timeout and empty-output flags. Completed
+content and diffs remain recoverable from the log even after this metadata
+expires. Publication failure rebuilds the inspector from confirmed history and
+reports that live activity is unavailable. The activity TUI depends on the host
+connection, with no dependency on either runtime activity or chat implementations.
 
 Session notices use a separate in-memory sequence. Each notice names the history
 position it follows; attachment snapshots bound notice pages as well as committed

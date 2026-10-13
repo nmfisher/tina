@@ -796,8 +796,13 @@ corrected completions and preserves folds during normal updates. The runtime
 chat plugin retains preview state and settings; rendering never receives that
 plugin. Public tool descriptions and bounded recent timing travel as optional
 history metadata without changing stored entries. An import test enforces this
-separation. Activity retains its existing bounded observation queue and reset/
-replay recovery. Existing preview limits report omissions explicitly. Detaching releases only
+separation. The activity browser now reads connection history and active-tool
+snapshots as well, independently of chat. It preserves start times, bounded
+progress/output and optional completion flags, while keeping browser state local.
+Reused tool IDs create distinct records; replay does not reprint completions.
+Publication failure displays only confirmed activity. Import checks prohibit
+runtime activity/chat dependencies in the activity renderer.
+Existing preview limits report omissions explicitly. Detaching releases only
 the subscription; shutdown delivers final closed state. History and pending
 interaction state are not copied to another store. Transport serialization,
 cross-process ownership and restart recovery remain later work.

@@ -148,6 +148,19 @@ Future<void> main() async {
       }
     },
   );
+  test('activity browser cannot reach runtime activity, chat or assembly', () {
+    expect(
+      violations(
+        'packages/plugins/tina_activity_tui/lib/tina_activity_tui.dart',
+        {
+          'packages/plugins/tina_activity/lib/tina_activity.dart',
+          'packages/plugins/tina_chat/lib/tina_chat.dart',
+          'apps/tina_cli/lib/src/assembly.dart',
+        },
+      ),
+      isEmpty,
+    );
+  });
   test('session composition has no transitive frontend dependency', () {
     expect(
       violations('apps/tina_cli/lib/session.dart', {
