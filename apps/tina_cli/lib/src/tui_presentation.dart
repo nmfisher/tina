@@ -18,12 +18,12 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
       quitRequested: () => assembly.quitRequested,
       createViews: () => {
         for (final plugin in assembly.host.plugins)
-          if (viewFactory(plugin, access: connection.access) case final view?)
+          if (viewFactory(plugin, connection: connection) case final view?)
             plugin.id: view,
       },
       listenViews: (loaded, unloading) => assembly.pluginManager.listen(
         loaded: (plugin) {
-          if (viewFactory(plugin, access: connection.access) case final view?)
+          if (viewFactory(plugin, connection: connection) case final view?)
             loaded(plugin.id, view);
         },
         unloading: (plugin) => unloading(plugin.id),

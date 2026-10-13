@@ -1,3 +1,4 @@
+import 'support/session_connection.dart';
 import 'dart:io';
 import 'package:classification/plugin.dart';
 import 'package:test/test.dart';
@@ -39,8 +40,10 @@ void main() {
     final connection = assembly.host.connect();
     addTearDown(connection.close);
     final command = assembly.commands['classification'];
-    final first = createConsoleView(feature) as ClassificationView;
-    final second = createConsoleView(feature) as ClassificationView;
+    final first = createConsoleView(feature, connection: testConnection())
+        as ClassificationView;
+    final second = createConsoleView(feature, connection: testConnection())
+        as ClassificationView;
     expect(first, isNot(same(second)));
     expect(first.classification, same(second.classification));
     final inputs = [FakeIo(), FakeIo()];

@@ -388,6 +388,7 @@
       "tina_activity"
     ],
     "tina_chat_tui": [
+      "tina_host",
       "tina_console",
       "tina_engine_2",
       "tina_self_update",

@@ -111,13 +111,13 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
               final p = Provider(model);
               providers.add(p);
               return p;
-            }), viewFactory: (plugin, {required access}) {
+            }), viewFactory: (plugin, {required connection}) {
       if (plugin is AttachCheck) {
         final view = AttachCheckView(plugin.model);
         checkViews.add(view);
         return view;
       }
-      return createConsoleView(plugin, access: access);
+      return createConsoleView(plugin, connection: connection);
     });
     io = FakeIo();
     screen = Screen(
@@ -883,6 +883,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     for (var i = 0; i < 40; i++)
       session.terminal.writeln('main history row $i');
     final mainChat = screen.chat;
+    await waitFor(() =>
+        mainChat.snapshotLines().join('\n').contains('main history row 39'));
     await keys('main draft\x1b[1;3A');
     expect(mainChat.debugScrollOffset, 1);
     await spawn('other');

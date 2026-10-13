@@ -131,6 +131,23 @@ Future<void> main() async {
       isEmpty,
     );
   });
+  test(
+    'chat rendering and connection adapter cannot reach the runtime chat plugin',
+    () {
+      for (final source in [
+        'packages/plugins/tina_chat_tui/lib/src/chat_tui.dart',
+        'packages/plugins/tina_chat_tui/lib/src/connection_chat.dart',
+      ]) {
+        expect(
+          violations(source, {
+            'packages/plugins/tina_chat/lib/tina_chat.dart',
+            'apps/tina_cli/lib/src/assembly.dart',
+          }),
+          isEmpty,
+        );
+      }
+    },
+  );
   test('session composition has no transitive frontend dependency', () {
     expect(
       violations('apps/tina_cli/lib/session.dart', {

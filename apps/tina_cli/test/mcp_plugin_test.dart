@@ -1,3 +1,4 @@
+import 'support/session_connection.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -34,8 +35,10 @@ void main() {
     addTearDown(assembly.close);
     final runtime = assembly.host.plugins.whereType<McpPlugin>().single;
     expect(runtime, isNot(isA<ConsoleContribution>()));
-    final first = createConsoleView(runtime) as McpView;
-    final second = createConsoleView(runtime) as McpView;
+    final first =
+        createConsoleView(runtime, connection: testConnection()) as McpView;
+    final second =
+        createConsoleView(runtime, connection: testConnection()) as McpView;
     expect(first, isNot(same(second)));
     expect(first.mcp, isNot(same(second.mcp)));
     first.mcp.addLocalServer('shared');

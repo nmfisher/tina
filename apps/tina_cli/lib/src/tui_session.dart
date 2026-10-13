@@ -61,7 +61,7 @@ final class TuiSession {
       TuiSession.wrap(assembly.newSession(model), viewFactory: _viewFactory);
 
   ConsoleWorkspace? createWorkspace() => assembly.host.plugins
-      .map((plugin) => _viewFactory(plugin, access: _connection.access))
+      .map((plugin) => _viewFactory(plugin, connection: _connection))
       .whereType<ConsoleWorkspace>()
       .firstOrNull;
 

@@ -13,13 +13,17 @@ final class _Feature extends AgentPlugin {
   };
   final listeners = <void Function()>{};
   bool fail = false;
-  late final source = SnapshotFeature(() {
-    if (fail) throw StateError('private failure details');
-    return data;
-  }, listen: (listener) {
-    listeners.add(listener);
-    return () => listeners.remove(listener);
-  });
+  Map<String, Object?> Function(SessionEntry)? metadata;
+  late final source = SnapshotFeature(
+      () {
+        if (fail) throw StateError('private failure details');
+        return data;
+      },
+      historyMetadata: (entry) => metadata?.call(entry) ?? const {},
+      listen: (listener) {
+        listeners.add(listener);
+        return () => listeners.remove(listener);
+      });
   void change(int value) {
     data['items'] = <Object?>[value];
     for (final listener in listeners.toList()) listener();
@@ -48,6 +52,65 @@ Host start(
         sessionId: 'same-session-id');
 
 void main() {
+  test('history projection callbacks cannot mutate the committed transcript',
+      () async {
+    final feature = _Feature();
+    final host =
+        start(plugins: [feature], replies: [scriptedReply('keep this')]);
+    addTearDown(host.shutdown);
+    await host.send('input');
+    feature.metadata = (entry) {
+      if (entry is MessageAppendedEntry) entry.message.content.clear();
+      return const {'projected': true};
+    };
+    final connection = host.connect();
+    addTearDown(connection.close);
+    final attachment = connection.attach();
+    final page = attachment.history(snapshot: attachment.initial);
+    final encoded =
+        page.entries.where((e) => e['type'] == 'message_appended').last;
+    expect(((encoded['message'] as Map)['content'] as List).single,
+        containsPair('text', 'keep this'));
+    expect(
+        host.session.loop.log
+            .whereType<MessageAppendedEntry>()
+            .last
+            .message
+            .content
+            .whereType<TextBlock>()
+            .single
+            .text,
+        'keep this');
+  });
+
+  test('history metadata is isolated JSON and cannot hide committed entries',
+      () {
+    final feature = _Feature();
+    final host = start(plugins: [feature]);
+    addTearDown(host.shutdown);
+    final connection = host.connect();
+    addTearDown(connection.close);
+    host.session.loop.recordUsage(const UsageRecordedEntry(turnId: 't'));
+    feature.metadata = (_) => {'items': feature.data['items']};
+    final attachment = connection.attach();
+    final entry =
+        attachment.history(snapshot: attachment.initial).entries.single;
+    final projected =
+        ((entry['features'] as Map)['test/feature'] as Map)['items'] as List;
+    expect(() => projected.add(2), throwsUnsupportedError);
+    (feature.data['items'] as List).add(2);
+    expect(projected, [1]);
+    expect(
+        host.session.loop.log.single.toJson().containsKey('features'), isFalse);
+    feature.metadata = (_) => throw StateError('secret detail');
+    final without =
+        attachment.history(snapshot: attachment.initial).entries.single;
+    expect(without['seq'], entry['seq']);
+    expect(without['type'], entry['type']);
+    expect(without['unavailable_features'], ['test/feature']);
+    expect(without.toString(), isNot(contains('secret detail')));
+  });
+
   test('snapshot and updates have one ordered handoff and frozen feature data',
       () async {
     final feature = _Feature();

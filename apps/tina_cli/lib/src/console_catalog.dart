@@ -7,7 +7,6 @@ import 'package:tina_cwd_tui/tina_cwd_tui.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
-import 'package:tina_chat/tina_chat.dart';
 import 'package:tina_activity/tina_activity.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
 import 'package:tina_context/tina_context.dart';
@@ -21,7 +20,7 @@ import 'package:tina_plans_tui/tina_plans_tui.dart';
 
 /// Application-owned construction of a fresh view for each attachment.
 typedef ConsoleViewFactory = ConsoleContribution? Function(AgentPlugin plugin,
-    {required ClientAccess access});
+    {required SessionConnection connection});
 
 /// Presentation factories are separate from runtime plugin construction. Each
 /// call creates a view for one attachment to the existing feature instance.
@@ -43,8 +42,6 @@ final _viewFactories =
   'tina/cwd-tui': (plugin, access) =>
       CwdView((plugin as PresentationPlugin<String>).source),
   'tina/panels-tui': (_, access) => PanelsView(),
-  'tina/chat-tui': (plugin, access) =>
-      ChatView((plugin as ChatPlugin).observation),
   'tina/activity-tui': (plugin, access) => ActivityView(
       (plugin as ActivityPlugin).observation,
       printTranscript: plugin.printTranscript),
@@ -63,8 +60,10 @@ final _viewFactories =
 /// Only registered factories provide presentation. Runtime-only plugins have
 /// no console view; a runtime plugin is never itself used as a view.
 ConsoleContribution? createConsoleView(AgentPlugin plugin,
-        {ClientAccess access = const ClientAccess()}) =>
-    _viewFactories[plugin.id]?.call(plugin, access);
+        {required SessionConnection connection}) =>
+    plugin.id == 'tina/chat-tui'
+        ? ChatView(ConnectionChatObservation(connection))
+        : _viewFactories[plugin.id]?.call(plugin, connection.access);
 
 final class _ClientUpdateStatus implements UpdateStatusSource {
   _ClientUpdateStatus(this._source, this._access);

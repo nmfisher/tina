@@ -37,8 +37,9 @@ final class SessionTerminal implements Terminal {
   void Function(String line)? onLine;
   final _listeners = <Object, void Function(String)>{};
 
-  /// Presentation notices follow already queued history updates. Delivery is
-  /// deferred and detaching cancels notices that have not yet been delivered.
+  /// Presentation notices follow queued snapshots and their pull consumers.
+  /// Delivery waits for the microtask queue to drain; detaching cancels notices
+  /// that have not yet been delivered.
   void Function() listenLines(void Function(String) listener) {
     final owner = Object();
     _listeners[owner] = listener;
@@ -57,7 +58,7 @@ final class SessionTerminal implements Terminal {
     _lines.add(ConversationLine(text, fromUser: false));
     onLine?.call(text);
     final listeners = _listeners.entries.toList();
-    scheduleMicrotask(() {
+    Timer.run(() {
       for (final item in listeners) {
         if (!_listeners.containsKey(item.key)) continue;
         try {

@@ -7,6 +7,8 @@
 // Run: dart test
 library;
 
+import 'support/session_connection.dart';
+
 import 'dart:io';
 import 'dart:async';
 import 'package:test/test.dart';
@@ -39,7 +41,8 @@ void main() {
       () async {
     await tui.runLine('hello');
     expect(tui.host.session.lastReply, 'echo reply');
-    expect((tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+    expect(
+        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
         contains('echo reply'));
     expect(tui.host.session.loop.log.length, greaterThanOrEqualTo(3),
         reason: 'input, response, stop — the same log a headless run keeps');
@@ -47,7 +50,8 @@ void main() {
 
   test('an unknown /word is refused through the terminal, no turn', () async {
     await tui.runLine('/frobnicate');
-    expect((tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+    expect(
+        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
         contains('unknown command: /frobnicate'));
     expect(tui.host.session.loop.log, isEmpty,
         reason: 'the refusal is not a turn');
@@ -89,8 +93,8 @@ void main() {
         layout: ScreenLayout.fromSize(100, 24, split: false));
     final editor = LineEditor(screen: screen);
     final viewer = createConsoleView(
-            session.host.plugins.singleWhere((p) => p.id == 'tina/context-tui'))
-        as ContextView;
+        session.host.plugins.singleWhere((p) => p.id == 'tina/context-tui'),
+        connection: testConnection(host: session.host)) as ContextView;
     final attachment = ConsoleAttachment.attach(
         viewer, ConsoleContext(screen: screen, editor: editor));
     addTearDown(() {
@@ -202,7 +206,10 @@ void main() {
     await shell!.timeout(const Duration(seconds: 3));
     expect(session.canCancel, isFalse);
     expect(
-        (session.terminal as SessionTerminal).lines.map((l) => l.text).join('\n'),
+        (session.terminal as SessionTerminal)
+            .lines
+            .map((l) => l.text)
+            .join('\n'),
         contains('cancelled: command stopped'));
     expect(provider.calls, 1);
     await session.runLine('next message');
@@ -254,7 +261,8 @@ void main() {
     tui.cancel();
     await pending.timeout(const Duration(seconds: 3));
     expect(tui.canCancel, isFalse);
-    expect((tui.terminal as SessionTerminal).lines.map((l) => l.text).join('\n'),
+    expect(
+        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join('\n'),
         contains('cancelled: command stopped'));
     expect(tui.host.session.loop.log, isEmpty);
   }, skip: Platform.isWindows);
@@ -285,14 +293,16 @@ void main() {
     final before = tui.host.session.loop.log.length;
     await tui.runLine('   ');
     expect(tui.host.session.loop.log.length, before);
-    expect((tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+    expect(
+        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
         isEmpty);
   });
 
   test('/mode flips the assembly\u2019s mode service by word', () async {
     await tui.runLine('/mode read-only');
     expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'read-only');
-    expect((tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
+    expect(
+        (tui.terminal as SessionTerminal).lines.map((l) => l.text).join("\n"),
         contains('mode: read-only'));
     // And back, by the same word.
     await tui.runLine('/mode ask');

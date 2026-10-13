@@ -23,8 +23,12 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
         'token_cap': chat.tokenCap,
         'session_tokens': chat.sessionTokens,
         'estimated_tokens': chat.sessionEstimatedTokens,
+        'session_id': chat.sessionId,
+        'show_session_id': chat.showSessionId,
+        'terminal_alerts_enabled': chat.terminalAlertsEnabled,
       },
       listen: chat.events.listenChanges,
+      historyMetadata: plugin.historyMetadata,
     );
   }
   if (plugin is ApprovalsPlugin) {

@@ -789,10 +789,15 @@ projections; client delivery is deferred and never calls a renderer from the
 persistence path.
 
 `SessionView` uses attachment updates for status repaint notifications. Feature
-views retain their typed contracts. Chat/activity live delivery has bounded
-queues and emits `ObservedReset` followed by a fresh replay after overflow;
-adjacent preview tokens are combined during replay to avoid one redraw per token.
-Existing preview limits report omissions explicitly. Detaching releases only
+views retain their typed contracts. Chat now implements its contract through
+`ConnectionChatObservation`, using only connection snapshots and history pages.
+It recovers coalesced committed entries, appends preview differences, reconciles
+corrected completions and preserves folds during normal updates. The runtime
+chat plugin retains preview state and settings; rendering never receives that
+plugin. Public tool descriptions and bounded recent timing travel as optional
+history metadata without changing stored entries. An import test enforces this
+separation. Activity retains its existing bounded observation queue and reset/
+replay recovery. Existing preview limits report omissions explicitly. Detaching releases only
 the subscription; shutdown delivers final closed state. History and pending
 interaction state are not copied to another store. Transport serialization,
 cross-process ownership and restart recovery remain later work.

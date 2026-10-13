@@ -34,8 +34,17 @@ final class ObservedModel extends SessionObservationEvent {
 /// Read-only session observations. A subscriber receives committed history,
 /// then retained current-call activity/deltas, then live events. It receives
 /// neither a loop nor an executor, and owns only its own subscription.
-final class SessionObservation {
-  SessionObservation._(this._source);
+abstract interface class SessionObservation {
+  bool get running;
+  String? get model;
+  ToolDescription? describe(ToolUse call);
+  Map<String, Object?> get snapshot;
+  void Function() listenChanges(void Function() listener);
+  void Function() listen(void Function(SessionObservationEvent) listener);
+}
+
+final class _LocalSessionObservation implements SessionObservation {
+  _LocalSessionObservation(this._source);
   final SessionObservationSource _source;
   bool get running => _source._loop?.inTurn ?? false;
   String? get model => _source._loop?.provider.model;
@@ -48,9 +57,10 @@ final class SessionObservation {
 }
 
 /// Owned by a runtime feature, independent of any attached presentation.
-/// Retention covers incomplete calls only; committed history stays in the log.
+/// Retains incomplete calls and bounded optional timing metadata; committed
+/// history stays in the log.
 final class SessionObservationSource implements WatchObserver {
-  late final observation = SessionObservation._(this);
+  late final SessionObservation observation = _LocalSessionObservation(this);
   AgentLoop? _loop;
   int? _handle;
   StreamSubscription<ToolActivity>? _activity;
@@ -59,6 +69,8 @@ final class SessionObservationSource implements WatchObserver {
   final _tail = <SessionObservationEvent>[];
   final _snapshots = Expando<SessionEntry>();
   final _calls = Expando<ToolUse>();
+  final _finishedMetadata = <String, Map<String, Object?>>{};
+  final _historyMetadata = <int, Map<String, Object?>>{};
   int _retainedCharacters = 0;
   static const _retentionLimit = 262144;
   static const _eventLimit = 4096;
@@ -82,15 +94,36 @@ final class SessionObservationSource implements WatchObserver {
                     'text': text,
                     'starts_block': startsBlock
                   }),
-                SawThinkingEnd() => const <String, Object?>{
-                    'kind': 'thinking_end'
-                  },
+                SawThinkingEnd(:final complete) =>
+                  Map<String, Object?>.unmodifiable({
+                    'kind': 'thinking_end',
+                    'complete': complete,
+                  }),
                 SawNotice(:final text) => Map<String, Object?>.unmodifiable(
                     {'kind': 'notice', 'text': text}),
                 _ => const <String, Object?>{},
               },
         ]),
       });
+
+  /// Optional presentation metadata. Committed content remains in the log;
+  /// only recent execution timing is retained here, bounded independently.
+  Map<String, Object?> historyMetadata(SessionEntry entry) {
+    final descriptions = <String, Object?>{};
+    if (entry is MessageAppendedEntry) {
+      for (final block in entry.message.content.whereType<ToolUseBlock>()) {
+        try {
+          final description = _describe(ToolUse.fromBlock(block));
+          if (description != null)
+            descriptions[block.id] = description.toJson();
+        } catch (_) {/* A description cannot hide committed history. */}
+      }
+    }
+    return {
+      if (descriptions.isNotEmpty) 'tool_descriptions': descriptions,
+      ...?_historyMetadata[entry.seq],
+    };
+  }
 
   void Function() _listenChanges(void Function() listener) {
     if (_closed) throw StateError('Observation is closed');
@@ -110,6 +143,7 @@ final class SessionObservationSource implements WatchObserver {
         _tail.clear();
         _retainedCharacters = 0;
         _previewTruncated = false;
+        _finishedMetadata.clear();
       } else if (entry is MessageAppendedEntry) {
         if (entry.message.role == Role.assistant) {
           _tail.removeWhere((e) => e is ObservedModel);
@@ -118,6 +152,16 @@ final class SessionObservationSource implements WatchObserver {
             .whereType<ToolResultBlock>()
             .map((block) => block.toolUseId)
             .toSet();
+        final metadata = <String, Object?>{};
+        for (final id in completed) {
+          if (_finishedMetadata.remove(id) case final value?)
+            metadata[id] = value;
+        }
+        if (metadata.isNotEmpty) {
+          _historyMetadata[entry.seq] = {'tool_results': metadata};
+          if (_historyMetadata.length > 128)
+            _historyMetadata.remove(_historyMetadata.keys.first);
+        }
         _tail.removeWhere((e) =>
             e is ObservedActivity && completed.contains(e.activity.call.id));
         _retainedCharacters = _tail.fold(0, (sum, event) => sum + _size(event));
@@ -133,6 +177,12 @@ final class SessionObservationSource implements WatchObserver {
           input: _freezeMap(call.input),
           argumentsParseError: call.argumentsParseError);
       final copy = _freezeActivity(event, frozenCall);
+      if (event is ToolFinished) {
+        _finishedMetadata[call.id] = {
+          if (event.result.elapsed case final elapsed?)
+            'elapsed_us': elapsed.inMicroseconds,
+        };
+      }
       final observed = ObservedActivity(copy, DateTime.now());
       if (event is ToolOutput) {
         _retain(observed);
@@ -208,7 +258,8 @@ final class SessionObservationSource implements WatchObserver {
       };
 
   ToolDescription? _describe(ToolUse call) {
-    final value = _loop?.toolSchema(call.name)?.describe?.call(call.input);
+    final value =
+        _loop?.toolSchema(call.name)?.describe?.call(_freezeMap(call.input));
     return value == null
         ? null
         : ToolDescription(
@@ -322,6 +373,8 @@ final class SessionObservationSource implements WatchObserver {
     _tail.clear();
     _listeners.clear();
     _stateListeners.clear();
+    _finishedMetadata.clear();
+    _historyMetadata.clear();
   }
 }
 

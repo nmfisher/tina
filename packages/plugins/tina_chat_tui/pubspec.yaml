@@ -5,6 +5,8 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  tina_host:
+    path: ../../tina_host
   tina_chat:
     path: ../tina_chat
   tina_session_controls:

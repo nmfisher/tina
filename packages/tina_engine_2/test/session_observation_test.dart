@@ -39,6 +39,11 @@ void main() {
     expect(jsonEncode(copy.toJson()), jsonEncode(entry.toJson()));
     input['nested']['values'].add(3);
     expect(copiedInput['nested']['values'], [1, 2]);
+    source.watch(const SawThinkingEnd(complete: false));
+    final ending =
+        (source.observation.snapshot['preview'] as List).single as Map;
+    expect(ending['complete'], isFalse);
+    expect(() => ending['complete'] = true, throwsUnsupportedError);
     release();
     release();
   });

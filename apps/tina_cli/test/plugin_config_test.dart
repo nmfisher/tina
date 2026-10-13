@@ -1,3 +1,4 @@
+import 'support/session_connection.dart';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -39,8 +40,10 @@ void main() {
   test('CWD plugin uses the session workspace and supports live toggling', () {
     final assembly = assemble();
     addTearDown(assembly.close);
-    CwdView view() => createConsoleView(assembly.host.plugins
-        .singleWhere((plugin) => plugin.id == 'tina/cwd-tui')) as CwdView;
+    CwdView view() => createConsoleView(
+        assembly.host.plugins
+            .singleWhere((plugin) => plugin.id == 'tina/cwd-tui'),
+        connection: testConnection(host: assembly.host)) as CwdView;
     expect(view().workingDirectory, workspace.absolute.path);
     expect(view(), isNot(same(view())));
     assembly.pluginSettings.apply(

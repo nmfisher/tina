@@ -270,6 +270,28 @@ it and the completion receipt, but cannot invoke or cancel operations. The CLI
 renders these entries and maps completion, failure, cancellation and rejected
 admission to exit codes 0, 1, 130 and 78 respectively.
 
+Chat rendering now uses `ConnectionChatObservation` in `tina_chat_tui`. It
+implements the existing read-only `ChatObservation` contract using connection
+snapshots and paged history, with no runtime chat plugin reference. Application
+view factories receive the originating connection, which also supplies their
+observer/controller authority. The runtime chat plugin still owns preview
+retention and display settings; the renderer owns rows, folds, scrolling and
+drafts.
+
+Each chat listener captures an atomic attachment, replays history through its
+watermark, then applies new committed entries and only the added preview text.
+Coalesced updates recover entries from history instead of dropping them or
+appending complete preview snapshots. Committed responses reconcile their draft,
+including corrected text. Reattachment rebuilds the view from the same boundary.
+Projection or publication failures display confirmed history with an explicit
+notice. Retiring a listener affects only its own attachment.
+
+History pages may include public feature metadata, such as tool descriptions
+and recent execution timing. Feature owners supply it; the host freezes it and
+isolates metadata failures from committed entries. Timing retention is limited
+to 128 recent entries and is optional after expiry or restart. None of this
+metadata changes the persisted log or SQLite guarantees.
+
 Both TUI layouts submit through `SessionView`, which assigns one request ID per
 runtime action and waits for its receipt. Failed, rejected or expired requests
 are reported without automatically creating a replacement ID. Settings and

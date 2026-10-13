@@ -1,3 +1,4 @@
+import 'support/session_connection.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina/src/config_settings_management.dart';
 import 'dart:io';
@@ -19,7 +20,8 @@ final class _Presentation {
   late final context = ConsoleContext(screen: screen, editor: editor);
   bool _disposed = false;
 
-  Future<bool> setting(SessionAssembly assembly, List<InputEvent> events) async {
+  Future<bool> setting(
+      SessionAssembly assembly, List<InputEvent> events) async {
     final keys = [...events];
     final saved =
         await SettingsPanel(screen, editor, readEvent: () async => keys.removeAt(0))
@@ -95,7 +97,7 @@ void main() {
     addTearDown(assembly.close);
     final policy = assembly.host.plugins.whereType<StepLimitPlugin>().single;
     expect(policy, isNot(isA<ConsoleContribution>()));
-    expect(createConsoleView(policy), isNull);
+    expect(createConsoleView(policy, connection: testConnection()), isNull);
     final first = _Presentation(), second = _Presentation();
     addTearDown(first.dispose);
     addTearDown(second.dispose);
@@ -231,7 +233,7 @@ void main() {
           assembly.host.plugins.whereType<StepLimitPlugin>().single;
       expect(restored, isNot(same(original)));
       expect(restored, isNot(isA<ConsoleContribution>()));
-      expect(createConsoleView(restored), isNull);
+      expect(createConsoleView(restored, connection: testConnection()), isNull);
       io.feedBytes('third\r'.codeUnits);
       await waitFor(() =>
           session.host.session.turns.length == 3 &&

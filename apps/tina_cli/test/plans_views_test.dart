@@ -1,3 +1,4 @@
+import 'support/session_connection.dart';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
@@ -36,8 +37,10 @@ void main() {
     final feature = assembly.host.plugins.whereType<PlansPlugin>().single;
     expect(feature, isNot(isA<ConsoleContribution>()));
     expect(assembly.commands['plan'], isNotNull);
-    final first = createConsoleView(feature) as PlansView;
-    final second = createConsoleView(feature) as PlansView;
+    final first =
+        createConsoleView(feature, connection: testConnection()) as PlansView;
+    final second =
+        createConsoleView(feature, connection: testConnection()) as PlansView;
     expect(first, isNot(same(second)));
     expect(first.plans, same(second.plans));
     final inputs = [FakeIo(), FakeIo()];

@@ -64,14 +64,14 @@ void main() {
     final instances = <LivePanel>[];
     final accessByView = <ClientAccess>[];
     final session =
-        TuiSession.wrap(assembly, viewFactory: (plugin, {required access}) {
+        TuiSession.wrap(assembly, viewFactory: (plugin, {required connection}) {
       if (plugin is PanelPlugin) {
         final view = LivePanel();
         instances.add(view);
-        accessByView.add(access);
+        accessByView.add(connection.access);
         return view;
       }
-      return createConsoleView(plugin, access: access);
+      return createConsoleView(plugin, connection: connection);
     });
     addTearDown(session.shutdown);
     final views = [
@@ -124,13 +124,13 @@ void main() {
             'acme/panel', (_) => PanelPlugin(),
             live: true, description: 'Test plugin registration.'));
     final session =
-        TuiSession.wrap(app, viewFactory: (plugin, {required access}) {
+        TuiSession.wrap(app, viewFactory: (plugin, {required connection}) {
       if (plugin is PanelPlugin) {
         final view = LivePanel();
         instances.add(view);
         return view;
       }
-      return createConsoleView(plugin, access: access);
+      return createConsoleView(plugin, connection: connection);
     });
     final done =
         runTui(session, screen: fakeScreen(io), resizes: resizes.stream);
@@ -178,14 +178,14 @@ void main() {
           registerPlugins: (registry) => registry.register(
               'acme/panel', (_) => PanelPlugin(),
               live: true, description: 'Test plugin registration.'));
-      final session =
-          TuiSession.wrap(assembly, viewFactory: (plugin, {required access}) {
+      final session = TuiSession.wrap(assembly,
+          viewFactory: (plugin, {required connection}) {
         if (plugin is PanelPlugin) {
           final view = LivePanel(fail: failAttach);
           instances.add(view);
           return view;
         }
-        return createConsoleView(plugin, access: access);
+        return createConsoleView(plugin, connection: connection);
       });
       final done = runTui(session, screen: fakeScreen(io));
       await Future<void>.delayed(const Duration(milliseconds: 20));

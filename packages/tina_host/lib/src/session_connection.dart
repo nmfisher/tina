@@ -114,13 +114,32 @@ final class SessionConnection {
         afterSeq: afterSeq, throughSeq: snapshot.throughSeq, limit: limit);
     final next = entries.isEmpty ? afterSeq : entries.last.seq;
     return SessionHistoryPage._(
-        _host._epoch,
-        snapshot.throughSeq,
-        next,
-        next < snapshot.throughSeq,
-        entries.map((entry) =>
-            freezeSnapshotValue({...entry.toJson(), 'seq': entry.seq})
-                as Map<String, Object?>));
+        _host._epoch, snapshot.throughSeq, next, next < snapshot.throughSeq,
+        entries.map((entry) {
+      final data = freezeSnapshotValue({...entry.toJson(), 'seq': entry.seq})
+          as Map<String, Object?>;
+      final features = <String, Object?>{};
+      final unavailable = <String>[];
+      for (final feature in _host._features.entries.toList()) {
+        try {
+          final project = feature.value.source.historyMetadata;
+          if (project == null) continue;
+          // Extension projection callbacks never receive a live log entry.
+          final metadata =
+              project(SessionEntry.fromJson(Map<String, dynamic>.from(data)));
+          if (metadata.isNotEmpty) {
+            features[feature.key] = freezeSnapshotValue(metadata);
+          }
+        } catch (_) {
+          unavailable.add(feature.key);
+        }
+      }
+      return freezeSnapshotValue({
+        ...data,
+        if (features.isNotEmpty) 'features': features,
+        if (unavailable.isNotEmpty) 'unavailable_features': unavailable,
+      }) as Map<String, Object?>;
+    }));
   }
 
   void _checkOpen() {

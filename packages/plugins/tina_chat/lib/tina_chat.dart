@@ -1,3 +1,5 @@
+export 'observation.dart';
+import 'observation.dart';
 export 'settings.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
@@ -19,7 +21,9 @@ final class ChatPlugin extends AgentPlugin implements WatchObserver {
   final bool Function()? terminalAlertsEnabled;
   final _source = SessionObservationSource();
   String? _sessionId;
-  late final observation = ChatObservation._(this);
+  late final ChatObservation observation = _PluginChatObservation(this);
+  Map<String, Object?> historyMetadata(SessionEntry entry) =>
+      _source.historyMetadata(entry);
   @override
   String get id => 'tina/chat-tui';
   @override
@@ -36,8 +40,8 @@ final class ChatPlugin extends AgentPlugin implements WatchObserver {
   void closeSession() => _source.close();
 }
 
-final class ChatObservation {
-  ChatObservation._(this._plugin);
+final class _PluginChatObservation implements ChatObservation {
+  _PluginChatObservation(this._plugin);
   final ChatPlugin _plugin;
   SessionObservation get events => _plugin._source.observation;
   String get model => events.model ?? _plugin.model;

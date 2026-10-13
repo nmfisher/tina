@@ -1,3 +1,4 @@
+import 'support/session_connection.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:test/test.dart';
@@ -254,7 +255,7 @@ headers = { Authorization = "hidden" }
       final view =
           createConsoleView(
                 plugin,
-                access: const ClientAccess(canControl: false),
+                connection: testConnection(role: SessionRole.observer),
               )
               as UpdateView;
       final surface = _Surface();
@@ -276,11 +277,11 @@ headers = { Authorization = "hidden" }
       expect(
         createConsoleView(
           plugin,
-          access: const ClientAccess(canControl: false),
+          connection: testConnection(role: SessionRole.observer),
         ),
         isNull,
       );
-      expect(createConsoleView(plugin), isNull);
+      expect(createConsoleView(plugin, connection: testConnection()), isNull);
     },
   );
 }

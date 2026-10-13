@@ -1,5 +1,5 @@
 import 'package:tina_goals/tina_goals.dart';
-import 'package:tina_chat/tina_chat.dart';
+import 'package:tina_chat/observation.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
@@ -20,6 +20,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   int _tokens = 0;
   GoalChangedEntry? _goal;
   void Function()? _unlisten;
+  void Function()? _unlistenState;
   final DateTime Function() _now;
   final TimestampChatRenderer renderer;
   final List<ChatBlock> _blocks = [];
@@ -139,6 +140,11 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       }
     }));
     _busy = chat.events.running;
+    _unlistenState = context.own(chat.events.listenChanges(() {
+      _busy = chat.events.running;
+      _paintUsage();
+      _console?.refreshInput();
+    }));
     _width = -1;
     repaintConsole();
   }
@@ -707,6 +713,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
 
   @override
   void detachConsole() {
+    _unlistenState?.call();
+    _unlistenState = null;
     _unlisten?.call();
     _unlisten = null;
     _ticker?.cancel();
