@@ -21,6 +21,20 @@ final class _Tool extends AgentPlugin {
 
 Future<void> tick() => Future<void>.delayed(Duration.zero);
 
+final class _WaitingProvider extends LlmProvider {
+  _WaitingProvider(this.release) : super('fixture');
+  final Future<void> release;
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) async* {
+    await release;
+    yield const MessageComplete(
+        content: [TextBlock('done')], stopReason: 'end_turn');
+  }
+}
+
 void main() {
   late ChatPlugin chat;
   late Host host;
@@ -122,6 +136,53 @@ void main() {
     expect(observation.terminalAlertsEnabled, isTrue);
     expect(changed, greaterThan(0));
     expect(host.session.loop.log, isEmpty);
+  });
+
+  test(
+      'finishing a model turn stops chat animation while a command remains busy',
+      () async {
+    await host.shutdown();
+    connection.close();
+    final turnRelease = Completer<void>(), commandRelease = Completer<void>();
+    chat = ChatPlugin(model: 'fixture');
+    host = Host.start(HostConfig(
+        workingDirectory: '.',
+        plugins: [chat],
+        providerFactory: (_) => _WaitingProvider(turnRelease.future),
+        snapshotFeatureFor: (_) => SnapshotFeature(
+            () => chat.observation.events.snapshot,
+            listen: chat.observation.events.listenChanges)));
+    host.commands.publish(Command(
+        name: 'wait',
+        description: '',
+        allowWhileRunning: true,
+        handler: (_) => commandRelease.future,
+        cancel: commandRelease.complete));
+    connection = host.connect(role: SessionRole.observer);
+    observation = ConnectionChatObservation(connection);
+    final release = observation.listenChanges(() {});
+    addTearDown(release);
+    final controller = host.connect();
+    addTearDown(controller.close);
+    addTearDown(() {
+      if (!turnRelease.isCompleted) turnRelease.complete();
+      if (!commandRelease.isCompleted) commandRelease.complete();
+    });
+    final turn = host.send('go');
+    await tick();
+    expect(observation.running, true);
+    final command = controller.submitRequest('/wait',
+        id: controller.requestWindow.id('wait'));
+    turnRelease.complete();
+    await turn;
+    await tick();
+    expect(connection.status.busy, true);
+    expect(connection.status.running, false);
+    expect(observation.running, false);
+    expect(command.snapshot.terminal, false);
+    expect(controller.cancel([command.snapshot.workId!]), true);
+    await command.completed;
+    expect(connection.status.busy, false);
   });
 
   test('a failing listener retires independently and a replacement can replay',

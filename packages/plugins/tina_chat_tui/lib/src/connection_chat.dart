@@ -18,7 +18,9 @@ final class ConnectionChatObservation
   @override
   bool get includesSessionNotices => true;
   @override
-  bool get running => _current?.status.busy ?? _connection.status.busy;
+  // Chat animates model turns. Other work still keeps the session busy and
+  // cancellable through SessionStatus, without repainting an idle chat prompt.
+  bool get running => _current?.status.running ?? _connection.status.running;
   @override
   String get model =>
       _chat['model'] as String? ??

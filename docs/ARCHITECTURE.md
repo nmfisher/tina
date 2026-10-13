@@ -370,6 +370,9 @@ other presentation commands remain local to the submitting view. Shared status
 reports activity across all connections, including uncancellable commands, and
 whether the engine can currently accept input. Busy indicators and Escape use
 that status even when a view attaches during work started elsewhere.
+The chat prompt animates only an active model turn. A shell command can keep
+the session busy and cancellable after that turn ends without animating the
+otherwise idle chat prompt.
 
 The editor stays armed while work runs. `SessionView` holds only unsent lines:
 idle-only commands and input entered during cancellation or post-turn cleanup
