@@ -206,6 +206,10 @@ void main() {
       await waitFor(() => first.transcript.contains('draft response'));
       second.attach();
       expect(second.transcript, contains('draft response'));
+      for (final client in [first, second]) {
+        expect(client.view.busy, isTrue);
+        expect(client.feature<ChatView>().chat.events.running, isTrue);
+      }
       final thought = first.feature<ChatView>().blocks.firstWhere(
             (b) => b.canFold,
           );
@@ -234,10 +238,14 @@ void main() {
       );
       expect(second.transcript, isNot(contains('draft response')));
       expect(second.view.busy, isTrue);
-      expect(second.feature<ChatView>().chat.events.running, isTrue);
+      // Judgment keeps the goal busy between chat turns, without animating
+      // the chat prompt. Reattaching must preserve that distinction.
+      expect(second.feature<ChatView>().chat.events.running, isFalse);
       first.attach();
       expect(first.transcript, contains('corrected first answer'));
       expect(first.transcript, isNot(contains('draft response')));
+      expect(first.view.busy, isTrue);
+      expect(first.feature<ChatView>().chat.events.running, isFalse);
       provider.requests[1].add(
         const MessageComplete(
           content: [TextBlock('VERDICT: no — one step remains')],
@@ -245,7 +253,10 @@ void main() {
         ),
       );
       await provider.requests[1].close();
-      await waitFor(() => provider.requests.length == 3);
+      await waitFor(() =>
+          provider.requests.length == 3 &&
+          first.feature<ChatView>().chat.events.running &&
+          second.feature<ChatView>().chat.events.running);
       provider.requests[2].add(const TextDelta('final answer'));
       provider.requests[2].add(
         const MessageComplete(
