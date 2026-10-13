@@ -433,6 +433,7 @@ final class SessionAssembly {
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     final hostConfig = HostConfig(
       snapshotFeatureFor: snapshotFeatureFor,
+      operationsFor: (plugin) => registry.definition(plugin.id).operations,
       questions: output is SessionTerminal
           ? output.questions
           : SessionQuestions(interactive: options.interactive),

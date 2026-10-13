@@ -3,6 +3,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
@@ -15,6 +16,7 @@ import 'snapshot_feature.dart';
 part 'session_connection.dart';
 part 'session_attachment.dart';
 part 'session_requests.dart';
+part 'session_operations.dart';
 
 final class Host {
   Host._(this.config, this.session, this.context, this.commands, this._plugins,
@@ -55,6 +57,11 @@ final class Host {
   late final int _statusSubscription;
   int _nextWork = 0;
   SessionWork? _turnWork;
+  SessionOperationContext? _operation;
+
+  /// Includes whole plugin operations, including work between their turns.
+  bool get busy =>
+      session.loop.running || _operation != null || _commandWork.isNotEmpty;
   QuestionScope? _turnQuestions;
   final _commandWork = <String, Command>{};
   final _commandQuestions = <String, QuestionScope>{};
@@ -126,17 +133,18 @@ final class Host {
           model: model,
           workingDirectory: config.workingDirectory,
           running: session.loop.running,
-          busy: session.loop.running || _commandWork.isNotEmpty,
+          busy: busy,
           acceptsInput: !_closed &&
               !_stopping &&
               (session.loop.running
                   ? session.loop.acceptsInput
-                  : _commandWork.isEmpty),
+                  : _commandWork.isEmpty && _operation == null),
           pendingInputCount: session.loop.pendingInputCount,
           stopping: _stopping,
           closed: _closed,
           cancellableWork: [
             if (_turnWork case final work?) work,
+            if (_operation case final operation?) operation._work,
             for (final entry in _commandWork.entries)
               if (entry.value.cancel != null ||
                   _commandQuestions[entry.key]?.hasPending == true)
@@ -173,6 +181,7 @@ final class Host {
           _requests.records.values.map((r) => r.snapshot),
           [
             if (_turnWork case final work?) work,
+            if (_operation case final operation?) operation._work,
             for (final entry in _commandWork.entries)
               SessionWork(entry.key, 'command', command: entry.value.name),
           ],
@@ -221,7 +230,7 @@ final class Host {
 
   void _checkIdle() {
     _checkOpen();
-    if (session.loop.running)
+    if (session.loop.running || _operation != null)
       throw StateError('plugin changes require an idle session');
   }
 
@@ -418,7 +427,74 @@ final class Host {
     _changed();
   }
 
+  Future<void> _runOperation(_RequestRecord record, String owner, String name,
+      Map<String, Object?> arguments) async {
+    final plugin = _plugins.where((p) => p.id == owner).firstOrNull;
+    final handler =
+        plugin == null ? null : config.operationsFor?.call(plugin)[name];
+    if (handler == null || busy) {
+      record.finish(
+          SessionRequestState.rejected,
+          SessionResult(
+              detail: handler == null
+                  ? 'Operation unavailable: $owner/$name'
+                  : 'Operation requires an idle session.'));
+      return;
+    }
+    final scope = questions.openScope();
+    final operation = SessionOperationContext._(
+        this,
+        record,
+        scope,
+        SessionWork('work-${++_nextWork}', 'operation',
+            plugin: owner, operation: name));
+    final settled = Completer<void>();
+    _pendingWork.add(settled);
+    _operation = operation;
+    record.start(operation._work.id);
+    SessionResult result;
+    try {
+      result = await scope.run(() => handler(plugin!, arguments, operation));
+    } catch (error) {
+      result = SessionResult(
+          stopReason: StopReason.error,
+          detail: 'Operation failed (${error.runtimeType})');
+    } finally {
+      // Retire the capability before notifying clients or reconciling plugins.
+      operation._active = false;
+      scope.cancel();
+      if (operation._sending) {
+        // A handler must await its turns. Even a broken handler cannot release
+        // the foreground lease or unload its plugin while a turn is draining.
+        session.loop.cancel('operation handler returned before its turn');
+        await operation._turnSettled!.future;
+        result = const SessionResult(
+            stopReason: StopReason.error,
+            detail: 'Operation handler did not await its turn');
+      }
+      _operation = null;
+      _pendingWork.remove(settled);
+      settled.complete();
+      _changed();
+    }
+    if (operation.cancelled)
+      result = const SessionResult(stopReason: StopReason.cancelled);
+    record.finish(
+        switch (result.stopReason) {
+          StopReason.cancelled => SessionRequestState.cancelled,
+          StopReason.error => SessionRequestState.failed,
+          _ => SessionRequestState.completed,
+        },
+        result);
+    if (!_stopping) onIdle?.call();
+  }
+
   Future<Outcome> send(String text, {String? turnId}) async {
+    if (_operation != null) throw StateError('A session operation is running');
+    return _send(text, turnId: turnId);
+  }
+
+  Future<Outcome> _send(String text, {String? turnId}) async {
     _checkOpen();
     if (session.loop.running) throw StateError('a turn is already running');
     final settled = Completer<void>();
@@ -439,7 +515,7 @@ final class Host {
           scope.cancel();
         }
       });
-      if (!_stopping) onIdle?.call();
+      if (!_stopping && _operation == null) onIdle?.call();
       return outcome;
     } finally {
       _turnWork = null;
@@ -485,6 +561,7 @@ final class Host {
           _requests.byCommand[entry.key]?.cancellationRequested = true;
         }
       }
+      _operation?._stop('shutdown');
       questions.close();
       attempt(() => session.loop.cancel('shutdown'));
       for (final entry in _commandWork.entries.toList()) {

@@ -83,15 +83,33 @@ final class SessionRequest {
 }
 
 final class _RequestRecord {
-  _RequestRecord(this.owner, this.id, this.text)
+  _RequestRecord(this.owner, this.id, this.text, this.kind)
       : snapshot = SessionRequestSnapshot(id, SessionRequestState.accepted);
   final _SessionRequests owner;
   final SessionRequestId id;
   final String text;
+  final String kind;
   late final client = SessionRequest._(this);
   final done = Completer<SessionRequestSnapshot>();
   SessionRequestSnapshot snapshot;
   bool cancellationRequested = false;
+  final output = <SessionOutput>[];
+  int outputSeq = -1;
+  int _outputChars = 0;
+
+  void writeOutput(String text, {bool error = false}) {
+    const limit = 65536;
+    final truncated = text.length > limit;
+    final entry = SessionOutput(
+        ++outputSeq, truncated ? text.substring(0, limit) : text,
+        error: error, truncated: truncated);
+    output.add(entry);
+    _outputChars += entry.text.length;
+    while (output.length > 128 || _outputChars > limit) {
+      _outputChars -= output.removeAt(0).text.length;
+    }
+    owner.host._changed();
+  }
 
   void setInput(String id) {
     snapshot = SessionRequestSnapshot(this.id, snapshot.state, inputId: id);
@@ -124,8 +142,8 @@ final class _RequestRecord {
   }
 }
 
-/// Bounded receipt metadata only. The engine owns every queued input; plugins
-/// own command execution. Retained active records are never evicted. Evicting a
+/// Bounded receipts and ephemeral operation output. The engine owns every
+/// queued input; plugins own execution. Active records are never evicted. Evicting a
 /// terminal record retires its namespace for all unknown IDs, so no tombstone
 /// set, time-based guess, or unbounded client sequence table is needed.
 final class _SessionRequests {
@@ -157,7 +175,8 @@ final class _SessionRequests {
     return null;
   }
 
-  _RequestRecord accept(SessionRequestId id, String text) {
+  _RequestRecord accept(SessionRequestId id, String text,
+      {String kind = 'input'}) {
     if (text.length > 1048576) {
       throw ArgumentError('Request input exceeds 1048576 characters');
     }
@@ -170,7 +189,7 @@ final class _SessionRequests {
       records.remove(retired.id);
       generation++;
     }
-    final record = _RequestRecord(this, id, text);
+    final record = _RequestRecord(this, id, text, kind);
     records[id] = record;
     host._changed();
     return record;

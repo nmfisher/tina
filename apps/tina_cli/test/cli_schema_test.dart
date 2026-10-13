@@ -145,7 +145,11 @@ void main() {
         cli: PluginCli(
           options: [review],
           sessionCommand: (args) => args.contains(review)
-              ? CliSessionCommand(option: review, run: (_, _) async => 0)
+              ? CliSessionCommand(
+                  option: review,
+                  operation: 'review',
+                  prepare: (_) async => const {},
+                )
               : null,
         ),
       );

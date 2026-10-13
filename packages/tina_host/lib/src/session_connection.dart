@@ -18,12 +18,14 @@ final class SessionCommandCall {
   final String argument;
 }
 
-/// A cancellation target allocated by the host. A new turn or command gets a
+/// A cancellation target allocated by the host. A new turn, command or operation gets a
 /// new ID, including a steered turn inside the same send operation.
 final class SessionWork {
-  const SessionWork(this.id, this.kind, {this.command});
+  const SessionWork(this.id, this.kind,
+      {this.command, this.plugin, this.operation});
   final String id, kind;
   final String? command;
+  final String? plugin, operation;
 }
 
 final class SessionStatus {
@@ -42,7 +44,7 @@ final class SessionStatus {
   final String id, model, workingDirectory;
   final bool running, stopping, closed;
 
-  /// Includes host-managed commands, even those without a cancellation hook.
+  /// Includes whole plugin operations and commands without cancellation hooks.
   final bool busy;
 
   /// Plain input can start or steer now. An availability hint, not acceptance.
@@ -206,7 +208,8 @@ final class SessionConnection {
     final trimmed = line.trim();
     final call = _commandFor(trimmed);
     if (call != null) {
-      if (_host.session.loop.running && !call.command.allowWhileRunning)
+      if ((_host.session.loop.running || _host._operation != null) &&
+          !call.command.allowWhileRunning)
         throw StateError('command requires an idle session');
       return _runCommand(call.command, call.argument);
     }
@@ -235,6 +238,51 @@ final class SessionConnection {
     return _host._requests.find(id)?.client;
   }
 
+  /// Invoke a plugin operation through the owner, using only serializable data.
+  /// Retries retain the same receipt; detach never stops accepted work.
+  SessionRequest submitOperation(String plugin, String operation,
+      {Map<String, Object?> arguments = const {},
+      required SessionRequestId id}) {
+    _checkOpen();
+    _host._checkOpen();
+    access.requireControl();
+    final values = _operationValue(arguments) as Map<String, Object?>;
+    final identity = jsonEncode([plugin, operation, values]);
+    final requests = _host._requests;
+    final existing = requests.find(id);
+    if (existing != null) {
+      if (existing.kind != 'operation' || existing.text != identity) {
+        throw const SessionRequestError(SessionRequestErrorCode.conflict);
+      }
+      return existing.client;
+    }
+    final record = requests.accept(id, identity, kind: 'operation');
+    unawaited(_host
+        ._runOperation(record, plugin, operation, values)
+        .catchError((Object error) {
+      record.finish(
+          SessionRequestState.failed,
+          SessionResult(
+              stopReason: StopReason.error,
+              detail: 'Operation failed (${error.runtimeType})'));
+    }));
+    return record.client;
+  }
+
+  /// Read bounded output without invoking code. Observers have the same access
+  /// as controllers; expiry and missing output are explicit.
+  SessionOutputPage output(SessionRequestId id, {int afterSeq = -1}) {
+    _checkOpen();
+    final record = _host._requests.find(id);
+    if (record == null) throw ArgumentError('Unknown request');
+    if (afterSeq < -1 || afterSeq > record.outputSeq)
+      throw RangeError('Invalid output cursor');
+    return SessionOutputPage(
+        record.output.where((e) => e.seq > afterSeq),
+        record.outputSeq,
+        record.output.isNotEmpty && afterSeq < record.output.first.seq - 1);
+  }
+
   /// Synchronously admit a retryable submission and return its receipt. Plain
   /// input steers a running turn through the engine's existing queue; commands
   /// retain their plugin's allowWhileRunning policy. Rejected admissions are
@@ -249,7 +297,7 @@ final class SessionConnection {
     final requests = _host._requests;
     final existing = requests.find(id);
     if (existing != null) {
-      if (existing.text != line) {
+      if (existing.kind != 'input' || existing.text != line) {
         throw const SessionRequestError(SessionRequestErrorCode.conflict);
       }
       return existing.client;
@@ -260,7 +308,8 @@ final class SessionConnection {
     final trimmed = line.trim();
     final call = _commandFor(trimmed);
     if (call != null) {
-      if (_host.session.loop.running && !call.command.allowWhileRunning) {
+      if ((_host.session.loop.running || _host._operation != null) &&
+          !call.command.allowWhileRunning) {
         reject('Command requires an idle session.');
       } else if (call.command.cancel != null &&
           _host._commandWork.containsValue(call.command)) {
@@ -276,6 +325,8 @@ final class SessionConnection {
           'unknown command: /${trimmed.substring(1).split(RegExp(r'\s')).first}');
     } else if (trimmed.isEmpty) {
       reject('Input is empty.');
+    } else if (_host._operation != null && !_host.session.loop.running) {
+      reject('A session operation is running; input was not queued.');
     } else {
       final inputId = 't-${_host.session.loop.seq}-input-${++_host._nextInput}';
       record.setInput(inputId);
@@ -368,6 +419,7 @@ final class SessionConnection {
       _host._pendingWork.remove(settled);
       settled.complete();
       _host._changed();
+      if (!_host._stopping && !_host.busy) _host.onIdle?.call();
     }
   }
 
@@ -378,6 +430,11 @@ final class SessionConnection {
     access.requireControl();
     var cancelled = false;
     final ids = workIds.toSet();
+    if (_host._operation case final operation?
+        when ids.contains(operation._record.snapshot.workId)) {
+      operation._stop(reason);
+      cancelled = true;
+    }
     if (_host._turnWork case final work? when ids.contains(work.id)) {
       _host._turnQuestions?.cancel();
       _host.session.loop.cancel(reason);

@@ -151,10 +151,13 @@ Future<({GoalVerdict verdict, String evidence})?> judgeGoal({
   required LlmProvider provider,
   required String goalText,
   required String digest,
+  required CancelToken cancel,
 }) async {
+  if (cancel.cancelled) return null;
+  StreamIterator<StreamEvent>? iterator;
   final buf = StringBuffer();
   try {
-    await for (final event in provider.send(
+    iterator = StreamIterator(provider.send(
       system: goalJudgeSystemPrompt,
       messages: [
         Message(
@@ -163,7 +166,13 @@ Future<({GoalVerdict verdict, String evidence})?> judgeGoal({
         ),
       ],
       tools: const [],
-    )) {
+    ));
+    while (!cancel.cancelled &&
+        await Future.any([
+          iterator.moveNext(),
+          cancel.whenCancelled.then((_) => false),
+        ])) {
+      final event = iterator.current;
       switch (event) {
         case TextDelta(:final text):
           buf.write(text);
@@ -179,7 +188,10 @@ Future<({GoalVerdict verdict, String evidence})?> judgeGoal({
     }
   } catch (_) {
     return null;
+  } finally {
+    await iterator?.cancel();
   }
+  if (cancel.cancelled) return null;
   return parseGoalVerdict(buf.toString());
 }
 
@@ -237,6 +249,7 @@ final class GoalsPlugin extends AgentPlugin {
     required LlmProvider provider,
     required String goalText,
     required String digest,
+    required CancelToken cancel,
   }) judge;
 
   final Terminal? terminal;
@@ -249,8 +262,10 @@ final class GoalsPlugin extends AgentPlugin {
   void Function(PluginStateEntry)? _writer;
   int? _subscription;
   bool _closed = false;
-  StreamSubscription<void>? _judgeSub;
+  CancelToken? _judgeCancel;
+  CancelToken? _runCancel;
   Future<bool>? _pendingJudgment;
+  final _judgments = <Future<bool>>{};
 
   @override
   List<ToolSchema> get tools => const [];
@@ -293,7 +308,7 @@ final class GoalsPlugin extends AgentPlugin {
         // The turn-quality guard: only a completed turn is evidence. The
         // judge runs off-completion; its own failures are silent.
         if (entry.reason == TurnStopReason.complete && goal != null) {
-          _judgeSub = _runJudge();
+          _runJudge();
         }
       }
     });
@@ -304,66 +319,95 @@ final class GoalsPlugin extends AgentPlugin {
   Future<bool> runToGoal(
       {required String text,
       required Future<Outcome> Function(String) send,
+      required CancelToken cancel,
       int? maxTurns,
       void Function(Outcome)? onTurn}) async {
     if (_loop == null) throw StateError('goal plugin is not mounted');
+    if (_runCancel != null) throw StateError('a goal run is already active');
     if (text.trim().isEmpty ||
         text.trim().length > goalMaxTextLength ||
         (maxTurns != null && maxTurns < 1))
       throw ArgumentError('invalid goal or turn bound');
-    _writer!(GoalChangedEntry(text: text.trim()));
-    for (var turn = 0;
-        !_closed && (maxTurns == null || turn < maxTurns);
-        turn++) {
-      final outcome = await send(turn == 0
-          ? text
-          : 'Continue working toward the current goal. Last assessment: ${goal?.evidence ?? "not yet achieved"}');
-      onTurn?.call(outcome);
-      if (outcome.stopReason != StopReason.complete) return false;
-      try {
+    if (cancel.cancelled) return false;
+    _runCancel = cancel;
+    unawaited(cancel.whenCancelled.then((_) {
+      if (identical(_runCancel, cancel)) _judgeCancel?.cancel('goal cancelled');
+    }));
+    _judgeCancel?.cancel('goal replaced');
+    try {
+      _writer!(GoalChangedEntry(text: text.trim()));
+      for (var turn = 0;
+          !_closed &&
+              !cancel.cancelled &&
+              (maxTurns == null || turn < maxTurns);
+          turn++) {
+        final outcome = await send(turn == 0
+            ? text
+            : 'Continue working toward the current goal. Last assessment: ${goal?.evidence ?? "not yet achieved"}');
+        if (cancel.cancelled) return false;
+        onTurn?.call(outcome);
+        if (outcome.stopReason != StopReason.complete) return false;
         if (await _pendingJudgment != true) return false;
-      } catch (_) {
-        return false;
+        if (_closed || cancel.cancelled || goal?.text != text.trim())
+          return false;
+        if (goal?.verdict == GoalVerdict.achieved) return true;
+        if (goal?.verdict != GoalVerdict.inProgress) return false;
       }
-      if (_closed || goal?.text != text.trim()) return false;
-      if (goal?.verdict == GoalVerdict.achieved) return true;
-      if (goal?.verdict != GoalVerdict.inProgress) return false;
+      return false;
+    } finally {
+      _runCancel = null;
+      _judgeCancel?.cancel('goal run finished');
+      // Cancellation can arrive after TurnEnded starts a judge but before
+      // send returns. Drain that check (and any replaced check) before the
+      // host is allowed to unload the plugin or close the provider.
+      await Future.wait(_judgments.toList());
     }
-    return false;
   }
 
-  /// One judge check against the log as it stands. Records the verdict
-  /// only when it differs — a judge agreeing with itself must not spam
-  /// the log with entries.
-  StreamSubscription<void> _runJudge() {
-    final loop = _loop!;
-    final current = goal!;
-    late final StreamSubscription<void> sub;
-    _pendingJudgment = _judgeOnce(loop, current);
-    sub = Stream<void>.fromFuture(_pendingJudgment!.then<void>((_) {}))
-        .listen((_) {}, onError: (_) {
-      // The judge never breaks the session: a failed check is a silent
-      // skip, and the next completed turn tries again.
-      sub.cancel();
-    });
-    return sub;
+  /// Each check owns cancellation. A late response from a replaced check can
+  /// never change the goal, even when a new goal has identical text.
+  void _runJudge() {
+    _pendingJudgment = _judgeOnce(_loop!, goal!);
   }
 
-  Future<bool> _judgeOnce(AgentLoop loop, SessionGoal current) async {
-    final view = loop.derive();
-    final parsed = await judge(
-      provider: loop.provider,
-      goalText: current.text,
-      digest: GoalJudgeDigest.build(view.messages),
-    );
-    if (_closed || parsed == null) return false;
-    if (goal == null || goal!.text != current.text)
-      return false; // replaced meanwhile
-    if (goal!.verdict == parsed.verdict && goal!.evidence == parsed.evidence) {
-      return true; // no change, no entry
+  Future<bool> _judgeOnce(AgentLoop loop, SessionGoal current) {
+    final pending = _assess(loop, current);
+    _judgments.add(pending);
+    unawaited(pending.then((_) => _judgments.remove(pending)));
+    return pending;
+  }
+
+  Future<bool> _assess(AgentLoop loop, SessionGoal current) async {
+    _judgeCancel?.cancel('judgment replaced');
+    final cancel = _judgeCancel = CancelToken();
+    final run = _runCancel;
+    if (run != null) {
+      if (run.cancelled) cancel.cancel('goal cancelled');
     }
-    _record(loop, current.text, parsed.verdict, parsed.evidence);
-    return true;
+    try {
+      final view = loop.derive();
+      final parsed = await judge(
+        provider: loop.provider,
+        goalText: current.text,
+        digest: GoalJudgeDigest.build(view.messages),
+        cancel: cancel,
+      );
+      if (_closed ||
+          cancel.cancelled ||
+          run?.cancelled == true ||
+          parsed == null) return false;
+      if (goal == null || goal!.text != current.text) return false;
+      if (goal!.verdict == parsed.verdict &&
+          goal!.evidence == parsed.evidence) {
+        return true;
+      }
+      _record(loop, current.text, parsed.verdict, parsed.evidence);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      cancel.cancel('judgment finished');
+    }
   }
 
   void _record(
@@ -409,6 +453,7 @@ final class GoalsPlugin extends AgentPlugin {
     if (RegExp(r'^clear$', caseSensitive: false).hasMatch(args)) {
       if (loop == null) return;
       final had = goal != null;
+      _judgeCancel?.cancel('goal cleared');
       _writer!(const GoalChangedEntry(text: ''));
       terminal.writeln(had ? 'Goal cleared.' : 'No goal set.');
       return;
@@ -431,6 +476,7 @@ final class GoalsPlugin extends AgentPlugin {
       terminal.writeln('goal text exceeds $goalMaxTextLength chars');
       return;
     }
+    _judgeCancel?.cancel('goal replaced');
     _writer!(GoalChangedEntry(text: trimmed));
     _showGoal(terminal);
   }
@@ -472,6 +518,7 @@ final class GoalsPlugin extends AgentPlugin {
     final subscription = _subscription;
     if (subscription != null) _loop?.unsubscribe(subscription);
     _subscription = null;
-    _judgeSub?.cancel();
+    _judgeCancel?.cancel('plugin closed');
+    _runCancel?.cancel('plugin closed');
   }
 }

@@ -180,10 +180,13 @@ Future<int> runCli(
     }
   }
   try {
+    Map<String, Object?> operationArguments = const {};
     try {
-      await command?.prepare?.call(
-        readStdin ?? () => stdin.transform(systemEncoding.decoder).join(),
-      );
+      operationArguments =
+          await command?.prepare.call(
+            readStdin ?? () => stdin.transform(systemEncoding.decoder).join(),
+          ) ??
+          const {};
     } on FormatException catch (e) {
       stderr.writeln('tina: ${e.message}');
       return 64;
@@ -254,38 +257,50 @@ Future<int> runCli(
     );
 
     if (headless) {
+      final connection = assembly.host.connect();
       try {
-        final interrupted = Completer<void>();
+        final id = connection.requestWindow.id('cli');
+        final request = connection.submitOperation(
+          selected!.owner,
+          command.operation,
+          arguments: operationArguments,
+          id: id,
+        );
+        var afterSeq = -1;
+        void drainOutput() {
+          final page = connection.output(id, afterSeq: afterSeq);
+          if (page.missed)
+            stderr.writeln('tina: some operation output expired');
+          for (final entry in page.entries) {
+            (entry.error ? stderr : stdout).writeln(entry.text);
+            if (entry.truncated)
+              stderr.writeln('tina: operation output truncated');
+          }
+          afterSeq = page.throughSeq;
+        }
+
+        final release = connection.listen((_) => drainOutput());
         final interruption = ProcessSignal.sigint.watch().listen((_) {
-          assembly.host.session.loop.cancel('interrupt');
-          if (!interrupted.isCompleted) interrupted.complete();
+          final workId = request.snapshot.workId;
+          if (workId != null) connection.cancel([workId], reason: 'interrupt');
         });
         try {
-          final owner = assembly.host.plugins
-              .where((plugin) => plugin.id == selected!.owner)
-              .firstOrNull;
-          if (owner == null) {
-            stderr.writeln(
-              'tina: ${command.option.flag} requires ${selected!.owner}',
-            );
-            return 78;
-          }
-          return await Future.any([
-            command.run(
-              owner,
-              CliSessionContext(
-                send: (line) => assembly.host.send(line),
-                lastReply: () => assembly.host.session.lastReply,
-                writeLine: stdout.writeln,
-                writeError: stderr.writeln,
-              ),
-            ),
-            interrupted.future.then((_) => 130),
-          ]);
+          final result = await request.completed;
+          drainOutput();
+          final notice = result.result?.notice;
+          if (notice != null) stderr.writeln('tina: $notice');
+          return switch (result.state) {
+            SessionRequestState.completed => 0,
+            SessionRequestState.cancelled => 130,
+            SessionRequestState.rejected => 78,
+            _ => 1,
+          };
         } finally {
+          release();
           await interruption.cancel();
         }
       } finally {
+        connection.close();
         await assembly.shutdown();
       }
     }

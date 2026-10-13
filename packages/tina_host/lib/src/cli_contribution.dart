@@ -1,5 +1,3 @@
-import 'package:tina_engine_2/tina_engine_2.dart';
-
 enum CliValue { none, required, optional }
 
 enum CliCompletion { none, file, directory }
@@ -48,34 +46,21 @@ final class PluginCli {
   final CliSessionCommand? Function(CliArguments)? sessionCommand;
 }
 
-/// A plugin-owned headless entry point. The application handles signals and
-/// shutdown, and resolves the owning plugin by its registered ID.
+/// CLI input preparation for a registered session operation. No live plugin or
+/// execution callback crosses into the CLI; any controller can invoke the same
+/// operation through its session connection.
 final class CliSessionCommand {
   const CliSessionCommand({
     required this.option,
-    required this.run,
+    required this.operation,
+    required this.prepare,
     this.readsStdin = false,
-    this.prepare,
   });
   final CliOption option;
   final bool readsStdin;
+  final String operation;
 
   /// Runs before session construction. Throws FormatException for bad input.
-  final Future<void> Function(Future<String> Function() readStdin)? prepare;
-  final Future<int> Function(AgentPlugin plugin, CliSessionContext context) run;
-}
-
-/// Plugins receive session operations and output sinks, never process streams
-/// or signal handlers.
-final class CliSessionContext {
-  const CliSessionContext({
-    required this.send,
-    required this.lastReply,
-    required this.writeLine,
-    required this.writeError,
-  });
-  final Future<Outcome> Function(String) send;
-  final String? Function() lastReply;
-  final void Function(String) writeLine;
-  final void Function(String) writeError;
+  final Future<Map<String, Object?>> Function(
+      Future<String> Function() readStdin) prepare;
 }

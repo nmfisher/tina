@@ -91,7 +91,7 @@ final class PluginManager<C> {
 
   void reconcile() {
     lastError = null;
-    waitingForIdle = host.session.loop.running;
+    waitingForIdle = host.busy;
     if (waitingForIdle) return;
     final current = loaded;
     final target = {...current};

@@ -10,6 +10,7 @@ import 'package:tina_core/tina_core.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show AgentPlugin;
 import 'session_questions.dart';
 import 'snapshot_feature.dart';
+import 'host.dart' show SessionOperationHandler;
 
 /// Builds one provider. Called **once per session, by that session's
 /// host** — never store a shared instance: a provider owns its connection
@@ -33,6 +34,7 @@ final class HostConfig {
     this.details,
     this.questions,
     this.snapshotFeatureFor,
+    this.operationsFor,
     this.requestHistoryLimit = 256,
   });
 
@@ -71,6 +73,10 @@ final class HostConfig {
   /// Application adapters select public observations without teaching the host
   /// about concrete plugins. Called for startup and dynamically loaded plugins.
   final SnapshotFeature? Function(AgentPlugin)? snapshotFeatureFor;
+
+  /// Owner-side operation handlers for startup and dynamically loaded plugins.
+  final Map<String, SessionOperationHandler> Function(AgentPlugin)?
+      operationsFor;
 
   /// Maximum retained retry receipts, including active requests. At capacity,
   /// terminal receipts may expire; if all are active, new requests are refused.

@@ -1,4 +1,3 @@
-import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'goals.dart';
 
@@ -40,34 +39,14 @@ final goalsCli = PluginCli(
     return CliSessionCommand(
       option: goalOption,
       readsStdin: readsStdin,
+      operation: 'run',
       prepare: (readStdin) async {
         if (readsStdin) text = await readStdin();
         _validateGoal(text!);
-      },
-      run: (plugin, context) async {
-        var cancelled = false;
-        final achieved = await (plugin as GoalsPlugin).runToGoal(
-          text: text!,
-          maxTurns: maxTurns == null ? null : int.parse(maxTurns),
-          send: context.send,
-          onTurn: (outcome) {
-            final reply = context.lastReply();
-            if (reply != null && reply.isNotEmpty) context.writeLine(reply);
-            if (outcome.stopReason != StopReason.complete) {
-              cancelled = outcome.stopReason == StopReason.cancelled;
-              context.writeError(outcome.detail);
-            }
-          },
-        );
-        if (!achieved && !cancelled) {
-          context.writeError(
-              'tina: goal was not achieved or completion could not be verified');
-        }
-        return achieved
-            ? 0
-            : cancelled
-                ? 130
-                : 1;
+        return {
+          'text': text!,
+          if (maxTurns != null) 'max_turns': int.parse(maxTurns)
+        };
       },
     );
   },

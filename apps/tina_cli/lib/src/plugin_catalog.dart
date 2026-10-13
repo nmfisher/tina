@@ -306,6 +306,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         PluginDefinition<SessionPluginContext>(
             'tina/goals', (c) => GoalsPlugin(terminal: c.terminal),
             cli: goalsCli,
+            operations: goalsOperations,
             description:
                 'Tracks an active goal and its progress across turns, with optional token budgets.',
             live: true),

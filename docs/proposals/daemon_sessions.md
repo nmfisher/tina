@@ -644,6 +644,14 @@ and cancellable-work state drive activity indicators, input routing and Escape,
 including for a client attaching while another is working. Command activity
 includes commands without cancellation hooks.
 
+Implemented headless receipt routing: CLI contributions prepare data for named
+plugin operations; `SessionConnection.submitOperation` submits that data and the
+host invokes the registered handler. A goal run remains one active operation
+through all turns and judgments. Its receipt and bounded output are visible to
+other clients, detach leaves it running, and cancellation reaches both the active
+turn and judge stream. The CLI owns process I/O, signals and embedded-session
+shutdown. This uses the existing host and packages; a daemon remains future work.
+
 Only unsent lines wait in the view: commands requiring idle and plain input
 during cleanup are dispatched sequentially once shared activity becomes idle.
 Accepted input stays solely in the engine queue. Pending counts combine that

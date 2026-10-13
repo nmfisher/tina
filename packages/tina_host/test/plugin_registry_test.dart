@@ -25,34 +25,39 @@ const service = PluginCapability<Service>('acme/service');
 const other = PluginCapability<AgentPlugin>('acme/other');
 
 void main() {
-  test(
-      'CLI contributions survive every definition factory without construction',
-      () {
+  test('CLI and operation declarations survive every definition factory', () {
     const cli = PluginCli(options: [
       CliOption('example', description: 'Example command'),
     ]);
+    final operations = <String, SessionOperationHandler>{
+      'run': (plugin, arguments, context) async => const SessionResult()
+    };
     final definitions = [
       PluginDefinition<void>('acme/plain', (_) => throw StateError('not built'),
-          description: 'Plain', cli: cli),
+          description: 'Plain', cli: cli, operations: operations),
       PluginDefinition.dependingOn<void, Service>('acme/one',
           dependency: service,
           create: (context, dependency) => throw StateError('not built'),
           description: 'One dependency',
-          cli: cli),
+          cli: cli,
+          operations: operations),
       PluginDefinition.dependingOn2<void, Service, AgentPlugin>('acme/two',
           first: service,
           second: other,
           create: (context, first, second) => throw StateError('not built'),
           description: 'Two dependencies',
-          cli: cli),
+          cli: cli,
+          operations: operations),
     ];
     for (final definition in definitions) {
       expect(definition.cli, same(cli));
+      expect(definition.operations, same(operations));
     }
     final registry = PluginRegistry<void>()
       ..register('acme/example', (_) => throw StateError('not built'),
-          description: 'Example', cli: cli);
+          description: 'Example', cli: cli, operations: operations);
     expect(registry.definition('acme/example').cli, same(cli));
+    expect(registry.definition('acme/example').operations, same(operations));
   });
 
   test(

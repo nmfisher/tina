@@ -106,10 +106,11 @@ Dependency direction, top down only:
     and tools owns `--no-sandbox`. The application declares bootstrap options
     in `cli_options.dart`; `CliSchema` combines the catalog contributions,
     rejects flag/alias collisions and drives parsing, help and all shell
-    completions. Headless handlers belong to their plugins and receive session
-    operations/output callbacks through `CliSessionContext`. The CLI owns stdin,
-    signals and shutdown and resolves handlers by plugin ID, without concrete
-    feature type checks. Declaring a command does not enable its plugin.
+    completions. `CliSessionCommand` prepares data for a named operation in
+    `PluginDefinition.operations`. The CLI submits it through `SessionConnection`;
+    the host resolves and invokes the plugin handler. The CLI owns stdin, output
+    rendering, signals, exit codes and shutdown of its embedded session. Declaring
+    a command does not enable its plugin.
   - `console_catalog.dart` constructs fresh presentation views for existing
     runtime features. `tui_presentation.dart` supplies those factories and
     settings operations to the reusable frontend. `ConfigSettingsManagement`
@@ -162,8 +163,8 @@ SessionAssembly.start ──► config + scoped settings stack + plugin registry
 ```
 
 The interactive path wraps it (`TuiSession.wrap`) and attaches the
-renderer. The headless path (`--goal`) runs turns against the
-same assembly with no renderer and an approval channel that denies by
+renderer. The headless path (`--goal`) submits the goals plugin's `run`
+operation through a controller connection, with no renderer and an approval channel that denies by
 policy. Settings and plugin changes travel through config files plus the
 assembly's configuration watcher — the assembly hot-reloads when they
 change on disk.
@@ -244,6 +245,30 @@ commands, and cancellation names existing work IDs. The one-shot `submit`,
 `offerInput` and `offerCommand` conveniences keep their embedded-client behavior
 without a retry guarantee. No request journal, daemon or transport is introduced;
 in-memory deduplication does not survive a process restart.
+
+`submitOperation(plugin, operation, arguments:, id:)` uses the same receipts
+and controller checks for plugin work spanning multiple turns. Arguments are
+immutable JSON values; retries compare canonical payloads, including the plugin
+and operation names. Input submissions and operations cannot share a request ID.
+The host keeps the operation busy through judging and between turns, defers live
+plugin changes, and blocks model switching until it settles. Controllers may
+still steer an active turn; between-turn input is explicitly rejected. Commands
+keep their declared `allowWhileRunning` policy.
+
+The operation has one stable cancellation ID. Cancellation reaches its active
+turn, scoped questions and cooperative handler; shutdown waits for cleanup before
+closing plugins or the provider. The goals handler cancels its judge stream and
+discards late verdicts. A disconnected starter does not stop execution. Operation
+handlers must await their work and honor `context.whenCancelled`; returning early
+cannot leave an owned turn running, and retired contexts cannot send or emit output.
+
+Clients read operation output through `connection.output(id, afterSeq:)` and use
+connection updates as a wake-up signal. Each retained receipt keeps at most 128
+output entries and 65,536 characters, with explicit missing/truncated indicators.
+This is ephemeral output, not a second persistent transcript. Observers can read
+it and the completion receipt, but cannot invoke or cancel operations. The CLI
+renders these entries and maps completion, failure, cancellation and rejected
+admission to exit codes 0, 1, 130 and 78 respectively.
 
 Both TUI layouts submit through `SessionView`, which assigns one request ID per
 runtime action and waits for its receipt. Failed, rejected or expired requests

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina/tina.dart';
 import 'package:tina/session.dart';
@@ -8,6 +9,88 @@ import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_goals/tina_goals.dart';
 
 void main() {
+  test(
+    'SIGINT cancels a headless goal while its judge stream is waiting',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'tina-headless-signal-',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final judging = Completer<void>();
+      final config = File('${directory.path}/config')
+        ..writeAsStringSync('''
+[default]
+provider = "local"
+model = "goal"
+[providers.local]
+base_url = "http://127.0.0.1:${server.port}/v1"
+api_key = "fixture"
+models = ["goal"]
+[plugins]
+enabled = ["tina/goals"]
+''');
+      Process? child;
+      addTearDown(() async {
+        child?.kill(ProcessSignal.sigkill);
+        await server.close(force: true);
+        directory.deleteSync(recursive: true);
+      });
+      server.listen((request) async {
+        final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map;
+        final isJudge = (body['messages'] as List).any(
+          (message) =>
+              message['role'] == 'system' &&
+              message['content'].toString().contains('You judge whether'),
+        );
+        request.response.headers.contentType = ContentType(
+          'text',
+          'event-stream',
+        );
+        if (isJudge) {
+          request.response.write(': waiting\n\n');
+          await request.response.flush();
+          judging.complete();
+          return; // Leave the HTTP stream open until the client cancels.
+        }
+        request.response.write(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'index': 0,
+                'delta': {'content': 'work complete'},
+                'finish_reason': 'stop',
+              },
+            ],
+          })}\n\ndata: [DONE]\n\n',
+        );
+        await request.response.close();
+      });
+      child = await Process.start(Platform.resolvedExecutable, [
+        'run',
+        'bin/tina.dart',
+        '--config',
+        config.path,
+        '--cwd',
+        directory.path,
+        '--no-sandbox',
+        '--goal',
+        'finish',
+      ]);
+      final output = child.stdout.transform(utf8.decoder).join();
+      final errors = child.stderr.transform(utf8.decoder).join();
+      await child.stdin.close();
+      await judging.future.timeout(const Duration(seconds: 30));
+      expect(child.kill(ProcessSignal.sigint), isTrue);
+      expect(
+        await child.exitCode.timeout(const Duration(seconds: 10)),
+        130,
+        reason: await errors,
+      );
+      expect(await output, contains('work complete'));
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
   test(
     'headless goal, model override, continue and unattended approvals',
     () async {

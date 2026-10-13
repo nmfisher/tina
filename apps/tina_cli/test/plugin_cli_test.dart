@@ -46,6 +46,14 @@ enabled = ["acme/report"]
             return _ReportPlugin(() => closes++);
           },
           description: 'Reports',
+          operations: {
+            'report': (plugin, arguments, context) async {
+              expect(plugin, isA<_ReportPlugin>());
+              events.add('run:${arguments['value']}');
+              context.writeLine('report completed');
+              return const SessionResult(stopReason: StopReason.complete);
+            },
+          },
           cli: PluginCli(
             options: [option],
             sessionCommand: (args) {
@@ -53,16 +61,12 @@ enabled = ["acme/report"]
               if (value == null) return null;
               return CliSessionCommand(
                 option: option,
+                operation: 'report',
                 prepare: (_) async {
                   if (value == 'invalid')
                     throw const FormatException('bad report');
                   events.add('prepare:$value');
-                },
-                run: (plugin, context) async {
-                  expect(plugin, isA<_ReportPlugin>());
-                  events.add('run:$value');
-                  context.writeLine('report completed');
-                  return 23;
+                  return {'value': value};
                 },
               );
             },
@@ -86,7 +90,7 @@ enabled = ["acme/report"]
           locateTerminalDevice: () =>
               throw StateError('headless has no terminal'),
         ),
-        23,
+        0,
       );
       expect(events, ['prepare:summary', 'run:summary']);
       expect(registrations, 3);
