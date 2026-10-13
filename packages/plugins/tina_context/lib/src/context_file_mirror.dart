@@ -1,3 +1,5 @@
+import '../observation.dart' show ContextEditStatus, ContextEditReceipt;
+export '../observation.dart' show ContextEditStatus, ContextEditReceipt;
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,14 +7,6 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 
 import 'context_edit.dart';
 import 'working_context.dart';
-
-enum ContextEditStatus { unchanged, accepted, rejected }
-
-final class ContextEditReceipt {
-  const ContextEditReceipt(this.status, this.message);
-  final ContextEditStatus status;
-  final String message;
-}
 
 /// The file is an editing surface; the persisted log remains authoritative.
 /// One mirror instance and one explicit path belong to one session.
@@ -81,8 +75,8 @@ final class ContextFileMirror {
       // Structural parse of the document stays here (it is file shape, not
       // edit validity); everything past parsing is evaluateContextEdit.
       if (!sameMessages(edited, base.messages)) {
-        final verdict = evaluateContextEdit(
-            current: current, edited: edited, base: base);
+        final verdict =
+            evaluateContextEdit(current: current, edited: edited, base: base);
         switch (verdict) {
           case ContextEditUnchanged():
             break; // unreachable: edited differs from base by the check above

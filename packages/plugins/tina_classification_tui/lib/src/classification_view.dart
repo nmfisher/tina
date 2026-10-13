@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:classification/plugin.dart';
+import 'package:classification/observation.dart';
 import 'package:tina_console/tina_console.dart';
 
 import 'classification_panel.dart';
@@ -35,10 +35,7 @@ final class ClassificationView
     );
     // Register cleanup before starting, so partial attachment failures release
     // subscriptions, animations and any panel resources already acquired.
-    final subscription = classification.changes.listen((_) => repaintConsole());
-    final traceSubscription = classification.traceChanges.listen(
-      (_) => repaintConsole(),
-    );
+    final release = classification.listen(repaintConsole);
     final shortcut = context.bindShortcut((event) {
       if (event is FunctionKey && event.code == FunctionKeyCode.f6) {
         inspector.toggle();
@@ -48,8 +45,7 @@ final class ClassificationView
     });
     context.screen.registerAnimation(repaintConsole);
     _release = context.own(() {
-      unawaited(subscription.cancel());
-      unawaited(traceSubscription.cancel());
+      release();
       shortcut();
       context.screen.unregisterAnimation(repaintConsole);
       inspector.dispose();

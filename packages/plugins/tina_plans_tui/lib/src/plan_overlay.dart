@@ -1,6 +1,5 @@
-import 'dart:async';
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_plans/tina_plans.dart';
+import 'package:tina_plans/observation.dart';
 
 enum PlanOverlayMode { auto, manual, off }
 
@@ -192,7 +191,7 @@ class PlanOverlay implements PanelInputTarget {
   OverlayRegion? _region;
   SidebarPanel? _slot;
   ScreenCursor? _cursor;
-  StreamSubscription<void>? _sub;
+  void Function()? _sub;
   bool _started = false, _focused = false, _highlighted = false;
   bool? _userOverride;
   int? _selected;
@@ -360,7 +359,7 @@ class PlanOverlay implements PanelInputTarget {
     _started = true;
     _slot = context.bindSidebarPanel(refresh, priority: 10);
     focusManager?.register(this);
-    _sub = plans.changes.listen((_) => refresh());
+    _sub = plans.listen(refresh);
     refresh();
   }
 
@@ -498,7 +497,7 @@ class PlanOverlay implements PanelInputTarget {
     _slot = null;
     if (identical(focusManager?.focused, this)) focusManager?.returnHome();
     focusManager?.unregister(this);
-    unawaited(_sub?.cancel());
+    _sub?.call();
     _region?.dispose();
     _region = null;
   }

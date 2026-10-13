@@ -1,4 +1,3 @@
-import 'package:classification/plugin.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 import 'package:tina_classification_tui/tina_classification_tui.dart';
@@ -8,13 +7,11 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
-import 'package:tina_context/tina_context.dart';
 import 'package:tina_context_tui/tina_context_tui.dart';
 import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_mcp/tina_mcp.dart';
 import 'package:tina_mcp_tui/tina_mcp_tui.dart';
-import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_plans_tui/tina_plans_tui.dart';
 
 /// Application-owned construction of a fresh view for each attachment.
@@ -31,8 +28,6 @@ final _viewFactories =
       mode: (plugin as PresentationPlugin<ModeObservation>)
           .source
           .forClient(access)),
-  'tina/context-tui': (plugin, access) => ContextView(
-      context: (plugin as PresentationPlugin<ContextObservation>).source),
   'tina/update-tui': (plugin, access) => UpdateView(
       _ClientUpdateStatus(
           (plugin as PresentationPlugin<UpdateStatusSource>).source, access),
@@ -43,10 +38,6 @@ final _viewFactories =
   'tina/panels-tui': (_, access) => PanelsView(),
   'tina/session-controls': (plugin, access) => SessionControlsView(
       (plugin as SessionControlsPlugin).observation.forClient(access)),
-  'tina/plans': (plugin, access) =>
-      PlansView((plugin as PlansPlugin).observation),
-  'tina/classification': (plugin, access) =>
-      ClassificationView((plugin as ClassificationPlugin).observation),
   'tina/mcp': (plugin, access) {
     final management = (plugin as McpPlugin).management;
     return management == null ? null : McpView(management.forClient(access));
@@ -60,6 +51,11 @@ ConsoleContribution? createConsoleView(AgentPlugin plugin,
     switch (plugin.id) {
       'tina/chat-tui' => ChatView(ConnectionChatObservation(connection)),
       'tina/activity-tui' => ActivityView(connection),
+      'tina/plans' => PlansView(ConnectionPlanObservation(connection)),
+      'tina/classification' =>
+        ClassificationView(ConnectionClassificationObservation(connection)),
+      'tina/context-tui' =>
+        ContextView(context: ConnectionContextObservation(connection)),
       _ => _viewFactories[plugin.id]?.call(plugin, connection.access),
     };
 

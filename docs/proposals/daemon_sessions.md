@@ -802,6 +802,15 @@ progress/output and optional completion flags, while keeping browser state local
 Reused tool IDs create distinct records; replay does not reprint completions.
 Publication failure displays only confirmed activity. Import checks prohibit
 runtime activity/chat dependencies in the activity renderer.
+Plans and classification now use connection-backed observations too. Their
+contracts and immutable display types live separately from runtime code in the
+existing feature packages. Context reads public snapshot status and derives its
+accepted messages and latest edit from fixed committed history pages, on demand.
+It observes external file status without gaining file access. Local folds,
+selection and scroll remain independent. Import checks prevent these inspectors
+from reaching plugin implementations, classifier execution or the context mirror.
+Interactive controls, settings and management views still use typed runtime
+capabilities and are the next migration boundary.
 Existing preview limits report omissions explicitly. Detaching releases only
 the subscription; shutdown delivers final closed state. History and pending
 interaction state are not copied to another store. Transport serialization,

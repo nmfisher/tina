@@ -161,6 +161,27 @@ Future<void> main() async {
       isEmpty,
     );
   });
+  test('read-only inspectors cannot reach plugin implementations or files', () {
+    for (final source in [
+      'packages/plugins/tina_plans_tui/lib/tina_plans_tui.dart',
+      'packages/plugins/tina_classification_tui/lib/tina_classification_tui.dart',
+      'packages/plugins/tina_context_tui/lib/tina_context_tui.dart',
+    ]) {
+      expect(
+        violations(source, {
+          'packages/plugins/tina_plans/lib/src/plans.dart',
+          'packages/classification/lib/plugin.dart',
+          'packages/classification/lib/typesafe_classifier.dart',
+          'packages/classification/lib/src/input/category_learner.dart',
+          'packages/plugins/tina_context/lib/src/context_plugin.dart',
+          'packages/plugins/tina_context/lib/src/context_file_mirror.dart',
+          'apps/tina_cli/lib/src/assembly.dart',
+        }),
+        isEmpty,
+        reason: source,
+      );
+    }
+  });
   test('session composition has no transitive frontend dependency', () {
     expect(
       violations('apps/tina_cli/lib/session.dart', {

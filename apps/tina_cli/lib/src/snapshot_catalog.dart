@@ -77,7 +77,7 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
         'approval': plans.state.approval.name,
         'items': [for (final item in plans.state.items) _plan(item)],
       },
-      listen: _watch(plans.changes),
+      listen: plans.listen,
     );
   }
   if (plugin is ContextPlugin) {
@@ -94,6 +94,15 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
         'response_reserve_tokens': context.budgetUsage?.responseReserveTokens,
         'file_status': context.fileStatus,
         'last_edit_tokens_saved': context.latestEditTokensSaved,
+        'include_pending_turn': context.includePendingTurn,
+        'usage_budget_tokens': context.budgetUsage?.budgetTokens,
+        'mirror_path': context.mirrorPath,
+        'last_edit_receipt': context.lastEditReceipt == null
+            ? null
+            : {
+                'status': context.lastEditReceipt!.status.name,
+                'message': context.lastEditReceipt!.message,
+              },
       },
     );
   }
@@ -112,6 +121,7 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
               'id': e.id,
               'parent_id': e.parentId,
               'phase': e.phase.name,
+              'pending': e.pending,
               'title': e.title,
               'input_id': e.inputId,
               'classifier_id': e.classifierId,
@@ -130,14 +140,7 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
             },
         ],
       },
-      listen: (changed) {
-        final status = _watch(classification.changes)(changed);
-        final trace = _watch(classification.traceChanges)(changed);
-        return () {
-          status();
-          trace();
-        };
-      },
+      listen: classification.listen,
     );
   }
   if (plugin is SessionControlsPlugin) {
@@ -189,7 +192,8 @@ Map<String, Object?> _plan(PlanEntryItem item) => {
   'text': item.text,
   'state': item.state,
   'summary': item.summary,
-  'children': [for (final child in item.children) _plan(child)],
+  if (item.children.isNotEmpty)
+    'children': [for (final child in item.children) _plan(child)],
 };
 
 void Function() Function(void Function()) _watch<T>(Stream<T> changes) =>

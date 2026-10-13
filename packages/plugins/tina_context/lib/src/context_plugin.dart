@@ -1,3 +1,4 @@
+import '../observation.dart';
 import 'dart:io';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -6,7 +7,6 @@ import 'context_edit.dart';
 import 'context_file_mirror.dart';
 import 'context_settings.dart';
 import 'context_budget.dart';
-import 'working_context.dart';
 
 /// An invalid edit, as opposed to a failed durable write.
 final class ContextEditRejected extends StateError {
@@ -36,7 +36,7 @@ final class ContextPersistenceFailure extends StateError {
 
 /// Explicitly opt-in. A file mirror is enabled only with an explicit path.
 final class ContextPlugin extends AgentPlugin implements MessageProjection {
-  late final observation = ContextObservation._(this);
+  late final ContextObservation observation = _ContextObservation(this);
   ContextPlugin(
       {File? mirrorFile,
       int budgetTokens = defaultContextBudgetTokens,
@@ -100,27 +100,8 @@ final class ContextPlugin extends AgentPlugin implements MessageProjection {
   /// Latest eligible accepted replacement, replayed from the original log.
   /// This also works after resume and excludes edits from abandoned turns.
   ({WorkingContext before, WorkingContextSnapshot after})? get latestChange {
-    final loop = _mounted;
-    final completed = {
-      for (final e in loop.log.whereType<TurnEndedEntry>()) e.turnId
-    };
-    final active = loop.inTurn ? loop.derive().pendingTurnId : null;
-    for (final entry in loop.log.reversed) {
-      if (entry is ContextClearedEntry) break;
-      if (entry is! PluginStateEntry ||
-          entry.pluginId != id ||
-          entry.stateKey != workingContextKey) continue;
-      final snapshot = WorkingContextSnapshot.fromEntry(entry);
-      if (snapshot.originTurnId != null &&
-          snapshot.originTurnId != active &&
-          !completed.contains(snapshot.originTurnId)) continue;
-      return (
-        before: deriveWorkingContext(loop.log.sublist(0, entry.seq),
-            includePendingTurn: true),
-        after: snapshot,
-      );
-    }
-    return null;
+    return deriveLatestContextChange(_mounted.log,
+        includePendingTurn: _mounted.inTurn);
   }
 
   @override
@@ -332,9 +313,12 @@ final class ContextPlugin extends AgentPlugin implements MessageProjection {
 
 /// Accepted state for inspectors. No mirror writes, file handles, loop or
 /// session-close operations cross this capability.
-final class ContextObservation {
-  ContextObservation._(this._plugin);
+final class _ContextObservation implements ContextObservation {
+  _ContextObservation(this._plugin);
   final ContextPlugin _plugin;
+  @override
+  void refresh() {}
+  bool get includePendingTurn => _plugin._mounted.inTurn;
   WorkingContext get workingContext => _plugin.workingContext;
   ContextBudgetUsage? get budgetUsage => _plugin.budgetUsage;
   int get budgetTokens => _plugin.budgetTokens;

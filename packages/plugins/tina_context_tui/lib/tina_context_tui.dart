@@ -1,10 +1,12 @@
 library;
 
+export 'src/connection_context.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_context/tina_context.dart';
+import 'package:tina_context/observation.dart';
 
 /// Read-only presentation: never synchronizes the mirror or writes session state.
 final class ContextView implements ConsoleContribution, ConsoleCommandHandler {
@@ -84,6 +86,7 @@ final class ContextView implements ConsoleContribution, ConsoleCommandHandler {
     final summary = <String>[];
     final body = <String>[];
     try {
+      context.refresh();
       final current = context.workingContext;
       final usage = context.budgetUsage;
       if (usage == null) {
@@ -314,6 +317,8 @@ String _preview(String text) =>
     clipDialogText(_safe(text).replaceAll(RegExp(r'\s+'), ' ').trim(), 100);
 
 String _fileState(ContextObservation context) {
+  if (context.fileStatus.startsWith('Live context unavailable'))
+    return context.fileStatus;
   if (context.fileStatus.startsWith('Pending'))
     return 'Edits awaiting validation · showing saved context';
   if (context.fileStatus.startsWith('Missing'))

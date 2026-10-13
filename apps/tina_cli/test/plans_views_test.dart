@@ -37,12 +37,12 @@ void main() {
     final feature = assembly.host.plugins.whereType<PlansPlugin>().single;
     expect(feature, isNot(isA<ConsoleContribution>()));
     expect(assembly.commands['plan'], isNotNull);
-    final first =
-        createConsoleView(feature, connection: testConnection()) as PlansView;
-    final second =
-        createConsoleView(feature, connection: testConnection()) as PlansView;
+    final first = createConsoleView(feature,
+        connection: testConnection(host: assembly.host)) as PlansView;
+    final second = createConsoleView(feature,
+        connection: testConnection(host: assembly.host)) as PlansView;
     expect(first, isNot(same(second)));
-    expect(first.plans, same(second.plans));
+    expect(first.plans, isNot(same(second.plans)));
     final inputs = [FakeIo(), FakeIo()];
     final screens = inputs.map(fakeScreen).toList();
     final editors =

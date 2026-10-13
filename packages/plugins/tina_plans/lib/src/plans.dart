@@ -24,7 +24,7 @@
 /// a turn — waiting is the caller's (the executor's) business.
 library;
 
-import 'state.dart';
+import '../observation.dart';
 
 import 'dart:async';
 
@@ -40,74 +40,21 @@ const planMaxItems = 64;
 const planMaxTextLength = 240;
 const planMaxSummaryLength = PlanEntryItem.maxSummaryLength;
 
-/// The plan state as the plugin holds it between entries: the entry list
-/// replayed. The log is the truth; this is the running session's reading
-/// of it, kept current by subscribing to the loop.
-class PlanState {
-  final List<PlanEntryItem> items;
-  final PlanApproval approval;
-
-  PlanState({
-    required List<PlanEntryItem> items,
-    this.approval = PlanApproval.none,
-  }) : items = List.unmodifiable(items.map(_snapshotItem));
-
-  static PlanEntryItem _snapshotItem(PlanEntryItem item) => PlanEntryItem(
-        item.text,
-        state: item.state,
-        summary: item.summary,
-        children: List.unmodifiable(item.children.map(_snapshotItem)),
-      );
-
-  bool get isEmpty => items.isEmpty;
-
-  bool get needsApproval => approval == PlanApproval.requested;
-
-  bool get isApproved => approval == PlanApproval.approved;
-
-  /// The in-progress texts, in order (at most one when validated).
-  List<String> get inProgress => [
-        for (final i in items) ...[
-          if (i.state == 'in_progress') i.text,
-          ...[
-            for (final c in i.children)
-              if (c.state == 'in_progress') c.text,
-          ],
-        ],
-      ];
-
-  /// True when the item *content* matches [other] — same count, same
-  /// trimmed text and children in the same order, states ignored. The
-  /// edit-resets-approval rule's test: a progress tick preserves an
-  /// approval, a re-write clears it.
-  bool contentMatches(List<PlanEntryItem> other) {
-    if (items.length != other.length) return false;
-    for (var i = 0; i < items.length; i++) {
-      if (!_itemContentEquals(items[i], other[i])) return false;
-    }
-    return true;
-  }
-
-  static bool _itemContentEquals(PlanEntryItem a, PlanEntryItem b) {
-    if (a.text.trim() != b.text.trim()) return false;
-    if (a.summary.trim() != b.summary.trim()) return false;
-    if (a.children.length != b.children.length) return false;
-    for (var i = 0; i < a.children.length; i++) {
-      if (!_itemContentEquals(a.children[i], b.children[i])) return false;
-    }
-    return true;
-  }
-}
-
 /// Read-only plans state for a presentation attachment. The owning plugin
 /// retains all mutation and disposal authority; listeners release only their
 /// own subscriptions. Snapshots remain valid after later plan changes.
-final class PlanObservation {
-  PlanObservation._(this._store);
+final class _PlanObservation implements PlanObservation {
+  _PlanObservation(this._store);
   final PlanStore _store;
 
   PlanState get state => _store.state;
-  Stream<void> get changes => _store.changes;
+  @override
+  String? get unavailableReason => null;
+  @override
+  void Function() listen(void Function() changed) {
+    final subscription = _store.changes.listen((_) => changed());
+    return () => unawaited(subscription.cancel());
+  }
 }
 
 /// One plan for one session, held by the plugin. The log carries the
@@ -117,7 +64,7 @@ final class PlanObservation {
 class PlanStore {
   PlanState _state = PlanState(items: const []);
 
-  late final PlanObservation observation = PlanObservation._(this);
+  late final PlanObservation observation = _PlanObservation(this);
 
   /// The plan now. Empty when the session carries none.
   PlanState get state => _state;

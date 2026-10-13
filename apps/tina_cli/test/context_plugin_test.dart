@@ -1,8 +1,10 @@
+import 'package:tina/src/console_catalog.dart';
+import 'package:tina_context_tui/tina_context_tui.dart';
+import 'support/session_connection.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_context/tina_context.dart';
-import 'package:tina_host/tina_host.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina/session.dart';
@@ -93,12 +95,15 @@ void main() {
         'tina/context-tui', true, PluginScope.workspace, app.pluginManager);
     expect(app.pluginManager.lastError, isNull);
     expect(app.commands['context'], isNotNull);
+    final declaration =
+        app.host.plugins.singleWhere((p) => p.id == 'tina/context-tui');
+    final view = createConsoleView(declaration,
+        connection: testConnection(host: app.host))! as ContextView;
+    expect(view.context, isA<ConnectionContextObservation>());
+    view.context.refresh();
+    expect(view.context.mirrorPath, plugin.mirrorFile!.path);
     expect(
-        app.host.plugins
-            .whereType<PresentationPlugin<ContextObservation>>()
-            .single
-            .source,
-        same(plugin.observation));
+        view.context.workingContext.revision, plugin.workingContext.revision);
     expect(app.host.session.loop.log.length, before);
     expect(
         () => app.pluginSettings.apply(
@@ -129,12 +134,13 @@ void main() {
         options: options(), providerFactory: (_) => ScriptedProvider([]));
     addTearDown(restarted.close);
     expect(restarted.commands['context'], isNotNull);
-    expect(
-        restarted.host.plugins
-            .whereType<PresentationPlugin<ContextObservation>>()
-            .single
-            .source,
-        same(context(restarted).observation));
+    final declaration =
+        restarted.host.plugins.singleWhere((p) => p.id == 'tina/context-tui');
+    final view = createConsoleView(declaration,
+        connection: testConnection(host: restarted.host))! as ContextView;
+    expect(view.context, isA<ConnectionContextObservation>());
+    view.context.refresh();
+    expect(view.context.mirrorPath, context(restarted).mirrorFile!.path);
   });
 
   test(
@@ -143,8 +149,8 @@ void main() {
     enable();
     late SessionAssembly app;
     final provider = EditingProvider(() => context(app));
-    app =
-        SessionAssembly.start(options: options(), providerFactory: (_) => provider);
+    app = SessionAssembly.start(
+        options: options(), providerFactory: (_) => provider);
     final plugin = context(app);
     final file = plugin.mirrorFile!;
     expect(app.tools.sandbox.grants.allows(file.resolveSymbolicLinksSync()),
@@ -214,8 +220,8 @@ void main() {
       scriptedReply('three'),
       scriptedReply('summary must not run'),
     ]);
-    final app =
-        SessionAssembly.start(options: options(), providerFactory: (_) => provider);
+    final app = SessionAssembly.start(
+        options: options(), providerFactory: (_) => provider);
     addTearDown(app.close);
     for (final prompt in ['one', 'two', 'three']) {
       await app.host.send(prompt);
@@ -242,8 +248,8 @@ void main() {
       scriptedReply('three'),
       scriptedReply('summary'),
     ]);
-    final app =
-        SessionAssembly.start(options: options(), providerFactory: (_) => provider);
+    final app = SessionAssembly.start(
+        options: options(), providerFactory: (_) => provider);
     addTearDown(app.close);
     for (final prompt in ['one', 'two', 'three']) {
       await app.host.send(prompt);

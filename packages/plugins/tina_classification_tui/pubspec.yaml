@@ -5,6 +5,8 @@ version: 0.1.0
 environment:
   sdk: ^3.12.0
 dependencies:
+  tina_host:
+    path: ../../tina_host
   classification:
     path: ../../classification
   tina_console:

@@ -1,61 +1,7 @@
+import 'classification_snapshot.dart';
+export 'classification_snapshot.dart';
 import 'dart:async';
 import 'dart:convert';
-
-enum ClassificationExchangePhase { pending, complete, failed, cancelled }
-
-/// Display-only decoded outcome. Scores and wire answers remain separate.
-final class ClassificationOutcome {
-  const ClassificationOutcome(this.label, {this.unclear = false});
-  final String label;
-  final bool unclear;
-}
-
-/// Immutable diagnostics for readers that do not own classifier execution.
-final class ClassificationTraceSnapshot {
-  ClassificationTraceSnapshot._(ClassificationTrace trace)
-    : revision = trace.revision,
-      exchanges = List.unmodifiable(
-        trace.exchanges.map(ClassificationExchangeSnapshot._),
-      );
-  final int revision;
-  final List<ClassificationExchangeSnapshot> exchanges;
-}
-
-/// One exchange as it stood at a particular trace revision.
-final class ClassificationExchangeSnapshot {
-  ClassificationExchangeSnapshot._(ClassificationExchange exchange)
-    : id = exchange.id,
-      parentId = exchange.parentId,
-      classifierId = exchange.classifierId,
-      classifierName = exchange.classifierName,
-      trigger = exchange.trigger,
-      inputText = exchange.inputText,
-      outcome = exchange.outcome,
-      questions = exchange.questions,
-      answers = exchange.answers,
-      inputId = exchange.inputId,
-      title = exchange.title,
-      request = exchange.request,
-      started = exchange.started,
-      response = exchange.response,
-      error = exchange.error,
-      elapsed = exchange.elapsed,
-      phase = exchange.phase,
-      pending = exchange.pending;
-
-  final int id;
-  final int? parentId;
-  final String classifierId, classifierName;
-  final String? trigger, inputText;
-  final ClassificationOutcome? outcome;
-  final Map<String, Object?> questions, answers;
-  final String inputId, title, request, response;
-  final DateTime started;
-  final String? error;
-  final Duration? elapsed;
-  final ClassificationExchangePhase phase;
-  final bool pending;
-}
 
 Object? _freeze(Object? value) => switch (value) {
   Map value => Map<String, Object?>.unmodifiable(
@@ -82,7 +28,31 @@ final class ClassificationTrace {
   int _revision = 0;
   ClassificationTraceSnapshot? _snapshot;
   ClassificationTraceSnapshot get snapshot =>
-      _snapshot ??= ClassificationTraceSnapshot._(this);
+      _snapshot ??= ClassificationTraceSnapshot(
+        revision: revision,
+        exchanges: exchanges.map(
+          (e) => ClassificationExchangeSnapshot(
+            id: e.id,
+            parentId: e.parentId,
+            classifierId: e.classifierId,
+            classifierName: e.classifierName,
+            trigger: e.trigger,
+            inputText: e.inputText,
+            outcome: e.outcome,
+            questions: e.questions,
+            answers: e.answers,
+            inputId: e.inputId,
+            title: e.title,
+            request: e.request,
+            started: e.started,
+            response: e.response,
+            error: e.error,
+            elapsed: e.elapsed,
+            phase: e.phase,
+            pending: e.pending,
+          ),
+        ),
+      );
   int get revision => _revision;
   List<ClassificationExchange> get exchanges => List.unmodifiable(_exchanges);
   Stream<void> get changes => _changes.stream;

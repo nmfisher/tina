@@ -309,6 +309,25 @@ expires. Publication failure rebuilds the inspector from confirmed history and
 reports that live activity is unavailable. The activity TUI depends on the host
 connection, with no dependency on either runtime activity or chat implementations.
 
+Plans and classification also implement their read-only observation contracts
+through connection snapshots. Data-only `observation.dart` libraries stay in the
+owning feature packages; they carry no plugin, provider or execution handles.
+Each view owns its bounded attachment delivery, selection and expansion. Missing
+projections are displayed as unavailable; a failed history publication cannot
+show an unconfirmed plan. Classification diagnostics remain transient and retain
+the runtime plugin's existing bounded history.
+
+The context inspector reads a fresh connection snapshot on visible refresh,
+including idle refreshes for external mirror-file status. When the published
+history position or pending-turn policy changes, it pages the fixed committed
+prefix and uses the context plugin's pure derivations for accepted messages and
+the latest eligible edit. It retains those display projections, not another raw
+log. The temporary history list is released after each rebuild. This permits
+repeated reads while keeping replay and turn eligibility rules in the plugin.
+The renderer never opens, repairs or imports the mirror file. Budget, path and
+receipt data are public snapshot fields; failed persistence suppresses
+unconfirmed edits. No storage format or SQLite guarantee changes.
+
 Session notices use a separate in-memory sequence. Each notice names the history
 position it follows; attachment snapshots bound notice pages as well as committed
 history. Chat merges both before rendering, so clear confirmations follow the

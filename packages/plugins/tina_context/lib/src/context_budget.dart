@@ -1,3 +1,5 @@
+import '../observation.dart' show ContextBudgetUsage;
+export '../observation.dart' show ContextBudgetUsage;
 import 'dart:convert';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -23,22 +25,6 @@ String serializeContextRequest(TurnContext context) => jsonEncode({
           },
       ],
     });
-
-final class ContextBudgetUsage {
-  const ContextBudgetUsage({
-    required this.inputTokens,
-    required this.budgetTokens,
-    required this.responseReserveTokens,
-    required this.reminder,
-  });
-  final int inputTokens, budgetTokens, responseReserveTokens;
-  final String? reminder;
-  int get inputLimit => budgetTokens - responseReserveTokens;
-
-  /// Signed: a negative value means the estimated request exceeds its allowance.
-  int get remainingInputTokens => inputLimit - inputTokens;
-  double get fractionUsed => inputTokens / budgetTokens;
-}
 
 /// Reminders are ephemeral request instructions, never conversation entries.
 /// A downward crossing rearms reminders after the agent reduces its context.

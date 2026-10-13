@@ -1,45 +1,8 @@
+import 'utterance_result.dart';
+export 'utterance_result.dart' show gitCommands, GitIntent;
 import 'package:classification/classification.dart';
 import 'package:classification/judgments.dart';
 import 'package:tina_core/tina_core.dart' show Message, TextBlock;
-
-const gitCommands = [
-  'status',
-  'diff',
-  'log',
-  'show',
-  'add',
-  'commit',
-  'push',
-  'pull',
-  'fetch',
-  'branch',
-  'switch',
-  'checkout',
-  'merge',
-  'rebase',
-  'stash',
-  'reset',
-  'restore',
-  'clone',
-  'init',
-  'tag',
-  'other',
-];
-
-class GitIntent {
-  final List<String> commands;
-  final bool unknown;
-  GitIntent({
-    Iterable<String> commands = const [],
-    this.unknown = false,
-    Iterable<String> allowedCommands = gitCommands,
-  }) : commands = List.unmodifiable(commands) {
-    if (this.commands.any((c) => !allowedCommands.contains(c)) ||
-        (unknown && this.commands.isNotEmpty))
-      throw FormatException('Invalid Git intent');
-  }
-  Map<String, Object?> toJson() => {'commands': commands, 'unknown': unknown};
-}
 
 final gitIntentContract = DataContract<GitIntent>(
   id: 'git.intent',

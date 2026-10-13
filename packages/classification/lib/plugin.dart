@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'observation.dart';
+export 'observation.dart';
 import 'dart:io' show File;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'config.dart';
@@ -29,36 +31,6 @@ ClassificationLease? openConfiguredClassification(
   );
 }
 
-enum ClassificationPhase {
-  idle,
-  checking,
-  learning,
-  ready,
-  unavailable,
-  cancelled,
-}
-
-final class ClassificationStatus {
-  const ClassificationStatus(
-    this.phase, {
-    this.inputId,
-    this.result,
-    this.reason,
-  });
-  final ClassificationPhase phase;
-  final String? inputId;
-  final UtteranceClassification? result;
-  final String? reason;
-  String get label => switch (phase) {
-    ClassificationPhase.idle => 'no input classified yet',
-    ClassificationPhase.checking => 'classifying…',
-    ClassificationPhase.learning => 'learning category…',
-    ClassificationPhase.ready => result!.label,
-    ClassificationPhase.unavailable => 'unavailable: $reason',
-    ClassificationPhase.cancelled => 'cancelled',
-  };
-}
-
 /// A single input's classifier service. The plugin owns and closes the lease.
 final class ClassificationLease {
   ClassificationLease({
@@ -73,13 +45,20 @@ final class ClassificationLease {
 
 /// Read-only access to one session's classification status and diagnostics.
 /// Detaching a reader cannot cancel inference or close the runtime plugin.
-final class ClassificationObservation {
-  ClassificationObservation._(this._plugin);
+final class _ClassificationObservation implements ClassificationObservation {
+  _ClassificationObservation(this._plugin);
   final ClassificationPlugin _plugin;
   ClassificationStatus get status => _plugin.status;
   ClassificationTraceSnapshot get trace => _plugin.trace.snapshot;
-  Stream<ClassificationStatus> get changes => _plugin.changes;
-  Stream<void> get traceChanges => _plugin.trace.changes;
+  @override
+  void Function() listen(void Function() changed) {
+    final status = _plugin.changes.listen((_) => changed());
+    final trace = _plugin.trace.changes.listen((_) => changed());
+    return () {
+      unawaited(status.cancel());
+      unawaited(trace.cancel());
+    };
+  }
 }
 
 /// Informational input classification. Background work never rewrites input,
@@ -123,7 +102,9 @@ class ClassificationPlugin extends AgentPlugin {
   final _changes = StreamController<ClassificationStatus>.broadcast(sync: true);
   Stream<ClassificationStatus> get changes => _changes.stream;
   final trace = ClassificationTrace();
-  late final observation = ClassificationObservation._(this);
+  late final ClassificationObservation observation = _ClassificationObservation(
+    this,
+  );
   JudgmentCancellation? _active;
   void Function()? _closeActive;
   bool _closed = false;

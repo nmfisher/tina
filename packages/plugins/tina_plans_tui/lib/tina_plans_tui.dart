@@ -4,3 +4,5 @@ library;
 
 export 'src/plans_view.dart';
 export 'src/plan_overlay.dart';
+
+export 'src/connection_plans.dart';

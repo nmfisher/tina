@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:classification/plugin.dart';
+import 'package:classification/observation.dart';
 import 'package:tina_console/tina_console.dart';
 
 /// One selectable stage, question, or choice in the actual execution history.

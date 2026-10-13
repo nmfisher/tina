@@ -400,11 +400,13 @@
     ],
     "tina_plans_tui": [
       "tina_plans",
-      "tina_console"
+      "tina_console",
+      "tina_host"
     ],
     "tina_classification_tui": [
       "classification",
-      "tina_console"
+      "tina_console",
+      "tina_host"
     ],
     "classification": [
       "crypto",
@@ -472,7 +474,8 @@
     "tina_context_tui": [
       "tina_engine_2",
       "tina_console",
-      "tina_context"
+      "tina_context",
+      "tina_host"
     ],
     "tina_cwd_tui": [
       "tina_console"

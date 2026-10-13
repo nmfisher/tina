@@ -40,12 +40,12 @@ void main() {
     final connection = assembly.host.connect();
     addTearDown(connection.close);
     final command = assembly.commands['classification'];
-    final first = createConsoleView(feature, connection: testConnection())
-        as ClassificationView;
-    final second = createConsoleView(feature, connection: testConnection())
-        as ClassificationView;
+    final first = createConsoleView(feature,
+        connection: testConnection(host: assembly.host)) as ClassificationView;
+    final second = createConsoleView(feature,
+        connection: testConnection(host: assembly.host)) as ClassificationView;
     expect(first, isNot(same(second)));
-    expect(first.classification, same(second.classification));
+    expect(first.classification, isNot(same(second.classification)));
     final inputs = [FakeIo(), FakeIo()];
     final screens = inputs.map(fakeScreen).toList();
     final editors =

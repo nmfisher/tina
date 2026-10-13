@@ -338,9 +338,9 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         PluginDefinition.dependingOn<SessionPluginContext, ContextPlugin>(
             'tina/context-tui',
             dependency: _workingContext,
-            create: (c, context) => PresentationPlugin(
+            create: (c, _) => PresentationPlugin<void>(
                     id: 'tina/context-tui',
-                    source: context.observation,
+                    source: null,
                     commands: [
                       Command(
                           name: 'context',

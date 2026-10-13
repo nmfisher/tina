@@ -194,9 +194,7 @@ final class TurnLedger {
   /// its turn completed or when it is [activeTurn] — the one turn the
   /// include-pending policy keeps live (null: none is).
   bool isEligible(String? turnId, {required String? activeTurn}) =>
-      turnId == null ||
-      completedTurns.contains(turnId) ||
-      turnId == activeTurn;
+      turnId == null || completedTurns.contains(turnId) || turnId == activeTurn;
 }
 
 /// Phase 2 of [deriveWorkingContext]: which snapshot, if any, is live.
@@ -229,8 +227,8 @@ final class SnapshotFold {
           candidate.revision <= maxRevision) {
         throw const FormatException('Invalid working-context snapshot history');
       }
-      final prefix = deriveSession(log.sublist(0, e.seq),
-          const SessionSettings(),
+      final prefix = deriveSession(
+          log.sublist(0, e.seq), const SessionSettings(),
           includePendingTurn: true);
       if (candidate.originTurnId != null &&
           candidate.originTurnId != prefix.pendingTurnId) {
@@ -300,8 +298,7 @@ WorkingContext deriveWorkingContext(
   final activeTurn = includePendingTurn && ledger.openTurns.isNotEmpty
       ? ledger.openTurns.last
       : null;
-  final snapshots =
-      SnapshotFold.resolve(log, ledger, activeTurn: activeTurn);
+  final snapshots = SnapshotFold.resolve(log, ledger, activeTurn: activeTurn);
   final messages = assembleContextMessages(log,
       ledger: ledger,
       snapshot: snapshots.live,
@@ -311,4 +308,26 @@ WorkingContext deriveWorkingContext(
       revision: snapshots.maxRevision,
       throughSeq: log.length - 1,
       messages: messages);
+}
+
+/// Latest accepted, turn-eligible replacement; abandoned edits are excluded.
+({WorkingContext before, WorkingContextSnapshot after})?
+    deriveLatestContextChange(List<SessionEntry> log,
+        {bool includePendingTurn = false}) {
+  final ledger = TurnLedger.scan(log);
+  final active = includePendingTurn ? ledger.pendingTurnId : null;
+  for (final entry in log.reversed) {
+    if (entry is ContextClearedEntry) break;
+    if (entry is! PluginStateEntry ||
+        entry.pluginId != contextPluginId ||
+        entry.stateKey != workingContextKey) continue;
+    final snapshot = WorkingContextSnapshot.fromEntry(entry);
+    if (!ledger.isEligible(snapshot.originTurnId, activeTurn: active)) continue;
+    return (
+      before: deriveWorkingContext(log.sublist(0, entry.seq),
+          includePendingTurn: true),
+      after: snapshot
+    );
+  }
+  return null;
 }

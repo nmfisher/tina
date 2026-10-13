@@ -1,7 +1,5 @@
-import 'dart:async';
-
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_plans/tina_plans.dart';
+import 'package:tina_plans/observation.dart';
 import 'plan_overlay.dart';
 
 /// One console's presentation of the session-owned plans feature.
@@ -25,11 +23,11 @@ final class PlansView implements ConsoleContribution {
     overlay = browser;
     void Function()? shortcut;
     void Function()? releaseStatus;
-    StreamSubscription<void>? statusChanges;
+    void Function()? statusChanges;
     final repaintOverlay = browser.refresh;
     _release = context.own(() {
       shortcut?.call();
-      unawaited(statusChanges?.cancel());
+      statusChanges?.call();
       releaseStatus?.call();
       context.screen.unregisterAnimation(repaintOverlay);
       browser.dispose();
@@ -37,10 +35,11 @@ final class PlansView implements ConsoleContribution {
     });
     // Preserve the plan's place before the chat's goal/session status lines.
     releaseStatus = context.bindStatus(_statusLines, priority: 90);
-    statusChanges = plans.changes.listen((_) {
+    statusChanges = plans.listen(() {
       if (context.isActive) context.refreshStatus();
     });
     browser.start();
+    context.refreshStatus();
     shortcut = context.bindShortcut((event) {
       if (event is ControlKey && event.code == ControlCode.ctrlP) {
         overlay?.toggle();
@@ -60,7 +59,12 @@ final class PlansView implements ConsoleContribution {
   List<RenderLine> _statusLines() {
     final console = _console;
     final plan = plans.state;
-    if (console == null || plan.isEmpty) return const [];
+    if (console == null) return const [];
+    if (plans.unavailableReason case final reason?)
+      return [
+        RenderLine(runs: [RenderRun(reason, console.screen.theme.chat.dim)])
+      ];
+    if (plan.isEmpty) return const [];
     final items = plan.items;
     final active =
         items.where((item) => item.state == 'in_progress').firstOrNull?.text;

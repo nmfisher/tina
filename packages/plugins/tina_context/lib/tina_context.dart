@@ -6,3 +6,5 @@ export 'src/context_plugin.dart';
 export 'src/context_file_mirror.dart';
 export 'src/context_settings.dart';
 export 'src/context_budget.dart';
+
+export 'observation.dart';

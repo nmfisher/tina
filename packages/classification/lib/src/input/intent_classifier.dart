@@ -1,40 +1,7 @@
+import 'utterance_result.dart';
+export 'utterance_result.dart' show IntentType, IntentResult;
 import 'package:classification/classification.dart';
 import 'package:classification/judgments.dart';
-
-/// Whether a piece of user input is a project question or an agent
-/// instruction. The model scores both categories independently; the decoder
-/// picks the higher-scoring one only when it clears the confidence threshold.
-///
-/// Three decoded states, mirroring the git classifier:
-/// - [IntentType.unclear] — unsure, needs more context (also every
-///   orchestrator sentinel: oversized input, over-budget, missing service).
-/// - `type: null` — clearly neither (chatter, greetings, quotes): the `neither`
-///   question cleared 0.9 while both categories scored ≤ 0.1.
-/// - otherwise — the detected intent.
-enum IntentType { projectQuestion, agentInstruction, unclear }
-
-class IntentResult {
-  /// [IntentType.unclear] when nothing cleared its threshold; null when the
-  /// input is clearly neither category (see the enum's doc comment).
-  final IntentType? type;
-  final double confidence;
-
-  /// The dynamic vocabulary's stable ID and presentation label. [type] is a
-  /// compatibility projection for the two original built-in categories.
-  final String? categoryId, categoryLabel;
-  const IntentResult({
-    required this.type,
-    required this.confidence,
-    this.categoryId,
-    this.categoryLabel,
-  });
-  Map<String, Object?> toJson() => {
-    'type': type?.name,
-    'confidence': confidence,
-    if (categoryId != null) 'categoryId': categoryId,
-    if (categoryLabel != null) 'categoryLabel': categoryLabel,
-  };
-}
 
 final intentResultContract = DataContract<IntentResult>(
   id: 'tina.intent_result',
