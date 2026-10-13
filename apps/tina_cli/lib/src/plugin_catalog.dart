@@ -82,12 +82,9 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
       PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
           'tina/mode',
           settings: [classifierInstructionSetting],
+          operations: modeOperations,
           dependency: modePolicySource,
-          create: (c, source) => PresentationPlugin(
-              id: 'tina/mode',
-              source: source.modePolicy.observation,
-              order: source.modePolicy.order,
-              commands: source.modePolicy.commands),
+          create: (c, source) => ModeControlsPlugin(source.modePolicy),
           live: true,
           description:
               'Adds /mode and Shift-Tab controls for the tools permission policy.'),
@@ -122,6 +119,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                 switchModel: c.switchModel,
                 modelCatalog: c.modelCatalog),
             settings: [defaultModelSetting],
+            operations: sessionControlsOperations,
             description:
                 'Switches the active conversation model and clears its context and display.',
             live: true),

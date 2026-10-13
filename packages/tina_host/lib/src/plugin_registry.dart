@@ -2,7 +2,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'plugin_definition.dart';
 import 'cli_contribution.dart';
-import 'host.dart' show SessionOperationHandler;
+import 'host.dart' show SessionOperation;
 
 typedef PluginFactory<C> = AgentPlugin Function(C context);
 
@@ -48,7 +48,7 @@ final class PluginRegistry<C> {
           {required String description,
           bool live = false,
           PluginCli? cli,
-          Map<String, SessionOperationHandler> operations = const {},
+          Map<String, SessionOperation> operations = const {},
           List<SettingDefinition<Object>> settings = const []}) =>
       registerDefinition(PluginDefinition(id, factory,
           description: description,

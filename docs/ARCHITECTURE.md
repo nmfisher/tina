@@ -257,6 +257,14 @@ plugin changes, and blocks model switching until it settles. Controllers may
 still steer an active turn; between-turn input is explicitly rejected. Commands
 keep their declared `allowWhileRunning` policy.
 
+Plugin definitions declare `SessionOperation` values. Foreground handlers receive
+an invocation context and own the lease described above. Synchronous control
+handlers receive only the plugin and JSON arguments; they cannot send turns or
+retain an invocation context. They require an idle session unless their plugin
+explicitly declares `allowWhileRunning`. The owner settles their effects and
+receipt synchronously without replacing foreground work or its cancellation ID.
+Model selection requires idle; permission mode can change during a turn.
+
 The operation has one stable cancellation ID. Cancellation reaches its active
 turn, scoped questions and cooperative handler; shutdown waits for cleanup before
 closing plugins or the provider. The goals handler cancels its judge stream and
@@ -327,6 +335,18 @@ repeated reads while keeping replay and turn eligibility rules in the plugin.
 The renderer never opens, repairs or imports the mirror file. Budget, path and
 receipt data are public snapshot fields; failed persistence suppresses
 unconfirmed edits. No storage format or SQLite guarantee changes.
+
+Model pickers and permission-mode views also read connection snapshots exclusively.
+They submit `tina/session-controls/select-model` and `tina/mode/set` operations,
+with the model or mode they observed as a precondition. The plugins validate that
+precondition and the current model catalog before changing state. An old picker
+cannot overwrite another client's selection or apply a model removed from the
+catalog. Provider replacement, recent choices and persisted policy stay with the
+runtime owners; session changes never rewrite workspace or global defaults.
+Observers can inspect both projections but cannot submit either operation.
+Each view owns its picker draft, attachment and local error feedback. Missing or
+unconfirmed projections disable controls. Import checks prohibit runtime control
+and provider dependencies in these views.
 
 Session notices use a separate in-memory sequence. Each notice names the history
 position it follows; attachment snapshots bound notice pages as well as committed

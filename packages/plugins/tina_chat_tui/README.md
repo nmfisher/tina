@@ -2,7 +2,7 @@
 
 `tina/chat-tui` owns the interactive transcript and model prompt. It uses the
 legacy Markdown, transcript and timestamp renderers; the old application's
-imports now re-export the same implementation. `tina/mode-tui`, in this package,
+imports now re-export the same implementation. The `tina/mode` view, in this package,
 owns Shift-Tab and the mode strip. Both are enabled by default and can be toggled
 in Settings → Plugins at session, workspace or global scope.
 
@@ -71,14 +71,21 @@ other panels remain reachable through the focus ring. Approvals serialize across
 views and hold focus on the requesting panel until answered. This plugin is
 enabled by default; changing its enabled state requires a restart.
 
-The mode shortcut and `/mode` share `ModeControl`, whose setter updates both the
-file sandbox and process runner. Shift-Tab switches **normal ↔ read-only** without
-submitting input, cancelling a turn, or adding chat rows. It affects subsequent
-tool checks; it does not retroactively stop an already running tool. This change
-does not introduce the legacy four-mode permission policy.
+The model picker and mode strip read public `SessionConnection` snapshots.
+Changes go through plugin-owned operations; these views receive no provider,
+runtime plugin or policy setter. Picker filters belong to one attachment.
+A stale picker is refused if another client changed the model or its selection
+was removed from the catalog. Model changes require an idle session.
+
+Shift-Tab cycles **ask → read-only → allow-edits → auto** through the mode
+plugin's operation. It works during a turn without cancelling work or adding
+chat rows, and affects subsequent tool checks rather than stopping a running
+tool. The mode plugin retains approval routing and persistence. Observer views
+display both controls without permission to change them. Unavailable snapshots
+disable controls; detach releases UI subscriptions without stopping the session.
 
 If an existing config explicitly lists enabled plugins, add `tina/chat-tui`,
-`tina/mode-tui`, `tina/panels-tui`, `tina/update` and `tina/update-tui` to enable these views. Disabling chat presentation
+`tina/mode`, `tina/session-controls`, `tina/panels-tui`, `tina/update` and `tina/update-tui` to enable these views. Disabling chat presentation
 removes its transcript and prompt contribution; it does not change execution or
 persistence. Headless replies continue to use the ordinary terminal sink.
 

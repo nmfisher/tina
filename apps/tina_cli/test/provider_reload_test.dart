@@ -145,10 +145,9 @@ enabled = ["tina/providers", "tina/session-controls"]
     final io = FakeIo();
     final screen = fakeScreen(io);
     final editor = LineEditor(screen: screen);
-    final controls =
-        assembly.host.plugins.whereType<SessionControlsPlugin>().single;
+    final connection = assembly.host.connect();
     final attachment = ConsoleAttachment.attach(
-        SessionControlsView(controls.observation),
+        SessionControlsView(ConnectionSessionControls(connection)),
         ConsoleContext(screen: screen, editor: editor));
     try {
       final pick = (attachment.contribution as SessionControlsView)
@@ -162,6 +161,7 @@ enabled = ["tina/providers", "tina/session-controls"]
       expect(assembly.host.model, 'custom/org/new-model');
     } finally {
       attachment.dispose();
+      connection.close();
       editor.close();
       screen.dispose();
       io.closeInput();

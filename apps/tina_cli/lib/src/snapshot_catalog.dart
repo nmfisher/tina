@@ -7,10 +7,10 @@ import 'package:tina_context/tina_context.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_mcp/tina_mcp.dart';
+import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
-import 'package:tina_tools/tina_tools.dart';
 
 /// Public data adapters for attachment snapshots. Feature policy, persistence
 /// and mutable state stay in their plugins. Never serialize a configuration
@@ -56,15 +56,8 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
       listen: plugin.listenPending,
     );
   }
-  if (plugin is ToolsPlugin) {
-    final mode = plugin.modePolicy.observation;
-    return SnapshotFeature(
-      () => {'mode': mode.mode.name},
-      listen: (changed) => mode.listen((_) => changed()),
-    );
-  }
-  if (plugin is PresentationPlugin<ModeObservation>) {
-    final mode = plugin.source;
+  if (plugin is ModePolicySource) {
+    final mode = (plugin as ModePolicySource).modePolicy.observation;
     return SnapshotFeature(
       () => {'mode': mode.mode.name},
       listen: (changed) => mode.listen((_) => changed()),

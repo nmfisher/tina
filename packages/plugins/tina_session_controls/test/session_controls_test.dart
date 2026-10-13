@@ -32,12 +32,25 @@ void main() {
       models.add('three');
       expect(catalog.models, ['one', 'two']);
       expect(second.catalog.models, ['one', 'two', 'three']);
-      await first.select('two');
+      plugin.selectModel('two', expectedModel: first.currentModel);
       expect(second.currentModel, 'two');
       expect(second.recentModels, ['two']);
       expect(() => second.recentModels.clear(), throwsUnsupportedError);
+      expect(
+        () => plugin.selectModel('one', expectedModel: 'one'),
+        throwsStateError,
+      );
+      models.remove('three');
+      expect(
+        () => plugin.selectModel('three', expectedModel: 'two'),
+        throwsArgumentError,
+      );
+      expect(model, 'two');
       plugin.closeSession();
-      await first.select('one');
+      expect(
+        () => plugin.selectModel('one', expectedModel: 'two'),
+        throwsStateError,
+      );
       await plugin.commands.first.handler('three');
       expect(switches, 1);
     },

@@ -1,15 +1,15 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_session_controls/tina_session_controls.dart';
-export 'package:tina_session_controls/tina_session_controls.dart';
+import 'connection_controls.dart';
+export 'package:tina_session_controls/observation.dart';
 
 /// A picker and its draft belong to one attachment, independently of the
 /// session's model and recent selections.
 final class SessionControlsView
     implements ConsoleContribution, ConsoleCommandHandler {
   SessionControlsView(this.controls);
-  final SessionControlsObservation controls;
+  final ConnectionSessionControls controls;
   ConsoleContext? _console;
-  void Function()? _paint;
+  void Function()? _paint, _unlisten;
   @override
   Future<void>? handleConsoleCommand(String name, String arguments) {
     final console = _console;
@@ -19,9 +19,12 @@ final class SessionControlsView
         console == null) return null;
     return console.interact(() async {
       if (!console.isActive) return;
+      controls.refresh();
+      if (!controls.available) throw StateError('Model controls unavailable.');
+      final expectedModel = controls.currentModel;
       final selected = await _pick(console);
       if (selected != null && _console == console && console.isActive) {
-        await controls.select(selected);
+        await controls.select(selected, expectedModel: expectedModel);
         console.refreshInput();
       }
     });
@@ -61,10 +64,13 @@ final class SessionControlsView
   void attachConsole(ConsoleContext context) {
     detachConsole();
     _console = context;
+    _unlisten = context.own(controls.listen(() {}));
   }
 
   @override
   void detachConsole() {
+    _unlisten?.call();
+    _unlisten = null;
     _console = null;
     _paint = null;
   }

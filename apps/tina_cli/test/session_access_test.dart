@@ -124,13 +124,14 @@ headers = { Authorization = "hidden" }
           .single
           .controls;
       final mcp = observer.contributions.whereType<McpView>().single.mcp;
-      expect(() => mode.mode = PermissionMode.allowEdits, denied);
-      expect(
-        () => mode.forClient(const ClientAccess()).mode =
-            PermissionMode.allowEdits,
+      await expectLater(
+        mode.setMode(PermissionMode.allowEdits, expectedMode: mode.mode),
         denied,
       );
-      await expectLater(controls.select('changed'), denied);
+      await expectLater(
+        controls.select('changed', expectedModel: controls.currentModel),
+        denied,
+      );
       expect(() => mcp.addLocalServer('blocked'), denied);
       expect(() => mcp.addHttpServer('blocked'), denied);
       expect(() => mcp.setValue('private', 'enabled', true), denied);
@@ -239,8 +240,14 @@ headers = { Authorization = "hidden" }
       expect(session.host.session.loop.running, isFalse);
       expect(session.assembly.quitRequested, isFalse);
       observer.close();
-      expect(() => mode.mode = initialMode, throwsStateError);
-      await expectLater(controls.select('late'), throwsStateError);
+      await expectLater(
+        mode.setMode(initialMode, expectedMode: initialMode),
+        throwsStateError,
+      );
+      await expectLater(
+        controls.select('late', expectedModel: 'controlled'),
+        throwsStateError,
+      );
     },
   );
 

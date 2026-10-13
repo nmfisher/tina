@@ -1,17 +1,8 @@
 export 'settings.dart';
+export 'observation.dart';
+export 'operations.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-
-/// One snapshot for model completion, listing and the interactive picker.
-final class ModelCatalog {
-  const ModelCatalog({
-    this.models = const [],
-    this.providerNames = const {},
-    this.modelNames = const {},
-  });
-  final List<String> models;
-  final Map<String, String> providerNames;
-  final Map<String, String> modelNames;
-}
+import 'observation.dart';
 
 /// Conversation controls with an optional interactive model picker.
 final class SessionControlsPlugin extends AgentPlugin {
@@ -28,7 +19,8 @@ final class SessionControlsPlugin extends AgentPlugin {
   final ModelCatalog Function() modelCatalog;
   AgentLoop? _loop;
   bool _closed = false;
-  late final observation = SessionControlsObservation._(this);
+  late final SessionControlsObservation observation =
+      _SessionControlsObservation(this);
   @override
   String get id => 'tina/session-controls';
   @override
@@ -49,10 +41,7 @@ final class SessionControlsPlugin extends AgentPlugin {
           return;
         }
         try {
-          switchModel(model);
-          _recentModels.remove(currentModel());
-          _recentModels.insert(0, currentModel());
-          if (_recentModels.length > 10) _recentModels.removeLast();
+          selectModel(model);
           terminal.writeln('Model: ${currentModel()}');
         } catch (error) {
           terminal.writeln('Could not switch model: $error');
@@ -71,6 +60,22 @@ final class SessionControlsPlugin extends AgentPlugin {
   ];
   final _recentModels = <String>[];
 
+  /// Commands may use aliases resolved by the provider owner. Picker operations
+  /// additionally validate the captured model and the current public catalog.
+  void selectModel(String model, {String? expectedModel}) {
+    if (_closed) throw StateError('Model controls are closed');
+    if (expectedModel != null) {
+      if (currentModel() != expectedModel) throw StateError('Model changed');
+      if (!modelCatalog().models.contains(model)) {
+        throw ArgumentError('Model is no longer available');
+      }
+    }
+    switchModel(model);
+    _recentModels.remove(currentModel());
+    _recentModels.insert(0, currentModel());
+    if (_recentModels.length > 10) _recentModels.removeLast();
+  }
+
   @override
   void closeSession() {
     _closed = true;
@@ -78,19 +83,13 @@ final class SessionControlsPlugin extends AgentPlugin {
   }
 }
 
-/// Narrow model-picker operations. The view cannot clear history or access
-/// the loop; command dispatch remains with the runtime plugin.
-final class SessionControlsObservation {
-  SessionControlsObservation._(
-    this._plugin, [
-    this._access = const ClientAccess(),
-  ]);
+/// Read-only data for owner-side snapshot publication.
+final class _SessionControlsObservation implements SessionControlsObservation {
+  _SessionControlsObservation(this._plugin);
   final SessionControlsPlugin _plugin;
-  final ClientAccess _access;
-  bool get canControl => _access.canControl;
-  SessionControlsObservation forClient(ClientAccess access) =>
-      SessionControlsObservation._(_plugin, _access.restrict(access));
+  @override
   String get currentModel => _plugin.currentModel();
+  @override
   ModelCatalog get catalog {
     final value = _plugin.modelCatalog();
     return ModelCatalog(
@@ -100,9 +99,6 @@ final class SessionControlsObservation {
     );
   }
 
+  @override
   List<String> get recentModels => List.unmodifiable(_plugin._recentModels);
-  Future<void> select(String model) async {
-    _access.requireControl();
-    await _plugin.commands.first.handler(model);
-  }
 }

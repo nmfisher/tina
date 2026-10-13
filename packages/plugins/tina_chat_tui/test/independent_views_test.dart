@@ -3,6 +3,8 @@ import 'package:test/test.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show Terminal;
+import 'package:tina_session_controls/tina_session_controls.dart';
+import 'support/controls_fixture.dart';
 import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'console_test.dart' show Io;
@@ -43,9 +45,13 @@ void main() {
         switchModel: (value) => model = value,
         modelCatalog: () =>
             const ModelCatalog(models: ['acme/one', 'acme/two']));
+    final host = controlsHost(controls: controls);
+    final connection1 = host.connect(), connection2 = host.connect();
     final first = _Client(), second = _Client();
-    final firstView = SessionControlsView(controls.observation),
-        secondView = SessionControlsView(controls.observation);
+    final firstView =
+            SessionControlsView(ConnectionSessionControls(connection1)),
+        secondView =
+            SessionControlsView(ConnectionSessionControls(connection2));
     final firstAttachment = ConsoleAttachment.attach(firstView, first.context);
     final secondAttachment =
         ConsoleAttachment.attach(secondView, second.context);
@@ -54,7 +60,8 @@ void main() {
       secondAttachment.dispose();
       first.dispose();
       second.dispose();
-      controls.closeSession();
+      connection1.close();
+      connection2.close();
     });
     final pickFirst = firstView.handleConsoleCommand('model', '')!;
     final pickSecond = secondView.handleConsoleCommand('model', '')!;
@@ -76,11 +83,13 @@ void main() {
   test('permission and update status reach both views after one detaches',
       () async {
     final policy = ModePlugin(), updates = _Updates();
+    final host = controlsHost(mode: policy);
+    final connection1 = host.connect(), connection2 = host.connect();
     final first = _Client(), second = _Client();
     final firstMode = ConsoleAttachment.attach(
-        ModeView(mode: policy.observation), first.context);
+        ModeView(mode: ConnectionModeObservation(connection1)), first.context);
     final secondMode = ConsoleAttachment.attach(
-        ModeView(mode: policy.observation), second.context);
+        ModeView(mode: ConnectionModeObservation(connection2)), second.context);
     final firstUpdate =
         ConsoleAttachment.attach(UpdateView(updates), first.context);
     final secondUpdate =
@@ -92,10 +101,12 @@ void main() {
       secondUpdate.dispose();
       first.dispose();
       second.dispose();
-      policy.closeSession();
+      connection1.close();
+      connection2.close();
       await updates.stream.close();
     });
     policy.mode = PermissionMode.auto;
+    await Future<void>.delayed(Duration.zero);
     expect(first.io.output.toString(), contains('mode: auto'));
     expect(second.io.output.toString(), contains('mode: auto'));
     final releaseBroken = policy.observation
@@ -107,11 +118,12 @@ void main() {
     policy.mode = PermissionMode.readOnly;
     updates.status = const UpdateStatus(UpdatePhase.available, tag: 'v1.0.1');
     updates.stream.add(null);
+    await Future<void>.delayed(Duration.zero);
     expect(first.io.output.toString(), detachedOutput);
     expect(second.io.output.toString(), contains('mode: read-only'));
     expect(second.io.output.toString(), contains('v1.0.1'));
     final replacement = ConsoleAttachment.attach(
-        ModeView(mode: policy.observation), first.context);
+        ModeView(mode: ConnectionModeObservation(connection1)), first.context);
     expect(first.io.output.toString(), contains('mode: read-only'));
     replacement.dispose();
   });

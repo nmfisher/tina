@@ -450,15 +450,37 @@ final class Host {
   Future<void> _runOperation(_RequestRecord record, String owner, String name,
       Map<String, Object?> arguments) async {
     final plugin = _plugins.where((p) => p.id == owner).firstOrNull;
-    final handler =
+    final definition =
         plugin == null ? null : config.operationsFor?.call(plugin)[name];
-    if (handler == null || busy) {
+    if (definition == null || (busy && !definition.allowWhileRunning)) {
       record.finish(
           SessionRequestState.rejected,
           SessionResult(
-              detail: handler == null
+              detail: definition == null
                   ? 'Operation unavailable: $owner/$name'
                   : 'Operation requires an idle session.'));
+      return;
+    }
+    if (definition.control case final control?) {
+      // No foreground lease: model controls still use the owner's idle check,
+      // while permission controls can change policy during a running turn.
+      record.start('work-${++_nextWork}');
+      SessionResult result;
+      try {
+        result = control(plugin!, arguments);
+      } catch (error) {
+        result = SessionResult(
+            stopReason: StopReason.error,
+            detail: 'Operation failed (${error.runtimeType})');
+      }
+      record.finish(
+          switch (result.stopReason) {
+            StopReason.error => SessionRequestState.failed,
+            StopReason.cancelled => SessionRequestState.cancelled,
+            _ => SessionRequestState.completed,
+          },
+          result);
+      _changed();
       return;
     }
     final scope = questions.openScope();
@@ -474,7 +496,8 @@ final class Host {
     record.start(operation._work.id);
     SessionResult result;
     try {
-      result = await scope.run(() => handler(plugin!, arguments, operation));
+      result = await scope
+          .run(() => definition.handler!(plugin!, arguments, operation));
     } catch (error) {
       result = SessionResult(
           stopReason: StopReason.error,

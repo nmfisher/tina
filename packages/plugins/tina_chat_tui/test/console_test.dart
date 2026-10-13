@@ -1,4 +1,6 @@
 import 'support/chat_fixture.dart';
+import 'support/controls_fixture.dart';
+import 'package:tina_host/tina_host.dart';
 import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
@@ -73,6 +75,7 @@ void main() {
   late ChatView chat;
   late ModeView modes;
   late ModePlugin control;
+  late SessionConnection modeConnection;
   setUp(() {
     io = Io();
     screen =
@@ -84,18 +87,22 @@ void main() {
         now: () => DateTime(2026, 9, 28, 3, 4, 5));
     chat.attachConsole(context);
     control = ModePlugin();
-    modes = ModeView(mode: control.observation)..attachConsole(context);
+    modeConnection = controlsHost(mode: control).connect();
+    modes = ModeView(mode: ConnectionModeObservation(modeConnection))
+      ..attachConsole(context);
   });
   tearDown(() {
     chat.detachConsole();
     modes.detachConsole();
+    modeConnection.close();
     editor.close(reportLatency: false);
     screen.dispose();
     unawaited(io.input.close());
   });
   String transcript() => screen.chat.snapshotLines().join('\n');
 
-  test('overflow resets and replays the projection without duplicate history', () async {
+  test('overflow resets and replays the projection without duplicate history',
+      () async {
     final runtime = chatRuntimes[chat]!;
     final loop = AgentLoop(provider: ScriptedProvider([]), plugins: []);
     runtime.mountOn(loop);
@@ -310,6 +317,7 @@ void main() {
         sessionEstimatedTokens: () => 8525);
     chat.attachConsole(context);
     await control.commands.single.handler('allow-edits');
+    await tick();
     modes.repaintConsole();
     final source = Updates(currentVersion: '0.9.19')
       ..status = const UpdateStatus(UpdatePhase.available, tag: 'v999.0.0');

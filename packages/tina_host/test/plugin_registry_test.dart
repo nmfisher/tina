@@ -29,8 +29,9 @@ void main() {
     const cli = PluginCli(options: [
       CliOption('example', description: 'Example command'),
     ]);
-    final operations = <String, SessionOperationHandler>{
-      'run': (plugin, arguments, context) async => const SessionResult()
+    final operations = <String, SessionOperation>{
+      'run': SessionOperation(
+          (plugin, arguments, context) async => const SessionResult())
     };
     final definitions = [
       PluginDefinition<void>('acme/plain', (_) => throw StateError('not built'),

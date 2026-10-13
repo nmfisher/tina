@@ -416,6 +416,7 @@
       "tina_engine_2"
     ],
     "tina_mode": [
+      "tina_host",
       "classification",
       "tina_engine_2",
       "tina_approvals",
@@ -493,6 +494,7 @@
       "tina_engine_2"
     ],
     "tina_session_controls": [
+      "tina_host",
       "tina_engine_2",
       "tina_settings"
     ],

@@ -3,8 +3,8 @@ import 'package:tina_host/tina_host.dart';
 import 'goals.dart';
 
 /// Runtime entry points are independent of CLI flags and process I/O.
-final goalsOperations = <String, SessionOperationHandler>{
-  'run': (plugin, arguments, context) async {
+final goalsOperations = <String, SessionOperation>{
+  'run': SessionOperation((plugin, arguments, context) async {
     final text = arguments['text'];
     final maxTurns = arguments['max_turns'];
     if (arguments.keys.any((key) => key != 'text' && key != 'max_turns') ||
@@ -44,5 +44,5 @@ final goalsOperations = <String, SessionOperationHandler>{
           ? ''
           : 'Goal was not achieved or completion could not be verified',
     );
-  },
+  }),
 };

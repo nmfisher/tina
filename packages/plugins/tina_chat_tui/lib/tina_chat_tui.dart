@@ -16,3 +16,4 @@ export 'src/panels_tui.dart';
 
 export 'src/session_controls.dart';
 export 'src/connection_chat.dart';
+export 'src/connection_controls.dart';

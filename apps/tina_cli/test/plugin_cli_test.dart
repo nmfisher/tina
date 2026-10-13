@@ -47,12 +47,12 @@ enabled = ["acme/report"]
           },
           description: 'Reports',
           operations: {
-            'report': (plugin, arguments, context) async {
+            'report': SessionOperation((plugin, arguments, context) async {
               expect(plugin, isA<_ReportPlugin>());
               events.add('run:${arguments['value']}');
               context.writeLine('report completed');
               return const SessionResult(stopReason: StopReason.complete);
-            },
+            }),
           },
           cli: PluginCli(
             options: [option],

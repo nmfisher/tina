@@ -200,6 +200,27 @@ Future<void> main() async {
       isEmpty,
     );
   });
+  test('model and mode views cannot reach runtime controls or providers', () {
+    for (final source in [
+      'packages/plugins/tina_chat_tui/lib/src/session_controls.dart',
+      'packages/plugins/tina_chat_tui/lib/src/mode_tui.dart',
+      'packages/plugins/tina_chat_tui/lib/src/connection_controls.dart',
+    ]) {
+      expect(
+        violations(source, {
+          'packages/plugins/tina_mode/lib/tina_mode.dart',
+          'packages/plugins/tina_mode/lib/operations.dart',
+          'packages/plugins/tina_session_controls/lib/tina_session_controls.dart',
+          'packages/plugins/tina_session_controls/lib/operations.dart',
+          'tina_providers',
+          'tina_llm',
+          'apps/tina_cli/lib/src/assembly.dart',
+        }),
+        isEmpty,
+        reason: source,
+      );
+    }
+  });
   test('reusable TUI cannot reach application or concrete feature owners', () {
     expect(
       violations('packages/tina_tui/lib/tina_tui.dart', {

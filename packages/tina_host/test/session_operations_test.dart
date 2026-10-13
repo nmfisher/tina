@@ -23,7 +23,7 @@ void main() {
       providerFactory: (_) =>
           provider ?? ScriptedProvider([scriptedReply('done')]),
       plugins: [plugin ?? _Plugin()],
-      operationsFor: (_) => {'run': handler},
+      operationsFor: (_) => {'run': SessionOperation(handler)},
       requestHistoryLimit: limit,
     ));
     addTearDown(host.shutdown);
@@ -85,6 +85,72 @@ void main() {
     expect(controller.status.busy, isFalse);
     expect(idle, 1);
     expect(calls, 1);
+  });
+
+  test(
+      'synchronous controls preserve the foreground lease and enforce scheduling',
+      () async {
+    final release = Completer<void>(), between = Completer<void>();
+    var controls = 0;
+    final host = Host.start(HostConfig(
+      workingDirectory: '.',
+      providerFactory: (_) => ScriptedProvider([scriptedReply('answer')]),
+      plugins: [_Plugin()],
+      operationsFor: (_) => {
+        'run': SessionOperation((plugin, args, context) async {
+          await context.send('first');
+          between.complete();
+          await release.future;
+          return _ok;
+        }),
+        'control': SessionOperation.control((plugin, args) {
+          controls++;
+          return _ok;
+        }, allowWhileRunning: true),
+        'idle': SessionOperation.control((plugin, args) {
+          controls++;
+          return _ok;
+        }),
+      },
+    ));
+    addTearDown(host.shutdown);
+    final client = host.connect(), other = host.connect();
+    addTearDown(other.close);
+    final foreground = client.submitOperation('test/worker', 'run',
+        id: client.requestWindow.id('foreground'));
+    await between.future;
+    final workId = foreground.snapshot.workId!;
+    client.close();
+    final id = other.requestWindow.id('control');
+    final control = other.submitOperation('test/worker', 'control', id: id);
+    expect(control.snapshot.state, SessionRequestState.completed,
+        reason: 'Control effects and their receipts settle synchronously');
+    expect(
+        other.submitOperation('test/worker', 'control', id: id), same(control));
+    expect(controls, 1);
+    expect(
+        (await other
+                .submitOperation('test/worker', 'idle',
+                    id: other.requestWindow.id('blocked'))
+                .completed)
+            .state,
+        SessionRequestState.rejected);
+    final attachment = other.attach();
+    expect(attachment.initial.status.busy, true);
+    expect(attachment.initial.status.running, false);
+    expect(attachment.initial.activeWork.single.id, workId);
+    attachment.close();
+    expect(other.cancel([control.snapshot.workId!]), false);
+    release.complete();
+    await foreground.completed;
+    expect(
+        (await other
+                .submitOperation('test/worker', 'idle',
+                    id: other.requestWindow.id('idle'))
+                .completed)
+            .state,
+        SessionRequestState.completed);
+    expect(controls, 2);
   });
 
   test('operation cancellation survives detach and cannot cancel a successor',

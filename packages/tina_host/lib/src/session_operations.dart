@@ -6,6 +6,26 @@ typedef SessionOperationHandler = Future<SessionResult> Function(
     Map<String, Object?> arguments,
     SessionOperationContext context);
 
+typedef SessionControlHandler = SessionResult Function(
+    AgentPlugin plugin, Map<String, Object?> arguments);
+
+/// A foreground operation owns the session until its future settles. A control
+/// is synchronous, cannot start turns, and may opt into running alongside work.
+/// Scheduling belongs to the plugin declaration, never to client arguments.
+final class SessionOperation {
+  const SessionOperation(SessionOperationHandler handler)
+      : handler = handler,
+        control = null,
+        allowWhileRunning = false;
+  const SessionOperation.control(SessionControlHandler control,
+      {this.allowWhileRunning = false})
+      : control = control,
+        handler = null;
+  final SessionOperationHandler? handler;
+  final SessionControlHandler? control;
+  final bool allowWhileRunning;
+}
+
 /// Capabilities valid only for this invocation. Cancellation spans every turn
 /// and between-turn work; closing a client connection does not cancel it.
 final class SessionOperationContext {

@@ -1,7 +1,7 @@
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'cli_contribution.dart';
-import 'host.dart' show SessionOperationHandler;
+import 'host.dart' show SessionOperation;
 
 /// A capability is a typed constructor dependency, resolved once at load time.
 /// It is not a global registry available to running plugins.
@@ -35,7 +35,7 @@ final class PluginDefinition<C> {
           List<PluginCapability<Object>> provides = const [],
           List<SettingDefinition<Object>> settings = const [],
           PluginCli? cli,
-          Map<String, SessionOperationHandler> operations = const {},
+          Map<String, SessionOperation> operations = const {},
           bool live = false}) =>
       PluginDefinition._(
           id,
@@ -57,7 +57,7 @@ final class PluginDefinition<C> {
               List<PluginCapability<Object>> provides = const [],
               List<SettingDefinition<Object>> settings = const [],
               PluginCli? cli,
-              Map<String, SessionOperationHandler> operations = const {},
+              Map<String, SessionOperation> operations = const {},
               bool live = false}) =>
           PluginDefinition._(
               id,
@@ -79,7 +79,7 @@ final class PluginDefinition<C> {
   final String description;
   final List<SettingDefinition<Object>> settings;
   final PluginCli? cli;
-  final Map<String, SessionOperationHandler> operations;
+  final Map<String, SessionOperation> operations;
 
   static String _description(String value) {
     final text = value.trim();

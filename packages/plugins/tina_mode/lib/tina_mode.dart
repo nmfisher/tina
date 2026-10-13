@@ -4,8 +4,10 @@ import 'dart:async';
 import 'package:classification/permissions.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'mode.dart';
+import 'observation.dart';
 export 'mode.dart';
+export 'observation.dart';
+export 'operations.dart';
 export 'settings.dart';
 export 'package:classification/permissions.dart';
 
@@ -15,7 +17,7 @@ abstract interface class ModePolicySource {
   ModePlugin get modePolicy;
 }
 
-class ModePlugin extends AgentPlugin implements ModeControl {
+class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   ModePlugin({
     PermissionMode mode = PermissionMode.ask,
     this.terminal,
@@ -25,11 +27,13 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   @override
   String get id => 'tina/mode';
   @override
+  ModePlugin get modePolicy => this;
+  @override
   int get order => 9;
   @override
   PermissionMode get mode => _mode;
   PermissionMode _mode;
-  late final observation = ModeObservation._(this);
+  late final ModeObservation observation = _ModeObservation(this);
   void Function(PluginStateEntry)? _writeState;
   @override
   void mountOn(AgentLoop loop) => mountPolicy(loop, ownerId: id);
@@ -111,6 +115,15 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   }
 
   static String wordFor(PermissionMode mode) => mode.label;
+
+  void selectMode(
+    PermissionMode value, {
+    required PermissionMode expectedMode,
+  }) {
+    if (_closed) throw StateError('Mode policy is closed');
+    if (mode != expectedMode) throw StateError('Permission mode changed');
+    mode = value;
+  }
 
   @override
   List<Command> get commands => [
@@ -335,23 +348,26 @@ class ModePlugin extends AgentPlugin implements ModeControl {
   }
 }
 
-/// Permission controls for presentation, without approval or lifecycle access.
-final class ModeObservation implements ModeControl {
-  ModeObservation._(this._policy, [this._access = const ClientAccess()]);
+/// Runtime declaration for /mode. The tools plugin retains policy ownership.
+final class ModeControlsPlugin extends AgentPlugin implements ModePolicySource {
+  ModeControlsPlugin(this.modePolicy);
+  @override
+  final ModePlugin modePolicy;
+  @override
+  String get id => 'tina/mode';
+  @override
+  int get order => modePolicy.order;
+  @override
+  List<Command> get commands => modePolicy.commands;
+  ModeObservation get observation => modePolicy.observation;
+}
+
+final class _ModeObservation implements ModeObservation {
+  _ModeObservation(this._policy);
   final ModePlugin _policy;
-  final ClientAccess _access;
-  bool get canControl => _access.canControl;
-  ModeObservation forClient(ClientAccess access) =>
-      ModeObservation._(_policy, _access.restrict(access));
   @override
   PermissionMode get mode => _policy.mode;
   @override
-  set mode(PermissionMode value) {
-    _access.requireControl();
-    if (_policy._closed) throw StateError('Mode policy is closed');
-    _policy.mode = value;
-  }
-
   void Function() listen(void Function(PermissionMode) listener) {
     late final void Function() release;
     release = _policy.listen((value) {

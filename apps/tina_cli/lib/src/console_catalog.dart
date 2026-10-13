@@ -8,7 +8,6 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
 import 'package:tina_context_tui/tina_context_tui.dart';
-import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_mcp/tina_mcp.dart';
 import 'package:tina_mcp_tui/tina_mcp_tui.dart';
@@ -24,10 +23,6 @@ final _viewFactories =
     <String, ConsoleContribution? Function(AgentPlugin, ClientAccess)>{
   'tina/approvals-tui': (plugin, access) => ApprovalView(
       (plugin as AttachmentApprovalChannel).interaction.forClient(access)),
-  'tina/mode': (plugin, access) => ModeView(
-      mode: (plugin as PresentationPlugin<ModeObservation>)
-          .source
-          .forClient(access)),
   'tina/update-tui': (plugin, access) => UpdateView(
       _ClientUpdateStatus(
           (plugin as PresentationPlugin<UpdateStatusSource>).source, access),
@@ -36,8 +31,6 @@ final _viewFactories =
   'tina/cwd-tui': (plugin, access) =>
       CwdView((plugin as PresentationPlugin<String>).source),
   'tina/panels-tui': (_, access) => PanelsView(),
-  'tina/session-controls': (plugin, access) => SessionControlsView(
-      (plugin as SessionControlsPlugin).observation.forClient(access)),
   'tina/mcp': (plugin, access) {
     final management = (plugin as McpPlugin).management;
     return management == null ? null : McpView(management.forClient(access));
@@ -56,6 +49,9 @@ ConsoleContribution? createConsoleView(AgentPlugin plugin,
         ClassificationView(ConnectionClassificationObservation(connection)),
       'tina/context-tui' =>
         ContextView(context: ConnectionContextObservation(connection)),
+      'tina/mode' => ModeView(mode: ConnectionModeObservation(connection)),
+      'tina/session-controls' =>
+        SessionControlsView(ConnectionSessionControls(connection)),
       _ => _viewFactories[plugin.id]?.call(plugin, connection.access),
     };
 
