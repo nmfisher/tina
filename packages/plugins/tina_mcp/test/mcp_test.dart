@@ -39,6 +39,7 @@ class CallingProvider extends LlmProvider {
   String? tool;
   Map<String, dynamic> input;
   final requests = <List<ToolSchema>>[];
+  final systems = <String>[];
   bool _call = true;
   void next(String? tool, [Map<String, dynamic> input = const {}]) {
     this.tool = tool;
@@ -52,6 +53,7 @@ class CallingProvider extends LlmProvider {
       required List<Message> messages,
       required List<ToolSchema> tools}) async* {
     requests.add(List.of(tools));
+    systems.add(system);
     if (_call && tool != null) {
       _call = false;
       final name = tools
@@ -173,6 +175,43 @@ void main() {
         .images
         .single;
     expect(image.data, 'aGVsbG8=');
+  });
+
+  test('no connected server still tells the model MCP exists', () async {
+    // An empty tool list alone invites "Tina has no MCP support". The
+    // section must state the empty cause and the fix instead.
+    Future<String> section(List<McpServerConfig> servers) async {
+      final plugin = McpPlugin(
+          workingDirectory: directory.path,
+          readServers: () => servers,
+          approve: (
+              {required operation,
+              required target,
+              required reason,
+              context = const {}}) async => ApprovalDecision.deny);
+      addTearDown(plugin.shutdown);
+      final provider = CallingProvider(null);
+      final loop = AgentLoop(provider: provider, plugins: [plugin]);
+      loop.mountPlugin(plugin);
+      await loop.runTurn(const Input('do you have mcp?', id: 'one'));
+      expect(provider.requests, isNotEmpty);
+      return provider.systems.single;
+    }
+
+    final none = await section([]);
+    expect(none, contains('no server is configured'));
+    expect(none, contains('Settings \u2192 MCP servers'));
+
+    final disabled = await section([
+      McpServerConfig('fixture', {'command': 'python3', 'enabled': false})
+    ]);
+    expect(disabled, contains('every configured server is disabled'));
+
+    // Enabled but unreachable: the message must not claim "disabled".
+    final unconnected = await section([
+      McpServerConfig('fixture', {'command': '/nonexistent/tina-mcp-absent'})
+    ]);
+    expect(unconnected, contains('no configured server is currently connected'));
   });
 
   test(

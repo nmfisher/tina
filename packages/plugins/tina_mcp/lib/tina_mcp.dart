@@ -294,10 +294,28 @@ class McpPlugin extends AgentPlugin {
             'Instructions from configured MCP server ${server.config.name}:\n${server.client.instructions}');
       }
     }
-    if (_servers.isNotEmpty)
+    if (_servers.isNotEmpty) {
       context.promptSections.add(
           'MCP tools interact with configured external applications. Use their advertised schemas. '
           'A timeout or cancellation does not guarantee that the external operation was undone; inspect state before retrying.');
+    } else {
+      // Without this section a session with no connected server gives the
+      // model no evidence MCP exists, and it overgeneralizes from its empty
+      // tool list to "unsupported". State why the list is empty instead.
+      final configured = readServers();
+      final state = configured.isEmpty
+          ? 'no server is configured'
+          : configured.every((server) => !server.enabled)
+              ? 'every configured server is disabled'
+              : 'no configured server is currently connected';
+      context.promptSections.add(
+          'Tina connects to MCP servers for external application integrations, '
+          'but $state in this session. A missing tool for an external '
+          'application means unconfigured, not unsupported: say the '
+          'integration is not configured rather than that Tina lacks it. '
+          'Servers are configured in Settings \u2192 MCP servers or the '
+          '[mcp.servers] tables of Tina\'s config file.');
+    }
   }
 
   Future<ToolResult> _execute(
