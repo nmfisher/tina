@@ -4,6 +4,50 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:path/path.dart' as path;
 import '../tina_tools.dart';
+import 'access_review.dart';
+import 'read_only_commands.dart';
+import 'package:tina_settings/tina_settings.dart';
+
+void _saveDirectoryGrants(
+    ToolsPlugin plugin, List<DirectoryAccessGrant> grants) {
+  for (final scope in DirectoryGrantScope.values) {
+    final selected = grants.where((grant) => grant.scope == scope).toList();
+    if (selected.isEmpty) continue;
+    final settings = plugin.settings;
+    if (settings == null) {
+      if (scope != DirectoryGrantScope.session)
+        throw const FormatException('No persistent directory storage');
+      for (final grant in selected) {
+        if (grant.access == DirectoryAccess.read) {
+          plugin.rememberReadDirectory(grant.path);
+        } else {
+          plugin.rememberWriteDirectory(grant.path);
+        }
+      }
+      continue;
+    }
+    final settingScope = SettingScope.values.byName(scope.name);
+    settings.update(settingScope, {
+      for (final access in DirectoryAccess.values)
+        if (selected.any((grant) => grant.access == access))
+          (access == DirectoryAccess.read
+                  ? readOnlyDirectoriesSetting
+                  : writeDirectoriesSetting)
+              .id: {
+            ...settings
+                .read(
+                    access == DirectoryAccess.read
+                        ? readOnlyDirectoriesSetting
+                        : writeDirectoriesSetting,
+                    scope: settingScope)
+                .value,
+            ...selected
+                .where((grant) => grant.access == access)
+                .map((grant) => grant.path),
+          }.toList(),
+    });
+  }
+}
 
 const toolProvider = PluginCapability<ToolSessionSource>('tina/tool-provider');
 const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
@@ -66,11 +110,32 @@ void attachModePolicy(ToolsPlugin plugin) {
   plugin.sandbox.approver = (request, reason) async {
     final writeDirectory =
         request.op == FileOp.write ? path.dirname(request.path) : null;
+    List<DirectoryAccessGrant> directoryGrants = const [];
+    final verified = [
+      PermissionAccess(
+          request.op == FileOp.read
+              ? PermissionAccessOperation.read
+              : PermissionAccessOperation.write,
+          request.path,
+          Directory(request.path).existsSync()
+              ? PermissionTargetKind.directory
+              : PermissionTargetKind.file)
+    ];
+    final accessDetails = permissionAccessReview(
+        plan: plugin.osPlan,
+        cwd: plugin.workingDirectory,
+        verified: verified,
+        judgment: const PermissionJudgment(null),
+        complete: true,
+        persistent: plugin.settings != null);
     final decision = await plugin.modePolicy.request(
       operation: request.op.name,
       target: request.path,
       reason: reason,
+      onDirectoryGrants: (grants) => directoryGrants = grants,
+      prepareAccessReview: (_) => accessDetails,
       context: {
+        ...accessDetails,
         'workspace': plugin.workingDirectory,
         'description':
             plugin.describeFileRequest(request.op.name, request.path).toJson(),
@@ -78,6 +143,12 @@ void attachModePolicy(ToolsPlugin plugin) {
         if (writeDirectory != null) 'write_directory': writeDirectory,
       },
     );
+    if (!validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
+      return Approval.no;
+    if ({ApprovalDecision.allow, ApprovalDecision.allowAlways}
+        .contains(decision)) {
+      _saveDirectoryGrants(plugin, directoryGrants);
+    }
     if ((decision == ApprovalDecision.allowWritesInDirectory ||
             decision == ApprovalDecision.allowAlwaysAndWritesInDirectory) &&
         writeDirectory != null) {
@@ -106,38 +177,53 @@ void attachModePolicy(ToolsPlugin plugin) {
         directory == plugin.osPlan.hostHome ||
         !plugin.osPlan.canGrant(directory)) return false;
     final access = candidate.write ? 'write' : 'read';
-    final setting =
-        candidate.write ? writeDirectoriesSetting : readOnlyDirectoriesSetting;
-    final scope = plugin.settings == null
-        ? 'session'
-        : (plugin.settings!.read(setting).source?.name ?? 'global');
+    List<DirectoryAccessGrant> directoryGrants = const [];
+    final accessDetails = {
+      'directory_accesses': [
+        {'path': directory, 'access': access, 'source': 'verified'}
+      ],
+      'directory_grant_scopes': plugin.settings == null
+          ? ['session']
+          : ['session', 'workspace', 'global'],
+      'directory_grant_required': true,
+      'accesses': [
+        {
+          'operation': access,
+          'path': target,
+          'target_kind': Directory(target).existsSync() ? 'directory' : 'file',
+          'source': 'verified'
+        }
+      ],
+      'access_coverage': 'partial',
+    };
     final decision = await plugin.modePolicy.request(
       operation: 'Grant directory access',
       target: directory,
       humanOnly: true,
-      kind: ApprovalKind.confirmation,
       reason: 'The command needs $access access to ${candidate.path}. '
-          'Grant $scope $access access to $directory and '
+          'Grant $access access to $directory and '
           '${retry ? "rerun" : "run"} this command? '
           '${retry ? "The previous attempt may already have changed files. " : ""}'
           'Protected credentials remain excluded.',
       context: {
+        ...accessDetails,
         'description': ToolDescription(
             title: '${retry ? "Retry" : "Run"} with directory access',
             target: directory,
             fields: {
               'Command': CommandGrants.lineOf(request),
-              'Access': '$scope $access: $directory'
+              'Access': '$access: $directory'
             }).toJson(),
         'cwd': request.workingDirectory,
       },
+      onDirectoryGrants: (grants) => directoryGrants = grants,
     );
-    if (decision != ApprovalDecision.allow || !isActive()) return false;
-    if (candidate.write) {
-      plugin.rememberWriteDirectory(directory);
-    } else {
-      plugin.rememberReadDirectory(directory);
-    }
+    if (decision != ApprovalDecision.allow ||
+        !isActive() ||
+        directoryGrants.isEmpty ||
+        !validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
+      return false;
+    _saveDirectoryGrants(plugin, directoryGrants);
     return true;
   };
   plugin.processRunner.commandApprover = (request, review) async {
@@ -150,13 +236,30 @@ void attachModePolicy(ToolsPlugin plugin) {
     }
     final description = describeCommandRequest(request);
     String? commandPattern;
+    List<DirectoryAccessGrant> directoryGrants = const [];
+    final verified = verifiedReaderAccesses(request,
+        searchPath: plugin.processRunner.executableSearchPath);
+    var accessDetails = permissionAccessReview(
+        plan: plugin.osPlan,
+        cwd: request.workingDirectory ?? plugin.workingDirectory,
+        verified: verified,
+        judgment: const PermissionJudgment(null),
+        persistent: plugin.settings != null);
     final decision = await plugin.modePolicy.request(
       operation: 'run command',
       target: [request.command, ...request.arguments].join(' '),
       reason: review.reason,
       humanOnly: outsideSandbox,
       onCommandPattern: (pattern) => commandPattern = pattern,
+      onDirectoryGrants: (grants) => directoryGrants = grants,
+      prepareAccessReview: (judgment) => accessDetails = permissionAccessReview(
+          plan: plugin.osPlan,
+          cwd: request.workingDirectory ?? plugin.workingDirectory,
+          verified: verified,
+          judgment: judgment,
+          persistent: plugin.settings != null),
       context: {
+        ...accessDetails,
         'workspace': plugin.workingDirectory,
         'executable': request.command,
         'arguments': request.arguments,
@@ -211,6 +314,13 @@ void attachModePolicy(ToolsPlugin plugin) {
         },
       },
     );
+    if (!review.isActive() ||
+        !validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
+      return Approval.no;
+    if ({ApprovalDecision.allow, ApprovalDecision.allowAlways}
+        .contains(decision)) {
+      _saveDirectoryGrants(plugin, directoryGrants);
+    }
     if ((outsideSandbox || commandPattern != null) &&
         {
           ApprovalDecision.allowAlways,

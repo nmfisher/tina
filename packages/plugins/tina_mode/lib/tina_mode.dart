@@ -154,6 +154,9 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     ApprovalKind kind = ApprovalKind.permission,
     bool humanOnly = false,
     void Function(String pattern)? onCommandPattern,
+    void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants,
+    Map<String, Object?> Function(PermissionJudgment judgment)?
+    prepareAccessReview,
   }) async {
     final turn = _turn;
     bool invalid() =>
@@ -175,6 +178,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     String? autoFallback;
     String? autoDenialReason;
     Map<String, Object?> autoDiagnostics = const {};
+    var judgment = const PermissionJudgment(null, 'not classified');
     if (mode == PermissionMode.auto && permission && !humanOnly) {
       final judge = classifier;
       final result = judge == null
@@ -203,6 +207,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               ]),
             );
       if (invalid()) return ApprovalDecision.deny;
+      judgment = result;
       autoDiagnostics = result.diagnostics;
       if (result.allow == false) autoDenialReason = result.reason;
       if (mode == PermissionMode.auto && result.allow == true) {
@@ -238,6 +243,20 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               : 'Auto approval: $fallbackSentence $reason',
           details: {
             ...context,
+            if (prepareAccessReview != null)
+              ...prepareAccessReview(judgment)
+            else if (judgment.assessment.accesses.isNotEmpty ||
+                judgment.assessment.unresolved.isNotEmpty ||
+                judgment.assessment.coverage !=
+                    PermissionAccessCoverage.unknown) ...{
+              'accesses': [
+                for (final access in judgment.assessment.accesses)
+                  {...access.toJson(), 'source': 'inferred'},
+              ],
+              'access_coverage': judgment.assessment.coverage.name,
+              'access_coverage_source': 'inferred',
+              'unresolved_accesses': judgment.assessment.unresolved,
+            },
             if (_call != null)
               'tool': {'name': _call!.name, 'input': _call!.input},
             'mode': mode.name,
@@ -251,6 +270,11 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               ? null
               : (pattern) {
                   if (!invalid()) onCommandPattern(pattern);
+                },
+          onDirectoryGrants: onDirectoryGrants == null
+              ? null
+              : (grants) {
+                  if (!invalid()) onDirectoryGrants(grants);
                 },
         ) ??
         ApprovalDecision.deny;

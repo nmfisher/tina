@@ -6,6 +6,34 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina/session.dart';
 import 'package:tina/tui.dart';
+import 'package:tina_settings/tina_settings.dart';
+
+final class AccessJudge extends PermissionClassifier {
+  AccessJudge(this.directory, {this.unavailable = false})
+    : super(() => throw StateError('unused'));
+  final String directory;
+  final bool unavailable;
+  @override
+  Future<PermissionJudgment> classify(
+    Map<String, Object?> request, {
+    Future<void>? whenCancelled,
+  }) async => unavailable
+      ? const PermissionJudgment(null, 'timed out')
+      : PermissionJudgment.denied(
+          'External reads require review.',
+          assessment: PermissionAccessAssessment(
+            accesses: [
+              PermissionAccess(
+                PermissionAccessOperation.read,
+                directory,
+                PermissionTargetKind.directory,
+              ),
+            ],
+            coverage: PermissionAccessCoverage.partial,
+            unresolved: const ['Shell effects are inferred.'],
+          ),
+        );
+}
 
 class PendingApproval implements ApprovalRequester {
   final ready = Completer<void>();
@@ -17,13 +45,142 @@ class PendingApproval implements ApprovalRequester {
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
       Map<String, Object?> details = const {},
-      void Function(String pattern)? onCommandPattern}) {
+      void Function(String pattern)? onCommandPattern,
+      void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants}) {
     ready.complete();
     return answer.future;
   }
 }
 
 void main() {
+  for (final entry in [
+    for (final scope in DirectoryGrantScope.values)
+      (scope: scope, inferred: true),
+    (scope: DirectoryGrantScope.workspace, inferred: false),
+  ]) {
+    final scope = entry.scope;
+    test(
+      '${entry.inferred ? "inferred shell" : "verified timeout"} read grant persists only at ${scope.name} scope',
+      () async {
+        final root = Directory(
+          Directory.systemTemp
+              .createTempSync('tina-access-grants-')
+              .resolveSymbolicLinksSync(),
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+        final ws = Directory('${root.path}/workspace')..createSync();
+        final external = Directory('${root.path}/library')..createSync();
+        File('${external.path}/source.txt').writeAsStringSync('needle\n');
+        final global = File('${root.path}/config')
+          ..writeAsStringSync('''
+[default]
+model = "scripted"
+[plugins.overrides]
+"tina/persistence" = false
+''');
+        final originalGlobal = global.readAsStringSync();
+        SessionAssembly start() => SessionAssembly.start(
+          providerFactory: (_) => ScriptedProvider([]),
+          options: AssemblyOptions(
+            configPath: global.path,
+            workingDirectory: ws.path,
+            osSandbox: false,
+          ),
+        );
+        var app = start();
+        addTearDown(() => app.close());
+        final channel = StreamApprovalChannel();
+        final approvals = ApprovalsPlugin(channel: channel);
+        addTearDown(approvals.closeSession);
+        addTearDown(channel.closeSession);
+        var asks = 0;
+        final sub = channel.requests.listen((request) {
+          try {
+            asks++;
+            final accesses = request.details['accesses'] as List;
+            expect(
+              accesses.single['source'],
+              entry.inferred ? 'inferred' : 'verified',
+            );
+            expect(accesses.single['operation'], 'read');
+            expect(
+              request.details['access_coverage'],
+              entry.inferred ? 'partial' : 'unknown',
+            );
+            final offer =
+                (request.details['directory_accesses'] as List).single;
+            channel.respond(
+              request.id,
+              ApprovalDecision.allow,
+              directoryGrants: [
+                DirectoryAccessGrant(
+                  offer['path'] as String,
+                  DirectoryAccess.read,
+                  scope,
+                ),
+              ],
+            );
+          } finally {
+            channel.respond(request.id, ApprovalDecision.deny);
+          }
+        });
+        addTearDown(sub.cancel);
+        app.tools.mode = PermissionMode.auto;
+        app.tools.modePolicy
+          ..approvals = approvals
+          ..classifier = AccessJudge(
+            external.path,
+            unavailable: !entry.inferred,
+          );
+        final result = await app.tools.processRunner.run((
+          command: entry.inferred ? '/bin/sh' : '/usr/bin/grep',
+          arguments: entry.inferred
+              ? [
+                  '-c',
+                  'grep -rn needle ${external.path}/*.txt | head -30; echo done',
+                ]
+              : ['-rn', 'needle', external.path],
+          workingDirectory: ws.path,
+          environment: null,
+          stdin: null,
+          timeout: null,
+        ));
+        expect(result, isA<CommandCompleted>());
+        expect(asks, 1);
+        expect(app.tools.readDirectories.paths, [external.path]);
+        expect(app.tools.writeDirectories.paths, isEmpty);
+        expect(app.tools.processRunner.grants.isEmpty, true);
+        expect(
+          app.settings.read(readOnlyDirectoriesSetting).source,
+          SettingScope.values.byName(scope.name),
+        );
+        final local = File('${ws.path}/.tina/config');
+        expect(local.existsSync(), scope == DirectoryGrantScope.workspace);
+        if (scope == DirectoryGrantScope.workspace) {
+          expect(local.readAsStringSync(), contains(external.path));
+        }
+        if (scope != DirectoryGrantScope.global) {
+          expect(global.readAsStringSync(), originalGlobal);
+        } else {
+          expect(global.readAsStringSync(), contains(external.path));
+        }
+        app.tools.modePolicy.approvals = null;
+        app.tools.mode = PermissionMode.ask;
+        await expectLater(
+          app.tools.sandbox.writeFile('${external.path}/blocked', 'blocked'),
+          throwsA(isA<SandboxViolation>()),
+        );
+        app.close();
+        app = start();
+        expect(
+          app.tools.readDirectories.paths,
+          scope == DirectoryGrantScope.session ? isEmpty : [external.path],
+        );
+        expect(app.tools.writeDirectories.paths, isEmpty);
+      },
+      skip: Platform.isWindows,
+    );
+  }
   test('cancelled late always response creates no file grant or write',
       () async {
     final root = Directory.systemTemp.createTempSync('tina_late_grant_');

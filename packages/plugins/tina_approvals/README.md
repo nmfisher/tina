@@ -5,6 +5,17 @@ requests, unique IDs, expiry and cancellation. `ApprovalRequester` is what a
 sandbox or other policy boundary receives. The caller owns enforcement and
 remembered grants; approval delivery never executes an operation.
 
+Filesystem reviews can carry `accesses`, `access_coverage` and
+`unresolved_accesses` in request details. Access entries name the operation,
+path, target kind and `verified`/`inferred` source. `directory_accesses` lists
+validated path/access offers and `directory_grant_scopes` lists their available
+scopes. A channel sends selected `DirectoryAccessGrant`s with
+`respond(decision, directoryGrants: ...)`. All grants in one response share an
+explicit Session, Workspace or Global scope. The service accepts only offered
+paths, access types and scopes, and invokes `onDirectoryGrants` only for an
+active permission approval. The requester then revalidates and saves grants;
+model summaries and approval delivery alone never change filesystem access.
+
 Command requests may offer `command_pattern_target` and the optional
 `persistent_command_pattern` flag. A channel responds with a remembered scope
 and `commandPattern`; the service validates a strict whole-command match before

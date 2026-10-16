@@ -5,7 +5,9 @@ import 'dart:math';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'src/command_pattern.dart';
+import 'src/directory_access.dart';
 export 'src/command_pattern.dart';
+export 'src/directory_access.dart';
 part 'src/attachment_channel.dart';
 
 /// No channel, UI or filesystem types appear in the request protocol.
@@ -52,7 +54,8 @@ abstract interface class ApprovalRequester {
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
       Map<String, Object?> details = const {},
-      void Function(String pattern)? onCommandPattern});
+      void Function(String pattern)? onCommandPattern,
+      void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants});
 }
 
 /// A channel must authenticate remote responders before accepting their answers.
@@ -67,18 +70,23 @@ abstract interface class ApprovalQuestion {
   ApprovalRequest get request;
   Future<ApprovalDecision> get done;
   bool get isActive;
-  bool respond(ApprovalDecision decision, {String? commandPattern});
+  bool respond(ApprovalDecision decision,
+      {String? commandPattern,
+      List<DirectoryAccessGrant> directoryGrants = const []});
 }
 
 final class ApprovalTicket implements ApprovalQuestion {
   ApprovalTicket._(this.request, this._respond, this.done);
   final ApprovalRequest request;
-  final bool Function(ApprovalDecision, String?) _respond;
+  final bool Function(ApprovalDecision, String?, List<DirectoryAccessGrant>)
+      _respond;
   final Future<ApprovalDecision> done;
   bool _active = true;
   bool get isActive => _active;
-  bool respond(ApprovalDecision decision, {String? commandPattern}) =>
-      _respond(decision, commandPattern);
+  bool respond(ApprovalDecision decision,
+          {String? commandPattern,
+          List<DirectoryAccessGrant> directoryGrants = const []}) =>
+      _respond(decision, commandPattern, directoryGrants);
 }
 
 const approvalRequester =
@@ -103,6 +111,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
   final Duration? timeout;
   final _pending = <String, ApprovalTicket>{};
   final _observers = <Object, void Function()>{};
+
   /// Observe pending state without registering a responder or changing delivery
   /// authority. Observation never makes a headless ask interactive.
   void Function() listenPending(void Function() listener) {
@@ -111,12 +120,18 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
     _observers[key] = listener;
     return () => _observers.remove(key);
   }
+
   void _changed() {
     for (final entry in _observers.entries.toList()) {
       if (!_observers.containsKey(entry.key)) continue;
-      try { entry.value(); } catch (_) { _observers.remove(entry.key); }
+      try {
+        entry.value();
+      } catch (_) {
+        _observers.remove(entry.key);
+      }
     }
   }
+
   final _prefix = List.generate(16,
           (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
       .join();
@@ -138,7 +153,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
       Map<String, Object?> details = const {},
-      void Function(String pattern)? onCommandPattern}) {
+      void Function(String pattern)? onCommandPattern,
+      void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants}) {
     if (_closed || (_turnCancelled?.call() ?? false)) {
       return Future.value(ApprovalDecision.deny);
     }
@@ -152,7 +168,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
     final result = Completer<ApprovalDecision>();
     Timer? timer;
     late final ApprovalTicket ticket;
-    ticket = ApprovalTicket._(request, (decision, commandPattern) {
+    ticket =
+        ApprovalTicket._(request, (decision, commandPattern, directoryGrants) {
       if (!ticket._active) return false;
       final invalid = _closed || (_turnCancelled?.call() ?? false);
       ticket._active = false;
@@ -199,7 +216,36 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
               (request.kind != ApprovalKind.permission ||
                   request.operation != 'write' ||
                   request.details['write_directory'] is! String));
+      final offers = request.details['directory_accesses'];
+      final scopes = request.details['directory_grant_scopes'];
+      final invalidDirectories = directoryGrants.isNotEmpty &&
+          (request.kind != ApprovalKind.permission ||
+              onDirectoryGrants == null ||
+              !{ApprovalDecision.allow, ApprovalDecision.allowAlways}
+                  .contains(decision) ||
+              directoryGrants.length > 32 ||
+              directoryGrants.map((grant) => grant.scope).toSet().length != 1 ||
+              offers is! List ||
+              scopes is! List ||
+              directoryGrants.any((grant) =>
+                  !scopes.contains(grant.scope.name) ||
+                  !offers.any((offer) =>
+                      offer is Map &&
+                      offer['path'] == grant.path &&
+                      offer['access'] == grant.access.name)));
       if (!invalid &&
+          !invalidScope &&
+          !invalidPattern &&
+          !invalidDirectories &&
+          directoryGrants.isNotEmpty) {
+        try {
+          onDirectoryGrants!(List.unmodifiable(directoryGrants));
+        } catch (_) {
+          invalidPattern = true;
+        }
+      }
+      if (!invalid &&
+          !invalidDirectories &&
           !invalidScope &&
           !invalidPattern &&
           commandPattern != null) {
@@ -209,13 +255,17 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           invalidPattern = true;
         }
       }
-      result.complete(invalid || invalidScope || invalidPattern
-          ? ApprovalDecision.deny
-          : request.kind == ApprovalKind.confirmation &&
-                  decision == ApprovalDecision.allowAlways
-              ? ApprovalDecision.allow
-              : decision);
-      return !invalid && !invalidScope && !invalidPattern;
+      result.complete(
+          invalid || invalidScope || invalidPattern || invalidDirectories
+              ? ApprovalDecision.deny
+              : request.kind == ApprovalKind.confirmation &&
+                      decision == ApprovalDecision.allowAlways
+                  ? ApprovalDecision.allow
+                  : decision);
+      return !invalid &&
+          !invalidScope &&
+          !invalidPattern &&
+          !invalidDirectories;
     }, result.future);
     _pending[request.id] = ticket;
     _changed();
@@ -286,8 +336,11 @@ final class StreamApprovalChannel extends AgentPlugin
   }
 
   bool respond(String id, ApprovalDecision decision,
-          {String? commandPattern}) =>
-      _pending[id]?.respond(decision, commandPattern: commandPattern) ?? false;
+          {String? commandPattern,
+          List<DirectoryAccessGrant> directoryGrants = const []}) =>
+      _pending[id]?.respond(decision,
+          commandPattern: commandPattern, directoryGrants: directoryGrants) ??
+      false;
   void _denyPending() {
     for (final ticket in _pending.values.toList()) {
       ticket.respond(ApprovalDecision.deny);

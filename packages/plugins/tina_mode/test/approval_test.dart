@@ -19,6 +19,7 @@ class Human implements ApprovalRequester {
     ApprovalKind kind = ApprovalKind.permission,
     Map<String, Object?> details = const {},
     void Function(String pattern)? onCommandPattern,
+    void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants,
   }) async {
     calls++;
     lastDetails = details;
@@ -51,6 +52,18 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 );
 
 void main() {
+  test('model inferred accesses never create automatic directory grants', () async {
+    final human = Human();
+    final mode = ModePlugin(mode: PermissionMode.auto, approvals: human,
+        classifier: Judge(Future.value(const PermissionJudgment(true, null, {},
+          PermissionAccessAssessment(accesses: [PermissionAccess(
+            PermissionAccessOperation.read, '/other', PermissionTargetKind.directory)],
+            coverage: PermissionAccessCoverage.partial)))));
+    addTearDown(mode.closeSession);
+    expect(await mode.request(operation: 'run command', target: 'grep /other', reason: 'read',
+        onDirectoryGrants: (_) => fail('Classifier cannot grant directories')), ApprovalDecision.allow);
+    expect(human.calls, 0);
+  });
   test(
     'judge receives the active user request, never a tool-supplied substitute',
     () async {

@@ -97,18 +97,16 @@ void main() {
       expect(result.failure, isNull);
       expect(provider.systems, hasLength(1));
       expect(provider.outputs.single.name, 'permission_decision');
-      expect(provider.outputs.single.schema, {
-        'type': 'object',
-        'properties': {
-          'decision': {
-            'type': 'string',
-            'enum': ['ALLOW', 'DENY'],
-          },
-          'reason': {'type': 'string'},
-        },
-        'required': ['decision', 'reason'],
-        'additionalProperties': false,
-      });
+      expect(provider.outputs.single.schema['required'], [
+        'decision',
+        'reason',
+        'accesses',
+        'coverage',
+        'unresolved',
+      ]);
+      expect(provider.outputs.single.schema['additionalProperties'], false);
+      expect(result.assessment.coverage, PermissionAccessCoverage.unknown);
+      expect(result.assessment.accesses, isEmpty);
       expect(
         result.reason,
         result.allow == false
@@ -116,6 +114,118 @@ void main() {
             : null,
       );
       expect(provider.closed, true);
+    });
+  }
+  test(
+    'returns typed effects without recording paths in diagnostics',
+    () async {
+      final provider = Provider(
+        (_) => completed(
+          jsonEncode({
+            'decision': 'DENY',
+            'reason': 'Deletion requires review.',
+            'accesses': [
+              {
+                'operation': 'read',
+                'path': '/other/lib',
+                'target_kind': 'directory',
+              },
+              {
+                'operation': 'write',
+                'path': '/other/report',
+                'target_kind': 'file',
+              },
+              {
+                'operation': 'delete',
+                'path': '/other/old',
+                'target_kind': 'file',
+              },
+              {
+                'operation': 'move',
+                'path': '/other/from',
+                'target_kind': 'file',
+              },
+              {
+                'operation': 'create',
+                'path': '/other/to',
+                'target_kind': 'file',
+              },
+            ],
+            'coverage': 'partial',
+            'unresolved': ['Subprocess effects are unresolved.'],
+          }),
+        ),
+      );
+      final result = await PermissionClassifier(() => provider).classify({});
+      expect(result.allow, false);
+      expect(result.assessment.accesses.map((access) => access.operation), [
+        PermissionAccessOperation.read,
+        PermissionAccessOperation.write,
+        PermissionAccessOperation.delete,
+        PermissionAccessOperation.move,
+        PermissionAccessOperation.create,
+      ]);
+      expect(
+        result.assessment.accesses.first.targetKind,
+        PermissionTargetKind.directory,
+      );
+      expect(result.assessment.coverage, PermissionAccessCoverage.partial);
+      expect(result.assessment.unresolved, [
+        'Subprocess effects are unresolved.',
+      ]);
+      expect(result.diagnostics.toString(), isNot(contains('/other')));
+      expect(() => result.assessment.accesses.clear(), throwsUnsupportedError);
+    },
+  );
+
+  for (final changes in <Map<String, Object?>>[
+    {'accesses': 'read /other'},
+    {
+      'accesses': [
+        {'operation': 'execute', 'path': '/other', 'target_kind': 'file'},
+      ],
+    },
+    {
+      'accesses': [
+        {
+          'operation': 'read',
+          'path': '/other\u001b[31m',
+          'target_kind': 'file',
+        },
+      ],
+    },
+    {
+      'accesses': List.generate(
+        65,
+        (_) => {'operation': 'read', 'path': '/other', 'target_kind': 'file'},
+      ),
+    },
+    {
+      'coverage': 'complete',
+      'unresolved': ['Unknown script'],
+    },
+    {'coverage': 'maybe'},
+    {
+      'unresolved': [null],
+    },
+  ]) {
+    test('malformed access assessment cannot authorize: $changes', () async {
+      final provider = Provider(
+        (_) => completed(
+          jsonEncode({
+            'decision': 'ALLOW',
+            'reason': '',
+            'accesses': [],
+            'coverage': 'unknown',
+            'unresolved': [],
+            ...changes,
+          }),
+        ),
+      );
+      final result = await PermissionClassifier(() => provider).classify({});
+      expect(result.allow, isNull);
+      expect(result.failure, 'returned an invalid JSON decision');
+      expect(provider.systems, hasLength(2));
     });
   }
   for (final answer in [

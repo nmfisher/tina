@@ -4,8 +4,14 @@ import 'package:path/path.dart' as path;
 
 import 'process_runner.dart';
 import 'read_directories.dart';
+import 'package:tina_mode/tina_mode.dart'
+    show PermissionAccess, PermissionAccessOperation, PermissionTargetKind;
 
-typedef _ShellPart = ({List<String> words, String? operator, List<String> redirects});
+typedef _ShellPart = ({
+  List<String> words,
+  String? operator,
+  List<String> redirects
+});
 
 /// Output-only redirections, kept verbatim in the reconstructed script.
 /// Each writes to the null device or duplicates an already-open descriptor:
@@ -89,8 +95,8 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
       // An output-only redirect may follow this whitespace; consuming it
       // here keeps its fd/dup characters out of the word parser entirely.
       var end = i;
-      while (end + 1 < script.length &&
-          RegExp(r'\s').hasMatch(script[end + 1])) {
+      while (
+          end + 1 < script.length && RegExp(r'\s').hasMatch(script[end + 1])) {
         end++;
       }
       final redirect = _redirectAt(script, end + 1);
@@ -111,7 +117,11 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
       } else if (i + 1 < script.length && script[i + 1] == char) {
         return null; // no ||, ;; or shell control constructs
       }
-      parts.add((words: List.unmodifiable(words), operator: operator, redirects: List.unmodifiable(redirects)));
+      parts.add((
+        words: List.unmodifiable(words),
+        operator: operator,
+        redirects: List.unmodifiable(redirects)
+      ));
       redirects.clear();
       words = [];
     } else if ('\u0024`<>()[*?~#{}'.contains(char) || char.codeUnitAt(0) < 32) {
@@ -224,7 +234,7 @@ String? readOnlyExecutable(ProcessRequest request, {String? searchPath}) {
   }
 }
 
-List<String>? _readTargets(ProcessRequest request) {
+List<String>? _readTargets(ProcessRequest request, {bool reportOnly = false}) {
   final name = path.basename(request.command);
   if (name == 'echo') return const [];
   final options = _readers[name];
@@ -233,6 +243,7 @@ List<String>? _readTargets(ProcessRequest request) {
   final files = <String>[];
   var explicitPattern = false;
   var literal = false;
+  var recursive = false;
   final args = request.arguments;
   void value(String flag, String text) {
     if (name == 'grep' && {'f', '--file', '--exclude-from'}.contains(flag)) {
@@ -252,12 +263,16 @@ List<String>? _readTargets(ProcessRequest request) {
     } else if (arg.startsWith('--')) {
       final equals = arg.indexOf('=');
       final flag = equals < 0 ? arg : arg.substring(0, equals);
+      if (name == 'grep' &&
+          {'--recursive', '--dereference-recursive'}.contains(flag))
+        recursive = true;
       if (options.longValues.contains(flag)) {
         value(flag, equals < 0 ? args[++i] : arg.substring(equals + 1));
       }
     } else {
       for (var j = 1; j < arg.length; j++) {
         final flag = arg[j];
+        if (name == 'grep' && (flag == 'r' || flag == 'R')) recursive = true;
         if (options.values.contains(flag)) {
           value(flag, j + 1 < arg.length ? arg.substring(j + 1) : args[++i]);
           break;
@@ -270,7 +285,12 @@ List<String>? _readTargets(ProcessRequest request) {
     positional.removeAt(0);
   }
   files.addAll(positional.where((value) => value != '-'));
-  if (files.isEmpty) files.add('.');
+  // Preserve the reader gate's policy; reporting stream-only readers must
+  // not invent an access to cwd when they consume stdin.
+  if (files.isEmpty &&
+      (!reportOnly || name == 'ls' || name == 'grep' && recursive)) {
+    files.add('.');
+  }
   try {
     return files.map((file) {
       final absolute = path.isAbsolute(file)
@@ -302,6 +322,30 @@ String? readDirectoryForRequest(ProcessRequest request, String? workspaceRoot) {
     return Directory(target).existsSync() ? target : path.dirname(target);
   }
   return null;
+}
+
+/// Known path operands only. This report does not certify additional commands
+/// or authorize execution; the existing reader gate retains that responsibility.
+List<PermissionAccess> verifiedReaderAccesses(ProcessRequest request,
+    {String? searchPath}) {
+  final parts = _literalShellParts(request);
+  final components = parts == null
+      ? [request]
+      : parts.map((part) => _partRequest(request, part.words)).toList();
+  final accesses = <PermissionAccess>[];
+  for (final component in components) {
+    if (readOnlyExecutable(component, searchPath: searchPath) == null) continue;
+    for (final target
+        in _readTargets(component, reportOnly: true) ?? const <String>[]) {
+      accesses.add(PermissionAccess(
+          PermissionAccessOperation.read,
+          target,
+          Directory(target).existsSync()
+              ? PermissionTargetKind.directory
+              : PermissionTargetKind.file));
+    }
+  }
+  return accesses;
 }
 
 bool _inWorkspace(String target, String workspace) {

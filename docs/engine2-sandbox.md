@@ -144,3 +144,17 @@ after explicit human approval. The offer names the path and explains that the
 previous attempt may have made changes. Credential paths never get this offer;
 ambiguous diagnostics do not infer writable grants. A retry executes the entire
 command again. Directory grants use the existing scoped directory settings.
+
+Approvals show structured filesystem accesses, including operation, path,
+file/directory kind and whether the tool verified the target or the classifier
+inferred it. Coverage and unresolved effects are shown even when a script's full
+behavior cannot be determined. Model assessments never certify reader commands.
+Known reader operands remain visible if the classifier times out.
+
+Directory checkboxes name each offered directory and its read or write access.
+`s` cycles the explicit save scope, defaulting to Workspace; Session grants use
+the current conversation settings, Workspace writes `<workspace>/.tina/config`,
+and Global writes the selected global config. Grants take effect only after the
+human approves the active invocation. Protected paths and replaced symlinks are
+checked again before saving. Read grants never add writable mounts or a command
+execution grant. Write grants include deletion and renaming.

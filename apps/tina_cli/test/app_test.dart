@@ -423,6 +423,7 @@ ConsoleContext Function(Screen, LineEditor) scriptedConsole(
               ApprovalKey.toggleReadDirectory => CharInput('r'),
               ApprovalKey.toggleWriteDirectory => CharInput('w'),
               ApprovalKey.toggleDirectory => CharInput(' '),
+              ApprovalKey.directoryScope => CharInput('s'),
               ApprovalKey.pageUp => ArrowKey(ArrowDirection.pageUp),
               ApprovalKey.pageDown => ArrowKey(ArrowDirection.pageDown),
               ApprovalKey.scrollUp => ScrollEvent(up: true),

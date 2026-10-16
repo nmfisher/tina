@@ -125,9 +125,12 @@ final class _ClientApprovalQuestion implements ApprovalQuestion {
   @override
   bool get isActive => _access.isActive && _question.isActive;
   @override
-  bool respond(ApprovalDecision decision, {String? commandPattern}) {
+  bool respond(ApprovalDecision decision,
+      {String? commandPattern,
+      List<DirectoryAccessGrant> directoryGrants = const []}) {
     _access.requireControl();
-    return _question.respond(decision, commandPattern: commandPattern);
+    return _question.respond(decision,
+        commandPattern: commandPattern, directoryGrants: directoryGrants);
   }
 }
 
@@ -145,8 +148,12 @@ final class _PresentedQuestion implements ApprovalQuestion {
       _ticket.isActive &&
       identical(_channel._pending[request.id], this);
   @override
-  bool respond(ApprovalDecision decision, {String? commandPattern}) =>
-      isActive && _ticket.respond(decision, commandPattern: commandPattern);
+  bool respond(ApprovalDecision decision,
+          {String? commandPattern,
+          List<DirectoryAccessGrant> directoryGrants = const []}) =>
+      isActive &&
+      _ticket.respond(decision,
+          commandPattern: commandPattern, directoryGrants: directoryGrants);
 }
 
 Map<String, Object?> _freezeApprovalDetails(Map<String, Object?> value) =>

@@ -390,7 +390,8 @@ class _Human implements approvals.ApprovalRequester {
       required String reason,
       approvals.ApprovalKind kind = approvals.ApprovalKind.permission,
       Map<String, Object?> details = const {},
-      void Function(String pattern)? onCommandPattern}) async {
+      void Function(String pattern)? onCommandPattern,
+      void Function(List<approvals.DirectoryAccessGrant> grants)? onDirectoryGrants}) async {
     targets.add(target);
     modes.add(details['mode'] as String);
     return target.endsWith('/approved.txt')
@@ -445,6 +446,7 @@ class _NetworkHuman implements approvals.ApprovalRequester {
     approvals.ApprovalKind kind = approvals.ApprovalKind.permission,
     Map<String, Object?> details = const {},
     void Function(String pattern)? onCommandPattern,
+    void Function(List<approvals.DirectoryAccessGrant> grants)? onDirectoryGrants,
   }) async {
     requests.add(details);
     kinds.add(kind);

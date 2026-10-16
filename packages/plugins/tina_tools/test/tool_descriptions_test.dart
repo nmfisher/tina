@@ -13,7 +13,9 @@ class Requests implements ApprovalRequester {
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
       Map<String, Object?> details = const {},
-      void Function(String pattern)? onCommandPattern}) async {
+      void Function(String pattern)? onCommandPattern,
+      void Function(List<DirectoryAccessGrant> grants)?
+          onDirectoryGrants}) async {
     requests
         .add({'operation': operation, 'target': target, 'details': details});
     return ApprovalDecision.deny;

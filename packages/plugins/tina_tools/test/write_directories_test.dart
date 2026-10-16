@@ -26,6 +26,45 @@ void main() {
   });
   tearDown(() => root.deleteSync(recursive: true));
 
+  test('explicit workspace write grant persists the logical atomic write once', () async {
+    final settings = newSettings();
+    final plugin = ToolsPlugin(workspaceRoot: workspace.path, tinaDir: tina,
+        settings: settings, osSandbox: false);
+    final channel = StreamApprovalChannel();
+    final approvals = ApprovalsPlugin(channel: channel);
+    plugin.modePolicy.approvals = approvals;
+    var asks = 0;
+    final file = '${external.path}/report';
+    final sub = channel.requests.listen((request) {
+      try {
+        asks++;
+        final effect = (request.details['accesses'] as List).single;
+        expect(effect['operation'], 'write');
+        expect(effect['path'], '${external.resolveSymbolicLinksSync()}/report');
+        expect(effect['source'], 'verified');
+        final offer = (request.details['directory_accesses'] as List).single;
+        channel.respond(request.id, ApprovalDecision.allow, directoryGrants: [
+          DirectoryAccessGrant(offer['path'] as String, DirectoryAccess.write, DirectoryGrantScope.workspace),
+        ]);
+      } finally { channel.respond(request.id, ApprovalDecision.deny); }
+    });
+    addTearDown(() async {
+      plugin.closeSession();
+      approvals.closeSession();
+      await sub.cancel();
+      channel.closeSession();
+    });
+    final tool = plugin.toolList.singleWhere((tool) => tool.schema.name == 'write');
+    final result = await tool.execute({'filePath': file, 'content': 'saved'});
+    expect(result.isError, false, reason: result.content);
+    expect(File(file).readAsStringSync(), 'saved');
+    expect(asks, 1);
+    expect(settings.read(writeDirectoriesSetting).source, SettingScope.workspace);
+    expect(settings.layer(SettingScope.global), isEmpty);
+    expect(plugin.readDirectories.paths, isEmpty);
+    expect(plugin.processRunner.writableDirectories.roots, contains(external.resolveSymbolicLinksSync()));
+  });
+
   test('checkbox saves directory writes, including atomic edits, in every mode',
       () async {
     for (final mode in PermissionMode.values) {

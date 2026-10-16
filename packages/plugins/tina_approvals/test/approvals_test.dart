@@ -29,6 +29,78 @@ TurnContext context(CancelToken token) => TurnContext(token,
     pinnedTools: []);
 
 void main() {
+  test('directory responses require an offered path, access and explicit scope',
+      () async {
+    for (final grant in [
+      const DirectoryAccessGrant(
+          '/other', DirectoryAccess.read, DirectoryGrantScope.workspace),
+      const DirectoryAccessGrant(
+          '/other', DirectoryAccess.write, DirectoryGrantScope.workspace),
+      const DirectoryAccessGrant(
+          '/unoffered', DirectoryAccess.read, DirectoryGrantScope.workspace),
+      const DirectoryAccessGrant(
+          '/other', DirectoryAccess.read, DirectoryGrantScope.global),
+    ]) {
+      final channel = CapturingChannel();
+      final service = ApprovalsPlugin(channel: channel);
+      addTearDown(service.closeSession);
+      List<DirectoryAccessGrant>? received;
+      final pending = service.request(
+          operation: 'run command',
+          target: 'grep',
+          reason: 'read',
+          details: {
+            'directory_accesses': [
+              {'path': '/other', 'access': 'read'}
+            ],
+            'directory_grant_scopes': ['workspace']
+          },
+          onDirectoryGrants: (grants) => received = grants);
+      await Future<void>.delayed(Duration.zero);
+      final valid = grant.path == '/other' &&
+          grant.access == DirectoryAccess.read &&
+          grant.scope == DirectoryGrantScope.workspace;
+      expect(
+          channel.tickets.single
+              .respond(ApprovalDecision.allow, directoryGrants: [grant]),
+          valid);
+      expect(await pending,
+          valid ? ApprovalDecision.allow : ApprovalDecision.deny);
+      expect(received, valid ? [grant] : null);
+    }
+  });
+
+  test('denied and cancelled responses never deliver directory grants',
+      () async {
+    for (final cancelled in [false, true]) {
+      final channel = CapturingChannel();
+      final service = ApprovalsPlugin(channel: channel);
+      addTearDown(service.closeSession);
+      final token = CancelToken();
+      service.onInput(context(token));
+      final pending = service.request(
+          operation: 'read',
+          target: '/other',
+          reason: 'read',
+          details: {
+            'directory_accesses': [
+              {'path': '/other', 'access': 'read'}
+            ],
+            'directory_grant_scopes': ['workspace']
+          },
+          onDirectoryGrants: (_) =>
+              fail('No grant after denial or cancellation'));
+      await Future<void>.delayed(Duration.zero);
+      if (cancelled) token.cancel('cancel');
+      channel.tickets.single.respond(
+          cancelled ? ApprovalDecision.allow : ApprovalDecision.deny,
+          directoryGrants: [
+            const DirectoryAccessGrant(
+                '/other', DirectoryAccess.read, DirectoryGrantScope.workspace)
+          ]);
+      expect(await pending, ApprovalDecision.deny);
+    }
+  });
   test(
       'regex responses require a matching offered command and remembered scope',
       () async {

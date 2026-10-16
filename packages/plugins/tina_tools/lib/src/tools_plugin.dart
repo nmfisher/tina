@@ -243,25 +243,31 @@ final class ToolsPlugin extends AgentPlugin
   SpeculativeStats get speculativeStats => _speculative.stats;
   ToolUse? _activeCall;
 
-  void rememberReadDirectory(String directory) {
-    final paths = {...readDirectories.paths, directory}.toList();
+  void rememberReadDirectory(String directory, {SettingScope? scope}) {
     if (settings case final ScopedSettings settings) {
-      final scope = settings.read(readOnlyDirectoriesSetting).source ??
+      scope ??= settings.read(readOnlyDirectoriesSetting).source ??
           SettingScope.global;
+      final paths = {
+        ...settings.read(readOnlyDirectoriesSetting, scope: scope).value,
+        directory
+      }.toList();
       settings.set(readOnlyDirectoriesSetting, paths, scope);
     } else {
-      readDirectories.replace(paths);
+      readDirectories.replace({...readDirectories.paths, directory});
     }
   }
 
-  void rememberWriteDirectory(String directory) {
-    final paths = {...writeDirectories.paths, directory}.toList();
+  void rememberWriteDirectory(String directory, {SettingScope? scope}) {
     if (settings case final ScopedSettings settings) {
-      final scope =
+      scope ??=
           settings.read(writeDirectoriesSetting).source ?? SettingScope.global;
+      final paths = {
+        ...settings.read(writeDirectoriesSetting, scope: scope).value,
+        directory
+      }.toList();
       settings.set(writeDirectoriesSetting, paths, scope);
     } else {
-      writeDirectories.replace(paths);
+      writeDirectories.replace({...writeDirectories.paths, directory});
       processRunner.writableDirectories.replace(osPlan.writableLayout());
     }
   }

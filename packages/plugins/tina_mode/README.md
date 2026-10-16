@@ -36,7 +36,12 @@ token ledger and limits. The request includes the full tool input, workspace,
 and operation being approved; no tools are available to the judge.
 
 Only a completed, schema-valid `ALLOW` verdict authorizes execution, once.
-The schema requires `decision` (an ALLOW/DENY enum) and `reason` (a string);
+The schema requires `decision` (an ALLOW/DENY enum), `reason` (a string),
+`accesses`, `coverage` and `unresolved`. Each access identifies `operation`
+(`read`, `create`, `write`, `delete` or `move`), `path`, and `target_kind`
+(`file`, `directory` or `unknown`). Coverage is `complete`, `partial` or
+`unknown`; unresolved entries describe effects the model cannot identify.
+Legacy two-field verdicts remain accepted with unknown access coverage.
 ALLOW can use an empty reason. DENY includes a short explanation of the risk
 or uncertainty. The classifier validates it locally too. Prose, Markdown,
 extra fields, tool calls and partial
@@ -62,6 +67,19 @@ and reasoning character counts, and completion status without storing raw output
 Cancellation, shutdown or switching to read-only prevents a late ALLOW from
 executing. Changing to another mode reverts to human approval for that pending
 request. The judge stream is cancelled and its provider closed on completion.
+
+Accesses inferred by the classifier are descriptive and never certify a command
+or create remembered grants. Tools attach verified accesses independently, so
+those details remain visible on timeout or provider failure. Exact file-tool
+reports describe the requested effect and exclude atomic-edit cleanup details.
+The approval view labels inferred accesses, displays coverage and unresolved
+effects, and can offer validated directories for an explicit human grant.
+The tools plugin resolves paths against the command's working directory,
+canonicalizes symlinks and excludes protected paths and ambiguous targets.
+Directory grants default to Workspace; the `s` key cycles Session, Workspace
+and Global. A selected read grant exposes the directory read-only and never
+authorizes command execution, network access or mutations. Write grants include
+create, rename and delete under the existing write capability.
 
 Read-only asks before commands that cannot be certified as system readers.
 Approving a call does not change the selected mode.
