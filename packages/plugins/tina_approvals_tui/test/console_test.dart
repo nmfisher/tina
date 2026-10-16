@@ -346,6 +346,38 @@ void main() {
     expect(visible().cursorVisible, isTrue);
   });
 
+  test('the dialog lifts the newest chat lines above itself instead of covering them',
+      () async {
+    // Fill the chat so the marker sits on the bottom content row.
+    for (var i = 0; i < screen.layout.chat.height; i++) {
+      screen.chat.writeln('filler $i');
+    }
+    screen.chat.writeln('Last agent message');
+    await tick();
+    int rowOf(String text) {
+      final vt = visible();
+      return List.generate(screen.layout.height, vt.rowText)
+          .indexWhere((row) => row.contains(text));
+    }
+
+    expect(rowOf('Last agent message'), screen.input.bounds.row - 1,
+        reason: 'without a dialog the newest line is the bottom content row');
+
+    final decision = ask();
+    await tick();
+    final dialogBody = rowOf('Your message contains grok');
+    expect(dialogBody, greaterThanOrEqualTo(0));
+    expect(rowOf('Last agent message'),
+        lessThan(dialogBody),
+        reason: 'the newest chat line must sit above the dialog, not under it');
+
+    io.feed('n');
+    expect(await decision, ApprovalDecision.deny);
+    await tick();
+    expect(rowOf('Last agent message'), screen.input.bounds.row - 1,
+        reason: 'answering releases the reservation and content returns down');
+  });
+
   test('queued questions replace each other and detach restores the draft',
       () async {
     final line = editor.readLine('test-model > ');

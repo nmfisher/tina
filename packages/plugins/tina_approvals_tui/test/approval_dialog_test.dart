@@ -1,11 +1,123 @@
+import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_approvals_tui/tina_approvals_tui.dart';
+import 'package:tina_approvals/tina_approvals.dart';
 
 /// Headless: the dialog driven from scripted keys — no terminal.
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
+
+  test(
+      'attached approval view returns its selected directory scope through the service',
+      () async {
+    final channel = AttachmentApprovalChannel();
+    final service = ApprovalsPlugin(channel: channel);
+    final asker = QueuedDialogAsker();
+    addTearDown(channel.closeSession);
+    addTearDown(service.closeSession);
+    addTearDown(asker.close);
+    final unlisten = channel.interaction.listen((ticket) {
+      unawaited(asker.ask(ticket,
+          keys: ScriptedKeySource([
+            ApprovalKey.toggleReadDirectory,
+            ApprovalKey.directoryScope,
+            ApprovalKey.allow,
+          ])));
+    });
+    addTearDown(unlisten);
+    List<DirectoryAccessGrant>? selected;
+    expect(
+        await service.request(
+            operation: 'run command',
+            target: 'grep external',
+            reason: 'read',
+            details: {
+              'directory_accesses': [
+                {'path': '/external', 'access': 'read', 'source': 'inferred'}
+              ],
+              'directory_grant_scopes': ['session', 'workspace', 'global']
+            },
+            onDirectoryGrants: (grants) => selected = grants),
+        ApprovalDecision.allow);
+    expect(selected!.single.path, '/external');
+    expect(selected!.single.scope, DirectoryGrantScope.global);
+    expect(selected!.single.access, DirectoryAccess.read);
+  });
+
+  test(
+      'diagnosed directory access keeps scope selection without command Always',
+      () async {
+    final view = ApprovalDialog(null,
+        ask: const ApprovalAskContext(
+            'Grant directory access', '/other', 'Run with access?',
+            details: {
+              'directory_accesses': [
+                {'path': '/other', 'access': 'read', 'source': 'verified'}
+              ],
+              'directory_grant_scopes': ['session', 'workspace', 'global'],
+              'directory_grant_required': true,
+            }));
+    final rendered = view.rows().map(text).join('\n');
+    expect(rendered, contains('[x] Allow all reads'));
+    expect(rendered, isNot(contains('[a]')));
+    expect(rendered, contains('Save directory grants: workspace'));
+    final outcome =
+        await view.awaitDecision(ScriptedKeySource([ApprovalKey.allow]));
+    expect(outcome.decision, ApprovalDecision.allow);
+    expect(outcome.directoryGrants.single.scope, DirectoryGrantScope.workspace);
+  });
+
+  test('inferred accesses offer multiple grants with visible explicit scopes',
+      () async {
+    ApprovalDialog dialog() => ApprovalDialog(null,
+        ask: const ApprovalAskContext(
+            'run command', 'grep | head; rm old', 'review',
+            details: {
+              'accesses': [
+                {
+                  'operation': 'read',
+                  'path': '/library',
+                  'target_kind': 'directory',
+                  'source': 'inferred'
+                },
+                {
+                  'operation': 'delete',
+                  'path': '/output/old',
+                  'target_kind': 'file',
+                  'source': 'inferred'
+                },
+              ],
+              'access_coverage': 'partial',
+              'unresolved_accesses': ['Shell expansion is unresolved.'],
+              'directory_accesses': [
+                {'path': '/library', 'access': 'read', 'source': 'inferred'},
+                {'path': '/output', 'access': 'write', 'source': 'inferred'},
+              ],
+              'directory_grant_scopes': ['session', 'workspace', 'global'],
+            }));
+    final view = dialog();
+    final rendered = view.rows(width: 140).map(text).join('\n');
+    expect(rendered, contains('delete: /output/old (file, inferred)'));
+    expect(rendered, contains('Shell expansion is unresolved'));
+    expect(rendered, contains('Save directory grants: workspace'));
+    expect(rendered, contains('Allow all reads in /library (inferred)'));
+    final outcome = await view.awaitDecision(ScriptedKeySource([
+      ApprovalKey.toggleReadDirectory,
+      ApprovalKey.directoryScope,
+      ApprovalKey.allow,
+    ]));
+    expect(outcome.decision, ApprovalDecision.allow);
+    expect(outcome.directoryGrants.single.path, '/library');
+    expect(outcome.directoryGrants.single.access, DirectoryAccess.read);
+    expect(outcome.directoryGrants.single.scope, DirectoryGrantScope.global);
+    final denied = await dialog().awaitDecision(ScriptedKeySource([
+      ApprovalKey.toggleWriteDirectory,
+      ApprovalKey.cancel,
+    ]));
+    expect(denied.directoryGrants, isEmpty);
+  });
 
   test('write checkbox remembers only when explicitly checked and approved',
       () async {

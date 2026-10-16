@@ -35,7 +35,8 @@ enum ApprovalKey {
   editCommandPattern,
   toggleReadDirectory,
   toggleWriteDirectory,
-  toggleDirectory
+  toggleDirectory,
+  directoryScope
 }
 
 /// Where keys come from. The dialog [ApprovalDialog.awaitDecision]s until a
@@ -68,9 +69,13 @@ class ApprovalOutcome {
   final String? reason;
   final String? commandPattern;
   final bool editCommandPattern;
+  final List<DirectoryAccessGrant> directoryGrants;
 
   const ApprovalOutcome(this.decision,
-      {this.reason, this.commandPattern, this.editCommandPattern = false});
+      {this.reason,
+      this.commandPattern,
+      this.editCommandPattern = false,
+      this.directoryGrants = const []});
 
   bool get isCancellation => reason == 'cancelled';
 }
@@ -111,19 +116,34 @@ class ApprovalDialog {
   int _pageSize = 1;
   bool _rememberReads = false;
   bool _rememberWrites = false;
+  final _selectedDirectories = <int>{};
+  final _directoryOffers =
+      <({String path, DirectoryAccess access, String source})>[];
+  List<DirectoryGrantScope> _directoryScopes = const [
+    DirectoryGrantScope.session
+  ];
+  DirectoryGrantScope _directoryScope = DirectoryGrantScope.workspace;
+  bool get _hasDirectoryOffers =>
+      _directoryOffers.isNotEmpty &&
+      ask?.confirmation != true &&
+      call?.argumentsParseError == null;
   String? get _readDirectory => ask?.confirmation != true &&
+          ask?.details['directory_accesses'] is! List &&
           _hasAlways &&
           ask?.details['read_directory'] is String
       ? ask!.details['read_directory'] as String
       : null;
   String? get _writeDirectory => ask?.confirmation != true &&
+          ask?.details['directory_accesses'] is! List &&
           _hasAlways &&
           ask?.op == 'write' &&
           ask?.details['write_directory'] is String
       ? ask!.details['write_directory'] as String
       : null;
   bool get _onDirectoryCheckbox =>
-      {'read directory', 'write directory'}.contains(_choices[_selected]);
+      {'read directory', 'write directory'}.contains(_choices[_selected]) ||
+      _choices[_selected].startsWith('directory ');
+  bool get _onScope => _choices[_selected] == 'grant scope';
 
   /// The pending tool call, when the question came from one. A permission
   /// ask straight from the sandbox has no call — only [ask].
@@ -138,13 +158,59 @@ class ApprovalDialog {
       ask?.confirmation != true &&
       ask?.details['persistent_command_approval'] == true;
 
-  bool get _hasAlways => call?.argumentsParseError == null;
+  bool get _hasAlways =>
+      call?.argumentsParseError == null &&
+      ask?.details['directory_grant_required'] != true;
   bool get _hasCommandPattern =>
       ask?.confirmation != true &&
       _hasAlways &&
       ask?.details['command_pattern_target'] is String;
 
-  ApprovalDialog(this.call, {this.ask});
+  ApprovalDialog(this.call, {this.ask}) {
+    final offers = ask?.details['directory_accesses'];
+    if (offers is List) {
+      for (final offer in offers.take(32)) {
+        if (offer is Map &&
+            offer['path'] is String &&
+            {'read', 'write'}.contains(offer['access'])) {
+          _directoryOffers.add((
+            path: offer['path'] as String,
+            access: DirectoryAccess.values.byName(offer['access'] as String),
+            source: offer['source'] == 'inferred' ? 'inferred' : 'verified'
+          ));
+        }
+      }
+    }
+    final scopes = ask?.details['directory_grant_scopes'];
+    if (scopes is List) {
+      _directoryScopes = DirectoryGrantScope.values
+          .where((scope) => scopes.contains(scope.name))
+          .toList();
+      if (_directoryScopes.isEmpty)
+        _directoryScopes = const [DirectoryGrantScope.session];
+    }
+    if (!_directoryScopes.contains(_directoryScope))
+      _directoryScope = _directoryScopes.first;
+    if (ask?.details['directory_grant_required'] == true) {
+      _selectedDirectories
+          .addAll(List.generate(_directoryOffers.length, (index) => index));
+    }
+  }
+
+  ApprovalOutcome _outcome(ApprovalDecision decision,
+          {bool editCommandPattern = false}) =>
+      ApprovalOutcome(decision,
+          editCommandPattern: editCommandPattern,
+          directoryGrants: {
+            ApprovalDecision.allow,
+            ApprovalDecision.allowAlways
+          }.contains(decision)
+              ? List.unmodifiable([
+                  for (final index in _selectedDirectories)
+                    DirectoryAccessGrant(_directoryOffers[index].path,
+                        _directoryOffers[index].access, _directoryScope)
+                ])
+              : const []);
 
   List<String> get _choices => ask?.confirmation == true
       ? ['Yes', 'No']
@@ -156,6 +222,10 @@ class ApprovalDialog {
           if (_hasCommandPattern) 'edit command pattern',
           if (_readDirectory != null) 'read directory',
           if (_writeDirectory != null) 'write directory',
+          if (_hasDirectoryOffers) ...[
+            for (var i = 0; i < _directoryOffers.length; i++) 'directory $i',
+            'grant scope',
+          ],
         ];
 
   ApprovalDecision _withDirectoryScope(ApprovalDecision decision) {
@@ -237,6 +307,15 @@ class ApprovalDialog {
     final hasDenialReason =
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
+      if (hasDenialReason && !_details) 'Why: $denialReason',
+      if (ask?.details['accesses'] case final List accesses)
+        for (final access in accesses)
+          if (access is Map && access['path'] is String)
+            '${access['operation']}: ${access['path']} (${access['target_kind']}, ${access['source'] == 'inferred' ? 'inferred' : 'verified'})',
+      if (ask?.details['access_coverage'] != null)
+        'Access coverage: ${ask!.details['access_coverage']}${ask.details['access_coverage_source'] == 'inferred' ? ' (model estimate)' : ''}${ask.details['access_coverage'] == 'complete' ? '' : ' · other accesses may be unresolved'}',
+      if (ask?.details['unresolved_accesses'] case final List unresolved)
+        for (final item in unresolved) 'Unresolved: $item',
       if (_readDirectory != null) 'Read directory: $_readDirectory',
       if (_writeDirectory != null) 'Write directory: $_writeDirectory',
       if (ask?.confirmation == true) ...[
@@ -253,7 +332,6 @@ class ApprovalDialog {
         // Keep the classifier's concrete concern in the first preview row,
         // even when a short terminal has room for only one context row.
         // Tab still shows the full permission request and classifier details.
-        if (hasDenialReason && !_details) 'Why: $denialReason',
         if (name == 'bash' ||
             name == 'exec' ||
             description?.fields.containsKey('Command') == true) ...[
@@ -341,7 +419,9 @@ class ApprovalDialog {
     final choices = ask?.confirmation == true
         ? ['[y] Yes', '[n] No']
         : [
-            '[y] allow once',
+            ask?.details['directory_grant_required'] == true
+                ? '[y] grant selected directory access and run'
+                : '[y] allow once',
             '[n] deny',
             if (_hasAlways) '[a] $alwaysLabel',
             if (_hasPersistent) ...[
@@ -353,6 +433,11 @@ class ApprovalDialog {
               '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
             if (_writeDirectory != null)
               '[${_rememberWrites ? 'x' : ' '}] Allow all writes in this directory (w/Space)',
+            if (_hasDirectoryOffers) ...[
+              for (var i = 0; i < _directoryOffers.length; i++)
+                '[${_selectedDirectories.contains(i) ? 'x' : ' '}] Allow all ${_directoryOffers[i].access == DirectoryAccess.read ? 'reads' : 'writes (including deletes)'} in ${_directoryOffers[i].path}${_directoryOffers[i].source == 'inferred' ? ' (inferred)' : ''} (Space)',
+              '[s] Save directory grants: ${_directoryScope.name} (s/Enter)',
+            ],
           ];
     RenderLine choice(int i, {bool compact = false}) => row(
         '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
@@ -394,6 +479,35 @@ class ApprovalDialog {
 
   /// Apply one navigation key; returns true when the selection changed.
   bool handleKey(ApprovalKey key) {
+    if (_hasDirectoryOffers &&
+        (key == ApprovalKey.directoryScope ||
+            key == ApprovalKey.confirm && _onScope && !_details)) {
+      _directoryScope = _directoryScopes[
+          (_directoryScopes.indexOf(_directoryScope) + 1) %
+              _directoryScopes.length];
+      return true;
+    }
+    if (_hasDirectoryOffers) {
+      int? index;
+      if ((key == ApprovalKey.toggleDirectory ||
+              key == ApprovalKey.confirm && !_details) &&
+          _choices[_selected].startsWith('directory ')) {
+        index = int.parse(_choices[_selected].substring(10));
+      } else if (key == ApprovalKey.toggleReadDirectory ||
+          key == ApprovalKey.toggleWriteDirectory) {
+        final access = key == ApprovalKey.toggleReadDirectory
+            ? DirectoryAccess.read
+            : DirectoryAccess.write;
+        final match =
+            _directoryOffers.indexWhere((offer) => offer.access == access);
+        if (match >= 0) index = match;
+      }
+      if (index != null) {
+        if (!_selectedDirectories.remove(index))
+          _selectedDirectories.add(index);
+        return true;
+      }
+    }
     final toggleFocused = key == ApprovalKey.toggleDirectory ||
         key == ApprovalKey.confirm && _onDirectoryCheckbox && !_details;
     if (_writeDirectory != null &&
@@ -455,6 +569,7 @@ class ApprovalDialog {
       case ApprovalKey.toggleReadDirectory:
       case ApprovalKey.toggleWriteDirectory:
       case ApprovalKey.toggleDirectory:
+      case ApprovalKey.directoryScope:
         return false;
       case ApprovalKey.up:
         if (_selected > 0) {
@@ -475,7 +590,7 @@ class ApprovalDialog {
   }
 
   /// The decision the current selection maps to.
-  ApprovalOutcome get current => ApprovalOutcome(decisionFor(_selected),
+  ApprovalOutcome get current => _outcome(decisionFor(_selected),
       editCommandPattern: _choices[_selected] == 'edit command pattern');
 
   /// Drive the dialog from [keys]: arrows move, Enter confirms, Esc/source
@@ -492,7 +607,7 @@ class ApprovalDialog {
       onAnyKey?.call();
       switch (key) {
         case ApprovalKey.allow:
-          return ApprovalOutcome(_withDirectoryScope(ApprovalDecision.allow));
+          return _outcome(_withDirectoryScope(ApprovalDecision.allow));
         case ApprovalKey.deny:
           return const ApprovalOutcome(ApprovalDecision.deny);
         case ApprovalKey.workspace:
@@ -503,8 +618,7 @@ class ApprovalDialog {
             return const ApprovalOutcome(ApprovalDecision.allowGlobal);
         case ApprovalKey.always:
           if (ask?.confirmation != true && _hasAlways) {
-            return ApprovalOutcome(
-                _withDirectoryScope(ApprovalDecision.allowAlways));
+            return _outcome(_withDirectoryScope(ApprovalDecision.allowAlways));
           }
         case ApprovalKey.editCommandPattern:
           if (_hasCommandPattern) {
@@ -521,10 +635,11 @@ class ApprovalDialog {
         case ApprovalKey.toggleReadDirectory:
         case ApprovalKey.toggleWriteDirectory:
         case ApprovalKey.toggleDirectory:
+        case ApprovalKey.directoryScope:
           handleKey(key!);
           onKey?.call();
         case ApprovalKey.confirm:
-          if (_details || _onDirectoryCheckbox) {
+          if (_details || _onDirectoryCheckbox || _onScope) {
             handleKey(key!);
             onKey?.call();
           } else {

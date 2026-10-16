@@ -98,6 +98,7 @@ final class ApprovalView implements ConsoleContribution {
         col: input.col,
         width: input.width,
         height: lines.length);
+    _reserveChatRows(context.chat, lines.isEmpty ? 0 : lines.length - 1);
     screen.frame(() {
       final previous = _overlay!.bounds;
       if (_overlay!.isVisible &&
@@ -106,7 +107,7 @@ final class ApprovalView implements ConsoleContribution {
               previous.width != bounds.width ||
               previous.height != bounds.height)) {
         _overlay!.hide();
-        screen.chat.repaint();
+        context.chat.repaint();
       }
       _overlay!.update(bounds: bounds, lines: lines);
       if (review?.cursor case final position?) {
@@ -122,7 +123,30 @@ final class ApprovalView implements ConsoleContribution {
     }
   }
 
+  // Chat rows currently reserved for the dialog, and the chat region's own
+  // bottom inset before any of ours was applied (panel chats reserve one row
+  // for the shared input line; the single-session console reserves none).
+  int _reservedRows = 0;
+  int _chatBaseInset = 0;
+
+  /// A dialog grows up from the input row over the chat's bottom-aligned
+  /// newest lines. Reserve its height (minus the input row it replaces, which
+  /// the dialog covers anyway) so the chat region shifts those lines above
+  /// the dialog instead of rendering them underneath it. Non-destructive:
+  /// the row buffer keeps everything and content returns when released.
+  void _reserveChatRows(ScrollingTextRegion chat, int rows) {
+    if (rows > 0) {
+      if (_reservedRows == 0) _chatBaseInset = chat.bottomInset;
+      chat.setBottomInset(_chatBaseInset + rows);
+    } else if (_reservedRows > 0) {
+      chat.setBottomInset(_chatBaseInset);
+      _chatBaseInset = 0;
+    }
+    _reservedRows = rows;
+  }
+
   void _hide(ConsoleContext context) {
+    _reserveChatRows(context.chat, 0);
     if (_overlay?.isVisible != true) return;
     context.screen.frame(() {
       _overlay!.hide();
@@ -199,7 +223,8 @@ final class QueuedDialogAsker {
               onAnyKey: onChange);
           if (_closed || !ticket.isActive) break;
           if (!outcome.editCommandPattern) {
-            ticket.respond(outcome.decision);
+            ticket.respond(outcome.decision,
+                directoryGrants: outcome.directoryGrants);
             break;
           }
           if (source is! CommandPatternKeySource) continue;
@@ -301,6 +326,7 @@ final class _ConsoleKeys implements CommandPatternKeySource {
         CharInput(text: 'e') => ApprovalKey.editCommandPattern,
         CharInput(text: 'r') => ApprovalKey.toggleReadDirectory,
         CharInput(text: 'w') => ApprovalKey.toggleWriteDirectory,
+        CharInput(text: 's') => ApprovalKey.directoryScope,
         CharInput(text: ' ') => ApprovalKey.toggleDirectory,
         ArrowKey(direction: ArrowDirection.pageUp) => ApprovalKey.pageUp,
         ArrowKey(direction: ArrowDirection.pageDown) => ApprovalKey.pageDown,
