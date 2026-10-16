@@ -43,7 +43,9 @@ class OutputStub(ModelStub):
         judge = request.get('output_config', {}).get('format') is not None
         if judge:
             completed = True
-            content = {'type': 'text', 'text': json.dumps({'decision': 'ALLOW', 'reason': ''})}
+            content = {'type': 'text', 'text': json.dumps(
+                {'decision': 'ALLOW', 'reason': '',
+                 'accesses': [], 'coverage': 'unknown', 'unresolved': []})}
         if not completed and 'mcp output' in text:
             name = next(tool['name'] for tool in request['tools']
                         if tool['description'] == '[MCP fixture] Fixture mutate')

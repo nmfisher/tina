@@ -150,8 +150,22 @@ class ModelStub(BaseHTTPRequestHandler):
             assert output == {'type': 'json_schema', 'schema': {
                 'type': 'object',
                 'properties': {'decision': {'type': 'string', 'enum': ['ALLOW', 'DENY']},
-                               'reason': {'type': 'string'}},
-                'required': ['decision', 'reason'], 'additionalProperties': False}}
+                               'reason': {'type': 'string'},
+                               'accesses': {'type': 'array', 'maxItems': 64, 'items': {
+                                   'type': 'object',
+                                   'properties': {'operation': {'type': 'string',
+                                                                 'enum': ['read', 'create', 'write', 'delete', 'move']},
+                                                  'path': {'type': 'string', 'minLength': 1, 'maxLength': 4096},
+                                                  'target_kind': {'type': 'string',
+                                                                  'enum': ['file', 'directory', 'unknown']}},
+                                   'required': ['operation', 'path', 'target_kind'],
+                                   'additionalProperties': False}},
+                               'coverage': {'type': 'string',
+                                            'enum': ['complete', 'partial', 'unknown']},
+                               'unresolved': {'type': 'array', 'maxItems': 16,
+                                              'items': {'type': 'string', 'minLength': 1, 'maxLength': 240}}},
+                'required': ['decision', 'reason', 'accesses', 'coverage', 'unresolved'],
+                'additionalProperties': False}}, 'judge schema changed; update the stub'
             evidence = json.loads(prompt[0]['text'])
             assert evidence['required_permissions'] == ['execution', 'network']
             assert evidence['arguments'] in [['auto-network-output'], ['denied-network-output']]
@@ -161,7 +175,8 @@ class ModelStub(BaseHTTPRequestHandler):
             events[2] = {'type': 'content_block_delta', 'index': 0,
                          'delta': {'type': 'text_delta', 'text': json.dumps({
                              'decision': 'DENY' if denied else 'ALLOW',
-                             'reason': 'Project data could be exposed.' if denied else ''})}}
+                             'reason': 'Project data could be exposed.' if denied else '',
+                             'accesses': [], 'coverage': 'unknown', 'unresolved': []})}}
             events[4]['delta']['stop_reason'] = 'end_turn'
         def encode(items):
             return "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in items).encode()

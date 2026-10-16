@@ -38,6 +38,17 @@ void main() {
       );
       Future<void> settle([int ms = 120]) =>
           Future<void>.delayed(Duration(milliseconds: ms));
+      // Poll the painted terminal until the picker shows [text]: startup,
+      // the registry refresh and the file walk are all asynchronous.
+      Future<void> pickerReady(String text, [int tries = 100]) async {
+        for (var i = 0; i < tries; i++) {
+          await settle(50);
+          if (io.written.toString().contains(text)) {
+            return;
+          }
+        }
+        fail('picker never showed $text');
+      }
 
       // '/mod' opens the command picker; Enter ACCEPTS '/mode ' and
       // dispatches it in one key. The tell proves the picker was fed
@@ -52,9 +63,12 @@ void main() {
       // 'see @ma' opens the @ picker over the session's working
       // directory; Enter accepts the file candidate, a second Enter
       // submits the turn. The recorded request carries the completed
-      // text — the @ source answered with a real path.
+      // text — the @ source answered with a real path. Wait for the
+      // candidate: the picker's directory walk is asynchronous, and a
+      // fixed sleep accepts an empty (still loading) picker on slow
+      // filesystems, submitting the raw text instead.
       io.feedBytes('see @ma'.codeUnits);
-      await settle(200);
+      await pickerReady('main.dart');
       io.feedBytes([0x0d]); // accept
       await settle(100);
       io.feedBytes([0x0d]); // submit
