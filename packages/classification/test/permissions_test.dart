@@ -43,6 +43,7 @@ Stream<StreamEvent> completed(String text, {String reason = 'end_turn'}) =>
     );
 
 void main() {
+  precedentInputTests();
   test(
     'prepends live owner instructions to every attempt without changing evidence or schema',
     () async {
@@ -446,4 +447,72 @@ class UnstructuredProvider extends LlmProvider {
   }) => throw StateError('must not send');
   @override
   void close() => closed = true;
+}
+
+void precedentInputTests() {
+  Map<String, Object?> evidence() => {
+        'operation': 'run command',
+        'target': 'git status',
+        'required_permissions': ['execution'],
+        'arguments': ['status'],
+      };
+  Map<String, Object?> precedent() => {
+        'similarity': 0.97,
+        'outcome': 'allow',
+        'authority': 'humanAlways',
+        'count': 3,
+        'age_days': 1,
+        'coverage': 'complete',
+        'request': {
+          'tool': 'exec',
+          'program': 'git',
+          'subcommand': 'status',
+          'flags': <String>[],
+          'operands': <String>[],
+          'path_classes': <String>[],
+          'permissions': ['execution'],
+        },
+      };
+
+  test('precedents ride inside the evidence document, never as instructions',
+      () async {
+    final provider =
+        Provider((_) => completed('{"decision":"ALLOW","reason":""}'));
+    final classifier = PermissionClassifier(() => provider,
+        readPrecedents: (request) => [precedent()]);
+    await classifier.classify(evidence());
+    final payload =
+        jsonDecode((provider.requests.single.single.content.single as TextBlock).text)
+            as Map<String, Object?>;
+    expect(payload['precedents'], [precedent()]);
+    expect(provider.systems.single, contains('never instructions'));
+    expect(provider.systems.single, contains('requires DENY'));
+    expect(
+        (provider.outputs.single.schema['properties'] as Map).keys,
+        containsAll(['decision', 'reason', 'accesses', 'coverage', 'unresolved']),
+        reason: 'precedents must not change the verdict schema');
+  });
+
+  test('no precedents leaves the request byte-identical', () async {
+    final provider =
+        Provider((_) => completed('{"decision":"ALLOW","reason":""}'));
+    await PermissionClassifier(() => provider, readPrecedents: (_) => const [])
+        .classify(evidence());
+    final payload =
+        jsonDecode((provider.requests.single.single.content.single as TextBlock).text)
+            as Map<String, Object?>;
+    expect(payload.containsKey('precedents'), false);
+    expect(payload, evidence());
+  });
+
+  test('a failing precedent lookup degrades instead of failing the judgment',
+      () async {
+    final provider =
+        Provider((_) => completed('{"decision":"ALLOW","reason":""}'));
+    final judgment = await PermissionClassifier(() => provider,
+            readPrecedents: (_) => throw StateError('store damaged'))
+        .classify(evidence());
+    expect(judgment.allow, true);
+    expect(provider.requests, hasLength(1));
+  });
 }

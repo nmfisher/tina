@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:classification/command_regex.dart';
 import 'package:classification/plugin.dart';
@@ -81,7 +82,7 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
               'Connects configured models and providers and enforces request and token limits.'),
       PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
           'tina/mode',
-          settings: [classifierInstructionSetting],
+          settings: [classifierInstructionSetting, precedentSetting],
           operations: modeOperations,
           dependency: modePolicySource,
           create: (c, source) => ModeControlsPlugin(source.modePolicy),
@@ -207,13 +208,27 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             second: modelAccess,
             provides: [toolProvider, modePolicySource],
             create: (c, approvals, models) {
-          c.tools.modePolicy
-            ..approvals = approvals
-            ..terminal = c.terminal
-            ..classifier = PermissionClassifier(
-                () => models.mainProvider(c.currentModel()),
-                readInstruction: () =>
-                    c.settings?.read(classifierInstructionSetting).value ?? '');
+          final workspace = Directory(c.workingDirectory).absolute.path;
+          // Statements, not one cascade: a cascade after an arrow body binds
+          // to that body's expression.
+          final policy = c.tools.modePolicy;
+          policy.approvals = approvals;
+          policy.terminal = c.terminal;
+          policy.precedentStore = FilePrecedentStore(
+              '${File(c.configPath).parent.path}/precedents/'
+              '${_workspaceKey(workspace)}.jsonl');
+          policy.readPrecedentMode = () =>
+              parsePrecedentMode(c.settings?.read(precedentSetting).value);
+          policy.classifier = PermissionClassifier(
+              () => models.mainProvider(c.currentModel()),
+              readInstruction: () =>
+                  c.settings?.read(classifierInstructionSetting).value ?? '',
+              readPrecedents: policy.precedentEvidenceFor);
+          policy.precedentScope = () => PrecedentScope(
+                workspace: workspace,
+                readDirectories: c.tools.readDirectories.paths,
+                writeDirectories: c.tools.writeDirectories.paths,
+              );
           return c.tools;
         },
             description:
@@ -394,3 +409,20 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             live: true),
       ],
     );
+
+/// A stable, filesystem-safe per-workspace name for its precedent file.
+///
+/// FNV-1a over the absolute path: deterministic across runs and Dart versions
+/// (unlike [Object.hashCode]), and the readable suffix keeps the file
+/// identifiable when inspecting `~/.tina/precedents`.
+String _workspaceKey(String path) {
+  var hash = 0x811c9dc5;
+  for (final unit in utf8.encode(path)) {
+    hash = ((hash ^ unit) * 0x01000193) & 0xffffffff;
+  }
+  final safe = path.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-');
+  final trimmed = safe.replaceAll(RegExp(r'^-+|-+$'), '');
+  final prefix =
+      trimmed.length > 60 ? trimmed.substring(trimmed.length - 60) : trimmed;
+  return '${prefix.isEmpty ? 'workspace' : prefix}-${hash.toRadixString(16).padLeft(8, '0')}';
+}

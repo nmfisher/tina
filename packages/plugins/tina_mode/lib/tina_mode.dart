@@ -93,6 +93,14 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   Terminal? terminal;
   ApprovalRequester? approvals;
   PermissionClassifier? classifier;
+
+  /// Where resolved decisions are remembered, and the world their path classes
+  /// are computed against. Null disables the feature entirely.
+  PrecedentStore? precedentStore;
+  PrecedentScope Function()? precedentScope;
+
+  /// Reads the `permissions.precedents` setting for the current scope.
+  PrecedentMode Function()? readPrecedentMode;
   TurnContext? _turn;
   ToolUse? _call;
   // One approval covers one invocation, including atomic temp/rename writes.
@@ -146,6 +154,71 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     ),
   ];
 
+  /// Precedent evidence for one request, or empty when the feature is off or
+  /// the request has no recognizable shape. Wired into the classifier by the
+  /// application assembly.
+  List<Map<String, Object?>> precedentEvidenceFor(Map<String, Object?> request) {
+    final mode = readPrecedentMode?.call() ?? PrecedentMode.evidence;
+    if (mode == PrecedentMode.off) return const [];
+    final store = precedentStore;
+    final scope = precedentScope?.call();
+    if (store == null || scope == null) return const [];
+    final signature = RequestSignature.of(request, scope: scope);
+    if (signature == null) return const [];
+    try {
+      return precedentEvidence(rankPrecedents(signature, store.read()));
+    } catch (_) {
+      return const []; // A damaged history never blocks a judgment.
+    }
+  }
+
+  /// Record how a permission request was resolved. Cancellations and automatic
+  /// denials with no human present never reach this method.
+  void _rememberDecision(
+    Map<String, Object?> request, {
+    required ApprovalDecision decision,
+    required bool human,
+    String? coverage,
+  }) {
+    final mode = readPrecedentMode?.call() ?? PrecedentMode.evidence;
+    if (mode == PrecedentMode.off) return;
+    final store = precedentStore;
+    final scope = precedentScope?.call();
+    if (store == null || scope == null) return;
+    final signature = RequestSignature.of(request, scope: scope);
+    if (signature == null) return;
+    final approved = switch (decision) {
+      ApprovalDecision.allow ||
+      ApprovalDecision.allowAlways ||
+      ApprovalDecision.allowWorkspace ||
+      ApprovalDecision.allowGlobal ||
+      ApprovalDecision.allowReadsInDirectory ||
+      ApprovalDecision.allowAlwaysAndReadsInDirectory ||
+      ApprovalDecision.allowWritesInDirectory ||
+      ApprovalDecision.allowAlwaysAndWritesInDirectory => true,
+      ApprovalDecision.deny => false,
+    };
+    final authority = !human
+        ? PrecedentAuthority.classifier
+        : switch (decision) {
+            ApprovalDecision.allowAlways ||
+            ApprovalDecision.allowWorkspace ||
+            ApprovalDecision.allowGlobal =>
+              PrecedentAuthority.humanAlways,
+            _ => PrecedentAuthority.humanOnce,
+          };
+    try {
+      store.record(
+        signature: signature,
+        outcome: approved ? PrecedentOutcome.allow : PrecedentOutcome.deny,
+        authority: authority,
+        coverage: coverage ?? 'unknown',
+      );
+    } catch (_) {
+      // Remembering is best effort; the decision itself already stands.
+    }
+  }
+
   Future<ApprovalDecision> request({
     required String operation,
     required String target,
@@ -178,28 +251,41 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     String? autoFallback;
     String? autoDenialReason;
     Map<String, Object?> autoDiagnostics = const {};
+    // The evidence map is assembled once: the judge sees it, and precedents
+    // are keyed by exactly the same fields.
+    Map<String, Object?> requestEvidence() => {
+          'operation': operation,
+          'target': target,
+          'reason': reason,
+          ...context,
+          // Owned by the active turn, not the tool's justification or
+          // caller-supplied context. Null means no current user request.
+          'user_request': turn?.input.text,
+          if (_call != null)
+            'tool': {'name': _call!.name, 'input': _call!.input},
+          // The conversation tail before this request: what a user
+          // correction refers to. Without it, "that path is not
+          // correct" denies the corrected retry because the judge
+          // cannot see the failed call it answered.
+          ...?_recentContext(turn),
+        };
     var judgment = const PermissionJudgment(null, 'not classified');
     if (mode == PermissionMode.auto && permission && !humanOnly) {
+      final evidence = requestEvidence();
+      // Deterministic fast path: an exact read-only shape the user has already
+      // approved twice runs without a model round trip.
+      if (_precedentAllows(evidence)) {
+        terminal?.writeln('$operation allowed by precedent: $target');
+        if (call != null && identical(call, _call)) {
+          _callApprovals[cacheKey] = ApprovalDecision.allow;
+        }
+        return ApprovalDecision.allow;
+      }
       final judge = classifier;
       final result = judge == null
           ? const PermissionJudgment(null, 'not configured')
           : await judge.classify(
-              {
-                'operation': operation,
-                'target': target,
-                'reason': reason,
-                ...context,
-                // Owned by the active turn, not the tool's justification or
-                // caller-supplied context. Null means no current user request.
-                'user_request': turn?.input.text,
-                if (_call != null)
-                  'tool': {'name': _call!.name, 'input': _call!.input},
-                // The conversation tail before this request: what a user
-                // correction refers to. Without it, "that path is not
-                // correct" denies the corrected retry because the judge
-                // cannot see the failed call it answered.
-                ...?_recentContext(turn),
-              },
+              evidence,
               whenCancelled: Future.any([
                 if (turn != null) turn.whenCancelled,
                 _changed.future,
@@ -216,6 +302,12 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         if (call != null && identical(call, _call)) {
           _callApprovals[cacheKey] = ApprovalDecision.allow;
         }
+        _rememberDecision(
+          evidence,
+          decision: ApprovalDecision.allow,
+          human: false,
+          coverage: judgment.assessment.coverage.name,
+        );
         return ApprovalDecision.allow;
       }
       autoFallback = mode != PermissionMode.auto
@@ -285,7 +377,48 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         decision == ApprovalDecision.allow) {
       _callApprovals[cacheKey] = decision;
     }
+    // Only a human answer is recorded here; the classifier's own ALLOW already
+    // returned above, and an unattended automatic denial is not a decision the
+    // user made.
+    if (permission && approvals != null) {
+      _rememberDecision(
+        requestEvidence(),
+        decision: decision,
+        human: true,
+        coverage: judgment.assessment.coverage.name,
+      );
+    }
     return decision;
+  }
+
+  /// Whether this exact read-only shape has been approved often enough to run
+  /// quietly. Every condition is checked here; the pure predicate in the
+  /// classification package holds the arithmetic.
+  bool _precedentAllows(Map<String, Object?> evidence) {
+    if ((readPrecedentMode?.call() ?? PrecedentMode.evidence) !=
+        PrecedentMode.full) {
+      return false;
+    }
+    final store = precedentStore;
+    final scope = precedentScope?.call();
+    if (store == null || scope == null) return false;
+    final signature = RequestSignature.of(evidence, scope: scope);
+    if (signature == null) return false;
+    final accesses = evidence['accesses'];
+    final allRead = accesses is List &&
+        accesses.isNotEmpty &&
+        accesses.every((access) => access is Map && access['operation'] == 'read');
+    final coverage = evidence['access_coverage'];
+    try {
+      return allowsWithoutJudgment(
+        request: signature,
+        precedents: store.read(),
+        coverage: coverage is String ? coverage : 'unknown',
+        allAccessesRead: allRead,
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   /// The conversation tail for the judge, or null when there is nothing

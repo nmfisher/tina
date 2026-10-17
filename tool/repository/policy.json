@@ -261,7 +261,8 @@
     "packages/classification/lib/src/judgments/request_packer.dart",
     "packages/classification/lib/src/judgments/batch_runner.dart",
     "packages/classification/lib/src/shared/fingerprint.dart",
-    "packages/classification/lib/src/shared/range_packer.dart"
+    "packages/classification/lib/src/shared/range_packer.dart",
+    "packages/classification/lib/src/permissions/precedent.dart"
   ],
   "noDirectIoFiles": [
     "packages/classification/lib/src/input/classification_trace.dart",

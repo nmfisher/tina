@@ -29,6 +29,34 @@ Read-only and allow-edits automatically allow verified system reader commands
 and supported literal reader pipelines/sequences. Other commands still follow
 the table above. Network and outside-sandbox requests require separate approval.
 
+## Approval precedents
+
+Resolved permission requests are remembered per workspace under
+`<config dir>/precedents/<workspace>.jsonl`. A record is a normalized signature
+— tool, program, subcommand, flag names with value classes, operand classes and
+path classes — never raw arguments; anything secret-shaped is reduced before
+storage. The `permissions.precedents` setting selects behaviour and applies
+immediately:
+
+| Value | Behaviour |
+| --- | --- |
+| `off` | No history is read or written. |
+| `evidence` (default) | The four closest precedents are added to the judge's evidence as `precedents`. |
+| `full` | As `evidence`, plus an exact read-only shape approved twice runs without a model call. |
+
+Precedents are evidence, not grants. They never create command patterns or
+directory grants. A precedent informs a judgment only when its permissions
+cover the request, so a confined precedent never supports network or
+unconfined access. A different program, or a different subcommand when both
+name one, never matches. A denial is never overwritten: a signature with both
+an approval and a denial is `conflicted` and always asks.
+
+The fast path requires all of: the exact signature, `{execution}` as the only
+required permission, `complete` coverage with every assessed access a read, no
+denial for the shape, two prior approvals, and a record younger than 90 days.
+Such a run reports `allowed by precedent` instead of `allowed by classifier`.
+Records are capped at 512 per workspace, least recently seen evicted.
+
 The judge implementation lives in `classification/permissions.dart`, separate
 from display-only utterance classification. The app supplies an independent
 provider instance for the selected model. Reviews count toward the session's

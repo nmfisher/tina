@@ -52,6 +52,7 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 );
 
 void main() {
+  precedentTests();
   test('model inferred accesses never create automatic directory grants', () async {
     final human = Human();
     final mode = ModePlugin(mode: PermissionMode.auto, approvals: human,
@@ -595,4 +596,126 @@ void main() {
       expect(human.calls, action == 'ask' || action == 'read-only' ? 1 : 0);
     });
   }
+}
+
+void precedentTests() {
+  const scope = PrecedentScope(workspace: '/work/project');
+  Map<String, Object?> commandContext({
+    List<String> arguments = const ['status', '--short'],
+    List<String> permissions = const ['execution'],
+    String accessKind = 'read',
+    String coverage = 'complete',
+  }) =>
+      {
+        'executable': '/usr/bin/git',
+        'arguments': arguments,
+        'required_permissions': permissions,
+        'access_coverage': coverage,
+        'accesses': [
+          {'operation': accessKind, 'path': '/work/project/a', 'target_kind': 'file'}
+        ],
+      };
+  Future<ApprovalDecision> run(ModePlugin mode,
+          {Map<String, Object?>? context}) =>
+      mode.request(
+        operation: 'run command',
+        target: 'git status',
+        reason: 'approval required',
+        context: context ?? commandContext(),
+      );
+
+  test('a human decision is remembered; a denial poisons the shape', () async {
+    final store = MemoryPrecedentStore();
+    final human = Human();
+    final mode = ModePlugin(mode: PermissionMode.auto, approvals: human)
+      ..precedentStore = store
+      ..precedentScope = () => scope;
+
+    human.answer = ApprovalDecision.allowAlways;
+    expect(await run(mode), ApprovalDecision.allowAlways);
+    final learned = store.read().single;
+    expect(learned.outcome, PrecedentOutcome.allow);
+    expect(learned.authority, PrecedentAuthority.humanAlways);
+    expect(learned.count, 1);
+
+    human.answer = ApprovalDecision.deny;
+    await run(mode);
+    final poisoned = store.read().single;
+    expect(poisoned.conflicted, true);
+    expect(poisoned.outcome, PrecedentOutcome.allow,
+        reason: 'the first recorded outcome is retained');
+  });
+
+  test('an exact read-only shape runs quietly after two approvals', () async {
+    final store = MemoryPrecedentStore();
+    final human = Human();
+    final judge = Judge(Future.value(const PermissionJudgment(null, 'unused')));
+    final mode = ModePlugin(
+        mode: PermissionMode.auto, approvals: human, classifier: judge)
+      ..precedentStore = store
+      ..readPrecedentMode = (() => PrecedentMode.full)
+      ..precedentScope = (() => scope);
+
+    // Nothing learned yet: the judge denies, the human allows.
+    for (var i = 0; i < 2; i++) {
+      human.answer = ApprovalDecision.allow;
+      await run(mode);
+    }
+    expect(store.read().single.count, 2);
+    human.calls = 0;
+    judge.calls = 0;
+
+    expect(await run(mode), ApprovalDecision.allow);
+    expect(human.calls, 0, reason: 'the third ask must not reach the human');
+    expect(judge.calls, 0, reason: 'the third ask must not reach the model');
+  });
+
+  test('the fast path never covers network or partial access', () async {
+    for (final context in [
+      commandContext(permissions: ['execution', 'network']),
+      commandContext(coverage: 'partial'),
+      commandContext(accessKind: 'write'),
+    ]) {
+      final store = MemoryPrecedentStore();
+      final human = Human();
+      final mode = ModePlugin(mode: PermissionMode.auto, approvals: human)
+        ..precedentStore = store
+        ..readPrecedentMode = (() => PrecedentMode.full)
+        ..precedentScope = (() => scope);
+      for (var i = 0; i < 3; i++) {
+        human.answer = ApprovalDecision.allow;
+        await run(mode, context: context);
+      }
+      human.calls = 0;
+      await run(mode, context: context);
+      expect(human.calls, 1, reason: 'context: $context must keep asking');
+    }
+  });
+
+  test('evidence mode exposes ranked precedents; off exposes none', () async {
+    final store = MemoryPrecedentStore();
+    final human = Human();
+    final mode = ModePlugin(mode: PermissionMode.auto, approvals: human)
+      ..precedentStore = store
+      ..precedentScope = () => scope;
+    human.answer = ApprovalDecision.allow;
+    await run(mode);
+
+    final evidence = mode.precedentEvidenceFor({
+      'operation': 'run command',
+      'tool': {'name': 'exec'},
+      ...commandContext(),
+    });
+    expect(evidence, hasLength(1));
+    expect(evidence.single['outcome'], 'allow');
+
+    mode.readPrecedentMode = () => PrecedentMode.off;
+    expect(
+        mode.precedentEvidenceFor({
+          'operation': 'run command',
+          'tool': {'name': 'exec'},
+          ...commandContext(),
+        }),
+        isEmpty);
+  });
 }
