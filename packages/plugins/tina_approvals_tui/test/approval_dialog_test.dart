@@ -377,13 +377,17 @@ void main() {
             }));
     var rows = dialog.rows(width: 78, height: 7).map(text).toList();
     expect(rows, hasLength(7));
-    expect(rows[1], '│ Why: $reason');
+    // The denial is pinned under the header as a warning, never paged away.
+    expect(rows[1], '│ ⚠ Auto approver denied this: $reason');
     expect(rows[rows.length - 3], '❯ [y] allow once');
     expect(rows[rows.length - 2], '  [n] deny');
     expect(rows.last, '  [a] allow this command for this session');
     final pages = <String>[];
     for (var i = 0; i < 15; i++) {
-      pages.addAll(dialog.rows(width: 78, height: 7).map(text));
+      final page = dialog.rows(width: 78, height: 7).map(text).join('\n');
+      pages.add(page);
+      expect(page, contains('Auto approver denied this: $reason'),
+          reason: 'the warning stays pinned while the preview pages');
       dialog.handleKey(ApprovalKey.pageDown);
     }
     expect(pages.join('\n'), contains('git push origin work'));
