@@ -138,7 +138,13 @@ final class ConfigSettingsManagement implements SettingsManagement {
                 : d.applyAt == ApplyAt.restart
                     ? 'after restart'
                     : 'when idle',
-            reasons[d.owner] ?? const []),
+            reasons[d.owner] ?? const [],
+            locked: _plugins != null &&
+                _plugins.requiredIds.contains(d.owner) &&
+                _plugins.applicationRequired(d.owner),
+            missingDependencies:
+                _plugins?.missingDependenciesOf(d.owner) ?? const [],
+            dependents: _plugins?.dependentsOf(d.owner) ?? const []),
     });
   }
 

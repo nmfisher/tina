@@ -615,7 +615,8 @@ final class SettingsPanel {
         continue;
       }
       final field = fields[choice - 1];
-      final required = pluginInfo[field.owner]?.required == true;
+      final info = pluginInfo[field.owner];
+      final required = info?.required == true;
       // A dependency requires the plugin in the effective conversation, not
       // necessarily in every scope. Allow promotion to missing scopes.
       if (required &&
@@ -624,22 +625,53 @@ final class SettingsPanel {
                   ? SettingScope.values.every(
                       (scope) => _state.read(field, scope: scope).value == true)
                   : _state.read(field, scope: _scope).value == true))) continue;
-      try {
+      if (reset) {
         if (column == 3) {
-          final allEnabled = SettingScope.values
-              .every((scope) => _state.override(field, scope) == true);
-          _management.settings.setInAllScopes(
-              field.id, reset ? null : !allEnabled,
+          _management.settings.setInAllScopes(field.id, null,
               expectedRevision: _state.revision);
-        } else if (reset) {
+        } else {
           _management.settings.update(_scope,
               expectedRevision: _state.revision, remove: {field.id});
+        }
+        _refresh();
+        _savedSection = true;
+        continue;
+      }
+      // Enabling a plugin with unselected dependencies cascades them on;
+      // disabling one with live consumers cascades them off. Both ask once,
+      // then commit as one revision-checked write.
+      final effective = _state.read(field, scope: _scope).value == true;
+      final enabling = required ||
+          !effective ||
+          (column == 3 &&
+              !SettingScope.values
+                  .every((scope) => _state.override(field, scope) == true));
+      final also = (enabling
+              ? info?.missingDependencies ?? const <String>[]
+              : info?.dependents ?? const <String>[])
+          .where((other) => other != field.owner)
+          .toList();
+      if (!await _confirmCascade(field.owner, enabling, also)) continue;
+      try {
+        if (column == 3) {
+          // One action across the three layers; dependencies/providers ride
+          // along so every intermediate selection stays valid.
+          for (final target in [
+            if (enabling) ...(info?.missingDependencies ?? const []).reversed,
+            field.owner,
+            if (!enabling) ...?info?.dependents,
+          ]) {
+            _management.settings.setInAllScopes(
+                '$target/enabled', enabling,
+                expectedRevision: _state.revision);
+            _refresh();
+          }
         } else {
           _management.settings.update(_scope,
               expectedRevision: _state.revision,
               values: {
-                field.id:
-                    required || _state.read(field, scope: _scope).value != true
+                field.id: enabling,
+                for (final other in also) '$other/enabled': enabling,
               });
         }
         _refresh();
@@ -648,6 +680,25 @@ final class SettingsPanel {
         await _menu('Could not change plugin', ['$error', 'Back']);
       }
     }
+  }
+
+  /// Ask before a toggle cascades to other plugins. Returns true to proceed.
+  Future<bool> _confirmCascade(
+      String owner, bool enabling, List<String> also) async {
+    if (also.isEmpty) return true;
+    final lines = [
+      if (enabling)
+        'Requires enabling:'
+      else
+        'Also disables:',
+      for (final other in also) '  $other',
+      'Continue? · Back',
+    ];
+    final choice = await _menu(
+        '${enabling ? 'Enable' : 'Disable'} $owner${also.length > 1 ? ' +${also.length - 1}' : ''}',
+        lines,
+        initialSelected: lines.length - 1);
+    return choice == lines.length - 1;
   }
 
   Future<void> _generation(ProviderDraft document, {String? provider}) async {

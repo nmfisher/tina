@@ -22,11 +22,30 @@ abstract interface class SettingsManagement {
 }
 
 final class PluginSettingInfo {
-  PluginSettingInfo(this.description, this.status, Iterable<String> reasons)
-      : blockingReasons = List.unmodifiable(reasons);
+  PluginSettingInfo(this.description, this.status, Iterable<String> reasons,
+      {bool locked = false,
+      Iterable<String> missingDependencies = const [],
+      Iterable<String> dependents = const []})
+      : _locked = locked,
+        blockingReasons = List.unmodifiable(reasons),
+        missingDependencies = List.unmodifiable(missingDependencies),
+        dependents = List.unmodifiable(dependents);
   final String description, status;
   final List<String> blockingReasons;
+
+  /// Whether settings toggles can never disable this plugin: the application
+  /// requires its capability, or it is the selected approval channel.
+  final bool _locked;
+
+  /// Plugin IDs this plugin needs that the effective selection does not
+  /// supply, deepest provider first. Enabling it enables these too.
+  final List<String> missingDependencies;
+
+  /// Selected plugin IDs that transitively depend on this one, leaf consumers
+  /// first. Disabling it disables these too.
+  final List<String> dependents;
   bool get required => blockingReasons.isNotEmpty;
+  bool get locked => _locked;
 }
 
 final class ProviderOption {

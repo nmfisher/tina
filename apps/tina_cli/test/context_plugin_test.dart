@@ -105,29 +105,25 @@ void main() {
     expect(
         view.context.workingContext.revision, plugin.workingContext.revision);
     expect(app.host.session.loop.log.length, before);
-    expect(
-        () => app.pluginSettings.apply(
-            'tina/context', false, PluginScope.workspace, app.pluginManager),
-        throwsArgumentError);
+    // Disabling the provider cascades its live viewer off in the same write.
     app.pluginSettings.apply(
-        'tina/context-tui', false, PluginScope.workspace, app.pluginManager);
+        'tina/context', false, PluginScope.workspace, app.pluginManager);
     expect(app.commands['context'], isNull);
+    expect(app.pluginSettings.state('tina/context-tui').enabled, isFalse);
     expect(context(app), same(plugin));
     expect(app.tools.sandbox.grants.length, 1);
   });
 
-  test('viewer requires context and waits for its pending activation', () {
+  test('viewer cascades its provider on and waits for the pending restart',
+      () {
     final app = SessionAssembly.start(
         options: options(), providerFactory: (_) => ScriptedProvider([]));
     addTearDown(app.close);
-    expect(
-        () => app.pluginSettings.apply(
-            'tina/context-tui', true, PluginScope.workspace, app.pluginManager),
-        throwsArgumentError);
-    app.pluginSettings
-        .apply('tina/context', true, PluginScope.workspace, app.pluginManager);
+    // Enabling the viewer brings its not-selected provider along.
     app.pluginSettings.apply(
         'tina/context-tui', true, PluginScope.workspace, app.pluginManager);
+    expect(app.pluginSettings.state('tina/context').enabled, isTrue);
+    expect(app.pluginSettings.state('tina/context-tui').enabled, isTrue);
     expect(app.commands['context'], isNull);
     expect(app.host.plugins.whereType<ContextPlugin>(), isEmpty);
     final restarted = SessionAssembly.start(

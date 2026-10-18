@@ -70,6 +70,96 @@ final class PluginSettings<C> {
       };
   Set<String> get requiredIds => blockingReasons.keys.toSet();
 
+  /// Provider of each capability among the plugins selected here.
+  Map<String, String> get capabilityProviders => {
+        for (final id in selected)
+          for (final capability in registry.definition(id).provides)
+            capability.name: id,
+      };
+
+  /// Whether [id] supplies a capability the application itself requires.
+  /// Such providers can be promoted into missing scopes but never disabled.
+  bool applicationRequired(String id) => registry.requiredCapabilities.any(
+      (role) => registry
+          .definition(id)
+          .provides
+          .any((capability) => capability.name == role.name));
+
+  /// Selected plugins that transitively require a capability [id] provides,
+  /// ordered so consumers come before the plugins they depend on. Disabling
+  /// [id] must disable these in that order to keep every step valid.
+  List<String> dependentsOf(String id) {
+    final capabilities =
+        registry.definition(id).provides.map((c) => c.name).toSet();
+    final providers = capabilityProviders;
+    bool requires(String consumer, Set<String> visited) {
+      for (final dependency in registry.definition(consumer).requires) {
+        final provider = providers[dependency.name];
+        if (provider == null) continue;
+        if (capabilities.contains(dependency.name)) return true;
+        if (visited.add(provider) && requires(provider, visited)) return true;
+      }
+      return false;
+    }
+
+    final dependents = <String>{
+      for (final consumer in selected)
+        if (consumer != id && requires(consumer, {consumer})) consumer
+    };
+    // Repeatedly emit plugins that no remaining member requires.
+    final ordered = <String>[];
+    while (dependents.isNotEmpty) {
+      final ready = [
+        for (final candidate in dependents)
+          if (!dependents.any((other) => registry
+              .definition(other)
+              .requires
+              .any((dependency) =>
+                  providers[dependency.name] == candidate)))
+            candidate
+      ];
+      // The registry forbids cycles, so this cannot stall.
+      ordered.addAll(ready);
+      dependents.removeAll(ready);
+    }
+    return ordered;
+  }
+
+  /// Not-selected plugins that must be enabled together with [id],
+  /// transitively, ordered so providers come before their consumers.
+  List<String> missingDependenciesOf(String id) {
+    final providers = capabilityProviders;
+    String? toggleableProvider(String capability) {
+      final candidates = [
+        for (final other in registry.ids)
+          if (registry
+              .definition(other)
+              .provides
+              .any((c) => c.name == capability))
+            other
+      ];
+      // Ambiguous capabilities (approval delivery) are selected by role,
+      // never toggled; a valid selection never leaves them missing.
+      return candidates.length == 1 ? candidates.single : null;
+    }
+
+    final missing = <String>[];
+    void visit(String plugin) {
+      for (final dependency in registry.definition(plugin).requires) {
+        final selected = providers[dependency.name];
+        // A selected provider's own dependencies are satisfied already.
+        if (selected != null) continue;
+        final provider = toggleableProvider(dependency.name);
+        if (provider == null || missing.contains(provider)) continue;
+        missing.add(provider);
+        visit(provider);
+      }
+    }
+
+    visit(id);
+    return missing.reversed.toList();
+  }
+
   ({bool enabled, String source}) _state(String id, ConfigDocument global,
       ConfigDocument workspace, Map<String, bool> session,
       {PluginScope scope = PluginScope.session}) {
@@ -106,9 +196,39 @@ final class PluginSettings<C> {
   ({bool enabled, String source}) scopedState(String id, PluginScope scope) =>
       _state(id, _global, _workspace, _session, scope: scope);
 
-  void apply(
-      String id, bool? enabled, PluginScope scope, PluginManager<C> manager) {
-    change(id, enabled, scope);
+  /// Apply one toggle in [scope]. Null removes an override. When enabling
+  /// would strand dependencies or disabling would strand consumers, the
+  /// affected plugins are toggled in the same logical write, so every
+  /// selection the validators see stays valid.
+  ///
+  /// Throws [StateError] when the application itself needs the plugin (its
+  /// consumers cannot be disabled), and [ArgumentError] when a dependency is
+  /// an exclusive role, such as approval delivery, which settings toggles
+  /// cannot select.
+  void apply(String id, bool? enabled, PluginScope scope,
+      PluginManager<C> manager) {
+    final cascade = <String, bool?>{};
+    if (enabled == true) {
+      // Providers first so each later enable sees a valid selection.
+      for (final provider
+          in missingDependenciesOf(id).reversed.followedBy([id])) {
+        cascade[provider] = true;
+      }
+    } else if (enabled == false && selected.contains(id)) {
+      // Consumers first so each later disable sees a valid selection.
+      for (final consumer in dependentsOf(id).followedBy([id])) {
+        if (applicationRequired(consumer)) {
+          throw StateError(
+              '$id cannot be disabled: ${dependentsOf(id).where(applicationRequired).join(', ')} requires it');
+        }
+        cascade[consumer] = false;
+      }
+    } else {
+      cascade[id] = enabled;
+    }
+    for (final entry in cascade.entries) {
+      change(entry.key, entry.value, scope);
+    }
     manager.select(selected);
   }
 
