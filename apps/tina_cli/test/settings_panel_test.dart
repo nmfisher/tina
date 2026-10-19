@@ -599,6 +599,34 @@ enabled = []
         16384);
   });
 
+  test('plugins category hides settings for disabled plugins until revealed',
+      () async {
+    // The fixture config enables no plugins, so tina/context is off and its
+    // settings section must not appear in the Plugins category by default.
+    final (_, hidden) = await drive([
+      down, down, down, down, // root categories: General..Plugins
+      enter, // open the Plugins category
+      CharInput('Context'), // only matches a visible context section
+      escape,
+      escape,
+    ]);
+    expect(hidden, contains('No matches'));
+
+    // The category's checkbox row reveals settings for plugins that are off.
+    final (_, revealed) = await drive([
+      down, down, down, down,
+      enter,
+      down, // Enabled plugins → the show-off-plugins checkbox row
+      enter, // toggle on: off plugins' sections are listed again
+      CharInput('Context'),
+      enter, // open the context section
+      escape, // close the section
+      escape, // leave the Plugins category
+      escape, // leave settings
+    ]);
+    expect(revealed, contains('Working context budget'));
+  });
+
   test(
       'real settings reader receives bracketed paste and parks the cursor in the field',
       () async {

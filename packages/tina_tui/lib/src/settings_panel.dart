@@ -32,6 +32,11 @@ final class SettingsPanel {
   SettingScope _scope = SettingScope.session;
   bool _usingScopes = false;
   Set<SettingScope> _availableScopes = {...SettingScope.values};
+
+  /// Whether the Plugins category also lists sections for plugins that are
+  /// off in this conversation. Off by default; the category's checkbox row
+  /// flips it. Search always finds every setting.
+  bool _showOffPlugins = false;
   static const _menuWidth = 80, _menuMaxHeight = 22;
   static const _categories = [
     'General',
@@ -173,6 +178,7 @@ final class SettingsPanel {
               id != 'tina/session-controls' &&
               _state.catalog.definitions
                   .any((d) => d.owner == id && !d.id.endsWith('/enabled')))
+          .where(_pluginSectionVisible)
           .toList()
         ..sort();
       return [
@@ -245,6 +251,14 @@ final class SettingsPanel {
         ),
         (category: 'Plugins', label: 'Enabled plugins', open: _scopedPlugins),
         (
+          category: 'Plugins',
+          label:
+              '[${_showOffPlugins ? 'x' : ' '}] Show settings for plugins that are off',
+          open: () async {
+            _showOffPlugins = !_showOffPlugins;
+          },
+        ),
+        (
           category: 'General',
           label: 'Request and token limits',
           open: () => _definitions(
@@ -314,6 +328,23 @@ final class SettingsPanel {
           'tina/chat-tui' || 'tina/console' => 'Appearance',
           _ => 'Plugins',
         };
+
+  /// A plugin's settings section appears in the Plugins category only when the
+  /// plugin is on in this conversation (or has no enable switch). The
+  /// category's "Show settings for plugins that are off" row reveals the rest;
+  /// search finds every setting either way.
+  bool _pluginSectionVisible(String owner) {
+    if (_showOffPlugins) return true;
+    SettingInfo? toggle;
+    for (final d in _state.catalog.definitions) {
+      if (d.id == '$owner/enabled') {
+        toggle = d;
+        break;
+      }
+    }
+    if (toggle == null) return true; // not a toggleable plugin: always shown
+    return _state.read(toggle).value == true;
+  }
 
   Future<bool> _browseSettings(List<_SettingsEntry> Function() entries,
       {List<_SettingsEntry> Function()? searchEntries,
