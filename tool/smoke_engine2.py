@@ -635,7 +635,7 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('auto denied network example\r')
             terminal.expect('classifier recommends denial', start)
             terminal.expect('Project data could be exposed.', start)
-            terminal.expect('Why:', start)
+            terminal.expect('Auto approver denied this:', start)
             terminal.expect('❯ [y] allow once', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10

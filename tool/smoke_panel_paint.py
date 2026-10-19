@@ -64,7 +64,17 @@ def smoke(launcher, endpoint, backend, columns, rows):
                 start = line('failed command approval example')
                 if not repeat:
                     visible('[y] allow once')
+                    # ↓↓ lands on the always-allow row; Enter opens its scope
+                    # submenu when the ask offers persistent scopes, so Enter
+                    # again confirms the session scope.
                     terminal.send('\x1b[B\x1b[B\r')
+                    try:
+                        terminal.wait_for(lambda: 'choose scope' in grid(),
+                                          'scope submenu', timeout=3)
+                    except AssertionError:
+                        pass  # Non-persistent ask: Enter already decided.
+                    else:
+                        terminal.send('\r')
                 terminal.wait_for(
                     lambda: len(ModelStub.requests) == requests_before + 2,
                     f'{backend}: failed command approval was not remembered', timeout=15)
