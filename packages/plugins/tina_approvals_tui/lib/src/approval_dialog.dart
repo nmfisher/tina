@@ -325,10 +325,18 @@ class ApprovalDialog {
         for (final access in accesses)
           if (access is Map && access['path'] is String)
             '${access['operation']}: ${access['path']} (${access['target_kind']}, ${access['source'] == 'inferred' ? 'inferred' : 'verified'})',
-      if (ask?.details['access_coverage'] != null)
-        'Access coverage: ${ask!.details['access_coverage']}${ask.details['access_coverage_source'] == 'inferred' ? ' (model estimate)' : ''}${ask.details['access_coverage'] == 'complete' ? '' : ' · other accesses may be unresolved'}',
+      // Plain sentences, not a coverage metric: a verified complete analysis
+      // stays silent, and anything short of that is a warning the reader can
+      // parse without knowing the classifier's vocabulary.
+      if (ask?.details['access_coverage'] case final String coverage)
+        if (coverage != 'complete')
+          coverage == 'partial'
+              ? '⚠ File analysis incomplete: may affect files not listed above'
+              : '⚠ Could not determine which files this command touches'
+        else if (ask?.details['access_coverage_source'] != 'verified')
+          'Files: AI analysis · no other files detected',
       if (ask?.details['unresolved_accesses'] case final List unresolved)
-        for (final item in unresolved) 'Unresolved: $item',
+        for (final item in unresolved) 'Not analyzed: $item',
       if (_readDirectory != null) 'Read directory: $_readDirectory',
       if (_writeDirectory != null) 'Write directory: $_writeDirectory',
       if (ask?.confirmation == true) ...[
@@ -404,7 +412,8 @@ class ApprovalDialog {
       if (detail.startsWith('Directory:') || detail.startsWith('Mode:')) {
         return chat.dim;
       }
-      if (detail.startsWith('Why:') || detail.startsWith('Environment:')) {
+      if (detail.startsWith('Why:') || detail.startsWith('Environment:') ||
+          detail.startsWith('⚠')) {
         return chat.yellow;
       }
       return null;

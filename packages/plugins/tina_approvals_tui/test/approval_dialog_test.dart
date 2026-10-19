@@ -9,6 +9,45 @@ import 'package:tina_approvals/tina_approvals.dart';
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
 
+  // Coverage copy is a warning when knowledge is short, silent when the
+  // analysis is verified complete, and never analyst jargon.
+  test('access coverage copy warns in plain language', () {
+    String render(Map<String, Object?> details) => ApprovalDialog(null,
+            ask: ApprovalAskContext('run command', 'cmd', 'review',
+                details: details))
+        .rows(width: 100)
+        .map(text)
+        .join('\n');
+    expect(
+        render({
+          'access_coverage': 'unknown',
+          'access_coverage_source': 'inferred'
+        }),
+        contains('⚠ Could not determine which files this command touches'));
+    expect(
+        render({
+          'accesses': [
+            {
+              'operation': 'read',
+              'path': '/tmp/f',
+              'target_kind': 'file',
+              'source': 'inferred'
+            }
+          ],
+          'access_coverage': 'partial',
+          'access_coverage_source': 'inferred',
+          'unresolved_accesses': ['Variable expansion.']
+        }),
+        allOf(contains('⚠ File analysis incomplete: may affect files not '
+            'listed above'), contains('Not analyzed: Variable expansion.')));
+    expect(
+        render({'access_coverage': 'complete', 'access_coverage_source': 'inferred'}),
+        contains('Files: AI analysis · no other files detected'));
+    expect(
+        render({'access_coverage': 'complete', 'access_coverage_source': 'verified'}),
+        isNot(contains('coverage')));
+  });
+
   test(
       'attached approval view returns its selected directory scope through the service',
       () async {
@@ -100,7 +139,10 @@ void main() {
     final view = dialog();
     final rendered = view.rows(width: 140).map(text).join('\n');
     expect(rendered, contains('delete: /output/old (file, inferred)'));
-    expect(rendered, contains('Shell expansion is unresolved'));
+    expect(rendered,
+        contains('⚠ File analysis incomplete: may affect files not listed above'));
+    expect(rendered, contains('Not analyzed: Shell expansion is unresolved.'));
+    expect(rendered, isNot(contains('Access coverage')));
     expect(rendered, contains('Save directory grants: workspace'));
     expect(rendered, contains('Allow all reads in /library (inferred)'));
     final outcome = await view.awaitDecision(ScriptedKeySource([
