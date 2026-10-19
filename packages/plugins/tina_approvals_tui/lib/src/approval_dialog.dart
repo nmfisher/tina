@@ -104,8 +104,10 @@ class ApprovalAskContext {
 /// The dialog does not own an overlay region: it produces rows for the host
 /// to paint (same contract as every view in this package) and exposes
 /// [awaitDecision] driven by a [KeySource]. Defaults to `allow` highlighted;
-/// ↓ moves to `deny`; `allowAlways` is offered last only when the tool's
-/// arguments parse (a mistrusted call is a bad thing to blanket-allow).
+/// ↓ moves to `deny`; every remembered-approval scope is its own row on the
+/// first menu, deciding immediately — no submenu round-trip. `allowAlways` is
+/// offered only when the tool's arguments parse (a mistrusted call is a bad
+/// thing to blanket-allow).
 class ApprovalDialog {
   int _selected = 0;
   bool _details = false;
@@ -116,8 +118,6 @@ class ApprovalDialog {
   int _pageSize = 1;
   bool _rememberReads = false;
   bool _rememberWrites = false;
-  bool _scopeMenu = false;
-  int _scopeSelected = 0;
   final _selectedDirectories = <int>{};
   final _directoryOffers =
       <({String path, DirectoryAccess access, String source})>[];
@@ -169,18 +169,6 @@ class ApprovalDialog {
           ApprovalDecision.allowGlobal
         ],
       ];
-
-  /// Scope submenu labels, aligned with [_scopeChoices].
-  List<String> _scopeLabels(String alwaysLabel) => [
-        '$alwaysLabel (until restart)',
-        if (_hasPersistent) ...[
-          'remember for this workspace',
-          'remember globally (any directory)',
-        ],
-      ];
-
-  /// The submenu is only meaningful when more than session exists.
-  bool get _hasScopeMenu => _hasAlways && _scopeChoices.length > 1;
 
   bool get _hasAlways =>
       call?.argumentsParseError == null &&
@@ -241,9 +229,10 @@ class ApprovalDialog {
       : [
           'allow',
           'deny',
-          // Workspace and global live behind the scope submenu opened from
-          // the single always-allow row.
+          // Every remembered-approval scope is its own row: one menu, one
+          // decision, no second round-trip through a submenu.
           if (_hasAlways) 'allow always',
+          if (_hasPersistent) ...['allow workspace', 'allow global'],
           if (_hasCommandPattern) 'edit command pattern',
           if (_readDirectory != null) 'read directory',
           if (_writeDirectory != null) 'write directory',
@@ -274,6 +263,8 @@ class ApprovalDialog {
   ApprovalDecision decisionFor(int index) =>
       _withDirectoryScope(switch (_choices[index]) {
         'allow always' => ApprovalDecision.allowAlways,
+        'allow workspace' => ApprovalDecision.allowWorkspace,
+        'allow global' => ApprovalDecision.allowGlobal,
         'allow' || 'Yes' => ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
       });
@@ -445,8 +436,11 @@ class ApprovalDialog {
                 ? '[y] grant selected directory access and run'
                 : '[y] allow once',
             '[n] deny',
-            if (_hasAlways)
-              _hasScopeMenu ? '[a] always allow…' : '[a] $alwaysLabel',
+            if (_hasAlways) '[a] $alwaysLabel',
+            if (_hasPersistent) ...[
+              '[p] remember this command for this workspace',
+              '[g] remember this command globally (any directory)',
+            ],
             if (_hasCommandPattern) '[e] always approve with editable regex',
             if (_readDirectory != null)
               '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
@@ -461,14 +455,8 @@ class ApprovalDialog {
     RenderLine choice(int i, {bool compact = false}) => row(
         '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
         i == _selected ? theme.dialog.confirm : null);
-    // The scope submenu replaces the choices while open: fewer rows, one
-    // decision, Esc backs out to the answers.
-    final scopeLabels = _scopeLabels(alwaysLabel);
-    RenderLine scopeRow(int i) => row(
-        '${i == _scopeSelected ? '❯' : ' '} ${i == 0 ? '[a] ' : i == 1 ? '[p] ' : i == 2 ? '[g] ' : ''}${scopeLabels[i]}',
-        i == _scopeSelected ? theme.dialog.confirm : null);
     if (height <= 3) {
-      return [_scopeMenu ? scopeRow(_scopeSelected) : choice(_selected, compact: true)];
+      return [choice(_selected, compact: true)];
     }
     // Every answer gets its own row. Only very short terminals show the
     // selected answer alone, keeping one row for the request's context. A
@@ -486,13 +474,9 @@ class ApprovalDialog {
                 (width - 2).clamp(1, width)))
         : const <String>[];
     final roomForChoices = (height - bannerLines.length - 3).clamp(0, 1000);
-    final choiceRows = _scopeMenu
-        ? (roomForChoices >= scopeLabels.length
-            ? [for (var i = 0; i < scopeLabels.length; i++) scopeRow(i)]
-            : [scopeRow(_scopeSelected)])
-        : roomForChoices >= choices.length
-            ? [for (var i = 0; i < choices.length; i++) choice(i)]
-            : [choice(_selected, compact: true)];
+    final choiceRows = roomForChoices >= choices.length
+        ? [for (var i = 0; i < choices.length; i++) choice(i)]
+        : [choice(_selected, compact: true)];
     final preview = [
       for (final detail in details)
         for (final part in detail.split('\n'))
@@ -521,11 +505,9 @@ class ApprovalDialog {
         row('│ Preview ${_previewOffset + 1}–${_previewOffset + budget}/${preview.length} · PgUp/PgDn or wheel',
             chat.dim),
       row(
-          _scopeMenu
-              ? '│ ↑↓ choose scope · Enter confirm · Esc back'
-              : width >= 56
-                  ? '│ ↑↓ choose · Enter confirm · Tab details · Esc deny'
-                  : '│ ↑↓ · Enter · Tab details · Esc deny',
+          width >= 56
+              ? '│ ↑↓ choose · Enter confirm · Tab details · Esc deny'
+              : '│ ↑↓ · Enter · Tab details · Esc deny',
           chat.dim),
       ...choiceRows,
     ].take(height).toList();
@@ -533,28 +515,6 @@ class ApprovalDialog {
 
   /// Apply one navigation key; returns true when the selection changed.
   bool handleKey(ApprovalKey key) {
-    if (_scopeMenu) {
-      switch (key) {
-        case ApprovalKey.up:
-          if (_scopeSelected > 0) {
-            _scopeSelected--;
-            return true;
-          }
-          return false;
-        case ApprovalKey.down:
-          if (_scopeSelected < _scopeChoices.length - 1) {
-            _scopeSelected++;
-            return true;
-          }
-          return false;
-        case ApprovalKey.cancel:
-          // Esc backs out of the submenu without deciding.
-          _scopeMenu = false;
-          return true;
-        default:
-          return false;
-      }
-    }
     if (_hasDirectoryOffers &&
         (key == ApprovalKey.directoryScope ||
             key == ApprovalKey.confirm && _onScope && !_details)) {
@@ -666,25 +626,21 @@ class ApprovalDialog {
   }
 
   /// The decision the current selection maps to.
-  ApprovalOutcome get current => _scopeMenu
-      ? _outcome(_withDirectoryScope(_scopeChoices[_scopeSelected]))
-      : _outcome(decisionFor(_selected),
+  ApprovalOutcome get current =>
+      _outcome(decisionFor(_selected),
           editCommandPattern: _choices[_selected] == 'edit command pattern');
 
-  /// Open the scope submenu on the scope matching [shortcut], when the ask
-  /// offers persistent scopes. Returns false when there is nothing to open.
-  bool openScopeMenu(ApprovalKey shortcut) {
-    if (!_hasScopeMenu) return false;
+  /// The decision for the scope matching [shortcut], when the ask offers
+  /// persistent scopes. Returns null when that scope is not offered.
+  ApprovalOutcome? scopeDecision(ApprovalKey shortcut) {
     final target = switch (shortcut) {
       ApprovalKey.always => 0,
       ApprovalKey.workspace => 1,
       ApprovalKey.global => 2,
       _ => -1,
     };
-    if (target >= _scopeChoices.length) return false;
-    _scopeSelected = target.clamp(0, _scopeChoices.length - 1);
-    _scopeMenu = true;
-    return true;
+    if (target >= _scopeChoices.length) return null;
+    return _outcome(_withDirectoryScope(_scopeChoices[target]));
   }
 
   /// Drive the dialog from [keys]: arrows move, Enter confirms, Esc/source
@@ -706,25 +662,11 @@ class ApprovalDialog {
           return const ApprovalOutcome(ApprovalDecision.deny);
         case ApprovalKey.workspace:
         case ApprovalKey.global:
-          // p/g jump straight into the scope submenu on that scope.
-          if (_scopeMenu) {
-            return _outcome(
-                _withDirectoryScope(_scopeChoices[_scopeSelected]));
-          }
-          if (openScopeMenu(key!)) {
-            onKey?.call();
-            continue;
-          }
+          // p/g decide immediately: the scopes are rows on the first menu.
+          final outcome = scopeDecision(key!);
+          if (outcome != null) return outcome;
         case ApprovalKey.always:
           if (ask?.confirmation != true && _hasAlways) {
-            if (_scopeMenu) {
-              return _outcome(
-                  _withDirectoryScope(_scopeChoices[_scopeSelected]));
-            }
-            if (openScopeMenu(key!)) {
-              onKey?.call();
-              continue;
-            }
             return _outcome(_withDirectoryScope(ApprovalDecision.allowAlways));
           }
         case ApprovalKey.editCommandPattern:
@@ -746,32 +688,14 @@ class ApprovalDialog {
           handleKey(key!);
           onKey?.call();
         case ApprovalKey.confirm:
-          if (_scopeMenu) {
-            return _outcome(
-                _withDirectoryScope(_scopeChoices[_scopeSelected]));
-          }
           if (!_details &&
               !_onDirectoryCheckbox &&
-              !_onScope &&
-              _choices[_selected] == 'allow always' &&
-              openScopeMenu(ApprovalKey.always)) {
-            // Enter on the collapsed row opens the submenu, same as `a`.
-            onKey?.call();
-            continue;
-          }
-          if (_details || _onDirectoryCheckbox || _onScope) {
-            handleKey(key!);
-            onKey?.call();
-          } else {
+              !_onScope) {
             return current;
           }
+          handleKey(key!);
+          onKey?.call();
         case ApprovalKey.cancel:
-          if (_scopeMenu) {
-            // Esc backs out of the submenu; the request is still undecided.
-            handleKey(key!);
-            onKey?.call();
-            continue;
-          }
           return const ApprovalOutcome(
             ApprovalDecision.deny,
             reason: 'cancelled',

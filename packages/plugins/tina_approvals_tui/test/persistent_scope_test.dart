@@ -7,63 +7,45 @@ void main() {
           'host SSH identity',
           details: {'persistent_command_approval': true}));
 
-  test('persistent offers collapse into one always-allow submenu row', () {
+  test('persistent scopes are rows on the first menu', () {
     final dialog = persistentDialog();
     final rows = dialog.rows(width: 100, height: 30).map((r) => r.runs.map((run) => run.text).join()).join('\n');
-    expect(rows, contains('[a] always allow…'));
-    expect(rows, isNot(contains('remember this command for this workspace')));
-    expect(rows, isNot(contains('remember this command globally')));
+    expect(rows, contains('[p] remember this command for this workspace'));
+    expect(rows, contains('[g] remember this command globally (any directory)'));
+    expect(rows, isNot(contains('always allow…')));
   });
 
-  test('the submenu lists session, workspace and global scopes', () {
+  test('a decides the session scope immediately', () async {
     final dialog = persistentDialog();
-    dialog.openScopeMenu(ApprovalKey.always);
-    final rows = dialog.rows(width: 100, height: 30).map((r) => r.runs.map((run) => run.text).join()).join('\n');
-    expect(rows, contains('for this session'));
-    expect(rows, contains('remember for this workspace'));
-    expect(rows, contains('remember globally (any directory)'));
-    expect(rows, contains('Esc back'));
-  });
-
-  test('a opens the submenu; enter confirms the session scope', () async {
-    final dialog = persistentDialog();
-    final outcome = await dialog
-        .awaitDecision(ScriptedKeySource([ApprovalKey.always, ApprovalKey.confirm]));
+    final outcome =
+        await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.always]));
     expect(outcome.decision, ApprovalDecision.allowAlways);
   });
 
-  test('p jumps into the submenu on workspace and enter confirms', () async {
+  test('p decides the workspace scope immediately', () async {
     final dialog = persistentDialog();
-    final outcome = await dialog.awaitDecision(
-        ScriptedKeySource([ApprovalKey.workspace, ApprovalKey.confirm]));
+    final outcome =
+        await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.workspace]));
     expect(outcome.decision, ApprovalDecision.allowWorkspace);
   });
 
-  test('g jumps into the submenu on global and enter confirms', () async {
+  test('g decides the global scope immediately', () async {
     final dialog = persistentDialog();
-    final outcome = await dialog
-        .awaitDecision(ScriptedKeySource([ApprovalKey.global, ApprovalKey.confirm]));
+    final outcome =
+        await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.global]));
     expect(outcome.decision, ApprovalDecision.allowGlobal);
   });
 
-  test('arrows move the submenu selection', () async {
+  test('arrows move the flat scope rows and Enter confirms', () async {
     final dialog = persistentDialog();
     final outcome = await dialog.awaitDecision(ScriptedKeySource([
-      ApprovalKey.always,
       ApprovalKey.down,
       ApprovalKey.down,
+      ApprovalKey.down,
+      ApprovalKey.down, // allow global
       ApprovalKey.confirm
     ]));
     expect(outcome.decision, ApprovalDecision.allowGlobal);
-  });
-
-  test('esc backs out of the submenu without deciding; then denies',
-      () async {
-    final dialog = persistentDialog();
-    final outcome = await dialog.awaitDecision(
-        ScriptedKeySource([ApprovalKey.always, ApprovalKey.cancel, ApprovalKey.deny]));
-    expect(outcome.decision, ApprovalDecision.deny);
-    expect(outcome.reason, isNull);
   });
 
   test('without persistent scopes a keeps the single-session meaning',
