@@ -1,0 +1,17 @@
+name: tina_tasks_tui
+description: Read-only task queue overview panel for tina's console.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  tina_host:
+    path: ../../tina_host
+  tina_tasks:
+    path: ../tina_tasks
+  tina_console:
+    path: ../../tina_console
+dev_dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+  test: ^1.25.0

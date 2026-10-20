@@ -683,6 +683,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_tasks_tui:
+    dependency: "direct main"
+    description:
+      path: "../../packages/plugins/tina_tasks_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_tools:
     dependency: "direct main"
     description:

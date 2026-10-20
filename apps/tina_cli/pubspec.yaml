@@ -81,6 +81,8 @@ dependencies:
     path: ../../packages/plugins/tina_system_instruction
   tina_tasks:
     path: ../../packages/plugins/tina_tasks
+  tina_tasks_tui:
+    path: ../../packages/plugins/tina_tasks_tui
   tina_tools:
     path: ../../packages/plugins/tina_tools
   tina_tui:

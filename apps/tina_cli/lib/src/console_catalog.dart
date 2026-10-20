@@ -12,6 +12,7 @@ import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_mcp/tina_mcp.dart';
 import 'package:tina_mcp_tui/tina_mcp_tui.dart';
 import 'package:tina_plans_tui/tina_plans_tui.dart';
+import 'package:tina_tasks_tui/tina_tasks_tui.dart';
 
 /// Application-owned construction of a fresh view for each attachment.
 typedef ConsoleViewFactory = ConsoleContribution? Function(AgentPlugin plugin,
@@ -47,6 +48,8 @@ ConsoleContribution? createConsoleView(AgentPlugin plugin,
       'tina/plans' => PlansView(ConnectionPlanObservation(connection)),
       'tina/classification' =>
         ClassificationView(ConnectionClassificationObservation(connection)),
+      'tina/tasks' =>
+        TaskOverviewView(ConnectionTaskObservation(connection)),
       'tina/context-tui' =>
         ContextView(context: ConnectionContextObservation(connection)),
       'tina/mode' => ModeView(mode: ConnectionModeObservation(connection)),
