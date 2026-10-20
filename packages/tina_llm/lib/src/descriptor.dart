@@ -105,6 +105,11 @@ class ProviderDescriptor {
   /// catalogue. Keys are model ids.
   final Map<String, ModelInfo> models;
 
+  /// How this endpoint receives structured-output requests, overriding the
+  /// [openAiStructuredOutputFor] host default. OpenAI-compatible only;
+  /// the Anthropic and Gemini wires ignore it. Null keeps the default.
+  final OpenAiStructuredOutput? structuredOutput;
+
   const ProviderDescriptor({
     required this.id,
     required this.name,
@@ -114,6 +119,7 @@ class ProviderDescriptor {
     this.fallbackKeyEnvVars = const [],
     required this.keyStyle,
     this.models = const {},
+    this.structuredOutput,
   });
 
   /// Construct the wire provider for [model]. The token closure is
@@ -136,6 +142,7 @@ class ProviderDescriptor {
           baseUrl: baseUrl,
           endpoint: endpoint0,
           tokenFrom: tokenFrom,
+          structuredOutput: structuredOutput,
         ),
       ProviderWire.gemini => GeminiProvider(
           model: model,

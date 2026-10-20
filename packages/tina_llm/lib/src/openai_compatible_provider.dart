@@ -366,18 +366,31 @@ Map<String, dynamic> chatCompletionsBody({
 /// chat-completions over the injected HTTP seam, SSE in, core events out.
 enum OpenAiStructuredOutput { jsonSchema, jsonObject }
 
-/// Z.ai's GLM endpoints document JSON mode, without schema enforcement.
-/// Other compatible endpoints receive the strict schema request; rejection
-/// remains an error instead of silently retrying without constraints.
+/// Strict `json_schema` is the exception, not the rule: the compatible-wire
+/// ecosystem clones chat-completions without agreeing on schema enforcement,
+/// so an unknown endpoint that receives `{"type": "json_schema", "strict":
+/// true}` loses structured output entirely — the request errors, the verdict
+/// never arrives, and the user silently falls back to manual approval. The
+/// loose request merely produces an off-schema answer, which the caller
+/// validates and retries once; a wrong verdict surfaces as an ordinary
+/// approval question. Default loose, and promote an endpoint to strict only
+/// after its schema support has been verified.
 OpenAiStructuredOutput openAiStructuredOutputFor(String baseUrl) {
   final host = Uri.parse(baseUrl).host.toLowerCase();
-  return host == 'z.ai' ||
-          host.endsWith('.z.ai') ||
-          host == 'bigmodel.cn' ||
-          host.endsWith('.bigmodel.cn')
-      ? OpenAiStructuredOutput.jsonObject
-      : OpenAiStructuredOutput.jsonSchema;
+  return _verifiedJsonSchemaHosts.any((pattern) =>
+          host == pattern || host.endsWith('.$pattern'))
+      ? OpenAiStructuredOutput.jsonSchema
+      : OpenAiStructuredOutput.jsonObject;
 }
+
+/// Hosts verified to accept `response_format: {"type": "json_schema",
+/// "strict": true}`. One entry per verified endpoint, with what was checked.
+/// Everything else gets `json_object`; a host can also be pinned per
+/// provider via its descriptor's [ProviderDescriptor.structuredOutput].
+const _verifiedJsonSchemaHosts = <String>[
+  // OpenAI: documented and observed on chat completions (2026-10).
+  'api.openai.com',
+];
 
 final class OpenAiCompatibleProvider extends LlmProvider
     implements StructuredOutputProvider {
@@ -404,8 +417,8 @@ final class OpenAiCompatibleProvider extends LlmProvider
   final Duration stallTimeout;
   final GenerationOptions generation;
 
-  /// JSON-only endpoints (e.g. Z.ai) constrain syntax, not the schema. The
-  /// caller still supplies its schema in the prompt and validates the answer.
+  /// JSON-only endpoints constrain syntax, not the schema. The caller still
+  /// supplies its schema in the prompt and validates the answer.
   final OpenAiStructuredOutput structuredOutput;
 
   @override
