@@ -1,11 +1,17 @@
 /// The sub-agents battery — the brief's cases, one `test()` each.
 ///
 /// Everything runs through the real pieces: a parent [Host] whose loop
-/// dispatches `spawn_subagent` to the plugin, which builds a child
-/// [Host] via [Host.child] + [standardChildFactory]; the scripted
-/// provider plays the model on both sides. The exception is the
-/// cancellation case, whose child needs a provider that never completes
-/// — [StallingProvider] — because a scripted queue always ends.
+/// dispatches `launch_subagent`/`subagent` to the plugin, which builds a
+/// child [Host] via [Host.child] + [standardChildFactory]; the scripted
+/// provider plays the model on both sides. A launch is **non-blocking**:
+/// the tool returns immediately with the child's id, and the child runs
+/// in the background — tests follow it with `inspect` (`wait`/`cancel`).
+///
+/// Parent model turns come from `scripts`; child turns from
+/// `childScripts` (see [harness]) — a child's background turns never race
+/// the parent's model calls. The exception is the cancellation case,
+/// whose child needs a provider that never completes — [StallingProvider]
+/// — because a scripted queue always ends.
 library;
 
 import 'package:tina_persistence/tina_persistence.dart';
@@ -57,136 +63,125 @@ List<StreamEvent> scriptedTurn(String text,
       ),
     ];
 
+/// A [SubagentHistorySource] over a session store, for the resurrection
+/// test — the same shape the application wires in plugin_catalog.
+final class _TestHistory implements SubagentHistorySource {
+  _TestHistory(this._open);
+  final SessionStore Function() _open;
+
+  @override
+  Map<String, String?> storedSessions() {
+    final store = _open();
+    try {
+      final out = <String, String?>{};
+      for (final session in store.list()) {
+        String? last;
+        for (final entry in store.readEntries(session.id)) {
+          if (entry is MessageAppendedEntry) {
+            final text = [
+              for (final b in entry.message.content.whereType<TextBlock>())
+                b.text,
+            ].join();
+            if (text.isNotEmpty) last = text;
+          }
+        }
+        out[session.id] = last;
+      }
+      return out;
+    } finally {
+      store.close();
+    }
+  }
+}
+
 void main() {
-  test('child provider failure marks the spawn result as an error', () async {
-    final h = harness(scripts: [
-      [
-        scriptedReply('', calls: [
-          const ToolUseBlock(
-              id: 'spawn',
-              name: 'spawn_subagent',
-              input: {'prompt': 'inspect files'})
-        ]),
-        scriptedReply('parent done'),
-      ],
-      [
-        [const StreamError('child provider unavailable')]
-      ],
-    ]);
-    addTearDown(() {
-      h.host.close();
-      h.dir.deleteSync(recursive: true);
-    });
-    final events = <ToolActivity>[];
-    final subscription = h.host.session.loop.toolActivity.listen(events.add);
-    addTearDown(subscription.cancel);
-    await h.host.send('delegate');
-    expect(events.whereType<ToolFinished>().single.result.isError, true);
-    expect(events.whereType<ToolProgress>().last.status, contains('error'));
-    expect(h.plugin.childrenInFlight, 0);
-  });
-
-  test('child execution reports progress through the generic tool channel',
+  test('launch is non-blocking; wait retrieves the child\'s final text',
       () async {
-    final h = harness(scripts: [
-      [
-        scriptedReply('', calls: [
-          const ToolUseBlock(
-              id: 'spawn',
-              name: 'spawn_subagent',
-              input: {'prompt': 'inspect files'})
-        ]),
-        scriptedReply('parent done')
-      ],
-      [
-        scriptedReply('', calls: [
-          const ToolUseBlock(id: 'list', name: 'ls', input: {'path': '.'})
-        ]),
-        scriptedReply('child done')
-      ],
-    ]);
-    addTearDown(() {
-      h.host.close();
-      h.dir.deleteSync(recursive: true);
-    });
-    final events = <ToolActivity>[];
-    final subscription = h.host.session.loop.toolActivity.listen(events.add);
-    addTearDown(subscription.cancel);
-    await h.host.send('delegate');
-    final statuses =
-        events.whereType<ToolProgress>().map((e) => e.status).toList();
-    expect(statuses.first, contains('depth 1 · working'));
-    expect(statuses, contains(contains('running ls')));
-    expect(statuses.last, contains('reported tokens'));
-    expect(events.whereType<ToolFinished>().last.result.isError, false);
-  });
-
-  test(
-      'a child runs a turn with the scripted provider; its final text '
-      'is the tool result', () async {
     final ws = workspace();
     final h = harness(
       dir: ws.dir,
       scripts: [
-        // Parent: asks for a spawn.
+        // Parent: asks for a launch, then finishes without waiting.
         [
           scriptedReply('', calls: [
             ToolUseBlock(
                 id: 'c1',
-                name: 'spawn_subagent',
+                name: 'launch_subagent',
                 input: {'prompt': 'summarize the workspace'}),
           ]),
         ],
+        [
+          scriptedReply('parent done'),
+        ],
+      ],
+      childScripts: [
         // Child: answers, no tool calls — the turn ends there.
         [scriptedReply('the workspace is quiet')],
-        // Parent: takes the result and finishes.
-        [scriptedReply('done')],
       ],
     );
-    final o = await h.host.send('spawn a sub-agent');
+    final o = await h.host.send('launch a sub-agent');
     expect(o.stopReason, StopReason.complete);
-    expect(h.plugin.parent.details.childrenInFlight, 0);
-    final resultText = o.messages
+    final id = h.plugin.launchedChildIds.single;
+    // The launch result named the id immediately; the parent did not wait
+    // for the child.
+    final launchResults = o.messages
         .expand((m) => m.content)
         .whereType<ToolResultBlock>()
         .map((b) => b.content)
         .join('\n');
-    expect(resultText, contains('the workspace is quiet'));
-    expect(resultText, contains('[sub-agent ${h.plugin.parent.id}-'));
-    expect(resultText, contains('-child1]'));
-    // Each host builds its own provider once: the parent's serves both
-    // of its turns, the child's exactly one. No sharing — two providers
-    // built in all.
-    expect(h.providers, hasLength(2));
-    expect(h.providers[0].callCount, 2);
-    expect(h.providers[1].callCount, 1);
+    expect(launchResults, contains('launched sub-agent $id'));
+    // The child ran to completion on its own; wait returns its final text.
+    final r = await h.plugin.inspect(id, action: 'wait');
+    expect(r.isError, isFalse);
+    expect(r.content, startsWith('[sub-agent $id]'));
+    expect(r.content, contains('the workspace is quiet'));
+    expect(h.plugin.childrenInFlight, 0);
     h.host.close();
     h.dir.deleteSync(recursive: true);
   });
 
-  test(
-      'a child at the maximum depth is refused, and the refusal names '
-      'depth', () async {
-    final ws = workspace();
-    // A parent already AT the depth limit: its children would sit at
-    // maxDepth+1.
+  test('child provider failure marks the launch\'s result as an error',
+      () async {
     final h = harness(
-      dir: ws.dir,
-      config: const SubagentsConfig(maxDepth: 3),
       scripts: [
         [
           scriptedReply('', calls: [
-            ToolUseBlock(
-                id: 'c1',
-                name: 'spawn_subagent',
-                input: {'prompt': 'go deeper'}),
+            const ToolUseBlock(
+                id: 'spawn',
+                name: 'launch_subagent',
+                input: {'prompt': 'inspect files'})
           ]),
         ],
         [scriptedReply('parent done')],
       ],
+      childScripts: [
+        [
+          [const StreamError('child provider unavailable')]
+        ],
+      ],
+    );
+    addTearDown(() {
+      h.host.close();
+      h.dir.deleteSync(recursive: true);
+    });
+    await h.host.send('delegate');
+    final id = h.plugin.launchedChildIds.single;
+    final r = await h.plugin.inspect(id, action: 'wait');
+    expect(r.isError, true);
+    expect(r.content, contains('sub-agent'));
+    expect(h.plugin.childrenInFlight, 0);
+  });
+
+  test('a child at the maximum depth is refused, and the refusal names '
+      'depth', () async {
+    final ws = workspace();
+    final h = harness(
+      dir: ws.dir,
+      config: const SubagentsConfig(maxDepth: 3),
+      scripts: const [],
     );
     h.host.session.details.depth = 3;
-    final r = await h.plugin.spawn('anything');
+    final r = h.plugin.launch('anything');
     expect(r.isError, isTrue);
     expect(r.content, contains('depth 4 exceeds maximum 3'));
     // No child was ever built: only the parent's provider exists.
@@ -195,8 +190,7 @@ void main() {
     h.dir.deleteSync(recursive: true);
   });
 
-  test(
-      'concurrency at the maximum is refused, and the refusal names '
+  test('concurrency at the maximum is refused, and the refusal names '
       'concurrency', () async {
     final ws = workspace();
     final h = harness(
@@ -204,17 +198,16 @@ void main() {
       config: const SubagentsConfig(maxConcurrency: 1),
       scripts: const [],
     );
-    // One slot busy, as another spawn in flight would leave it.
+    // One slot busy, as another launch in flight would leave it.
     h.plugin.parent.details.childrenInFlight = 1;
-    final r = await h.plugin.spawn('anything');
+    final r = h.plugin.launch('anything');
     expect(r.isError, isTrue);
     expect(r.content, contains('concurrency at maximum 1'));
     h.host.close();
     h.dir.deleteSync(recursive: true);
   });
 
-  test(
-      'the token budget being exhausted is refused, and the refusal '
+  test('the token budget being exhausted is refused, and the refusal '
       'names the budget', () async {
     final ws = workspace();
     final h = harness(
@@ -223,7 +216,7 @@ void main() {
       scripts: const [],
     );
     h.plugin.budget.add(100);
-    final r = await h.plugin.spawn('anything');
+    final r = h.plugin.launch('anything');
     expect(r.isError, isTrue);
     expect(r.content, contains('token budget exhausted'));
     expect(r.content, contains('spent 100 of limit 100'));
@@ -231,39 +224,63 @@ void main() {
     h.dir.deleteSync(recursive: true);
   });
 
-  test('cancelling the parent\'s turn cancels the child', () async {
+  test('cancelling a launched sub-agent via the subagent tool', () async {
     final ws = workspace();
     final h = harness(
       dir: ws.dir,
       scripts: [
-        // Parent: spawns.
         [
           scriptedReply('', calls: [
             ToolUseBlock(
                 id: 'c1',
-                name: 'spawn_subagent',
+                name: 'launch_subagent',
                 input: {'prompt': 'long work'}),
           ]),
         ],
+        [scriptedReply('parent done')],
       ],
       childProvider: StallingProvider(),
     );
-    final turn = h.host.send('go');
-    // Wait for the child to actually be in flight, then cancel the
-    // parent's turn.
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    expect(h.plugin.parent.details.childrenInFlight, 1);
-    h.host.session.loop.cancel('test cancel');
-    final o = await turn;
-    expect(o.stopReason, StopReason.cancelled);
-    // The child settled through the passthrough; the slot is free.
-    expect(h.plugin.parent.details.childrenInFlight, 0);
+    await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    final r = await h.plugin.inspect(id, action: 'cancel');
+    expect(r.isError, isTrue);
+    expect(r.content, contains('cancelled'));
+    expect(h.plugin.childrenInFlight, 0);
     h.host.close();
     h.dir.deleteSync(recursive: true);
   });
 
-  test(
-      'the child cannot escalate the mode: a read-only parent denies '
+  test('usage from the child books into the parent\'s tokens spent and '
+      'the shared gate', () async {
+    final ws = workspace();
+    final h = harness(
+      dir: ws.dir,
+      scripts: [
+        [
+          scriptedReply('', calls: [
+            ToolUseBlock(
+                id: 'c1', name: 'launch_subagent', input: {'prompt': 'do work'}),
+          ]),
+        ],
+        [scriptedReply('parent done')],
+      ],
+      childScripts: [
+        [
+          scriptedTurn('child work done',
+              usage: const TokenUsage(inputTokens: 30, outputTokens: 12)),
+        ],
+      ],
+    );
+    await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    await h.plugin.inspect(id, action: 'wait');
+    expect(h.plugin.parent.details.tokensSpent, 42);
+    expect(h.plugin.budget.spent, 42);
+    h.dir.deleteSync(recursive: true);
+  });
+
+  test('the child cannot escalate the mode: a read-only parent denies '
       'a write in the child, never asked', () async {
     final ws = workspace();
     final h = harness(
@@ -272,11 +289,14 @@ void main() {
       scripts: [
         [
           scriptedReply('', calls: [
-            ToolUseBlock(id: 'c1', name: 'spawn_subagent', input: {
+            ToolUseBlock(id: 'c1', name: 'launch_subagent', input: {
               'prompt': 'write escape.txt with the write tool',
             }),
           ]),
         ],
+        [scriptedReply('parent done')],
+      ],
+      childScripts: [
         // Child tries a write; the boundary denies without asking.
         [
           scriptedReply('', calls: [
@@ -287,18 +307,16 @@ void main() {
           ]),
         ],
         [scriptedReply('child saw the denial')],
-        [scriptedReply('parent done')],
       ],
     );
-    // An approver IS wired on the parent's boundary — and must never be
-    // consulted by the child's: read-only denies outright, never asks.
     var asked = false;
     h.tools.sandbox.approver = (request, reason) async {
       asked = true;
       return Approval.no;
     };
-    final o = await h.host.send('try to escape');
-    expect(o.stopReason, StopReason.complete);
+    await h.host.send('try to escape');
+    final id = h.plugin.launchedChildIds.single;
+    await h.plugin.inspect(id, action: 'wait');
     expect(asked, isFalse, reason: 'a read-only child must never ask');
     expect(File('${ws.dir.path}/escape.txt').existsSync(), isFalse);
     h.host.close();
@@ -314,10 +332,13 @@ void main() {
           scriptedReply('', calls: [
             ToolUseBlock(
                 id: 'c1',
-                name: 'spawn_subagent',
+                name: 'launch_subagent',
                 input: {'prompt': 'write a file inside the workspace'}),
           ]),
         ],
+        [scriptedReply('parent done')],
+      ],
+      childScripts: [
         [
           scriptedReply('', calls: [
             ToolUseBlock(
@@ -327,13 +348,11 @@ void main() {
           ]),
         ],
         [scriptedReply('wrote it')],
-        [scriptedReply('parent done')],
       ],
     );
-    // No approver: in normal mode an in-workspace write runs without
-    // one; an escape would fail closed. The child's write lands inside
-    // the same workspace root the parent's tools guard.
     await h.host.send('write via child');
+    final id = h.plugin.launchedChildIds.single;
+    await h.plugin.inspect(id, action: 'wait');
     expect(
         File('${ws.dir.path}/inside.txt').readAsStringSync(), 'from the child');
     h.host.close();
@@ -351,18 +370,20 @@ void main() {
           scriptedReply('', calls: [
             ToolUseBlock(
                 id: 'c1',
-                name: 'spawn_subagent',
+                name: 'launch_subagent',
                 input: {'prompt': 'remember the word basilisk'}),
           ]),
         ],
-        [scriptedReply('the word is basilisk')],
         [scriptedReply('parent done')],
+      ],
+      childScripts: [
+        [scriptedReply('the word is basilisk')],
       ],
     );
     await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    await h.plugin.inspect(id, action: 'wait');
     h.host.close();
-    // The child's session exists in the store under its own id, with
-    // its own conversation — resumable on its own.
     final store = SessionStore.open(storePath);
     final ids = store.list().map((s) => s.id).toList();
     final childId = ids.where((i) => i.endsWith('-child1')).single;
@@ -380,9 +401,6 @@ void main() {
     );
     expect(resumed.session.loop.log.whereType<InputRecordedEntry>().single.text,
         'remember the word basilisk');
-    // The reply derives from the resumed log's last assistant message —
-    // `lastReply` reads in-memory turns, which a fresh resume has none
-    // of.
     final resumedReply = resumed.session.loop.log
         .whereType<MessageAppendedEntry>()
         .map((e) => e.message)
@@ -396,9 +414,8 @@ void main() {
     h.dir.deleteSync(recursive: true);
   });
 
-  test(
-      'the parent\'s log holds the tool call and the child\'s answer, '
-      'and not the child\'s messages', () async {
+  test('the parent\'s log holds the launch, and not the child\'s messages',
+      () async {
     final ws = workspace();
     final storePath = '${ws.dir.path}/store.db';
     final h = harness(
@@ -409,15 +426,19 @@ void main() {
           scriptedReply('', calls: [
             ToolUseBlock(
                 id: 'c1',
-                name: 'spawn_subagent',
+                name: 'launch_subagent',
                 input: {'prompt': 'inner prompt one'}),
           ]),
         ],
-        [scriptedReply('child final answer')],
         [scriptedReply('parent wrap-up')],
+      ],
+      childScripts: [
+        [scriptedReply('child final answer')],
       ],
     );
     await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    await h.plugin.inspect(id, action: 'wait');
     h.host.close();
     final store = SessionStore.open(storePath);
     final parentEntries = store.readEntries(h.plugin.parent.id);
@@ -427,23 +448,21 @@ void main() {
         .where((i) => i != h.plugin.parent.id)
         .toList();
     store.close();
-    // The parent's log: the tool call with the prompt, the result with
-    // the child's answer.
     final calls = parentEntries
         .whereType<MessageAppendedEntry>()
         .expand((e) => e.message.content)
         .whereType<ToolUseBlock>()
-        .where((b) => b.name == 'spawn_subagent')
+        .where((b) => b.name == 'launch_subagent')
         .toList();
     expect(calls, hasLength(1));
     expect(calls.single.input['prompt'], 'inner prompt one');
-    final results = parentEntries
+    final launchResults = parentEntries
         .whereType<MessageAppendedEntry>()
         .expand((e) => e.message.content)
         .whereType<ToolResultBlock>()
         .map((b) => b.content)
         .join('\n');
-    expect(results, contains('child final answer'));
+    expect(launchResults, contains('launched sub-agent'));
     // And nothing of the child's transcript rides in the parent's log:
     // exactly one user input — the parent's own.
     final parentTexts =
@@ -453,9 +472,8 @@ void main() {
     h.dir.deleteSync(recursive: true);
   });
 
-  test(
-      'depth, children in flight and tokens spent survive a store '
-      'round trip', () async {
+  test('a child cannot launch grandchildren: the launch tool has no '
+      'executor in the child', () async {
     final ws = workspace();
     final storePath = '${ws.dir.path}/store.db';
     final h = harness(
@@ -466,108 +484,29 @@ void main() {
           scriptedReply('', calls: [
             ToolUseBlock(
                 id: 'c1',
-                name: 'spawn_subagent',
-                input: {'prompt': 'count something'}),
+                name: 'launch_subagent',
+                input: {'prompt': 'you may launch no further'}),
           ]),
-        ],
-        [
-          scriptedTurn('child counts to three',
-              usage: const TokenUsage(inputTokens: 11, outputTokens: 7)),
         ],
         [scriptedReply('parent done')],
       ],
-    );
-    await h.host.send('go');
-    // The child's usage booked; save persists the counters.
-    expect(h.plugin.parent.details.tokensSpent, 18);
-    h.host.saveDetails();
-    h.host.close();
-    final store = SessionStore.open(storePath);
-    final details = store.readDetails(h.plugin.parent.id);
-    store.close();
-    expect(details.depth, 0);
-    expect(details.childrenInFlight, 0);
-    expect(details.tokensSpent, 18);
-    // A resumed host reads the same numbers.
-    final resumed = Host.resume(
-      HostConfig(
-        providerFactory: (model) => ScriptedProvider(const []),
-        workingDirectory: ws.dir.path,
-        plugins: [
-          PersistencePlugin(openStore: () => SessionStore.open(storePath))
-        ],
-      ),
-      h.plugin.parent.id,
-    );
-    expect(resumed.session.details.tokensSpent,
-        h.plugin.parent.details.tokensSpent);
-    resumed.close();
-    h.host.close();
-    h.dir.deleteSync(recursive: true);
-  });
-
-  test(
-      'usage from the child books into the parent\'s tokens spent and '
-      'the shared gate', () async {
-    final ws = workspace();
-    final h = harness(
-      dir: ws.dir,
-      scripts: [
-        [
-          scriptedReply('', calls: [
-            ToolUseBlock(
-                id: 'c1', name: 'spawn_subagent', input: {'prompt': 'do work'}),
-          ]),
-        ],
-        [
-          scriptedTurn('child work done',
-              usage: const TokenUsage(inputTokens: 30, outputTokens: 12)),
-        ],
-        [scriptedReply('parent done')],
-      ],
-    );
-    await h.host.send('go');
-    expect(h.plugin.parent.details.tokensSpent, 42);
-    expect(h.plugin.budget.spent, 42);
-    h.dir.deleteSync(recursive: true);
-  });
-
-  test('a child of a child is refused at the configured depth', () async {
-    final ws = workspace();
-    final storePath = '${ws.dir.path}/store.db';
-    final h = harness(
-      dir: ws.dir,
-      storePath: storePath,
-      config: const SubagentsConfig(maxDepth: 1),
-      scripts: [
-        // Parent (depth 0): spawns a child — allowed, the child sits at 1.
-        [
-          scriptedReply('', calls: [
-            ToolUseBlock(
-                id: 'c1',
-                name: 'spawn_subagent',
-                input: {'prompt': 'you may spawn no further'}),
-          ]),
-        ],
-        // The child (depth 1) asks to spawn; the default factory gives
+      childScripts: [
+        // The child (depth 1) asks to launch; the default factory gives
         // it no sub-agents plugin, so the call has no executor.
         [
           scriptedReply('', calls: [
             ToolUseBlock(
                 id: 'c2',
-                name: 'spawn_subagent',
+                name: 'launch_subagent',
                 input: {'prompt': 'too deep'}),
           ]),
         ],
         [scriptedReply('child finished anyway')],
-        [scriptedReply('parent done')],
       ],
     );
-    final o = await h.host.send('go');
-    expect(o.stopReason, StopReason.complete);
-    // The refusal rides back in the child's second tool result, and the
-    // child's own log records it — the spawn never ran, so the store
-    // holds exactly two sessions and no grandchild.
+    await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    await h.plugin.inspect(id, action: 'wait');
     final store = SessionStore.open(storePath);
     final ids = store.list().map((s) => s.id).toList();
     final childId = ids.where((i) => i.endsWith('-child1')).single;
@@ -578,41 +517,161 @@ void main() {
         .expand((e) => e.message.content)
         .whereType<ToolResultBlock>()
         .map((b) => b.content);
-    expect(childResults, contains('no executor for spawn_subagent'));
+    expect(childResults, contains('no executor for launch_subagent'));
     expect(ids.where((i) => i.endsWith('-child2')), isEmpty,
         reason: 'a grandchild was never built');
-    expect(ids.where((i) => i.endsWith('child1-child1')), isEmpty);
     expect(childId, startsWith('${h.plugin.parent.id}-'));
-    // The same shape, driven directly: a plugin bound to a session that
-    // already sits at the maximum refuses before building anything.
-    final childHost = Host.resume(
+    h.host.close();
+    h.dir.deleteSync(recursive: true);
+  });
+
+  test('resuming a session resets the stale in-flight counter', () async {
+    final ws = workspace();
+    final storePath = '${ws.dir.path}/store.db';
+    final h = harness(
+      dir: ws.dir,
+      storePath: storePath,
+      scripts: [
+        [scriptedReply('hi')],
+      ],
+    );
+    await h.host.send('hello'); // persist the parent session
+    // Simulate the persisted state a previous run left when it quit while
+    // a child was in flight: the counter is non-zero but no child is live.
+    h.plugin.parent.details.childrenInFlight = 2;
+    h.host.saveDetails();
+    h.host.close();
+    final tools = ToolsPlugin(
+      workspaceRoot: ws.root,
+      tinaDir: Directory('${ws.root}/.tina'),
+      mode: PermissionMode.allowEdits,
+      osSandbox: false,
+    );
+    final resumed = Host.resume(
       HostConfig(
         providerFactory: (model) => ScriptedProvider(const []),
-        workingDirectory: ws.dir.path,
+        workingDirectory: ws.root,
         plugins: [
-          PersistencePlugin(openStore: () => SessionStore.open(storePath))
+          tools,
+          PersistencePlugin(openStore: () => SessionStore.open(storePath)),
+          SubagentsPlugin(
+            sessionFactory: standardChildFactory(
+              parentTools: tools,
+              providerFactory: (model) => ScriptedProvider(const []),
+            ),
+          ),
         ],
       ),
-      childId,
+      h.plugin.parent.id,
     );
-    final deepPlugin = SubagentsPlugin(
-      parent: childHost.context,
-      config: const SubagentsConfig(maxDepth: 1),
-      sessionFactory: standardChildFactory(
-        parentTools: ToolsPlugin(
-          workspaceRoot: ws.dir.path,
-          tinaDir: Directory('${ws.dir.path}/.tina'),
-          mode: PermissionMode.ask,
-          osSandbox: false,
-        ),
-        providerFactory: (model) => ScriptedProvider(const []),
-      ),
+    expect(resumed.session.details.childrenInFlight, 0,
+        reason: 'a resumed session has no live children; the stale counter '
+            'must not lock out new launches');
+    resumed.close();
+    h.dir.deleteSync(recursive: true);
+  });
+
+  test('closing the parent cancels running sub-agents and releases the slots',
+      () async {
+    final ws = workspace();
+    final h = harness(
+      dir: ws.dir,
+      scripts: [
+        [
+          scriptedReply('', calls: [
+            ToolUseBlock(
+                id: 'c1',
+                name: 'launch_subagent',
+                input: {'prompt': 'long work'}),
+          ]),
+        ],
+        [scriptedReply('parent done')],
+      ],
+      childProvider: StallingProvider(),
     );
-    final r = await deepPlugin.spawn('too deep');
+    await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    expect(h.plugin.childrenInFlight, 1);
+    // The host calls SubagentsPlugin.closeSession on close; call it
+    // directly here (the harness attaches the plugin to the loop, not the
+    // host's plugin list), which cancels the running child.
+    h.plugin.closeSession();
+    final deadline = DateTime.now().add(const Duration(seconds: 2));
+    while (h.plugin.childrenInFlight != 0) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail('child did not settle after the parent closed');
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    final r = await h.plugin.inspect(id);
     expect(r.isError, isTrue);
-    expect(r.content, contains('depth 2 exceeds maximum 1'));
-    childHost.close();
+    expect(r.content, contains('cancelled'));
     h.host.close();
+    h.dir.deleteSync(recursive: true);
+  });
+
+  test(
+      'a resumed session can retrieve a completed sub-agent that was never '
+      'waited on', () async {
+    final ws = workspace();
+    final storePath = '${ws.dir.path}/store.db';
+    final h = harness(
+      dir: ws.dir,
+      storePath: storePath,
+      scripts: [
+        [
+          scriptedReply('', calls: [
+            ToolUseBlock(
+                id: 'c1',
+                name: 'launch_subagent',
+                input: {'prompt': 'count things'}),
+          ]),
+        ],
+        [scriptedReply('parent done')],
+      ],
+      childScripts: [
+        [scriptedReply('the count is forty-two')],
+      ],
+    );
+    await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    // Let the child finish so its answer is persisted (the parent never
+    // waited on it), then quit.
+    await h.plugin.inspect(id, action: 'wait');
+    h.host.saveDetails();
+    h.host.close();
+
+    // Resume the parent with a plugin that reads the store history.
+    final tools = ToolsPlugin(
+      workspaceRoot: ws.root,
+      tinaDir: Directory('${ws.root}/.tina'),
+      mode: PermissionMode.allowEdits,
+      osSandbox: false,
+    );
+    final resumed = Host.resume(
+      HostConfig(
+        providerFactory: (model) => ScriptedProvider(const []),
+        workingDirectory: ws.root,
+        plugins: [
+          tools,
+          PersistencePlugin(openStore: () => SessionStore.open(storePath)),
+          SubagentsPlugin(
+            sessionFactory: standardChildFactory(
+              parentTools: tools,
+              providerFactory: (model) => ScriptedProvider(const []),
+            ),
+            history: _TestHistory(() => SessionStore.open(storePath)),
+          ),
+        ],
+      ),
+      h.plugin.parent.id,
+    );
+    final resumedPlugin = resumed.config.plugins.whereType<SubagentsPlugin>().single;
+    expect(resumedPlugin.launchedChildIds, contains(id));
+    final r = await resumedPlugin.inspect(id, action: 'status');
+    expect(r.isError, isFalse);
+    expect(r.content, contains('the count is forty-two'));
+    resumed.close();
     h.dir.deleteSync(recursive: true);
   });
 }

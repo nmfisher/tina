@@ -1,12 +1,16 @@
-/// The one tool: a prompt in, the child's final text out.
+/// The two model-facing tools of the sub-agents plugin.
 ///
-/// Schema name `spawn_subagent`, one required `prompt` string. The
-/// executor delegates straight to [SubagentsPlugin.spawn] — the plugin
-/// is the spawner, the tool is its model-facing face — so every limit is
+/// `launch_subagent` takes a self-contained prompt, launches a child in
+/// the background, and returns immediately with the child's id — it does
+/// NOT block the parent. The `subagent` companion tool inspects a
+/// launched child: `status` reports progress (and the final answer once
+/// settled), `wait` blocks until the child settles and returns its final
+/// text, and `cancel` stops it.
+///
+/// Both executors delegate straight to [SubagentsPlugin] — the plugin is
+/// the backend, the tools are its model-facing faces — so every limit is
 /// enforced in exactly one place and refusals are normal tool results
-/// naming the limit. Cancellation rides along: the plugin stashed the
-/// turn's context in `beforeToolCall`, and the cancelled state travels
-/// from that context to the child's loop.
+/// naming the limit.
 library;
 
 import 'package:tina_core/tina_core.dart';
@@ -14,20 +18,22 @@ import 'package:tina_tools/tina_tools.dart' show Tool;
 
 import 'subagents_plugin.dart';
 
-final class SpawnTool extends Tool {
-  SpawnTool(this._plugin);
+final class LaunchSubagentTool extends Tool {
+  LaunchSubagentTool(this._plugin);
 
   final SubagentsPlugin _plugin;
 
   @override
   ToolSchema get schema => ToolSchema(
         describe: (input) => ToolDescription(
-            title: 'Delegate task', target: '${input['prompt'] ?? ''}'),
-        name: SubagentsPlugin.schemaName,
-        description: 'Spawn one sub-agent to do a scoped piece of work. '
-            'Give it a self-contained prompt; its final text is returned '
-            'as this tool\'s result. Refused when the depth, concurrency '
-            'or token-budget limit is hit.',
+            title: 'Launch subagent', target: '${input['prompt'] ?? ''}'),
+        name: SubagentsPlugin.launchSchemaName,
+        description: 'Launch a sub-agent to do a scoped piece of work. '
+            'Give it a self-contained prompt; the tool returns immediately '
+            'with the sub-agent\'s id, and the sub-agent runs in the '
+            'background while you keep working. Check on it with the '
+            '`subagent` tool. Refused when the depth, concurrency or '
+            'token-budget limit is hit.',
         inputSchema: const {
           'type': 'object',
           'properties': {
@@ -46,10 +52,51 @@ final class SpawnTool extends Tool {
       {void Function(String)? progress}) {
     final prompt = input['prompt'];
     if (prompt is! String || prompt.trim().isEmpty) {
-      return Future.value(
-          ToolResult.error('spawn_subagent needs a non-empty "prompt" string'));
+      return Future.value(ToolResult.error(
+          'launch_subagent needs a non-empty "prompt" string'));
     }
-    return _plugin.spawn(prompt,
-        cancelled: () => _plugin.turnCancelled, progress: progress);
+    return Future.value(_plugin.launch(prompt));
+  }
+}
+
+final class SubagentInspectTool extends Tool {
+  SubagentInspectTool(this._plugin);
+
+  final SubagentsPlugin _plugin;
+
+  @override
+  ToolSchema get schema => ToolSchema(
+        describe: (input) => ToolDescription(
+            title: 'Subagent status', target: '${input['id'] ?? ''}'),
+        name: SubagentsPlugin.inspectSchemaName,
+        description:
+            'Inspect, wait for, or cancel a launched sub-agent. `wait` '
+            'blocks until the sub-agent finishes; `status` reports its '
+            'current state (and its final answer once done); `cancel` '
+            'stops it.',
+        inputSchema: const {
+          'type': 'object',
+          'properties': {
+            'id': {'type': 'string'},
+            'action': {
+              'type': 'string',
+              'enum': ['status', 'wait', 'cancel']
+            },
+            'wait_ms': {'type': 'integer', 'minimum': 0},
+          },
+          'required': ['id'],
+        },
+      );
+
+  @override
+  Future<ToolResult> execute(Map<String, dynamic> input,
+      {void Function(String)? progress}) {
+    final id = input['id'];
+    if (id is! String || id.trim().isEmpty) {
+      return Future.value(ToolResult.error('subagent needs an "id" string'));
+    }
+    final action = (input['action'] as String?) ?? 'status';
+    final waitMs = (input['wait_ms'] as num?)?.toInt();
+    return _plugin.inspect(id, action: action, waitMs: waitMs);
   }
 }

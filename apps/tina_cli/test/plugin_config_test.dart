@@ -87,7 +87,7 @@ void main() {
     }
     expect(
         assembly.host.config.plugins.expand((p) => p.tools).map((t) => t.name),
-        containsAll(['update_plan', 'spawn_subagent']));
+        containsAll(['update_plan', 'launch_subagent', 'subagent']));
     await assembly.host.send('hello');
     final persistence =
         assembly.host.config.plugins.whereType<PersistencePlugin>().single;

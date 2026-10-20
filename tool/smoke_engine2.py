@@ -97,7 +97,7 @@ class ModelStub(BaseHTTPRequestHandler):
                      {'text': 'check full item details', 'state': 'done', 'summary': 'Reveal summaries and preserve item progress.'}]}]}),
             ('edit example', 'edit', {'filePath': 'preview.txt', 'oldString': 'before', 'newString': 'after'}),
             ('conflict example', 'edit', {'filePath': 'preview.txt', 'oldString': 'missing text', 'newString': 'never applied'}),
-            ('delegate example', 'spawn_subagent', {'prompt': 'child example'}),
+            ('delegate example', 'launch_subagent', {'prompt': 'child example'}),
             ('network permission example', 'exec', {'program': '/bin/echo',
                 'args': ['network-permission-output'], 'network': True,
                 'network_reason': 'test combined execution and network approval'}),
@@ -754,8 +754,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.resize(80, 24)
             time.sleep(0.1)
             start = terminal.send('delegate example\r')
-            terminal.expect('depth 1', start)
-            terminal.expect('smoke answer', start)
+            terminal.expect('launched sub-agent', start)
+            terminal.expect_idle()
             time.sleep(0.1)
             start = terminal.send('/settings\r')
             terminal.expect('Settings', start)
@@ -814,7 +814,7 @@ def smoke(launcher, endpoint, columns, rows):
             plugin_checkbox('tina/activity-tui', True, reset=True)
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
-            terminal.expect('Delegate task', start)
+            terminal.expect('Launch subagent', start)
             terminal.send('\x1bOS')
             plugin_checkbox('tina/file-resources', True, scope='workspace')
             plugin_checkbox('tina/file-resources', False, scope='workspace')
@@ -970,7 +970,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('\x1b[6~' * 80)
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
-            terminal.expect('Delegate task', start)
+            terminal.expect('Launch subagent', start)
             terminal.send('\x1bOS')
             if rows not in (10, 24):
                 # The startup picker must hand stdin to the resumed app.

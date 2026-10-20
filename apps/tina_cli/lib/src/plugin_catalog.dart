@@ -397,6 +397,9 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                         PersistencePlugin(openStore: c.openStore!),
                     ],
                   ),
+                  history: c.openStore != null
+                      ? _StoreHistory(c.openStore!)
+                      : null,
                 ),
             description:
                 'Lets the agent delegate work to child sessions with bounded depth and concurrency.',
@@ -431,4 +434,42 @@ String _workspaceKey(String path) {
   final prefix =
       trimmed.length > 60 ? trimmed.substring(trimmed.length - 60) : trimmed;
   return '${prefix.isEmpty ? 'workspace' : prefix}-${hash.toRadixString(16).padLeft(8, '0')}';
+}
+
+/// A [SubagentHistorySource] backed by the session store: lists every stored
+/// session and its last assistant text, so the sub-agents plugin can
+/// resurrect previously-launched children after a resume.
+final class _StoreHistory implements SubagentHistorySource {
+  _StoreHistory(this._open);
+
+  final SessionStoreOpener _open;
+
+  @override
+  Map<String, String?> storedSessions() {
+    final store = _open();
+    try {
+      final out = <String, String?>{};
+      for (final session in store.list()) {
+        out[session.id] = _lastAssistantText(store.readEntries(session.id));
+      }
+      return out;
+    } finally {
+      store.close();
+    }
+  }
+
+  /// The last assistant message's text, or null when the session never
+  /// produced an assistant message.
+  static String? _lastAssistantText(List<SessionEntry> entries) {
+    String? last;
+    for (final entry in entries) {
+      if (entry is MessageAppendedEntry) {
+        final text = [
+          for (final b in entry.message.content.whereType<TextBlock>()) b.text,
+        ].join();
+        if (text.isNotEmpty) last = text;
+      }
+    }
+    return last;
+  }
 }

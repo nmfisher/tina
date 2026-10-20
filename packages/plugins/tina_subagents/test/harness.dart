@@ -4,11 +4,12 @@
 /// plays the model on both sides — and each host builds its OWN
 /// provider, which is the point: no two sessions share an instance.
 ///
-/// The [scripts] list is one flat queue of model turns, in the order the
-/// run consumes them. Parent turns and child turns draw from the same
-/// queue — a spawn interleaves them (parent asks, child runs to the
-/// end, parent takes the result), so who consumes which script is part
-/// of what the test pins.
+/// [scripts] drives the parent's model turns, one list of turns per
+/// provider. [childScripts] drives child providers: each launched child
+/// builds its own provider, drawn one turn-list at a time from
+/// [childScripts]. Because a launch is non-blocking, children run on
+/// their own schedule — giving them their own script queue makes that
+/// deterministic instead of interleaving with the parent's model calls.
 library;
 
 import 'package:tina_persistence/tina_persistence.dart';
@@ -36,6 +37,7 @@ import 'package:tina_tools/tina_tools.dart';
   Directory dir,
 }) harness({
   required List<List<List<StreamEvent>>> scripts,
+  List<List<List<StreamEvent>>> childScripts = const [],
   SubagentsConfig config = const SubagentsConfig(),
   String? storePath,
   PermissionMode mode = PermissionMode.allowEdits,
@@ -45,12 +47,15 @@ import 'package:tina_tools/tina_tools.dart';
   final ws = dir ?? workspace().dir;
   final providers = <ScriptedProvider>[];
   var i = 0;
-  // One flat queue, shared by parent and child providers: the next
-  // model turn drawn is the next script, whoever asked for it. An
-  // exhausted queue still answers well-formed, so a test that scripted
-  // too few turns ends cleanly instead of hanging.
+  var ci = 0;
+  // Parent turns draw from [scripts], child turns from [childScripts], one
+  // turn-list per provider build. An exhausted queue still answers
+  // well-formed, so a test that scripted too few turns ends cleanly
+  // instead of hanging.
   List<List<StreamEvent>> next() =>
       i < scripts.length ? scripts[i++] : const [];
+  List<List<StreamEvent>> nextChild() =>
+      ci < childScripts.length ? childScripts[ci++] : const [];
 
   final tools = ToolsPlugin(
     workspaceRoot: ws.path,
@@ -79,7 +84,7 @@ import 'package:tina_tools/tina_tools.dart';
       parentTools: tools,
       providerFactory: (model) {
         if (childProvider != null) return childProvider;
-        final p = ScriptedProvider(next());
+        final p = ScriptedProvider(nextChild());
         providers.add(p);
         return p;
       },
