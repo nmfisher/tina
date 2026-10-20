@@ -45,6 +45,16 @@ class LineEditor {
   // edit reassigns it (the model itself is never mutated in place).
   TextLineInput _edit = TextLineInput();
   late final CompletionPicker _picker;
+
+  // Reverse-incremental-search state (readline Ctrl-R style). When
+  // [_searchActive] is true every key is routed to [_handleSearchEvent] while
+  // the user types a query; the current match is shown in place of the draft
+  // and accepting it replaces the buffer without submitting.
+  bool _searchActive = false;
+  String _searchQuery = '';
+  int _searchIndex = -1; // index into _edit.history of the current match
+  String? _searchMatch; // matched line text, or null when none/failed
+  bool _searchFailed = false; // last lookup found no match
   // A second picker for `/`-command completion (opens only at the start of an
   // empty line; accepts the command plus a trailing space). At most one of
   // [_picker] and [_commandPicker] is active at a time.
@@ -983,6 +993,13 @@ class LineEditor {
     // (approval / overlay prompt) is armed completes it with ctrlC so the
     // awaiting code settles as cancelled instead of hanging.
     if (event is ControlKey && event.code == ControlCode.ctrlC) {
+      // During reverse-incremental-search, Ctrl+C cancels the search and
+      // restores the draft — it never clears or quits.
+      if (_searchActive) {
+        _cancelSearch();
+        _redraw();
+        return KeyHandledBy.chatBox;
+      }
       // A paste held behind an approval is still a draft. The first Ctrl+C
       // discards it; it must not quit or answer the approval.
       final hasDraft = _heldPastes.isNotEmpty ||
@@ -1283,6 +1300,130 @@ class LineEditor {
     return false;
   }
 
+  /// Enter reverse-incremental-search from the idle prompt. The search runs
+  /// over the editor's history ([TextLineInput.history]); the draft itself is
+  /// left untouched, so cancelling is a pure state reset that restores it.
+  void _startSearch() {
+    _searchActive = true;
+    _searchQuery = '';
+    _searchIndex = -1;
+    _searchMatch = null;
+    _searchFailed = false;
+  }
+
+  /// Leave search and restore the pre-search draft.
+  void _cancelSearch() {
+    _searchActive = false;
+    _searchQuery = '';
+    _searchIndex = -1;
+    _searchMatch = null;
+    _searchFailed = false;
+  }
+
+  /// Accept the current match into the buffer (editable, not yet submitted),
+  /// or restore the draft when there is no match.
+  void _acceptSearch() {
+    final match = _searchMatch;
+    if (match != null) {
+      _edit = _edit.loadState(match, match.length).resetNavigation();
+    }
+    _cancelSearch();
+  }
+
+  /// Search history backwards for the most recent line containing
+  /// [_searchQuery]. With [repeat] (pressing Ctrl-R again) the search begins
+  /// above the current match to find an older one; otherwise it restarts from
+  /// the newest entry.
+  void _computeSearchMatch({required bool repeat}) {
+    _searchMatch = null;
+    _searchFailed = false;
+    if (_searchQuery.isEmpty) {
+      _searchIndex = -1;
+      return;
+    }
+    final hist = _edit.history;
+    final from =
+        (repeat && _searchIndex >= 0) ? _searchIndex - 1 : hist.length - 1;
+    for (var i = from; i >= 0; i--) {
+      if (hist[i].contains(_searchQuery)) {
+        _searchIndex = i;
+        _searchMatch = hist[i];
+        return;
+      }
+    }
+    _searchIndex = -1;
+    _searchFailed = true;
+  }
+
+  /// Render the reverse-search prompt: an indicator, the query, and the
+  /// current match as the buffer.
+  void _renderSearch() {
+    final prefix = _searchFailed
+        ? '(failed reverse-i-search)\\`'
+        : '(reverse-i-search)\\`';
+    final text = _searchMatch ?? '';
+    screen.input.render(
+      prompt: '$prefix${_searchQuery}\': ',
+      buffer: text,
+      cursor: text.length,
+    );
+  }
+
+  /// Dispatch for the reverse-search mode. Handles query typing, Ctrl-R for
+  /// older matches, Enter to accept, and Esc/Ctrl-C to cancel. Everything not
+  /// handled is ignored (arrow keys, tabs, etc.) so the search keeps the
+  /// keyboard.
+  KeyHandledBy _handleSearchEvent(InputEvent event) {
+    switch (event) {
+      case CharInput(:final text):
+        _searchQuery += text;
+        _searchIndex = -1;
+        _computeSearchMatch(repeat: false);
+      case ControlKey(:final code):
+        switch (code) {
+          case ControlCode.ctrlR:
+            _computeSearchMatch(repeat: true);
+          case ControlCode.enter:
+            _acceptSearch();
+            _redraw();
+            return KeyHandledBy.chatBox;
+          case ControlCode.backspace:
+            if (_searchQuery.isNotEmpty) {
+              _searchQuery =
+                  _searchQuery.substring(0, _searchQuery.length - 1);
+            }
+            if (_searchQuery.isEmpty) {
+              // Backspacing to an empty query exits the search (readline).
+              _cancelSearch();
+              _redraw();
+              return KeyHandledBy.chatBox;
+            }
+            _searchIndex = -1;
+            _computeSearchMatch(repeat: false);
+          case ControlCode.ctrlC:
+            _cancelSearch();
+            _redraw();
+            return KeyHandledBy.chatBox;
+          default:
+            break;
+        }
+      case EscapeKey():
+        _cancelSearch();
+        _redraw();
+        return KeyHandledBy.chatBox;
+      case PasteInput():
+      case ArrowKey():
+      case EditingKey():
+      case AltKey():
+      case FunctionKey():
+      case UnknownEscape():
+      case ScrollEvent():
+        break;
+    }
+    _renderSearch();
+    return KeyHandledBy.chatBox;
+  }
+
   /// The Ctrl+O maximize toggle, shared by every input path: normal dispatch,
   /// the armed-global-readKey seam, and queue mode. True when the hook
   /// consumed the key (a panel was maximized).
@@ -1360,6 +1501,10 @@ class LineEditor {
     if (debugKeys) {
       _log.fine('[keys] event: $event');
     }
+    // Reverse-incremental-search captures every key once active (entered via
+    // Ctrl+R below). It sits ahead of the app-shortcut hooks so a focused
+    // search can't be hijacked by maximize/panel shortcuts.
+    if (_searchActive) return _handleSearchEvent(event);
     // 2. Ctrl+O: the app's panel-maximize toggle. Ahead of the focus
     //    ring so it fires both while cycling (the highlighted panel) and on
     //    the focused panel. The hook decides whether a panel qualifies.
@@ -1537,12 +1682,20 @@ class LineEditor {
             screen.clearChat();
             _redraw();
             screen.refresh();
+          case ControlCode.ctrlR:
+            // Reverse-incremental-search: starts on Ctrl+R from the prompt.
+            // The onRawView app hook has first claim (handled above in
+            // `_dispatchEvent`); when an app has bound it, Ctrl+R belongs to
+            // that hook whether it consumes or declines, and no search opens.
+            if (onRawView == null) {
+              _startSearch();
+              _renderSearch();
+            }
           case ControlCode.ctrlB:
           case ControlCode.ctrlW:
           case ControlCode.ctrlG:
           case ControlCode.ctrlS:
           case ControlCode.ctrlO:
-          case ControlCode.ctrlR:
           case ControlCode.ctrlP:
           case ControlCode.ctrlX:
           case ControlCode.backtab:
@@ -1550,7 +1703,7 @@ class LineEditor {
             // panel is registered they fall through to here as a no-op.
             // ctrlS ("save") is consumed by the prompts overlay's readKey loop;
             // at the chat prompt it's a no-op. ctrlO (maximize) is consumed by
-            // the onMaximizeToggle hook, ctrlR by onRawView, ctrlP by
+            // the onMaximizeToggle hook, ctrlP by
             // onPlanToggle, ctrlX by onClosePanel — a fall-through means
             // nothing qualified, so they are no-ops too. backtab (Shift+Tab)
             // is consumed by the onBackTab hook; a fall-through (no hook, or

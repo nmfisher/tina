@@ -184,9 +184,10 @@ enum ControlCode {
   /// init, and Linux has no VDISCARD, so the byte reaches the process.
   ctrlO,
 
-  /// Ctrl+R (DC2, 0x12). App-level hook (tina binds it to the raw-markdown
-  /// viewer). Readline muscle memory says reverse-incremental-search; tina's
-  /// editor has no search, so the key is free. Not a tty signal in raw mode.
+  /// Ctrl+R (DC2, 0x12). Built-in reverse-incremental-search: typing a word
+  /// recalls the most recent history line containing it (readline behavior).
+  /// The editor also offers an `onRawView` app hook that takes precedence when
+  /// it is set and consumes the key. Not a tty signal in raw mode.
   ctrlR,
 
   /// Ctrl+P (DLE, 0x10). App-level hook (tina binds it to the plan overlay

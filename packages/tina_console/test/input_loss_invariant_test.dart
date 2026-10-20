@@ -94,7 +94,10 @@ void main() {
       input.emit(CharInput('h'));
       input.emit(CharInput('i'));
       input.emit(EscapeKey());
-      input.emit(ControlKey(ControlCode.ctrlR));
+      // A control key that is a no-op at the prompt (Ctrl+P, the plan-toggle
+      // app hook, is unbound here) so the '!' still lands in the buffer. Ctrl+R
+      // would open reverse search instead, changing the submitted line.
+      input.emit(ControlKey(ControlCode.ctrlP));
       input.emit(CharInput('!'));
       await _flush();
 
