@@ -79,6 +79,8 @@ dependencies:
     path: ../../packages/plugins/tina_subagents
   tina_system_instruction:
     path: ../../packages/plugins/tina_system_instruction
+  tina_tasks:
+    path: ../../packages/plugins/tina_tasks
   tina_tools:
     path: ../../packages/plugins/tina_tools
   tina_tui:

@@ -11,6 +11,7 @@ import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
+import 'package:tina_tasks/tina_tasks.dart';
 
 /// Public data adapters for attachment snapshots. Feature policy, persistence
 /// and mutable state stay in their plugins. Never serialize a configuration
@@ -71,6 +72,23 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
         'items': [for (final item in plans.state.items) _plan(item)],
       },
       listen: plans.listen,
+    );
+  }
+  if (plugin is TasksPlugin) {
+    final tasks = plugin.observation;
+    return SnapshotFeature(
+      () => {
+        'items': [
+          for (final item in tasks.state.items)
+            {
+              'id': item.id,
+              'text': item.text,
+              'state': item.state,
+              if (item.summary.isNotEmpty) 'summary': item.summary,
+            },
+        ],
+      },
+      listen: tasks.listen,
     );
   }
   if (plugin is ContextPlugin) {

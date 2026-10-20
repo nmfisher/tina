@@ -1,0 +1,15 @@
+name: tina_tasks
+description: The tasks plugin for tina.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_engine_2:
+    path: ../../tina_engine_2
+dev_dependencies:
+  tina_host:
+    path: ../../tina_host
+  tina_persistence:
+    path: ../tina_persistence
+  test: ^1.25.0

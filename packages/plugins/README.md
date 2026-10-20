@@ -17,6 +17,7 @@ Each directory is a Dart package with its own public API and tests.
 | `tina_cwd_tui` | Active session working directory in the status bar |
 | `tina_plans` | Plan state, `update_plan`, `/plan` |
 | `tina_goals` | Goal state, judging, `/goal` |
+| `tina_tasks` | Follow-up task queue, `queue_task`/`mark_task`, `/task`, auto-advance |
 | `tina_subagents` | Child-session scheduling, spawn tool and child assembly |
 | `tina_file_resources` | Folder-backed prompt resources, including skills |
 | `tina_workflows` | Optional Attractor-backed workflows; deferred from the new app |
@@ -40,7 +41,7 @@ rule for trusted plugins, not a sandbox for arbitrary Dart code.
 
 The global `~/.tina/config` selects feature plugins through `[plugins].enabled`.
 The TUI defaults to `tina/persistence`, `tina/plans`, `tina/goals`,
-`tina/auto-compact`, `tina/subagents` and `tina/update`; `tina/file-resources`
+`tina/tasks`, `tina/auto-compact`, `tina/subagents` and `tina/update`; `tina/file-resources`
 and experimental `tina/context` are opt-in.
 System instruction, provider policy, tools and mode are selected by default.
 Requirements come from declared capabilities rather than fixed plugin IDs. Config selects registered

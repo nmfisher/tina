@@ -24,6 +24,7 @@ import 'package:tina_file_resources/tina_file_resources.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_step_limit/tina_step_limit.dart';
 import 'package:tina_plans/tina_plans.dart';
+import 'package:tina_tasks/tina_tasks.dart';
 
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
@@ -322,6 +323,11 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             operations: goalsOperations,
             description:
                 'Tracks an active goal and its progress across turns, with optional token budgets.',
+            live: true),
+        PluginDefinition<SessionPluginContext>(
+            'tina/tasks', (c) => TasksPlugin(terminal: c.terminal),
+            description:
+                'Maintains a queue of follow-up tasks distinct from the plan, and auto-advances when the current task completes.',
             live: true),
         PluginDefinition<SessionPluginContext>(
             'tina/auto-compact',

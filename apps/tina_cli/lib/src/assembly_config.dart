@@ -55,6 +55,7 @@ const defaultPluginIds = <String>[
   'tina/persistence',
   'tina/plans',
   'tina/goals',
+  'tina/tasks',
   'tina/auto-compact',
   'tina/subagents',
   'tina/update',
