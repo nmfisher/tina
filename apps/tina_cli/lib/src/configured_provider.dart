@@ -79,7 +79,8 @@ LlmProvider configuredProvider(
         generation: generation,
         baseUrl: base,
         endpoint: endpoint,
-        tokenFrom: () => token),
+        tokenFrom: () => token,
+        structuredOutput: descriptor.structuredOutput),
     ProviderWire.gemini => GeminiProvider(
         model: model,
         generation: generation,

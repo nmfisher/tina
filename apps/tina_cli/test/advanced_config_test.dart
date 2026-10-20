@@ -1,9 +1,22 @@
-import 'dart:io';
+import 'dart:io' hide HttpResponse;
 import 'package:test/test.dart';
+import 'package:tina_core/tina_core.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';
 import 'config_parity_test.dart' show CaptureEndpoint;
+
+const structuredOutputFixture = JsonOutputSchema(name: 'fixture_decision', schema: {
+  'type': 'object',
+  'properties': {
+    'decision': {
+      'type': 'string',
+      'enum': ['ALLOW', 'DENY']
+    }
+  },
+  'required': ['decision'],
+  'additionalProperties': false,
+});
 
 void main() {
   test('configured variants supply canvas colors and preserve overrides', () {
@@ -178,5 +191,100 @@ void main() {
               'limits': {'max_global_tokens': -1}
             }),
         throwsFormatException);
+  });
+  test('structured_output validates values and reaches the descriptor', () {
+    Map<String, dynamic> providers(Map<String, dynamic> table) => {
+          'default': {'provider': 'p', 'model': 'm'},
+          'providers': {'p': table}
+        };
+    expect(
+        () => parseTinaConfig(providers({
+              'wire': 'openai',
+              'base_url': 'https://example.invalid',
+              'structured_output': 'strict'
+            })),
+        throwsFormatException);
+    final pinned =
+        parseTinaConfig(providers({
+          'wire': 'openai',
+          'base_url': 'https://example.invalid',
+          'structured_output': 'json_schema'
+        })).config;
+    expect(pinned.providers['p']!.structuredOutput,
+        OpenAiStructuredOutput.jsonSchema);
+    expect(descriptorByIdFor('p', pinned.descriptors)!.structuredOutput,
+        OpenAiStructuredOutput.jsonSchema);
+    // Unset: null, and the verified-host default decides at construction.
+    final unset = parseTinaConfig(providers({
+      'wire': 'openai',
+      'base_url': 'https://example.invalid',
+      'api_key': 'fixture'
+    })).config;
+    expect(unset.providers['p']!.structuredOutput, isNull);
+    expect(descriptorByIdFor('p', unset.descriptors)!.structuredOutput, isNull);
+  });
+  test('structured_output overrides built-in pins and inherits when unset',
+      () {
+    List<ProviderDescriptor> descriptorsOf(
+            Map<String, dynamic> providersTable) =>
+        parseTinaConfig({
+          'default': {'provider': 'deepseek', 'model': 'deepseek-chat'},
+          'providers': providersTable,
+        }).config.descriptors;
+    // Config wins over the built-in descriptor, in both directions.
+    expect(
+        descriptorByIdFor(
+            'deepseek',
+            descriptorsOf({
+              'deepseek': {'structured_output': 'json_schema'}
+            }))!.structuredOutput,
+        OpenAiStructuredOutput.jsonSchema);
+    expect(
+        descriptorByIdFor(
+            'openai',
+            descriptorsOf({
+              'openai': {'structured_output': 'json_object'}
+            }))!.structuredOutput,
+        OpenAiStructuredOutput.jsonObject);
+    // Overrides that do not mention it leave the built-in pin in place.
+    expect(
+        descriptorByIdFor(
+            'deepseek',
+            descriptorsOf({
+              'deepseek': {'base_url': 'https://api.deepseek.com/v1'}
+            }))!.structuredOutput,
+        OpenAiStructuredOutput.jsonObject);
+  });
+  test('structured_output and the host default reach the request', () async {
+    Future<Map<String, dynamic>?> requestFormat(String? structured) async {
+      final endpoint = CaptureEndpoint();
+      final result = parseTinaConfig({
+        'default': {'provider': 'p', 'model': 'model'},
+        'providers': {
+          'p': {
+            'wire': 'openai',
+            'base_url': 'https://example.invalid',
+            'api_key': 'fixture',
+            if (structured != null) 'structured_output': structured,
+          }
+        }
+      });
+      final provider = configuredProvider(result.config, 'model',
+          environment: {}, endpoint: endpoint);
+      addTearDown(provider.close);
+      await (provider as StructuredOutputProvider)
+          .sendStructured(
+              system: '',
+              messages: const [],
+              output: structuredOutputFixture)
+          .toList();
+      return endpoint.body!['response_format'] as Map<String, dynamic>?;
+    }
+
+    // Unknown host, unset: loose default through the full config path.
+    expect(await requestFormat(null), {'type': 'json_object'});
+    // Pinned strict through the same path.
+    expect((await requestFormat('json_schema'))!['json_schema'],
+        containsPair('strict', true));
   });
 }

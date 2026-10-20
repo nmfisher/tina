@@ -119,6 +119,7 @@ requests_per_minute = 30
 min_request_interval_ms = 500
 max_output = 4096
 # output_token_field = "max_completion_tokens" # OpenAI-compatible wire
+# structured_output = "json_object" # json_object | json_schema (OpenAI-compatible wire)
 
 [providers.other]
 wire = "openai"
@@ -130,6 +131,10 @@ disabled_models = ["retired-model"]
 Built-in provider descriptors supply endpoints, credential-variable names and
 model catalogs; custom tables can override them. Config credentials precede
 environment values. A bare model reference defaults to the Anthropic wire.
+On the OpenAI-compatible wire, structured output defaults to `json_object`
+everywhere; strict `json_schema` is used only for hosts verified to support
+it (currently `api.openai.com`). Set `structured_output` to pin the mode for
+a provider, overriding both the default and the built-in descriptor.
 Environment compatibility includes `TINA_LLM_ENDPOINT`/`TINA_LLM_TOKEN` for the
 bare Anthropic path, and provider-specific `*_BASE_URL`, `*_AUTH_TOKEN` and
 `*_API_KEY` variables. Secrets are masked in the settings UI.

@@ -70,7 +70,8 @@ Future<void> main(List<String> args) async {
     'max_output',
     'reasoning_effort',
     'thinking_budget',
-    'output_token_field'
+    'output_token_field',
+    'structured_output'
   };
   const limits = {
     'max_global_tokens',
