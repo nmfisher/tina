@@ -448,7 +448,7 @@ void main() {
 
   test('clearing the conversation context also clears the task queue',
       () async {
-    final (loop, plugin, _) = _wired();
+    final (loop, plugin, _) = _wired(terminal: _CaptureTerminal());
     addTearDown(plugin.closeSession);
     await plugin.commands.single.handler('write the docs');
     expect(plugin.store.state.items, hasLength(1));
