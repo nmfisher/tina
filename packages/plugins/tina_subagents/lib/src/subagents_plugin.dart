@@ -321,10 +321,12 @@ final class SubagentsPlugin extends AgentPlugin {
   ///   settled.
   /// - `wait`: block until the child settles and return its final text.
   ///   [waitMs] caps the wait (milliseconds); a timeout returns the
-  ///   running status instead.
+  ///   running status instead. While waiting, the child's live tool
+  ///   activity is streamed through [progress] so a console can show it
+  ///   working.
   /// - `cancel`: stop the child and return its (cancelled) result.
   Future<ToolResult> inspect(String id,
-      {String action = 'status', int? waitMs}) async {
+      {String action = 'status', int? waitMs, void Function(String)? progress}) async {
     final job = _jobs[id];
     if (job == null) {
       return ToolResult.error('unknown sub-agent $id — nothing was launched '
@@ -336,21 +338,26 @@ final class SubagentsPlugin extends AgentPlugin {
         await job.done.future;
         return job.outcome!;
       case 'wait':
-        if (waitMs != null) {
-          if (waitMs < 0) {
-            return ToolResult.error('wait_ms must be nonnegative');
-          }
-          if (!job.done.isCompleted) {
-            final timeout = Future<void>.delayed(
-                Duration(milliseconds: waitMs), () {});
-            await Future.any([job.done.future, timeout]);
-            if (!job.done.isCompleted) {
-              return ToolResult('sub-agent $id still running '
-                  '(depth ${job.depth}): ${job.status}');
+        if (waitMs != null && waitMs < 0) {
+          return ToolResult.error('wait_ms must be nonnegative');
+        }
+        if (!job.done.isCompleted) {
+          final sub = _forwardActivity(job, progress);
+          try {
+            if (waitMs == null) {
+              await job.done.future;
+            } else {
+              final timeout = Future<void>.delayed(
+                  Duration(milliseconds: waitMs), () {});
+              await Future.any([job.done.future, timeout]);
+              if (!job.done.isCompleted) {
+                return ToolResult('sub-agent $id still running '
+                    '(depth ${job.depth}): ${job.status}');
+              }
             }
+          } finally {
+            await sub?.cancel();
           }
-        } else if (!job.done.isCompleted) {
-          await job.done.future;
         }
         return job.outcome!;
       case 'status':
@@ -360,6 +367,26 @@ final class SubagentsPlugin extends AgentPlugin {
       default:
         return ToolResult.error('action must be status, wait or cancel');
     }
+  }
+
+  /// Surface a live child's tool activity through [progress], or null when
+  /// there is nothing to stream (no callback, or a ghost with no host).
+  StreamSubscription<void>? _forwardActivity(
+      _SubagentJob job, void Function(String)? progress) {
+    final child = job.child;
+    if (progress == null || child == null) return null;
+    return child.session.loop.toolActivity.listen((event) {
+      final String? text = switch (event) {
+        ToolStarted(:final call) => 'running ${call.name}',
+        ToolFinished(:final call, :final result) =>
+          '${call.name}: ${result.isError ? 'error' : 'done'}',
+        ToolProgress(:final status) => status,
+        _ => null,
+      };
+      if (text != null && text.isNotEmpty) {
+        progress('depth ${job.depth} · $text · child ${job.id}');
+      }
+    });
   }
 
   Future<void> _run(_SubagentJob job, String prompt) async {
@@ -488,7 +515,7 @@ final class SubagentsPlugin extends AgentPlugin {
     loop.registerContextExecutor(SubagentsPlugin.launchSchemaName,
         (input, context) => _launchTool!.execute(input));
     loop.registerContextExecutor(SubagentsPlugin.inspectSchemaName,
-        (input, context) => _inspectTool!.execute(input));
+        (input, context) => _inspectTool!.execute(input, progress: context.progress));
   }
 
   /// The launch tool's schema name.

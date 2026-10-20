@@ -280,6 +280,43 @@ void main() {
     h.dir.deleteSync(recursive: true);
   });
 
+  test('wait streams the child\'s live tool activity as progress', () async {
+    final ws = workspace();
+    final h = harness(
+      dir: ws.dir,
+      scripts: [
+        [
+          scriptedReply('', calls: [
+            ToolUseBlock(
+                id: 'c1', name: 'launch_subagent', input: {'prompt': 'do work'}),
+          ]),
+        ],
+        [scriptedReply('parent done')],
+      ],
+      childScripts: [
+        [
+          scriptedReply('', calls: [
+            ToolUseBlock(id: 'list', name: 'ls', input: {'path': '.'}),
+          ]),
+          scriptedReply('child done'),
+        ],
+      ],
+    );
+    await h.host.send('go');
+    final id = h.plugin.launchedChildIds.single;
+    final progressLines = <String>[];
+    final r = await h.plugin.inspect(id,
+        action: 'wait', progress: progressLines.add);
+    expect(r.isError, isFalse);
+    expect(r.content, contains('child done'));
+    expect(progressLines, isNotEmpty);
+    // The child's tool activity is forwarded live; a finished tool call is
+    // always observable (a 'running' start may be missed if the child's
+    // scripted tool completes before wait attaches).
+    expect(progressLines, contains(contains('ls: done')));
+    h.dir.deleteSync(recursive: true);
+  });
+
   test('the child cannot escalate the mode: a read-only parent denies '
       'a write in the child, never asked', () async {
     final ws = workspace();

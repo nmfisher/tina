@@ -97,6 +97,7 @@ final class SubagentInspectTool extends Tool {
     }
     final action = (input['action'] as String?) ?? 'status';
     final waitMs = (input['wait_ms'] as num?)?.toInt();
-    return _plugin.inspect(id, action: action, waitMs: waitMs);
+    return _plugin.inspect(id,
+        action: action, waitMs: waitMs, progress: progress);
   }
 }
