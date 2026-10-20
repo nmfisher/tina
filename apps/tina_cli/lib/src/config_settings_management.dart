@@ -24,6 +24,7 @@ const _publicProviderFields = {
   'reasoning_effort',
   'thinking_budget',
   'output_token_field',
+  'structured_output',
 };
 const _secretFields = {'api_key', 'auth_token'};
 

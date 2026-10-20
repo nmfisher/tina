@@ -175,7 +175,10 @@ void main() {
         model: 'custom',
         baseUrl: 'https://example.test/v1',
         tokenFrom: () => 'test',
-        endpoint: endpoint);
+        endpoint: endpoint,
+        // Unknown hosts default to json_object; this test exercises the
+        // strict request's failure path, so the mode is pinned.
+        structuredOutput: OpenAiStructuredOutput.jsonSchema);
     addTearDown(provider.close);
     final events = await provider
         .sendStructured(system: '', messages: messages, output: output)
@@ -183,5 +186,45 @@ void main() {
     expect(events.whereType<MessageComplete>(), isEmpty);
     expect(events.whereType<StreamError>().single.statusCode, 400);
     expect(endpoint.body!['response_format']['json_schema']['strict'], true);
+  });
+  test('unknown host defaults to json_object; strict pinned on request',
+      () async {
+    Future<Map<String, dynamic>?> responseFormat(String? structuredOutput) async {
+      final endpoint = ReplayEndpoint(reply(ProviderWire.openAiCompatible));
+      final provider = OpenAiCompatibleProvider(
+          model: 'custom',
+          baseUrl: 'https://example.test/v1',
+          tokenFrom: () => 'test',
+          endpoint: endpoint,
+          structuredOutput: structuredOutput == null
+              ? null
+              : OpenAiStructuredOutput.values.byName(structuredOutput));
+      addTearDown(provider.close);
+      await provider
+          .sendStructured(system: '', messages: messages, output: output)
+          .drain<void>();
+      return endpoint.body!['response_format'] as Map<String, dynamic>?;
+    }
+
+    // Loose default: the request constrains syntax, the schema rides in
+    // the prompt, and the caller validates the answer.
+    expect(await responseFormat(null), {'type': 'json_object'});
+    // Explicit pin: the full strict request.
+    expect(
+        (await responseFormat('jsonSchema'))!['json_schema'],
+        containsPair('strict', true));
+  });
+  test('descriptor picks the mode: deepseek json_object, openai json_schema',
+      () async {
+    final deepseek = descriptorById('deepseek')!
+        .build(model: 'deepseek-chat', tokenFrom: () => 'test');
+    final openai = descriptorById('openai')!
+        .build(model: 'gpt-4o', tokenFrom: () => 'test');
+    addTearDown(deepseek.close);
+    addTearDown(openai.close);
+    expect((deepseek as OpenAiCompatibleProvider).structuredOutput,
+        OpenAiStructuredOutput.jsonObject);
+    expect((openai as OpenAiCompatibleProvider).structuredOutput,
+        OpenAiStructuredOutput.jsonSchema);
   });
 }

@@ -10,6 +10,7 @@ final class ProviderSettings {
       this.reasoningEffort,
       this.thinkingBudget,
       this.outputTokenField,
+      this.structuredOutput,
       this.name,
       this.baseUrl,
       this.wire,
@@ -24,6 +25,7 @@ final class ProviderSettings {
   final List<String> members;
   final int? requestsPerMinute, minIntervalMs, maxOutput, thinkingBudget;
   final String? reasoningEffort, outputTokenField;
+  final OpenAiStructuredOutput? structuredOutput;
 
   factory ProviderSettings.parse(String id, Map<String, dynamic> values) {
     String? string(String key) {
@@ -105,6 +107,14 @@ final class ProviderSettings {
         !['max_tokens', 'max_completion_tokens'].contains(outputField))
       throw FormatException(
           'providers.$id.output_token_field must be max_tokens or max_completion_tokens');
+    final rawStructured = string('structured_output');
+    final structuredOutput = switch (rawStructured) {
+      null => null,
+      'json_object' => OpenAiStructuredOutput.jsonObject,
+      'json_schema' => OpenAiStructuredOutput.jsonSchema,
+      _ => throw FormatException(
+          'providers.$id.structured_output must be json_object or json_schema'),
+    };
     return ProviderSettings(
         members: members,
         requestsPerMinute: integer('requests_per_minute'),
@@ -113,6 +123,7 @@ final class ProviderSettings {
         reasoningEffort: string('reasoning_effort'),
         thinkingBudget: integer('thinking_budget'),
         outputTokenField: outputField,
+        structuredOutput: structuredOutput,
         name: string('name'),
         baseUrl: base,
         wire: wire,
@@ -131,6 +142,7 @@ final class ProviderSettings {
           baseUrl: '',
           keyEnvVar: '',
           keyStyle: ProviderKeyStyle.bearer,
+          structuredOutput: structuredOutput,
           models: models ?? const {});
     if ((builtin == null || wire != null) && baseUrl == null) {
       throw FormatException(
@@ -147,6 +159,9 @@ final class ProviderSettings {
         keyStyle: protocol == ProviderWire.openAiCompatible
             ? ProviderKeyStyle.bearer
             : ProviderKeyStyle.header,
+        structuredOutput: protocol == ProviderWire.openAiCompatible
+            ? (structuredOutput ?? builtin?.structuredOutput)
+            : null,
         models: {
           ...?builtin?.models,
           for (final model in models?.values ?? const <ModelInfo>[])

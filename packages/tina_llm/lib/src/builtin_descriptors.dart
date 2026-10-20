@@ -7,6 +7,7 @@ library;
 
 import 'descriptor.dart';
 import 'gemini_provider.dart' show geminiBaseUrl;
+import 'openai_compatible_provider.dart' show OpenAiStructuredOutput;
 
 const ProviderDescriptor _anthropic = ProviderDescriptor(
   id: 'anthropic',
@@ -129,6 +130,9 @@ const ProviderDescriptor _deepseek = ProviderDescriptor(
   baseUrl: 'https://api.deepseek.com/v1',
   keyEnvVar: 'DEEPSEEK_API_KEY',
   keyStyle: ProviderKeyStyle.bearer,
+  // The API documents JSON mode (`response_format: json_object`) only;
+  // strict `json_schema` is rejected (checked 2026-10).
+  structuredOutput: OpenAiStructuredOutput.jsonObject,
   models: {
     'deepseek-chat': ModelInfo(
       id: 'deepseek-chat',
