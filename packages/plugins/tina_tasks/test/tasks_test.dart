@@ -446,6 +446,18 @@ void main() {
     expect(terminal.lines.last, contains('cleared'));
   });
 
+  test('clearing the conversation context also clears the task queue',
+      () async {
+    final (loop, plugin, _) = _wired();
+    addTearDown(plugin.closeSession);
+    await plugin.commands.single.handler('write the docs');
+    expect(plugin.store.state.items, hasLength(1));
+
+    loop.clearHistory();
+
+    expect(plugin.store.state.isEmpty, isTrue);
+  });
+
   test('the /task command works while a turn runs (allowWhileRunning)',
       () async {
     final gate = Completer<void>();

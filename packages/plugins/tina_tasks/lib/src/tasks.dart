@@ -374,6 +374,10 @@ class TasksPlugin extends AgentPlugin {
     loop.registerExecutor('queue_task', executeQueue);
     loop.registerExecutor('query_tasks', executeQuery);
     _subscription = loop.subscribe((entry, event) {
+      if (entry is ContextClearedEntry) {
+        store.replace(loop, const []);
+        return;
+      }
       if (TaskQueueEntry.matches(entry)) {
         final decoded = TaskQueueEntry.decode(entry as PluginStateEntry);
         store.adopt(TaskState(items: List.of(decoded.items)));

@@ -370,6 +370,10 @@ class PlansPlugin extends AgentPlugin {
     store.hydrateFrom(loop.log);
     loop.registerExecutor('update_plan', execute);
     _subscription = loop.subscribe((entry, event) {
+      if (entry is ContextClearedEntry) {
+        store.update(loop, const []);
+        return;
+      }
       if (PlanChangedEntry.matches(entry)) {
         final decoded = PlanChangedEntry.decode(entry as PluginStateEntry);
         store._state = PlanState(

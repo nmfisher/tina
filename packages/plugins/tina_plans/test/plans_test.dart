@@ -128,6 +128,33 @@ void main() {
     expect(plugin.store.state.inProgress, ['implement']);
   });
 
+  test('clearing the conversation context also clears the plan', () {
+    final (loop, plugin, _) = _wired();
+    addTearDown(plugin.closeSession);
+    plugin.store.update(
+      loop,
+      [
+        const PlanEntryItem('survey', state: 'done'),
+        const PlanEntryItem('implement', state: 'in_progress'),
+      ],
+      approval: PlanApproval.requested,
+    );
+    expect(plugin.store.state.items, hasLength(2));
+
+    loop.clearHistory();
+
+    expect(plugin.store.state.isEmpty, isTrue);
+    expect(plugin.store.state.approval, PlanApproval.none);
+    // An empty plan entry is recorded durably, so a resume stays cleared.
+    final entries = loop.log
+        .whereType<PluginStateEntry>()
+        .where(PlanChangedEntry.matches)
+        .map(PlanChangedEntry.decode)
+        .toList();
+    expect(entries.last.items, isEmpty);
+    expect(entries.last.approval, PlanApproval.none);
+  });
+
   test('the plan survives a store round trip: a resumed host derives it',
       () async {
     final ws = await Directory.systemTemp.createTemp('tina_plans_ws_');
