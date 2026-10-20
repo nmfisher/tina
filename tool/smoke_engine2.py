@@ -480,11 +480,12 @@ def smoke(launcher, endpoint, columns, rows):
             assert not ModelStub.release_stream.is_set()
             closed = terminal.send('\x1b')
             terminal.expect('Settings closed.', closed)
+            terminal.expect('cancelled: escape', closed)
             terminal.expect_cursor(True)
             start = terminal.resize(100, 20)
             terminal.expect("streaming prefix", start)
-            # Submitted input must reach a fresh request before the stalled
-            # response finishes. Multiple submissions may be coalesced into
+            # Escape in settings cancelled the stalled request. Submitted
+            # input must work immediately. Multiple inputs may be coalesced into
             # one request, while every input remains in transcript order.
             terminal.send('queued one\rqueued two\rdra')
             deadline = time.monotonic() + 10
@@ -511,13 +512,19 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             start = terminal.send("cancel this\r")
             terminal.expect("cancel pending", start)
+            terminal.send("preserved ")
             start = terminal.send("\x1b")
             terminal.expect(' est', start)
             terminal.expect("cancelled: escape", start)
             # A later turn must work even while the cancelled server is stalled.
             time.sleep(0.1)
+            before_replacement = len(ModelStub.requests)
             start = terminal.send("after cancel\r")
+            terminal.wait_for(lambda: len(ModelStub.requests) > before_replacement,
+                              'replacement request did not reach the provider')
             terminal.expect("smoke answer", start)
+            assert 'preserved after cancel' in json.dumps(
+                ModelStub.requests[-1]['messages'][-1]), 'Escape discarded the unsent draft'
             ModelStub.release_cancelled.set()
             ModelStub.advance_reasoning.set()
             ModelStub.release_reasoning.set()

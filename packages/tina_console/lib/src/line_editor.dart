@@ -155,6 +155,11 @@ class LineEditor {
   /// Handle a single Esc that reaches the chat input.
   bool Function()? onEscape;
 
+  /// Cancel active session work before a draft, picker or dialog consumes Esc.
+  /// Return true only when there is work to cancel. The editor then releases
+  /// input captures and dismisses overlays while preserving the unsent draft.
+  bool Function()? onCancelRequest;
+
   /// Cancel pending work on rapid Esc-Esc, before any panel or prompt can
   /// consume it. The editor also releases pending key reads, dismisses input
   /// overlays, returns focus home, and clears the draft.
@@ -953,6 +958,13 @@ class LineEditor {
       _log.fine('[keys] event: $event');
     }
     if (event is EscapeKey) {
+      if (onCancelRequest?.call() == true) {
+        // A second press after cancellation must not erase the saved draft.
+        _lastGlobalEsc = null;
+        _lastEsc = null;
+        _forceCancelInput(preserveDraft: true, notifyCancellation: false);
+        return KeyHandledBy.appShortcut;
+      }
       final now = DateTime.now();
       final isDouble = _lastGlobalEsc != null &&
           now.difference(_lastGlobalEsc!) <= _activeDoubleEscWindow;
@@ -1156,7 +1168,8 @@ class LineEditor {
     return _dispatchEvent(event);
   }
 
-  void _forceCancelInput() {
+  void _forceCancelInput(
+      {bool preserveDraft = false, bool notifyCancellation = true}) {
     _inputSession?.dispose();
     // Release both the current prompt and readers queued behind it. A new
     // prompt belongs to a new cancellation generation.
@@ -1172,7 +1185,7 @@ class LineEditor {
     _burstTimer = null;
     _pending.clear();
     _burstForm = false;
-    _heldPastes.clear();
+    if (!preserveDraft) _heldPastes.clear();
     _activePicker?.closeState();
     for (final modal in _modals.toList()) {
       if (modal.isActive) modal.handleEvent(EscapeKey());
@@ -1180,14 +1193,19 @@ class LineEditor {
     _menuBar?.deactivate();
     _focusManager?.cancel();
     _focusManager?.returnHome();
-    _edit = _edit.clear().resetNavigation();
-    _capturedDraft = null;
-    _qEdit = const TextLineInput();
-    if (onDoubleEscape != null) {
-      onDoubleEscape!();
-    } else {
-      _cancelHandler?.call();
+    if (!preserveDraft) {
+      _edit = _edit.clear().resetNavigation();
+      _capturedDraft = null;
+      _qEdit = const TextLineInput();
     }
+    if (notifyCancellation) {
+      if (onDoubleEscape != null) {
+        onDoubleEscape!();
+      } else {
+        _cancelHandler?.call();
+      }
+    }
+    if (preserveDraft) _scheduleHeldPasteDelivery();
     _redraw();
   }
 

@@ -93,9 +93,11 @@ alerts** turns this on or off globally. The terminal's bell settings determine
 the badge/icon and any sound; streamed text and ordinary repaints do not alert.
 
 Type during a turn and press Enter to queue another input. Queued inputs run in
-order; unfinished text stays in the editor. Escape clears the draft first;
-Escape with an empty draft cancels the active turn. Tools show status and live
-subprocess output. Approval dialogs use the selected approval-channel plugin.
+order; unfinished text stays in the editor. Escape cancels active work and
+preserves your draft, including while a completion picker or dialog is open.
+In approval dialogs, Escape stops the request; selecting Deny rejects only that
+call and lets the agent continue. Ctrl+C clears the draft, or quits when it is
+empty. Tools show status and live subprocess output.
 
 `/help` lists commands from the loaded plugins. `/` completes command names;
 Tab offers argument completions supplied by each plugin. `@` completes files.
@@ -105,7 +107,7 @@ With `tina/shell` enabled (the default), `!command` or `/shell command` runs
 directly with your normal shell permissions, without a model request or tool
 approval. Each command starts a fresh noninteractive shell in the session's
 working directory. Stdout, stderr and the exit code appear in the conversation
-panel through the renderer. Escape with an empty draft cancels the command;
+panel through the renderer. Escape cancels the command and preserves the draft;
 commands entered while the panel is busy wait in its queue.
 
 Read approval prompts offer an **Allow all reads in this directory** checkbox.

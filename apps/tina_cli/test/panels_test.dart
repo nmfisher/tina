@@ -226,7 +226,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(editor.editState.buffer, 'child draft');
   });
 
-  test('status controls do not cancel a running panel and Escape restores chat',
+  test('Escape in status controls cancels work and restores the chat draft',
       () async {
     final frame = getFrame();
     await keys('running request\r');
@@ -239,10 +239,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('\x1b');
     expect(getFrame(), same(frame));
     expect(editor.editState.buffer, 'unsent draft');
-    providers.first.answer(0, 'completed while minimized');
     await waitFor(() => !frame.busy);
-    expect(screen.chat.snapshotLines().join('\n'),
-        contains('completed while minimized'));
+    expect(session.host.session.turns.single.stopReason, StopReason.cancelled);
   });
 
   test('dismissing slash completion restores the idle app transcript cells',
@@ -432,7 +430,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
   });
 
   test(
-      'settings opens during generation and saves without stopping the request',
+      'settings saves during generation and Escape cancels the request',
       () async {
     await keys('keep working\r');
     final provider = providers.first;
@@ -452,10 +450,9 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(provider.closed, false);
     await keys('\x1b');
     await waitFor(() => !editor.isReadingKey);
-    expect(session.host.session.loop.running, true);
-    await keys('draft survives');
-    provider.answer(0, 'finished normally');
     await waitFor(() => !session.host.session.loop.running);
+    expect(session.host.session.turns.single.stopReason, StopReason.cancelled);
+    await keys('draft survives');
     expect(editor.editState.buffer, 'draft survives');
     expect(session.inputHistory, ['keep working']);
   });
@@ -497,7 +494,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(File('${dir.path}/config').readAsStringSync(), before);
   });
 
-  test('settings and a background read-only edit share one dialog owner',
+  test('Escape in settings also cancels a queued background approval',
       () async {
     await session.commands['mode']!.handler('read-only');
     await keys('edit after reading\r');
@@ -518,18 +515,12 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         reason: 'the runtime retains the question while Settings owns input');
     expect(File('${dir.path}/reviewed.txt').existsSync(), false);
     await keys('\x1b');
-    expect(session.host.session.loop.running, true);
-    await waitFor(
-        () => approvalUi(session).interaction.pending.firstOrNull != null);
-    expect(approvalUi(session).interaction.pending.firstOrNull!.reason,
-        contains('read-only'));
-    await keys('y');
-    await waitFor(() => provider.requests.length == 2);
-    expect(File('${dir.path}/reviewed.txt').readAsStringSync(),
-        'approved contents');
-    expect(session.assembly.tools.mode.label, 'read-only');
-    provider.answer(1, 'finished');
     await waitFor(() => !session.host.session.loop.running);
+    expect(approvalUi(session).interaction.pending, isEmpty);
+    expect(provider.requests, hasLength(1));
+    expect(File('${dir.path}/reviewed.txt').existsSync(), false);
+    expect(session.host.session.turns.single.stopReason, StopReason.cancelled);
+    expect(session.assembly.tools.mode.label, 'read-only');
     await keys('chat draft');
     expect(editor.editState.buffer, 'chat draft');
   });
@@ -944,6 +935,28 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
             .whereType<InputRecordedEntry>()
             .map((e) => e.text),
         ['first', 'second']);
+  });
+
+  test('Escape cancels only the active conversation and preserves both drafts',
+      () async {
+    await keys('main request\r');
+    await waitFor(() => providers.first.requests.length == 1);
+    await keys('main draft');
+    await spawn('other');
+    await keys('child request\rchild draft');
+    await waitFor(() => providers.last.requests.length == 1);
+    final child = getFrame();
+    await keys('\x1b');
+    await waitFor(() => !child.busy);
+    expect(editor.editState.buffer, 'child draft');
+    expect(providers.last.streams.single.hasListener, false);
+    expect(providers.first.streams.single.hasListener, true);
+    expect(session.host.session.loop.running, true);
+    await keys('\x07\t\t\r');
+    expect(editor.editState.buffer, 'main draft');
+    providers.first.answer(0, 'main finished');
+    await waitFor(() => !session.host.session.loop.running);
+    expect(session.host.session.turns.single.stopReason, StopReason.complete);
   });
 
   test('cross-panel approvals serialize and keep focus until answered',

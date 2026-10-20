@@ -296,10 +296,13 @@ rejected. Legacy `readKey()` calls wait until the owned dialog closes.
 Set `acceptPaste: true` for text fields. Choice dialogs hold pasted text for the
 conversation draft; a later text field cannot consume that earlier paste. With
 `globalKeys: true`, the focus ring remains available; set `panelNavigation:
-false` when arrows select choices. `releaseOnEscape: true` lets a single Escape
-dismiss an approval before following text enters the draft. Settings leave it
-false so Escape can return from a nested editor to its parent. Double Escape
-still cancels the interaction and clears its queued input.
+false` when arrows select choices. During active session work, the frontend's
+`onCancelRequest` hook takes priority over dialogs: Escape cancels that work,
+releases input captures and preserves the conversation draft and held pastes.
+When idle, `releaseOnEscape: true` dismisses a dialog before following text
+enters the draft. Settings leave it false so Escape can return from a nested
+editor to its parent. Idle double Escape cancels the interaction and clears its
+queued input.
 
 Live loading still follows the plugin registry's policy: only definitions marked
 `live` load/unload without restarting, and changes are applied between turns.

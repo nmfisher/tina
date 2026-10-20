@@ -95,6 +95,29 @@ void main() {
     host.close();
   });
 
+  test('an errored request can still compact earlier history', () async {
+    final provider = ScriptedProvider([
+      turn('x' * 400),
+      [const StreamError('request failed')],
+      scriptedReply('earlier history'),
+    ]);
+    final host = Host.start(HostConfig(
+        workingDirectory: ws.path,
+        providerFactory: (_) => provider,
+        plugins: [
+          CompactionPlugin(
+              config: const CompactionConfig(
+                  thresholdTokens: 100,
+                  keepRecentTurns: 1,
+                  minMessagesToCompact: 3)),
+        ]));
+    addTearDown(host.shutdown);
+    await host.send('first');
+    expect((await host.send('second')).stopReason, StopReason.error);
+    expect(provider.callCount, 3);
+    expect(host.session.loop.log.whereType<CompactedEntry>(), hasLength(1));
+  });
+
   test(
       'over the threshold: summary requested, Compacted entry written, '
       'derive shows summary + kept tail', () async {

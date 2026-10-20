@@ -38,10 +38,7 @@ Future<int> runApp(
   final submissions = <Future<void>>{};
   final done = Completer<void>();
   var stopping = false;
-  void Function()? releaseQueueStatus,
-      releaseBackendStatus,
-      releaseActivity,
-      releaseEscape;
+  void Function()? releaseQueueStatus, releaseBackendStatus, releaseActivity;
   StreamSubscription<ScreenLayout>? resizeSubscription;
   StreamSubscription<io.ProcessSignal>? interruptSubscription;
   Screen? terminalScreen;
@@ -140,26 +137,11 @@ Future<int> runApp(
       s.input.render(
           prompt: editor.promptBuilder?.call() ?? '› ', buffer: '', cursor: 0);
     });
-    editor.onDoubleEscape = () {
+    editor.onCancelRequest = editor.onDoubleEscape = () {
       if (!view.canCancel) return false;
       view.cancel();
       return true;
     };
-    releaseEscape = console.bindShortcut((event) {
-      if (event is! EscapeKey ||
-          editor.isReadingKey ||
-          editor.isCompleting ||
-          !view.busy) return false;
-      final focus = editor.focusManager;
-      if (focus != null && (focus.isCycling || focus.focused != focus.home))
-        return false;
-      if (editor.editState.buffer.isNotEmpty) {
-        editor.loadEditState('', 0);
-      } else if (view.canCancel) {
-        view.cancel();
-      }
-      return true;
-    });
     releaseActivity = view.listenActivity(() {
       console.refreshStatus();
       if ((view.quitRequested || view.status.closed || view.status.stopping) &&
@@ -188,8 +170,8 @@ Future<int> runApp(
     releaseQueueStatus?.call();
     releaseBackendStatus?.call();
     releaseActivity?.call();
-    releaseEscape?.call();
     view.close();
+    editor?.onCancelRequest = null;
     editor?.onDoubleEscape = null;
     try {
       // An owning application settles the session before releasing resources.

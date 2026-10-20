@@ -16,6 +16,7 @@
 /// the seam the host already honors) and uses it for nothing else.
 library;
 
+import 'dart:async';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
 /// What size the request must reach before compaction fires, in input
@@ -118,6 +119,7 @@ final class CompactionPlugin extends AgentPlugin {
         Command(
             name: 'compact',
             description: 'summarize conversation history now',
+            cancel: () => _summaryCancel?.cancel('compaction cancelled'),
             handler: (_) async {
               if (!(canCompact?.call() ?? true)) {
                 terminal?.writeln('Compaction is paused while agent-managed '
@@ -126,32 +128,40 @@ final class CompactionPlugin extends AgentPlugin {
               }
               final loop = _loop;
               if (loop == null) return;
-              await loop.betweenTurns(() async {
-                final view = loop.derive();
-                final split =
-                    _splitAtTurnBoundary(view.messages, config.keepRecentTurns);
-                if (split == null) {
-                  terminal?.writeln('Not enough earlier history to compact.');
-                  return;
-                }
-                final summary = await _summarize(
-                    loop, view.messages.sublist(split.from, split.to + 1));
-                if (_loop != loop) return;
-                if (summary == null) {
-                  terminal?.writeln('Compaction failed; history retained.');
-                  return;
-                }
-                loop.compact(
-                    split.from, split.to, '$compactionSummaryMarker$summary');
-                terminal?.writeln('Conversation compacted.');
-              });
+              final cancel = _summaryCancel = CancelToken();
+              try {
+                await loop.betweenTurns(() async {
+                  if (cancel.cancelled) return;
+                  final view = loop.derive();
+                  final split = _splitAtTurnBoundary(
+                      view.messages, config.keepRecentTurns);
+                  if (split == null) {
+                    terminal?.writeln('Not enough earlier history to compact.');
+                    return;
+                  }
+                  final summary = await _summarize(loop,
+                      view.messages.sublist(split.from, split.to + 1), cancel);
+                  if (_loop != loop || cancel.cancelled) return;
+                  if (summary == null) {
+                    terminal?.writeln('Compaction failed; history retained.');
+                    return;
+                  }
+                  loop.compact(
+                      split.from, split.to, '$compactionSummaryMarker$summary');
+                  terminal?.writeln('Conversation compacted.');
+                });
+              } finally {
+                if (identical(_summaryCancel, cancel)) _summaryCancel = null;
+              }
             })
       ];
 
   AgentLoop? _loop;
+  CancelToken? _summaryCancel;
 
   @override
   void closeSession() {
+    _summaryCancel?.cancel('session closed');
     _loop = null;
   }
 
@@ -167,6 +177,7 @@ final class CompactionPlugin extends AgentPlugin {
 
   @override
   Future<void> onTurnEnd(TurnContext c) async {
+    if (c.cancelled || c.outcome?.stopReason == StopReason.cancelled) return;
     if (!(canCompact?.call() ?? true)) return;
     if (config.thresholdTokens <= 0) return;
     final loop = _loop;
@@ -181,7 +192,13 @@ final class CompactionPlugin extends AgentPlugin {
     if (split == null) return;
 
     _nextTrigger = estimate * config.overThresholdMargin;
-    await _compact(loop, view.messages, split);
+    final cancel = _summaryCancel = CancelToken();
+    unawaited(c.whenCancelled.then((_) => cancel.cancel('turn cancelled')));
+    try {
+      await _compact(loop, view.messages, split, cancel);
+    } finally {
+      if (identical(_summaryCancel, cancel)) _summaryCancel = null;
+    }
   }
 
   /// The split that keeps [keep] recent *turns* verbatim: the boundary is
@@ -208,8 +225,8 @@ final class CompactionPlugin extends AgentPlugin {
     return null;
   }
 
-  Future<void> _compact(
-      AgentLoop loop, List<Message> messages, _Split split) async {
+  Future<void> _compact(AgentLoop loop, List<Message> messages, _Split split,
+      CancelToken cancel) async {
     final summaryRequest = [
       ...messages.sublist(split.from, split.to + 1),
       Message(
@@ -220,8 +237,8 @@ final class CompactionPlugin extends AgentPlugin {
         ],
       ),
     ];
-    final summary = await _summarize(loop, summaryRequest);
-    if (_loop != loop || summary == null) return;
+    final summary = await _summarize(loop, summaryRequest, cancel);
+    if (_loop != loop || cancel.cancelled || summary == null) return;
     loop.compact(split.from, split.to, '$compactionSummaryMarker$summary');
   }
 
@@ -230,16 +247,24 @@ final class CompactionPlugin extends AgentPlugin {
   /// text comes from `MessageComplete`, deltas are the stream's live
   /// form). A stream error or an empty reply is null — the caller skips
   /// and the next turn retries.
-  Future<String?> _summarize(AgentLoop loop, List<Message> messages) async {
+  Future<String?> _summarize(
+      AgentLoop loop, List<Message> messages, CancelToken cancel) async {
+    if (cancel.cancelled) return null;
     final buf = StringBuffer();
     var completed = false;
+    StreamIterator<StreamEvent>? iterator;
     try {
-      await for (final event in loop.provider.send(
+      iterator = StreamIterator(loop.provider.send(
         system: compactionSummarySystemPrompt(),
         messages: messages,
         tools: const [],
-      )) {
-        switch (event) {
+      ));
+      while (!cancel.cancelled &&
+          await Future.any([
+            iterator.moveNext(),
+            cancel.whenCancelled.then((_) => false),
+          ])) {
+        switch (iterator.current) {
           case TextDelta(:final text):
             buf.write(text);
           case MessageComplete(content: final blocks):
@@ -256,8 +281,11 @@ final class CompactionPlugin extends AgentPlugin {
       }
     } catch (_) {
       return null;
+    } finally {
+      // Stop delivery immediately; transport cleanup can itself be stalled.
+      unawaited(iterator?.cancel().catchError((Object _) {}));
     }
     final text = buf.toString().trim();
-    return !completed || text.isEmpty ? null : text;
+    return cancel.cancelled || !completed || text.isEmpty ? null : text;
   }
 }

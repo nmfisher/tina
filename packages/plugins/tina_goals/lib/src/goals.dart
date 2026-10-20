@@ -189,7 +189,8 @@ Future<({GoalVerdict verdict, String evidence})?> judgeGoal({
   } catch (_) {
     return null;
   } finally {
-    await iterator?.cancel();
+    // A stalled transport must not hold cancellation or shutdown open.
+    unawaited(iterator?.cancel().catchError((Object _) {}));
   }
   if (cancel.cancelled) return null;
   return parseGoalVerdict(buf.toString());
@@ -359,7 +360,8 @@ final class GoalsPlugin extends AgentPlugin {
       _judgeCancel?.cancel('goal run finished');
       // Cancellation can arrive after TurnEnded starts a judge but before
       // send returns. Drain that check (and any replaced check) before the
-      // host is allowed to unload the plugin or close the provider.
+      // host can unload the plugin. Cancelled provider streams detach their
+      // listeners immediately; transport cleanup can finish independently.
       await Future.wait(_judgments.toList());
     }
   }
@@ -438,6 +440,7 @@ final class GoalsPlugin extends AgentPlugin {
                 'set, show or clear the session goal (judged after each '
                 'completed turn)',
             handler: _goalCommand,
+            cancel: () => _judgeCancel?.cancel('goal check cancelled'),
           )
         ];
 

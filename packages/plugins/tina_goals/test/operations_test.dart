@@ -207,7 +207,7 @@ void main() {
     expect(goals.goal!.verdict, GoalVerdict.none);
   });
 
-  test('cancellation at turn completion drains judge cleanup before settling',
+  test('cancellation at turn completion does not wait for transport cleanup',
       () async {
     final cleaning = Completer<void>(), release = Completer<void>();
     addTearDown(() {
@@ -227,11 +227,18 @@ void main() {
     await _until(() => provider.calls.length == 1);
     provider.answer('work');
     await cleaning.future.timeout(const Duration(seconds: 3));
-    expect(request.snapshot.terminal, isFalse);
-    expect(client.status.busy, isTrue);
-    expect(provider.closed, isFalse);
-    release.complete();
-    expect((await request.completed).state, SessionRequestState.cancelled);
+    expect((await request.completed.timeout(const Duration(seconds: 3))).state,
+        SessionRequestState.cancelled);
+    expect(client.status.busy, isFalse);
+    expect(provider.calls[1].hasListener, isFalse);
+    expect(release.isCompleted, isFalse);
     expect(goals.goal!.verdict, GoalVerdict.none);
+    // Provider cleanup may finish later, but no longer owns a session turn or
+    // a callback that could publish a late verdict.
+    provider.answer('VERDICT: yes — late response');
+    await host.shutdown().timeout(const Duration(seconds: 3));
+    expect(provider.closed, isTrue);
+    expect(goals.goal!.verdict, GoalVerdict.none);
+    release.complete();
   });
 }

@@ -572,7 +572,7 @@ final class SessionAssembly {
           output.writeln('/${c.name} — ${c.description}');
         }
         output.writeln(
-            'Type while busy and Enter to queue. Ctrl+C clears the draft; with an empty draft it quits. Esc clears the draft; Esc with an empty draft cancels. Tab completes command arguments; @ completes files.');
+            'Type while busy and Enter to queue. Ctrl+C clears the draft; with an empty draft it quits. Esc cancels active work and preserves the draft, including while a dialog is open. Tab completes command arguments; @ completes files.');
       },
     ));
     diagnostics?.stage?.call('assembly-ready');

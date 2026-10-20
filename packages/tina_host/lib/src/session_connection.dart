@@ -469,7 +469,8 @@ final class SessionConnection {
       operation._stop(reason);
       cancelled = true;
     }
-    if (_host._turnWork case final work? when ids.contains(work.id)) {
+    if (_host._turnWork case final work?
+        when _host.session.loop.running && ids.contains(work.id)) {
       _host._turnQuestions?.cancel();
       _host.session.loop.cancel(reason);
       cancelled = true;

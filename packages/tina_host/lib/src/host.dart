@@ -27,6 +27,7 @@ final class Host {
     _statusSubscription = session.loop.subscribe((entry, event) {
       if (event != LogEvent.appended) return;
       if (entry is TurnStartedEntry) {
+        _turnInputId = entry.turnId;
         _turnWork = SessionWork('work-${++_nextWork}', 'turn');
         _requests.byInput[entry.turnId]?.start(_turnWork!.id);
         final scope = _turnQuestions = questions.currentScope;
@@ -34,15 +35,21 @@ final class Host {
           unawaited(session.loop.whenCancelled.then((_) => scope.cancel()));
         }
       }
-      if (entry is TurnEndedEntry) {
-        _turnWork = null;
-        _turnQuestions = null;
-      }
       _changed();
     });
     _toolObservation = session.loop.toolActivity.listen(_observeTool);
-    _inputObservation =
-        session.loop.inputSettlements.listen(_requests.settleInput);
+    _inputObservation = session.loop.inputSettlements.listen((settlement) {
+      // TurnEnded closes the transcript, but post-turn work can still be
+      // awaiting a provider. Retire cancellation only when that work settles.
+      // An earlier settlement must not retire a steered successor's handle.
+      if (settlement.inputId == _turnInputId) {
+        _turnInputId = null;
+        _turnWork = null;
+        _turnQuestions = null;
+      }
+      _requests.settleInput(settlement);
+      _changed();
+    });
     for (final plugin in _plugins) _observeFeature(plugin);
   }
 
@@ -60,6 +67,7 @@ final class Host {
   late final int _statusSubscription;
   int _nextWork = 0;
   SessionWork? _turnWork;
+  String? _turnInputId;
   SessionOperationContext? _operation;
 
   /// Includes whole plugin operations, including work between their turns.
@@ -157,7 +165,7 @@ final class Host {
           stopping: _stopping,
           closed: _closed,
           cancellableWork: [
-            if (_turnWork case final work?) work,
+            if (_turnWork case final work? when session.loop.running) work,
             if (_operation case final operation?) operation._work,
             for (final entry in _commandWork.entries)
               if (entry.value.cancel != null ||
@@ -195,7 +203,7 @@ final class Host {
           session.loop.pendingInputs,
           _requests.records.values.map((r) => r.snapshot),
           [
-            if (_turnWork case final work?) work,
+            if (_turnWork case final work? when session.loop.running) work,
             if (_operation case final operation?) operation._work,
             for (final entry in _commandWork.entries)
               SessionWork(entry.key, 'command', command: entry.value.name),
@@ -561,6 +569,7 @@ final class Host {
       if (!_stopping && _operation == null) onIdle?.call();
       return outcome;
     } finally {
+      _turnInputId = null;
       _turnWork = null;
       _turnQuestions = null;
       _pendingWork.remove(settled);

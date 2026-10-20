@@ -105,8 +105,9 @@ final class _Workspace implements ConsolePanels {
 
   Future<int> run() async {
     final previousFocus = editor.focusManager;
+    final previousCancelRequest = editor.onCancelRequest;
     final previousDoubleEscape = editor.onDoubleEscape;
-    editor.onDoubleEscape = () {
+    editor.onCancelRequest = editor.onDoubleEscape = () {
       if (active?.session.canCancel != true) return false;
       active!.session.cancel();
       return true;
@@ -126,6 +127,7 @@ final class _Workspace implements ConsolePanels {
       releasePanelStatus();
       removeKey();
       editor.focusManager = previousFocus;
+      editor.onCancelRequest = previousCancelRequest;
       editor.onDoubleEscape = previousDoubleEscape;
       for (final view in views.reversed) {
         closing.add(_closeView(view));
@@ -397,16 +399,6 @@ final class _Workspace implements ConsolePanels {
       return true;
     }
     if (focus.isCycling) return false;
-    if (event is EscapeKey &&
-        !editor.isCompleting &&
-        identical(focus.focused, active?.frame) &&
-        active?.session.busy == true) {
-      if (editor.editState.buffer.isNotEmpty)
-        editor.loadEditState('', 0);
-      else
-        active!.session.cancel();
-      return true;
-    }
     return false;
   }
 

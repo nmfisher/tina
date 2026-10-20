@@ -737,7 +737,7 @@ void main() {
     expect(texts.join(), contains('[n] deny'));
     expect(texts.join(), contains('[a] allow this command'));
     expect(texts.any((t) => t.contains('allow this command')), isTrue);
-    expect(texts.join(), contains('Esc deny'));
+    expect(texts.join(), contains('Esc cancel'));
     expect(texts.last, contains('[a] allow this command'));
   });
 

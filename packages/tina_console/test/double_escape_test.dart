@@ -35,6 +35,47 @@ void main() {
     io.close();
   });
 
+  test('single Escape cancels active work before prompts and preserves draft',
+      () async {
+    var busy = true;
+    editor.onCancelRequest = () {
+      if (!busy) return false;
+      busy = false;
+      return true;
+    };
+    final line = editor.readLine('> ');
+    await pumpEventQueue();
+    editor.inject(CharInput('saved draft'));
+    final first = editor.readKey(globalKeys: true);
+    final queued = editor.readKey(globalKeys: true);
+    editor.inject(EscapeKey());
+    expect(busy, isFalse);
+    expect(await first, isA<EscapeKey>());
+    expect(await queued, ControlKey(ControlCode.ctrlC));
+    expect(editor.editState.buffer, 'saved draft');
+    // Rapidly repeating Esc after work stops must not erase the draft.
+    editor.inject(EscapeKey());
+    editor.inject(CharInput(' continued'));
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(await line, 'saved draft continued');
+  });
+
+  test('single Escape cancels active work before a modal consumes the key',
+      () async {
+    var cancelled = false;
+    editor.onCancelRequest = () => cancelled = true;
+    final line = editor.readLine('> ');
+    await pumpEventQueue();
+    final modal = _EscapeModal(depth: 1);
+    editor.registerModal(modal);
+    editor.inject(EscapeKey());
+    expect(cancelled, isTrue);
+    expect(modal.isActive, isFalse);
+    editor.inject(CharInput('new request'));
+    editor.inject(ControlKey(ControlCode.enter));
+    expect(await line, 'new request');
+  });
+
   test('double Esc releases queued prompts and accepts immediate new input',
       () async {
     var cancelled = 0;
@@ -252,9 +293,11 @@ void main() {
 
 // A layered overlay whose first Escape only leaves its inner editor.
 class _EscapeModal implements ModalSurface {
+  _EscapeModal({this.depth = 2});
+  final int depth;
   var escapes = 0;
   @override
-  bool get isActive => escapes < 2;
+  bool get isActive => escapes < depth;
   @override
   bool handleEvent(InputEvent event) {
     if (event is EscapeKey) escapes++;

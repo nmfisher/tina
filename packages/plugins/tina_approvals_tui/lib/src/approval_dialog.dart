@@ -452,7 +452,7 @@ class ApprovalDialog {
           row('Details ${_detailOffset + 1}/${lines.length}',
               theme.dialog.confirm),
         for (final line in lines.skip(_detailOffset).take(count)) line,
-        if (height > 2) row('↑↓ scroll · tab back · esc deny', chat.dim),
+        if (height > 2) row('↑↓ scroll · tab back · esc cancel', chat.dim),
       ].take(height).toList();
     }
     final choices = ask?.confirmation == true
@@ -536,8 +536,8 @@ class ApprovalDialog {
             chat.dim),
       row(
           width >= 56
-              ? '│ ↑↓ choose · Enter confirm · Tab details · Esc deny'
-              : '│ ↑↓ · Enter · Tab details · Esc deny',
+              ? '│ ↑↓ choose · Enter confirm · Tab details · Esc cancel'
+              : '│ ↑↓ · Enter · Tab details · Esc cancel',
           chat.dim),
       ...choiceRows,
     ].take(height).toList();
