@@ -277,11 +277,14 @@ void main() {
           return asked == 1 ? Approval.yes : Approval.no;
         },
       );
-      final outcome = await runner.run(_req('git status'));
+      // `mkdir` is not a certified reader, so read-only mode always waits
+      // for approval. (`git status` is certified and therefore runs without
+      // a grant — that path is covered by git_sed_live_test.dart.)
+      final outcome = await runner.run(_req('mkdir newdir'));
       expect(outcome, isA<CommandCompleted>());
       expect((outcome as CommandCompleted).stdout, 'approved');
       expect(asked, 1);
-      expect(await runner.run(_req('git status')), isA<CommandRefused>());
+      expect(await runner.run(_req('mkdir newdir')), isA<CommandRefused>());
       expect(asked, 2);
       expect(inner.requests, hasLength(1),
           reason: 'denied execution never started');
