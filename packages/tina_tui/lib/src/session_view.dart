@@ -150,16 +150,20 @@ final class SessionView
     final current = status;
     final call = connection.commandFor(submission.text);
     try {
-      // Local inspection and quit remain available to observing clients.
-      if (current.busy && call != null && !call.command.allowWhileRunning) {
-        if (connection.canControl) return false;
-      }
+      // Interactive dialogs (settings, model picker, panels) open even while a
+      // turn is running; they only present choices, and their plugin operations
+      // still enforce their own idle policy when applied.
       final local =
           _offerLocalCommand(submission.text, whileRunning: current.busy);
       if (local != null) {
         unawaited(_complete(submission, local));
         _changed();
         return true;
+      }
+      // Other commands follow their command's running-turn policy: those that
+      // opt out of running while busy are deferred until the session idles.
+      if (current.busy && call != null && !call.command.allowWhileRunning) {
+        if (connection.canControl) return false;
       }
       connection.access.requireControl();
       final plain = call == null && !submission.text.trimLeft().startsWith('/');

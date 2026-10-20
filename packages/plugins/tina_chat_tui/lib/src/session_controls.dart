@@ -5,7 +5,10 @@ export 'package:tina_session_controls/observation.dart';
 /// A picker and its draft belong to one attachment, independently of the
 /// session's model and recent selections.
 final class SessionControlsView
-    implements ConsoleContribution, ConsoleCommandHandler {
+    implements
+        ConsoleContribution,
+        ConsoleCommandHandler,
+        OffersConsoleWhileRunning {
   SessionControlsView(this.controls);
   final ConnectionSessionControls controls;
   ConsoleContext? _console;

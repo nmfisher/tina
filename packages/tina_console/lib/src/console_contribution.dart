@@ -24,6 +24,12 @@ abstract interface class ConsoleCommandHandler {
   Future<void>? handleConsoleCommand(String name, String arguments);
 }
 
+/// Marker for [ConsoleCommandHandler]s whose dialog may be offered while a
+/// session turn is running, even when the underlying command does not opt into
+/// running while busy. Suitable only for interactive dialogs whose presented
+/// actions are still guarded by their own plugin operations.
+abstract interface class OffersConsoleWhileRunning {}
+
 /// Explicit frontend capabilities. Key reads share the editor's input owner.
 final class ConsoleContext {
   ConsoleContext(
