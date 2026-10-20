@@ -161,6 +161,13 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Arranges the status bar: how plugin lines and the mode label share the strip under width pressure.',
             live: true),
         PluginDefinition<SessionPluginContext>(
+            'tina/token-rate-tui',
+            (_) =>
+                PresentationPlugin(id: 'tina/token-rate-tui', source: null),
+            description:
+                'Shows a live tokens-per-second gauge for the active model turn in the status bar.',
+            live: true),
+        PluginDefinition<SessionPluginContext>(
             'tina/cwd-tui',
             (c) => PresentationPlugin(
                 id: 'tina/cwd-tui',

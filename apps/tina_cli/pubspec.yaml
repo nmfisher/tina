@@ -83,6 +83,8 @@ dependencies:
     path: ../../packages/plugins/tina_tasks
   tina_tasks_tui:
     path: ../../packages/plugins/tina_tasks_tui
+  tina_token_rate_tui:
+    path: ../../packages/plugins/tina_token_rate_tui
   tina_tools:
     path: ../../packages/plugins/tina_tools
   tina_tui:

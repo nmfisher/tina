@@ -1,0 +1,16 @@
+name: tina_token_rate_tui
+description: A live tokens-per-second gauge for tina's status bar.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  meta: ^1.16.0
+  tina_chat:
+    path: ../tina_chat
+  tina_console:
+    path: ../../tina_console
+  tina_engine_2:
+    path: ../../tina_engine_2
+dev_dependencies:
+  test: ^1.25.0

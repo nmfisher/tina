@@ -13,6 +13,7 @@ import 'package:tina_mcp/tina_mcp.dart';
 import 'package:tina_mcp_tui/tina_mcp_tui.dart';
 import 'package:tina_plans_tui/tina_plans_tui.dart';
 import 'package:tina_tasks_tui/tina_tasks_tui.dart';
+import 'package:tina_token_rate_tui/tina_token_rate_tui.dart';
 
 /// Application-owned construction of a fresh view for each attachment.
 typedef ConsoleViewFactory = ConsoleContribution? Function(AgentPlugin plugin,
@@ -55,6 +56,8 @@ ConsoleContribution? createConsoleView(AgentPlugin plugin,
       'tina/mode' => ModeView(mode: ConnectionModeObservation(connection)),
       'tina/session-controls' =>
         SessionControlsView(ConnectionSessionControls(connection)),
+      'tina/token-rate-tui' =>
+        TokenRateGaugeView(ConnectionChatObservation(connection)),
       _ => _viewFactories[plugin.id]?.call(plugin, connection.access),
     };
 
