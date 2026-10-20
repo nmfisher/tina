@@ -114,9 +114,88 @@ void main() {
       'sed',
       'find',
       'rg',
-      'git'
     ]) {
       expect(readOnlyExecutable(request(program, ['file'])), isNull);
+    }
+  });
+
+  test('read-only git subcommands certify; writing ones and options ask', () {
+    // List/read-only subcommands run as certified readers. git lives at
+    // /usr/bin/git on macOS and Linux; the pinned search path avoids a
+    // Homebrew PATH shadow (which the trust check would reject anyway).
+    const gitPath = '/usr/bin:/bin';
+    for (final args in [
+      ['status'],
+      ['status', '-sb'],
+      ['diff'],
+      ['diff', 'HEAD~1'],
+      ['log'],
+      ['log', '-3'],
+      ['show'],
+      ['show', 'HEAD'],
+      ['show', 'HEAD:pubspec.yaml'],
+      ['branch', '-a'],
+      ['tag', '-l'],
+    ]) {
+      expect(readOnlyExecutable(request('git', args), searchPath: gitPath),
+          isNotNull,
+          reason: 'git ${args.join(' ')}');
+    }
+    // Mutating subcommands, list-subcommand creation forms, value-taking and
+    // long options, and `--` must all miss.
+    for (final args in <List<String>>[
+      ['push'],
+      ['commit'],
+      ['reset', '--hard'],
+      ['add', '.'],
+      ['checkout', 'main'],
+      ['branch', 'feature'],
+      ['branch', '-d', 'feature'],
+      ['tag', 'v1.0.0'],
+      ['tag', '-a', 'v1', '-m', 'msg'],
+      ['log', '-n', '5'],
+      ['log', '-S', 'needle'],
+      ['diff', '-O', 'orderfile'],
+      ['-C', '/tmp', 'status'],
+      ['-c', 'core.fsmonitor=true', 'status'],
+      ['status', '--porcelain=v1'],
+      ['log', '--format=%H'],
+      ['show', '--output=/tmp/x'],
+      ['status', '--'],
+      [],
+    ]) {
+      expect(readOnlyExecutable(request('git', args)), isNull,
+          reason: 'git ${args.join(' ')}');
+    }
+  });
+
+  test('print-only sed certifies; edits and scripts that write ask', () {
+    for (final args in [
+      ['-n', '180,215p', 'file.py'],
+      ['-n', '5p', 'file.py'],
+      ['-n', 'p', 'file.py'],
+      ['-n', '10q', 'file.py'],
+      ['-n', '180,215p;220q', 'file.py'],
+      ['-n', r'$p', 'file.py'],
+    ]) {
+      expect(readOnlyExecutable(request('sed', args)), isNotNull,
+          reason: 'sed ${args.join(' ')}');
+    }
+    for (final args in [
+      ['-i', 's/a/b/', 'file'],
+      ['s/a/b/', 'file'],
+      ['-n', 's/a/b/p', 'file'],
+      ['-n', '180,215s/x/y/p', 'file'],
+      ['-n', 'w /tmp/out', 'file'],
+      ['-n', 'e touch WRITTEN', 'file'],
+      ['-f', 'script.sed', 'file'],
+      ['--output=/tmp/out'],
+      ['-n', '--quiet', '180,215p', 'file'],
+      ['-n', '180,215p;w /tmp/out', 'file'],
+      ['-n', 'p # comment', 'file'],
+    ]) {
+      expect(readOnlyExecutable(request('sed', args)), isNull,
+          reason: 'sed ${args.join(' ')}');
     }
   });
 

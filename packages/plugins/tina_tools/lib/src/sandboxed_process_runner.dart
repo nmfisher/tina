@@ -483,7 +483,13 @@ final class SandboxedProcessRunner implements ProcessRunner {
             command: reader,
             arguments: readerRequest.arguments,
             workingDirectory: request.workingDirectory,
-            environment: request.environment,
+            environment: path.basename(reader) == 'git'
+                ? {
+                    ...?request.environment,
+                    // Certified git readers must not refresh the index.
+                    'GIT_OPTIONAL_LOCKS': '0',
+                  }
+                : request.environment,
             stdin: request.stdin,
             timeout: request.timeout,
           );

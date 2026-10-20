@@ -151,6 +151,89 @@ ProcessRequest _partRequest(ProcessRequest request, List<String> words) => (
       timeout: request.timeout
     );
 
+/// Read-only git subcommands with their certified flags. The subcommand must
+/// be the first argument; a flag before it (or none given) is unrecognized.
+/// No flag takes a value, so `-c key=value`, `-C dir`, `--exec-path[=x]`,
+/// `--git-dir` and friends are structurally excluded. Long options are
+/// rejected entirely: `--output`, `--format` with commands and git's plumbing
+/// surface stay unrecognized rather than laundered. Digits are accepted in
+/// short-flag clusters for the `-3` / `-n5` count shortcuts, which take no
+/// separate value.
+///
+/// `branch` and `tag` are list-mode only: their bare positional form creates
+/// a ref, so they certify only when the list flag is present or there is
+/// nothing to create.
+const _gitReaders = <String, _GitOptions>{
+  'status': _GitOptions('sbvpohz'),
+  'diff': _GitOptions('CcMnprRstTuUWyZaABbxz', numericContext: true),
+  'log': _GitOptions('DEFGgfLlMmoprtZz', numericContext: true),
+  'show': _GitOptions('DEFGgfLlMmoprSstZz', numericContext: true),
+  'branch': _GitOptions('aAvlq'),
+  'tag': _GitOptions('l'),
+};
+
+final class _GitOptions {
+  const _GitOptions(this.flags, {this.numericContext = false});
+  final String flags;
+  final bool numericContext;
+}
+
+/// Whether [request] is `git <readersubcommand> [flags] [revisions...]` with
+/// no value-taking option anywhere. `--` is not accepted: git's plumbing
+/// options and `--output` must stay unrecognized rather than laundered.
+bool _acceptsGit(List<String> args) {
+  if (args.isEmpty) return false;
+  final subcommand = args.first;
+  final options = _gitReaders[subcommand];
+  if (options == null) return false;
+  var listMode = false;
+  var positional = false;
+  for (var i = 1; i < args.length; i++) {
+    final arg = args[i];
+    if (arg == '--' || arg == '-') return false;
+    if (!arg.startsWith('-')) {
+      positional = true;
+      continue;
+    }
+    if (arg.startsWith('--')) return false;
+    for (var j = 1; j < arg.length; j++) {
+      final flag = arg[j];
+      if (!options.flags.contains(flag) &&
+          !(options.numericContext &&
+              RegExp(r'[0-9]').hasMatch(flag))) {
+        return false;
+      }
+      if ((subcommand == 'branch' || subcommand == 'tag') && flag == 'l') {
+        listMode = true;
+      }
+    }
+  }
+  // `git branch <name>` and `git tag <name>` create refs, not lists.
+  if ((subcommand == 'branch' || subcommand == 'tag') &&
+      positional &&
+      !listMode) {
+    return false;
+  }
+  return true;
+}
+
+/// A print-only `sed` form: exactly `-n`, one script of address-and-print or
+/// address-and-quit commands, then paths. The certified scripts are limited to
+/// `p` and `q` — which take no flags — over numeric or `$` addresses, so any
+/// other sed feature (substitutions, `w`, `e`, `i`) is structurally
+/// unrecognized and asks.
+final _sedPrintCommand = RegExp(r'^(\d+(,\d+)?|\$)?[pq]$');
+
+/// The accepted `-n` script list, or null when [arguments] is anything else.
+/// `-f`/`--file`, `-i`, substitutions and `--output` all miss and ask.
+List<String>? _sedPrintArguments(List<String> arguments) {
+  if (arguments.length < 2 || arguments.first != '-n') return null;
+  for (final command in arguments[1].split(';')) {
+    if (command.isEmpty || !_sedPrintCommand.hasMatch(command)) return null;
+  }
+  return arguments;
+}
+
 /// A single literal reader may also reuse a saved directory read grant.
 /// Redirects — even output-only ones — disqualify this path: it drops them,
 /// and a script whose meaning depends on `2>&1` must not silently lose it.
@@ -165,6 +248,10 @@ ProcessRequest? literalShellRequest(ProcessRequest request) {
 /// system executables and quoted literal arguments. No PATH lookup or shell
 /// expansion remains in the script that is executed. Output-only redirects
 /// (`2>/dev/null`, `2>&1`) ride along verbatim: they touch no path.
+///
+/// Git readers do not join pipelines: `GIT_OPTIONAL_LOCKS=0` is injected at
+/// exec time per component, and a `/bin/sh -c` string cannot carry a
+/// per-component environment. A `git status | head` script asks.
 ProcessRequest? readOnlyShellRequest(ProcessRequest request,
     {String? searchPath}) {
   final parts = _literalShellParts(request);
@@ -173,6 +260,7 @@ ProcessRequest? readOnlyShellRequest(ProcessRequest request,
   String quote(String value) => "'${value.replaceAll("'", "'\\''")}'";
   for (final part in parts) {
     final component = _partRequest(request, part.words);
+    if (path.basename(component.command) == 'git') return null;
     final executable = readOnlyExecutable(component, searchPath: searchPath);
     if (executable == null) return null;
     script.write([executable, ...component.arguments].map(quote).join(' '));
@@ -197,8 +285,12 @@ String? readOnlyExecutable(ProcessRequest request, {String? searchPath}) {
   if (request.environment != null || Platform.isWindows) return null;
   final name = path.basename(request.command);
   final options = _readers[name];
-  if (options == null || name != 'echo' && !options.accepts(request.arguments))
-    return null;
+  final gitReader = name == 'git' && _acceptsGit(request.arguments);
+  final sedPrint = name == 'sed' && _sedPrintArguments(request.arguments) != null;
+  final accepted = options != null
+      ? name == 'echo' || options.accepts(request.arguments)
+      : gitReader || sedPrint;
+  if (!accepted) return null;
   final trusted = {'/bin/$name', '/usr/bin/$name'};
   String? candidate;
   if (request.command == name) {
@@ -237,6 +329,28 @@ String? readOnlyExecutable(ProcessRequest request, {String? searchPath}) {
 List<String>? _readTargets(ProcessRequest request, {bool reportOnly = false}) {
   final name = path.basename(request.command);
   if (name == 'echo') return const [];
+  if (name == 'git') {
+    if (!_acceptsGit(request.arguments)) return null;
+    // Reads reach the repository root through gitdir links even from a
+    // subdirectory. The working directory itself is the reported target.
+    return [
+      _resolveTarget(request.workingDirectory ?? Directory.current.path,
+          request.workingDirectory ?? Directory.current.path),
+    ];
+  }
+  if (name == 'sed') {
+    if (_sedPrintArguments(request.arguments) == null) return null;
+    final files = request.arguments.skip(2).toList();
+    if (files.isEmpty) return const [];
+    try {
+      return files
+          .map((file) => _resolveTarget(
+              file, request.workingDirectory ?? Directory.current.path))
+          .toList();
+    } on FileSystemException {
+      return null;
+    }
+  }
   final options = _readers[name];
   if (options == null || !options.accepts(request.arguments)) return null;
   final positional = <String>[];
@@ -292,15 +406,18 @@ List<String>? _readTargets(ProcessRequest request, {bool reportOnly = false}) {
     files.add('.');
   }
   try {
-    return files.map((file) {
-      final absolute = path.isAbsolute(file)
-          ? file
-          : path.join(request.workingDirectory ?? Directory.current.path, file);
-      return File(absolute).resolveSymbolicLinksSync();
-    }).toList();
+    return files.map((file) => _resolveTarget(
+        file, request.workingDirectory ?? Directory.current.path)).toList();
   } on FileSystemException {
     return null;
   }
+}
+
+/// Resolve one path operand to its canonical absolute path.
+String _resolveTarget(String file, String workingDirectory) {
+  final absolute =
+      path.isAbsolute(file) ? file : path.join(workingDirectory, file);
+  return File(absolute).resolveSymbolicLinksSync();
 }
 
 /// Patterns and display options are not paths; pattern files are paths.

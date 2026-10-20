@@ -414,7 +414,9 @@ final class ToolsPlugin extends AgentPlugin
     if (readDirectories.paths.isNotEmpty) {
       c.promptSections.add('User-configured read-only directories: '
           '${readDirectories.paths.join(', ')}. Use dedicated file tools or '
-          'exec with ls, grep, cat, head or tail and literal arguments to read '
+          'exec with ls, grep, cat, head, tail, read-only git subcommands or '
+          'print-only sed (-n with address-and-print commands) and literal '
+          'arguments to read '
           'these directories without repeated execution approval. These '
           'directories do not grant writes. A single literal reader command '
           'also works through bash. In read-only and allow-edits modes, verified '
@@ -482,6 +484,10 @@ final class HostPromptSection {
       'command-based file patches only when the dedicated file tools cannot '
       'perform the required change. When a command is needed, use exec to '
       'run programs such as ls, grep and find directly with literal arguments. '
+      'Read-only git subcommands (status, diff, log, show, list-form branch '
+      'and tag) and print-only sed (-n with address-and-print scripts like '
+      "180,215p) are certified readers in read-only and allow-edits modes; "
+      'other git operations and sed edits still need approval. '
       'Use working_directory on exec or bash to select the invocation directory '
       'instead of commands such as cd some_dir && ls. Relative directories '
       'resolve from the session working directory; each override applies only '

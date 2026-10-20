@@ -44,6 +44,22 @@ options include the traditional `head -30` form. The runner verifies and pins
 the absolute system executable; a replacement on PATH, custom environment or
 unknown reader option asks. Direct arguments remain unchanged.
 
+Certified read-only git subcommands also run: `git status`, `git diff`,
+`git log`, `git show`, `git branch` and `git tag` in list form, with the flags
+each subcommand accepts in the reader table. Git readers certify only the short
+options that never take a value (plus numeric count shortcuts like `-3`); long
+options, `--`, value-taking forms and any other subcommand ask. `branch` and
+`tag` need their list form (`-l`) to accept a positional name. Certified git
+readers run with `GIT_OPTIONAL_LOCKS=0` so reading never refreshes the index.
+They report the working directory's repository as their read target and do not
+join certified shell pipelines (a per-component environment cannot be expressed
+in a reconstructed script).
+
+A print-only `sed` form is certified as well: exactly `-n`, a script built
+from address-and-print or address-and-quit commands (`180,215p`, `10q`, `$p`)
+and file operands. Any substitution, `w`/`e` command, `-f` script file, `-i`
+edit or other option asks.
+
 The bash tool also accepts a limited literal grammar containing reader pipelines
 (`|`), sequences (`;`) and conditional sequences (`&&`). Every component must
 be a verified reader. The runner reconstructs these commands with pinned system
