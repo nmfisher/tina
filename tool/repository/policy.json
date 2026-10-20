@@ -27,6 +27,7 @@
     "tina_classification_tui",
     "tina_mcp_tui",
     "tina_goals",
+    "tina_tasks",
     "tina_persistence",
     "tina_approvals",
     "tina_approvals_tui",
@@ -170,6 +171,10 @@
       "test"
     ],
     "tina_goals": [
+      "lib",
+      "test"
+    ],
+    "tina_tasks": [
       "lib",
       "test"
     ],
@@ -321,6 +326,7 @@
     "tina_plans_tui": "packages/plugins/tina_plans_tui",
     "tina_classification_tui": "packages/plugins/tina_classification_tui",
     "tina_goals": "packages/plugins/tina_goals",
+    "tina_tasks": "packages/plugins/tina_tasks",
     "tina_persistence": "packages/plugins/tina_persistence",
     "tina_approvals": "packages/plugins/tina_approvals",
     "tina_approvals_tui": "packages/plugins/tina_approvals_tui",
@@ -469,6 +475,7 @@
       "tina_step_limit",
       "tina_subagents",
       "tina_system_instruction",
+      "tina_tasks",
       "tina_tools",
       "tina_tui",
       "toml"

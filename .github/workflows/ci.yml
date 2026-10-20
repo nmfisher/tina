@@ -901,6 +901,26 @@ jobs:
         working-directory: packages/plugins/tina_goals
         run: dart test -j 4
 
+  tina_tasks:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tasks')
+    name: tina_tasks (packages/plugins/tina_tasks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_tasks)
+        working-directory: packages/plugins/tina_tasks
+        run: dart pub get
+      - name: analyze (tina_tasks)
+        working-directory: packages/plugins/tina_tasks
+        run: dart analyze
+      - name: test (tina_tasks)
+        working-directory: packages/plugins/tina_tasks
+        run: dart test -j 4
+
   tina_persistence:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'tina_persistence')
