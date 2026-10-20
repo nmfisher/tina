@@ -61,6 +61,20 @@ class BashTool extends ProcessToolBase {
         inputSchema: {
           'type': 'object',
           'properties': {
+            'read_directories': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'maxItems': 32,
+              'description':
+                  'Additional existing directories to read for this invocation. Relative paths resolve from working_directory. Reviewed with the command in auto mode; keeps the sandbox active and does not save a grant. Prefer this over outside_sandbox for external files or toolchains.'
+            },
+            'write_directories': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'maxItems': 32,
+              'description':
+                  'Additional existing directories to read and write for this invocation and its children. Includes creation, deletion and renaming. Reviewed with the command; network and protected-path restrictions remain. Use the narrowest existing parent.'
+            },
             'working_directory': {
               'type': 'string',
               'description':

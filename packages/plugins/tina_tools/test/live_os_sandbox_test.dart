@@ -17,6 +17,71 @@ bool get _backendAvailable =>
     resolveSandboxBackend() != SandboxBackend.passThrough;
 
 void main() {
+  test('invocation directory grants expire and preserve protected paths',
+      tags: 'live-os-sandbox', () async {
+    if (!_backendAvailable) {
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    final fixture = Directory(Directory('${Directory.current.path}/.dart_tool')
+        .createTempSync('invocation-grant-')
+        .resolveSymbolicLinksSync());
+    addTearDown(() => fixture.deleteSync(recursive: true));
+    final project = Directory('${fixture.path}/project')..createSync();
+    final home = Directory('${fixture.path}/home')..createSync();
+    final input = Directory('${home.path}/input')..createSync();
+    final output = Directory('${home.path}/output')..createSync();
+    final protected = Directory('${output.path}/protected')..createSync();
+    File('${input.path}/source').writeAsStringSync('content');
+    final plan = SandboxPlan(
+        workspaceRoot: project.path,
+        realHome: home.path,
+        protectedPaths: [protected.path]);
+    final os = OsSandboxRunner(inner: const IoProcessRunner(), plan: plan);
+    final gate = SandboxedProcessRunner(
+        inner: os,
+        plan: plan,
+        mode: PermissionMode.auto,
+        commandApprover: (_, review) async => Approval.yes);
+    ProcessRequest shell(String script) => (
+          command: '/bin/sh',
+          arguments: ['-c', script],
+          workingDirectory: project.path,
+          environment: null,
+          stdin: null,
+          timeout: const Duration(seconds: 10)
+        );
+    final requested = ProcessControl(
+        readDirectories: [input.path], writeDirectories: [output.path]);
+    final success = await gate.run(
+        shell('cat "${input.path}/source" > "${output.path}/result"'),
+        control: requested);
+    expect(success, isA<CommandCompleted>());
+    expect((success as CommandCompleted).exitCode, 0, reason: success.stderr);
+    expect(File('${output.path}/result').readAsStringSync(), 'content');
+    for (final target in [
+      '${input.path}/forbidden',
+      '${protected.path}/forbidden'
+    ]) {
+      final failed =
+          await gate.run(shell('echo bad > "$target"'), control: requested);
+      expect(
+          failed is CommandBlocked ||
+              failed is CommandCompleted && failed.exitCode != 0,
+          true,
+          reason: '$failed');
+      expect(File(target).existsSync(), false);
+    }
+    final later = await gate.run(shell('echo bad > "${output.path}/later"'));
+    expect(
+        later is CommandBlocked ||
+            later is CommandCompleted && later.exitCode != 0,
+        true,
+        reason: '$later');
+    expect(File('${output.path}/later').existsSync(), false);
+    expect(plan.canWrite(output.path), false);
+  });
+
   test('saved directory writes update the live jail and retain Tina protection',
       tags: 'live-os-sandbox', () async {
     if (!_backendAvailable) {

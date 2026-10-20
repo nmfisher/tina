@@ -1,6 +1,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:classification/permissions.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -105,11 +106,12 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   ToolUse? _call;
   // One approval covers one invocation, including atomic temp/rename writes.
   // It never survives afterToolResult or a mode change.
-  final Map<
-    ({String operation, bool humanOnly, String permissions}),
-    ApprovalDecision
-  >
-  _callApprovals = {};
+  final Map<String, ApprovalDecision> _callApprovals = {};
+  final Map<String, int> _approvalRequestCounts = {};
+
+  /// Local counts only: no commands, paths, environment or model answers.
+  Map<String, int> get approvalRequestCounts =>
+      Map.unmodifiable(_approvalRequestCounts);
   bool _closed = false;
 
   static final modeWords = List<String>.unmodifiable(
@@ -150,6 +152,11 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
           mode = selected;
         }
         terminal?.writeln('mode: ${mode.label}');
+        if (argument.trim().isEmpty && _approvalRequestCounts.isNotEmpty) {
+          terminal?.writeln(
+            'approval requests: ${_approvalRequestCounts.entries.map((e) => '${e.key}=${e.value}').join(', ')}',
+          );
+        }
       },
     ),
   ];
@@ -157,7 +164,9 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   /// Precedent evidence for one request, or empty when the feature is off or
   /// the request has no recognizable shape. Wired into the classifier by the
   /// application assembly.
-  List<Map<String, Object?>> precedentEvidenceFor(Map<String, Object?> request) {
+  List<Map<String, Object?>> precedentEvidenceFor(
+    Map<String, Object?> request,
+  ) {
     final mode = readPrecedentMode?.call() ?? PrecedentMode.evidence;
     if (mode == PrecedentMode.off) return const [];
     final store = precedentStore;
@@ -203,8 +212,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         : switch (decision) {
             ApprovalDecision.allowAlways ||
             ApprovalDecision.allowWorkspace ||
-            ApprovalDecision.allowGlobal =>
-              PrecedentAuthority.humanAlways,
+            ApprovalDecision.allowGlobal => PrecedentAuthority.humanAlways,
             _ => PrecedentAuthority.humanOnce,
           };
     try {
@@ -237,13 +245,14 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     if (invalid()) return ApprovalDecision.deny;
     final call = _call;
     final requiredPermissions = context['required_permissions'];
-    final cacheKey = (
-      operation: operation,
-      humanOnly: humanOnly,
-      permissions: requiredPermissions is Iterable
-          ? requiredPermissions.join(',')
-          : '',
-    );
+    final cacheKey = jsonEncode([
+      operation, humanOnly,
+      requiredPermissions is Iterable ? requiredPermissions.toList() : const [],
+      // File tools own their logical operation (including atomic temporary
+      // paths). Commands additionally bind the complete execution identity.
+      operation == 'run command' ? target : null,
+      context['approval_identity'], context['invocation_directory_access'],
+    ]);
     final permission = kind == ApprovalKind.permission;
     if (permission && call != null && _callApprovals.containsKey(cacheKey)) {
       return _callApprovals[cacheKey]!;
@@ -254,21 +263,20 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     // The evidence map is assembled once: the judge sees it, and precedents
     // are keyed by exactly the same fields.
     Map<String, Object?> requestEvidence() => {
-          'operation': operation,
-          'target': target,
-          'reason': reason,
-          ...context,
-          // Owned by the active turn, not the tool's justification or
-          // caller-supplied context. Null means no current user request.
-          'user_request': turn?.input.text,
-          if (_call != null)
-            'tool': {'name': _call!.name, 'input': _call!.input},
-          // The conversation tail before this request: what a user
-          // correction refers to. Without it, "that path is not
-          // correct" denies the corrected retry because the judge
-          // cannot see the failed call it answered.
-          ...?_recentContext(turn),
-        };
+      'operation': operation,
+      'target': target,
+      'reason': reason,
+      ...context,
+      // Owned by the active turn, not the tool's justification or
+      // caller-supplied context. Null means no current user request.
+      'user_request': turn?.input.text,
+      if (_call != null) 'tool': {'name': _call!.name, 'input': _call!.input},
+      // The conversation tail before this request: what a user
+      // correction refers to. Without it, "that path is not
+      // correct" denies the corrected retry because the judge
+      // cannot see the failed call it answered.
+      ...?_recentContext(turn),
+    };
     var judgment = const PermissionJudgment(null, 'not classified');
     if (mode == PermissionMode.auto && permission && !humanOnly) {
       final evidence = requestEvidence();
@@ -325,6 +333,29 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         : RegExp(r'[.!?]$').hasMatch(autoFallback)
         ? autoFallback
         : '$autoFallback.';
+    final reasonCodes = <String>{
+      if (context['approval_reason_codes'] case final List codes)
+        for (final code in codes)
+          if (code is String &&
+              const {
+                'missing_directory_access',
+                'host_execution',
+                'grant_mismatch',
+              }.contains(code))
+            code,
+      if (autoFallback != null)
+        judgment.allow == false ? 'classifier_denial' : 'classifier_failure',
+    };
+    if (reasonCodes.isEmpty) reasonCodes.add('permission_mode');
+    if (approvals != null) {
+      for (final code in reasonCodes) {
+        _approvalRequestCounts.update(
+          code,
+          (count) => count + 1,
+          ifAbsent: () => 1,
+        );
+      }
+    }
     final decision =
         await approvals?.request(
           operation: operation,
@@ -335,6 +366,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               : 'Auto approval: $fallbackSentence $reason',
           details: {
             ...context,
+            'approval_reason_codes': reasonCodes.toList(),
             if (prepareAccessReview != null)
               ...prepareAccessReview(judgment)
             else if (judgment.assessment.accesses.isNotEmpty ||
@@ -405,9 +437,16 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     final signature = RequestSignature.of(evidence, scope: scope);
     if (signature == null) return false;
     final accesses = evidence['accesses'];
-    final allRead = accesses is List &&
+    final allRead =
+        evidence['access_coverage_source'] == 'verified' &&
+        accesses is List &&
         accesses.isNotEmpty &&
-        accesses.every((access) => access is Map && access['operation'] == 'read');
+        accesses.every(
+          (access) =>
+              access is Map &&
+              access['operation'] == 'read' &&
+              access['source'] == 'verified',
+        );
     final coverage = evidence['access_coverage'];
     try {
       return allowsWithoutJudgment(

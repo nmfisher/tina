@@ -186,6 +186,18 @@ void main() {
       expect(allows([precedent(readOnly, count: 2)]), true);
     });
 
+    test('classifier decisions cannot unlock the human precedent shortcut', () {
+      expect(allows([
+        precedent(readOnly, count: 20,
+            authority: PrecedentAuthority.classifier),
+      ]), false);
+      expect(allows([
+        precedent(readOnly),
+        precedent(readOnly, count: 20,
+            authority: PrecedentAuthority.classifier),
+      ]), false);
+    });
+
     test('a single denial poisons the shape forever', () {
       expect(
           allows([
@@ -243,7 +255,7 @@ void main() {
   group('merging', () {
     final signature = command(['log']);
 
-    test('repeating an outcome increments the count', () {
+    test('classifier allows neither count as human approvals nor refresh them', () {
       final first = mergeDecision(
         null,
         signature: signature,
@@ -258,9 +270,10 @@ void main() {
         authority: PrecedentAuthority.classifier,
         at: DateTime.utc(2026, 10, 2),
       );
-      expect(second.count, 2);
+      expect(second.count, 1);
+      expect(second.authority, PrecedentAuthority.humanOnce);
       expect(second.conflicted, false);
-      expect(second.lastSeen, DateTime.utc(2026, 10, 2));
+      expect(second.lastSeen, DateTime.utc(2026, 10, 1));
     });
 
     test('an approval after a denial becomes conflicted and keeps the denial', () {
@@ -308,7 +321,8 @@ void main() {
         at: DateTime.utc(2026, 10, 2),
       );
       final restored = FilePrecedentStore(path).read().single;
-      expect(restored.count, 2);
+      expect(restored.count, 1);
+      expect(restored.authority, PrecedentAuthority.humanOnce);
       expect(restored.signature.key, signature.key);
       expect(restored.coverage, 'complete');
     });

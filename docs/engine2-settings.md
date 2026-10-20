@@ -121,4 +121,6 @@ The instruction is prepended to every permission classification request,
 including constrained-output retries. It is read again for each request, so edits
 take effect without restarting. It guides the auto-approval verdict; it does not
 change the active mode, grant a remembered permission, or disable the OS sandbox.
+The classifier can authorize explicitly requested invocation-only directory
+access; persistent folder grants still require a human selection.
 Input intent classification is separate from this permission classifier.

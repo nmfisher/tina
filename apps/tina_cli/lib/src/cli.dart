@@ -315,13 +315,36 @@ Future<int> runCli(
       // the already assembled plugins/provider and configuration watcher too.
       await session.shutdown();
     }
-    if (restartRoot == null) return result;
     // runApp has flushed session stores and restored terminal modes.
+    void showResumeCommand() {
+      final historyPath =
+          storePath ?? defaultSessionStorePath(workingDirectory);
+      if (!File(historyPath).existsSync() ||
+          !resumableSessions(
+            historyPath,
+          ).any((saved) => saved.id == assembly.host.session.id))
+        return;
+      stdout.writeln('\nResume this session:');
+      final command = sessionResumeCommand(
+        sessionId: assembly.host.session.id,
+        workingDirectory: workingDirectory,
+        configPath: configPath,
+        storePath: storePath,
+        backend: parsed[backendOption],
+      );
+      stdout.writeln('  $command');
+    }
+
+    if (restartRoot == null) {
+      showResumeCommand();
+      return result;
+    }
     if (terminalDevice == null) {
       stderr.writeln(
         'tina: update installed; automatic restart could not '
         'find the terminal device. Run tina --continue to reopen it.',
       );
+      showResumeCommand();
       return result;
     }
     return await restartInTerminal('$restartRoot/bin/tina', [

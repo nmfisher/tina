@@ -231,7 +231,8 @@ void attachModePolicy(ToolsPlugin plugin) {
         review.requiredPermissions.contains(ProcessPermission.network);
     final outsideSandbox =
         review.requiredPermissions.contains(ProcessPermission.unconfined);
-    if (plugin.commandApprovals.covers(request, review.requiredPermissions)) {
+    if (plugin.commandApprovals.covers(request, review.requiredPermissions,
+        directoryAccess: review.directoryAccess)) {
       return Approval.yes;
     }
     final description = describeCommandRequest(request);
@@ -239,12 +240,39 @@ void attachModePolicy(ToolsPlugin plugin) {
     List<DirectoryAccessGrant> directoryGrants = const [];
     final verified = verifiedReaderAccesses(request,
         searchPath: plugin.processRunner.executableSearchPath);
-    var accessDetails = permissionAccessReview(
-        plan: plugin.osPlan,
-        cwd: request.workingDirectory ?? plugin.workingDirectory,
-        verified: verified,
-        judgment: const PermissionJudgment(null),
-        persistent: plugin.settings != null);
+    final certified = hasCompleteReaderAccesses(request,
+        searchPath: plugin.processRunner.executableSearchPath);
+    Map<String, Object?> accessReview(PermissionJudgment judgment) {
+      final details = permissionAccessReview(
+          plan: plugin.osPlan,
+          cwd: request.workingDirectory ?? plugin.workingDirectory,
+          verified: verified,
+          complete: certified,
+          judgment: judgment,
+          persistent: plugin.settings != null);
+      final offers = (details['directory_accesses'] as List)
+          .cast<Map<String, Object?>>()
+          .toList();
+      for (final access in ['read', 'write']) {
+        for (final directory in access == 'read'
+            ? review.directoryAccess.read
+            : review.directoryAccess.write) {
+          if (!offers.any((offer) =>
+              offer['path'] == directory && offer['access'] == access)) {
+            offers.add(
+                {'path': directory, 'access': access, 'source': 'verified'});
+          }
+        }
+      }
+      return {
+        ...details,
+        'directory_accesses': offers,
+        if (!review.directoryAccess.isEmpty)
+          'invocation_directory_access': review.directoryAccess.toJson()
+      };
+    }
+
+    var accessDetails = accessReview(const PermissionJudgment(null));
     final decision = await plugin.modePolicy.request(
       operation: 'run command',
       target: [request.command, ...request.arguments].join(' '),
@@ -252,12 +280,7 @@ void attachModePolicy(ToolsPlugin plugin) {
       humanOnly: outsideSandbox,
       onCommandPattern: (pattern) => commandPattern = pattern,
       onDirectoryGrants: (grants) => directoryGrants = grants,
-      prepareAccessReview: (judgment) => accessDetails = permissionAccessReview(
-          plan: plugin.osPlan,
-          cwd: request.workingDirectory ?? plugin.workingDirectory,
-          verified: verified,
-          judgment: judgment,
-          persistent: plugin.settings != null),
+      prepareAccessReview: (judgment) => accessDetails = accessReview(judgment),
       context: {
         ...accessDetails,
         'workspace': plugin.workingDirectory,
@@ -266,6 +289,19 @@ void attachModePolicy(ToolsPlugin plugin) {
         'cwd': request.workingDirectory,
         'environment': request.environment,
         'stdin': request.stdin,
+        'approval_identity': {
+          'executable': request.command,
+          'arguments': request.arguments,
+          'cwd': request.workingDirectory,
+          'environment': request.environment,
+          'stdin': request.stdin,
+          'directory_access': review.directoryAccess.toJson(),
+        },
+        'approval_reason_codes': [
+          if (!review.directoryAccess.isEmpty) 'missing_directory_access',
+          if (outsideSandbox) 'host_execution',
+          if (plugin.commandApprovals.hasRelatedRule(request)) 'grant_mismatch',
+        ],
         'required_permissions': [
           for (final p in review.requiredPermissions) p.name
         ],
@@ -336,7 +372,8 @@ void attachModePolicy(ToolsPlugin plugin) {
             ApprovalDecision.allowGlobal => CommandApprovalScope.global,
             _ => CommandApprovalScope.session,
           },
-          pattern: commandPattern);
+          pattern: commandPattern,
+          directoryAccess: review.directoryAccess);
       return Approval.yes;
     }
     if ((decision == ApprovalDecision.allowReadsInDirectory ||

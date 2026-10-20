@@ -54,6 +54,9 @@ final class ProcessJobs implements ProcessRunner {
           sandboxReason: control?.sandboxReason,
           outsideSandboxAllowed: control?.outsideSandboxAllowed ?? false,
           approvedHostEnvironment: control?.approvedHostEnvironment,
+          readDirectories: control?.readDirectories ?? const [],
+          writeDirectories: control?.writeDirectories ?? const [],
+          approvedDirectories: control?.approvedDirectories,
           isCancelled: () => job.cancel.isCompleted,
           whenCancelled: job.cancel.future,
           onStarted: () {

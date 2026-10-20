@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'process_tree.dart';
 import 'captured_process.dart';
+import 'process_directory_access.dart';
+export 'process_directory_access.dart';
 
 /// One command the runner has been asked to run.
 ///
@@ -23,7 +25,7 @@ typedef ProcessRequest = ({
 
 /// Permissions for a process invocation. Network opens access for the entire
 /// subprocess tree; it does not relax filesystem confinement.
-enum ProcessPermission { execution, network, unconfined }
+enum ProcessPermission { execution, network, unconfined, directoryAccess }
 
 /// What happened: the command ran to completion ([CommandCompleted]), the
 /// permission boundary refused it before a process existed
@@ -112,6 +114,9 @@ final class ProcessControl {
       this.sandboxReason,
       this.outsideSandboxAllowed = false,
       this.approvedHostEnvironment,
+      this.readDirectories = const [],
+      this.writeDirectories = const [],
+      this.approvedDirectories,
       this.isCancelled,
       this.whenCancelled,
       this.onOutput,
@@ -133,6 +138,12 @@ final class ProcessControl {
   /// The filtered environment reviewed by the gate, frozen before approval.
   /// Tool input cannot supply this authorization snapshot.
   final Map<String, String>? approvedHostEnvironment;
+
+  /// Requested additions, never authorization. The gate freezes and validates
+  /// these before review. Tool calls reset any incoming authorization.
+  final List<String> readDirectories;
+  final List<String> writeDirectories;
+  final ProcessDirectoryAccess? approvedDirectories;
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;
@@ -150,6 +161,10 @@ final class ProcessControl {
     String? sandboxReason,
     bool? outsideSandboxAllowed,
     Map<String, String>? approvedHostEnvironment,
+    List<String>? readDirectories,
+    List<String>? writeDirectories,
+    ProcessDirectoryAccess? approvedDirectories,
+    bool clearDirectoryApproval = false,
     bool? background,
   }) =>
       ProcessControl(
@@ -164,6 +179,11 @@ final class ProcessControl {
         approvedHostEnvironment: outsideSandboxAllowed == false
             ? null
             : approvedHostEnvironment ?? this.approvedHostEnvironment,
+        readDirectories: readDirectories ?? this.readDirectories,
+        writeDirectories: writeDirectories ?? this.writeDirectories,
+        approvedDirectories: clearDirectoryApproval
+            ? null
+            : approvedDirectories ?? this.approvedDirectories,
         isCancelled: isCancelled,
         whenCancelled: whenCancelled,
         onOutput: onOutput,
@@ -180,6 +200,11 @@ class IoProcessRunner implements ProcessRunner {
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
+    if ((control?.readDirectories.isNotEmpty == true ||
+            control?.writeDirectories.isNotEmpty == true) &&
+        control?.approvedDirectories == null) {
+      return const CommandRefused('Directory access has not been approved.');
+    }
     if (control?.outsideSandboxRequested == true &&
         (control?.outsideSandboxAllowed != true ||
             control?.networkAllowed != true)) {

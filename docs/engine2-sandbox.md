@@ -66,6 +66,50 @@ Headless runs accept the flag but still deny requests needing a human.
 
 ## Request an exception for one command
 
+For external task files or toolchains, prefer directory access while keeping
+the sandbox active:
+
+```json
+{
+  "program": "dart",
+  "args": ["test"],
+  "working_directory": "/projects/related-library",
+  "read_directories": ["/opt/custom-sdk"],
+  "write_directories": ["/projects/related-library"]
+}
+```
+
+Both `exec` and `bash` accept these fields. Paths must name existing, specific
+directories; relative paths resolve from the invocation's working directory.
+There is a combined limit of 32 directories. Write access includes reads,
+creation, deletion and renaming. Root-wide, home-wide and protected credential
+requests are refused through this interface.
+
+Execution, network and additional directories are reviewed together. Auto mode
+can approve narrow external access covered by the user's task. An approval
+installs a private sandbox layout for this invocation and its children; it does
+not alter settings or another running job's access. Known reader operands and
+simple `touch`/`mkdir` targets contribute missing directories before review.
+macOS preflight follows Seatbelt's actual read permissions, including reads
+already available outside the home directory.
+
+If human review is needed, **allow once** grants only the displayed invocation.
+The dialog also offers direct choices to remember the requested folders for
+the session or workspace. These folder grants apply to later commands and file
+tools; commands still undergo their normal execution/network policy. Checkboxes
+remain available to choose individual folders and Global scope. Remembered
+command rules retain their approved directory capabilities: a different
+directory or read-to-write expansion requires new review.
+
+Protected paths and replaced symlinks are checked again before execution.
+Network stays isolated unless included in the combined approval.
+If a command fails after possible partial work, a directory recovery/retry still
+requires an explicit human decision. The unavailable-backend and `--no-sandbox`
+behavior described above is unchanged.
+
+Use full host execution when the command needs capabilities unavailable through
+a directory grant, such as host credentials:
+
 ```json
 {
   "program": "/home/user/blender/blender",
@@ -138,7 +182,7 @@ not intend. No regex rule implicitly requests host access or disables the jail.
 A hidden host executable produces a specific diagnostic and instructions for
 this API. Errors from genuinely missing files and missing loaders for visible
 programs remain ordinary failures. Known readers and simple `touch`/`mkdir`
-requests can offer a directory grant before execution. A diagnosed filesystem
+requests include missing directory access in the initial review. A diagnosed filesystem
 denial can offer a narrow persistent read or write grant and one retry, only
 after explicit human approval. The offer names the path and explains that the
 previous attempt may have made changes. Credential paths never get this offer;

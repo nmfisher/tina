@@ -139,11 +139,13 @@ show the selected panel.
   count. Focus it with
   Ctrl+G then Down/Tab and Enter; press Enter again to open panel controls.
   Up/Down selects, Enter restores, M minimizes, and X toggles maximization.
-- `/quit` exits the whole application.
+- `/quit` exits the whole application, cancelling work in progress.
 
 This is supplied by the default `tina/panels-tui` UI plugin. If your config has
 an explicit enabled-plugin list, add it and restart. Saved conversations can
 be resumed individually; the arrangement of open panels is not persisted.
+After shutdown, Tina prints a command to resume the saved main session,
+including any custom config and store paths. Empty sessions have no resume hint.
 
 ```sh
 tina --resume                       # list and select a workspace session

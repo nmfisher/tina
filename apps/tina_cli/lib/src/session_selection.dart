@@ -28,3 +28,29 @@ List<SessionChoice> sessionChoices(Iterable<StoredSession> sessions) => [
       lastSavedAt: session.lastSavedAt,
     ),
 ];
+
+/// A command the user can paste into their shell after terminal restoration.
+/// Explicit paths are absolute so it also works from a different directory.
+String sessionResumeCommand({
+  required String sessionId,
+  String? workingDirectory,
+  String? configPath,
+  String? storePath,
+  String? backend,
+}) => [
+  'tina',
+  '--resume',
+  sessionId,
+  if (workingDirectory != null) ...[
+    '--cwd',
+    Directory(workingDirectory).absolute.path,
+  ],
+  if (configPath != null) ...['--config', File(configPath).absolute.path],
+  if (storePath != null) ...['--store', File(storePath).absolute.path],
+  if (backend != null) ...['--backend', backend],
+].map(_shellArgument).join(' ');
+
+String _shellArgument(String value) =>
+    RegExp(r'^[a-zA-Z0-9_@%+=:,./-]+$').hasMatch(value)
+    ? value
+    : "'${value.replaceAll("'", "'\"'\"'")}'";

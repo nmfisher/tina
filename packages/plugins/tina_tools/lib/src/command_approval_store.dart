@@ -103,7 +103,9 @@ final class CommandApprovalStore {
           v['scope'] == 'global' ||
           v['workspace'] == canonicalSandboxPath(workspace)));
 
-  bool covers(ProcessRequest request, Set<ProcessPermission> permissions) {
+  bool covers(ProcessRequest request, Set<ProcessPermission> permissions,
+      {ProcessDirectoryAccess directoryAccess =
+          const ProcessDirectoryAccess.empty()}) {
     try {
       return entries.any((entry) {
         final scope =
@@ -117,7 +119,9 @@ final class CommandApprovalStore {
                     CommandApprovalPattern(pattern)
                         .matches(approvalCommandText(request))) &&
             permissions
-                .every((permission) => granted.contains(permission.name));
+                .every((permission) => granted.contains(permission.name)) &&
+            ProcessDirectoryAccess.fromJson(entry['directory_access'])
+                .covers(directoryAccess);
       });
     } on FileSystemException {
       return false;
@@ -132,7 +136,9 @@ final class CommandApprovalStore {
 
   void remember(ProcessRequest request, Set<ProcessPermission> permissions,
       CommandApprovalScope scope,
-      {String? pattern}) {
+      {String? pattern,
+      ProcessDirectoryAccess directoryAccess =
+          const ProcessDirectoryAccess.empty()}) {
     if (pattern != null) {
       CommandApprovalPattern(pattern)
           .requireMatch(approvalCommandText(request));
@@ -149,6 +155,9 @@ final class CommandApprovalStore {
         'workspace': canonicalSandboxPath(workspace),
       'identity': _identity(request, scope, patterned: pattern != null),
       'command': approvalCommandText(request),
+      'executable': _executable(request),
+      if (!directoryAccess.isEmpty)
+        'directory_access': directoryAccess.toJson(),
       if (pattern != null) 'pattern': pattern,
       'directory': scope == CommandApprovalScope.global
           ? 'any directory'
@@ -168,6 +177,24 @@ final class CommandApprovalStore {
     _session.removeWhere((entry) => entry['id'] == id);
     if (file?.existsSync() == true)
       _update((entries) => entries.removeWhere((entry) => entry['id'] == id));
+  }
+
+  /// Diagnostic only: a related rule exists but did not cover this request.
+  bool hasRelatedRule(ProcessRequest request) {
+    try {
+      final executable = _executable(request);
+      return entries.any((entry) =>
+          entry['executable'] == executable ||
+          entry['command'] == approvalCommandText(request));
+    } on FileSystemException {
+      return false;
+    } on FormatException {
+      return false;
+    } on TypeError {
+      return false;
+    } on ArgumentError {
+      return false;
+    }
   }
 
   void _update(void Function(List<Map<String, Object?>>) change) {

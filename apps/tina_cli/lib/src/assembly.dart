@@ -550,6 +550,7 @@ final class SessionAssembly {
     host.commands.publish(Command(
       name: 'quit',
       description: 'leave the app',
+      allowWhileRunning: true,
       handler: (_) {
         assembly._quit = true;
       },

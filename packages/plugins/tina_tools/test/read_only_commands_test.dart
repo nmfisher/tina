@@ -176,8 +176,8 @@ void main() {
     expect(inner.requests, isEmpty);
   });
 
-  test('reader certification does not bypass ask or auto modes', () async {
-    for (final mode in [PermissionMode.ask, PermissionMode.auto]) {
+  test('reader certification does not bypass ask mode', () async {
+    for (final mode in [PermissionMode.ask]) {
       final inner = _Recorder();
       final gate = runner(inner, review: (_, __) async => Approval.no)
         ..mode = mode;
@@ -186,7 +186,11 @@ void main() {
     }
   });
 
-  for (final mode in [PermissionMode.readOnly, PermissionMode.allowEdits]) {
+  for (final mode in [
+    PermissionMode.readOnly,
+    PermissionMode.allowEdits,
+    PermissionMode.auto
+  ]) {
     test('$mode allows verified readers and the reported compound read',
         () async {
       final inner = _Recorder();
@@ -230,8 +234,7 @@ void main() {
         'grep needle file 2>>/dev/null | head',
       ]) {
         expect(
-            await gate.run(
-                request('/bin/sh', ['-c', script], cwd: root.path)),
+            await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
             isA<CommandCompleted>(),
             reason: script);
       }

@@ -383,11 +383,19 @@ ApprovalPrecedent mergeDecision(
   String coverage = 'unknown',
 }) {
   if (existing == null || existing.outcome == outcome) {
+    // A model decision is not another human approval, and cannot refresh or
+    // erase the human evidence used by the deterministic shortcut.
+    if (existing != null &&
+        authority == PrecedentAuthority.classifier &&
+        existing.authority != PrecedentAuthority.classifier) return existing;
+    final sameAuthority = existing != null &&
+        (existing.authority == PrecedentAuthority.classifier) ==
+            (authority == PrecedentAuthority.classifier);
     return ApprovalPrecedent(
       signature: signature,
       outcome: outcome,
       authority: authority,
-      count: (existing?.count ?? 0) + 1,
+      count: (sameAuthority ? existing.count : 0) + 1,
       lastSeen: at,
       coverage: coverage,
       conflicted: existing?.conflicted ?? false,
@@ -536,6 +544,7 @@ bool allowsWithoutJudgment({
     if (precedent.key != request.key) continue;
     if (precedent.conflicted) return false;
     if (precedent.outcome == PrecedentOutcome.deny) return false;
+    if (precedent.authority == PrecedentAuthority.classifier) continue;
     if (at.difference(precedent.lastSeen).abs() > maxAge) continue;
     approvals += precedent.count;
   }

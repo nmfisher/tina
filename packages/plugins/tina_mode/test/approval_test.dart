@@ -53,6 +53,78 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 
 void main() {
   precedentTests();
+  test(
+    'command cache binds arguments, directory capabilities and target',
+    () async {
+      final human = Human();
+      final mode = ModePlugin(approvals: human);
+      addTearDown(mode.closeSession);
+      final turn = TurnContext(
+        CancelToken(),
+        input: const Input('build', id: 'turn'),
+        messages: [],
+        promptSections: [],
+        pinnedTools: [],
+        call: const ToolUse(id: 'command', name: 'exec', input: {}),
+      );
+      mode.onInput(turn);
+      mode.beforeToolCall(turn);
+      Future<ApprovalDecision> run(
+        String directory, {
+        String argument = 'one',
+      }) =>
+          mode.request(
+            operation: 'run command',
+            target: 'build',
+            reason: 'review',
+            context: {
+              'required_permissions': ['execution', 'directoryAccess'],
+              'approval_identity': {
+                'args': [argument],
+                'write': [directory],
+              },
+            },
+          );
+      await run('/first');
+      await run('/first');
+      expect(human.calls, 1);
+      await run('/second');
+      await run('/second', argument: 'two');
+      expect(human.calls, 3);
+    },
+  );
+
+  test(
+    'approval diagnostics count reasons without storing request contents',
+    () async {
+      final human = Human();
+      final judge = Judge(
+        Future.value(const PermissionJudgment(null, 'timed out')),
+      );
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: judge,
+      );
+      addTearDown(mode.closeSession);
+      await mode.request(
+        operation: 'run command',
+        target: 'sensitive-command',
+        reason: 'review',
+        context: {
+          'approval_reason_codes': ['missing_directory_access', 'secret-token'],
+        },
+      );
+      expect(mode.approvalRequestCounts, {
+        'missing_directory_access': 1,
+        'classifier_failure': 1,
+      });
+      expect(human.lastDetails['approval_reason_codes'], [
+        'missing_directory_access',
+        'classifier_failure',
+      ]);
+    },
+  );
   test('model inferred accesses never create automatic directory grants', () async {
     final human = Human();
     final mode = ModePlugin(mode: PermissionMode.auto, approvals: human,
@@ -611,8 +683,9 @@ void precedentTests() {
         'arguments': arguments,
         'required_permissions': permissions,
         'access_coverage': coverage,
+        'access_coverage_source': 'verified',
         'accesses': [
-          {'operation': accessKind, 'path': '/work/project/a', 'target_kind': 'file'}
+          {'operation': accessKind, 'path': '/work/project/a', 'target_kind': 'file', 'source': 'verified'}
         ],
       };
   Future<ApprovalDecision> run(ModePlugin mode,

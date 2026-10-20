@@ -4,7 +4,7 @@
 /// to a human or the automatic safety judge; OS confinement remains separate.
 library;
 
-import 'dart:io' show Platform, FileSystemException;
+import 'dart:io' show Platform, FileSystemException, Directory;
 import 'command_approval_store.dart';
 import 'package:path/path.dart' as path;
 import 'sandbox_home.dart';
@@ -90,8 +90,14 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
 final class CommandGrants {
   final List<String> _patterns = [];
   final Set<String> _exactLines = {};
-  final Map<String, ({String line, Set<ProcessPermission> permissions})>
-      _requests = {};
+  final Map<
+      String,
+      ({
+        String identity,
+        String line,
+        Set<ProcessPermission> permissions,
+        ProcessDirectoryAccess directoryAccess
+      })> _requests = {};
 
   static String _key(ProcessRequest request) {
     final environment = request.environment;
@@ -113,19 +119,33 @@ final class CommandGrants {
   void rememberRequest(
     ProcessRequest request, {
     Set<ProcessPermission> permissions = const {ProcessPermission.execution},
+    ProcessDirectoryAccess directoryAccess =
+        const ProcessDirectoryAccess.empty(),
   }) {
     if (permissions.isEmpty) return;
-    final key = _key(request);
+    final identity = _key(request);
+    final key = jsonEncode([identity, directoryAccess.toJson()]);
     final grant = _requests.putIfAbsent(
-        key, () => (line: lineOf(request), permissions: <ProcessPermission>{}));
+        key,
+        () => (
+              identity: identity,
+              line: lineOf(request),
+              permissions: <ProcessPermission>{},
+              directoryAccess: directoryAccess
+            ));
     grant.permissions.addAll(permissions);
   }
 
   bool coversRequest(
     ProcessRequest request, {
     ProcessPermission permission = ProcessPermission.execution,
+    ProcessDirectoryAccess directoryAccess =
+        const ProcessDirectoryAccess.empty(),
   }) =>
-      _requests[_key(request)]?.permissions.contains(permission) == true ||
+      _requests.values.any((grant) =>
+          grant.identity == _key(request) &&
+          grant.permissions.contains(permission) &&
+          grant.directoryAccess.covers(directoryAccess)) ||
       // Explicit line/pattern grants authorize execution only.
       (permission == ProcessPermission.execution &&
           patternFor(lineOf(request)) != null);
@@ -189,6 +209,7 @@ final class CommandApproval {
     this.networkReason,
     this.sandboxReason,
     this.readDirectory,
+    this.directoryAccess = const ProcessDirectoryAccess.empty(),
     bool Function()? isActive,
   })  : isActive = isActive ?? _alwaysActive,
         requiredPermissions = Set.unmodifiable(requiredPermissions),
@@ -200,6 +221,7 @@ final class CommandApproval {
   final String? networkReason;
   final String? sandboxReason;
   final String? readDirectory;
+  final ProcessDirectoryAccess directoryAccess;
   final bool Function() isActive;
   static bool _alwaysActive() => true;
 }
@@ -280,6 +302,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
       stdin: request.stdin,
       timeout: request.timeout,
     );
+    control = control?.copyWith(
+        readDirectories: List.unmodifiable(control.readDirectories),
+        writeDirectories: List.unmodifiable(control.writeDirectories),
+        clearDirectoryApproval: true);
     if (cancelled || control?.isCancelled?.call() == true) {
       return const CommandRefused('cancelled: command was not started');
     }
@@ -311,8 +337,9 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final network = (control?.networkRequested ?? false) || outsideSandbox;
     final literal = literalShellRequest(request);
     final readerRequest = literal ?? request;
-    final readerMode =
-        mode == PermissionMode.readOnly || mode == PermissionMode.allowEdits;
+    final readerMode = mode == PermissionMode.readOnly ||
+        mode == PermissionMode.allowEdits ||
+        mode == PermissionMode.auto;
     final shellReader = readerMode
         ? readOnlyShellRequest(request, searchPath: executableSearchPath)
         : null;
@@ -325,16 +352,48 @@ final class SandboxedProcessRunner implements ProcessRunner {
                         readerRequest, readDirectories!, workspaceRoot))
         ? candidate
         : null;
+    final ProcessDirectoryAccess declaredAccess;
+    final ProcessDirectoryAccess explicitAccess;
+    final ProcessDirectoryAccess directoryAccess;
+    try {
+      explicitAccess = _directoryRequirements(request, control, infer: false);
+      declaredAccess =
+          _directoryRequirements(request, control, infer: !outsideSandbox);
+      directoryAccess = ProcessDirectoryAccess(
+          read: declaredAccess.read.where((value) => !_canRead(value)),
+          write: declaredAccess.write
+              .where((value) => plan?.canWrite(value, linux: _linux) != true));
+    } on FormatException catch (error) {
+      return CommandRefused(error.message);
+    } on FileSystemException {
+      return const CommandRefused('Cannot resolve additional directory access');
+    }
+    bool directoriesUnchanged() {
+      try {
+        return (plan?.validDirectoryAccess(declaredAccess, linux: _linux) ??
+                true) &&
+            jsonEncode(_directoryRequirements(request, control, infer: false)
+                    .toJson()) ==
+                jsonEncode(explicitAccess.toJson());
+      } on FileSystemException {
+        return false;
+      } on FormatException {
+        return false;
+      }
+    }
+
     final requiredPermissions = {
       ProcessPermission.execution,
       if (network) ProcessPermission.network,
       if (outsideSandbox) ProcessPermission.unconfined,
+      if (!directoryAccess.isEmpty) ProcessPermission.directoryAccess,
     };
     final missing = requiredPermissions
         .where((permission) =>
             !(permission == ProcessPermission.execution &&
                 (reader != null || shellReader != null)) &&
-            !grants.coversRequest(request, permission: permission))
+            !grants.coversRequest(request,
+                permission: permission, directoryAccess: directoryAccess))
         .toSet();
     final decision = decideCommand(request, mode,
         writableDirectories: writableDirectories,
@@ -344,8 +403,9 @@ final class SandboxedProcessRunner implements ProcessRunner {
     if (decision.verdict == ToolVerdict.deny) {
       return CommandRefused(decision.reason);
     }
-    final baseReason =
-        decision.verdict == ToolVerdict.allow && missing.isNotEmpty
+    final baseReason = !directoryAccess.isEmpty
+        ? 'allow command with additional directory access (${request.command})?'
+        : decision.verdict == ToolVerdict.allow && missing.isNotEmpty
             ? 'allow network access for this command (${request.command})?'
             : decision.reason;
     final reason = outsideSandbox
@@ -357,13 +417,18 @@ final class SandboxedProcessRunner implements ProcessRunner {
             ? '$baseReason\nNetwork access: ${control?.networkReason ?? 'requested'}. '
                 'Access applies to this subprocess and its children. '
                 'Filesystem confinement is unchanged.'
-            : decision.reason;
+            : baseReason;
+    var remember = false;
     if (missing.isNotEmpty) {
       final review = CommandApproval(
         reason: reason,
-        isActive: () => !cancelled && control?.isCancelled?.call() != true,
+        isActive: () =>
+            !cancelled &&
+            control?.isCancelled?.call() != true &&
+            directoriesUnchanged(),
         requiredPermissions: requiredPermissions,
         missingPermissions: missing,
+        directoryAccess: directoryAccess,
         networkReason: network ? control?.networkReason : null,
         sandboxReason: outsideSandbox ? control?.sandboxReason : null,
         readDirectory: candidate != null
@@ -376,6 +441,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
       if (approve == null &&
           (fileApprover == null ||
               missing.contains(ProcessPermission.network) ||
+              missing.contains(ProcessPermission.directoryAccess) ||
               missing.contains(ProcessPermission.unconfined))) {
         return CommandRefused(
             '$reason — denied: no approver is wired to approve it');
@@ -394,12 +460,21 @@ final class SandboxedProcessRunner implements ProcessRunner {
         return CommandRefused('$reason — denied by the user or cancelled');
       }
       if (permission == Approval.always) {
-        grants.rememberRequest(request, permissions: missing);
+        remember = true;
       }
+    }
+    if (!directoriesUnchanged()) {
+      return const CommandRefused(
+          'Additional directories changed during approval');
+    }
+    if (remember) {
+      grants.rememberRequest(request,
+          permissions: missing, directoryAccess: directoryAccess);
     }
     final authorized = (control ?? const ProcessControl()).copyWith(
         networkAllowed: network,
         outsideSandboxAllowed: outsideSandbox,
+        approvedDirectories: directoryAccess,
         approvedHostEnvironment:
             outsideSandbox && plan != null ? request.environment : null);
     final spawned = reader == null
@@ -417,49 +492,6 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final confined = inner is! OsSandboxRunner ||
         ((inner as OsSandboxRunner).enabled &&
             (inner as OsSandboxRunner).backend != SandboxBackend.passThrough);
-    if (confined &&
-        !outsideSandbox &&
-        approveDirectory != null &&
-        plan != null) {
-      // Only known reader syntax yields a read candidate before execution.
-      // Ambiguous commands wait for a diagnostic instead of guessing writes.
-      final readDirectory = candidate == null
-          ? null
-          : readDirectoryForRequest(readerRequest, workspaceRoot);
-      final before = <SandboxAccessRequest>[
-        if (readDirectory != null)
-          SandboxAccessRequest(readDirectory, write: false),
-        if ({'touch', 'mkdir'}.contains(path.basename(request.command)) &&
-            request.arguments.every((arg) =>
-                !arg.startsWith('-') ||
-                arg == '--' ||
-                path.basename(request.command) == 'mkdir' && arg == '-p'))
-          for (final argument in request.arguments)
-            if (!argument.startsWith('-'))
-              SandboxAccessRequest(
-                  path.isAbsolute(argument)
-                      ? argument
-                      : path.join(
-                          request.workingDirectory ?? workspaceRoot ?? '.',
-                          argument),
-                  write: true),
-      ];
-      final offered = <String>{};
-      for (final access in before) {
-        final available = access.write
-            ? plan!.canWrite(access.path)
-            : plan!
-                .mountedLayout()
-                .any((root) => sandboxPathUnder(access.path, root));
-        if (available ||
-            !plan!.canGrant(access.path, write: access.write) ||
-            !offered.add(access.path)) continue;
-        if (!await approveDirectory(request, access, false, active) ||
-            !active()) {
-          return const CommandRefused('Directory access denied or cancelled');
-        }
-      }
-    }
     var outcome = await inner.run(spawned, control: authorized);
     if (confined &&
         !outsideSandbox &&
@@ -478,6 +510,75 @@ final class SandboxedProcessRunner implements ProcessRunner {
       }
     }
     return _completed(outcome, reason);
+  }
+
+  bool get _linux => inner is OsSandboxRunner
+      ? (inner as OsSandboxRunner).backend == SandboxBackend.bwrap
+      : Platform.isLinux;
+
+  bool _canRead(String value) =>
+      plan?.canRead(value,
+          backend: inner is OsSandboxRunner
+              ? (inner as OsSandboxRunner).backend
+              : null) ==
+      true;
+
+  ProcessDirectoryAccess _directoryRequirements(
+      ProcessRequest request, ProcessControl? control,
+      {required bool infer}) {
+    final read = <String>[...?control?.readDirectories];
+    final write = <String>[...?control?.writeDirectories];
+    final plan = this.plan;
+    if (plan == null) {
+      if (read.isNotEmpty || write.isNotEmpty) {
+        throw const FormatException('Directory access requires a sandbox plan');
+      }
+      return const ProcessDirectoryAccess.empty();
+    }
+    final cwd = request.workingDirectory ?? workspaceRoot ?? plan.workspaceRoot;
+    void add(String target, bool writable) {
+      if (writable ? plan.canWrite(target, linux: _linux) : _canRead(target))
+        return;
+      if (!plan.canGrant(target, write: writable, linux: _linux)) return;
+      var directory =
+          Directory(target).existsSync() ? target : path.dirname(target);
+      while (!Directory(directory).existsSync()) {
+        final parent = path.dirname(directory);
+        if (parent == directory) return;
+        directory = parent;
+      }
+      if (directory == path.separator ||
+          plan.hostHome != null &&
+              directory == canonicalSandboxPath(plan.hostHome!) ||
+          !plan.canGrant(directory, write: writable, linux: _linux)) return;
+      (writable ? write : read).add(directory);
+    }
+
+    final confined = inner is! OsSandboxRunner ||
+        ((inner as OsSandboxRunner).enabled &&
+            (inner as OsSandboxRunner).backend != SandboxBackend.passThrough);
+    if (infer && confined) {
+      for (final access in verifiedReaderAccesses(request,
+          searchPath: executableSearchPath)) {
+        add(access.path, false);
+      }
+      if ({'touch', 'mkdir'}.contains(path.basename(request.command)) &&
+          request.arguments.every((arg) =>
+              !arg.startsWith('-') ||
+              arg == '--' ||
+              path.basename(request.command) == 'mkdir' && arg == '-p')) {
+        for (final argument
+            in request.arguments.where((arg) => !arg.startsWith('-'))) {
+          add(
+              canonicalSandboxPath(path.isAbsolute(argument)
+                  ? argument
+                  : path.join(cwd, argument)),
+              true);
+        }
+      }
+    }
+    return plan.resolveDirectoryAccess(
+        read: read.toSet(), write: write.toSet(), cwd: cwd, linux: _linux);
   }
 
   /// The inner runner may refuse (a host-enforced seam) or report an

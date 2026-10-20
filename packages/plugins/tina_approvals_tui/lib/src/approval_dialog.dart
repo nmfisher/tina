@@ -129,6 +129,8 @@ class ApprovalDialog {
       _directoryOffers.isNotEmpty &&
       ask?.confirmation != true &&
       call?.argumentsParseError == null;
+  bool get _hasInvocationDirectories =>
+      _hasDirectoryOffers && ask?.details['invocation_directory_access'] is Map;
   String? get _readDirectory => ask?.confirmation != true &&
           ask?.details['directory_accesses'] is! List &&
           _hasAlways &&
@@ -229,6 +231,11 @@ class ApprovalDialog {
       : [
           'allow',
           'deny',
+          if (_hasInvocationDirectories) ...[
+            'allow directories session',
+            if (_directoryScopes.contains(DirectoryGrantScope.workspace))
+              'allow directories workspace',
+          ],
           // Every remembered-approval scope is its own row: one menu, one
           // decision, no second round-trip through a submenu.
           if (_hasAlways) 'allow always',
@@ -265,7 +272,11 @@ class ApprovalDialog {
         'allow always' => ApprovalDecision.allowAlways,
         'allow workspace' => ApprovalDecision.allowWorkspace,
         'allow global' => ApprovalDecision.allowGlobal,
-        'allow' || 'Yes' => ApprovalDecision.allow,
+        'allow' ||
+        'Yes' ||
+        'allow directories session' ||
+        'allow directories workspace' =>
+          ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
       });
 
@@ -321,6 +332,11 @@ class ApprovalDialog {
     final hasDenialReason =
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
+      if (ask?.details['invocation_directory_access'] case final Map access)
+        for (final kind in ['read', 'write'])
+          if (access[kind] case final List paths)
+            for (final path in paths)
+              'This invocation: $kind access to $path${kind == 'write' ? ' (includes deletes)' : ''}',
       if (ask?.details['accesses'] case final List accesses)
         for (final access in accesses)
           if (access is Map && access['path'] is String)
@@ -412,7 +428,8 @@ class ApprovalDialog {
       if (detail.startsWith('Directory:') || detail.startsWith('Mode:')) {
         return chat.dim;
       }
-      if (detail.startsWith('Why:') || detail.startsWith('Environment:') ||
+      if (detail.startsWith('Why:') ||
+          detail.startsWith('Environment:') ||
           detail.startsWith('⚠')) {
         return chat.yellow;
       }
@@ -445,6 +462,11 @@ class ApprovalDialog {
                 ? '[y] grant selected directory access and run'
                 : '[y] allow once',
             '[n] deny',
+            if (_hasInvocationDirectories) ...[
+              'allow once and remember requested folders for this session',
+              if (_directoryScopes.contains(DirectoryGrantScope.workspace))
+                'allow once and remember requested folders for this workspace',
+            ],
             if (_hasAlways) '[a] $alwaysLabel',
             if (_hasPersistent) ...[
               '[p] remember this command for this workspace',
@@ -476,8 +498,8 @@ class ApprovalDialog {
             // Narrow terminal: one clipped row beats a banner that eats the
             // dialog; Tab still shows the full reason.
             ? [
-                clipDialogText(
-                    'Auto approver denied this: $denialReason', (width - 4).clamp(1, width))
+                clipDialogText('Auto approver denied this: $denialReason',
+                    (width - 4).clamp(1, width))
               ]
             : wrapDialogText('Auto approver denied this: $denialReason',
                 (width - 2).clamp(1, width)))
@@ -507,8 +529,7 @@ class ApprovalDialog {
       // The auto-approver's reason for refusing is the decision the user must
       // weigh in on: pin it under the header, unpaged, and style it as a
       // warning so it never hides among the preview rows or pages away.
-      for (final line in bannerLines)
-        row('│ ⚠ $line', chat.yellow),
+      for (final line in bannerLines) row('│ ⚠ $line', chat.yellow),
       ...preview.skip(_previewOffset).take(budget),
       if (paged)
         row('│ Preview ${_previewOffset + 1}–${_previewOffset + budget}/${preview.length} · PgUp/PgDn or wheel',
@@ -635,9 +656,24 @@ class ApprovalDialog {
   }
 
   /// The decision the current selection maps to.
-  ApprovalOutcome get current =>
-      _outcome(decisionFor(_selected),
-          editCommandPattern: _choices[_selected] == 'edit command pattern');
+  ApprovalOutcome get current {
+    final choice = _choices[_selected];
+    if (choice == 'allow directories session' ||
+        choice == 'allow directories workspace') {
+      final access = ask!.details['invocation_directory_access'] as Map;
+      final scope = choice == 'allow directories session'
+          ? DirectoryGrantScope.session
+          : DirectoryGrantScope.workspace;
+      return ApprovalOutcome(ApprovalDecision.allow, directoryGrants: [
+        for (final offer in _directoryOffers)
+          if ((access[offer.access.name] as List?)?.contains(offer.path) ==
+              true)
+            DirectoryAccessGrant(offer.path, offer.access, scope),
+      ]);
+    }
+    return _outcome(decisionFor(_selected),
+        editCommandPattern: choice == 'edit command pattern');
+  }
 
   /// The decision for the scope matching [shortcut], when the ask offers
   /// persistent scopes. Returns null when that scope is not offered.
@@ -697,9 +733,7 @@ class ApprovalDialog {
           handleKey(key!);
           onKey?.call();
         case ApprovalKey.confirm:
-          if (!_details &&
-              !_onDirectoryCheckbox &&
-              !_onScope) {
+          if (!_details && !_onDirectoryCheckbox && !_onScope) {
             return current;
           }
           handleKey(key!);

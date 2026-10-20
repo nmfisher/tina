@@ -185,7 +185,8 @@ void main() {
       }
       final judged = jsonDecode(judgeRequests.first) as Map;
       expect(judged['required_permissions'], ['execution', 'network']);
-      expect(judged['missing_permissions'], ['execution', 'network']);
+      expect(judged['missing_permissions'], ['network'],
+          reason: 'verified echo execution is already allowed in auto mode');
       expect(judged['executable'], '/bin/echo');
       expect(judged['arguments'], ['network reviewed']);
       expect(judged['network_reason'], 'test network action');

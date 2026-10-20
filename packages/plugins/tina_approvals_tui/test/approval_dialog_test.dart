@@ -9,6 +9,48 @@ import 'package:tina_approvals/tina_approvals.dart';
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
 
+  test(
+      'invocation access offers once and direct session/workspace folder choices',
+      () {
+    ApprovalDialog dialog() => ApprovalDialog(null,
+        ask: const ApprovalAskContext('run command', 'build', 'review',
+            details: {
+              'invocation_directory_access': {
+                'read': ['/input'],
+                'write': ['/output']
+              },
+              'directory_accesses': [
+                {'path': '/input', 'access': 'read', 'source': 'verified'},
+                {'path': '/output', 'access': 'write', 'source': 'verified'},
+                {'path': '/inferred', 'access': 'write', 'source': 'inferred'},
+              ],
+              'directory_grant_scopes': ['session', 'workspace', 'global'],
+            }));
+    final once = dialog();
+    expect(once.current.decision, ApprovalDecision.allow);
+    expect(once.current.directoryGrants, isEmpty);
+    final rows = once.rows(width: 120).map(text).join('\n');
+    expect(rows, contains('This invocation: read access to /input'));
+    expect(rows, contains('write access to /output (includes deletes)'));
+    expect(rows, contains('remember requested folders for this session'));
+    final session = dialog();
+    session.handleKey(ApprovalKey.down);
+    session.handleKey(ApprovalKey.down);
+    expect(session.current.decision, ApprovalDecision.allow);
+    expect(session.current.directoryGrants.map((g) => g.path),
+        ['/input', '/output']);
+    expect(
+        session.current.directoryGrants
+            .every((g) => g.scope == DirectoryGrantScope.session),
+        true);
+    session.handleKey(ApprovalKey.down);
+    expect(
+        session.current.directoryGrants
+            .every((g) => g.scope == DirectoryGrantScope.workspace),
+        true);
+    expect(session.current.directoryGrants.last.access, DirectoryAccess.write);
+  });
+
   // Coverage copy is a warning when knowledge is short, silent when the
   // analysis is verified complete, and never analyst jargon.
   test('access coverage copy warns in plain language', () {
@@ -38,13 +80,21 @@ void main() {
           'access_coverage_source': 'inferred',
           'unresolved_accesses': ['Variable expansion.']
         }),
-        allOf(contains('⚠ File analysis incomplete: may affect files not '
-            'listed above'), contains('Not analyzed: Variable expansion.')));
+        allOf(
+            contains('⚠ File analysis incomplete: may affect files not '
+                'listed above'),
+            contains('Not analyzed: Variable expansion.')));
     expect(
-        render({'access_coverage': 'complete', 'access_coverage_source': 'inferred'}),
+        render({
+          'access_coverage': 'complete',
+          'access_coverage_source': 'inferred'
+        }),
         contains('Files: AI analysis · no other files detected'));
     expect(
-        render({'access_coverage': 'complete', 'access_coverage_source': 'verified'}),
+        render({
+          'access_coverage': 'complete',
+          'access_coverage_source': 'verified'
+        }),
         isNot(contains('coverage')));
   });
 
@@ -139,8 +189,10 @@ void main() {
     final view = dialog();
     final rendered = view.rows(width: 140).map(text).join('\n');
     expect(rendered, contains('delete: /output/old (file, inferred)'));
-    expect(rendered,
-        contains('⚠ File analysis incomplete: may affect files not listed above'));
+    expect(
+        rendered,
+        contains(
+            '⚠ File analysis incomplete: may affect files not listed above'));
     expect(rendered, contains('Not analyzed: Shell expansion is unresolved.'));
     expect(rendered, isNot(contains('Access coverage')));
     expect(rendered, contains('Save directory grants: workspace'));

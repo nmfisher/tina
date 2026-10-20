@@ -241,6 +241,103 @@ class SandboxPlan {
     return true;
   }
 
+  /// Match the actual backend's read policy, not Linux mount visibility on
+  /// every platform. Protected aliases take precedence over all grants.
+  bool canRead(String value, {SandboxBackend? backend}) {
+    if (isProtected(value)) return false;
+    final target = canonicalSandboxPath(value);
+    final selected = backend ??
+        (Platform.isMacOS ? SandboxBackend.sandboxExec : SandboxBackend.bwrap);
+    if (selected == SandboxBackend.passThrough) return true;
+    if (selected == SandboxBackend.sandboxExec) {
+      final host = hostHome;
+      if (host == null || !_under(target, canonicalSandboxPath(host)))
+        return true;
+      return sandboxPathAliases(readAllowPaths)
+          .any((root) => _under(target, root));
+    }
+    return sandboxPathAliases([...mountedLayout(), '/dev', '/proc'])
+        .any((root) => _under(target, root));
+  }
+
+  List<String> get readAllowPaths => [
+        ...writableLayout(),
+        ...?readDirectories?.existingPaths,
+      ];
+
+  ProcessDirectoryAccess resolveDirectoryAccess({
+    Iterable<String> read = const [],
+    Iterable<String> write = const [],
+    required String cwd,
+    bool? linux,
+  }) {
+    if (read.length + write.length > 32) {
+      throw const FormatException(
+          'At most 32 additional directories are allowed');
+    }
+    String resolve(String value, bool write) {
+      if (value.trim().isEmpty || RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
+        throw const FormatException('Invalid directory path');
+      }
+      final directory =
+          Directory(path.isAbsolute(value) ? value : path.join(cwd, value));
+      if (!directory.existsSync()) {
+        throw const FormatException(
+            'Additional access requires an existing directory; use its existing parent');
+      }
+      final resolved = directory.resolveSymbolicLinksSync();
+      if (resolved == path.separator ||
+          hostHome != null && resolved == canonicalSandboxPath(hostHome!) ||
+          !canGrant(resolved, write: write, linux: linux)) {
+        throw const FormatException(
+            'Additional access must name a specific, unprotected directory');
+      }
+      return resolved;
+    }
+
+    return ProcessDirectoryAccess(
+        read: read.map((value) => resolve(value, false)),
+        write: write.map((value) => resolve(value, true)));
+  }
+
+  /// Revalidate after asynchronous approval and immediately before spawning.
+  bool validDirectoryAccess(ProcessDirectoryAccess access, {bool? linux}) {
+    try {
+      final current = resolveDirectoryAccess(
+          read: access.read,
+          write: access.write,
+          cwd: workspaceRoot,
+          linux: linux);
+      return current.read.join('\u0000') == access.read.join('\u0000') &&
+          current.write.join('\u0000') == access.write.join('\u0000');
+    } on FileSystemException {
+      return false;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// A private layout for one invocation. Never mutate live settings or the
+  /// shared plan, which may be serving other running jobs.
+  SandboxPlan withDirectoryAccess(ProcessDirectoryAccess access) {
+    if (access.isEmpty) return this;
+    return SandboxPlan(
+      workspaceRoot: workspaceRoot,
+      tinaDir: tinaDir,
+      writablePaths: writablePaths,
+      readDirectories: ReadOnlyDirectories()
+        ..replace([...?readDirectories?.existingPaths, ...access.read]),
+      writeDirectories: WriteDirectories()
+        ..replace([...?writeDirectories?.existingPaths, ...access.write]),
+      isolateNetwork: isolateNetwork,
+      childEnvironment: _childEnvironment,
+      parentEnvironment: parentEnvironment,
+      home: home,
+      realHome: realHome,
+      protectedPaths: protectedPaths,
+    );
+  }
+
   /// The visible world: workspace, selected caches, session home and host
   /// temp directories; read-only toolchains and explicit grants. Credential
   /// and configuration exclusions take precedence over broader grants.
@@ -354,6 +451,20 @@ final class OsSandboxRunner implements ProcessRunner {
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
+    final access =
+        control?.approvedDirectories ?? const ProcessDirectoryAccess.empty();
+    if ((control?.readDirectories.isNotEmpty == true ||
+            control?.writeDirectories.isNotEmpty == true) &&
+        control?.approvedDirectories == null) {
+      return const CommandRefused('Directory access has not been approved.');
+    }
+    if (!this
+        .plan
+        .validDirectoryAccess(access, linux: backend == SandboxBackend.bwrap)) {
+      return const CommandRefused(
+          'Approved directories changed before execution');
+    }
+    final plan = this.plan.withDirectoryAccess(access);
     if (control?.outsideSandboxRequested == true &&
         (control?.outsideSandboxAllowed != true ||
             control?.networkAllowed != true)) {
@@ -440,8 +551,8 @@ final class OsSandboxRunner implements ProcessRunner {
     } on FileSystemException catch (error) {
       return CommandRefused('Cannot prepare protected sandbox paths: $error');
     }
-    final layout = _layout();
-    final mounted = _mountedPaths(layout);
+    final layout = _layout(plan);
+    final mounted = _mountedPaths(layout, plan);
     if (backend == SandboxBackend.bwrap && path.isAbsolute(request.command)) {
       final file = File(request.command);
       // Bind sources can be symlinks. Their resolved host paths need not be
@@ -481,10 +592,7 @@ final class OsSandboxRunner implements ProcessRunner {
               hidePath: plan.hostHome == null
                   ? null
                   : canonicalSandboxPath(plan.hostHome!),
-              readAllowPaths: sandboxPathAliases([
-                ...plan.writableLayout(),
-                ...?plan.readDirectories?.existingPaths,
-              ]),
+              readAllowPaths: sandboxPathAliases(plan.readAllowPaths),
               isolateNetwork:
                   plan.isolateNetwork && !(control?.networkAllowed ?? false),
             ),
@@ -501,7 +609,7 @@ final class OsSandboxRunner implements ProcessRunner {
       timeout: request.timeout,
     ), control: control);
     return completed is CommandCompleted
-        ? _decode(completed, mounted, request)
+        ? _decode(completed, mounted, request, plan)
         : completed;
   }
 
@@ -509,7 +617,7 @@ final class OsSandboxRunner implements ProcessRunner {
   /// completion; a failure the classifier blames on the kernel becomes
   /// [CommandBlocked]; anything else stays an ordinary completed run.
   RunOutcome _decode(CommandCompleted completed, List<String> mounted,
-      ProcessRequest request) {
+      ProcessRequest request, SandboxPlan plan) {
     if (completed.exitCode == 0 || completed.cancelled || completed.timedOut)
       return completed;
     final denial = classifySandboxFailure(
@@ -546,7 +654,7 @@ final class OsSandboxRunner implements ProcessRunner {
     ]);
   }
 
-  List<String> _mountedPaths(SandboxHostLayout layout) => [
+  List<String> _mountedPaths(SandboxHostLayout layout, SandboxPlan plan) => [
         ...layout.readOnlyDirectories,
         ...layout.temporaryDirectories,
         plan.workspaceRoot,
@@ -556,7 +664,8 @@ final class OsSandboxRunner implements ProcessRunner {
         '/proc',
       ];
 
-  SandboxHostLayout _layout() {
+  SandboxHostLayout _layout([SandboxPlan? invocation]) {
+    final plan = invocation ?? this.plan;
     final base = hostLayout?.call() ??
         SandboxHostLayout.inspect(
           readOnlyDirectories: kSandboxReadOnlyBinds,

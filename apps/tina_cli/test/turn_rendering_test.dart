@@ -5,6 +5,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina/tui.dart';
 import 'package:tina_tools/tina_tools.dart';
+import 'package:tina_persistence/tina_persistence.dart';
 import 'app_test.dart' show FakeIo, fakeScreen, approvalUi;
 
 Future<void> waitFor(bool Function() predicate) async {
@@ -39,6 +40,70 @@ final class ControlledProvider implements LlmProvider {
 
 void main() {
   for (final panels in [false, true]) {
+    test(
+      '/quit stops streaming and discards queued input (panels=$panels)',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('tina_quit_');
+        final config = File('${directory.path}/config')..writeAsStringSync('''
+[default]
+model="controlled"
+[plugins]
+enabled=["tina/chat-tui", "tina/persistence"${panels ? ', "tina/panels-tui"' : ''}]
+''');
+        final provider = ControlledProvider();
+        final session = TuiSession.start(
+          providerFactory: (_) => provider,
+          workingDirectory: directory.path,
+          configPath: config.path,
+        );
+        final io = FakeIo();
+        late LineEditor editor;
+        final app = runTui(
+          session,
+          screen: fakeScreen(io),
+          editorFor: (screen) => editor = LineEditor(screen: screen),
+        );
+        addTearDown(() async {
+          session.cancel();
+          io.closeInput();
+          await app.timeout(const Duration(seconds: 3));
+          directory.deleteSync(recursive: true);
+        });
+        await waitFor(() => editor.isEditing);
+        io.feedBytes('first\r'.codeUnits);
+        await waitFor(() => provider.requests.length == 1);
+        provider.requests.single.add(const TextDelta('partial reply'));
+        await waitFor(() => io.written.toString().contains('partial reply'));
+        // Non-live commands wait in the view queue; /quit must bypass them.
+        io.feedBytes('/help\r/quit\r'.codeUnits);
+        expect(await app.timeout(const Duration(seconds: 3)), 0);
+        expect(session.host.session.loop.running, isFalse);
+        expect(provider.requests, hasLength(1));
+        expect(
+          session.host.session.turns.single.stopReason,
+          StopReason.cancelled,
+        );
+        final store = SessionStore.open(
+          defaultSessionStorePath(directory.path),
+        );
+        try {
+          expect(store.checkGaps(session.host.session.id), isEmpty);
+          expect(
+            store.readEntries(session.host.session.id).map((e) => e.toJson()),
+            session.host.session.loop.log.map((e) => e.toJson()),
+          );
+          expect(
+            store
+                .readEntries(session.host.session.id)
+                .whereType<TurnEndedEntry>(),
+            hasLength(1),
+          );
+        } finally {
+          store.close();
+        }
+      },
+    );
+
     test('Ctrl+C clears a busy draft, then quits a live turn (panels=$panels)',
         () async {
       final directory = Directory.systemTemp.createTempSync('tina_ctrlc_quit_');

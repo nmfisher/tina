@@ -485,14 +485,14 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('keep working\r');
     final provider = providers.first;
     await waitFor(() => provider.requests.length == 1);
-    await keys('/quit\r/settings\r');
+    await keys('/settings\r');
     await waitFor(() => editor.isReadingKey);
     final before = File('${dir.path}/config').readAsStringSync();
     await keys('Mode and auto approval\r');
     await keys('classifier instruction\r\r');
     await keys('unconfirmed instruction');
     expect(io.written.toString(), contains('unconfirmed instruction'));
-    provider.answer(0, 'finished');
+    await session.assembly.handleCommand('/quit');
     expect(await app.timeout(const Duration(seconds: 3)), 0);
     expect(File('${dir.path}/config').readAsStringSync(), before);
   });
@@ -598,8 +598,11 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     for (final access in ['confined', 'network', 'outside sandbox']) {
       final network = access == 'network';
       final outside = access == 'outside sandbox';
+      Iterable<Map<String, Object?>> sessionGrants() =>
+          session.assembly.tools.commandApprovals.entries
+              .where((entry) => entry['scope'] == 'session');
       int rememberedCommands() => outside
-          ? session.assembly.tools.commandApprovals.entries.length
+          ? sessionGrants().length
           : session.assembly.tools.processRunner.grants.length;
       test(
           'UI Always (${selectAlways ? 'arrows and Enter' : 'shortcut'}) remembers the exact command ($access) on later turns, even after failure',
@@ -663,7 +666,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         expect(rememberedCommands(), 1);
         if (outside) {
           expect(
-              session.assembly.tools.commandApprovals.entries.single['scope'],
+              sessionGrants().single['scope'],
               'session');
           expect(session.assembly.tools.processRunner.grants.length, 0,
               reason: 'host approvals use the revocable scoped store');

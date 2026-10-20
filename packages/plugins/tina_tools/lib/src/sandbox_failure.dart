@@ -31,6 +31,9 @@ sealed class SandboxDenial {
   /// by this evidence.
   String get recoveryInstructions => '$explanation\n'
       'The operating system\'s sandbox prevented this command from completing. '
+      'For a known external directory, request read_directories or '
+      'write_directories on exec/bash to keep the sandbox active. '
+      'The earlier attempt may already have changed files; check before retrying. '
       'To request running this exact command outside the sandbox, call exec '
       'or bash with outside_sandbox: true and sandbox_reason explaining this '
       'failure. This requests separate human approval for host filesystem '

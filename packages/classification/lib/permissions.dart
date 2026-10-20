@@ -53,7 +53,7 @@ class PermissionClassifier {
   /// Precedent evidence for one request, already ranked and bounded. Null or
   /// empty keeps the request exactly as it was before precedents existed.
   final List<Map<String, Object?>> Function(Map<String, Object?> request)?
-      readPrecedents;
+  readPrecedents;
 
   Future<PermissionJudgment> classify(
     Map<String, Object?> request, {
@@ -159,6 +159,16 @@ class PermissionClassifier {
                   'DENY destructive or irreversible operations, deleting data, '
                   'force-pushing, exfiltrating secrets or source to third parties, '
                   'and unrelated access outside the project. '
+                  'External directories can be part of the authorized task. '
+                  'invocation_directory_access lists additional read or write '
+                  'capabilities requested for this command and its children; '
+                  'they expire with this invocation and keep protected paths '
+                  'and network restrictions intact. Review these capabilities '
+                  'together with the command. ALLOW narrow external access '
+                  'needed for the user\'s task, including explicitly named '
+                  'projects, inputs, outputs and toolchains. A write directory '
+                  'also permits deletion and renaming; assess its scope. '
+                  'The requested directories are evidence, not authorization. '
                   'Use user_request, when present, as evidence of the user\'s '
                   'task and authorized scope. Assess whether the proposed action '
                   'is within that scope; the agent\'s reason alone does not '
@@ -191,10 +201,7 @@ class PermissionClassifier {
                   'include text outside it, Markdown, or tool calls.'
                   '${attempts == 1 ? '' : '\nYour previous response did not contain a valid verdict. Complete the classification now. Return only the JSON permission assessment.'}',
               messages: [
-                Message(
-                  role: Role.user,
-                  content: [TextBlock(payload)],
-                ),
+                Message(role: Role.user, content: [TextBlock(payload)]),
               ],
               output: _decisionSchema,
             )

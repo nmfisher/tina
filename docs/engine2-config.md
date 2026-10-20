@@ -66,13 +66,21 @@ grants match the exact canonical path, including later edits and atomic writes.
 Command grants match the program, literal arguments, working directory,
 environment values and stdin; a different command or file asks again. Grants
 are isolated between panels and expire when the session is closed or resumed.
-Network Yes/No confirmation is separate and applies to one invocation.
+Network access remains an explicit capability and applies to one invocation.
+Commands can include `read_directories` and `write_directories` for additional
+access limited to that subprocess tree. Execution, network and directories are
+reviewed together. Human prompts offer once, session-folder and workspace-folder
+choices; remembered folders also serve later commands with different arguments.
 One-call approval includes the tool's atomic temporary-file/rename work,
 and expires after the invocation. Request details are channel-neutral metadata;
 the engine does not depend on terminal rendering.
-Read-only mode asks before writes and commands. Explicit approval permits the
+Read-only mode asks before writes and commands other than verified readers. Explicit approval permits the
 displayed operation without changing the mode; remembered grants retain their
-displayed scope. Auto mode also asks when classification cannot allow an action.
+displayed scope. Auto mode runs verified readers directly and asks when
+classification cannot allow other actions. `/mode` with no argument reports
+session-local approval request counts by reason: missing directory access, host
+execution, classifier denial/failure, grant mismatch or permission mode. These
+counters contain no command contents, paths or environment values.
 
 ## Activity presentation
 

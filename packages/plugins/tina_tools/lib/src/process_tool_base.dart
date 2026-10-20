@@ -37,6 +37,8 @@ abstract class ProcessToolBase implements Tool {
     bool outsideSandbox;
     String reason;
     String sandboxReason;
+    List<String> readDirectories;
+    List<String> writeDirectories;
     try {
       network = optionalBool(input, 'network') ?? false;
       background = optionalBool(input, 'background') ?? false;
@@ -52,6 +54,23 @@ abstract class ProcessToolBase implements Tool {
       if (outsideSandbox && sandboxReason.trim().isEmpty) {
         throw const ToolValidationException('sandbox_reason is required');
       }
+      List<String> directories(String key) {
+        final raw = input[key];
+        if (raw == null) return const [];
+        if (raw is! List ||
+            raw.length > 32 ||
+            raw.any((value) =>
+                value is! String ||
+                value.trim().isEmpty ||
+                value.contains('\u0000'))) {
+          throw ToolValidationException(
+              '$key must contain at most 32 directory paths');
+        }
+        return List<String>.unmodifiable(raw.cast<String>());
+      }
+
+      readDirectories = directories('read_directories');
+      writeDirectories = directories('write_directories');
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);
     }
@@ -63,6 +82,9 @@ abstract class ProcessToolBase implements Tool {
       outsideSandboxRequested: outsideSandbox,
       sandboxReason: sandboxReason,
       outsideSandboxAllowed: false,
+      readDirectories: readDirectories,
+      writeDirectories: writeDirectories,
+      clearDirectoryApproval: true,
       background: background,
     );
     final watch = Stopwatch()..start();

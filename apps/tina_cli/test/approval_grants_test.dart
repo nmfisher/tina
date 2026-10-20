@@ -105,7 +105,7 @@ model = "scripted"
             expect(accesses.single['operation'], 'read');
             expect(
               request.details['access_coverage'],
-              entry.inferred ? 'partial' : 'unknown',
+              entry.inferred ? 'partial' : 'complete',
             );
             final offer =
                 (request.details['directory_accesses'] as List).single;
@@ -144,6 +144,9 @@ model = "scripted"
           environment: null,
           stdin: null,
           timeout: null,
+        ), control: entry.inferred ? null : const ProcessControl(
+          networkRequested: true,
+          networkReason: 'Exercise unavailable classifier with a verified reader',
         ));
         expect(result, isA<CommandCompleted>());
         expect(asks, 1);

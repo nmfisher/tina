@@ -447,11 +447,19 @@ final class HostPromptSection {
           'project edits and verified system reader commands, pipelines and sequences run; '
               'other commands and outside writes require approval',
         PermissionMode.auto =>
-          'reads run; a safety judge reviews writes and commands; uncertain decisions ask the user',
+          'reads and verified system reader commands run; a safety judge reviews writes, other commands and additional directory access; uncertain decisions ask the user',
       }}.\n\n'
       '${sandboxDescription?.call() ?? ''}\n\n'
       'Ordinary command approval does not change the OS confinement described '
       'above; it does not expose hidden paths or remove filesystem limits. '
+      'For external task files or toolchains, request read_directories or '
+      'write_directories on exec/bash. Name the narrowest existing directories; '
+      'relative paths resolve from the invocation working directory. These '
+      'capabilities are reviewed with the command and apply only to its '
+      'subprocess tree, without changing later calls or network access. '
+      'Known reader operands and simple touch/mkdir targets are gathered '
+      'before review. Human folder grants can be remembered for the session '
+      'or workspace and then reused by later commands. '
       'Sandboxed commands use a synthetic HOME with selected writable caches. '
       'Host credential files and authentication configuration are excluded. '
       'When host authentication is required, request outside_sandbox: true '

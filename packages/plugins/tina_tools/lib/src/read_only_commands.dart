@@ -348,6 +348,18 @@ List<PermissionAccess> verifiedReaderAccesses(ProcessRequest request,
   return accesses;
 }
 
+/// Complete only when every component is a certified reader and every path
+/// operand resolved. A partial report must never enable precedent reuse.
+bool hasCompleteReaderAccesses(ProcessRequest request, {String? searchPath}) {
+  final parts = _literalShellParts(request);
+  final components = parts == null
+      ? [request]
+      : parts.map((part) => _partRequest(request, part.words));
+  return components.every((component) =>
+      readOnlyExecutable(component, searchPath: searchPath) != null &&
+      _readTargets(component, reportOnly: true) != null);
+}
+
 bool _inWorkspace(String target, String workspace) {
   try {
     final root = Directory(workspace).resolveSymbolicLinksSync();
