@@ -36,6 +36,8 @@
     "tina_activity_tui",
     "tina_context_tui",
     "tina_cwd_tui",
+    "tina_tasks_tui",
+    "tina_token_rate_tui",
     "tina_chat_tui",
     "tina_grok_guard",
     "tina_mode",
@@ -58,6 +60,8 @@
     "tina_activity_tui",
     "tina_context_tui",
     "tina_cwd_tui",
+    "tina_tasks_tui",
+    "tina_token_rate_tui",
     "tina_chat_tui",
     "tina_plans_tui",
     "tina_classification_tui",
@@ -203,6 +207,10 @@
       "lib",
       "test"
     ],
+    "tina_tasks_tui": [
+      "lib",
+      "test"
+    ],
     "tina_chat_tui": [
       "lib",
       "test"
@@ -228,6 +236,10 @@
       "test"
     ],
     "tina_cwd_tui": [
+      "lib",
+      "test"
+    ],
+    "tina_token_rate_tui": [
       "lib",
       "test"
     ],
@@ -333,6 +345,7 @@
     "tina_self_update": "packages/plugins/tina_self_update",
     "tina_providers": "packages/plugins/tina_providers",
     "tina_activity_tui": "packages/plugins/tina_activity_tui",
+    "tina_tasks_tui": "packages/plugins/tina_tasks_tui",
     "tina_chat_tui": "packages/plugins/tina_chat_tui",
     "tina_grok_guard": "packages/plugins/tina_grok_guard",
     "tina_mode": "packages/plugins/tina_mode",
@@ -340,6 +353,7 @@
     "tina_settings": "packages/libraries/tina_settings",
     "tina_context_tui": "packages/plugins/tina_context_tui",
     "tina_cwd_tui": "packages/plugins/tina_cwd_tui",
+    "tina_token_rate_tui": "packages/plugins/tina_token_rate_tui",
     "tina_mcp_tui": "packages/plugins/tina_mcp_tui",
     "tina_chat": "packages/plugins/tina_chat",
     "tina_activity": "packages/plugins/tina_activity",
@@ -393,6 +407,11 @@
       "tina_engine_2",
       "tina_console",
       "tina_host"
+    ],
+    "tina_tasks_tui": [
+      "tina_host",
+      "tina_tasks",
+      "tina_console"
     ],
     "tina_chat_tui": [
       "tina_host",
@@ -476,6 +495,8 @@
       "tina_subagents",
       "tina_system_instruction",
       "tina_tasks",
+      "tina_tasks_tui",
+      "tina_token_rate_tui",
       "tina_tools",
       "tina_tui",
       "toml"
@@ -488,6 +509,12 @@
     ],
     "tina_cwd_tui": [
       "tina_console"
+    ],
+    "tina_token_rate_tui": [
+      "meta",
+      "tina_chat",
+      "tina_console",
+      "tina_engine_2"
     ],
     "tina_mcp_tui": [
       "tina_mcp",

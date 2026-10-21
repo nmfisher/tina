@@ -26,6 +26,10 @@ void main() {
     root = Directory.systemTemp.createTempSync('tina-grant-e2e-');
     workspace = Directory('${root.path}/workspace')..createSync();
     external = Directory('${root.path}/external')..createSync();
+    // The plugin's tinaDir must exist: a missing protected leaf makes its
+    // parent a protected-parent on Linux, where write grants into that
+    // parent are deliberately refused (sandbox mount masking).
+    Directory('${external.path}/.tina').createSync();
     other = Directory('${root.path}/external-other')..createSync();
   });
   tearDown(() => root.deleteSync(recursive: true));

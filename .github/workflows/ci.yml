@@ -921,6 +921,46 @@ jobs:
         working-directory: packages/plugins/tina_tasks
         run: dart test -j 4
 
+  tina_tasks_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tasks_tui')
+    name: tina_tasks_tui (packages/plugins/tina_tasks_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_tasks_tui)
+        working-directory: packages/plugins/tina_tasks_tui
+        run: dart pub get
+      - name: analyze (tina_tasks_tui)
+        working-directory: packages/plugins/tina_tasks_tui
+        run: dart analyze
+      - name: test (tina_tasks_tui)
+        working-directory: packages/plugins/tina_tasks_tui
+        run: dart test -j 4
+
+  tina_token_rate_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_token_rate_tui')
+    name: tina_token_rate_tui (packages/plugins/tina_token_rate_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_token_rate_tui)
+        working-directory: packages/plugins/tina_token_rate_tui
+        run: dart pub get
+      - name: analyze (tina_token_rate_tui)
+        working-directory: packages/plugins/tina_token_rate_tui
+        run: dart analyze
+      - name: test (tina_token_rate_tui)
+        working-directory: packages/plugins/tina_token_rate_tui
+        run: dart test -j 4
+
   tina_persistence:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'tina_persistence')
