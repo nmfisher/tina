@@ -15,7 +15,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_mode/tina_mode.dart' show ModePlugin;
+import 'package:tina_mode/tina_mode.dart' show ModePlugin, PermissionMode;
 import 'package:tina/session.dart';
 import 'package:tina/tui.dart';
 import 'package:tina_self_update/tina_self_update.dart';
@@ -228,6 +228,26 @@ void main() {
       expect(env.assembly.commands['quit'], isNotNull);
       env.assembly.close();
     });
+  });
+
+  test('yolo option starts the session with permission checks disabled', () async {
+    final ws = Directory.systemTemp.createTempSync('tina_yolo_');
+    addTearDown(() => ws.deleteSync(recursive: true));
+    final app = SessionAssembly.start(
+      writer: CapturedWriter(),
+      providerFactory: (_) => ScriptedProvider([]),
+      options: AssemblyOptions(
+        configPath: '/nonexistent/tina/config',
+        workingDirectory: ws.path,
+        yolo: true,
+      ),
+    );
+    addTearDown(app.close);
+    expect(app.tools.mode, PermissionMode.yolo);
+    expect(ModePlugin.wordFor(app.tools.mode), 'yolo');
+    // yolo is not selectable through /mode.
+    await app.handleCommand('/mode yolo');
+    expect(app.tools.mode, PermissionMode.yolo);
   });
 
   group('a full turn through the host', () {

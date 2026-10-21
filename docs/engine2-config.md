@@ -82,6 +82,15 @@ session-local approval request counts by reason: missing directory access, host
 execution, classifier denial/failure, grant mismatch or permission mode. These
 counters contain no command contents, paths or environment values.
 
+`tina --yolo` starts a session with every permission and approval check
+disabled: reads, writes and commands run anywhere without a request, and the
+safety judge never runs. yolo is a launch-time flag only — it is not exposed
+through `/mode` and is not persisted, so a resumed session cannot enter it.
+It bypasses the *permission* gate alone: OS filesystem and network confinement
+remain governed by `--no-sandbox`. Run `tina --yolo --no-sandbox` for a fully
+unconfined session. A prominent warning is printed at launch. This is meant
+for trusted, disposable environments; use with extreme care.
+
 ## Activity presentation
 
 `tina/activity-tui` is included in the default plugin set. F4 or `/activity`

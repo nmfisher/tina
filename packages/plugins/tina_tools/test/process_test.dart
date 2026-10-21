@@ -180,6 +180,30 @@ void main() {
       expect(d.verdict, ToolVerdict.allow);
       expect(d.reason, contains('session grant'));
     });
+
+    test('yolo allows every command, regardless of session, shell or network', () {
+      final ws = WritableDirectories();
+      for (final line in ['git status', 'rm -rf /', 'curl https://x.example']) {
+        final d = decideCommand(req(line), PermissionMode.yolo,
+            writableDirectories: ws, networkOff: true);
+        expect(d.verdict, ToolVerdict.allow, reason: line);
+        expect(d.reason, contains('yolo'), reason: line);
+      }
+      // A shell-string request is allowed too.
+      final shellD = decideCommand((
+        command: '/bin/sh',
+        arguments: ['-c', 'curl https://x.example > /tmp/x'],
+        workingDirectory: '/tmp/ws',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), PermissionMode.yolo, writableDirectories: ws, networkOff: true);
+      expect(shellD.verdict, ToolVerdict.allow);
+      // Network access does not change the verdict in yolo.
+      final networkD = decideCommand(req('git push'), PermissionMode.yolo,
+          writableDirectories: ws, networkOff: false);
+      expect(networkD.verdict, ToolVerdict.allow);
+    });
   });
 
   group('SandboxedProcessRunner', () {

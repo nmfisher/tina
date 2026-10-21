@@ -18,6 +18,12 @@ separate migration work; this change does not port legacy permission flags.
 | read-only | allow | human approval | human approval |
 | allow-edits | allow | allow | human approval |
 | auto | allow | safety judge | safety judge |
+| yolo | allow | allow | allow |
+
+`yolo` is **not** selectable through `/mode` or Shift-Tab. It is a launch-time
+flag only (`tina --yolo`): it bypasses every permission and approval check for
+that run, is never persisted, and cannot be reached by resuming a session. It
+does not lift OS sandbox or network confinement — use `--no-sandbox` for that.
 
 The tools package enforces these decisions on canonical filesystem paths and
 process requests. Protected Tina paths and OS confinement cannot be bypassed

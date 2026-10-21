@@ -53,6 +53,33 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 
 void main() {
   precedentTests();
+  test('yolo allows every request without approvals, classifier or precedent',
+      () async {
+    final human = Human();
+    final judge = Judge(Future.value(const PermissionJudgment(true)));
+    final mode = ModePlugin(
+      mode: PermissionMode.yolo,
+      approvals: human,
+      classifier: judge,
+    );
+    addTearDown(mode.closeSession);
+    expect(await request(mode), ApprovalDecision.allow);
+    expect(human.calls, 0);
+    expect(judge.calls, 0);
+    // humanOnly (network / directory-grant) paths are bypassed too.
+    expect(
+      await mode.request(
+        operation: 'run command',
+        target: 'rm -rf /',
+        reason: 'unconfined',
+        humanOnly: true,
+      ),
+      ApprovalDecision.allow,
+    );
+    expect(human.calls, 0);
+    expect(judge.calls, 0);
+    expect(mode.approvalRequestCounts, isEmpty);
+  });
   test(
     'command cache binds arguments, directory capabilities and target',
     () async {
@@ -553,19 +580,26 @@ void main() {
       mode.closeSession();
     },
   );
-  test('all four modes share command vocabulary and cycle order', () async {
+  test('selectable modes share command vocabulary and cycle order', () async {
     final mode = ModePlugin();
+    const selectable = [
+      PermissionMode.ask,
+      PermissionMode.readOnly,
+      PermissionMode.allowEdits,
+      PermissionMode.auto,
+    ];
     expect(ModePlugin.modeWords, ['ask', 'read-only', 'allow-edits', 'auto']);
-    for (final value in PermissionMode.values) {
+    for (final value in selectable) {
       expect(mode.mode, value);
       mode.mode = mode.mode.next;
     }
     expect(mode.mode, PermissionMode.ask);
-    for (final value in PermissionMode.values) {
+    for (final value in selectable) {
       await mode.commands.single.handler(value.label);
       expect(mode.mode, value);
     }
     expect(ModePlugin.parseMode('normal'), isNull);
+    expect(ModePlugin.parseMode('yolo'), isNull);
   });
 
   test(

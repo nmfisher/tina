@@ -52,6 +52,7 @@ Future<int> runCli(
   final model = parsed[modelOption];
   final backend = parsed[backendOption] ?? 'auto';
   final osSandbox = !parsed.contains(noSandboxOption);
+  final yolo = parsed.contains(yoloOption);
   final listProvider = parsed[modelsOption];
   final listModels = parsed.contains(modelsOption);
   final storePath = parsed[storeOption];
@@ -245,6 +246,7 @@ Future<int> runCli(
         sessionId: sessionId,
         model: model,
         osSandbox: osSandbox,
+        yolo: yolo,
         interactive: !headless,
         approvalChannel: headless ? 'tina/approvals-stream' : null,
         onRestart: headless
@@ -303,6 +305,14 @@ Future<int> runCli(
         connection.close();
         await assembly.shutdown();
       }
+    }
+
+    if (yolo) {
+      stderr.writeln(
+        '⚠️  yolo mode: every permission and approval check is DISABLED. '
+        'The model can read, write and run commands anywhere. '
+        '${osSandbox ? "OS sandbox is still active; add --no-sandbox to lift it too." : "OS sandbox is off (--no-sandbox)."}\n',
+      );
     }
 
     // Attach the renderer and approval dialog to the assembled session.

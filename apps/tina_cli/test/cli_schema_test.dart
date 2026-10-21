@@ -34,6 +34,9 @@ void main() {
       expect(schema.parse(['-r', 'long'])[option], 'long');
       expect(schema.help, contains('--review-format, -r'));
       expect(schema.help, contains('acme/review:'));
+      expect(schema.help, contains('--yolo'));
+      expect(schema.help, contains('permission/approval check disabled'));
+      expect(schema.parse(['--yolo']).contains(yoloOption), true);
       for (final shell in ['bash', 'zsh', 'fish']) {
         expect(
           shellCompletion(shell, schema: schema),

@@ -18,7 +18,13 @@ void main() {
   test(
       'writes in ask and auto require review; only allow-edits permits project writes',
       () {
-    for (final mode in PermissionMode.values) {
+    const selectable = [
+      PermissionMode.ask,
+      PermissionMode.readOnly,
+      PermissionMode.allowEdits,
+      PermissionMode.auto,
+    ];
+    for (final mode in selectable) {
       final result = decideOperation(
           (op: FileOp.write, path: '$root/file'), mode,
           projectRoot: root);
@@ -114,6 +120,31 @@ void main() {
       final d = decideOperation(
         (op: FileOp.write, path: root),
         PermissionMode.allowEdits,
+        projectRoot: root,
+      );
+      expect(d.verdict, ToolVerdict.allow);
+    });
+  });
+
+  group('yolo', () {
+    test('allows every read and write, in and out of the project', () {
+      for (final path in ['$root/file', '$root/lib/main.dart', '/etc/hosts']) {
+        for (final op in FileOp.values) {
+          final d = decideOperation(
+            (op: op, path: path),
+            PermissionMode.yolo,
+            projectRoot: root,
+          );
+          expect(d.verdict, ToolVerdict.allow, reason: '${op.name} $path');
+          expect(d.reason, contains('yolo'));
+        }
+      }
+    });
+
+    test('allows writes even outside the project root', () {
+      final d = decideOperation(
+        (op: FileOp.write, path: '/etc/hosts'),
+        PermissionMode.yolo,
         projectRoot: root,
       );
       expect(d.verdict, ToolVerdict.allow);

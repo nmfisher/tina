@@ -78,6 +78,14 @@ const dryRunOption = CliOption(
   description: 'Preview --import-sessions without writing.',
   value: CliValue.none,
 );
+const yoloOption = CliOption(
+  'yolo',
+  description:
+      'Start with every permission/approval check disabled. Use with '
+      '--no-sandbox to also lift OS filesystem and network confinement. '
+      'Dangerous: nothing asks for approval; no safety judge runs.',
+  value: CliValue.none,
+);
 
 CliSchema applicationCliSchema({
   PluginRegistry<SessionPluginContext>? registry,
@@ -97,6 +105,7 @@ CliSchema applicationCliSchema({
       backendOption,
       importSessionsOption,
       dryRunOption,
+      yoloOption,
     ],
     plugins: {
       for (final id in registry.ids)

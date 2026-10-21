@@ -82,6 +82,14 @@ FileDecision decideOperation(
   required String projectRoot,
   FileGrants? grants,
 }) {
+  // yolo allows every operation — reads and writes anywhere, including
+  // outside the project root — without asking.
+  if (mode == PermissionMode.yolo) {
+    return (
+      verdict: ToolVerdict.allow,
+      reason: 'yolo mode: permission checks disabled',
+    );
+  }
   if (op.op == FileOp.read) {
     return (
       verdict: ToolVerdict.allow,

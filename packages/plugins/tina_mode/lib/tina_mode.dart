@@ -42,6 +42,12 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   String _stateOwner = 'tina/mode';
   void mountPolicy(AgentLoop loop, {required String ownerId}) {
     _stateOwner = ownerId;
+    // yolo is a launch-time override: it is never persisted, and restored
+    // session state must not overwrite it.
+    if (_mode == PermissionMode.yolo) {
+      _writeState = loop.stateWriter(ownerId);
+      return;
+    }
     final state =
         (loop.derive().pluginStates[ownerId] ??
         loop.derive().pluginStates[id])?['permission-mode'];
@@ -114,11 +120,16 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       Map.unmodifiable(_approvalRequestCounts);
   bool _closed = false;
 
+  /// The modes selectable through `/mode`. yolo is start-time only and is
+  /// deliberately excluded so the command and its completion can't reach it.
   static final modeWords = List<String>.unmodifiable(
-    PermissionMode.values.map((m) => m.label),
+    PermissionMode.values
+        .where((m) => m != PermissionMode.yolo)
+        .map((m) => m.label),
   );
   static PermissionMode? parseMode(String word) {
     for (final mode in PermissionMode.values) {
+      if (mode == PermissionMode.yolo) continue;
       if (mode.label == word.trim()) return mode;
     }
     return null;
@@ -239,6 +250,11 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     Map<String, Object?> Function(PermissionJudgment judgment)?
     prepareAccessReview,
   }) async {
+    // yolo is a start-time override that bypasses every permission/approval
+    // check before any routing — no classifier, no human prompt, no precedent
+    // record. It also short-circuits the network and directory-grant humanOnly
+    // paths, returning allow unconditionally.
+    if (mode == PermissionMode.yolo) return ApprovalDecision.allow;
     final turn = _turn;
     bool invalid() =>
         _closed || turn?.cancelled == true || !identical(turn, _turn);

@@ -634,6 +634,14 @@ CommandDecision decideCommand(
   CommandGrants? grants,
   bool certifiedReadOnly = false,
 }) {
+  // yolo allows every command — outside session, shell strings, and network
+  // or unconfined requests — without asking.
+  if (mode == PermissionMode.yolo) {
+    return (
+      verdict: ToolVerdict.allow,
+      reason: 'yolo mode: permission checks disabled',
+    );
+  }
   if (grants?.coversRequest(request) == true) {
     return (
       verdict: ToolVerdict.allow,

@@ -450,6 +450,8 @@ final class HostPromptSection {
               'other commands and outside writes require approval',
         PermissionMode.auto =>
           'reads and verified system reader commands run; a safety judge reviews writes, other commands and additional directory access; uncertain decisions ask the user',
+        PermissionMode.yolo =>
+          'every permission and approval check is disabled (yolo mode)',
       }}.\n\n'
       '${sandboxDescription?.call() ?? ''}\n\n'
       'Ordinary command approval does not change the OS confinement described '

@@ -186,6 +186,14 @@ The switch is not saved; add it again when resuming. Commands can also request
 separate human approval to run outside the sandbox for one invocation.
 See [engine2 sandbox behavior](docs/engine2-sandbox.md).
 
+`tina --yolo` starts a session with every permission and approval check
+disabled — reads, writes and commands run anywhere without asking, and the
+safety judge never runs. It is a launch-time flag only (not available via
+`/mode`, not persisted) and bypasses only the permission gate: OS filesystem
+and network confinement still follow `--no-sandbox`. Run
+`tina --yolo --no-sandbox` for a fully unconfined session. A prominent warning
+is printed at launch. Meant for trusted, disposable environments.
+
 `/update` checks for a release. `/update install` downloads, requires a matching
 SHA-256 checksum, validates the archive, then requests approval through the
 configured channel before replacing a marked private bundle. Restart afterward.

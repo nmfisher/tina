@@ -10,6 +10,7 @@ import 'package:tina_session_controls/tina_session_controls.dart'
     show ModelCatalog;
 import 'session_terminal.dart';
 import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
+import 'package:tina_mode/tina_mode.dart' show PermissionMode;
 import 'assembly_config.dart';
 import 'configured_provider.dart';
 import 'plugin_catalog.dart';
@@ -79,6 +80,7 @@ final class AssemblyOptions {
     this.version = '0.0.0',
     this.model,
     this.osSandbox = true,
+    this.yolo = false,
     this.interactive = true,
   });
 
@@ -108,6 +110,11 @@ final class AssemblyOptions {
 
   /// Per-launch OS confinement. Permission policy remains active when false.
   final bool osSandbox;
+
+  /// Start with every permission/approval check disabled (yolo mode). This
+  /// is a launch-time override only; it is not persisted or selectable via
+  /// /mode. OS sandbox and network remain governed by [osSandbox].
+  final bool yolo;
 
   /// Ordinary questions may wait for attached clients only in interactive runs.
   final bool interactive;
@@ -328,6 +335,7 @@ final class SessionAssembly {
       protectedPaths: [options.configPath ?? defaultConfigPath()],
       osSandbox: options.osSandbox,
       settings: settings,
+      mode: options.yolo ? PermissionMode.yolo : PermissionMode.ask,
     );
     diagnostics?.stage?.call('settings-and-tools-ready');
     final policy = configuredPolicy(resolved,

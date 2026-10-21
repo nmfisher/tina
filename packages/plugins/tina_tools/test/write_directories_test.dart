@@ -67,7 +67,15 @@ void main() {
 
   test('checkbox saves directory writes, including atomic edits, in every mode',
       () async {
-    for (final mode in PermissionMode.values) {
+    // yolo is excluded: it bypasses approval entirely, so no write request
+    // reaches the channel and no directory grant is remembered.
+    const modes = [
+      PermissionMode.ask,
+      PermissionMode.readOnly,
+      PermissionMode.allowEdits,
+      PermissionMode.auto,
+    ];
+    for (final mode in modes) {
       final settings = newSettings();
       final plugin = ToolsPlugin(
           workspaceRoot: workspace.path,

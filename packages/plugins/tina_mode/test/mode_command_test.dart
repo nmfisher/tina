@@ -10,6 +10,10 @@ void main() {
     expect(ModePlugin.parseMode('readonly'), isNull);
     expect(ModePlugin.parseMode(''), isNull);
     expect(ModePlugin.wordFor(PermissionMode.readOnly), 'read-only');
+    expect(ModePlugin.wordFor(PermissionMode.yolo), 'yolo');
+    // yolo is start-time only: not selectable via /mode.
+    expect(ModePlugin.parseMode('yolo'), isNull);
+    expect(ModePlugin.modeWords, isNot(contains('yolo')));
   });
   test(
     'command switches the injected control and reports to its terminal',
