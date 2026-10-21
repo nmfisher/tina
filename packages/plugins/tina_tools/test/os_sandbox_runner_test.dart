@@ -560,5 +560,50 @@ void main() {
       expect(argv.arguments[2], '/bin/echo');
       expect(argv.arguments[3], 'ok');
     });
+
+    test(
+        'yolo mode keeps the jail: the gate auto-approves — rm -rf / '
+        'included — yet the spawn still sees the confinement argv wrapped '
+        'around the verbatim command', () async {
+      final spawn = ScriptedRunner([
+        const CommandCompleted(exitCode: 0, stdout: 'ok', stderr: ''),
+      ]);
+      // The wiring yolo produces: only the gate's mode differs from any
+      // other session. The jail beneath it is constructed exactly the same
+      // (tools_plugin passes enabled: osSandbox; the mode is not an input).
+      final gate = SandboxedProcessRunner(
+        inner: OsSandboxRunner(
+          inner: spawn,
+          plan: const SandboxPlan(workspaceRoot: '/work/proj'),
+          backend: SandboxBackend.bwrap,
+          hostLayout: () => SandboxHostLayout(
+            readOnlyDirectories: const [],
+            temporaryDirectories: const [],
+          ),
+        ),
+        mode: PermissionMode.yolo,
+        writableDirectories:
+            WritableDirectories(['/work/proj', '/tmp', '/var/tmp']),
+        // Yolo's approver says yes to everything without asking anyone.
+        commandApprover: (_, __) async => Approval.yes,
+      );
+      final outcome = await gate.run((
+        command: 'rm',
+        arguments: ['-rf', '/'],
+        workingDirectory: '/work/proj',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ));
+      // The gate let it through — and the jail still wrapped it: whatever
+      // the command does, the kernel's layout is what bounds it.
+      expect(outcome, isA<CommandCompleted>());
+      final start = spawn.starts.single;
+      expect(start.command, 'bwrap');
+      expect(start.arguments, contains('--unshare-net'));
+      final tail = start.arguments.sublist(start.arguments.length - 3);
+      expect(tail, ['rm', '-rf', '/'],
+          reason: 'the command rides verbatim behind the jail argv');
+    });
   });
 }

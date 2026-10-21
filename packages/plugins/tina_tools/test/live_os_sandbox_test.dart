@@ -449,4 +449,131 @@ void main() {
       reason: 'the sandbox must hold: nothing outside the project',
     );
   });
+
+  test('yolo mode: permission checks off, the OS jail still holds',
+      timeout: const Timeout(Duration(minutes: 2)),
+      tags: 'live-os-sandbox', () async {
+    if (!_backendAvailable) {
+      // With --run-skipped on a machine without a backend this reports
+      // honestly; without the return the body would keep running.
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    final ws = Directory(Directory.systemTemp
+        .createTempSync('tina_yolo_ws_')
+        .resolveSymbolicLinksSync());
+    addTearDown(() => ws.deleteSync(recursive: true));
+    // The wiring --yolo produces: PermissionMode.yolo on the gate, an
+    // approver that answers yes without consulting anyone, and the OS
+    // runner enabled exactly as the CLI assembles it (osSandbox governs
+    // enabled; the mode is not an input). The workspace is writable, the
+    // rest of the filesystem is not.
+    final plan = SandboxPlan(workspaceRoot: ws.path);
+    final runner = OsSandboxRunner(
+      inner: const IoProcessRunner(),
+      plan: plan,
+    );
+    final gate = SandboxedProcessRunner(
+      inner: runner,
+      plan: plan,
+      mode: PermissionMode.yolo,
+      commandApprover: (_, review) async => Approval.yes,
+    );
+
+    // Sanity: inside the workspace yolo writes freely.
+    final inside = await gate.run((
+      command: 'touch',
+      arguments: ['inside.txt'],
+      workingDirectory: ws.path,
+      environment: null,
+      stdin: null,
+      timeout: null,
+    ));
+    expect(inside, isA<CommandCompleted>(),
+        reason: 'yolo is unrestricted inside the jail: $inside');
+
+    // The dumb command, run for real: outside every writable root. yolo
+    // waives every permission check, so if the kernel did not hold, this
+    // would succeed.
+    final outside = await gate.run((
+      command: 'touch',
+      arguments: ['/usr/share/tina-yolo-escape-probe'],
+      workingDirectory: ws.path,
+      environment: null,
+      stdin: null,
+      timeout: null,
+    ));
+    expect(
+      outside is CommandBlocked ||
+          outside is CommandCompleted && outside.exitCode != 0,
+      isTrue,
+      reason: 'yolo must not read as success outside the jail: $outside',
+    );
+    expect(
+      File('/usr/share/tina-yolo-escape-probe').existsSync(),
+      isFalse,
+      reason: 'the kernel jail must hold under yolo',
+    );
+
+    // The sharper variant: a shell string the gate cannot classify, plus
+    // an unconfined escalation request. In yolo the humanOnly approval
+    // path returns allow unconditionally — the jail is the only boundary
+    // left, and outside_sandbox is precisely the knob that lifts it, so
+    // the refusal here must come from the runner's control check, not
+    // from an approver.
+    final shell = await gate.run((
+      command: '/bin/sh',
+      arguments: ['-c', 'touch /usr/share/tina-yolo-shell-probe'],
+      workingDirectory: ws.path,
+      environment: null,
+      stdin: null,
+      timeout: null,
+    ));
+    expect(
+      shell is CommandBlocked || shell is CommandCompleted && shell.exitCode != 0,
+      isTrue,
+      reason: 'shell strings enjoy no extra freedom: $shell',
+    );
+    expect(File('/usr/share/tina-yolo-shell-probe').existsSync(), isFalse);
+
+    // The documented sharp edge, pinned so it cannot change silently: in
+    // yolo the humanOnly approval path returns allow unconditionally, so
+    // an outside_sandbox request is auto-authorized by the gate — no
+    // classifier, no human — and genuinely runs on the host. The startup
+    // banner warns about exactly this. Everything here is a loopback
+    // fixture; nothing real is touched.
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    var connections = 0;
+    server.listen((request) {
+      connections++;
+      request.response.write('yolo reached the host');
+      request.response.close();
+    });
+    final escalated = await gate.run((
+      command: 'curl',
+      arguments: [
+        '--noproxy',
+        '*',
+        '--max-time',
+        '3',
+        '--fail',
+        '--silent',
+        'http://127.0.0.1:${server.port}'
+      ],
+      workingDirectory: ws.path,
+      environment: null,
+      stdin: null,
+      timeout: null,
+    ), control: const ProcessControl(
+      outsideSandboxRequested: true,
+      sandboxReason: 'yolo escalation probe against a loopback fixture',
+    ));
+    expect(escalated, isA<CommandCompleted>(),
+        reason: 'yolo auto-authorizes unconfined requests: $escalated');
+    expect((escalated as CommandCompleted).exitCode, 0,
+        reason: escalated.stderr);
+    expect(escalated.stdout, 'yolo reached the host');
+    expect(connections, 1);
+  });
 }
