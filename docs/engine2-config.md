@@ -244,6 +244,13 @@ A provider-level thinking choice overrides the global thinking choice as a
 whole. `reasoning_effort = "auto"` means use the provider default, even when a
 global thinking setting exists. The settings UI manages these keys for you.
 
+Inside a conversation, `/reasoning` toggles the effort without a restart:
+`/reasoning` shows the current choice, `/reasoning high` applies from the next
+request, and `/reasoning auto` removes the override so the configured or
+provider default applies again. The command offers the levels the current
+model accepts and remembers the choice for this conversation only; use
+Settings → the provider's Thinking row to persist a choice across sessions.
+
 - OpenAI-compatible Chat Completions: `reasoning_effort`, with either
   `max_tokens` or `max_completion_tokens`. The built-in OpenAI descriptor uses
   the latter. Numeric `thinking_budget` is rejected on this wire.

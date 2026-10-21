@@ -73,4 +73,65 @@ void main() {
     expect(loop.log.last, isA<ContextClearedEntry>());
     plugin.closeSession();
   });
+
+  test('reasoning shows the current choice and rejects unknown words', () async {
+    final terminal = _Terminal();
+    var effort = 'medium';
+    final plugin = SessionControlsPlugin(
+      terminal: terminal,
+      currentModel: () => 'openai/gpt-test',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(),
+      currentReasoning: () => effort,
+      setReasoning: (value) => effort = value,
+      reasoningChoices: () => const ['auto', 'none', 'low', 'medium', 'high'],
+    );
+    final reasoning = plugin.commands[1];
+    await reasoning.handler('');
+    expect(terminal.lines.last, 'Reasoning: medium');
+    await reasoning.handler('high');
+    expect(effort, 'high');
+    expect(terminal.lines.last, 'Reasoning: high (applies to the next request)');
+    terminal.lines.clear();
+    await reasoning.handler('bogus');
+    expect(effort, 'high');
+    expect(terminal.lines.last,
+        'no reasoning level named bogus — choices: auto, none, low, medium, high');
+    // Completion offers the model's vocabulary, not the canonical superset.
+    expect(reasoning.complete!('h'), ['high']);
+  });
+
+  test('reasoning auto reports automatic and is case-insensitive', () async {
+    final terminal = _Terminal();
+    String? effort;
+    final plugin = SessionControlsPlugin(
+      terminal: terminal,
+      currentModel: () => 'openai/gpt-test',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(),
+      currentReasoning: () => effort ?? 'auto',
+      setReasoning: (value) => effort = value == 'auto' ? null : value,
+    );
+    final reasoning = plugin.commands[1];
+    await reasoning.handler('');
+    expect(terminal.lines.last, 'Reasoning: automatic (provider default)');
+    await reasoning.handler('HIGH');
+    expect(effort, 'high');
+    await reasoning.handler('Auto');
+    expect(effort, isNull);
+    expect(terminal.lines.last,
+        'Reasoning: automatic (applies to the next request)');
+  });
+
+  test('reasoning reports unavailable without host wiring', () async {
+    final terminal = _Terminal();
+    final plugin = SessionControlsPlugin(
+      terminal: terminal,
+      currentModel: () => 'openai/gpt-test',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(),
+    );
+    await plugin.commands[1].handler('high');
+    expect(terminal.lines.last, 'Reasoning control is unavailable in this session.');
+  });
 }

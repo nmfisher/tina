@@ -7,7 +7,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_session_controls/tina_session_controls.dart'
-    show ModelCatalog;
+    show ModelCatalog, reasoningSetting;
 import 'session_terminal.dart';
 import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 import 'package:tina_mode/tina_mode.dart' show PermissionMode;
@@ -412,6 +412,39 @@ final class SessionAssembly {
       switchModel: (next) => assembled!.host.switchModel(providerFactory == null
           ? canonicalModelReference(resolved, next)
           : next),
+      currentReasoning: () {
+        // The session override first; without one the effective config value
+        // (any scope) or the provider default — reported as 'auto'.
+        final resolvedEffort = resolved.reasoningEffort;
+        final setting = settings.read(reasoningSetting);
+        if (setting.source == SettingScope.session) return setting.value;
+        return resolvedEffort ?? 'auto';
+      },
+      setReasoning: (word) {
+        // A session-scoped write: validated against the full effective config
+        // by the backend, persisted only for this conversation, and picked up
+        // by the next request's provider rebuild. 'auto' removes the override
+        // so the configured value applies again.
+        settings.update(
+            SettingScope.session,
+            word == 'auto'
+                ? const {}
+                : {reasoningSetting.id: reasoningSetting.encode(word)},
+            remove: word == 'auto' ? {reasoningSetting.id} : const {});
+        resolved = ConfigDocument.validateValues(
+            settingsBackend.effectiveDocument(),
+            descriptors: descriptors);
+        policy.updateLimits(resolved.limits);
+      },
+      reasoningChoices: () {
+        // Offer what the current model accepts on its wire; the canonical
+        // set is the fallback when the model is unknown to a descriptor.
+        final reference = assembled?.host.model ?? model;
+        final slash = reference.indexOf('/');
+        final wireModel = slash < 0 ? reference : reference.substring(slash + 1);
+        final choices = thinkingChoicesFor(wireModel);
+        return choices;
+      },
       modelCatalog: () => ModelCatalog(models: [
         for (final descriptor in resolved.descriptors)
           if (resolved.providers.containsKey(descriptor.id) ||

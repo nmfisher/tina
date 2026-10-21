@@ -3,6 +3,7 @@ export 'observation.dart';
 export 'operations.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'observation.dart';
+import 'settings.dart';
 
 /// Conversation controls with an optional interactive model picker.
 final class SessionControlsPlugin extends AgentPlugin {
@@ -11,12 +12,27 @@ final class SessionControlsPlugin extends AgentPlugin {
     required this.currentModel,
     required this.switchModel,
     required this.modelCatalog,
+    this.currentReasoning,
+    this.setReasoning,
+    this.reasoningChoices,
   });
   final Terminal terminal;
   final String Function() currentModel;
   final void Function(String) switchModel;
   // Read at use, including when this plugin is enabled after a settings save.
   final ModelCatalog Function() modelCatalog;
+
+  /// The conversation's effective reasoning effort, or null when the host
+  /// has no settings stack (headless with no config). Null disables /reasoning.
+  final String? Function()? currentReasoning;
+
+  /// Persist a reasoning choice for this conversation. Throws on rejection;
+  /// 'auto' removes the override. Null disables /reasoning.
+  final void Function(String)? setReasoning;
+
+  /// Effort words the current model accepts, for completion and validation.
+  /// Null means every canonical word is offered.
+  final List<String> Function()? reasoningChoices;
   AgentLoop? _loop;
   bool _closed = false;
   late final SessionControlsObservation observation =
@@ -45,6 +61,49 @@ final class SessionControlsPlugin extends AgentPlugin {
           terminal.writeln('Model: ${currentModel()}');
         } catch (error) {
           terminal.writeln('Could not switch model: $error');
+        }
+      },
+    ),
+    Command(
+      name: 'reasoning',
+      description:
+          'reasoning effort: ${reasoningEffortWords.join(', ')} (empty shows the current choice)',
+      complete: (prefix) =>
+          (reasoningChoices?.call() ?? reasoningEffortWords)
+              .where((m) => m.startsWith(prefix))
+              .toList(),
+      handler: (argument) async {
+        if (_closed) return;
+        final word = argument.trim().toLowerCase();
+        if (word.isEmpty) {
+          final current = currentReasoning?.call();
+          terminal.writeln(
+            current == null || current.isEmpty || current == 'auto'
+                ? 'Reasoning: automatic (provider default)'
+                : 'Reasoning: $current',
+          );
+          return;
+        }
+        if (currentReasoning == null || setReasoning == null) {
+          terminal.writeln('Reasoning control is unavailable in this session.');
+          return;
+        }
+        final allowed = reasoningChoices?.call() ?? reasoningEffortWords;
+        if (!allowed.contains(word)) {
+          terminal.writeln(
+            'no reasoning level named $word — choices: ${allowed.join(', ')}',
+          );
+          return;
+        }
+        try {
+          setReasoning!(word);
+          terminal.writeln(
+            word == 'auto'
+                ? 'Reasoning: automatic (applies to the next request)'
+                : 'Reasoning: $word (applies to the next request)',
+          );
+        } catch (error) {
+          terminal.writeln('Could not set reasoning: $error');
         }
       },
     ),

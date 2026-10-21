@@ -39,6 +39,9 @@ final class SessionPluginContext {
     required this.currentModel,
     required this.switchModel,
     required this.modelCatalog,
+    this.currentReasoning,
+    this.setReasoning,
+    this.reasoningChoices,
     this.openStore,
     this.version = '0.0.0',
     this.restart,
@@ -66,6 +69,16 @@ final class SessionPluginContext {
   final String Function() currentModel;
   final void Function(String) switchModel;
   final ModelCatalog Function() modelCatalog;
+
+  /// The conversation's reasoning effort ('auto' = no override), or null when
+  /// the entry point has no settings stack. Null disables /reasoning.
+  final String? Function()? currentReasoning;
+
+  /// Persist the reasoning choice for this conversation. Null disables it.
+  final void Function(String)? setReasoning;
+
+  /// Effort words the current model accepts. Null means the canonical set.
+  final List<String> Function()? reasoningChoices;
   final SessionStoreOpener? openStore;
 }
 
@@ -119,11 +132,14 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                 terminal: c.terminal,
                 currentModel: c.currentModel,
                 switchModel: c.switchModel,
-                modelCatalog: c.modelCatalog),
-            settings: [defaultModelSetting],
+                modelCatalog: c.modelCatalog,
+                currentReasoning: c.currentReasoning,
+                setReasoning: c.setReasoning,
+                reasoningChoices: c.reasoningChoices),
+            settings: [defaultModelSetting, reasoningSetting],
             operations: sessionControlsOperations,
             description:
-                'Switches the active conversation model and clears its context and display.',
+                'Switches the active conversation model and reasoning effort, and clears its context and display.',
             live: true),
         PluginDefinition<SessionPluginContext>(
             'tina/step-limit',
