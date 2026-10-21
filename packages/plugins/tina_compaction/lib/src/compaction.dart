@@ -136,7 +136,12 @@ final class CompactionPlugin extends AgentPlugin {
                   final split = _splitAtTurnBoundary(
                       view.messages, config.keepRecentTurns);
                   if (split == null) {
-                    terminal?.writeln('Not enough earlier history to compact.');
+                    terminal?.writeln(
+                        'Not enough earlier history to compact: the '
+                        '${config.keepRecentTurns} most recent turns stay '
+                        'verbatim, and fewer than 2 messages come before '
+                        'them. Keep working — /compact can summarize once '
+                        'earlier turns exist.');
                     return;
                   }
                   final summary = await _summarize(loop,
