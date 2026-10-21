@@ -10,6 +10,7 @@ import 'console_workspace.dart';
 import 'settings_contribution.dart';
 import 'sidebar.dart';
 import 'rect.dart';
+import 'status_selection.dart';
 
 /// A frontend contribution mounted by the application without feature knowledge.
 abstract interface class ConsoleContribution {
@@ -199,6 +200,11 @@ final class ConsoleContext {
     if (isActive) _editor.refresh();
   }
 
+  /// Shared state for cycling among selectable status segments. Status
+  /// contributions register here and render their own highlight; the
+  /// [StatusCycleController] drives the interaction.
+  StatusSelection get statusSelection => _shared.statusSelection;
+
   /// Register an inspector beside this view's chat. Its space and lifetime are
   /// shared with other plugin panels, including panels loaded at runtime.
   SidebarPanel bindSidebarPanel(void Function() repaint, {int priority = 100}) {
@@ -320,6 +326,7 @@ final class _ConsoleBindings {
       ({String Function() build, int Function(String)? hiddenPrefix})?
           Function()>{};
   final status = <Object, ({int priority, List<RenderLine> Function() read})>{};
+  final statusSelection = StatusSelection();
   final sidebars = <ScrollingTextRegion, SidebarLayout>{};
   final attentionPreferences = <Object, bool Function()>{};
   Future<void> interactions = Future.value();

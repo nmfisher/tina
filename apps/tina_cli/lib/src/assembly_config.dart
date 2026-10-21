@@ -51,6 +51,7 @@ const defaultPluginIds = <String>[
   'tina/cwd-tui',
   'tina/panels-tui',
   'tina/activity-tui',
+  'tina/bg-tui',
   'tina/mcp',
   'tina/persistence',
   'tina/plans',

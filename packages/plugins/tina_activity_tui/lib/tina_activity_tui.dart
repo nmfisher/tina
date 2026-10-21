@@ -6,6 +6,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'src/activity_model.dart';
 export 'src/activity_model.dart';
+export 'src/bg_view.dart';
 
 /// Optional console presentation over committed history and active-tool data.
 /// The view owns its browser state and attachment, never the shared session.

@@ -297,6 +297,12 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                 'Shows tool progress, results, file diffs and subagent activity in the activity browser.',
             live: true),
         PluginDefinition<SessionPluginContext>(
+            'tina/bg-tui',
+            (_) => PresentationPlugin(id: 'tina/bg-tui', source: null),
+            description:
+                'Shows running background processes in the status bar with a browsable list and live output (F5).',
+            live: true),
+        PluginDefinition<SessionPluginContext>(
             'tina/persistence',
             (c) => PersistencePlugin(
                 openStore: c.openStore!, settings: c.settings),

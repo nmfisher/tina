@@ -46,6 +46,7 @@ ConsoleContribution? createConsoleView(AgentPlugin plugin,
     switch (plugin.id) {
       'tina/chat-tui' => ChatView(ConnectionChatObservation(connection)),
       'tina/activity-tui' => ActivityView(connection),
+      'tina/bg-tui' => BgView(connection),
       'tina/plans' => PlansView(ConnectionPlanObservation(connection)),
       'tina/classification' =>
         ClassificationView(ConnectionClassificationObservation(connection)),
