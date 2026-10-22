@@ -1,10 +1,10 @@
 // Size-triggered compaction: the plugin checks the derived request size
 // at turn end, summarizes the older half over the session's own
 // provider, and writes the Compacted entry the derive already knows how
-// to splice. Tests pin the trigger arithmetic, the turn-boundary split
-// (recent turns and tool pairs kept whole), the summary request shape,
-// failure handling, and the store round trip — a compacted session
-// resumes as the summary plus the kept tail.
+// to splice. Tests pin the trigger arithmetic, the token-budgeted split
+// (kept tail anchored on a turn start, so tool pairs stay whole), the
+// summary request shape, failure handling, and the store round trip — a
+// compacted session resumes as the summary plus the kept tail.
 //
 // Run: dart test
 library;
@@ -41,8 +41,8 @@ void main() {
     ]);
     final plugin = CompactionPlugin(
         canCompact: () => enabled,
-        config:
-            const CompactionConfig(thresholdTokens: 100, keepRecentTurns: 1));
+        config: const CompactionConfig(
+            thresholdTokens: 100, keepRecentTokens: 100));
     final host = Host.start(HostConfig(
         providerFactory: (_) => provider,
         workingDirectory: Directory.systemTemp.path,
@@ -108,7 +108,7 @@ void main() {
           CompactionPlugin(
               config: const CompactionConfig(
                   thresholdTokens: 100,
-                  keepRecentTurns: 1,
+                  keepRecentTokens: 100,
                   minMessagesToCompact: 3)),
         ]));
     addTearDown(host.shutdown);
@@ -122,8 +122,8 @@ void main() {
       'over the threshold: summary requested, Compacted entry written, '
       'derive shows summary + kept tail', () async {
     // Turn replies of ~100 tokens each: the second turn-end crosses the
-    // 100-token threshold with two turns in the log. keepRecentTurns: 1
-    // keeps the newest turn verbatim, summarizes turn one.
+    // 100-token threshold with two turns in the log. keepRecentTokens:
+    // 100 keeps the newest turn verbatim, summarizes turn one.
     final big = 'x' * 400; // ~100 tokens
     final provider = ScriptedProvider([
       turn(big),
@@ -132,7 +132,8 @@ void main() {
       scriptedReply('the user said hi and got a big reply'),
     ]);
     final plugin = CompactionPlugin(
-      config: const CompactionConfig(thresholdTokens: 100, keepRecentTurns: 1),
+      config:
+          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 100),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -195,7 +196,14 @@ void main() {
       scriptedReply('summary of the old half'),
     ]);
     final plugin = CompactionPlugin(
-      config: const CompactionConfig(thresholdTokens: 80, keepRecentTurns: 2),
+      config: const CompactionConfig(
+          thresholdTokens: 120,
+          // The full transcript is ~205 estimated tokens (tool-call
+          // inputs are not transcript text). 201 breaks the walk inside
+          // turn one, and the snap anchors the tail on turn two's user
+          // message — never severing the tool pair.
+          keepRecentTokens: 201,
+          minMessagesToCompact: 4),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -210,9 +218,10 @@ void main() {
     final compacted =
         host.session.loop.log.whereType<CompactedEntry>().toList();
     expect(compacted, hasLength(1));
-    // keepRecentTurns: 2 — turns two and three stay verbatim from turn
-    // two's user message, so no tool pair can ever be severed; turn one
-    // (with its tool call) is what the summary replaced.
+    // keepRecentTokens: 200 — the last two turns (~100 tokens each)
+    // spend the budget, so the kept tail starts at turn two's user
+    // message and no tool pair can ever be severed; turn one (with its
+    // tool call) is what the summary replaced.
     final view = host.session.loop.derive();
     final summaryAt = view.messages.indexWhere((m) => m.isSynthetic);
     expect(summaryAt, 0);
@@ -236,7 +245,8 @@ void main() {
       scriptedReply('late summary'),
     ]);
     final plugin = CompactionPlugin(
-      config: const CompactionConfig(thresholdTokens: 100, keepRecentTurns: 1),
+      config:
+          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 100),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -261,12 +271,12 @@ void main() {
   test(
       'the old summary merges into the next compaction — the synthetic '
       'message is never a turn boundary', () async {
-    // keepRecentTurns: 1, three big turns. Turn one compacts; then the
-    // view is summary + turn two + turn three, still over the
+    // keepRecentTokens: 100, three big turns. Turn one compacts; then
+    // the view is summary + turn two + turn three, still over the
     // threshold: the next compaction folds the old summary and turn two
-    // into a new summary — the synthetic rides the prefix like any
-    // message — and the kept tail anchors on turn three's real user
-    // message.
+    // into a new summary — the synthetic spends budget like any message
+    // but never anchors the tail — and the kept tail anchors on turn
+    // three's real user message.
     final big = 'x' * 400;
     final provider = ScriptedProvider([
       turn(big),
@@ -276,7 +286,8 @@ void main() {
       scriptedReply('second summary'),
     ]);
     final plugin = CompactionPlugin(
-      config: const CompactionConfig(thresholdTokens: 100, keepRecentTurns: 1),
+      config:
+          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 100),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -306,6 +317,118 @@ void main() {
     host.close();
   });
 
+  test('a single exchange summarizes everything and keeps nothing verbatim',
+      () async {
+    final provider = ScriptedProvider([
+      turn('the only reply'),
+      scriptedReply('summary of the one exchange'),
+    ]);
+    final plugin = CompactionPlugin(
+      config: const CompactionConfig(
+          thresholdTokens: 1,
+          keepRecentTokens: 5000,
+          minMessagesToCompact: 2),
+    );
+    final host = Host.start(HostConfig(
+      providerFactory: (_) => provider,
+      workingDirectory: ws.path,
+      plugins: [plugin],
+    ));
+    await host.session.loop.runTurn(const Input('hello', id: 't1'));
+    await settle();
+
+    final compacted =
+        host.session.loop.log.whereType<CompactedEntry>().toList();
+    expect(compacted, hasLength(1));
+    final view = host.session.loop.derive().messages;
+    expect(view, hasLength(1),
+        reason: 'the whole exchange was summarized; only the synthetic '
+            'message remains');
+    expect(view.single.isSynthetic, isTrue);
+    host.close();
+  });
+
+  test(
+      'one real turn after an earlier compaction can compact again — '
+      'the dead end is gone', () async {
+    // The case /compact used to decline on: the view is one synthetic
+    // summary plus one real exchange. The synthetic spends budget but
+    // never anchors the tail; the newest exchange is the only
+    // fallback candidate older than nothing, so the split summarizes
+    // the old summary and keeps the newest exchange verbatim.
+    final provider = ScriptedProvider([
+      turn('first reply'),
+      scriptedReply('first summary'),
+      turn('second reply'),
+      scriptedReply('second summary'),
+    ]);
+    final plugin = CompactionPlugin(
+      config: const CompactionConfig(
+          thresholdTokens: 1,
+          keepRecentTokens: 5000,
+          minMessagesToCompact: 2),
+    );
+    final host = Host.start(HostConfig(
+      providerFactory: (_) => provider,
+      workingDirectory: ws.path,
+      plugins: [plugin],
+    ));
+    await host.session.loop.runTurn(const Input('one', id: 't1'));
+    await settle();
+    expect(host.session.loop.log.whereType<CompactedEntry>(), hasLength(1));
+
+    // Turn two arrives; the view is [checkpoint, user 'two',
+    // assistant]. The fallback anchors on the newest real user message
+    // — turn two's — so the split summarizes the checkpoint alone and
+    // keeps turn two's exchange verbatim: exactly what /compact used
+    // to decline with "fewer than 2 messages come before them".
+    await host.session.loop.runTurn(const Input('two', id: 't2'));
+    await settle();
+    final compacted =
+        host.session.loop.log.whereType<CompactedEntry>().toList();
+    expect(compacted, hasLength(2),
+        reason: 'the summary plus one exchange is compactable');
+    final view = host.session.loop.derive().messages;
+    expect(view, hasLength(3),
+        reason: 'the new checkpoint plus the kept exchange '
+            '(user and assistant)');
+    expect(view.first.isSynthetic, isTrue);
+    expect((view.first.content.single as TextBlock).text,
+        contains('second summary'),
+        reason: 'the old summary was folded into the new one');
+    expect(view[1].role, Role.user);
+    expect(view[1].isSynthetic, isFalse,
+        reason: 'the kept tail anchors on the newest real exchange');
+    host.close();
+  });
+
+  test('/compact with an empty transcript declines and says why', () async {
+    final provider = ScriptedProvider([]);
+    final terminal = _RecordingTerminal();
+    final plugin = CompactionPlugin(
+      terminal: terminal,
+      config:
+          const CompactionConfig(
+          thresholdTokens: 1,
+          keepRecentTokens: 5000,
+          minMessagesToCompact: 2),
+    );
+    final host = Host.start(HostConfig(
+      providerFactory: (_) => provider,
+      workingDirectory: ws.path,
+      plugins: [plugin],
+    ));
+    // No turns have run: the derive holds no text-bearing messages, so
+    // there is nothing to summarize — and the message says that, rather
+    // than blaming a turn count.
+    await host.commands['compact']!.handler('');
+    expect(terminal.lines, isNotEmpty);
+    expect(terminal.lines.single, contains('Nothing to compact'));
+    expect(provider.callCount, 0,
+        reason: 'no summary request was spent');
+    host.close();
+  });
+
   test(
       'a compacted session survives the store round trip: the resume '
       'derives the summary and the kept tail', () async {
@@ -319,7 +442,8 @@ void main() {
       turn('after resume'),
     ]);
     final plugin = CompactionPlugin(
-      config: const CompactionConfig(thresholdTokens: 100, keepRecentTurns: 1),
+      config:
+          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 100),
     );
     final started = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -393,4 +517,18 @@ void main() {
         reason: 'both hosts appended to one continuous slice');
     resumed.close();
   });
+}
+
+/// A terminal that records what the plugin writes, for decline-path
+/// assertions.
+final class _RecordingTerminal implements Terminal {
+  final lines = <String>[];
+
+  @override
+  void writeln([String? message]) {
+    lines.add('$message');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

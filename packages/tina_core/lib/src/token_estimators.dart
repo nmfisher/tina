@@ -42,7 +42,17 @@ int estimateRequestTokensUtf8(String serializedRequest) =>
 /// configuration, the estimate only has to be honest about order of
 /// magnitude.
 int estimateTranscriptTokensChars(String system, List<Message> messages) {
-  var chars = system.length;
+  return (system.length + _transcriptChars(messages)) ~/ 4;
+}
+
+/// One transcript message's share of [estimateTranscriptTokensChars],
+/// so a caller that walks messages one at a time counts exactly what
+/// the whole-transcript estimate counts. Unquoted text, tool results,
+/// and reasoning only.
+int estimateTranscriptMessageChars(Message m) => _transcriptChars([m]);
+
+int _transcriptChars(List<Message> messages) {
+  var chars = 0;
   for (final m in messages) {
     for (final b in m.content) {
       if (b is TextBlock) chars += b.text.length;
@@ -52,5 +62,5 @@ int estimateTranscriptTokensChars(String system, List<Message> messages) {
       chars += r.text.length;
     }
   }
-  return chars ~/ 4;
+  return chars;
 }

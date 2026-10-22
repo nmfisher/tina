@@ -100,7 +100,7 @@ Future<_Fixture> _start(
           terminal: context.terminal,
           config: CompactionConfig(
             thresholdTokens: autoCompact ? 1 : 0,
-            keepRecentTurns: 1,
+            keepRecentTokens: 1,
             minMessagesToCompact: 3,
           ),
         ),

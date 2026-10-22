@@ -28,9 +28,9 @@ class CompactionConfig {
   const CompactionConfig({
     this.thresholdTokens = 100000,
     this.overThresholdMargin = 1.0,
-    this.keepRecentTurns = 2,
+    this.keepRecentTokens = 15000,
     this.minMessagesToCompact = 4,
-  });
+  })  : assert(keepRecentTokens >= 0);
 
   /// Estimated input tokens a request may carry before the older half is
   /// summarized. 0 disables compaction entirely.
@@ -41,13 +41,23 @@ class CompactionConfig {
   /// estimator that can only guess. Must be >= 1.0.
   final double overThresholdMargin;
 
-  /// How many of the most recent completed turns stay verbatim.
-  final int keepRecentTurns;
+  /// How many estimated transcript tokens of the most recent history
+  /// stay verbatim. The split walks back from the newest message until
+  /// this budget is spent, then snaps to a turn boundary — a tool pair
+  /// is never severed. When the whole transcript fits the budget, only
+  /// the newest exchange stays; when there is a single exchange, it too
+  /// is summarized.
+  final int keepRecentTokens;
 
   /// Fewer derived messages than this and there is nothing worth
   /// summarizing — compacting would spend a request to shrink almost
-  /// nothing.
+  /// nothing. The automatic trigger only; `/compact` bypasses it.
   final int minMessagesToCompact;
+
+  /// Deprecated count-based tail: kept only so old callers compile.
+  /// The split no longer counts turns.
+  @Deprecated('Use keepRecentTokens — the split is token-budgeted now.')
+  final int keepRecentTurns = 2;
 }
 
 /// The request the summarizer sends: a fixed persona (terse markdown,
@@ -97,8 +107,7 @@ final class CompactionPlugin extends AgentPlugin {
     this.terminal,
     this.id = 'tina/auto-compact',
     this.canCompact,
-  })  : assert(config.overThresholdMargin >= 1.0),
-        assert(config.keepRecentTurns >= 0);
+  })  : assert(config.overThresholdMargin >= 1.0);
 
   @override
   final String id;
@@ -133,15 +142,13 @@ final class CompactionPlugin extends AgentPlugin {
                 await loop.betweenTurns(() async {
                   if (cancel.cancelled) return;
                   final view = loop.derive();
-                  final split = _splitAtTurnBoundary(
-                      view.messages, config.keepRecentTurns);
+                  final split = _splitAtTokenBoundary(
+                      view.messages, config.keepRecentTokens);
                   if (split == null) {
                     terminal?.writeln(
-                        'Not enough earlier history to compact: the '
-                        '${config.keepRecentTurns} most recent turns stay '
-                        'verbatim, and fewer than 2 messages come before '
-                        'them. Keep working — /compact can summarize once '
-                        'earlier turns exist.');
+                        'Nothing to compact: the transcript has no text to '
+                        'summarize yet. Keep working — /compact can '
+                        'summarize once exchanges exist.');
                     return;
                   }
                   final summary = await _summarize(loop,
@@ -193,7 +200,8 @@ final class CompactionPlugin extends AgentPlugin {
     if (estimate < _nextTrigger) return;
     if (view.messages.length < config.minMessagesToCompact) return;
 
-    final split = _splitAtTurnBoundary(view.messages, config.keepRecentTurns);
+    final split = _splitAtTokenBoundary(
+        view.messages, config.keepRecentTokens);
     if (split == null) return;
 
     _nextTrigger = estimate * config.overThresholdMargin;
@@ -206,28 +214,60 @@ final class CompactionPlugin extends AgentPlugin {
     }
   }
 
-  /// The split that keeps [keep] recent *turns* verbatim: the boundary is
-  /// the keep-th turn's user message (the old engine's
-  /// `_recentHumanTurnBoundary` — a text-bearing, non-synthetic user
-  /// message is a turn's start in the derived view). Everything from that
-  /// message on stays, so a turn's tool pairs can never be severed; the
-  /// older half must hold at least two messages — there is no point
-  /// summarizing one exchange. Returns null when nothing safely splits.
-  _Split? _splitAtTurnBoundary(List<Message> messages, int keep) {
-    var turns = 0;
+  /// The split that keeps roughly [keepTokens] estimated transcript
+  /// tokens of recent history verbatim. Synthetic messages — summaries
+  /// and splice notices — are history like any other: they never anchor
+  /// the kept tail, but they do spend the budget, so a compacted session
+  /// re-compacts instead of declining.
+  ///
+  /// Boundary selection, newest-first:
+  /// 1. walk back until [keepTokens] are spent, dropping only whole
+  ///    messages;
+  /// 2. snap forward to the nearest turn start (real, text-bearing user
+  ///    message) at or inside the cutoff, so a turn's tool pairs can
+  ///    never be severed;
+  /// 3. everything fits — keep only the newest exchange (from the
+  ///    newest real user message), so a summary never duplicates the
+  ///    whole conversation beside itself;
+  /// 4. a single exchange — summarize everything, keep nothing.
+  ///
+  /// Returns null only when nothing has text to summarize.
+  _Split? _splitAtTokenBoundary(List<Message> messages, int keepTokens) {
+    final startsTurn = _turnStarts(messages);
+    if (startsTurn.isEmpty) return null;
+
+    var budget = keepTokens;
+    var cutoff = 0; // messages[cutoff..] is the candidate kept tail.
     for (var i = messages.length - 1; i >= 0; i--) {
-      final m = messages[i];
-      final startsTurn = m.role == Role.user &&
-          !m.isSynthetic &&
-          m.content.any((b) => b is TextBlock);
-      if (!startsTurn) continue;
-      turns++;
-      if (turns == keep) {
-        if (i < 2) return null; // not enough older context to summarize
+      budget -= estimateTranscriptMessageChars(messages[i]) ~/ 4;
+      if (budget < 0) {
+        cutoff = i + 1;
+        break;
+      }
+      cutoff = i;
+    }
+
+    // Snap the cutoff up to a turn start so a tool pair stays whole.
+    // Only when something is actually being dropped — a cutoff of 0
+    // means the budget swallowed the whole transcript and the fallback
+    // below chooses the kept tail.
+    if (cutoff > 0) {
+      for (var i = cutoff; i < messages.length; i++) {
+        if (startsTurn.contains(i)) return _Split(0, i - 1);
+      }
+    }
+
+    // Everything fit the budget. Keeping the whole conversation beside
+    // the summary would duplicate it — fall back to the newest exchange.
+    for (var i = messages.length - 1; i >= 0; i--) {
+      if (startsTurn.contains(i)) {
+        if (i == 0) break; // a single exchange: fall through
         return _Split(0, i - 1);
       }
     }
-    return null;
+
+    // One exchange, nothing older — there is still a summary to write.
+    return _Split(0, messages.length - 1);
   }
 
   Future<void> _compact(AgentLoop loop, List<Message> messages, _Split split,
@@ -245,6 +285,22 @@ final class CompactionPlugin extends AgentPlugin {
     final summary = await _summarize(loop, summaryRequest, cancel);
     if (_loop != loop || cancel.cancelled || summary == null) return;
     loop.compact(split.from, split.to, '$compactionSummaryMarker$summary');
+  }
+
+  /// The derived-view indexes that start a turn: a real (non-synthetic)
+  /// user message carrying at least one text block. The old engine's
+  /// turn-start rule, index form.
+  Set<int> _turnStarts(List<Message> messages) {
+    final starts = <int>{};
+    for (var i = 0; i < messages.length; i++) {
+      final m = messages[i];
+      if (m.role == Role.user &&
+          !m.isSynthetic &&
+          m.content.any((b) => b is TextBlock)) {
+        starts.add(i);
+      }
+    }
+    return starts;
   }
 
   /// One streaming request on the session's provider; the summary is the
