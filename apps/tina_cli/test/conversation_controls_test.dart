@@ -111,7 +111,7 @@ enabled = ["tina/session-controls", "tina/auto-compact", "tina/persistence"]
     expect(providers.last.requests.single, hasLength(1));
   });
 
-  test('manual compaction preserves recent turns and resumes the summary',
+  test('manual compaction keeps the recent exchange and resumes the summary',
       () async {
     final app = open();
     final id = app.host.session.id;
@@ -120,9 +120,13 @@ enabled = ["tina/session-controls", "tina/auto-compact", "tina/persistence"]
     }
     await app.commands['compact']!.handler('');
     final messages = app.host.session.loop.derive().messages;
-    expect(messages, hasLength(5));
+    // The default keepRecentTokens budget holds this short transcript
+    // whole, so the split summarizes the older two exchanges and keeps
+    // only the newest verbatim beside the summary.
+    expect(messages, hasLength(3));
     expect(messages.first.content.whereType<TextBlock>().single.text,
         '$compactionSummaryMarker' 'answer');
+    expect(messages[1].content.whereType<TextBlock>().single.text, 'newest');
     app.close();
     final resumed = open(resume: id);
     addTearDown(resumed.close);
