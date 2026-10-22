@@ -2,4 +2,4 @@
 // with `dart run apps/tina_cli/tool/generate_version.dart` after bumping apps/tina_cli/pubspec.yaml.
 
 /// tina's version, from apps/tina_cli/pubspec.yaml at build time.
-const String tinaVersion = '0.9.90';
+const String tinaVersion = '0.9.91';
