@@ -15,6 +15,7 @@ from http.server import ThreadingHTTPServer
 
 sys.dont_write_bytecode = True
 from smoke_engine2 import ModelStub, PACKAGE, Terminal
+from smoke_classification_panel import terminal_grid
 
 PNG = 'iVBORw0KGgoAAAANSUhEUgAAABgAAAAgCAYAAAAIXrg4AAAAJ0lEQVR4nO3NsQ0AAAjAoP7/tF7hYMLATFNzKYFAIBAIBAKBQPAlWMuz+kyFM+vqAAAAAElFTkSuQmCC'
 RED = re.compile(rb'(?:38|48);2;255;0;0|(?:38|48);5;(?:196|9)|\x1b\[(?:0;)?(?:31|41|91|101)m')
@@ -100,7 +101,9 @@ def smoke(binary, endpoint, columns, rows):
             terminal.send('\x1b')  # leave fold navigation, return to typing
             terminal.expect_idle()
             start = send_line(terminal, 'mcp screenshot example')
-            terminal.expect('[y] allow once', start, wrapped=True)
+            terminal.wait_for(
+                lambda: '[y] allow once' in terminal_grid(terminal, columns, rows),
+                'MCP approval choices were not painted')
             terminal.expect_cursor(False)
             start = terminal.send('y')
             terminal.expect('24×32', start)
@@ -154,7 +157,10 @@ def smoke(binary, endpoint, columns, rows):
                 # Cancellation of a live subprocess must also release input
                 # and kill descendants before the next instruction starts.
                 start = send_line(terminal, 'run cancellable tool')
-                terminal.expect('[y] allow once', start, wrapped=True)
+                terminal.wait_for(
+                    lambda: '❯ [p] remember this command for this workspace' in
+                        terminal_grid(terminal, columns - 8, rows + 2),
+                    'workspace command approval was not selected')
                 terminal.expect_cursor(False)
                 terminal.send('y')
                 # The command text in the approval preview also contains the

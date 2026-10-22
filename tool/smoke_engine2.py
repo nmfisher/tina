@@ -644,7 +644,7 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('different network example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('❯ [p] remember this command for this workspace', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
@@ -670,7 +670,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('classifier recommends denial', start)
             terminal.expect('Project data could be exposed.', start)
             terminal.expect('Auto approver denied this:', start)
-            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('❯ [p] remember this command for this workspace', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
@@ -682,7 +682,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('mode: allow-edits', start)
             before_background = len(ModelStub.requests)
             start = terminal.send('background poll example\r')
-            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('❯ [p] remember this command for this workspace', start)
             start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_background + 2 and time.monotonic() < deadline:
@@ -714,9 +714,9 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('run cancellable tool\r')
             tool_paint_start = start
             terminal.expect('Run shell command', start)
-            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('❯ [p] remember this command for this workspace', start)
             terminal.resize(100, 30)
-            start = terminal.send('\r')
+            start = terminal.send('y')
             terminal.wait_for(lambda: (workspace / 'subprocess-ready').exists(),
                               'approved subprocess never started')
             # Browsing during execution must not cancel or submit input.
