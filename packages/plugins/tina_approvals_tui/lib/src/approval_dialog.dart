@@ -129,6 +129,24 @@ class ApprovalDialog {
       _directoryOffers.isNotEmpty &&
       ask?.confirmation != true &&
       call?.argumentsParseError == null;
+
+  /// The standing "always permit reads" answer, offered only when every
+  /// offered directory access is a read: the moment a write or an
+  /// unconfined request is part of the ask, "always permit reads" would
+  /// under-describe what approving it remembers. Also offered only in
+  /// read-only mode — the mode the enforcement side consults the standing
+  /// grant in, so the option appears exactly where it takes effect.
+  /// Session and workspace are their own rows — one menu, one decision —
+  /// and global is deliberately not offered: a standing read grant for
+  /// every workspace at once is not a prompt-time decision.
+  bool get _hasReadsAlways =>
+      _hasAlways &&
+      ask?.details['mode'] == 'readOnly' &&
+      _directoryOffers.isNotEmpty &&
+      _directoryOffers.every((offer) => offer.access == DirectoryAccess.read);
+  bool get _hasReadsAlwaysWorkspace =>
+      _hasReadsAlways &&
+      _directoryScopes.contains(DirectoryGrantScope.workspace);
   bool get _hasInvocationDirectories =>
       _hasDirectoryOffers && ask?.details['invocation_directory_access'] is Map;
   String? get _readDirectory => ask?.confirmation != true &&
@@ -226,11 +244,22 @@ class ApprovalDialog {
                 ])
               : const []);
 
+  /// The standing reads grant: every offered access is a read, remembered
+  /// at [scope]. The answer's scope rides the grants, never a new enum value.
+  ApprovalOutcome _readsAlwaysOutcome(DirectoryGrantScope scope) =>
+      ApprovalOutcome(ApprovalDecision.allowReadsAlways,
+          directoryGrants: List.unmodifiable([
+            for (final offer in _directoryOffers)
+              DirectoryAccessGrant(offer.path, offer.access, scope)
+          ]));
+
   List<String> get _choices => ask?.confirmation == true
       ? ['Yes', 'No']
       : [
           'allow',
           'deny',
+          if (_hasReadsAlways) 'always permit reads session',
+          if (_hasReadsAlwaysWorkspace) 'always permit reads workspace',
           if (_hasInvocationDirectories) ...[
             'allow directories session',
             if (_directoryScopes.contains(DirectoryGrantScope.workspace))
@@ -272,6 +301,9 @@ class ApprovalDialog {
         'allow always' => ApprovalDecision.allowAlways,
         'allow workspace' => ApprovalDecision.allowWorkspace,
         'allow global' => ApprovalDecision.allowGlobal,
+        'always permit reads session' ||
+        'always permit reads workspace' =>
+          ApprovalDecision.allowReadsAlways,
         'allow' ||
         'Yes' ||
         'allow directories session' ||
@@ -473,6 +505,9 @@ class ApprovalDialog {
               '[g] remember this command globally (any directory)',
             ],
             if (_hasCommandPattern) '[e] always approve with editable regex',
+            if (_hasReadsAlways) 'always permit reads (this session)',
+            if (_hasReadsAlwaysWorkspace)
+              'always permit reads (this workspace)',
             if (_readDirectory != null)
               '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
             if (_writeDirectory != null)
@@ -658,6 +693,12 @@ class ApprovalDialog {
   /// The decision the current selection maps to.
   ApprovalOutcome get current {
     final choice = _choices[_selected];
+    if (choice == 'always permit reads session') {
+      return _readsAlwaysOutcome(DirectoryGrantScope.session);
+    }
+    if (choice == 'always permit reads workspace') {
+      return _readsAlwaysOutcome(DirectoryGrantScope.workspace);
+    }
     if (choice == 'allow directories session' ||
         choice == 'allow directories workspace') {
       final access = ask!.details['invocation_directory_access'] as Map;

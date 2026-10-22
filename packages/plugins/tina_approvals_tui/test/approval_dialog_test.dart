@@ -213,6 +213,75 @@ void main() {
     expect(denied.directoryGrants, isEmpty);
   });
 
+  test('always permit reads is offered for all-read asks with both scopes',
+      () {
+    ApprovalDialog dialog() => ApprovalDialog(null,
+        ask: const ApprovalAskContext('run command', 'cat /library/notes.md',
+            'read-only mode: needs read access to /library',
+            details: {
+              'mode': 'readOnly',
+              'directory_accesses': [
+                {'path': '/library', 'access': 'read', 'source': 'verified'},
+              ],
+              'directory_grant_scopes': ['session', 'workspace'],
+            }));
+    final rows = dialog().rows(width: 120).map(text).join('\n');
+    expect(rows, contains('always permit reads (this session)'));
+    expect(rows, contains('always permit reads (this workspace)'));
+    // Down from 'allow' to 'deny', then to the two reads-rows.
+    final session = dialog();
+    session.handleKey(ApprovalKey.down);
+    session.handleKey(ApprovalKey.down);
+    final sessionOutcome = session.current;
+    expect(sessionOutcome.decision, ApprovalDecision.allowReadsAlways);
+    expect(sessionOutcome.directoryGrants.single.path, '/library');
+    expect(sessionOutcome.directoryGrants.single.scope,
+        DirectoryGrantScope.session);
+    final workspace = dialog();
+    workspace.handleKey(ApprovalKey.down);
+    workspace.handleKey(ApprovalKey.down);
+    workspace.handleKey(ApprovalKey.down);
+    final workspaceOutcome = workspace.current;
+    expect(workspaceOutcome.decision, ApprovalDecision.allowReadsAlways);
+    expect(workspaceOutcome.directoryGrants.single.scope,
+        DirectoryGrantScope.workspace);
+  });
+
+  test('always permit reads is not offered for writes or outside read-only',
+      () {
+    ApprovalDialog dialog(Map<String, Object?> details) => ApprovalDialog(null,
+        ask: ApprovalAskContext('run command', 'cmd', 'review', details: details));
+    // A write among the offers disqualifies the standing reads grant.
+    final mixed = dialog({
+      'mode': 'readOnly',
+      'directory_accesses': [
+        {'path': '/input', 'access': 'read', 'source': 'verified'},
+        {'path': '/output', 'access': 'write', 'source': 'verified'},
+      ],
+      'directory_grant_scopes': ['session', 'workspace'],
+    });
+    final mixedRows = mixed.rows(width: 120).map(text).join('\n');
+    expect(mixedRows, isNot(contains('always permit reads')));
+    // Same shape, different mode: no standing-reads rows there either.
+    final auto = dialog({
+      'mode': 'auto',
+      'directory_accesses': [
+        {'path': '/library', 'access': 'read', 'source': 'verified'},
+      ],
+      'directory_grant_scopes': ['session', 'workspace'],
+    });
+    expect(auto.rows(width: 120).map(text).join('\n'),
+        isNot(contains('always permit reads')));
+    // No offers at all (read_directory single-checkbox shape): not offered.
+    final noOffers = dialog({
+      'mode': 'readOnly',
+      'read_directory': '/library',
+      'directory_grant_scopes': ['session', 'workspace'],
+    });
+    expect(noOffers.rows(width: 120).map(text).join('\n'),
+        isNot(contains('always permit reads')));
+  });
+
   test('write checkbox remembers only when explicitly checked and approved',
       () async {
     ApprovalDialog dialog() => ApprovalDialog(null,

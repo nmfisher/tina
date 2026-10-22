@@ -59,7 +59,8 @@ PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
         settings: [
           readOnlyDirectoriesSetting,
           writeDirectoriesSetting,
-          homeCachesSetting
+          homeCachesSetting,
+          allowReadsOutsideWorkspaceSetting
         ],
         dependency: approvalRequester,
         provides: [toolProvider, modePolicySource],
@@ -80,6 +81,7 @@ Approver requesterApprover(ApprovalRequester approvals) =>
         ApprovalDecision.allowAlways => Approval.always,
         ApprovalDecision.allowWorkspace ||
         ApprovalDecision.allowGlobal ||
+        ApprovalDecision.allowReadsAlways ||
         ApprovalDecision.allowReadsInDirectory ||
         ApprovalDecision.allowAlwaysAndReadsInDirectory ||
         ApprovalDecision.allowWritesInDirectory ||
@@ -96,6 +98,7 @@ Approval _answer(ApprovalDecision decision, String reason) =>
       ApprovalDecision.allowAlways => Approval.always,
       ApprovalDecision.allowWorkspace ||
       ApprovalDecision.allowGlobal ||
+      ApprovalDecision.allowReadsAlways ||
       ApprovalDecision.allowReadsInDirectory ||
       ApprovalDecision.allowAlwaysAndReadsInDirectory ||
       ApprovalDecision.allowWritesInDirectory ||
@@ -231,6 +234,26 @@ void attachModePolicy(ToolsPlugin plugin) {
         review.requiredPermissions.contains(ProcessPermission.network);
     final outsideSandbox =
         review.requiredPermissions.contains(ProcessPermission.unconfined);
+    // The standing "always permit reads" answer: when the user chose it at
+    // this scope, a read-only certified-reader ask — exactly the shape the
+    // dialog offered the choice on — runs without asking again. The shape
+    // test is strict: there must be inferred READ directory access (an ask
+    // with none — a bare write-shaped command, say — is not covered), no
+    // write access may be pending, execution must already be covered by a
+    // certified reader, and no network or host escape rides along. Only in
+    // read-only mode: in ask/auto every external read keeps asking. The
+    // kernel sandbox still enforces and protected paths stay excluded.
+    final settings = plugin.settings;
+    final standingReads = plugin.modePolicy.mode == PermissionMode.readOnly &&
+        settings != null &&
+        settings.read(allowReadsOutsideWorkspaceSetting).value &&
+        !network &&
+        !outsideSandbox &&
+        review.directoryAccess.read.isNotEmpty &&
+        review.directoryAccess.write.isEmpty &&
+        review.missingPermissions.every(
+            (permission) => permission == ProcessPermission.directoryAccess);
+    if (standingReads) return Approval.yes;
     if (plugin.commandApprovals.covers(request, review.requiredPermissions,
         directoryAccess: review.directoryAccess)) {
       return Approval.yes;
@@ -382,8 +405,28 @@ void attachModePolicy(ToolsPlugin plugin) {
         plugin.osPlan.canGrant(review.readDirectory!)) {
       plugin.rememberReadDirectory(review.readDirectory!);
     }
+    if (decision == ApprovalDecision.allowReadsAlways) {
+      // The dialog only offers this for all-read asks, and the grants were
+      // validated against those offers above; the scope rides the grants.
+      // A channel that answers without grants defaults to session scope —
+      // the narrowest standing read grant this answer can mean.
+      final scopes = directoryGrants.map((grant) => grant.scope).toSet();
+      final scope = switch (scopes.length) {
+        1 => scopes.single,
+        _ => DirectoryGrantScope.session,
+      };
+      if (settings != null) {
+        settings.set(allowReadsOutsideWorkspaceSetting, true,
+            SettingScope.values.byName(scope.name));
+      }
+      // Without persistent settings the standing grant cannot be remembered;
+      // the answer still approves this invocation, exactly like 'allow'.
+      return Approval.yes;
+    }
     return switch (decision) {
       ApprovalDecision.allow => Approval.yes,
+      // Handled above; the arm keeps the switch total if that block moves.
+      ApprovalDecision.allowReadsAlways => Approval.yes,
       ApprovalDecision.allowAlways => Approval.always,
       ApprovalDecision.allowReadsInDirectory =>
         review.readDirectory != null ? Approval.yes : Approval.no,

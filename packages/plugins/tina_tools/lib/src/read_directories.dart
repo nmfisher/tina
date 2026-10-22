@@ -54,3 +54,23 @@ final class ReadOnlyDirectories {
   bool allows(String target) =>
       _paths.any((root) => p.equals(target, root) || p.isWithin(root, target));
 }
+
+/// A standing answer to read-shaped asks: when set, the command approver
+/// approves read-only certified-reader asks without asking again. Scope is
+/// the setting's own (session or workspace); the OS sandbox keeps enforcing
+/// either way, protected paths stay excluded, and writes never ride this.
+final allowReadsOutsideWorkspaceSetting = SettingDefinition<bool>(
+  id: 'tina/tools/allow_reads_outside_workspace',
+  label: 'Always permit reads outside the workspace',
+  description:
+      'Answer “always permit reads” to a read-only approval prompt to set '
+      'this. Read-only commands (and only reads) then run without asking; '
+      'the OS sandbox and protected-path exclusions still apply. Revoke by '
+      'clearing this setting (Settings → Permissions).',
+  defaultValue: false,
+  kind: SettingKind.toggle,
+  scopes: const {SettingScope.session, SettingScope.workspace},
+  scopeReason: 'A standing read grant is a session or workspace choice; '
+      'granting reads everywhere at once is a global decision this setting '
+      'deliberately does not offer.',
+);

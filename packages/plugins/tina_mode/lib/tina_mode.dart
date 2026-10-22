@@ -215,7 +215,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ApprovalDecision.allowReadsInDirectory ||
       ApprovalDecision.allowAlwaysAndReadsInDirectory ||
       ApprovalDecision.allowWritesInDirectory ||
-      ApprovalDecision.allowAlwaysAndWritesInDirectory => true,
+      ApprovalDecision.allowAlwaysAndWritesInDirectory ||
+      ApprovalDecision.allowReadsAlways => true,
       ApprovalDecision.deny => false,
     };
     final authority = !human
@@ -223,7 +224,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         : switch (decision) {
             ApprovalDecision.allowAlways ||
             ApprovalDecision.allowWorkspace ||
-            ApprovalDecision.allowGlobal => PrecedentAuthority.humanAlways,
+            ApprovalDecision.allowGlobal ||
+            ApprovalDecision.allowReadsAlways => PrecedentAuthority.humanAlways,
             _ => PrecedentAuthority.humanOnce,
           };
     try {

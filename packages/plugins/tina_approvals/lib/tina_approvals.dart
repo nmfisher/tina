@@ -20,7 +20,13 @@ enum ApprovalDecision {
   allowReadsInDirectory,
   allowAlwaysAndReadsInDirectory,
   allowWritesInDirectory,
-  allowAlwaysAndWritesInDirectory
+  allowAlwaysAndWritesInDirectory,
+
+  /// "Always permit reads": approve this read-only ask and stop asking for
+  /// future read-shaped ones. The scope (session or workspace) rides the
+  /// answer's validated read [DirectoryAccessGrant]s, not a separate enum
+  /// value. Only offered for asks whose missing permissions are reads.
+  allowReadsAlways
 }
 
 /// A confirmation has only Yes/No; it cannot grant future requests.
@@ -218,11 +224,31 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
                   request.details['write_directory'] is! String));
       final offers = request.details['directory_accesses'];
       final scopes = request.details['directory_grant_scopes'];
+      // "Always permit reads" is only valid on the all-read ask the dialog
+      // offers it on: a permission ask whose every directory offer is a
+      // read. Anything else (a write ask, a confirmation, an ask whose shape
+      // is unknown) cannot mean what the answer says and is denied — a
+      // consumer that cannot honor standing grants then refuses loudly
+      // instead of silently mis-approving. The answer's scope rides its
+      // read grants (below), never a separate enum value.
+      final invalidReadsAlways =
+          decision == ApprovalDecision.allowReadsAlways &&
+              (request.kind != ApprovalKind.permission ||
+                  offers is! List ||
+                  offers.isEmpty ||
+                  offers.any((offer) =>
+                      offer is! Map ||
+                      offer['access'] != DirectoryAccess.read.name));
       final invalidDirectories = directoryGrants.isNotEmpty &&
           (request.kind != ApprovalKind.permission ||
               onDirectoryGrants == null ||
-              !{ApprovalDecision.allow, ApprovalDecision.allowAlways}
-                  .contains(decision) ||
+              !{
+                ApprovalDecision.allow,
+                ApprovalDecision.allowAlways,
+                // Reads-always carries the session/workspace scope on the
+                // same validated grants as a plain allow.
+                ApprovalDecision.allowReadsAlways
+              }.contains(decision) ||
               directoryGrants.length > 32 ||
               directoryGrants.map((grant) => grant.scope).toSet().length != 1 ||
               offers is! List ||
@@ -237,6 +263,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           !invalidScope &&
           !invalidPattern &&
           !invalidDirectories &&
+          !invalidReadsAlways &&
           directoryGrants.isNotEmpty) {
         try {
           onDirectoryGrants!(List.unmodifiable(directoryGrants));
@@ -246,6 +273,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       }
       if (!invalid &&
           !invalidDirectories &&
+          !invalidReadsAlways &&
           !invalidScope &&
           !invalidPattern &&
           commandPattern != null) {
@@ -256,7 +284,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
         }
       }
       result.complete(
-          invalid || invalidScope || invalidPattern || invalidDirectories
+          invalid || invalidScope || invalidPattern || invalidDirectories ||
+                  invalidReadsAlways
               ? ApprovalDecision.deny
               : request.kind == ApprovalKind.confirmation &&
                       decision == ApprovalDecision.allowAlways
@@ -265,7 +294,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       return !invalid &&
           !invalidScope &&
           !invalidPattern &&
-          !invalidDirectories;
+          !invalidDirectories &&
+          !invalidReadsAlways;
     }, result.future);
     _pending[request.id] = ticket;
     _changed();

@@ -269,6 +269,85 @@ void main() {
         isTrue);
     expect(await offered, ApprovalDecision.allowReadsInDirectory);
   });
+  test('always-permit-reads answers require the all-read permission shape',
+      () async {
+    final allRead = {
+      'directory_accesses': [
+        {'path': '/other', 'access': 'read'}
+      ],
+      'directory_grant_scopes': ['session', 'workspace'],
+    };
+    final mixed = {
+      'directory_accesses': [
+        {'path': '/other', 'access': 'read'},
+        {'path': '/output', 'access': 'write'},
+      ],
+      'directory_grant_scopes': ['session'],
+    };
+    for (final entry in [
+      (details: allRead, kind: ApprovalKind.permission, valid: true),
+      // No directory offers at all cannot carry a standing grant.
+      (details: <String, Object?>{}, kind: ApprovalKind.permission,
+          valid: false),
+      // A write among the offers disqualifies the standing reads grant.
+      (details: mixed, kind: ApprovalKind.permission, valid: false),
+      // Confirmations are yes/no; standing grants never ride them.
+      (details: allRead, kind: ApprovalKind.confirmation, valid: false),
+    ]) {
+      final channel = CapturingChannel();
+      final service = ApprovalsPlugin(channel: channel);
+      addTearDown(service.closeSession);
+      List<DirectoryAccessGrant>? received;
+      final pending = service.request(
+          operation: 'run command',
+          target: 'grep -r x /other',
+          reason: 'read',
+          kind: entry.kind,
+          details: entry.details,
+          onDirectoryGrants: (grants) => received = grants);
+      await Future<void>.delayed(Duration.zero);
+      final ticket = channel.tickets.single;
+      if (entry.valid) {
+        // The session/workspace scope rides the answer's validated read
+        // grants, exactly like a plain allow.
+        expect(
+            ticket.respond(ApprovalDecision.allowReadsAlways,
+                directoryGrants: [
+                  const DirectoryAccessGrant('/other', DirectoryAccess.read,
+                      DirectoryGrantScope.workspace)
+                ]),
+            isTrue);
+        expect(await pending, ApprovalDecision.allowReadsAlways);
+        expect(received, hasLength(1));
+        // A bare answer (no grants) stays valid: consumers that cannot
+        // honor standing grants decide for themselves.
+        final bare = CapturingChannel();
+        final bareService = ApprovalsPlugin(channel: bare);
+        addTearDown(bareService.closeSession);
+        final barePending = bareService.request(
+            operation: 'run command',
+            target: 'grep -r x /other',
+            reason: 'read',
+            details: entry.details);
+        await Future<void>.delayed(Duration.zero);
+        expect(bare.tickets.single.respond(ApprovalDecision.allowReadsAlways),
+            isTrue);
+        expect(await barePending, ApprovalDecision.allowReadsAlways);
+      } else {
+        expect(
+            ticket.respond(ApprovalDecision.allowReadsAlways,
+                directoryGrants: [
+                  const DirectoryAccessGrant('/other', DirectoryAccess.read,
+                      DirectoryGrantScope.workspace)
+                ]),
+            isFalse,
+            reason: '${entry.details} / ${entry.kind}');
+        expect(await pending, ApprovalDecision.deny);
+        expect(received, isNull);
+      }
+    }
+  });
+
   test('default approval schedules no expiry and accepts a later answer',
       () async {
     final channel = CapturingChannel();
