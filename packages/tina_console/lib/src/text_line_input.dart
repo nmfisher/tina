@@ -80,6 +80,18 @@ class TextLineInput {
   /// [buffer] at the cursor, a span is recorded over it, and the cursor lands
   /// at the span's right edge. The display form is decided in
   /// [_makeDisplay].
+  ///
+  /// When the paste lands flush against a preceding *chip* span (cursor at
+  /// its right edge, nothing typed between), the two are re-joined into one
+  /// span. Burst-based paste detection can deliver a single physical paste
+  /// as several [PasteInput]s when input capture stalls — the native pump
+  /// queue fills (256 records; a large paste is thousands) and the producer
+  /// blocks until the next drain, stretching capture gaps past the detector's
+  /// 30 ms join window. Without re-joining, one ⌘V renders as consecutive
+  /// `[Pasted text]` chips. A deliberate paste following an earlier verbatim
+  /// (short) paste stays separate, preserving per-paste backspace granularity;
+  /// the two are indistinguishable only when the earlier one is already a
+  /// chip, and absorbing into a chip merely corrects its char count.
   TextLineInput addPaste(String text) {
     final start = cursor;
     // Mirrors insert(): shift any spans at/after the cursor, rebuild the
@@ -88,17 +100,51 @@ class TextLineInput {
     final newBuffer =
         buffer.substring(0, start) + text + buffer.substring(start);
     final end = start + text.length;
-    final spans =
-        _insertSpanInto(shifted, _PasteSpan(start, end, _makeDisplay(text)));
+    // Spans are sorted by start, so the ones left of the insertion point are
+    // a prefix. Walk that prefix backwards from its end, absorbing a run of
+    // chip spans that sit flush against each other and against the new paste.
+    var prefixEnd = 0;
+    while (prefixEnd < shifted.length && shifted[prefixEnd].start < start) {
+      prefixEnd++;
+    }
+    var chainEnd = prefixEnd; // one past the last absorbed span
+    while (chainEnd > 0 && _isChipSpan(shifted[chainEnd - 1])) {
+      final flushWith = chainEnd == prefixEnd ? start : shifted[chainEnd].start;
+      if (shifted[chainEnd - 1].end != flushWith) break;
+      chainEnd--;
+    }
+    final List<_PasteSpan> spans;
+    if (chainEnd < prefixEnd) {
+      final from = shifted[chainEnd].start;
+      spans = [
+        ...shifted.sublist(0, chainEnd),
+        _PasteSpan(from, end, _makeDisplay(newBuffer.substring(from, end))),
+        ...shifted.sublist(prefixEnd),
+      ];
+    } else {
+      spans =
+          _insertSpanInto(shifted, _PasteSpan(start, end, _makeDisplay(text)));
+    }
     return copyWith(buffer: newBuffer, cursor: end, pasteSpans: spans);
   }
 
-  /// Delete the code point before the cursor (surrogate-aware). If the cursor
-  /// sits at a paste span's right edge, the whole span is removed instead.
+  /// Whether [span] renders as the `[Pasted text : N chars]` chip rather than
+  /// verbatim. Shape check against [_makeDisplay]'s chip format; a paste whose
+  /// literal text mimics the chip can only be misjudged into extra merging,
+  /// which changes no rendered output.
+  static bool _isChipSpan(_PasteSpan span) =>
+      span.display.startsWith('[Pasted text : ') &&
+      span.display.endsWith(' chars]');
+
+  /// Delete the code point before the cursor (surrogate-aware). Only a chip
+  /// span (collapsed `[Pasted text : N chars]`) is removed atomically at its
+  /// right edge — it is an opaque token with no visible characters to peel.
+  /// A verbatim paste is visible text: backspace deletes its last character
+  /// like ordinary typing (tin-t7-paste-backspace).
   TextLineInput backspace() {
     if (cursor == 0) return this;
     final span = _spanAtRightEdge(cursor);
-    if (span != null) return _deleteSpan(span);
+    if (span != null && _isChipSpan(span)) return _deleteSpan(span);
     var start = cursor - 1;
     if (start > 0) {
       final unit = buffer.codeUnitAt(start);
@@ -107,12 +153,13 @@ class TextLineInput {
     return _removeRange(start, cursor, start);
   }
 
-  /// Delete the code point after the cursor (surrogate-aware). If the cursor
-  /// sits at a paste span's left edge, the whole span is removed instead.
+  /// Delete the code point after the cursor (surrogate-aware). Only a chip
+  /// span is removed atomically at its left edge; a verbatim paste loses one
+  /// character at a time.
   TextLineInput deleteForward() {
     if (cursor >= buffer.length) return this;
     final span = _spanAtLeftEdge(cursor);
-    if (span != null) return _deleteSpan(span);
+    if (span != null && _isChipSpan(span)) return _deleteSpan(span);
     var end = cursor + 1;
     if (end < buffer.length) {
       final unit = buffer.codeUnitAt(end - 1);
@@ -366,13 +413,22 @@ class TextLineInput {
   }
 
   /// Map the real cursor past compact paste chips and removed controls.
+  /// A verbatim span's display is length-preserving, so a cursor that edits
+  /// its way inside one (per-character backspace) projects to the exact
+  /// position within the visible text instead of clamping to the span edge;
+  /// inside a chip (which has no per-character cursor) the cursor still
+  /// parks at the span's left edge.
   int displayCursor(int cursor) {
     cursor = cursor.clamp(0, buffer.length);
     var offset = 0, display = 0;
     for (final span in pasteSpans) {
       if (cursor <= span.start) break;
       display += inputDisplayText(buffer.substring(offset, span.start)).length;
-      if (cursor < span.end) return display;
+      if (cursor < span.end) {
+        if (_isChipSpan(span)) return display;
+        return display +
+            inputDisplayText(buffer.substring(span.start, cursor)).length;
+      }
       display += span.display.length;
       offset = span.end;
     }
@@ -423,20 +479,21 @@ class TextLineInput {
     return null;
   }
 
-  /// If [cursor] landed strictly inside a span (a left move crossed into one),
-  /// snap it to that span's left edge.
+  /// If [cursor] landed strictly inside a chip span (a left move crossed
+  /// into one), snap it to that span's left edge. Verbatim pastes are
+  /// ordinary visible text and take interior cursor positions.
   int _snapLeft(int cursor) {
     for (final s in pasteSpans) {
-      if (s.start < cursor && cursor <= s.end) return s.start;
+      if (_isChipSpan(s) && s.start < cursor && cursor <= s.end) return s.start;
     }
     return cursor;
   }
 
-  /// If [cursor] landed strictly inside a span (a right move crossed into one),
-  /// snap it to that span's right edge.
+  /// If [cursor] landed strictly inside a chip span (a right move crossed
+  /// into one), snap it to that span's right edge.
   int _snapRight(int cursor) {
     for (final s in pasteSpans) {
-      if (s.start <= cursor && cursor < s.end) return s.end;
+      if (_isChipSpan(s) && s.start <= cursor && cursor < s.end) return s.end;
     }
     return cursor;
   }
@@ -455,16 +512,34 @@ class TextLineInput {
     );
   }
 
-  /// Delete a real-text range `[start, end)`: remove the substring, drop any
-  /// span overlapping the range, shift later spans, and set the cursor to
-  /// [newCursor].
+  /// Delete a real-text range `[start, end)`: remove the substring, update
+  /// spans, and set the cursor to [newCursor]. A verbatim span strictly
+  /// containing the range shrinks (a per-character delete inside a verbatim
+  /// paste keeps the pasted marker on the remaining text, its display
+  /// recomputed from what is left); a chip the range cuts into, or any span
+  /// only partially overlapping the range, is dropped; later spans shift.
   TextLineInput _removeRange(int start, int end, int newCursor) {
-    final kept = _removeOverlapping(pasteSpans, start, end);
+    final len = end - start;
+    final kept = <_PasteSpan>[];
+    for (final s in pasteSpans) {
+      if (s.start <= start && end <= s.end && !_isChipSpan(s)) {
+        // Strictly contained in a verbatim span: shorten it, keep it —
+        // unless nothing remains, in which case the span goes too.
+        final remaining =
+            buffer.substring(s.start, start) + buffer.substring(end, s.end);
+        if (remaining.isNotEmpty) {
+          kept.add(
+              _PasteSpan(s.start, s.end - len, inputDisplayText(remaining)));
+        }
+        continue;
+      }
+      if (!(s.start < end && s.end > start)) kept.add(s);
+    }
     final newBuffer = buffer.substring(0, start) + buffer.substring(end);
     return copyWith(
       buffer: newBuffer,
       cursor: newCursor,
-      pasteSpans: _shift(kept, end, -(end - start)),
+      pasteSpans: _shift(kept, end, -len),
     );
   }
 

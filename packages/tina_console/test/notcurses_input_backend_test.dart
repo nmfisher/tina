@@ -480,6 +480,87 @@ void main() {
       // Below minPasteChars → emitted as the individual CharInput, not a paste.
       expect(emitted, [CharInput('q')]);
     });
+
+    test('a backpressure decode stretch joins (live pump stamps)', () async {
+      // The split mechanism (tin-pump-backpressure): the pump ring fills, the
+      // producer blocks, and the NEXT key cannot be decoded until a drain
+      // frees a slot — so its capture stamp lands right at the previous
+      // record's delivery time. Both transport tells present: fresh decode
+      // (capture ≈ previous delivery) and no ring wait (delivery ≈ capture).
+      // Transport, not typing — one paste, not two.
+      final head = 'a' * 10;
+      final tail = 'b' * 10;
+      const base = 1000000;
+      const drainAt = base + 60000; // Dart's slow drain frees the ring.
+      backend.pumpedBatchForTest([
+        // head: captured at paste speed, but sat in the full ring until the
+        // slow drain — every head record is delivered at drainAt.
+        for (var i = 0; i < head.length; i++)
+          nc.PumpedInput(head.codeUnitAt(i), 0, (base + i * 20) * 1000,
+              (drainAt + i * 20) * 1000),
+        // The stretch: the tail key could not be decoded until the first
+        // drain freed a slot, so its capture stamp lands right at the last
+        // head record's delivery — and it is drained immediately after.
+        ...[
+          for (var i = 0; i < tail.length; i++)
+            nc.PumpedInput(tail.codeUnitAt(i), 0,
+                (drainAt + 200 + i * 20) * 1000,
+                (drainAt + 450 + i * 20) * 1000)
+        ],
+      ]);
+      await pumpMicrotasks();
+      expect(emitted, isEmpty,
+          reason: 'the decode stretch is transport: no split');
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+      expect(emitted, hasLength(1));
+      expect((emitted.single as PasteInput).text, head + tail);
+    });
+
+    test('a stale typed backlog with live stamps still splits', () async {
+      // The preserved invariant: keystrokes captured 100ms apart (real
+      // typing), delivered together after a rendering stall. The records
+      // were decoded LONG ago (delivery ≫ capture: they sat queued waiting
+      // for Dart), so the fresh-decode tell is absent — capture gaps remain
+      // authoritative and no key merges into a paste.
+      backend.pumpedBatchForTest([
+        for (var i = 0; i < 10; i++)
+          nc.PumpedInput('a'.codeUnitAt(0), 0, (1000000 + i * 100000) * 1000,
+              (2000000 + i * 100000) * 1000),
+      ]);
+      await pumpMicrotasks();
+      expect(emitted.whereType<PasteInput>(), isEmpty,
+          reason: 'a stale typed backlog must never become a paste');
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+      expect(emitted.whereType<CharInput>(), hasLength(10));
+    });
+
+    test('a capture gap between drain turns still splits', () async {
+      // Two pump notifications (two pumpedBatchForTest calls): a real pause
+      // between typing sessions. The second notification's records are NOT
+      // freshly decoded (their capture lands 60ms after the previous
+      // delivery), so the gap splits as before.
+      backend.pumpedBatchForTest([
+        for (var i = 0; i < 10; i++)
+          nc.PumpedInput('a'.codeUnitAt(0), 0, (1000000 + i * 20) * 1000,
+              (1000000 + i * 20 + 500) * 1000),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      backend.pumpedBatchForTest([
+        for (var i = 0; i < 10; i++)
+          nc.PumpedInput(
+              'b'.codeUnitAt(0),
+              0,
+              (1000000 + 60000 + i * 20) * 1000,
+              (1000000 + 60000 + i * 20 + 500) * 1000),
+      ]);
+      await pumpMicrotasks();
+      expect(emitted, hasLength(1),
+          reason: 'the second turn flushes the first burst');
+      expect((emitted.first as PasteInput).text, 'a' * 10);
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+      expect(emitted, hasLength(2));
+      expect((emitted.last as PasteInput).text, 'b' * 10);
+    });
   });
 
   // tin-v6tq: terminal capability replies that survive past the startup

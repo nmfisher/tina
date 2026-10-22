@@ -222,5 +222,87 @@ void main() {
       d.flush();
       expect(d.hasPending, isFalse);
     });
+
+    group('delivery continuity (tin-pump-backpressure)', () {
+      // The native pump's ring queue fills during a large paste; pump_push
+      // then blocks until Dart drains, and the NEXT record's capture stamp
+      // lands at slot-free time — its capture gap to the previous record is
+      // the Dart drain latency, not a typing pause. Records delivered within
+      // one drain turn are marked continuous by the backend; such an edge
+      // must join across any capture gap, while a real pause (no continuity)
+      // still splits.
+      test('a backpressure gap joins when the edge is continuous', () {
+        final d = PasteBurstDetector(
+            minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
+        final emitted = <InputEvent>[];
+        // Fragment 1: 10 chars at 20µs spacing.
+        var t = 1000;
+        for (var i = 0; i < 10; i++) {
+          emitted.addAll(d.add(CharInput('a'), t));
+          t += 20;
+        }
+        // The split shape: the next capture lands 60ms later (drain latency),
+        // but the record was delivered in the same drain turn — continuous.
+        emitted.addAll(d.add(CharInput('b'), t + 60000, continuous: true));
+        // The rest of the paste at paste speed again.
+        for (var i = 0; i < 9; i++) {
+          emitted.addAll(d.add(CharInput('b'), t + 60020 + i * 20));
+        }
+        expect(emitted, isEmpty,
+            reason: 'the backpressure edge must not split the paste');
+        final flushed = d.flush();
+        expect(flushed, hasLength(1));
+        expect((flushed.single as PasteInput).text, 'a' * 10 + 'b' * 10);
+      });
+
+      test('a non-continuous gap still splits', () {
+        final d = PasteBurstDetector(
+            minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
+        final emitted = <InputEvent>[];
+        var t = 1000;
+        for (var i = 0; i < 10; i++) {
+          emitted.addAll(d.add(CharInput('a'), t));
+          t += 20;
+        }
+        // Same 60ms capture gap, but a fresh drain turn delivered the record
+        // (no continuity): the queue had emptied — a real pause. The first
+        // burst flushes as a paste; the single trailing 'b' starts a new
+        // burst of its own (below threshold → individual).
+        emitted.addAll(d.add(CharInput('b'), t + 60000));
+        expect(emitted, hasLength(1),
+            reason: 'the gap boundary still flushes the first burst');
+        expect((emitted.first as PasteInput).text, 'a' * 10);
+        expect(d.flush(), [CharInput('b')]);
+      });
+
+      test('continuity is per-edge, not sticky', () {
+        // One continuous edge must not excuse a later non-continuous gap.
+        final d = PasteBurstDetector(
+            minPasteChars: 8, joinWindow: const Duration(milliseconds: 30));
+        d.add(CharInput('a'), 1000, continuous: true);
+        d.add(CharInput('a'), 100020, continuous: true);
+        // 60ms gap with no continuity mark: the pending (below-threshold)
+        // burst splits into individual chars — the two edges did NOT merge
+        // into one joined burst.
+        final out = d.add(CharInput('a'), 100020 + 60000);
+        expect(out, [CharInput('a'), CharInput('a')],
+            reason: 'the unmarked gap split the burst despite earlier '
+                'continuous edges');
+        expect(d.flush(), [CharInput('a')],
+            reason: 'the third char sits in its own fresh burst');
+      });
+
+      test('an urgent (non-text) boundary ignores continuity', () {
+        // Escape always splits and is delivered immediately, continuous or
+        // not — dropping it inside a big paste would leave a turn running.
+        final d = PasteBurstDetector();
+        for (var i = 0; i < 12; i++) {
+          d.add(CharInput('x'), i * 20);
+        }
+        final escape = EscapeKey();
+        final emitted = d.add(escape, 60000, continuous: true);
+        expect(emitted, [PasteInput('x' * 12), same(escape)]);
+      });
+    });
   });
 }

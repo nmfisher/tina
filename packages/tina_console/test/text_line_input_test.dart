@@ -288,6 +288,61 @@ void main() {
       expect(edit.toDisplay(), 'a[Pasted text : 129 chars]z');
     });
 
+    group('chip-flush paste re-joining (one paste, split delivery)', () {
+      // Burst paste detection can emit one physical paste as several
+      // PasteInputs when native capture stalls (pump queue backpressure).
+      // Fragments land with zero characters between them; a chip-flush
+      // fragment is re-joined so the user sees ONE chip, not a row of them.
+      test('paste flush against a chip merges into that chip', () {
+        edit = edit.addPaste('x' * 200).addPaste('y' * 300);
+        expect(edit.pasteSpans, hasLength(1),
+            reason: 'delivery fragments of one paste are re-joined');
+        expect(edit.pasteSpans.single.start, 0);
+        expect(edit.pasteSpans.single.end, 500);
+        expect(edit.pasteSpans.single.display, '[Pasted text : 500 chars]',
+            reason: 'the chip counts the whole paste');
+        expect(edit.buffer, 'x' * 200 + 'y' * 300,
+            reason: 'real text stays intact under the merged chip');
+        expect(edit.toDisplay(), '[Pasted text : 500 chars]');
+      });
+
+      test('three flush fragments collapse into one chip', () {
+        edit = edit.addPaste('a' * 200).addPaste('b' * 200).addPaste('c' * 200);
+        expect(edit.pasteSpans, hasLength(1));
+        expect(edit.pasteSpans.single.display, '[Pasted text : 600 chars]');
+      });
+
+      test('paste separated from a chip by typed text stays separate', () {
+        edit = edit.addPaste('x' * 200).insert('tail').addPaste('y' * 300);
+        expect(edit.pasteSpans, hasLength(2));
+        expect(edit.toDisplay(),
+            '[Pasted text : 200 chars]tail[Pasted text : 300 chars]');
+      });
+
+      test('short fragment flush against a chip joins it', () {
+        // Fragments as small as the detector's 8-char threshold arrive as
+        // verbatim PasteInputs; flush against a chip they still re-join.
+        edit = edit.addPaste('x' * 200).addPaste('abc');
+        expect(edit.pasteSpans, hasLength(1));
+        expect(edit.pasteSpans.single.display, '[Pasted text : 203 chars]');
+        expect(edit.buffer, 'x' * 200 + 'abc');
+      });
+
+      test('paste flush against a verbatim span stays separate', () {
+        edit = edit.addPaste('abc').addPaste('def');
+        expect(edit.pasteSpans, hasLength(2),
+            reason: 'two deliberate pastes remain individually deletable');
+        expect(edit.toDisplay(), 'abcdef');
+      });
+
+      test('merged paste backspaces as one token', () {
+        edit = edit.insert('pre ').addPaste('x' * 200).addPaste('y' * 200);
+        edit = edit.backspace();
+        expect(edit.buffer, 'pre ');
+        expect(edit.pasteSpans, isEmpty);
+      });
+    });
+
     test('display cursor follows the displayed text across paste chips', () {
       edit = edit.insert('a');
       edit = edit.addPaste('BCDE'); // verbatim span [1..5), cursor at 5
@@ -322,34 +377,100 @@ void main() {
       expect(edit.buffer, 'A\x1b[2JB\bC');
     });
 
-    test('moveLeft skips over a paste span as one unit', () {
-      edit = edit.addPaste('Hello'); // span [0..5), cursor at 5
+    test('moveLeft skips over a chip as one unit', () {
+      edit = edit.addPaste('H' * 140); // chip, span [0..140), cursor at 140
       edit = edit.moveLeft();
       expect(edit.cursor, 0,
-          reason: 'left from the span right edge jumps to its left edge');
+          reason: 'left from the chip right edge jumps to its left edge');
     });
 
-    test('moveRight skips over a paste span as one unit', () {
-      edit = edit.insert('x'); // cursor at 1
-      edit = edit.addPaste('Hello'); // span [1..6), cursor at 6
-      edit = edit.copyWith(cursor: 1); // park at the span's left edge
+    test('moveRight skips over a chip as one unit', () {
+      edit = edit.addPaste('H' * 140); // chip, cursor at 140
+      edit = edit.copyWith(cursor: 0); // park at the chip's left edge
       edit = edit.moveRight();
-      expect(edit.cursor, 6,
-          reason: 'right from the span left edge jumps to its right edge');
+      expect(edit.cursor, 140,
+          reason: 'right from the chip left edge jumps to its right edge');
     });
 
-    test('backspace at span right edge removes the whole span', () {
+    test('backspace at a chip right edge removes the whole chip', () {
       edit = edit.insert('a');
-      edit = edit.addPaste('BCDE'); // span [1..6), cursor at 6
+      edit = edit.addPaste('B' * 140); // > limit → chip, span [1..141)
       edit = edit.backspace();
       expect(edit.buffer, 'a');
       expect(edit.cursor, 1);
       expect(edit.pasteSpans, isEmpty);
     });
 
-    test('deleteForward at span left edge removes the whole span', () {
-      edit = edit.addPaste('BCDE'); // span [0..5)
-      edit = edit.copyWith(cursor: 0); // left edge
+    test('backspace at a verbatim paste right edge deletes one character', () {
+      // tin-t7-paste-backspace: a paste shown verbatim is visible text —
+      // backspace removes the code unit before the cursor (the paste's last
+      // character), not the whole segment.
+      edit = edit.insert('a');
+      edit = edit.addPaste('BCDE'); // verbatim, buffer 'aBCDE', cursor at 5
+      edit = edit.backspace();
+      expect(edit.buffer, 'aBCD');
+      expect(edit.cursor, 4);
+      expect(edit.pasteSpans.single.start, 1,
+          reason: 'the remaining paste keeps its pasted marker');
+      expect(edit.pasteSpans.single.end, 4);
+      expect(edit.pasteSpans.single.display, 'BCD');
+    });
+
+    test('backspace shrinks a verbatim paste to empty, dropping the span', () {
+      edit = edit.addPaste('xy');
+      edit = edit.backspace();
+      edit = edit.backspace();
+      expect(edit.buffer, '');
+      expect(edit.cursor, 0);
+      expect(edit.pasteSpans, isEmpty,
+          reason: 'an empty remaining paste carries no marker');
+    });
+
+    test('backspace inside a verbatim paste deletes the code unit before', () {
+      edit = edit.addPaste('ABCD'); // verbatim, cursor at 4
+      edit = edit.copyWith(cursor: 3);
+      edit = edit.backspace();
+      expect(edit.buffer, 'ABD');
+      expect(edit.cursor, 2);
+      expect(edit.pasteSpans.single.display, 'ABD');
+    });
+
+    test('deleteForward at a verbatim paste left edge deletes one character',
+        () {
+      edit = edit.addPaste('BCDE'); // verbatim, span [0..5)
+      edit = edit.copyWith(cursor: 0);
+      edit = edit.deleteForward();
+      expect(edit.buffer, 'CDE');
+      expect(edit.cursor, 0);
+      expect(edit.pasteSpans.single.display, 'CDE');
+    });
+
+    test('display cursor follows an interior position in a verbatim span', () {
+      edit = edit.insert('a');
+      edit = edit.addPaste('BCDE'); // display length-preserving
+      edit = edit.copyWith(cursor: 3); // between C and D
+      expect(edit.displayCursor(3), 'aBC'.length);
+      expect(edit.toDisplay(), 'aBCDE');
+    });
+
+    test('moveLeft steps into a verbatim paste instead of skipping it', () {
+      edit = edit.addPaste('BCDE'); // verbatim, cursor at 4
+      edit = edit.moveLeft();
+      expect(edit.cursor, 3);
+      edit = edit.moveLeft();
+      expect(edit.cursor, 2);
+    });
+
+    test('moveRight still skips a chip as one unit', () {
+      edit = edit.addPaste('B' * 140); // chip, cursor at 140
+      edit = edit.copyWith(cursor: 0);
+      edit = edit.moveRight();
+      expect(edit.cursor, 140);
+    });
+
+    test('deleteForward at chip left edge removes the whole chip', () {
+      edit = edit.addPaste('B' * 140); // chip, span [0..140)
+      edit = edit.copyWith(cursor: 0);
       edit = edit.deleteForward();
       expect(edit.buffer, '');
       expect(edit.pasteSpans, isEmpty);

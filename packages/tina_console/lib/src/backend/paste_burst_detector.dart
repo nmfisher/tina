@@ -68,10 +68,21 @@ class PasteBurstDetector {
   /// buffered (emitted on the next flush). Otherwise `event` is appended to
   /// the open burst and nothing is emitted yet (the burst is still forming).
   ///
+  /// [continuous] marks the *delivery* of this event as continuous with the
+  /// previous one — the native pump delivered both in the same drain turn,
+  /// so they came from one pty backlog (tin-pump-backpressure). Such an edge
+  /// joins the pending burst even across a capture gap longer than
+  /// [joinWindow]: the queue filled mid-paste and stretched *delivery*, but
+  /// a backlog cannot contain a deliberate human pause, and the capture
+  /// stretch across a full→empty→full queue is transport, not typing. Null
+  /// (the poll path, a fresh drain turn's first record) means no continuity —
+  /// an over-window gap splits as before.
+  ///
   /// Callers MUST also call [expire] periodically (e.g. each poll tick) so a
   /// burst that has stopped forming is flushed after [joinWindow] elapses —
   /// otherwise the last burst's events sit buffered until the next keypress.
-  List<InputEvent> add(InputEvent event, int nowMicros) {
+  List<InputEvent> add(InputEvent event, int nowMicros,
+      {bool continuous = false}) {
     // Only text, Enter and Tab can form a paste. Escape, editing/navigation
     // keys and every other control are boundaries and must reach their owner.
     // Dropping Escape from a large burst leaves a running turn uncancelled.
@@ -91,13 +102,19 @@ class PasteBurstDetector {
     final emitted = <InputEvent>[];
     if (_pending.isNotEmpty) {
       final last = _pending.last;
-      if (nowMicros - last.timeMicros > joinWindow.inMicroseconds) {
+      final gap = nowMicros - last.timeMicros;
+      if (gap > joinWindow.inMicroseconds && !continuous) {
         onAudit?.call(
-          'detector gap-flush: gap=${nowMicros - last.timeMicros}us '
+          'detector gap-flush: gap=${gap}us '
           '>${joinWindow.inMicroseconds}us pending=${_pending.length} '
           'burstChars=$_burstChars',
         );
         emitted.addAll(_drain('gap'));
+      } else if (gap > joinWindow.inMicroseconds) {
+        onAudit?.call(
+          'detector continuity-join: gap=${gap}us pending='
+          '${_pending.length} burstChars=$_burstChars',
+        );
       }
     }
     _append(event, nowMicros);

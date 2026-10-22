@@ -1203,24 +1203,30 @@ void main() {
       expect(await f, body);
     });
 
-    test('paste is atomic: left arrow then backspace removes the block',
-        () async {
+    test('a verbatim paste backspaces one character at a time', () async {
+      // tin-t7-paste-backspace: a paste shown verbatim is visible text. The
+      // cursor sits at its right edge; backspace peels one character, not the
+      // whole segment.
       final ed = _editor(io);
       final f = ed.readLine('> ');
       await _flush();
       io.feedBytes(_pasteBytes('Hello'));
       await _flush();
-      // Cursor sits at the placeholder's right edge. One left arrow jumps over
-      // the whole span to its left edge; backspace at the left edge... the
-      // editor deletes one char before the cursor there. So instead: park at
-      // the right edge (default), backspace should remove the whole span.
-      io.feedBytes([0x1b, 0x5b, 0x44]); // Left
-      await _flush();
-      // Now cursor is at the span's left edge. Move right to jump back over it.
-      io.feedBytes([0x1b, 0x5b, 0x43]); // Right
-      await _flush();
-      // Backspace at the right edge removes the whole paste block.
       io.feedBytes([0x7f]); // Backspace
+      await _flush();
+      io.feedBytes([0x0d]); // Enter
+      expect(await f, 'Hell');
+    });
+
+    test('a chip paste stays atomic: one backspace removes the block',
+        () async {
+      final ed = _editor(io);
+      final f = ed.readLine('> ');
+      await _flush();
+      final body = 'x' * 129; // > verbatim limit → the chip
+      io.feedBytes(_pasteBytes(body));
+      await _flush();
+      io.feedBytes([0x7f]); // Backspace removes the whole collapsed chip
       await _flush();
       io.feedBytes([0x0d]); // Enter
       expect(await f, '');

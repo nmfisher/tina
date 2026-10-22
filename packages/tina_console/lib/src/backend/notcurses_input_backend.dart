@@ -172,6 +172,34 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
   bool _disposed = false;
   final Completer<void> _ready = Completer<void>();
 
+  // tin-pump-backpressure: the pump's ring queue can fill during a large
+  // paste, and Dart's drain latency then stretches the *delivery* of records
+  // whose capture timestamps are microseconds apart. Records drained within
+  // one native notification arrive in one synchronous _drain() loop turn, so
+  // a microtask scheduled on the first record of a turn marks every record
+  // delivered in that same turn; a later record outside it means a NEW native
+  // notification arrived (or the poll path spoke) — the only genuine
+  // capture-gap boundaries. PasteBurstDetector continuousFrom skips gap
+  // splitting across these transport-caused batch edges; real pauses still
+  // split.
+  /// Delivery time of the last pump record on the capture timeline (from its
+  /// drain-side [nc.PumpedInput.timelineNanos]); null until a live-pump
+  /// record arrives. Basis for the blocked-producer tell: a key decoded while
+  /// the producer was blocked on a full ring is stamped at slot-free time,
+  /// i.e. immediately after the previous record's delivery — no room for a
+  /// human pause.
+  int? _lastDeliveryTimelineMicros;
+
+  /// Slack under which a record's capture time touching the previous
+  /// record's delivery time still counts as the blocked-producer pattern,
+  /// and under which a drained record counts as freshly decoded. Human
+  /// inter-key gaps are ≥50 ms; 2 ms cannot be mistaken for one.
+  static const int _decodeSlackMicros = 2000;
+
+  /// The burst detector's join window in microseconds.
+  int get detectorJoinWindowMicros =>
+      _burstDetector?.joinWindow.inMicroseconds ?? 0;
+
   /// Adaptive drain that discards terminal capability-query replies which
   /// otherwise leak into the editor as visible junk. See [StartupDrain].
   late final StartupDrain _startupDrain;
@@ -380,6 +408,27 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
     if (!_startupDrainDone) {
       _onDrainEnd();
     }
+    // tin-pump-backpressure: capture gaps are the paste detector's signal, so
+    // only gaps the *pump itself* attributes to transport may be joined. The
+    // signature needs BOTH live tells (any live stamp; test-fed records and
+    // any pre-change stamp shape leave timelineNanos 0 and behave exactly as
+    // before — a stale backlog of typed keys never becomes a paste):
+    //
+    //  - fresh decode: while pump_push blocked on a full ring, the NEXT key
+    //    could not be decoded; it is stamped the moment a drain frees a slot,
+    //    i.e. right at the previous record's delivery. capture(this) ≈
+    //    delivery(previous) — no room for a human pause (≥50 ms).
+    //  - no ring wait: the record was drained immediately after that decode
+    //    (delivery − capture within slack). A typed key caught behind a
+    //    render stall has a LARGE delivery−capture and still splits: its
+    //    capture gap is real, only its delivery was late.
+    final captureMicros = input.monotonicNanos ~/ 1000;
+    final deliveryMicros = input.timelineNanos ~/ 1000;
+    final continuous = deliveryMicros != 0 &&
+        deliveryMicros - captureMicros <= _decodeSlackMicros &&
+        captureMicros <=
+            (_lastDeliveryTimelineMicros ?? 0) + _decodeSlackMicros;
+    _lastDeliveryTimelineMicros = deliveryMicros;
     // tin-v6tq: a terminal capability reply that arrives past the drain
     // window surfaces as ESC + printable key events (notcurses has no rule
     // for OSC/DCS/APC replies after init). Run the raw ids through the reply
@@ -389,14 +438,24 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
     // that content is known-genuine.
     final filter = _replyFilter;
     if (filter == null || _explicitPaste != null) {
-      _deliverPumpedKey(input.id, input.modifiers, input.monotonicNanos);
+      _deliverPumpedKey(
+        input.id,
+        input.modifiers,
+        input.monotonicNanos,
+        continuous: continuous,
+      );
       return;
     }
     final released = filter.add(input.id, input.monotonicNanos ~/ 1000,
         hasCtrl: (input.modifiers & nc.KeyMod.ctrl) != 0,
         hasAlt: (input.modifiers & nc.KeyMod.alt) != 0);
     for (final id in released) {
-      _deliverPumpedKey(id, input.modifiers, input.monotonicNanos);
+      _deliverPumpedKey(
+        id,
+        input.modifiers,
+        input.monotonicNanos,
+        continuous: continuous,
+      );
     }
     if (filter.isHoldingEscape) {
       _armReplyEscTimer();
@@ -404,7 +463,12 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
   }
 
   /// Translate and route one (possibly filter-released) pump record id.
-  void _deliverPumpedKey(int id, int modifiers, int monotonicNanos) {
+  /// [continuous] marks delivery as continuous with the previous record (same
+  /// pump drain turn — tin-pump-backpressure): the burst detector then joins
+  /// this event to the previous burst regardless of the capture gap, because
+  /// that gap is transport delay, not a pause between keystrokes.
+  void _deliverPumpedKey(int id, int modifiers, int monotonicNanos,
+      {bool continuous = false}) {
     if (id == nc.NcKey.pasteBegin) {
       _finishExplicitPaste();
       _explicitPaste = StringBuffer();
@@ -446,7 +510,14 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
     InputLatency.begin(event, monotonicNanos);
     // Use native capture times: a backlog of typed keys must not become a
     // paste just because rendering delayed delivery of the batch to Dart.
-    _handleEvent(event, timestampMicros: monotonicNanos ~/ 1000);
+    // Continuous delivery (same drain turn) overrides capture gaps: a queue
+    // full→empty→full edge is transport, and one pty backlog cannot contain
+    // a deliberate human pause — joining it keeps one paste whole.
+    _handleEvent(
+      event,
+      timestampMicros: monotonicNanos ~/ 1000,
+      continuous: continuous,
+    );
   }
 
   /// Arm the release for an ESC the reply filter is holding. A genuine lone
@@ -560,13 +631,15 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
   /// burst and returns the events to emit now — usually empty (the burst is
   /// still forming) unless this event's gap from the previous one exceeded the
   /// join window, in which case the previous burst is flushed first.
-  void _handleEvent(InputEvent event, {int? timestampMicros}) {
+  void _handleEvent(InputEvent event,
+      {int? timestampMicros, bool continuous = false}) {
     final detector = _burstDetector;
     if (detector == null) {
       _emit(event);
       return;
     }
-    final emitted = detector.add(event, timestampMicros ?? _nowMicros);
+    final emitted = detector.add(event, timestampMicros ?? _nowMicros,
+        continuous: continuous);
     for (final e in emitted) {
       _emit(e);
     }
