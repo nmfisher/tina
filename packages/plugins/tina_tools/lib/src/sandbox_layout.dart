@@ -135,6 +135,8 @@ List<String> buildBwrapArguments({
   String? tinaDir,
   Iterable<String> deniedPaths = const [],
   required Iterable<String> writablePaths,
+  Iterable<String> readOnlyPaths = const [],
+  bool readOnlyWorkspace = false,
   required bool isolateNetwork,
   required Map<String, String> childEnvironment,
 }) {
@@ -161,7 +163,10 @@ List<String> buildBwrapArguments({
   for (final dir in host.temporaryDirectories) {
     bind(dir, dir);
   }
-  bind(workspaceRoot, workspaceRoot);
+  bind(workspaceRoot, workspaceRoot, readOnly: readOnlyWorkspace);
+  for (final directory in readOnlyPaths) {
+    bind(directory, directory, readOnly: true);
+  }
   for (final path in writablePaths) {
     bind(path, path);
   }
@@ -175,6 +180,7 @@ List<String> buildBwrapArguments({
     ...host.temporaryDirectories,
     workspaceRoot,
     ...writablePaths,
+    ...readOnlyPaths,
     if (tinaDir != null) tinaDir
   ];
   final secrets = {
@@ -194,8 +200,18 @@ List<String> buildBwrapArguments({
     for (final child in Directory(parent).listSync(followLinks: false)) {
       if (child is! Directory ||
           secrets.any((s) => sandboxPathUnder(child.path, s))) continue;
-      if ([workspaceRoot, ...writablePaths, ...host.temporaryDirectories]
-          .any((root) => sandboxPathUnder(child.path, root))) {
+      final readOnlyRoots = [
+        if (readOnlyWorkspace) workspaceRoot,
+        ...readOnlyPaths,
+      ];
+      if (writablePaths.any((root) => sandboxPathUnder(child.path, root)) ||
+          !readOnlyRoots.any((root) =>
+                  sandboxPathUnder(child.path, root) ||
+                  sandboxPathUnder(root, child.path)) &&
+              [
+                if (!readOnlyWorkspace) workspaceRoot,
+                ...host.temporaryDirectories
+              ].any((root) => sandboxPathUnder(child.path, root))) {
         bound.remove('${child.path}->${child.path}:false');
         bind(child.path, child.path);
       }
@@ -248,6 +264,8 @@ List<String> buildBwrapArguments({
 String buildSeatbeltProfile({
   required Iterable<String> writablePaths,
   required bool isolateNetwork,
+  Iterable<String> readOnlyPaths = const [],
+  Iterable<String> outputDirectories = const [],
   String? hidePath,
   Iterable<String> readAllowPaths = const [],
   Iterable<String> deniedWritePaths = const [],
@@ -267,6 +285,12 @@ String buildSeatbeltProfile({
     }
   }
   for (final path in writablePaths) {
+    sb.write('(allow file-write* (subpath "${_escapeProfilePath(path)}"))\n');
+  }
+  for (final path in readOnlyPaths) {
+    sb.write('(deny file-write* (subpath "${_escapeProfilePath(path)}"))\n');
+  }
+  for (final path in outputDirectories) {
     sb.write('(allow file-write* (subpath "${_escapeProfilePath(path)}"))\n');
   }
   for (final path in deniedWritePaths) {

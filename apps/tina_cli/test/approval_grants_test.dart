@@ -158,15 +158,16 @@ model = "scripted"
           SettingScope.values.byName(scope.name),
         );
         final local = File('${ws.path}/.tina/config');
-        expect(local.existsSync(), scope == DirectoryGrantScope.workspace);
-        if (scope == DirectoryGrantScope.workspace) {
-          expect(local.readAsStringSync(), contains(external.path));
+        if (local.existsSync()) {
+          expect(local.readAsStringSync(), isNot(contains(external.path)));
         }
-        if (scope != DirectoryGrantScope.global) {
-          expect(global.readAsStringSync(), originalGlobal);
-        } else {
-          expect(global.readAsStringSync(), contains(external.path));
-        }
+        expect(global.readAsStringSync(), originalGlobal);
+        final permissions = app.settingsBackend.permissionStore;
+        expect(
+          permissions.settings(CommandApprovalScope.values.byName(scope.name))[
+              readOnlyDirectoriesSetting.id],
+          scope == DirectoryGrantScope.session ? isNull : [external.path],
+        );
         app.tools.modePolicy.approvals = null;
         app.tools.mode = PermissionMode.ask;
         await expectLater(

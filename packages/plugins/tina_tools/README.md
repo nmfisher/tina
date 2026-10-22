@@ -25,10 +25,10 @@ Shift-Tab and the status label; no separate `tina/mode-tui` plugin is loaded.
 
 | Mode | Reads | Project writes | Commands / outside writes |
 | --- | --- | --- | --- |
-| `ask` (default) | allow | ask | ask |
+| `ask` (default) | allow within sandbox | ask | permitted readers run; others ask |
 | `read-only` | allow | human approval | verified readers run; others ask |
 | `allow-edits` | allow | allow | verified readers run; others ask |
-| `auto` | allow | classifier review | classifier review |
+| `auto` | allow within sandbox | classifier review | permitted readers run; others get classifier review |
 
 In `auto`, an exact completed ALLOW approves the operation once. DENY,
 timeout, missing classifier or invalid response falls back to the configured
@@ -38,22 +38,23 @@ Ordinary human “always” grants remain session-scoped; classifier approvals d
 persistent or session grants. Protected Tina paths and OS sandbox restrictions
 remain enforced in every mode. Ordinary approval does not disable the OS sandbox.
 
-In read-only and allow-edits modes, verified system `ls`, `grep`, `cat`, `head`,
-`tail` and literal `echo` commands run without an execution approval. Supported
+In every mode, verified system `ls`, `grep`, `cat`, `head`, `tail`, literal `echo`,
+`wc`, `stat`, checksums and constrained `find` run without an execution approval. Supported
 options include the traditional `head -30` form. The runner verifies and pins
-the absolute system executable; a replacement on PATH, custom environment or
-unknown reader option asks. Direct arguments remain unchanged.
+the absolute system executable. Non-system readers such as `rg` can be explicitly
+trusted at workspace/global scope, pinned to their executable content; changed
+versions, custom environments and unknown reader options ask. Ripgrep ignores
+config files. Certified reads use read-only workspace/cache sandbox permissions.
 
 Certified read-only git subcommands also run: `git status`, `git diff`,
 `git log`, `git show`, `git branch` and `git tag` in list form, with the flags
-each subcommand accepts in the reader table. Git readers certify only the short
-options that never take a value (plus numeric count shortcuts like `-3`); long
-options, `--`, value-taking forms and any other subcommand ask. `branch` and
+each subcommand accepts in the reader table, including enumerated long options
+and `--` path separators. Configuration overrides, output flags and other
+subcommands ask. `branch` and
 `tag` need their list form (`-l`) to accept a positional name. Certified git
-readers run with `GIT_OPTIONAL_LOCKS=0` so reading never refreshes the index.
-They report the working directory's repository as their read target and do not
-join certified shell pipelines (a per-component environment cannot be expressed
-in a reconstructed script).
+readers disable optional locks, pagers, fsmonitor, hooks, external diff and
+textconv. They report the working directory's repository as their read target
+and can join certified pipelines, with their environment applied per component.
 
 A print-only `sed` form is certified as well: exactly `-n`, a script built
 from address-and-print or address-and-quit commands (`180,215p`, `10q`, `$p`)
@@ -63,16 +64,27 @@ edit or other option asks.
 The bash tool also accepts a limited literal grammar containing reader pipelines
 (`|`), sequences (`;`) and conditional sequences (`&&`). Every component must
 be a verified reader. The runner reconstructs these commands with pinned system
-paths and quoted literal arguments. Redirects, substitutions, unquoted wildcards,
-background jobs, other operators and unsupported programs require approval.
+paths and quoted literal arguments. Literal output redirects are permitted only
+to already-writable directories; only those output directories become writable.
+Substitutions, unquoted wildcards, background jobs, other operators and unsupported
+programs require approval.
 For example, `grep -n 'pattern' file | head; echo ---; head -30 pubspec.yaml`
 runs without an execution prompt. Network and outside-sandbox access still
-need their own approval. Ask and auto retain their command review policy.
+need their own approval.
 An explicit approval allows the requested
 operation without changing the mode.
 `WritableDirectories` and network heuristics explain why a command needs
 approval; they do not authorize it without review. `OsSandboxRunner` supplies
 OS confinement separately.
+
+Workspace/global approval can remember supported Dart/Flutter test, analysis,
+formatting and build workflows across project files and subdirectories. Ordinary
+commands, network access and host exceptions stay exact. Workspace is recommended;
+folder grants can be saved at a different scope in the same review. Flutter SDK
+source reads and `bin/cache` writes are inferred together when possible. Trusted
+folders merge across scopes and persist outside repository config. See
+[`engine2-sandbox.md`](../../../docs/engine2-sandbox.md) for storage, migration,
+revocation and kernel enforcement details.
 
 ## `bash` vs `exec`: the shape is the safety property
 

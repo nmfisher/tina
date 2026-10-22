@@ -125,7 +125,7 @@ void main() {
       ['branch', 'feature'],
       ['tag', 'v1.0.0'],
       ['log', '-S', 'needle'],
-      ['status', '--'],
+      ['tag', '--', 'v1.0.0'],
     ]) {
       expect(await gate.run(request(args)), isA<CommandRefused>(),
           reason: 'git ${args.join(' ')}');

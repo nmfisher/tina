@@ -10,7 +10,8 @@ final readOnlyDirectoriesSetting = SettingDefinition<List<String>>(
       'External directories available to file tools and sandboxed commands. '
       'Verified reader commands can read these paths without execution approval. '
       'Select “Allow all reads in this directory” in an approval prompt, '
-      'or enter a JSON array of absolute directory paths here.',
+      'or enter a JSON array of absolute directory paths here. Grants from '
+      'session, workspace and global scopes are additive.',
   defaultValue: const [],
   kind: SettingKind.object,
   decode: (raw) {

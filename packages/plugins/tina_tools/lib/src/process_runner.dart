@@ -117,6 +117,8 @@ final class ProcessControl {
       this.readDirectories = const [],
       this.writeDirectories = const [],
       this.approvedDirectories,
+      this.readOnly = false,
+      this.outputDirectories = const [],
       this.isCancelled,
       this.whenCancelled,
       this.onOutput,
@@ -144,6 +146,8 @@ final class ProcessControl {
   final List<String> readDirectories;
   final List<String> writeDirectories;
   final ProcessDirectoryAccess? approvedDirectories;
+  final bool readOnly;
+  final List<String> outputDirectories;
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
   final void Function(String text, {bool isError})? onOutput;
@@ -164,6 +168,8 @@ final class ProcessControl {
     List<String>? readDirectories,
     List<String>? writeDirectories,
     ProcessDirectoryAccess? approvedDirectories,
+    bool? readOnly,
+    List<String>? outputDirectories,
     bool clearDirectoryApproval = false,
     bool? background,
   }) =>
@@ -184,6 +190,8 @@ final class ProcessControl {
         approvedDirectories: clearDirectoryApproval
             ? null
             : approvedDirectories ?? this.approvedDirectories,
+        readOnly: readOnly ?? this.readOnly,
+        outputDirectories: outputDirectories ?? this.outputDirectories,
         isCancelled: isCancelled,
         whenCancelled: whenCancelled,
         onOutput: onOutput,

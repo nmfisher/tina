@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_tools/tina_tools.dart';
+import 'package:path/path.dart' as path;
 import 'assembly_config.dart';
 import 'config_document.dart';
 
@@ -38,7 +40,54 @@ final class ConfigSettingsBackend implements SettingsBackend {
       required this.workspacePath,
       required this.descriptors,
       this.validateSelection,
-      this.onChanged});
+      this.onChanged}) {
+    final configDirectory = File(workspacePath).absolute.parent;
+    final workspace = path.basename(configDirectory.path) == '.tina'
+        ? configDirectory.parent.path
+        : configDirectory.path;
+    final globalDirectory =
+        canonicalSandboxPath(File(globalPath).absolute.parent.path);
+    final trustedDirectory =
+        sandboxPathUnder(globalDirectory, canonicalSandboxPath(workspace))
+            ? path.join(
+                Platform.environment['HOME'] ?? Directory.systemTemp.path,
+                '.tina',
+              )
+            : globalDirectory;
+    permissionStore = CommandApprovalStore(
+      workspace: workspace,
+      file: File(path.join(trustedDirectory, 'approvals', 'permissions.json')),
+    );
+  }
+  late final CommandApprovalStore permissionStore;
+  static const permissionSettings = {
+    'tina/tools/read_only_directories',
+    'tina/tools/write_directories',
+    'tina/tools/allow_reads_outside_workspace',
+    'tina/tools/home_caches',
+  };
+  static const _directorySettings = {
+    'tina/tools/read_only_directories',
+    'tina/tools/write_directories',
+  };
+
+  Map<String, Object?> _validPermissionPaths(Map<String, Object?> values) => {
+        ...values,
+        for (final key in _directorySettings)
+          if (values[key] is List)
+            key: [
+              for (final directory in (values[key] as List).cast<String>())
+                if (_unchangedDirectory(directory)) directory,
+            ],
+      };
+
+  bool _unchangedDirectory(String directory) {
+    try {
+      return canonicalSandboxPath(directory) == directory;
+    } on FileSystemException {
+      return false;
+    }
+  }
   final SettingCatalog catalog;
   final String globalPath, workspacePath;
   final List<ProviderDescriptor> descriptors;
@@ -46,6 +95,7 @@ final class ConfigSettingsBackend implements SettingsBackend {
   final void Function()? onChanged;
   Map<String, Object?> _session = {};
   final _snapshots = <SettingScope, ConfigDocument>{};
+  final _permissionSnapshots = <SettingScope, Map<String, Object?>>{};
 
   bool get sameFile {
     String canonical(String value) => File(value).existsSync()
@@ -65,7 +115,7 @@ final class ConfigSettingsBackend implements SettingsBackend {
 
   @override
   Map<String, Object?> read(SettingScope scope) {
-    if (scope == SettingScope.session) return Map.of(_session);
+    if (scope == SettingScope.session) return _validPermissionPaths(_session);
     final snapshot = scope == SettingScope.workspace && sameFile
         ? ConfigDocument.empty(workspacePath)
         : ConfigDocument.open(
@@ -81,6 +131,7 @@ final class ConfigSettingsBackend implements SettingsBackend {
             .toSet()
         : null;
     for (final definition in catalog.definitions) {
+      if (permissionSettings.contains(definition.id)) continue;
       var value = definition.readConfig?.call(values) ??
           _at(values, definition.configPath);
       if (value == null &&
@@ -91,7 +142,18 @@ final class ConfigSettingsBackend implements SettingsBackend {
       }
       if (value != null) result[definition.id] = value;
     }
-    return result;
+    final permissions = permissionStore.settings(CommandApprovalScope.values.byName(scope.name));
+    _permissionSnapshots[scope] = Map.of(permissions);
+    result.addAll(_validPermissionPaths(permissions));
+    if (scope == SettingScope.global) {
+      for (final definition in catalog.definitions) {
+        if (!permissionSettings.contains(definition.id) ||
+            result.containsKey(definition.id)) continue;
+        final value = _at(values, definition.configPath);
+        if (value != null) result[definition.id] = value;
+      }
+    }
+    return _validPermissionPaths(result);
   }
 
   void _writeValue(Map<String, dynamic> document,
@@ -170,6 +232,7 @@ final class ConfigSettingsBackend implements SettingsBackend {
           ..['selection_version'] = 2;
       }
       for (final field in catalog.definitions) {
+        if (permissionSettings.contains(field.id)) continue;
         if (field.scopes.contains(scope))
           _writeValue(document.values, field, layers[scope]![field.id]);
       }
@@ -211,6 +274,25 @@ final class ConfigSettingsBackend implements SettingsBackend {
 
   @override
   void write(SettingScope scope, Map<String, Object?> values) {
+    final expectedPermissions = scope == SettingScope.session
+        ? _session : _permissionSnapshots[scope];
+    values = {
+      ...values,
+      for (final key in _directorySettings)
+        if (values[key] is List)
+          key: [for (final directory in (values[key] as List).cast<String>())
+            if ((expectedPermissions?[key] as List?)?.contains(directory) == true)
+              directory
+            else canonicalSandboxPath(directory)],
+    };
+    if (scope == SettingScope.workspace &&
+        sameFile &&
+        values.keys.every(permissionSettings.contains)) {
+      permissionStore.replaceSettings(CommandApprovalScope.workspace, values,
+          expected: expectedPermissions);
+      onChanged?.call();
+      return;
+    }
     if (scope == SettingScope.workspace && sameFile)
       throw StateError(
           'Global and workspace config are the same file; choose Global scope');
@@ -220,6 +302,13 @@ final class ConfigSettingsBackend implements SettingsBackend {
         scope == SettingScope.session ? null : _snapshots[scope]?.fork();
     if (scope != SettingScope.session && snapshot == null)
       throw StateError('Read settings before writing');
+    final previous = read(scope);
+    final changesConfiguration = {
+      ...previous.keys,
+      ...values.keys,
+    }
+        .where((key) => !permissionSettings.contains(key))
+        .any((key) => jsonEncode(previous[key]) != jsonEncode(values[key]));
     final layers = {
       for (final candidate in SettingScope.values)
         candidate: candidate == scope ? values : read(candidate)
@@ -243,6 +332,9 @@ final class ConfigSettingsBackend implements SettingsBackend {
       _session = Map.of(values);
     } else {
       final document = snapshot!;
+      final hasLegacyPermissions = catalog.definitions.any((definition) =>
+          permissionSettings.contains(definition.id) &&
+          _at(document.values, definition.configPath) != null);
       if (scope == SettingScope.global) {
         final plugins = document.values['plugins'] as Map?;
         plugins?.remove('enabled');
@@ -252,7 +344,20 @@ final class ConfigSettingsBackend implements SettingsBackend {
         if (definition.scopes.contains(scope))
           _writeValue(document.values, definition, values[definition.id]);
       }
-      document.saveScoped();
+      for (final definition in catalog.definitions) {
+        if (permissionSettings.contains(definition.id))
+          _writeValue(document.values, definition, null);
+      }
+      if (changesConfiguration || hasLegacyPermissions) document.saveScoped();
+      final nextPermissions = {
+        for (final entry in values.entries)
+          if (permissionSettings.contains(entry.key)) entry.key: entry.value,
+      };
+      final approvalScope = CommandApprovalScope.values.byName(scope.name);
+      if (jsonEncode(permissionStore.settings(approvalScope)) !=
+          jsonEncode(nextPermissions))
+        permissionStore.replaceSettings(approvalScope, nextPermissions,
+            expected: expectedPermissions);
     }
     onChanged?.call();
   }

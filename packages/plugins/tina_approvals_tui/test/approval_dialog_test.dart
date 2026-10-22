@@ -9,6 +9,46 @@ import 'package:tina_approvals/tina_approvals.dart';
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
 
+  test('recommended workspace workflow can save its SDK folders globally',
+      () async {
+    final dialog = ApprovalDialog(null,
+        ask: const ApprovalAskContext('run command', 'dart test', 'review',
+            details: {
+              'permission_scope': 'command',
+              'persistent_command_approval': true,
+              'recommended_scope': 'workspace',
+              'missing_permissions': ['execution', 'directoryAccess'],
+              'invocation_directory_access': {
+                'read': ['/sdk'],
+                'write': ['/sdk/cache']
+              },
+              'directory_accesses': [
+                {'path': '/sdk', 'access': 'read', 'source': 'verified'},
+                {'path': '/sdk/cache', 'access': 'write', 'source': 'verified'},
+              ],
+              'directory_grant_scopes': ['session', 'workspace', 'global'],
+            }));
+    expect(dialog.current.decision, ApprovalDecision.allowWorkspace);
+    expect(dialog.current.directoryGrants, isEmpty);
+    expect(dialog.scopeDecision(ApprovalKey.always)!.directoryGrants, isEmpty);
+    final once = await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.allow]));
+    expect(once.decision, ApprovalDecision.allow);
+    expect(once.directoryGrants, isEmpty);
+    final rows = dialog.rows(width: 120).map(text).join('\n');
+    expect(rows, isNot(contains('always permit reads')));
+    final result = await dialog.awaitDecision(ScriptedKeySource([
+      ApprovalKey.toggleReadDirectory,
+      ApprovalKey.toggleWriteDirectory,
+      ApprovalKey.directoryScope,
+      ApprovalKey.confirm,
+    ]));
+    expect(result.decision, ApprovalDecision.allowWorkspace);
+    expect(
+        result.directoryGrants
+            .every((grant) => grant.scope == DirectoryGrantScope.global),
+        isTrue);
+  });
+
   test(
       'invocation access offers once and direct session/workspace folder choices',
       () {
@@ -247,10 +287,10 @@ void main() {
         DirectoryGrantScope.workspace);
   });
 
-  test('always permit reads is not offered for writes or outside read-only',
-      () {
+  test('always permit reads is offered across modes, never for writes', () {
     ApprovalDialog dialog(Map<String, Object?> details) => ApprovalDialog(null,
-        ask: ApprovalAskContext('run command', 'cmd', 'review', details: details));
+        ask: ApprovalAskContext('run command', 'cmd', 'review',
+            details: details));
     // A write among the offers disqualifies the standing reads grant.
     final mixed = dialog({
       'mode': 'readOnly',
@@ -271,7 +311,7 @@ void main() {
       'directory_grant_scopes': ['session', 'workspace'],
     });
     expect(auto.rows(width: 120).map(text).join('\n'),
-        isNot(contains('always permit reads')));
+        contains('always permit reads'));
     // No offers at all (read_directory single-checkbox shape): not offered.
     final noOffers = dialog({
       'mode': 'readOnly',

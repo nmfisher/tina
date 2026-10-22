@@ -1,22 +1,75 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
+import 'package:crypto/crypto.dart';
 
 import 'process_runner.dart';
 import 'read_directories.dart';
+import 'sandbox_home.dart';
 import 'package:tina_mode/tina_mode.dart'
     show PermissionAccess, PermissionAccessOperation, PermissionTargetKind;
 
 typedef _ShellPart = ({
   List<String> words,
   String? operator,
-  List<String> redirects
+  List<({String text, String? target})> redirects
 });
+
+({String text, String target, int end})? _fileRedirectAt(
+    String script, int start) {
+  var cursor = start;
+  while (cursor < script.length && RegExp(r'[0-9]').hasMatch(script[cursor]))
+    cursor++;
+  if (cursor >= script.length || script[cursor] != '>') return null;
+  cursor++;
+  if (cursor < script.length && script[cursor] == '>') cursor++;
+  final operator = script.substring(start, cursor);
+  while (cursor < script.length && RegExp(r'[ \t]').hasMatch(script[cursor]))
+    cursor++;
+  final word = StringBuffer();
+  String? quote;
+  for (; cursor < script.length; cursor++) {
+    final character = script[cursor];
+    if (quote == "'") {
+      if (character == "'")
+        quote = null;
+      else
+        word.write(character);
+    } else if (character == '\\') {
+      if (++cursor >= script.length) return null;
+      if (quote == '"' && !'"\u0024`\\'.contains(script[cursor]))
+        word.write('\\');
+      word.write(script[cursor]);
+    } else if (quote == '"') {
+      if (character == '"')
+        quote = null;
+      else if ('\u0024`'.contains(character))
+        return null;
+      else
+        word.write(character);
+    } else if (character == "'" || character == '"') {
+      quote = character;
+    } else if (RegExp(r'\s').hasMatch(character) || '|;&'.contains(character)) {
+      break;
+    } else if ('\u0024`<>()[*?~#{}'.contains(character) ||
+        character.codeUnitAt(0) < 32) {
+      return null;
+    } else {
+      word.write(character);
+    }
+  }
+  if (quote != null || word.isEmpty) return null;
+  final target = word.toString();
+  return (
+    text: "$operator '${target.replaceAll("'", "'\\''")}'",
+    target: target,
+    end: cursor
+  );
+}
 
 /// Output-only redirections, kept verbatim in the reconstructed script.
 /// Each writes to the null device or duplicates an already-open descriptor:
 /// no path is read, created or modified, so certification is unaffected.
-/// `2> written` and friends stay unrecognized — they name a real path.
 const _outputRedirects = {
   '2>/dev/null',
   '2>>/dev/null',
@@ -55,7 +108,7 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
   if (script.contains('\n') || script.contains('\r')) return null;
   var words = <String>[];
   final parts = <_ShellPart>[];
-  final redirects = <String>[];
+  final redirects = <({String text, String? target})>[];
   var word = StringBuffer();
   String? quote;
   var active = false;
@@ -101,8 +154,14 @@ List<_ShellPart>? _literalShellParts(ProcessRequest request) {
       }
       final redirect = _redirectAt(script, end + 1);
       if (redirect != null) {
-        redirects.add(redirect);
+        redirects.add((text: redirect, target: null));
         i = end + redirect.length;
+        continue;
+      }
+      final output = _fileRedirectAt(script, end + 1);
+      if (output != null) {
+        redirects.add((text: output.text, target: output.target));
+        i = output.end - 1;
         continue;
       }
     } else if ('|;&'.contains(char)) {
@@ -153,10 +212,8 @@ ProcessRequest _partRequest(ProcessRequest request, List<String> words) => (
 
 /// Read-only git subcommands with their certified flags. The subcommand must
 /// be the first argument; a flag before it (or none given) is unrecognized.
-/// No flag takes a value, so `-c key=value`, `-C dir`, `--exec-path[=x]`,
-/// `--git-dir` and friends are structurally excluded. Long options are
-/// rejected entirely: `--output`, `--format` with commands and git's plumbing
-/// surface stay unrecognized rather than laundered. Digits are accepted in
+/// Configuration overrides, output files and plumbing options are excluded.
+/// Only enumerated long flags and value options are recognized. Digits are accepted in
 /// short-flag clusters for the `-3` / `-n5` count shortcuts, which take no
 /// separate value.
 ///
@@ -172,6 +229,52 @@ const _gitReaders = <String, _GitOptions>{
   'tag': _GitOptions('l'),
 };
 
+const _gitFlags = {
+  '--short',
+  '--branch',
+  '--porcelain',
+  '--porcelain=v1',
+  '--porcelain=v2',
+  '--oneline',
+  '--stat',
+  '--shortstat',
+  '--numstat',
+  '--name-only',
+  '--name-status',
+  '--no-patch',
+  '--patch',
+  '--raw',
+  '--summary',
+  '--check',
+  '--no-color',
+  '--color=never',
+  '--decorate',
+  '--no-decorate',
+  '--all',
+  '--graph',
+  '--reverse',
+  '--date-order',
+  '--topo-order',
+  '--first-parent',
+  '--no-merges',
+  '--merges',
+  '--no-ext-diff',
+  '--no-textconv',
+  '--list',
+};
+const _gitValues = {
+  '--format',
+  '--pretty',
+  '--max-count',
+  '--since',
+  '--until',
+  '--author',
+  '--grep',
+  '--date',
+  '--abbrev',
+  '--unified',
+};
+
 final class _GitOptions {
   const _GitOptions(this.flags, {this.numericContext = false});
   final String flags;
@@ -179,8 +282,7 @@ final class _GitOptions {
 }
 
 /// Whether [request] is `git <readersubcommand> [flags] [revisions...]` with
-/// no value-taking option anywhere. `--` is not accepted: git's plumbing
-/// options and `--output` must stay unrecognized rather than laundered.
+/// only the enumerated options; `--` separates literal revisions and paths.
 bool _acceptsGit(List<String> args) {
   if (args.isEmpty) return false;
   final subcommand = args.first;
@@ -190,17 +292,31 @@ bool _acceptsGit(List<String> args) {
   var positional = false;
   for (var i = 1; i < args.length; i++) {
     final arg = args[i];
-    if (arg == '--' || arg == '-') return false;
+    if (arg == '--') {
+      positional = positional || i + 1 < args.length;
+      break;
+    }
+    if (arg == '-') return false;
     if (!arg.startsWith('-')) {
       positional = true;
       continue;
     }
-    if (arg.startsWith('--')) return false;
+    if (arg.startsWith('--')) {
+      if (_gitFlags.contains(arg)) {
+        if (arg == '--list') listMode = true;
+        continue;
+      }
+      final equals = arg.indexOf('=');
+      final option = equals < 0 ? arg : arg.substring(0, equals);
+      if (!_gitValues.contains(option) ||
+          !{'log', 'show', 'diff'}.contains(subcommand)) return false;
+      if (equals < 0 && ++i >= args.length) return false;
+      continue;
+    }
     for (var j = 1; j < arg.length; j++) {
       final flag = arg[j];
       if (!options.flags.contains(flag) &&
-          !(options.numericContext &&
-              RegExp(r'[0-9]').hasMatch(flag))) {
+          !(options.numericContext && RegExp(r'[0-9]').hasMatch(flag))) {
         return false;
       }
       if ((subcommand == 'branch' || subcommand == 'tag') && flag == 'l') {
@@ -213,6 +329,52 @@ bool _acceptsGit(List<String> args) {
       positional &&
       !listMode) {
     return false;
+  }
+  return true;
+}
+
+List<String> certifiedReaderArguments(ProcessRequest request) {
+  if (path.basename(request.command) == 'rg')
+    return ['--no-config', ...request.arguments];
+  if (path.basename(request.command) != 'git') return request.arguments;
+  final arguments = request.arguments;
+  return [
+    '--no-pager',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.hooksPath=/dev/null',
+    arguments.first,
+    if ({'diff', 'show', 'log'}.contains(arguments.first)) ...[
+      '--no-ext-diff',
+      '--no-textconv'
+    ],
+    ...arguments.skip(1),
+  ];
+}
+
+bool _acceptsFind(List<String> arguments) {
+  const values = {
+    '-name',
+    '-iname',
+    '-path',
+    '-ipath',
+    '-type',
+    '-maxdepth',
+    '-mindepth'
+  };
+  const flags = {'-print', '-print0', '-empty', '-not', '!', '-a', '-o'};
+  var expression = false;
+  for (var index = 0; index < arguments.length; index++) {
+    final argument = arguments[index];
+    if (values.contains(argument)) {
+      expression = true;
+      if (++index >= arguments.length) return false;
+    } else if (flags.contains(argument)) {
+      expression = true;
+    } else if (expression || argument.startsWith('-')) {
+      return false;
+    }
   }
   return true;
 }
@@ -245,26 +407,43 @@ ProcessRequest? literalShellRequest(ProcessRequest request) {
 }
 
 /// Certify every component and reconstruct the shell script with pinned
-/// system executables and quoted literal arguments. No PATH lookup or shell
-/// expansion remains in the script that is executed. Output-only redirects
-/// (`2>/dev/null`, `2>&1`) ride along verbatim: they touch no path.
-///
-/// Git readers do not join pipelines: `GIT_OPTIONAL_LOCKS=0` is injected at
-/// exec time per component, and a `/bin/sh -c` string cannot carry a
-/// per-component environment. A `git status | head` script asks.
+/// trusted executables and quoted literal arguments. No PATH lookup or shell
+/// expansion remains in the script that is executed. File output requires an
+/// already-writable directory; Git gets its read-only environment per component.
 ProcessRequest? readOnlyShellRequest(ProcessRequest request,
-    {String? searchPath}) {
+    {String? searchPath,
+    Map<String, String> trustedExecutables = const {},
+    bool Function(String)? canWrite}) {
   final parts = _literalShellParts(request);
   if (parts == null) return null;
   final script = StringBuffer();
   String quote(String value) => "'${value.replaceAll("'", "'\\''")}'";
   for (final part in parts) {
     final component = _partRequest(request, part.words);
-    if (path.basename(component.command) == 'git') return null;
-    final executable = readOnlyExecutable(component, searchPath: searchPath);
+    final executable = readOnlyExecutable(component,
+        searchPath: searchPath, trustedExecutables: trustedExecutables);
     if (executable == null) return null;
-    script.write([executable, ...component.arguments].map(quote).join(' '));
-    for (final redirect in part.redirects) script.write(' $redirect');
+    if (path.basename(executable) == 'git') {
+      script.write("'/usr/bin/env' 'GIT_OPTIONAL_LOCKS=0' ");
+    }
+    script.write([executable, ...certifiedReaderArguments(component)]
+        .map(quote)
+        .join(' '));
+    for (final redirect in part.redirects) {
+      if (redirect.target != null) {
+        try {
+          final target = canonicalSandboxPath(path.isAbsolute(redirect.target!)
+              ? redirect.target!
+              : path.join(request.workingDirectory ?? Directory.current.path,
+                  redirect.target!));
+          if (canWrite?.call(target) != true ||
+              canWrite?.call(path.dirname(target)) != true) return null;
+        } on FileSystemException {
+          return null;
+        }
+      }
+      script.write(' ${redirect.text}');
+    }
     if (part.operator != null) script.write(' ${part.operator} ');
   }
   return (
@@ -277,19 +456,25 @@ ProcessRequest? readOnlyShellRequest(ProcessRequest request,
   );
 }
 
-/// Certifies a narrow set of system readers, never a shell command string.
+/// Certifies system readers and explicitly trusted, version-pinned readers.
 /// Unknown options, custom environments and replacement programs fall back
 /// to normal approval. The returned absolute path is also used at spawn, so
 /// a different PATH inside the OS sandbox cannot select a different program.
-String? readOnlyExecutable(ProcessRequest request, {String? searchPath}) {
+String? readOnlyExecutable(ProcessRequest request,
+    {String? searchPath,
+    Map<String, String> trustedExecutables = const {},
+    bool candidateOnly = false}) {
   if (request.environment != null || Platform.isWindows) return null;
   final name = path.basename(request.command);
   final options = _readers[name];
   final gitReader = name == 'git' && _acceptsGit(request.arguments);
-  final sedPrint = name == 'sed' && _sedPrintArguments(request.arguments) != null;
+  final sedPrint =
+      name == 'sed' && _sedPrintArguments(request.arguments) != null;
   final accepted = options != null
       ? name == 'echo' || options.accepts(request.arguments)
-      : gitReader || sedPrint;
+      : gitReader ||
+          sedPrint ||
+          name == 'find' && _acceptsFind(request.arguments);
   if (!accepted) return null;
   final trusted = {'/bin/$name', '/usr/bin/$name'};
   String? candidate;
@@ -312,15 +497,24 @@ String? readOnlyExecutable(ProcessRequest request, {String? searchPath}) {
         return null;
       }
     }
-  } else if (trusted.contains(request.command)) {
+  } else if (path.isAbsolute(request.command)) {
     candidate = request.command;
   }
   if (candidate == null) return null;
   try {
     final resolved = File(candidate).resolveSymbolicLinksSync();
+    final stat = File(resolved).statSync();
+    if (stat.type != FileSystemEntityType.file || stat.mode & 0x49 == 0)
+      return null;
+    if (!trusted.contains(resolved) && stat.size > 64 * 1024 * 1024) return null;
     // Comparing against literal system paths also rejects a system-name
     // symlink that points to a script or executable in a writable directory.
-    return trusted.contains(resolved) ? resolved : null;
+    return trusted.contains(resolved) ||
+            candidateOnly ||
+            trustedExecutables[resolved] ==
+                sha256.convert(File(resolved).readAsBytesSync()).toString()
+        ? resolved
+        : null;
   } on FileSystemException {
     return null;
   }
@@ -337,6 +531,20 @@ List<String>? _readTargets(ProcessRequest request, {bool reportOnly = false}) {
       _resolveTarget(request.workingDirectory ?? Directory.current.path,
           request.workingDirectory ?? Directory.current.path),
     ];
+  }
+  if (name == 'find') {
+    if (!_acceptsFind(request.arguments)) return null;
+    final operands = request.arguments
+        .takeWhile((argument) => !argument.startsWith('-') && argument != '!')
+        .toList();
+    try {
+      return (operands.isEmpty ? ['.'] : operands)
+          .map((operand) => _resolveTarget(
+              operand, request.workingDirectory ?? Directory.current.path))
+          .toList();
+    } on FileSystemException {
+      return null;
+    }
   }
   if (name == 'sed') {
     if (_sedPrintArguments(request.arguments) == null) return null;
@@ -360,10 +568,12 @@ List<String>? _readTargets(ProcessRequest request, {bool reportOnly = false}) {
   var recursive = false;
   final args = request.arguments;
   void value(String flag, String text) {
-    if (name == 'grep' && {'f', '--file', '--exclude-from'}.contains(flag)) {
+    if ({'grep', 'rg'}.contains(name) &&
+        {'f', '--file', '--exclude-from'}.contains(flag)) {
       if (text != '-') files.add(text);
     }
-    if (name == 'grep' && {'e', 'f', '--regexp', '--file'}.contains(flag)) {
+    if ({'grep', 'rg'}.contains(name) &&
+        {'e', 'f', '--regexp', '--file'}.contains(flag)) {
       explicitPattern = true;
     }
   }
@@ -394,7 +604,9 @@ List<String>? _readTargets(ProcessRequest request, {bool reportOnly = false}) {
       }
     }
   }
-  if (name == 'grep' && !explicitPattern) {
+  if ({'grep', 'rg'}.contains(name) &&
+      !explicitPattern &&
+      !(name == 'rg' && args.contains('--files'))) {
     if (positional.isEmpty) return null;
     positional.removeAt(0);
   }
@@ -444,14 +656,16 @@ String? readDirectoryForRequest(ProcessRequest request, String? workspaceRoot) {
 /// Known path operands only. This report does not certify additional commands
 /// or authorize execution; the existing reader gate retains that responsibility.
 List<PermissionAccess> verifiedReaderAccesses(ProcessRequest request,
-    {String? searchPath}) {
+    {String? searchPath, Map<String, String> trustedExecutables = const {}}) {
   final parts = _literalShellParts(request);
   final components = parts == null
       ? [request]
       : parts.map((part) => _partRequest(request, part.words)).toList();
   final accesses = <PermissionAccess>[];
   for (final component in components) {
-    if (readOnlyExecutable(component, searchPath: searchPath) == null) continue;
+    if (readOnlyExecutable(component,
+            searchPath: searchPath, trustedExecutables: trustedExecutables) ==
+        null) continue;
     for (final target
         in _readTargets(component, reportOnly: true) ?? const <String>[]) {
       accesses.add(PermissionAccess(
@@ -462,18 +676,35 @@ List<PermissionAccess> verifiedReaderAccesses(ProcessRequest request,
               : PermissionTargetKind.file));
     }
   }
+  if (parts != null) {
+    for (final part in parts) {
+      for (final redirect in part.redirects) {
+        if (redirect.target != null) {
+          final target = canonicalSandboxPath(path.isAbsolute(redirect.target!)
+              ? redirect.target!
+              : path.join(request.workingDirectory ?? Directory.current.path,
+                  redirect.target!));
+          accesses.add(PermissionAccess(PermissionAccessOperation.write, target,
+              PermissionTargetKind.file));
+        }
+      }
+    }
+  }
   return accesses;
 }
 
 /// Complete only when every component is a certified reader and every path
 /// operand resolved. A partial report must never enable precedent reuse.
-bool hasCompleteReaderAccesses(ProcessRequest request, {String? searchPath}) {
+bool hasCompleteReaderAccesses(ProcessRequest request,
+    {String? searchPath, Map<String, String> trustedExecutables = const {}}) {
   final parts = _literalShellParts(request);
   final components = parts == null
       ? [request]
       : parts.map((part) => _partRequest(request, part.words));
   return components.every((component) =>
-      readOnlyExecutable(component, searchPath: searchPath) != null &&
+      readOnlyExecutable(component,
+              searchPath: searchPath, trustedExecutables: trustedExecutables) !=
+          null &&
       _readTargets(component, reportOnly: true) != null);
 }
 
@@ -523,6 +754,72 @@ class _ReaderOptions {
 // GNU and BSD reader options. Deliberately no interpreters, wrappers, find,
 // sed, git, ripgrep preprocessors or output-file options. A miss asks.
 const _readers = {
+  'rg': _ReaderOptions('nNihHsSluUcwvqxFoILaz', 'efgtTmABC', {
+    '--files',
+    '--hidden',
+    '--no-ignore',
+    '--no-ignore-vcs',
+    '--no-config',
+    '--line-number',
+    '--no-line-number',
+    '--ignore-case',
+    '--smart-case',
+    '--case-sensitive',
+    '--fixed-strings',
+    '--word-regexp',
+    '--line-regexp',
+    '--files-with-matches',
+    '--files-without-match',
+    '--count',
+    '--count-matches',
+    '--only-matching',
+    '--quiet',
+    '--text',
+    '--null',
+    '--null-data',
+    '--heading',
+    '--no-heading',
+    '--with-filename',
+    '--no-filename',
+    '--multiline',
+    '--multiline-dotall',
+    '--pcre2',
+    '--invert-match',
+    '--help',
+    '--version',
+  }, {
+    '--regexp',
+    '--file',
+    '--glob',
+    '--iglob',
+    '--type',
+    '--type-not',
+    '--max-count',
+    '--max-depth',
+    '--before-context',
+    '--after-context',
+    '--context',
+    '--color',
+    '--colors',
+    '--sort',
+    '--sortr',
+    '--encoding'
+  }),
+  'wc': _ReaderOptions('clLmw', '', {
+    '--bytes',
+    '--chars',
+    '--lines',
+    '--max-line-length',
+    '--words',
+    '--help',
+    '--version'
+  }, {}),
+  'stat': _ReaderOptions('Llxt', '',
+      {'--dereference', '--file-system', '--help', '--version'}, {}),
+  'sha256sum': _ReaderOptions(
+      'btz', '', {'--binary', '--text', '--zero', '--help', '--version'}, {}),
+  'shasum': _ReaderOptions('bt', 'a',
+      {'--binary', '--text', '--help', '--version'}, {'--algorithm'}),
   // Literal output only; echo's arguments never name files or execute code.
   'echo': _ReaderOptions('', '', {}, {}),
   'cat': _ReaderOptions('AbBenstTuv', '', {

@@ -95,16 +95,30 @@ void main() {
         reason: 'a write-shaped ask still goes to the human');
   });
 
-  test('the standing grant does not answer in other modes', () async {
+  test('the standing grant answers certified reads in other modes', () async {
     final approvals = _RecordingApprovals(ApprovalDecision.deny);
     final tools = plugin(approvals);
     tools.modePolicy.mode = PermissionMode.ask;
     tools.settings!
         .set(allowReadsOutsideWorkspaceSetting, true, SettingScope.session);
     final outcome = await tools.processRunner.run(cat());
-    expect(outcome, isA<CommandRefused>());
-    expect(approvals.calls, 1,
-        reason: 'ask mode keeps asking for external reads');
+    expect(outcome, isA<CommandCompleted>());
+    expect(approvals.calls, 0);
+  });
+
+  test('a reads-always answer cannot authorize a network or write request',
+      () async {
+    final approvals = _RecordingApprovals(ApprovalDecision.allowReadsAlways);
+    final tools = plugin(approvals);
+    expect(
+        await tools.processRunner.run(cat(),
+            control: const ProcessControl(
+                networkRequested: true,
+                networkReason: 'separate network permission')),
+        isA<CommandRefused>());
+    expect(await tools.processRunner.run(tee()), isA<CommandRefused>());
+    expect(
+        tools.settings!.read(allowReadsOutsideWorkspaceSetting).value, isFalse);
   });
 
   test('workspace scope survives a restart-shaped plugin; revocation stops it',

@@ -253,7 +253,7 @@ void main() {
         ),
       );
       final res = await tool.execute({
-        'program': 'cat',
+        'program': 'tee',
         'args': ['/etc/hostname'],
       });
       // /etc/hostname is path-shaped and outside the writable directories → ask →
@@ -310,7 +310,7 @@ void main() {
         'args': ['d']
       });
       expect(execApproved.isError, isFalse);
-      expect(approver.asked, 2,
+      expect(approver.asked, 0,
           reason: 'read-only mode certifies literal echo calls without asking');
       expect(sandbox.mode, PermissionMode.readOnly);
     });

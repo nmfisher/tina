@@ -133,15 +133,19 @@ class ApprovalDialog {
   /// The standing "always permit reads" answer, offered only when every
   /// offered directory access is a read: the moment a write or an
   /// unconfined request is part of the ask, "always permit reads" would
-  /// under-describe what approving it remembers. Also offered only in
-  /// read-only mode — the mode the enforcement side consults the standing
-  /// grant in, so the option appears exactly where it takes effect.
+  /// under-describe what approving it remembers. Unapproved execution and
+  /// network access must not ride along with a read grant.
   /// Session and workspace are their own rows — one menu, one decision —
   /// and global is deliberately not offered: a standing read grant for
   /// every workspace at once is not a prompt-time decision.
   bool get _hasReadsAlways =>
       _hasAlways &&
-      ask?.details['mode'] == 'readOnly' &&
+      (ask?.details['missing_permissions'] is! List ||
+          (ask!.details['missing_permissions'] as List)
+              .every((permission) => permission == 'directoryAccess')) &&
+      (ask?.details['required_permissions'] is! List ||
+          !(ask!.details['required_permissions'] as List).any((permission) =>
+              {'network', 'unconfined'}.contains(permission))) &&
       _directoryOffers.isNotEmpty &&
       _directoryOffers.every((offer) => offer.access == DirectoryAccess.read);
   bool get _hasReadsAlwaysWorkspace =>
@@ -227,6 +231,17 @@ class ApprovalDialog {
       _selectedDirectories
           .addAll(List.generate(_directoryOffers.length, (index) => index));
     }
+    if (ask?.confirmation != true &&
+        ask?.details['recommended_scope'] == 'workspace') {
+      final missing = ask?.details['missing_permissions'];
+      final onlyDirectories = missing is List &&
+          missing.isNotEmpty &&
+          missing.every((permission) => permission == 'directoryAccess');
+      final recommended =
+          onlyDirectories ? 'allow directories workspace' : 'allow workspace';
+      final index = _choices.indexOf(recommended);
+      if (index >= 0) _selected = index;
+    }
   }
 
   ApprovalOutcome _outcome(ApprovalDecision decision,
@@ -235,7 +250,9 @@ class ApprovalDialog {
           editCommandPattern: editCommandPattern,
           directoryGrants: {
             ApprovalDecision.allow,
-            ApprovalDecision.allowAlways
+            ApprovalDecision.allowAlways,
+            ApprovalDecision.allowWorkspace,
+            ApprovalDecision.allowGlobal
           }.contains(decision)
               ? List.unmodifiable([
                   for (final index in _selectedDirectories)
@@ -264,6 +281,8 @@ class ApprovalDialog {
             'allow directories session',
             if (_directoryScopes.contains(DirectoryGrantScope.workspace))
               'allow directories workspace',
+            if (_directoryScopes.contains(DirectoryGrantScope.global))
+              'allow directories global',
           ],
           // Every remembered-approval scope is its own row: one menu, one
           // decision, no second round-trip through a submenu.
@@ -307,7 +326,8 @@ class ApprovalDialog {
         'allow' ||
         'Yes' ||
         'allow directories session' ||
-        'allow directories workspace' =>
+        'allow directories workspace' ||
+        'allow directories global' =>
           ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
       });
@@ -487,37 +507,45 @@ class ApprovalDialog {
         if (height > 2) row('↑↓ scroll · tab back · esc cancel', chat.dim),
       ].take(height).toList();
     }
-    final choices = ask?.confirmation == true
-        ? ['[y] Yes', '[n] No']
-        : [
-            ask?.details['directory_grant_required'] == true
-                ? '[y] grant selected directory access and run'
-                : '[y] allow once',
-            '[n] deny',
-            if (_hasInvocationDirectories) ...[
-              'allow once and remember requested folders for this session',
-              if (_directoryScopes.contains(DirectoryGrantScope.workspace))
-                'allow once and remember requested folders for this workspace',
-            ],
-            if (_hasAlways) '[a] $alwaysLabel',
-            if (_hasPersistent) ...[
-              '[p] remember this command for this workspace',
-              '[g] remember this command globally (any directory)',
-            ],
-            if (_hasCommandPattern) '[e] always approve with editable regex',
-            if (_hasReadsAlways) 'always permit reads (this session)',
-            if (_hasReadsAlwaysWorkspace)
-              'always permit reads (this workspace)',
-            if (_readDirectory != null)
-              '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
-            if (_writeDirectory != null)
-              '[${_rememberWrites ? 'x' : ' '}] Allow all writes in this directory (w/Space)',
-            if (_hasDirectoryOffers) ...[
-              for (var i = 0; i < _directoryOffers.length; i++)
-                '[${_selectedDirectories.contains(i) ? 'x' : ' '}] Allow all ${_directoryOffers[i].access == DirectoryAccess.read ? 'reads' : 'writes (including deletes)'} in ${_directoryOffers[i].path}${_directoryOffers[i].source == 'inferred' ? ' (inferred)' : ''} (Space)',
-              '[s] Save directory grants: ${_directoryScope.name} (s/Enter)',
-            ],
-          ];
+    String choiceLabel(String choice) {
+      if (choice.startsWith('directory ')) {
+        final index = int.parse(choice.substring(10));
+        final offer = _directoryOffers[index];
+        return '[${_selectedDirectories.contains(index) ? 'x' : ' '}] Allow all '
+            '${offer.access == DirectoryAccess.read ? 'reads' : 'writes (including deletes)'} '
+            'in ${offer.path}${offer.source == 'inferred' ? ' (inferred)' : ''} (Space)';
+      }
+      return switch (choice) {
+        'Yes' => '[y] Yes',
+        'No' => '[n] No',
+        'allow' => ask?.details['directory_grant_required'] == true
+            ? '[y] grant selected directory access and run'
+            : '[y] allow once',
+        'deny' => '[n] deny',
+        'allow always' => '[a] $alwaysLabel',
+        'allow workspace' => '[p] remember this command for this workspace',
+        'allow global' => '[g] remember this command globally (any directory)',
+        'allow directories session' =>
+          'allow once and remember requested folders for this session',
+        'allow directories workspace' =>
+          'allow once and remember requested folders for this workspace',
+        'allow directories global' =>
+          'allow once and remember requested folders for all workspaces',
+        'always permit reads session' => 'always permit reads (this session)',
+        'always permit reads workspace' =>
+          'always permit reads (this workspace)',
+        'edit command pattern' => '[e] always approve with editable regex',
+        'read directory' =>
+          '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
+        'write directory' =>
+          '[${_rememberWrites ? 'x' : ' '}] Allow all writes in this directory (w/Space)',
+        'grant scope' =>
+          '[s] Save directory grants: ${_directoryScope.name} (s/Enter)',
+        _ => choice,
+      };
+    }
+
+    final choices = _choices.map(choiceLabel).toList();
     RenderLine choice(int i, {bool compact = false}) => row(
         '${i == _selected ? '❯' : ' '} ${choices[i]}${compact ? ' (${i + 1}/${choices.length})' : ''}',
         i == _selected ? theme.dialog.confirm : null);
@@ -700,11 +728,10 @@ class ApprovalDialog {
       return _readsAlwaysOutcome(DirectoryGrantScope.workspace);
     }
     if (choice == 'allow directories session' ||
-        choice == 'allow directories workspace') {
+        choice == 'allow directories workspace' ||
+        choice == 'allow directories global') {
       final access = ask!.details['invocation_directory_access'] as Map;
-      final scope = choice == 'allow directories session'
-          ? DirectoryGrantScope.session
-          : DirectoryGrantScope.workspace;
+      final scope = DirectoryGrantScope.values.byName(choice.split(' ').last);
       return ApprovalOutcome(ApprovalDecision.allow, directoryGrants: [
         for (final offer in _directoryOffers)
           if ((access[offer.access.name] as List?)?.contains(offer.path) ==

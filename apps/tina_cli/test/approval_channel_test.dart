@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
+import 'package:tina_tools/tina_tools.dart';
 
 void main() {
   late Directory root;
@@ -71,14 +72,21 @@ approval_channel = "acme/messages"
     final external = Directory('${root.path}/external')..createSync();
     final source = File('${external.path}/source')
       ..writeAsStringSync('needle\n');
-    SessionAssembly open(StreamApprovalChannel channel) => SessionAssembly.start(
-        options: AssemblyOptions(
-            configPath: config.path, workingDirectory: workspace.path),
-        registerPlugins: (registry) => registry.registerDefinition(
-            PluginDefinition<SessionPluginContext>(channel.id, (_) => channel,
-                provides: [approvalChannel],
-                description: 'Test approval channel.')),
-        providerFactory: (_) => ScriptedProvider([]));
+    SessionAssembly open(StreamApprovalChannel channel) {
+      final app = SessionAssembly.start(
+          options: AssemblyOptions(
+              configPath: config.path, workingDirectory: workspace.path),
+          registerPlugins: (registry) => registry.registerDefinition(
+              PluginDefinition<SessionPluginContext>(channel.id, (_) => channel,
+                  provides: [approvalChannel],
+                  description: 'Test approval channel.')),
+          providerFactory: (_) => ScriptedProvider([]));
+      app.tools.sandbox.readablePath = (target) =>
+          sandboxPathUnder(target, workspace.resolveSymbolicLinksSync()) ||
+          app.tools.readDirectories.allows(target);
+      return app;
+    }
+
     final channel = StreamApprovalChannel(id: 'acme/messages');
     final requests = <ApprovalRequest>[];
     final subscription = channel.requests.listen((request) {
@@ -88,11 +96,11 @@ approval_channel = "acme/messages"
     final first = open(channel);
     addTearDown(first.close);
     final read =
-        first.tools.toolList.singleWhere((tool) => tool.schema.name == 'bash');
-    final input = {'command': "grep -n 'needle' '${source.path}'"};
+        first.tools.toolList.singleWhere((tool) => tool.schema.name == 'read');
+    final input = {'filePath': source.path};
     final outcome = await read.execute(input);
     expect(outcome.isError, isFalse, reason: outcome.content);
-    expect(outcome.content, contains('1:needle'));
+    expect(outcome.content, contains('needle'));
     expect(requests.single.details['read_directory'],
         external.resolveSymbolicLinksSync());
     expect(first.tools.processRunner.grants.isEmpty, isTrue);
@@ -111,24 +119,26 @@ approval_channel = "acme/messages"
       await secondSub.cancel();
     });
     final secondRead =
-        second.tools.toolList.singleWhere((tool) => tool.schema.name == 'bash');
+        second.tools.toolList.singleWhere((tool) => tool.schema.name == 'read');
     final again = await secondRead.execute(input);
     expect(again.isError, isFalse, reason: again.content);
-    expect(again.content, contains('1:needle'));
+    expect(again.content, contains('needle'));
     expect(secondRequests, isEmpty);
   }, skip: Platform.isWindows);
 
   test('directory write approval persists across sessions and covers siblings',
       () async {
     final external = Directory('${root.path}/external')..createSync();
-    SessionAssembly open(StreamApprovalChannel channel) => SessionAssembly.start(
-        options: AssemblyOptions(
-            configPath: config.path, workingDirectory: workspace.path),
-        registerPlugins: (registry) => registry.registerDefinition(
-            PluginDefinition<SessionPluginContext>(channel.id, (_) => channel,
-                provides: [approvalChannel],
-                description: 'Test approval channel.')),
-        providerFactory: (_) => ScriptedProvider([]));
+    SessionAssembly open(StreamApprovalChannel channel) =>
+        SessionAssembly.start(
+            options: AssemblyOptions(
+                configPath: config.path, workingDirectory: workspace.path),
+            registerPlugins: (registry) => registry.registerDefinition(
+                PluginDefinition<SessionPluginContext>(
+                    channel.id, (_) => channel,
+                    provides: [approvalChannel],
+                    description: 'Test approval channel.')),
+            providerFactory: (_) => ScriptedProvider([]));
     final channel = StreamApprovalChannel(id: 'acme/messages');
     final requests = <ApprovalRequest>[];
     final sub = channel.requests.listen((request) {

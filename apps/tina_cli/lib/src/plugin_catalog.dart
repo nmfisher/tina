@@ -226,7 +226,8 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             settings: [
               readOnlyDirectoriesSetting,
               writeDirectoriesSetting,
-              homeCachesSetting
+              homeCachesSetting,
+              allowReadsOutsideWorkspaceSetting,
             ],
             first: approvalRequester,
             second: modelAccess,

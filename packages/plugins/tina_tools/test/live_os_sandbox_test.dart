@@ -9,6 +9,7 @@
 library;
 
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 
 import 'package:test/test.dart';
 import 'package:tina_tools/tina_tools.dart';
@@ -17,6 +18,60 @@ bool get _backendAvailable =>
     resolveSandboxBackend() != SandboxBackend.passThrough;
 
 void main() {
+  test('trusted readers cannot write project or shared cache contents',
+      tags: 'live-os-sandbox', () async {
+    if (!_backendAvailable) {
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    final fixture = Directory.systemTemp.createTempSync('readonly-reader-');
+    addTearDown(() => fixture.deleteSync(recursive: true));
+    final project = Directory('${fixture.path}/project')..createSync();
+    final cache = Directory('${fixture.path}/cache')..createSync();
+    final reports = Directory('${project.path}/reports')..createSync();
+    final reader = File('${project.path}/rg')..writeAsStringSync('''#!/bin/sh
+echo forbidden > '${project.path}/forbidden'
+echo forbidden > '${cache.path}/forbidden'
+echo reader-finished
+''');
+    Process.runSync('/bin/chmod', ['+x', reader.path]);
+    final plan = SandboxPlan(
+        workspaceRoot: project.resolveSymbolicLinksSync(),
+        writablePaths: [cache.resolveSymbolicLinksSync()]);
+    final gate = SandboxedProcessRunner(
+        inner: OsSandboxRunner(inner: const IoProcessRunner(), plan: plan),
+        plan: plan,
+        mode: PermissionMode.ask);
+    gate.trustedReaderExecutables = () => {
+          reader.resolveSymbolicLinksSync():
+              sha256.convert(reader.readAsBytesSync()).toString()
+        };
+    final result = await gate.run((
+      command: reader.path,
+      arguments: ['--files'],
+      workingDirectory: project.path,
+      environment: null,
+      stdin: null,
+      timeout: null
+    ));
+    expect(result, isA<CommandCompleted>());
+    expect((result as CommandCompleted).stdout, contains('reader-finished'));
+    expect(File('${project.path}/forbidden').existsSync(), isFalse);
+    expect(File('${cache.path}/forbidden').existsSync(), isFalse);
+    gate.outputWritePermission = plan.canWrite;
+    final output = await gate.run((
+      command: '/bin/sh',
+      arguments: ['-c', "echo report > '${reports.path}/result'"],
+      workingDirectory: project.path,
+      environment: null,
+      stdin: null,
+      timeout: null
+    ));
+    expect(output, isA<CommandCompleted>());
+    expect((output as CommandCompleted).exitCode, 0, reason: output.stderr);
+    expect(File('${reports.path}/result').readAsStringSync(), 'report\n');
+  });
+
   test('invocation directory grants expire and preserve protected paths',
       tags: 'live-os-sandbox', () async {
     if (!_backendAvailable) {
@@ -38,11 +93,13 @@ void main() {
         realHome: home.path,
         protectedPaths: [protected.path]);
     final os = OsSandboxRunner(inner: const IoProcessRunner(), plan: plan);
+    var approve = true;
     final gate = SandboxedProcessRunner(
         inner: os,
         plan: plan,
         mode: PermissionMode.auto,
-        commandApprover: (_, review) async => Approval.yes);
+        commandApprover: (_, review) async =>
+            approve ? Approval.yes : Approval.no);
     ProcessRequest shell(String script) => (
           command: '/bin/sh',
           arguments: ['-c', script],
@@ -59,6 +116,7 @@ void main() {
     expect(success, isA<CommandCompleted>());
     expect((success as CommandCompleted).exitCode, 0, reason: success.stderr);
     expect(File('${output.path}/result').readAsStringSync(), 'content');
+    approve = false;
     for (final target in [
       '${input.path}/forbidden',
       '${protected.path}/forbidden'
@@ -66,7 +124,8 @@ void main() {
       final failed =
           await gate.run(shell('echo bad > "$target"'), control: requested);
       expect(
-          failed is CommandBlocked ||
+          failed is CommandRefused ||
+              failed is CommandBlocked ||
               failed is CommandCompleted && failed.exitCode != 0,
           true,
           reason: '$failed');
@@ -74,7 +133,8 @@ void main() {
     }
     final later = await gate.run(shell('echo bad > "${output.path}/later"'));
     expect(
-        later is CommandBlocked ||
+        later is CommandRefused ||
+            later is CommandBlocked ||
             later is CommandCompleted && later.exitCode != 0,
         true,
         reason: '$later');

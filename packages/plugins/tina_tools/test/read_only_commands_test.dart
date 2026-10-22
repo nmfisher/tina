@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:async';
+import 'package:crypto/crypto.dart';
 
 import 'package:test/test.dart';
 import 'package:tina_tools/src/read_only_commands.dart';
@@ -42,6 +44,131 @@ void main() {
           mode: PermissionMode.readOnly,
           executableSearchPath: searchPath,
           commandApprover: review);
+
+  test('reader output uses only an already-writable directory', () async {
+    final output = Directory('${root.path}/output')..createSync();
+    final call = request('/bin/sh', ['-c', 'echo hello > output/result'],
+        cwd: root.path);
+    expect(readOnlyShellRequest(call, searchPath: systemPath), isNull);
+    expect(
+        readOnlyShellRequest(call,
+            searchPath: systemPath,
+            canWrite: (target) =>
+                target == '${output.resolveSymbolicLinksSync()}/result'),
+        isNull);
+    final inner = _Recorder();
+    final gate = runner(inner,
+        review: (_, __) => throw StateError('unexpected approval'));
+    gate.outputWritePermission =
+        (target) => sandboxPathUnder(target, output.resolveSymbolicLinksSync());
+    expect(
+        await gate.run(call,
+            control: const ProcessControl(outputDirectories: ['/forged'])),
+        isA<CommandCompleted>());
+    expect(inner.controls.single!.readOnly, isTrue);
+    expect(inner.controls.single!.outputDirectories,
+        [output.resolveSymbolicLinksSync()]);
+    final escaped = Link('${output.path}/escape')..createSync(root.path);
+    final outside = request(
+        '/bin/sh', ['-c', 'echo hello > ${escaped.path}/result'],
+        cwd: root.path);
+    expect(
+        readOnlyShellRequest(outside,
+            searchPath: systemPath, canWrite: gate.outputWritePermission),
+        isNull);
+  }, skip: Platform.isWindows);
+
+  test('permitted readers request a read-only sandbox in every mode', () async {
+    for (final mode in PermissionMode.values) {
+      final inner = _Recorder();
+      final gate = runner(inner)..mode = mode;
+      expect(
+          await gate.run(request('cat', [], cwd: root.path),
+              control: const ProcessControl(outputDirectories: ['/forged'])),
+          isA<CommandCompleted>());
+      expect(inner.controls.single!.readOnly, isTrue);
+      expect(inner.controls.single!.outputDirectories, isEmpty);
+    }
+  });
+
+  test('a reader changed during approval is refused before spawning', () async {
+    final executable = File('${root.path}/rg')
+      ..writeAsStringSync('version one');
+    Process.runSync('/bin/chmod', ['+x', executable.path]);
+    final digest = sha256.convert(executable.readAsBytesSync()).toString();
+    final ready = Completer<void>();
+    final answer = Completer<Approval>();
+    final inner = _Recorder();
+    final gate = runner(inner, review: (_, __) {
+      ready.complete();
+      return answer.future;
+    });
+    gate.trustedReaderExecutables =
+        () => {executable.resolveSymbolicLinksSync(): digest};
+    final result = gate.run(
+        request(executable.path, ['--files'], cwd: root.path),
+        control: const ProcessControl(
+            networkRequested: true, networkReason: 'test'));
+    await ready.future;
+    executable.writeAsStringSync('version two');
+    answer.complete(Approval.yes);
+    expect(await result, isA<CommandRefused>());
+    expect(inner.requests, isEmpty);
+  }, skip: Platform.isWindows);
+
+  test('oversized reader binaries fall back to exact approval', () {
+    final executable = File('${root.path}/rg');
+    final handle = executable.openSync(mode: FileMode.write);
+    try {
+      handle.truncateSync(64 * 1024 * 1024 + 1);
+    } finally {
+      handle.closeSync();
+    }
+    Process.runSync('/bin/chmod', ['+x', executable.path]);
+    expect(readOnlyExecutable(request(executable.path, ['--files']),
+        candidateOnly: true), isNull);
+  }, skip: Platform.isWindows);
+
+  test('constrained find and reader options reject execution and write flags',
+      () {
+    for (final arguments in [
+      ['.', '-name', '*.dart', '-type', 'f', '-print'],
+      ['.', '-maxdepth', '2', '-not', '-name', '*.g.dart'],
+    ]) {
+      expect(
+          readOnlyExecutable(request('find', arguments),
+              searchPath: systemPath),
+          isNotNull);
+    }
+    for (final arguments in [
+      ['.', '-delete'],
+      ['.', '-exec', 'touch', 'bad', ';'],
+      ['.', '-fprint', 'bad'],
+      ['-L', '.'],
+    ]) {
+      expect(
+          readOnlyExecutable(request('find', arguments),
+              searchPath: systemPath),
+          isNull);
+    }
+    for (final arguments in [
+      ['--pre=touch bad', 'needle'],
+      ['--hostname-bin=touch', 'needle'],
+    ]) {
+      expect(
+          readOnlyExecutable(request('/usr/bin/rg', arguments),
+              searchPath: systemPath, candidateOnly: true),
+          isNull);
+    }
+    final protected =
+        request('/bin/sh', ['-c', 'echo data > protected'], cwd: root.path);
+    expect(
+        readOnlyShellRequest(protected,
+            searchPath: systemPath,
+            canWrite: (target) =>
+                target != '${root.resolveSymbolicLinksSync()}/protected'),
+        isNull);
+  }, skip: Platform.isWindows);
 
   test('the reported ls and grep argv run without an execution approval',
       () async {
@@ -89,8 +216,7 @@ void main() {
       final call = request(program, args, cwd: root.path);
       final result = await gate.run(call);
       expect(result, isA<CommandCompleted>());
-      expect((result as CommandCompleted).note,
-          contains('read-only system command'));
+      expect((result as CommandCompleted).note, contains('permitted read'));
       expect(inner.requests.last.command,
           readOnlyExecutable(call, searchPath: systemPath));
       expect(inner.requests.last.arguments, args, reason: 'argv stays literal');
@@ -112,7 +238,6 @@ void main() {
       'bash',
       'env',
       'sed',
-      'find',
       'rg',
     ]) {
       expect(readOnlyExecutable(request(program, ['file'])), isNull);
@@ -136,6 +261,9 @@ void main() {
       ['show', 'HEAD:pubspec.yaml'],
       ['branch', '-a'],
       ['tag', '-l'],
+      ['status', '--porcelain=v1'],
+      ['log', '--format=%H'],
+      ['status', '--'],
     ]) {
       expect(readOnlyExecutable(request('git', args), searchPath: gitPath),
           isNotNull,
@@ -158,13 +286,13 @@ void main() {
       ['diff', '-O', 'orderfile'],
       ['-C', '/tmp', 'status'],
       ['-c', 'core.fsmonitor=true', 'status'],
-      ['status', '--porcelain=v1'],
-      ['log', '--format=%H'],
       ['show', '--output=/tmp/x'],
-      ['status', '--'],
+      ['tag', '--', 'new-tag'],
+      ['branch', '--', 'new-branch'],
       [],
     ]) {
-      expect(readOnlyExecutable(request('git', args)), isNull,
+      expect(
+          readOnlyExecutable(request('git', args), searchPath: gitPath), isNull,
           reason: 'git ${args.join(' ')}');
     }
   });
@@ -255,17 +383,18 @@ void main() {
     expect(inner.requests, isEmpty);
   });
 
-  test('reader certification does not bypass ask mode', () async {
+  test('reader certification permits reads in ask mode too', () async {
     for (final mode in [PermissionMode.ask]) {
       final inner = _Recorder();
       final gate = runner(inner, review: (_, __) async => Approval.no)
         ..mode = mode;
-      expect(await gate.run(request('ls', [])), isA<CommandRefused>());
-      expect(inner.requests, isEmpty);
+      expect(await gate.run(request('ls', [])), isA<CommandCompleted>());
+      expect(inner.requests, hasLength(1));
     }
   });
 
   for (final mode in [
+    PermissionMode.ask,
     PermissionMode.readOnly,
     PermissionMode.allowEdits,
     PermissionMode.auto
@@ -454,8 +583,9 @@ void main() {
     expect(reviews.last.missingPermissions, {ProcessPermission.unconfined});
     expect(inner.controls.last!.outsideSandboxAllowed, true);
     gate.mode = PermissionMode.ask;
+    final before = reviews.length;
     await gate.run(call);
-    expect(reviews.last.missingPermissions, {ProcessPermission.execution});
+    expect(reviews.length, before);
   });
 
   test('real grep receives shell-looking patterns literally and cannot edit',

@@ -69,6 +69,8 @@ class SandboxedFileSystem implements FileSystem {
   final FileGrants grants;
   WriteDirectories? writeDirectories;
   bool Function(String)? protectedPath;
+  bool Function(String)? readablePath;
+  final _readGrants = FileGrants();
 
   // Only temporary files created by this sandbox inherit the target grant.
   // This permits atomic replacement without approving unrelated siblings.
@@ -240,12 +242,21 @@ class SandboxedFileSystem implements FileSystem {
       return approvedTarget;
     }
     final request = (op: op, path: approvedTarget);
-    final decision = decideOperation(
-      request,
-      mode,
-      projectRoot: await _realRoot,
-      grants: grants,
-    );
+    final decision = op == FileOp.read &&
+            mode != PermissionMode.yolo &&
+            readablePath?.call(approvedTarget) == false &&
+            !_readGrants.allows(approvedTarget)
+        ? (
+            verdict: ToolVerdict.ask,
+            reason:
+                'allow read outside the sandbox (${p.basename(approvedTarget)})?'
+          )
+        : decideOperation(
+            request,
+            mode,
+            projectRoot: await _realRoot,
+            grants: grants,
+          );
     switch (decision.verdict) {
       case ToolVerdict.allow:
         return approvedTarget;
@@ -266,7 +277,8 @@ class SandboxedFileSystem implements FileSystem {
           case Approval.yes:
             return approvedTarget;
           case Approval.always:
-            grants.rememberExact(approvedTarget);
+            (op == FileOp.read ? _readGrants : grants)
+                .rememberExact(approvedTarget);
             return approvedTarget;
           case Approval.no:
             throw SandboxViolation('${decision.reason} — denied by the user');

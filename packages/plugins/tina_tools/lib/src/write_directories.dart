@@ -10,7 +10,8 @@ final writeDirectoriesSetting = SettingDefinition<List<String>>(
       'Directories where file tools may write without further approval. '
       'Approved sandboxed commands can also write here. Select “Allow all writes '
       'in this directory” in a write approval, or enter a JSON array of absolute '
-      'directory paths here.',
+      'directory paths here. Grants from session, workspace and global scopes '
+      'are additive.',
   defaultValue: const [],
   kind: SettingKind.object,
   decode: (raw) {

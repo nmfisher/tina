@@ -162,16 +162,55 @@ final class ConfigSettingsManagement implements SettingsManagement {
               }),
       ]);
   @override
-  bool get hasCommandApprovals => _approvals != null;
+  bool get hasCommandApprovals => true;
+
+  Iterable<Map<String, Object?>> _folderPermissions() sync* {
+    for (final entry in _backend.permissionStore.entries) {
+      final setting = entry['setting'];
+      final value = entry['value'];
+      if (entry['kind'] == 'setting' &&
+          value is List &&
+          {'tina/tools/read_only_directories', 'tina/tools/write_directories'}
+              .contains(setting)) {
+        for (final directory in value.whereType<String>()) {
+          yield {
+            ...entry,
+            'id': '${entry['id']}#${base64Url.encode(utf8.encode(directory))}',
+            'source_id': entry['id'],
+            'directory_value': directory,
+            'command': setting == 'tina/tools/read_only_directories'
+                ? 'Read folder'
+                : 'Write folder (includes deletion)',
+            'directory': directory,
+          };
+        }
+      } else {
+        yield entry;
+      }
+    }
+  }
+
   @override
   List<Map<String, Object?>> get commandApprovals {
     _checkOpen();
     return List.unmodifiable([
-      for (final entry in _approvals?.entries ?? <Map<String, Object?>>[])
-        Map<String, Object?>.unmodifiable({
-          for (final key in ['id', 'scope', 'command', 'pattern', 'directory'])
-            key: entry[key],
-        }),
+      for (final entry in [
+        ...?_approvals?.entries,
+        ..._folderPermissions(),
+      ])
+        if (!(entry['kind'] == 'setting' &&
+            (entry['value'] == false ||
+                entry['value'] is List && (entry['value'] as List).isEmpty)))
+          Map<String, Object?>.unmodifiable({
+            for (final key in [
+              'id',
+              'scope',
+              'command',
+              'pattern',
+              'directory'
+            ])
+              key: entry[key],
+          }),
     ]);
   }
 
@@ -179,7 +218,14 @@ final class ConfigSettingsManagement implements SettingsManagement {
   void revokeCommandApproval(String id) {
     _checkOpen();
     _access.requireControl();
-    _approvals?.revoke(id);
+    if (_approvals?.entries.any((entry) => entry['id'] == id) == true)
+      _approvals!.revoke(id);
+    final permission =
+        _folderPermissions().where((entry) => entry['id'] == id).firstOrNull;
+    if (permission != null)
+      _backend.permissionStore.revoke(permission['source_id'] as String? ?? id,
+          directory: permission['directory_value'] as String?);
+    _scoped.reload();
   }
 
   @override

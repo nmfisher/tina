@@ -155,8 +155,21 @@ void main() {
   test('ordinary approvals cannot persist outside permission', () async {
     final approvals = _Approvals(ApprovalDecision.allowGlobal);
     final tools = plugin(approvals);
-    expect(await tools.processRunner.run(command()), isA<CommandRefused>());
-    expect(tools.commandApprovals.entries, isEmpty);
+    final request = (
+      command: '/usr/bin/printf',
+      arguments: ['hello'],
+      workingDirectory: workspace.path,
+      environment: null,
+      stdin: null,
+      timeout: null
+    );
+    expect(await tools.processRunner.run(request), isA<CommandCompleted>());
+    expect(tools.commandApprovals.entries.single['permissions'],
+        isNot(contains('unconfined')));
+    approvals.decision = ApprovalDecision.deny;
+    expect(await tools.processRunner.run(request, control: outside),
+        isA<CommandRefused>());
+    expect(approvals.calls, 2);
   });
 
   test('host executable is pinned before approval, including symlink aliases',

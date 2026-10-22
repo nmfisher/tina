@@ -149,7 +149,7 @@ final class SettingsPanel {
   Future<void> _manageCommandApprovals() async {
     while (true) {
       final entries = _management.commandApprovals;
-      final selected = await _menu('Command approvals', [
+      final selected = await _menu('Remembered permissions', [
         for (final entry in entries)
           '${entry['scope']}: ${entry['pattern'] == null ? entry['command'] : 'regex: ${entry['pattern']}'} (${entry['directory']})',
         entries.isEmpty ? 'No remembered approvals — Back' : 'Back',
@@ -185,7 +185,7 @@ final class SettingsPanel {
         if (_management.hasCommandApprovals)
           (
             category: 'Permissions',
-            label: 'Remembered command approvals',
+            label: 'Remembered permissions',
             open: _manageCommandApprovals,
           ),
         (

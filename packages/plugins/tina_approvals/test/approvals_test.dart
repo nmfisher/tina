@@ -286,9 +286,36 @@ void main() {
     };
     for (final entry in [
       (details: allRead, kind: ApprovalKind.permission, valid: true),
+      (
+        details: {
+          ...allRead,
+          'missing_permissions': ['execution', 'directoryAccess']
+        },
+        kind: ApprovalKind.permission,
+        valid: false
+      ),
+      (
+        details: {
+          ...allRead,
+          'required_permissions': ['execution', 'network']
+        },
+        kind: ApprovalKind.permission,
+        valid: false
+      ),
+      (
+        details: {
+          ...allRead,
+          'required_permissions': ['unconfined']
+        },
+        kind: ApprovalKind.permission,
+        valid: false
+      ),
       // No directory offers at all cannot carry a standing grant.
-      (details: <String, Object?>{}, kind: ApprovalKind.permission,
-          valid: false),
+      (
+        details: <String, Object?>{},
+        kind: ApprovalKind.permission,
+        valid: false
+      ),
       // A write among the offers disqualifies the standing reads grant.
       (details: mixed, kind: ApprovalKind.permission, valid: false),
       // Confirmations are yes/no; standing grants never ride them.

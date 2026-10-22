@@ -652,13 +652,12 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
               contains('allow this command with network access'));
         }
         // Exercise both the shortcut and selecting Always with Enter.
-        await keys(selectAlways ? '\x1b[B\x1b[B\r' : 'a');
+        await keys(
+            selectAlways ? (outside ? '\x1b[B\x1b[B\r' : '\x1b[A\r') : 'a');
         await waitFor(() => provider.requests.length == 2);
         expect(rememberedCommands(), 1);
         if (outside) {
-          expect(
-              sessionGrants().single['scope'],
-              'session');
+          expect(sessionGrants().single['scope'], 'session');
           expect(session.assembly.tools.processRunner.grants.length, 0,
               reason: 'host approvals use the revocable scoped store');
         }

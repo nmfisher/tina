@@ -152,6 +152,7 @@ enum UnavailableBehaviour { allow, refuse }
 /// built from — the brief's "one place": the gate approves exactly the
 /// paths the kernel makes writable, never a hair less or more.
 class SandboxPlan {
+  static const defaultSearchPath = '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
   /// The session's project root: bound read-write in the namespace.
   final String workspaceRoot;
 
@@ -182,8 +183,7 @@ class SandboxPlan {
       parentEnvironment ?? Platform.environment;
   String? get hostHome => realHome ?? hostEnvironment['HOME'];
   String get searchPath =>
-      _childEnvironment?['PATH'] ??
-      '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+      _childEnvironment?['PATH'] ?? defaultSearchPath;
   Map<String, String> get childEnvironment =>
       _childEnvironment ??
       {
@@ -576,7 +576,12 @@ final class OsSandboxRunner implements ProcessRunner {
             host: layout,
             workspaceRoot: plan.workspaceRoot,
             deniedPaths: plan.deniedPaths,
-            writablePaths: plan.extraWritablePaths,
+            writablePaths: control?.readOnly == true
+                ? control!.outputDirectories
+                : plan.extraWritablePaths,
+            readOnlyPaths:
+                control?.readOnly == true ? plan.extraWritablePaths : const [],
+            readOnlyWorkspace: control?.readOnly == true,
             isolateNetwork:
                 plan.isolateNetwork && !(control?.networkAllowed ?? false),
             childEnvironment: plan.childEnvironment,
@@ -587,7 +592,15 @@ final class OsSandboxRunner implements ProcessRunner {
           [
             '-p',
             buildSeatbeltProfile(
-              writablePaths: plan.writableLayout(),
+              writablePaths: control?.readOnly == true
+                  ? defaultSandboxTempDirs(plan.hostEnvironment)
+                  : plan.writableLayout(),
+              readOnlyPaths: control?.readOnly == true
+                  ? [plan.workspaceRoot, ...plan.extraWritablePaths]
+                  : const [],
+              outputDirectories: control?.readOnly == true
+                  ? control!.outputDirectories
+                  : const [],
               deniedPaths: plan.deniedPaths,
               hidePath: plan.hostHome == null
                   ? null

@@ -332,7 +332,10 @@ final class SessionAssembly {
     final tools = ToolsPlugin(
       workspaceRoot: workingDirectory,
       tinaDir: Directory('$workingDirectory/.tina'),
-      protectedPaths: [options.configPath ?? defaultConfigPath()],
+      protectedPaths: [
+        options.configPath ?? defaultConfigPath(),
+        settingsBackend.permissionStore.file!.parent.path,
+      ],
       osSandbox: options.osSandbox,
       settings: settings,
       mode: options.yolo ? PermissionMode.yolo : PermissionMode.ask,

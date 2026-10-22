@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_host/tina_host.dart';
@@ -6,6 +7,7 @@ import 'package:path/path.dart' as path;
 import '../tina_tools.dart';
 import 'access_review.dart';
 import 'read_only_commands.dart';
+import 'command_workflow.dart';
 import 'package:tina_settings/tina_settings.dart';
 
 void _saveDirectoryGrants(
@@ -34,13 +36,13 @@ void _saveDirectoryGrants(
                   ? readOnlyDirectoriesSetting
                   : writeDirectoriesSetting)
               .id: {
-            ...settings
-                .read(
-                    access == DirectoryAccess.read
-                        ? readOnlyDirectoriesSetting
-                        : writeDirectoriesSetting,
-                    scope: settingScope)
-                .value,
+            ...((settings.override(
+                        access == DirectoryAccess.read
+                            ? readOnlyDirectoriesSetting
+                            : writeDirectoriesSetting,
+                        settingScope) as List?)
+                    ?.cast<String>() ??
+                const <String>[]),
             ...selected
                 .where((grant) => grant.access == access)
                 .map((grant) => grant.path),
@@ -111,6 +113,11 @@ Approval _answer(ApprovalDecision decision, String reason) =>
 /// Connect enforcement boundaries to the shared mode policy.
 void attachModePolicy(ToolsPlugin plugin) {
   plugin.sandbox.approver = (request, reason) async {
+    final readDirectory = request.op == FileOp.read
+        ? Directory(request.path).existsSync()
+            ? request.path
+            : path.dirname(request.path)
+        : null;
     final writeDirectory =
         request.op == FileOp.write ? path.dirname(request.path) : null;
     List<DirectoryAccessGrant> directoryGrants = const [];
@@ -143,14 +150,33 @@ void attachModePolicy(ToolsPlugin plugin) {
         'description':
             plugin.describeFileRequest(request.op.name, request.path).toJson(),
         'permission_scope': 'file',
+        if (readDirectory != null) 'read_directory': readDirectory,
         if (writeDirectory != null) 'write_directory': writeDirectory,
       },
     );
     if (!validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
       return Approval.no;
+    if (decision == ApprovalDecision.allowReadsAlways &&
+        request.op == FileOp.read) {
+      _saveDirectoryGrants(plugin, directoryGrants);
+      final scope = directoryGrants.isEmpty
+          ? DirectoryGrantScope.session
+          : directoryGrants.first.scope;
+      plugin.settings?.set(allowReadsOutsideWorkspaceSetting, true,
+          SettingScope.values.byName(scope.name));
+      return Approval.yes;
+    }
     if ({ApprovalDecision.allow, ApprovalDecision.allowAlways}
         .contains(decision)) {
       _saveDirectoryGrants(plugin, directoryGrants);
+    }
+    if ((decision == ApprovalDecision.allowReadsInDirectory ||
+            decision == ApprovalDecision.allowAlwaysAndReadsInDirectory) &&
+        readDirectory != null) {
+      plugin.rememberReadDirectory(readDirectory);
+      return decision == ApprovalDecision.allowReadsInDirectory
+          ? Approval.yes
+          : Approval.always;
     }
     if ((decision == ApprovalDecision.allowWritesInDirectory ||
             decision == ApprovalDecision.allowAlwaysAndWritesInDirectory) &&
@@ -240,12 +266,10 @@ void attachModePolicy(ToolsPlugin plugin) {
     // test is strict: there must be inferred READ directory access (an ask
     // with none — a bare write-shaped command, say — is not covered), no
     // write access may be pending, execution must already be covered by a
-    // certified reader, and no network or host escape rides along. Only in
-    // read-only mode: in ask/auto every external read keeps asking. The
-    // kernel sandbox still enforces and protected paths stay excluded.
+    // certified reader, and no network or host escape rides along.
+    // The kernel sandbox still enforces and protected paths stay excluded.
     final settings = plugin.settings;
-    final standingReads = plugin.modePolicy.mode == PermissionMode.readOnly &&
-        settings != null &&
+    final standingReads = settings != null &&
         settings.read(allowReadsOutsideWorkspaceSetting).value &&
         !network &&
         !outsideSandbox &&
@@ -259,12 +283,31 @@ void attachModePolicy(ToolsPlugin plugin) {
       return Approval.yes;
     }
     final description = describeCommandRequest(request);
+    final readerRequest = literalShellRequest(request) ?? request;
+    final readerCandidate = outsideSandbox || network
+        ? null
+        : readOnlyExecutable(readerRequest,
+            searchPath: plugin.processRunner.executableSearchPath,
+            candidateOnly: true);
+    final readerDigest = readerCandidate != null &&
+            readOnlyExecutable(readerRequest,
+                    searchPath: plugin.processRunner.executableSearchPath,
+                    trustedExecutables:
+                        plugin.commandApprovals.readerExecutables) ==
+                null
+        ? sha256.convert(File(readerCandidate).readAsBytesSync()).toString()
+        : null;
+    final workflow = outsideSandbox || network
+        ? null
+        : commandWorkflow(request, plugin.workingDirectory);
     String? commandPattern;
     List<DirectoryAccessGrant> directoryGrants = const [];
     final verified = verifiedReaderAccesses(request,
-        searchPath: plugin.processRunner.executableSearchPath);
+        searchPath: plugin.processRunner.executableSearchPath,
+        trustedExecutables: plugin.commandApprovals.readerExecutables);
     final certified = hasCompleteReaderAccesses(request,
-        searchPath: plugin.processRunner.executableSearchPath);
+        searchPath: plugin.processRunner.executableSearchPath,
+        trustedExecutables: plugin.commandApprovals.readerExecutables);
     Map<String, Object?> accessReview(PermissionJudgment judgment) {
       final details = permissionAccessReview(
           plan: plugin.osPlan,
@@ -350,10 +393,23 @@ void attachModePolicy(ToolsPlugin plugin) {
                     : description)
             .toJson(),
         'permission_scope': 'command',
+        if (!outsideSandbox) 'recommended_scope': 'workspace',
+        if (readerDigest != null) ...{
+          'permission_scope_label': 'permitted reads with $readerCandidate',
+          'permission_scope_description':
+              'Remembering permits supported read-only arguments with this executable version. '
+                  'Folder access, network and host execution require their own permissions.',
+        } else if (workflow != null) ...{
+          'permission_scope_label': '$workflow in this project',
+          'permission_scope_description':
+              'Workspace approval covers $workflow with supported options and project files, '
+                  'including subdirectories. Global applies to other workspaces too. '
+                  'Filesystem confinement and network permissions stay in effect.',
+        },
         'command_pattern_target': approvalCommandText(request),
         if (plugin.commandApprovals.file != null)
           'persistent_command_pattern': true,
-        if (outsideSandbox && plugin.commandApprovals.file != null)
+        if (plugin.commandApprovals.file != null)
           'persistent_command_approval': true,
         if (review.readDirectory != null &&
             plugin.osPlan.canGrant(review.readDirectory!))
@@ -376,26 +432,52 @@ void attachModePolicy(ToolsPlugin plugin) {
     if (!review.isActive() ||
         !validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
       return Approval.no;
-    if ({ApprovalDecision.allow, ApprovalDecision.allowAlways}
-        .contains(decision)) {
+    if (readerDigest != null &&
+        readerCandidate != null &&
+        sha256.convert(File(readerCandidate).readAsBytesSync()).toString() !=
+            readerDigest) return Approval.no;
+    if ({
+      ApprovalDecision.allow,
+      ApprovalDecision.allowAlways,
+      ApprovalDecision.allowWorkspace,
+      ApprovalDecision.allowGlobal
+    }.contains(decision)) {
       _saveDirectoryGrants(plugin, directoryGrants);
     }
-    if ((outsideSandbox || commandPattern != null) &&
+    if ((outsideSandbox ||
+            commandPattern != null ||
+            decision != ApprovalDecision.allowAlways) &&
         {
           ApprovalDecision.allowAlways,
           ApprovalDecision.allowWorkspace,
           ApprovalDecision.allowGlobal
         }.contains(decision)) {
       if (!review.isActive()) return Approval.no;
+      if (readerDigest != null && commandPattern == null) {
+        if (sha256
+                .convert(File(readerCandidate!).readAsBytesSync())
+                .toString() !=
+            readerDigest) return Approval.no;
+        plugin.commandApprovals.rememberReader(
+            readerCandidate,
+            readerDigest,
+            switch (decision) {
+              ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
+              ApprovalDecision.allowGlobal => CommandApprovalScope.global,
+              _ => CommandApprovalScope.session,
+            });
+        return Approval.yes;
+      }
       plugin.commandApprovals.remember(
           request,
-          review.requiredPermissions,
+          review.missingPermissions,
           switch (decision) {
             ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
             ApprovalDecision.allowGlobal => CommandApprovalScope.global,
             _ => CommandApprovalScope.session,
           },
           pattern: commandPattern,
+          workflow: !outsideSandbox && !network && commandPattern == null,
           directoryAccess: review.directoryAccess);
       return Approval.yes;
     }
@@ -406,6 +488,13 @@ void attachModePolicy(ToolsPlugin plugin) {
       plugin.rememberReadDirectory(review.readDirectory!);
     }
     if (decision == ApprovalDecision.allowReadsAlways) {
+      if (network ||
+          outsideSandbox ||
+          review.directoryAccess.read.isEmpty ||
+          review.directoryAccess.write.isNotEmpty ||
+          review.missingPermissions.any(
+              (permission) => permission != ProcessPermission.directoryAccess))
+        return Approval.no;
       // The dialog only offers this for all-read asks, and the grants were
       // validated against those offers above; the scope rides the grants.
       // A channel that answers without grants defaults to session scope —

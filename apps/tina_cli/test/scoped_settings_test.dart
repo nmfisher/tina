@@ -74,6 +74,107 @@ unknown = "preserve me"
   final enter = ControlKey(ControlCode.enter), escape = EscapeKey();
 
   test(
+    'trusted folders persist outside repository config and merge across scopes',
+    () {
+      final shared = Directory('${directory.path}/shared')..createSync();
+      final local = Directory('${directory.path}/local')..createSync();
+      final setting = field('tina/tools/read_only_directories');
+      app.settings.set(setting, [shared.path], SettingScope.global);
+      app.settings.set(setting, [local.path], SettingScope.workspace);
+      expect(
+        app.tools.readDirectories.paths,
+        containsAll([shared.path, local.path]),
+      );
+      final workspaceConfig = File(app.settingsBackend.workspacePath);
+      if (workspaceConfig.existsSync())
+        expect(workspaceConfig.readAsStringSync(), isNot(contains(local.path)));
+      expect(global.readAsStringSync(), isNot(contains(shared.path)));
+      app.settings.reload();
+      expect(app.settings.read(setting, scope: SettingScope.workspace).value, [
+        local.path,
+      ]);
+      final grant = app.settingsBackend.permissionStore.entries.singleWhere(
+        (entry) => entry['scope'] == 'global',
+      );
+      app.settingsBackend.permissionStore.revoke(grant['id'] as String);
+      app.settings.reload();
+      expect(app.tools.readDirectories.paths, [local.path]);
+    },
+  );
+
+  test('repository settings cannot add trusted folders', () {
+    final config = File(app.settingsBackend.workspacePath)
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('''
+[plugin_config."tina/tools"]
+read_only_directories = ["/untrusted/folder"]
+write_directories = ["/untrusted/writable"]
+''');
+    app.settings.reload();
+    expect(
+      app.tools.readDirectories.paths,
+      isNot(contains('/untrusted/folder')),
+    );
+    expect(
+      app.tools.writeDirectories.paths,
+      isNot(contains('/untrusted/writable')),
+    );
+    expect(config.readAsStringSync(), contains('/untrusted/folder'));
+  });
+
+  test('revoking one trusted folder preserves other folders in the same scope',
+      () {
+    final first = Directory('${directory.path}/first')..createSync();
+    final second = Directory('${directory.path}/second')..createSync();
+    app.settings.set(field('tina/tools/read_only_directories'),
+        [first.path, second.path], SettingScope.workspace);
+    final management = ConfigSettingsManagement(
+        scopedSettings: app.settings, backend: app.settingsBackend);
+    final permission = management.commandApprovals.singleWhere(
+        (entry) => entry['directory'] == first.resolveSymbolicLinksSync());
+    management.revokeCommandApproval(permission['id'] as String);
+    expect(
+        app.tools.readDirectories.paths, [second.resolveSymbolicLinksSync()]);
+    expect(
+        management.commandApprovals.any(
+            (entry) => entry['directory'] == first.resolveSymbolicLinksSync()),
+        isFalse);
+  });
+
+  test('a stale permission edit cannot revive a revoked folder', () {
+    final first = Directory('${directory.path}/first')..createSync();
+    final second = Directory('${directory.path}/second')..createSync();
+    final definition = field('tina/tools/read_only_directories');
+    app.settings.set(definition, [first.path], SettingScope.workspace);
+    final backend = app.settingsBackend;
+    final previous = backend.read(SettingScope.workspace);
+    final permission = backend.permissionStore.entries.single;
+    backend.permissionStore.revoke(permission['id'] as String,
+        directory: first.path);
+    expect(() => backend.write(SettingScope.workspace,
+        {...previous, definition.id: [first.path, second.path]}), throwsStateError);
+    app.settings.reload();
+    expect(app.tools.readDirectories.paths, isEmpty);
+  });
+
+  test('trusted folders pin aliases and reject retargeted canonical roots', () async {
+    final trusted = Directory('${directory.path}/trusted')..createSync();
+    final other = Directory('${directory.path}/other')..createSync();
+    final alias = Link('${directory.path}/alias')..createSync(trusted.path);
+    app.settings.set(field('tina/tools/read_only_directories'),
+        [alias.path], SettingScope.workspace);
+    expect(app.tools.readDirectories.paths, [trusted.path]);
+    alias.updateSync(other.path);
+    app.settings.reload();
+    expect(app.tools.readDirectories.paths, [trusted.path]);
+    trusted.renameSync('${directory.path}/moved');
+    Link(trusted.path).createSync(other.path);
+    app.settings.reload();
+    expect(app.tools.readDirectories.paths, isEmpty);
+    expect(app.tools.readDirectories.allows('${other.path}/source'), isFalse);
+  }, skip: Platform.isWindows);
+
+  test(
       'masked saves refresh plugin scope metadata without changing the active plugin',
       () {
     final goals = field('tina/goals/enabled');

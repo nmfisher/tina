@@ -8,6 +8,8 @@ import 'package:tina_approvals/tina_approvals.dart' show CommandApprovalPattern;
 
 import 'process_runner.dart';
 import 'sandbox_home.dart';
+import 'command_workflow.dart';
+import 'read_only_commands.dart';
 
 enum CommandApprovalScope { session, workspace, global }
 
@@ -64,16 +66,21 @@ final class CommandApprovalStore {
       workspace: workspace, searchPath: searchPath);
 
   String _identity(ProcessRequest request, CommandApprovalScope scope,
-      {bool patterned = false}) {
+      {bool patterned = false, String? workflow}) {
     final keys = request.environment?.keys.toList()?..sort();
     return sha256
         .convert(utf8.encode(jsonEncode([
-          _executable(request),
-          patterned
-              ? (_shellString(request) ? 'shell -c' : 'quoted argv')
-              : request.arguments,
+          _executable(workflow == null
+              ? request
+              : literalShellRequest(request) ?? request),
+          workflow ??
+              (patterned
+                  ? (_shellString(request) ? 'shell -c' : 'quoted argv')
+                  : request.arguments),
           if (scope != CommandApprovalScope.global)
-            canonicalSandboxPath(request.workingDirectory ?? workspace),
+            canonicalSandboxPath(workflow == null
+                ? request.workingDirectory ?? workspace
+                : workspace),
           if (keys == null)
             null
           else
@@ -103,17 +110,112 @@ final class CommandApprovalStore {
           v['scope'] == 'global' ||
           v['workspace'] == canonicalSandboxPath(workspace)));
 
+  Map<String, Object?> settings(CommandApprovalScope scope) => {
+        for (final entry in entries)
+          if (entry['kind'] == 'setting' && entry['scope'] == scope.name)
+            entry['setting'] as String: entry['value'],
+      };
+
+  void replaceSettings(
+      CommandApprovalScope scope, Map<String, Object?> values,
+      {Map<String, Object?>? expected}) {
+    void change(List<Map<String, Object?>> entries) {
+      final current = {
+        for (final entry in entries)
+          if (entry['kind'] == 'setting' && entry['scope'] == scope.name &&
+              (scope == CommandApprovalScope.global ||
+                  entry['workspace'] == canonicalSandboxPath(workspace)))
+            entry['setting'] as String: entry['value'],
+      };
+      if (expected != null && jsonEncode(current) != jsonEncode(expected))
+        throw StateError('Permission settings changed; reload and try again');
+      entries.removeWhere((entry) =>
+          entry['kind'] == 'setting' &&
+          entry['scope'] == scope.name &&
+          (scope == CommandApprovalScope.global ||
+              entry['workspace'] == canonicalSandboxPath(workspace)));
+      for (final entry in values.entries) {
+        entries.add({
+          'kind': 'setting',
+          'id': 'setting:${scope.name}:$workspace:${entry.key}',
+          'scope': scope.name,
+          if (scope != CommandApprovalScope.global)
+            'workspace': canonicalSandboxPath(workspace),
+          'setting': entry.key,
+          'value': entry.value,
+          'command': entry.key.split('/').last.replaceAll('_', ' '),
+          'directory': entry.value is List
+              ? (entry.value as List).join(', ')
+              : entry.value.toString(),
+        });
+      }
+    }
+
+    if (scope == CommandApprovalScope.session) {
+      change(_session);
+    } else {
+      if (file == null)
+        throw StateError('Persistent approval storage is unavailable');
+      _update(change);
+    }
+  }
+
+  Map<String, String> get readerExecutables {
+    try {
+      return {
+        for (final entry in entries)
+          if (entry['kind'] == 'reader' &&
+              entry['executable'] is String &&
+              entry['digest'] is String)
+            entry['executable'] as String: entry['digest'] as String,
+      };
+    } on FileSystemException {
+      return {};
+    } on FormatException {
+      return {};
+    } on TypeError {
+      return {};
+    }
+  }
+
+  void rememberReader(
+      String executable, String digest, CommandApprovalScope scope) {
+    final entry = <String, Object?>{
+      'kind': 'reader',
+      'id': 'reader:${scope.name}:$workspace:$executable:$digest',
+      'scope': scope.name,
+      if (scope != CommandApprovalScope.global)
+        'workspace': canonicalSandboxPath(workspace),
+      'executable': executable,
+      'digest': digest,
+      'command': 'Permitted reads with $executable (supported options only)',
+      'directory':
+          scope == CommandApprovalScope.global ? 'all workspaces' : workspace,
+    };
+    if (scope == CommandApprovalScope.session) {
+      _session.add(entry);
+    } else {
+      if (file == null)
+        throw StateError('Persistent approval storage is unavailable');
+      _update((entries) => entries.add(entry));
+    }
+  }
+
   bool covers(ProcessRequest request, Set<ProcessPermission> permissions,
       {ProcessDirectoryAccess directoryAccess =
           const ProcessDirectoryAccess.empty()}) {
     try {
-      return entries.any((entry) {
+      return entries.where((entry) => entry['kind'] == null).any((entry) {
         final scope =
             CommandApprovalScope.values.byName(entry['scope'] as String);
         final granted = (entry['permissions'] as List).cast<String>().toSet();
         final pattern = entry['pattern'];
+        final workflow = entry['workflow'] as String?;
         return entry['identity'] ==
-                _identity(request, scope, patterned: pattern != null) &&
+                _identity(request, scope,
+                    patterned: pattern != null, workflow: workflow) &&
+            (workflow == null ||
+                commandWorkflow(request, workspace) == workflow) &&
             (pattern == null ||
                 pattern is String &&
                     CommandApprovalPattern(pattern)
@@ -137,12 +239,20 @@ final class CommandApprovalStore {
   void remember(ProcessRequest request, Set<ProcessPermission> permissions,
       CommandApprovalScope scope,
       {String? pattern,
+      bool workflow = false,
       ProcessDirectoryAccess directoryAccess =
           const ProcessDirectoryAccess.empty()}) {
     if (pattern != null) {
       CommandApprovalPattern(pattern)
           .requireMatch(approvalCommandText(request));
     }
+    final family = workflow &&
+            pattern == null &&
+            scope != CommandApprovalScope.session &&
+            !permissions.contains(ProcessPermission.network) &&
+            !permissions.contains(ProcessPermission.unconfined)
+        ? commandWorkflow(request, workspace)
+        : null;
     final entry = <String, Object?>{
       'id': List.generate(
           16,
@@ -153,15 +263,20 @@ final class CommandApprovalStore {
       'scope': scope.name,
       if (scope != CommandApprovalScope.global)
         'workspace': canonicalSandboxPath(workspace),
-      'identity': _identity(request, scope, patterned: pattern != null),
-      'command': approvalCommandText(request),
+      'identity': _identity(request, scope,
+          patterned: pattern != null, workflow: family),
+      'command':
+          family == null ? approvalCommandText(request) : '$family (workflow)',
       'executable': _executable(request),
       if (!directoryAccess.isEmpty)
         'directory_access': directoryAccess.toJson(),
       if (pattern != null) 'pattern': pattern,
+      if (family != null) 'workflow': family,
       'directory': scope == CommandApprovalScope.global
           ? 'any directory'
-          : canonicalSandboxPath(request.workingDirectory ?? workspace),
+          : family == null
+              ? canonicalSandboxPath(request.workingDirectory ?? workspace)
+              : '${canonicalSandboxPath(workspace)} (including subdirectories)',
       'permissions': permissions.map((p) => p.name).toList(),
     };
     if (scope == CommandApprovalScope.session) {
@@ -173,17 +288,31 @@ final class CommandApprovalStore {
     }
   }
 
-  void revoke(String id) {
+  void revoke(String id, {String? directory}) {
     _session.removeWhere((entry) => entry['id'] == id);
     if (file?.existsSync() == true)
-      _update((entries) => entries.removeWhere((entry) => entry['id'] == id));
+      _update((entries) {
+        for (final entry in entries) {
+          if (entry['id'] == id && entry['kind'] == 'setting') {
+            entry['value'] = entry['value'] is List
+                ? directory == null
+                    ? <String>[]
+                    : (entry['value'] as List)
+                        .where((value) => value != directory)
+                        .toList()
+                : false;
+            return;
+          }
+        }
+        entries.removeWhere((entry) => entry['id'] == id);
+      });
   }
 
   /// Diagnostic only: a related rule exists but did not cover this request.
   bool hasRelatedRule(ProcessRequest request) {
     try {
       final executable = _executable(request);
-      return entries.any((entry) =>
+      return entries.where((entry) => entry['kind'] == null).any((entry) =>
           entry['executable'] == executable ||
           entry['command'] == approvalCommandText(request));
     } on FileSystemException {

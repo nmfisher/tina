@@ -78,7 +78,7 @@ final class ToolsPlugin extends AgentPlugin
               ? null
               : File(
                   path.join(realHome, '.tina', 'approvals', 'commands.json')),
-          searchPath: environment['PATH'],
+          searchPath: SandboxPlan.defaultSearchPath,
         );
     osPlan = SandboxPlan(
       workspaceRoot: workspaceRoot,
@@ -103,6 +103,11 @@ final class ToolsPlugin extends AgentPlugin
       enabled: osSandbox,
       unavailableBehaviour: osUnavailable,
     );
+    sandbox.readablePath = (target) =>
+        osPlan.canRead(target,
+            backend:
+                osSandbox ? osRunner.backend : SandboxBackend.passThrough) ||
+        settings?.read(allowReadsOutsideWorkspaceSetting).value == true;
     processRunner = SandboxedProcessRunner(
       inner: osRunner,
       mode: mode,
@@ -112,6 +117,18 @@ final class ToolsPlugin extends AgentPlugin
       workspaceRoot: workspaceRoot,
       plan: osPlan,
     );
+    processRunner.trustedReaderExecutables =
+        () => commandApprovals.readerExecutables;
+    processRunner.outputWritePermission = (target) =>
+        osPlan.canWrite(target) &&
+        (!sandboxPathUnder(target, workspaceRoot) ||
+            sandbox.mode == PermissionMode.allowEdits ||
+            writeDirectories.allows(target));
+    processRunner.persistentPermission = (request, permission, directories) =>
+        commandApprovals.covers(request, {permission},
+            directoryAccess: permission == ProcessPermission.directoryAccess
+                ? directories
+                : const ProcessDirectoryAccess.empty());
     processJobs = ProcessJobs(processRunner);
     this.modePolicy.listen((value) {
       sandbox.mode = value;
@@ -153,13 +170,22 @@ final class ToolsPlugin extends AgentPlugin
               .execute(input),
         },
         enabled: () => enableSpeculative && !_closed);
-    _stopReadSettings = settings?.watch(readOnlyDirectoriesSetting,
-        (value) => readDirectories.replace(value.value),
-        fireImmediately: true);
-    _stopWriteSettings = settings?.watch(writeDirectoriesSetting, (value) {
-      writeDirectories.replace(value.value);
+    void applyDirectories() {
+      List<String> granted(SettingDefinition<List<String>> definition) => [
+            for (final scope in SettingScope.values)
+              ...((settings?.override(definition, scope) as List?)
+                      ?.cast<String>() ??
+                  const <String>[]),
+          ];
+      readDirectories.replace(granted(readOnlyDirectoriesSetting));
+      writeDirectories.replace(granted(writeDirectoriesSetting));
       writable.replace(osPlan.writableLayout());
-    }, fireImmediately: true);
+    }
+
+    if (settings != null) {
+      _stopReadSettings = settings!.listen(applyDirectories);
+      applyDirectories();
+    }
     if (settings?.catalog.contains(homeCachesSetting.id) == true) {
       _stopHomeSettings = settings!.watch(homeCachesSetting, (value) {
         home?.replace(value.value);
@@ -182,7 +208,6 @@ final class ToolsPlugin extends AgentPlugin
   final ReadOnlyDirectories readDirectories = ReadOnlyDirectories();
   final WriteDirectories writeDirectories = WriteDirectories();
   void Function()? _stopReadSettings;
-  void Function()? _stopWriteSettings;
   late final SandboxedProcessRunner processRunner;
   late final ProcessJobs processJobs;
 
@@ -245,10 +270,11 @@ final class ToolsPlugin extends AgentPlugin
 
   void rememberReadDirectory(String directory, {SettingScope? scope}) {
     if (settings case final ScopedSettings settings) {
-      scope ??= settings.read(readOnlyDirectoriesSetting).source ??
-          SettingScope.global;
+      scope ??= SettingScope.workspace;
       final paths = {
-        ...settings.read(readOnlyDirectoriesSetting, scope: scope).value,
+        ...((settings.override(readOnlyDirectoriesSetting, scope) as List?)
+                ?.cast<String>() ??
+            const <String>[]),
         directory
       }.toList();
       settings.set(readOnlyDirectoriesSetting, paths, scope);
@@ -259,10 +285,11 @@ final class ToolsPlugin extends AgentPlugin
 
   void rememberWriteDirectory(String directory, {SettingScope? scope}) {
     if (settings case final ScopedSettings settings) {
-      scope ??=
-          settings.read(writeDirectoriesSetting).source ?? SettingScope.global;
+      scope ??= SettingScope.workspace;
       final paths = {
-        ...settings.read(writeDirectoriesSetting, scope: scope).value,
+        ...((settings.override(writeDirectoriesSetting, scope) as List?)
+                ?.cast<String>() ??
+            const <String>[]),
         directory
       }.toList();
       settings.set(writeDirectoriesSetting, paths, scope);
@@ -314,6 +341,7 @@ final class ToolsPlugin extends AgentPlugin
           ? (Map<String, Object?> input) => t.execute(input)
           : null;
       register(name, (input, context) async {
+        settings?.reload();
         // A mutating tool's result cannot be trusted to leave the world
         // unchanged, whatever it reported: block caching during execution
         // and invalidate both before dispatch and after it settles.
@@ -382,7 +410,6 @@ final class ToolsPlugin extends AgentPlugin
     _closed = true;
     _speculativePrefetch.cancel();
     _stopReadSettings?.call();
-    _stopWriteSettings?.call();
     _stopHomeSettings?.call();
     _speculative.clear();
     unawaited(processJobs.close().whenComplete(() => home?.close()));
@@ -419,9 +446,9 @@ final class ToolsPlugin extends AgentPlugin
           'arguments to read '
           'these directories without repeated execution approval. These '
           'directories do not grant writes. A single literal reader command '
-          'also works through bash. In read-only and allow-edits modes, verified '
-          'reader pipelines and sequences also run. Unsupported scripts, '
-          'expansions and redirects still need approval.');
+          'also works through bash. Verified reader pipelines and sequences '
+          'run in every mode. File output needs an already-writable directory. '
+          'Unsupported scripts and expansions still need approval.');
     }
   }
 }
@@ -441,7 +468,8 @@ final class HostPromptSection {
   String sectionFor(PermissionMode mode) =>
       'Working directory: $workingDirectory. Mode: ${mode.label} — '
       '${switch (mode) {
-        PermissionMode.ask => 'reads run; writes and commands require approval',
+        PermissionMode.ask =>
+          'reads and permitted reader commands run; writes and other commands require approval',
         PermissionMode.readOnly =>
           'reads and verified system reader commands, pipelines and sequences run; '
               'writes and other commands require explicit user approval',
@@ -462,8 +490,8 @@ final class HostPromptSection {
       'capabilities are reviewed with the command and apply only to its '
       'subprocess tree, without changing later calls or network access. '
       'Known reader operands and simple touch/mkdir targets are gathered '
-      'before review. Human folder grants can be remembered for the session '
-      'or workspace and then reused by later commands. '
+      'before review. Human folder grants can be remembered for the session, '
+      'workspace or globally and reused by later commands and file tools. '
       'Sandboxed commands use a synthetic HOME with selected writable caches. '
       'Host credential files and authentication configuration are excluded. '
       'When host authentication is required, request outside_sandbox: true '
@@ -477,8 +505,11 @@ final class HostPromptSection {
       'Tina reuses matching human approvals for this session, workspace or '
       'globally; otherwise it asks the user, even in auto mode. Ordinary '
       'execution approval does not remove confinement. Global command '
-      'approvals apply in any directory; session/workspace approvals retain '
-      'the approved working directory. Do not retry unchanged or switch shells '
+      'approvals apply in any directory. Supported workspace test, build, '
+      'analysis and formatting workflows cover project files and subdirectories; '
+      'other session/workspace approvals retain the exact arguments and '
+      'working directory. Host exceptions stay separate and exact. '
+      'Do not retry unchanged or switch shells '
       'as a workaround. Respect denied or cancelled approvals.\n\n'
       'Prefer dedicated file tools for listing, reading, searching paths and '
       'editing. Edit existing files with edit and create or replace files '
@@ -488,7 +519,7 @@ final class HostPromptSection {
       'run programs such as ls, grep and find directly with literal arguments. '
       'Read-only git subcommands (status, diff, log, show, list-form branch '
       'and tag) and print-only sed (-n with address-and-print scripts like '
-      "180,215p) are certified readers in read-only and allow-edits modes; "
+      "180,215p), rg, wc, stat, checksums and constrained find are permitted readers in every mode; "
       'other git operations and sed edits still need approval. '
       'Use working_directory on exec or bash to select the invocation directory '
       'instead of commands such as cd some_dir && ls. Relative directories '

@@ -110,8 +110,8 @@ void main() {
       expect(requests, hasLength(1));
       expect(requests.single.details['write_directory'],
           external.resolveSymbolicLinksSync());
-      expect(
-          settings.read(writeDirectoriesSetting).source, SettingScope.global);
+      expect(settings.read(writeDirectoriesSetting).source,
+          SettingScope.workspace);
       expect(plugin.sandbox.grants.isEmpty, isTrue);
       final sibling = await write.execute({
         'filePath': '${external.path}/nested/${mode.name}.txt',
@@ -130,7 +130,7 @@ void main() {
               .isError,
           isTrue);
       expect(requests, hasLength(2));
-      settings.set(writeDirectoriesSetting, <String>[], SettingScope.global);
+      settings.set(writeDirectoriesSetting, <String>[], SettingScope.workspace);
       expect(
           (await write.execute({'filePath': firstPath, 'content': 'blocked'}))
               .isError,

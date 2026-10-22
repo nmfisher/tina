@@ -231,20 +231,29 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       // consumer that cannot honor standing grants then refuses loudly
       // instead of silently mis-approving. The answer's scope rides its
       // read grants (below), never a separate enum value.
-      final invalidReadsAlways =
-          decision == ApprovalDecision.allowReadsAlways &&
-              (request.kind != ApprovalKind.permission ||
-                  offers is! List ||
-                  offers.isEmpty ||
-                  offers.any((offer) =>
-                      offer is! Map ||
-                      offer['access'] != DirectoryAccess.read.name));
+      final invalidReadsAlways = decision ==
+              ApprovalDecision.allowReadsAlways &&
+          (request.kind != ApprovalKind.permission ||
+              request.details['missing_permissions'] is List &&
+                  (request.details['missing_permissions'] as List)
+                      .any((permission) => permission != 'directoryAccess') ||
+              request.details['required_permissions'] is List &&
+                  (request.details['required_permissions'] as List).any(
+                      (permission) =>
+                          {'network', 'unconfined'}.contains(permission)) ||
+              offers is! List ||
+              offers.isEmpty ||
+              offers.any((offer) =>
+                  offer is! Map ||
+                  offer['access'] != DirectoryAccess.read.name));
       final invalidDirectories = directoryGrants.isNotEmpty &&
           (request.kind != ApprovalKind.permission ||
               onDirectoryGrants == null ||
               !{
                 ApprovalDecision.allow,
                 ApprovalDecision.allowAlways,
+                ApprovalDecision.allowWorkspace,
+                ApprovalDecision.allowGlobal,
                 // Reads-always carries the session/workspace scope on the
                 // same validated grants as a plain allow.
                 ApprovalDecision.allowReadsAlways

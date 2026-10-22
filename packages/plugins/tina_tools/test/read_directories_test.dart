@@ -35,6 +35,10 @@ void main() {
     other = Directory('${root.path}/external-other')..createSync();
     source = File('${external.path}/source.txt')..writeAsStringSync('needle\n');
   });
+  SandboxPlan plan(ReadOnlyDirectories directories) => SandboxPlan(
+      workspaceRoot: workspace.path,
+      readDirectories: directories,
+      parentEnvironment: {'HOME': root.path, 'TMPDIR': workspace.path});
   tearDown(() => root.deleteSync(recursive: true));
 
   test('saved read directories remove grep approval in every mode', () async {
@@ -49,6 +53,7 @@ void main() {
           inner: inner,
           mode: mode,
           readDirectories: directories,
+          plan: plan(directories),
           workspaceRoot: workspace.path,
           executableSearchPath: '/usr/bin:/bin',
           commandApprover: (_, __) async {
@@ -57,7 +62,7 @@ void main() {
           });
       final call = request('grep',
           ['-rn', 'needle', '--include=*.txt', external.path], workspace);
-      if (mode == PermissionMode.ask) {
+      if (mode != PermissionMode.yolo) {
         expect(await gate.run(call), isA<CommandRefused>());
         expect(approvals, 1);
       }
@@ -76,7 +81,7 @@ void main() {
       expect(approvals, before,
           reason: 'a directory read grant must include all descendants');
       directories.replace([]);
-      if (mode == PermissionMode.ask) {
+      if (mode != PermissionMode.yolo) {
         expect(await gate.run(call), isA<CommandRefused>());
       }
     }
@@ -90,6 +95,7 @@ void main() {
     final gate = SandboxedProcessRunner(
         inner: Recorder(),
         readDirectories: directories,
+        plan: plan(directories),
         workspaceRoot: workspace.path,
         executableSearchPath: '/usr/bin:/bin');
     for (final args in [
@@ -166,7 +172,6 @@ void main() {
     for (final script in [
       "grep needle '${source.path}' > written",
       "grep needle '${source.path}'; touch written",
-      "grep needle '${source.path}' | cat",
       r'grep "$HOME" file',
       r'grep `touch written` file',
       r'grep $(touch written) file',
@@ -179,7 +184,11 @@ void main() {
           isA<CommandRefused>(),
           reason: script);
     }
-    expect(spawn.calls, hasLength(1));
+    expect(
+        await gate.run(request('/bin/sh',
+            ['-c', "grep needle '${source.path}' | cat"], workspace)),
+        isA<CommandCompleted>());
+    expect(spawn.calls, hasLength(2));
   }, skip: Platform.isWindows);
 
   test('approval checkbox persists reads without an execution or write grant',
@@ -190,6 +199,11 @@ void main() {
     final tools = ToolsPlugin(
         workspaceRoot: workspace.path,
         tinaDir: Directory('${workspace.path}/.tina'),
+        hostEnvironment: {
+          'HOME': root.path,
+          'PATH': '/usr/bin:/bin',
+          'TMPDIR': workspace.path
+        },
         settings: settings);
     final approvals = ReadApprovals();
     tools.modePolicy.approvals = approvals;
@@ -221,7 +235,8 @@ void main() {
         isTrue);
     expect(approvals.details.last, isNot(contains('read_directory')));
     expect(source.readAsStringSync(), 'needle\n');
-    settings.set(readOnlyDirectoriesSetting, <String>[], SettingScope.global);
+    settings.set(
+        readOnlyDirectoriesSetting, <String>[], SettingScope.workspace);
     expect(tools.readDirectories.paths, isEmpty);
     expect((await exec.execute(args)).isError, isTrue);
     tools.closeSession();

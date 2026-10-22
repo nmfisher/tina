@@ -16,6 +16,8 @@ import 'process_runner.dart';
 import 'read_only_commands.dart';
 import 'read_directories.dart';
 import 'os_sandbox_runner.dart';
+import 'command_workflow.dart';
+import 'package:tina_mode/tina_mode.dart' show PermissionAccessOperation;
 
 /// The session mode a [SandboxedProcessRunner] enforces. Re-exported from
 /// the permissions vocabulary so callers need one import less.
@@ -64,7 +66,7 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
       CommandRule.readOnly =>
         'allow command in read-only mode (${request.command})?',
       CommandRule.readOnlyReader =>
-        'read-only system command (${request.command})',
+        'permitted read: verified command (${request.command})',
       CommandRule.insideWritableSet =>
         'command stays inside the session\'s writable directories '
             '(${request.command})',
@@ -265,6 +267,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
   final ReadOnlyDirectories? readDirectories;
   final String? workspaceRoot;
   final SandboxPlan? plan;
+  Map<String, String> Function()? trustedReaderExecutables;
+  bool Function(String)? outputWritePermission;
+  bool Function(ProcessRequest, ProcessPermission, ProcessDirectoryAccess)?
+      persistentPermission;
   Future<bool> Function(ProcessRequest, SandboxAccessRequest, bool retry,
       bool Function() isActive)? directoryApprover;
 
@@ -303,6 +309,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
       timeout: request.timeout,
     );
     control = control?.copyWith(
+        readOnly: false,
+        outputDirectories: const [],
         readDirectories: List.unmodifiable(control.readDirectories),
         writeDirectories: List.unmodifiable(control.writeDirectories),
         clearDirectoryApproval: true);
@@ -337,21 +345,14 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final network = (control?.networkRequested ?? false) || outsideSandbox;
     final literal = literalShellRequest(request);
     final readerRequest = literal ?? request;
-    final readerMode = mode == PermissionMode.readOnly ||
-        mode == PermissionMode.allowEdits ||
-        mode == PermissionMode.auto;
-    final shellReader = readerMode
-        ? readOnlyShellRequest(request, searchPath: executableSearchPath)
-        : null;
-    final candidate =
-        readOnlyExecutable(readerRequest, searchPath: executableSearchPath);
-    final reader = candidate != null &&
-            (readerMode ||
-                readDirectories != null &&
-                    readsGrantedDirectories(
-                        readerRequest, readDirectories!, workspaceRoot))
-        ? candidate
-        : null;
+    var shellReader = readOnlyShellRequest(request,
+        searchPath: executableSearchPath,
+        trustedExecutables: trustedReaderExecutables?.call() ?? const {},
+        canWrite: outputWritePermission);
+    final candidate = readOnlyExecutable(readerRequest,
+        searchPath: executableSearchPath,
+        trustedExecutables: trustedReaderExecutables?.call() ?? const {});
+    var reader = candidate;
     final ProcessDirectoryAccess declaredAccess;
     final ProcessDirectoryAccess explicitAccess;
     final ProcessDirectoryAccess directoryAccess;
@@ -392,6 +393,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
         .where((permission) =>
             !(permission == ProcessPermission.execution &&
                 (reader != null || shellReader != null)) &&
+            persistentPermission?.call(request, permission, directoryAccess) !=
+                true &&
             !grants.coversRequest(request,
                 permission: permission, directoryAccess: directoryAccess))
         .toSet();
@@ -467,11 +470,39 @@ final class SandboxedProcessRunner implements ProcessRunner {
       return const CommandRefused(
           'Additional directories changed during approval');
     }
+    final currentReaders =
+        trustedReaderExecutables?.call() ?? const <String, String>{};
+    final currentReader = readOnlyExecutable(readerRequest,
+        searchPath: executableSearchPath, trustedExecutables: currentReaders);
+    final currentShell = readOnlyShellRequest(request,
+        searchPath: executableSearchPath,
+        trustedExecutables: currentReaders,
+        canWrite: outputWritePermission);
+    if (reader != null && currentReader == null ||
+        shellReader != null && currentShell == null)
+      return const CommandRefused(
+          'Reader executable or output permissions changed during approval');
+    reader = currentReader;
+    shellReader = currentShell;
     if (remember) {
       grants.rememberRequest(request,
           permissions: missing, directoryAccess: directoryAccess);
     }
+    final onlyReads =
+        !outsideSandbox && (reader != null || shellReader != null);
+    final outputDirectories = onlyReads
+        ? verifiedReaderAccesses(request,
+                searchPath: executableSearchPath,
+                trustedExecutables: currentReaders)
+            .where(
+                (access) => access.operation == PermissionAccessOperation.write)
+            .map((access) => path.dirname(access.path))
+            .toSet()
+            .toList()
+        : <String>[];
     final authorized = (control ?? const ProcessControl()).copyWith(
+        readOnly: onlyReads,
+        outputDirectories: List.unmodifiable(outputDirectories),
         networkAllowed: network,
         outsideSandboxAllowed: outsideSandbox,
         approvedDirectories: directoryAccess,
@@ -481,7 +512,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         ? shellReader ?? request
         : (
             command: reader,
-            arguments: readerRequest.arguments,
+            arguments: certifiedReaderArguments(readerRequest),
             workingDirectory: request.workingDirectory,
             environment: path.basename(reader) == 'git'
                 ? {
@@ -564,9 +595,31 @@ final class SandboxedProcessRunner implements ProcessRunner {
         ((inner as OsSandboxRunner).enabled &&
             (inner as OsSandboxRunner).backend != SandboxBackend.passThrough);
     if (infer && confined) {
+      if (commandWorkflow(request, plan.workspaceRoot) != null) {
+        try {
+          final executable = resolveHostExecutable(
+              literalShellRequest(request) ?? request,
+              workspace: plan.workspaceRoot,
+              searchPath: executableSearchPath);
+          var ancestor = Directory(path.dirname(executable));
+          for (var depth = 0; depth < 5; depth++) {
+            if (Directory(path.join(ancestor.path, 'packages', 'flutter_tools'))
+                    .existsSync() &&
+                Directory(path.join(ancestor.path, 'bin', 'cache'))
+                    .existsSync()) {
+              add(ancestor.path, false);
+              add(path.join(ancestor.path, 'bin', 'cache'), true);
+              break;
+            }
+            if (ancestor.parent.path == ancestor.path) break;
+            ancestor = ancestor.parent;
+          }
+        } on FileSystemException {}
+      }
       for (final access in verifiedReaderAccesses(request,
-          searchPath: executableSearchPath)) {
-        add(access.path, false);
+          searchPath: executableSearchPath,
+          trustedExecutables: trustedReaderExecutables?.call() ?? const {})) {
+        add(access.path, access.operation != PermissionAccessOperation.read);
       }
       if ({'touch', 'mkdir'}.contains(path.basename(request.command)) &&
           request.arguments.every((arg) =>

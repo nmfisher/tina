@@ -37,6 +37,58 @@ class ScriptedRunner implements ProcessRunner {
 }
 
 void main() {
+  test('permitted reads keep project and shared write grants read-only',
+      () async {
+    for (final backend in [SandboxBackend.sandboxExec, SandboxBackend.bwrap]) {
+      final inner = ScriptedRunner();
+      final runner = OsSandboxRunner(
+          inner: inner,
+          plan: const SandboxPlan(
+              workspaceRoot: '/tmp/project', writablePaths: ['/tmp/cache']),
+          backend: backend);
+      await runner.run((
+        command: 'cat',
+        arguments: ['README.md'],
+        workingDirectory: '/tmp/project',
+        environment: null,
+        stdin: null,
+        timeout: null
+      ),
+          control: const ProcessControl(
+              readOnly: true, outputDirectories: ['/tmp/project/reports']));
+      final arguments = inner.starts.single.arguments;
+      if (backend == SandboxBackend.sandboxExec) {
+        final profile = arguments[1];
+        expect(
+            profile, contains('(deny file-write* (subpath "/tmp/project"))'));
+        expect(profile, contains('(deny file-write* (subpath "/tmp/cache"))'));
+        expect(
+            profile.indexOf(
+                '(allow file-write* (subpath "/tmp/project/reports"))'),
+            greaterThan(profile
+                .indexOf('(deny file-write* (subpath "/tmp/project"))')));
+      } else {
+        final mounts = [
+          for (var index = 0; index < arguments.length - 2; index++)
+            if ({'--bind', '--ro-bind'}.contains(arguments[index]))
+              arguments.sublist(index, index + 3)
+        ];
+        expect(mounts,
+            contains(equals(['--ro-bind', '/tmp/project', '/tmp/project'])));
+        expect(mounts,
+            contains(equals(['--ro-bind', '/tmp/cache', '/tmp/cache'])));
+        expect(
+            mounts,
+            contains(equals(
+                ['--bind', '/tmp/project/reports', '/tmp/project/reports'])));
+        expect(
+            mounts,
+            isNot(
+                contains(equals(['--bind', '/tmp/project', '/tmp/project']))));
+      }
+    }
+  });
+
   test('approved networking keeps filesystem restrictions for both backends',
       () async {
     for (final backend in [SandboxBackend.sandboxExec, SandboxBackend.bwrap]) {

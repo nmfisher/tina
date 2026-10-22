@@ -146,7 +146,7 @@ Session grants live in memory and are shared with child agents in that session.
 Workspace and global grants live in `~/.tina/approvals/commands.json`, outside
 repository settings. Workspace grants are keyed by canonical workspace path.
 Environment and stdin values are hashed in request identities, not persisted.
-Settings → Permissions → Remembered command approvals lists grants and
+Settings → Permissions → Remembered permissions lists grants and
 revokes them. Persistent lookups reread the store, so revocation affects future
 launches in existing sessions. Already-running commands retain their access.
 
@@ -197,8 +197,45 @@ Known reader operands remain visible if the classifier times out.
 
 Directory checkboxes name each offered directory and its read or write access.
 `s` cycles the explicit save scope, defaulting to Workspace; Session grants use
-the current conversation settings, Workspace writes `<workspace>/.tina/config`,
-and Global writes the selected global config. Grants take effect only after the
+the current conversation settings. Workspace and Global grants are stored in
+`approvals/permissions.json` alongside the user-owned global configuration,
+never in repository configuration. If the global config is inside the workspace,
+the store uses `~/.tina/approvals/permissions.json` instead. Existing workspace
+permission fields must be reapproved; existing user-global fields remain readable
+and migrate when saved. Grants take effect only after the
 human approves the active invocation. Protected paths and replaced symlinks are
 checked again before saving. Read grants never add writable mounts or a command
 execution grant. Write grants include deletion and renaming.
+
+## Fewer prompts, same sandbox
+
+Supported reader arguments run as **permitted reads** in every mode, including
+Ask. This covers system readers, constrained `find`, read-only Git, print-only
+`sed`, checksums and literal reader pipelines/sequences. Non-system readers such
+as Homebrew `rg` require an explicit workspace/global trust decision first;
+trust is pinned to the executable's content, so an update requires review again.
+Unknown flags, custom environments and shell expansion are not certified.
+Git disables pagers, external diff/textconv, fsmonitor, hooks and optional index
+locks; ripgrep ignores config files. Readers get read-only project/cache mounts
+or equivalent Seatbelt rules. Output redirects require an already-writable
+directory and make only those output directories writable for that invocation.
+Without an available OS backend these kernel guarantees do not apply.
+
+Ordinary command prompts recommend **Workspace** and retain Once, Session and
+Global choices. Supported Dart/Flutter test, analysis, formatting and build
+workflows can be remembered across project files and subdirectories. Unsupported
+options, paths escaping the project, custom environments and stdin fall back to
+exact-command approval. Other commands, network grants and host exceptions remain
+exact; a workflow never implies network or host access. When recognized, Flutter
+SDK source reads and its narrow `bin/cache` write requirement appear together in
+the first command review. Folder scope can differ from command scope: for example,
+workspace tests plus globally trusted SDK folders, saved in one approval.
+
+Folder grants are additive across session, workspace and global scopes. Read
+trust never implies write or command execution permission. Settings → Permissions
+lists remembered permissions for individual-folder revocation. Folder paths are
+canonicalized when saved; retargeted roots become inactive and require reapproval.
+Tool invocations reload trusted
+settings so changes in another session affect the next call. Running processes
+keep their existing sandbox. Protected credentials and Tina authority stores
+stay excluded even beneath a trusted folder.

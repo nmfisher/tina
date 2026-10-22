@@ -227,13 +227,13 @@ void main() {
             stdin: null,
             timeout: null,
           );
-      final original = shell(['-c', 'echo *'], '/tmp/one');
+      final original = shell(['-c', 'printf *'], '/tmp/one');
       await runner.run(original);
       await runner.run(original);
       expect(asked, 1);
-      await runner.run(shell(['-c', 'echo secret'], '/tmp/one'));
-      await runner.run(shell(['-c', 'echo', '*'], '/tmp/one'));
-      await runner.run(shell(['-c', 'echo *'], '/tmp/two'));
+      await runner.run(shell(['-c', 'printf secret'], '/tmp/one'));
+      await runner.run(shell(['-c', 'printf', '*'], '/tmp/one'));
+      await runner.run(shell(['-c', 'printf *'], '/tmp/two'));
       expect(asked, 4);
     });
 
@@ -252,7 +252,7 @@ void main() {
       ProcessRequest request(Map<String, String>? env,
               {String stdin = 'input'}) =>
           (
-            command: 'cat',
+            command: 'tee',
             arguments: [],
             workingDirectory: '/project',
             environment: env,
@@ -328,13 +328,13 @@ void main() {
           return answers.removeAt(0);
         },
       );
-      final refused = await runner.run(_req('cat /etc/hosts'));
+      final refused = await runner.run(_req('tee /etc/hosts'));
       expect(refused, isA<CommandRefused>());
       expect(
           (refused as CommandRefused).reason, contains('denied by the user'));
       expect(asked, 1);
 
-      final allowed = await runner.run(_req('cat /etc/hosts'));
+      final allowed = await runner.run(_req('tee /etc/hosts'));
       expect(allowed, isA<CommandCompleted>());
       expect(asked, 2);
     });
@@ -345,7 +345,7 @@ void main() {
         inner: inner,
         writableDirectories: WritableDirectories()..add('/tmp/ws'),
       );
-      final outcome = await runner.run(_req('cat /etc/hosts'));
+      final outcome = await runner.run(_req('tee /etc/hosts'));
       expect(outcome, isA<CommandRefused>());
       expect((outcome as CommandRefused).reason, contains('no approver'));
       expect(inner.requests, isEmpty);
@@ -364,14 +364,14 @@ void main() {
           return Approval.always;
         },
       );
-      await runner.run(_req('cat /etc/hosts'));
-      await runner.run(_req('cat /etc/hosts'));
+      await runner.run(_req('tee /etc/hosts'));
+      await runner.run(_req('tee /etc/hosts'));
       expect(asked, 1,
           reason: 'the second identical command skips the approver');
       // The grant was recorded as the exact command line.
-      expect(runner.grants.patterns, ['cat /etc/hosts']);
+      expect(runner.grants.patterns, ['tee /etc/hosts']);
       // But a different command still asks.
-      await runner.run(_req('cat /etc/passwd'));
+      await runner.run(_req('tee /etc/passwd'));
       expect(asked, 2);
     });
 
