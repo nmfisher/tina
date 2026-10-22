@@ -36,6 +36,13 @@ import 'input_log.dart';
 /// The three bordered panels, for focus/highlight tinting.
 enum FrameBox { chat, menu, info }
 
+/// Byte size of a detached conversation's kept replay tail. The console
+/// retains this much of what streamed while a panel was hidden; older lines
+/// are dropped and reported on reattach. Kept small enough that the notice
+/// and the tail (which can sit anywhere up to the trim cap at attach time)
+/// both stay inside the 2000-row scrollback the region retains.
+const int kDetachedReplayNoticeBytes = 40 * 1024;
+
 class Screen {
   final Stdio io;
   final AnsiCapable ansi;

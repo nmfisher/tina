@@ -75,6 +75,19 @@ final class _Workspace implements ConsolePanels {
   int width = -1, height = -1, visibleIndex = 0;
   int _nextPanel = 1;
   int _themeEpoch = -1;
+
+  /// The computed slot plan of the last [_layout]: outer rects per view, plus
+  /// the flags that shape them. When a relayout would produce the identical
+  /// plan (most focus switches do — the window didn't scroll, nothing moved),
+  /// the detach-all/erase-all/reattach cycle is skipped and only the active
+  /// wiring (chat region, input row) is repointed.
+  final _plannedRects = <_View, Rect>{};
+  bool _plannedBorder = false;
+  Rect _plannedInput = Rect.empty;
+
+  /// Whether the last layout pass left every visible chat attached at its
+  /// slot. False while a layout is in flight and after any skip-reset.
+  bool _chatsAttached = false;
   late final PanelsStatus panelStatus = PanelsStatus(
       context: context,
       choices: () => [
@@ -279,15 +292,41 @@ final class _Workspace implements ConsolePanels {
     if (painting || stopped || views.isEmpty) return;
     painting = true;
     try {
+      // Plan first. When nothing about the geometry changed, skip the
+      // detach-all/erase-all/reattach cycle — it full-repaints every visible
+      // conversation, which dominates long sessions. Focus switches between
+      // visible panels keep identical slots and only relocate the shared
+      // input row.
+      final plan = _planSlots();
+      if (plan != null &&
+          _chatsAttached &&
+          _sameMap(_plannedRects, plan.rects) &&
+          _plannedBorder == plan.border) {
+        final selected = active!;
+        screen.setActiveChat(selected.chat);
+        final newInput =
+            selected.frame.isParked ? Rect.empty : selected.frame.inputRect;
+        if (!_sameRect(_plannedInput, newInput)) {
+          final old = _plannedInput;
+          screen.frame(() {
+            if (!old.isEmpty) {
+              screen.eraseAtAbsolute(
+                  row: old.row, col: old.col, n: old.width, moveCursor: false);
+            }
+            screen.input.setBoundsOverride(newInput);
+            context.refreshInput();
+          });
+          _plannedInput = newInput;
+        } else {
+          context.refreshInput();
+        }
+        return;
+      }
+      _chatsAttached = false;
       screen.frame(() {
         final layout = screen.layout;
         width = layout.width;
         height = layout.height;
-        final shown = views.where((v) => !v.minimized).toList();
-        final slots = shown.length > 1 && width >= 100 && !maximized ? 2 : 1;
-        final preview = views[visibleIndex.clamp(0, views.length - 1)];
-        final first =
-            shown.indexOf(preview).clamp(0, shown.length) ~/ slots * slots;
         for (final view in views) {
           view.chat.detach();
         }
@@ -297,31 +336,16 @@ final class _Workspace implements ConsolePanels {
         for (var row = layout.chat.row; row < layout.stripRow; row++) {
           screen.eraseAtAbsolute(row: row, col: 0, n: width, moveCursor: false);
         }
-        for (var i = 0; i < views.length; i++) {
-          final view = views[i];
-          final slot = shown.indexOf(view);
-          final visible = slot >= first && slot < first + slots;
-          final columnWidth = width ~/ slots;
-          final rect = views.length == 1
-              ? Rect(
-                  row: layout.chat.row,
-                  col: layout.chat.col,
-                  width: layout.chat.width,
-                  height: layout.inputRow - layout.chat.row + 1)
-              : Rect(
-                  row: layout.chat.row,
-                  col: (slot - first) * columnWidth,
-                  width: slot == first + slots - 1
-                      ? width - columnWidth * (slots - 1)
-                      : columnWidth,
-                  height: layout.stripRow - layout.chat.row);
-          view.frame.setBorder(views.length > 1 && height >= 8);
+        for (final view in views) {
+          final rect = plan?.rects[view] ??
+              Rect(row: layout.chat.row, col: 0, width: 0, height: 0);
+          view.frame.setBorder(plan?.border ?? false);
           view.frame.cycleWhenParked = !view.minimized;
-          view.frame.setOuter(rect, parked: !visible);
+          view.frame.setOuter(rect, parked: !(plan?.visible.contains(view) ?? false));
           view.frame.setReservesInput(true);
           ChatRegionPanelContent(view.chat)
               .fit(view.frame.interior, reserveInputRow: true);
-          if (visible) view.chat.attach();
+          if (plan?.visible.contains(view) ?? false) view.chat.attach();
         }
         final selected = active!;
         screen.input.setBoundsOverride(
@@ -335,9 +359,71 @@ final class _Workspace implements ConsolePanels {
         panelStatus.refresh();
         context.refreshInput();
       });
+      final plan2 = plan;
+      _plannedRects
+        ..clear()
+        ..addAll(plan2?.rects ?? {});
+      _plannedBorder = plan2?.border ?? false;
+      _plannedInput = active!.frame.isParked ? Rect.empty : active!.frame.inputRect;
+      _chatsAttached = true;
     } finally {
       painting = false;
     }
+  }
+
+  ({Map<_View, Rect> rects, bool border, Set<_View> visible, int preview})?
+      _planSlots() {
+    final layout = screen.layout;
+    if (views.isEmpty) return null;
+    final shown = views.where((v) => !v.minimized).toList();
+    final slots = shown.length > 1 && layout.width >= 100 && !maximized ? 2 : 1;
+    final preview = views[visibleIndex.clamp(0, views.length - 1)];
+    final first =
+        shown.indexOf(preview).clamp(0, shown.length) ~/ slots * slots;
+    final rects = <_View, Rect>{};
+    final visible = <_View>{};
+    for (var i = 0; i < views.length; i++) {
+      final view = views[i];
+      final slot = shown.indexOf(view);
+      final isVisible = slot >= first && slot < first + slots;
+      if (isVisible) visible.add(view);
+      final columnWidth = layout.width ~/ slots;
+      rects[view] = views.length == 1
+          ? Rect(
+              row: layout.chat.row,
+              col: layout.chat.col,
+              width: layout.chat.width,
+              height: layout.inputRow - layout.chat.row + 1)
+          : Rect(
+              row: layout.chat.row,
+              col: (slot - first) * columnWidth,
+              width: slot == first + slots - 1
+                  ? layout.width - columnWidth * (slots - 1)
+                  : columnWidth,
+              height: layout.stripRow - layout.chat.row);
+    }
+    return (
+      rects: rects,
+      border: views.length > 1 && layout.height >= 8,
+      visible: visible,
+      preview: visibleIndex.clamp(0, views.length - 1)
+    );
+  }
+
+  static bool _sameMap(Map<_View, Rect> a, Map<_View, Rect> b) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!_sameRect(a[key]!, b[key] ?? Rect.empty)) return false;
+    }
+    return true;
+  }
+
+  static bool _sameRect(Rect? a, Rect b) {
+    if (a == null) return false;
+    return a.row == b.row &&
+        a.col == b.col &&
+        a.width == b.width &&
+        a.height == b.height;
   }
 
   void repaint() {

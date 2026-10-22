@@ -53,6 +53,21 @@ class ScrollingTextRegion extends Region {
   bool _detached = false;
   final StringBuffer _detachedBuffer = StringBuffer();
 
+  /// Cap on the detached replay buffer. A hidden panel streaming a busy turn
+  /// used to accumulate its entire output here — megabytes over a long
+  /// session — and replays it all in one frame on reattach. Past the cap the
+  /// OLDEST content is dropped to a line boundary; the tail (what matters on
+  /// reattach) is kept. Both numbers are sized so the omission notice stays
+  /// visible above the tail after replay: the buffer sits anywhere in
+  /// [trim-to, cap] at attach time, and the region retains 2000 scrollback
+  /// rows — a 48 KiB worst-case tail is ~1800 wrapped rows, inside the cap.
+  static const int _maxDetachedBytes = 48 * 1024;
+  static const int _detachedTrimToBytes = 40 * 1024;
+
+  /// Lines dropped from the head of the detached buffer by the cap, reported
+  /// once on attach so clipped replay is visible rather than silent.
+  int _detachedDroppedLines = 0;
+
   /// SGR code (e.g. `30;47`) tagging every row touched while a styled message
   /// block is open. Set by [beginStyle]/[writeStyledLine]; cleared by
   /// [_endLineStyle] (run at the start of any plain write). Null = no bar — the
@@ -399,6 +414,7 @@ class ScrollingTextRegion extends Region {
         if (text.isEmpty) return;
         if (_detached) {
           _detachedBuffer.write(text);
+          _trimDetachedBuffer();
           return;
         }
         if (screen.passthrough) {
@@ -555,6 +571,13 @@ class ScrollingTextRegion extends Region {
     _redraw();
     final buffered = _detachedBuffer.toString();
     _detachedBuffer.clear();
+    final dropped = _detachedDroppedLines;
+    _detachedDroppedLines = 0;
+    if (dropped > 0) {
+      final keptKiB = (kDetachedReplayNoticeBytes / 1024).round();
+      write('$dropped earlier line${dropped == 1 ? '' : 's'} omitted; '
+          'replayed from the newest $keptKiB KiB.\n');
+    }
     if (buffered.isNotEmpty) {
       write(buffered);
     }
@@ -580,6 +603,45 @@ class ScrollingTextRegion extends Region {
   @visibleForTesting
   String? debugPaintedText(int row) => _rows[row].paintedText;
 
+  /// Bytes currently held by the detached replay buffer. Visible for tests
+  /// asserting the bound.
+  @visibleForTesting
+  int get debugDetachedBufferLength => _detachedBuffer.length;
+
+  /// The detached replay buffer's cap in bytes (the trim threshold). Visible
+  /// for tests.
+  @visibleForTesting
+  static int get debugDetachedBufferCap => _maxDetachedBytes;
+
+  /// Lines dropped from the head of the detached replay buffer by the cap
+  /// since the last attach/clear. Visible for tests.
+  @visibleForTesting
+  int get debugDetachedDroppedLines => _detachedDroppedLines;
+
+  /// Drop the oldest whole lines from the detached buffer when it passes the
+  /// cap, keeping the most recent [_detachedTrimToBytes]-ish window. Counts
+  /// dropped lines for the attach-time omission notice. Only called while
+  /// detached, where the cost is amortized over real output.
+  void _trimDetachedBuffer() {
+    var len = _detachedBuffer.length;
+    if (len <= _maxDetachedBytes) return;
+    final text = _detachedBuffer.toString();
+    // Cut back to [_detachedTrimToBytes] of tail, then walk BACKWARD to a
+    // line boundary so the replay always starts with a complete line (the
+    // write cursor sits mid-line while streaming; a forward newline search
+    // would keep the whole open line, which can dwarf the tail). If the
+    // window holds no newline at all (a pathological single-line flood),
+    // drop the whole buffer rather than keep an unbounded headless line.
+    var cut = text.length - _detachedTrimToBytes;
+    final back = text.lastIndexOf('\n', cut);
+    cut = back < 0 ? text.length : back + 1;
+    _detachedDroppedLines += '\n'.allMatches(text.substring(0, cut)).length;
+    _detachedBuffer
+      ..clear()
+      ..write(text.substring(cut));
+    len = 0;
+  }
+
   /// Used by [Screen.clearChat]. Resets the row buffer and write cursor;
   /// the screen has already erased the rows visually.
   void resetAfterClear() {
@@ -593,6 +655,7 @@ class ScrollingTextRegion extends Region {
     _scrollOffset = 0;
     _newWhileScrolled = 0;
     _detachedBuffer.clear();
+    _detachedDroppedLines = 0;
   }
 
   @override
@@ -794,7 +857,58 @@ class ScrollingTextRegion extends Region {
     final usable = _usableHeight;
     if (usable <= 0) return;
 
+    // A 1:1 replacement of the tail from [fromContentRow] to the end of the
+    // retained content is the streaming hot path (ChatView._changed re-renders
+    // the last block, which lands exactly here): the row count is unchanged,
+    // so bottom-alignment, visual rows, history and every snapshot before the
+    // span stay valid, and only the rewritten rows are re-emitted. Anything
+    // that changes the row count moves the history/window boundary or the
+    // leading blank fill and takes the full-rebuild path below.
+    var fastPath = false;
+    var contentTotal = 0;
+    if (_scrollOffset == 0 && fromContentRow > 0 && lines.isNotEmpty) {
+      contentTotal = _history.length + _contentRowCount;
+      final replacesThroughEnd = fromContentRow + lines.length == contentTotal;
+      final insideWindow = fromContentRow >= _history.length;
+      final noBlankLines = lines.every((line) => line.text.isNotEmpty);
+      fastPath = replacesThroughEnd && insideWindow && noBlankLines;
+    }
+
     screen.frame(() {
+      if (fastPath) {
+        // In-place model update. Each rewritten row is reset and refilled;
+        // rows before the span keep their objects (and snapshots) untouched.
+        // The painted snapshot of the same slot is the correct diff base for
+        // the next emit — so a rewrite that lands identical text (the common
+        // reconciliation no-op) emits nothing at all, and a changed row
+        // patches only its diffed suffix.
+        final old = fromContentRow - _history.length;
+        for (var i = 0; i < lines.length; i++) {
+          final row = _rows[old + i];
+          final line = lines[i];
+          row
+            ..reset()
+            ..append(line.text)
+            ..styleCode = line.bar
+            ..image = line.image;
+        }
+        // A cursor inside or after the rewritten span snaps to the blank row
+        // after the content — the steady state a full rebuild leaves, so the
+        // next streamed line opens its own row (tin-m2vq).
+        final content = _contentRowCount;
+        if (_curRow >= old) {
+          _curRow = content < _usableHeight ? content : _usableHeight - 1;
+          _curCol = 0;
+        }
+        _openRowOwner = null;
+        _pendingStyle = null;
+        _retainImages();
+        for (var i = 0; i < lines.length; i++) {
+          _emitRow(old + i);
+        }
+        _notifyScrollbackChanged();
+        return;
+      }
       // Absolute row list: scrollback first, then the visible content rows.
       final absolute = <_StyledRow>[
         ..._history,
@@ -1744,6 +1858,17 @@ class _StyledRow {
       ..clear()
       ..add(joined);
     _flattened = joined;
+  }
+
+  /// Reuse this row object for new content: clears text segments, style and
+  /// image. Paint snapshots are invalidated by the caller, not here.
+  void reset() {
+    _segments
+      ..clear()
+      ..add('');
+    _flattened = '';
+    styleCode = null;
+    image = null;
   }
 
   /// Forget the terminal snapshot. The next emit re-renders this row from

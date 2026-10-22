@@ -33,7 +33,6 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   // Block positions use the full rendered transcript. The console retains a
   // bounded suffix, so its row indices move whenever scrollback is trimmed.
   final _rows = <int>[];
-  int _renderedRows = 0, _trailingBlankRows = 0;
   final _responseBlocks = <ChatBlock>[];
   final _recordedInputs = <String>{};
   static const _speaker = ChatSpeaker(id: 'assistant', label: 'tina');
@@ -54,6 +53,19 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   ChatBlock? _thinkingPreview;
   bool _previewDirty = false;
   bool _thinkingDirty = false;
+
+  /// The streaming prose preview's raw markdown source. Stored instead of
+  /// re-rendering on every delta: the preview block's body refreshes on the
+  /// 160 ms ticker (like the reasoning preview), so a long response re-renders
+  /// at most ~6x/second instead of once per streamed chunk.
+  String _pendingSource = '';
+
+  /// Blocks are dropped from the front once their rendered rows sit entirely
+  /// beyond the console region's retained scrollback. [kRegionHistoryCap]
+  /// rows is what [ScrollingTextRegion] keeps; the margin covers the window
+  /// itself and rebuild slack, so pruning never touches anything paintable.
+  static const int _pruneMarginRows = 400;
+  int _renderedRows = 0, _trailingBlankRows = 0;
   final _sources = Expando<String>('markdown-source');
   final _images = Expando<ConsoleImage>('chat-image');
   MarkdownStyle get _style => MarkdownStyle.fromChatTheme(
@@ -121,8 +133,9 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
         _thinkingPreview!.updateReasoning(_clean(_thinking), ongoing: true);
         _changed(_thinkingPreview!);
       }
-      if (_previewDirty && _preview != null) {
+      if (_previewDirty && _preview != null && _pendingSource.isNotEmpty) {
         _previewDirty = false;
+        _preview!.body = renderMarkdown(_clean(_pendingSource), _style);
         _changed(_preview!);
       }
       _frame++;
@@ -166,8 +179,60 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _responseBlocks.clear();
     _preview = _thinkingPreview = null;
     _markdown = null;
+    _pendingSource = '';
     _previewDirty = _thinkingDirty = false;
     _console?.chat.resetAfterClear();
+  }
+
+  /// Drop blocks whose rows can never be painted again.
+  ///
+  /// The region keeps at most [kRegionHistoryCap] scrollback rows above the
+  /// visible window, so once a block's rendered rows end more than
+  /// [_pruneMarginRows] rows before the region's retained start, no scroll,
+  /// resize or rebuild can ever show it again — but its body, raw markdown
+  /// source and decoded image stay reachable through [_blocks] forever. This
+  /// releases them. The live tail (streaming previews, open tool calls, the
+  /// current turn) is never pruned; [_rows] and [_responseBlocks] are trimmed
+  /// in lockstep with [_blocks].
+  void _pruneUnpaintableBlocks() {
+    final console = _console;
+    if (console == null || _blocks.isEmpty) return;
+    // Rows the region has already dropped from its own history. Negative when
+    // everything still fits — nothing to prune then.
+    final unpaintable =
+        _renderedRows - _trailingBlankRows - console.chat.contentRows;
+    final pruneRows = unpaintable - _pruneMarginRows;
+    if (pruneRows <= 0) return;
+    // Never touch the tail: the streaming previews, any block still in the
+    // current turn's response set, and the block the cursor sits on.
+    final lastMutable = _blocks.length -
+        (_preview != null ? 1 : 0) -
+        (_thinkingPreview != null ? 1 : 0);
+    if (lastMutable <= 0) return;
+    var dropped = 0;
+    while (dropped < lastMutable &&
+        _rows[dropped + 1] <= pruneRows) {
+      dropped++;
+    }
+    if (dropped == 0) return;
+    final droppedBlocks = _blocks.sublist(0, dropped).toSet();
+    _blocks.removeRange(0, dropped);
+    _rows.removeRange(0, dropped);
+    _responseBlocks.removeWhere(droppedBlocks.contains);
+    for (final block in droppedBlocks) {
+      _sources[block] = null;
+      _images[block] = null;
+    }
+    for (final id in _calls.keys.toList()) {
+      if (droppedBlocks.contains(_calls[id])) _calls.remove(id);
+    }
+    // Reindex blocks that reference absolute rendered-row positions.
+    final shift = _rows.isEmpty
+        ? _renderedRows - _trailingBlankRows
+        : _rows.first;
+    for (var i = 0; i < _rows.length; i++) {
+      _rows[i] -= shift;
+    }
   }
 
   void watch(WatchEvent event) {
@@ -211,9 +276,9 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
         _preview = _prose(splitter.pending);
       } else {
         _sources[_preview!] = splitter.pending;
-        _preview!.body = renderMarkdown(_clean(splitter.pending), _style);
-        _previewDirty = true;
       }
+      _pendingSource = splitter.pending;
+      _previewDirty = true;
     }
   }
 
@@ -222,6 +287,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     final block =
         ChatBlock.prose(_speaker, renderMarkdown(_clean(text), _style));
     _sources[block] = text;
+    if (text == _pendingSource) block.body = const [];
     _responseBlocks.add(block);
     _add(block, at: at);
     return block;
@@ -230,9 +296,10 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   void _completeProse(String text) {
     final preview = _preview;
     _preview = null;
-    final changed =
-        _previewDirty || preview != null && _sources[preview] != text;
+    final changed = _previewDirty ||
+        preview != null && (text != _pendingSource || _sources[preview] != text);
     _previewDirty = false;
+    _pendingSource = '';
     if (preview == null) {
       _prose(text);
     } else {
@@ -283,6 +350,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       _streamed = '';
       _preview = null;
       _previewDirty = false;
+      _pendingSource = '';
       _markdown = null;
       _console?.chat.resetAfterClear();
       _console?.chat.repaint();
@@ -501,6 +569,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
               bar: line.bar ?? _style.base, image: line.image));
         }
       });
+      _pruneUnpaintableBlocks();
     }
   }
 
