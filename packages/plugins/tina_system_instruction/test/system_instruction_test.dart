@@ -9,7 +9,11 @@ void main() {
     final loop = AgentLoop(
         provider: provider, plugins: [const SystemInstructionPlugin()]);
     await loop.runTurn(const Input('hello', id: 't1'));
-    expect(provider.requests.single.systemPrompt,
-        contains('You are tina, a terminal coding agent.'));
+    final prompt = provider.requests.single.systemPrompt;
+    expect(prompt, startsWith('You are tina, a terminal coding agent.'));
+    expect(prompt, contains('Be concise.'));
+    expect(prompt, contains('plain, simple technical English'));
+    expect(prompt, contains('Answer from what you already know'));
+    expect(prompt, contains('as few tool calls as the work allows'));
   });
 }
