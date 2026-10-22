@@ -30,7 +30,7 @@ class CompactionConfig {
     this.overThresholdMargin = 1.0,
     this.keepRecentTokens = 15000,
     this.minMessagesToCompact = 4,
-  })  : assert(keepRecentTokens >= 0);
+  }) : assert(keepRecentTokens >= 0);
 
   /// Estimated input tokens a request may carry before the older half is
   /// summarized. 0 disables compaction entirely.
@@ -107,7 +107,7 @@ final class CompactionPlugin extends AgentPlugin {
     this.terminal,
     this.id = 'tina/auto-compact',
     this.canCompact,
-  })  : assert(config.overThresholdMargin >= 1.0);
+  }) : assert(config.overThresholdMargin >= 1.0);
 
   @override
   final String id;
@@ -200,8 +200,7 @@ final class CompactionPlugin extends AgentPlugin {
     if (estimate < _nextTrigger) return;
     if (view.messages.length < config.minMessagesToCompact) return;
 
-    final split = _splitAtTokenBoundary(
-        view.messages, config.keepRecentTokens);
+    final split = _splitAtTokenBoundary(view.messages, config.keepRecentTokens);
     if (split == null) return;
 
     _nextTrigger = estimate * config.overThresholdMargin;
@@ -229,7 +228,8 @@ final class CompactionPlugin extends AgentPlugin {
   /// 3. everything fits — keep only the newest exchange (from the
   ///    newest real user message), so a summary never duplicates the
   ///    whole conversation beside itself;
-  /// 4. a single exchange — summarize everything, keep nothing.
+  /// 4. a single exchange, or a newest exchange over budget — summarize
+  ///    everything, keep nothing.
   ///
   /// Returns null only when nothing has text to summarize.
   _Split? _splitAtTokenBoundary(List<Message> messages, int keepTokens) {
@@ -255,6 +255,7 @@ final class CompactionPlugin extends AgentPlugin {
       for (var i = cutoff; i < messages.length; i++) {
         if (startsTurn.contains(i)) return _Split(0, i - 1);
       }
+      return _Split(0, messages.length - 1);
     }
 
     // Everything fit the budget. Keeping the whole conversation beside

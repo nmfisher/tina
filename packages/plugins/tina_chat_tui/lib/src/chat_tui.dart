@@ -205,13 +205,18 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     if (pruneRows <= 0) return;
     // Never touch the tail: the streaming previews, any block still in the
     // current turn's response set, and the block the cursor sits on.
-    final lastMutable = _blocks.length -
-        (_preview != null ? 1 : 0) -
-        (_thinkingPreview != null ? 1 : 0);
-    if (lastMutable <= 0) return;
+    final protected = <ChatBlock>{
+      if (_preview != null) _preview!,
+      if (_thinkingPreview != null) _thinkingPreview!,
+      ..._responseBlocks,
+      if (_selected != null) _blocks[_selected!],
+      for (final entry in _calls.entries)
+        if (!_finished.contains(entry.key)) entry.value,
+    };
     var dropped = 0;
-    while (dropped < lastMutable &&
-        _rows[dropped + 1] <= pruneRows) {
+    while (dropped + 1 < _rows.length &&
+        _rows[dropped + 1] <= pruneRows &&
+        !protected.contains(_blocks[dropped])) {
       dropped++;
     }
     if (dropped == 0) return;
@@ -219,19 +224,14 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _blocks.removeRange(0, dropped);
     _rows.removeRange(0, dropped);
     _responseBlocks.removeWhere(droppedBlocks.contains);
+    if (_selected != null) _selected = _selected! - dropped;
+    renderer.follow(_blocks.first, null);
     for (final block in droppedBlocks) {
       _sources[block] = null;
       _images[block] = null;
     }
     for (final id in _calls.keys.toList()) {
       if (droppedBlocks.contains(_calls[id])) _calls.remove(id);
-    }
-    // Reindex blocks that reference absolute rendered-row positions.
-    final shift = _rows.isEmpty
-        ? _renderedRows - _trailingBlankRows
-        : _rows.first;
-    for (var i = 0; i < _rows.length; i++) {
-      _rows[i] -= shift;
     }
   }
 
@@ -287,7 +287,6 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     final block =
         ChatBlock.prose(_speaker, renderMarkdown(_clean(text), _style));
     _sources[block] = text;
-    if (text == _pendingSource) block.body = const [];
     _responseBlocks.add(block);
     _add(block, at: at);
     return block;
@@ -297,7 +296,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     final preview = _preview;
     _preview = null;
     final changed = _previewDirty ||
-        preview != null && (text != _pendingSource || _sources[preview] != text);
+        preview != null &&
+            (text != _pendingSource || _sources[preview] != text);
     _previewDirty = false;
     _pendingSource = '';
     if (preview == null) {
@@ -387,6 +387,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
           _markdown = null;
           _preview = null;
           _previewDirty = false;
+          _pendingSource = '';
           _rebuild();
           _prose(text, at: at);
         }

@@ -131,6 +131,20 @@ void main() {
         LogEvent.appended);
   }
 
+  void previousBlocks(int count) {
+    for (var blockIndex = 0; blockIndex < count; blockIndex++) {
+      chat.entry(
+          MessageAppendedEntry(
+              turnId: 'block-$blockIndex',
+              message: Message(role: Role.assistant, content: [
+                TextBlock(List.generate(
+                        500, (rowIndex) => 'block $blockIndex row $rowIndex')
+                    .join('\n')),
+              ])),
+          LogEvent.appended);
+    }
+  }
+
   test('theme changes re-render cached transcript without new content', () {
     final themedIo = Io();
     final themedScreen = Screen.withBackend(
@@ -707,6 +721,108 @@ void main() {
     expect(chat.blocks.where((b) => b.kind == ChatBlockKind.toolCall),
         hasLength(2));
   });
+  test('a large single block retains its tail without overrunning pruning', () {
+    previousRows(3000);
+    expect(chat.blocks, hasLength(1));
+    expect(transcript().contains('old row 2999'), isTrue);
+    chat.watch(
+        SawText(List.generate(3000, (index) => 'new row $index').join('\n')));
+    chat.entry(
+        const TurnEndedEntry(turnId: 'stream', reason: TurnStopReason.complete),
+        LogEvent.appended);
+    expect(transcript().contains('new row 2999'), isTrue);
+  });
+
+  test('tool and streaming updates preserve recent rows after block pruning',
+      () {
+    previousBlocks(6);
+    expect(chat.blocks, hasLength(5));
+    chat.observe(const ToolStarted(call));
+    expect(transcript().contains('block 5 row 499'), isTrue);
+    chat.observe(const ToolFinished(call, ToolResult('done')));
+    expect(transcript().contains('block 5 row 499'), isTrue);
+    chat.watch(const SawText('latest answer'));
+    chat.watch(const SawText(' continues'));
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'latest',
+            message: Message(
+                role: Role.assistant,
+                content: [TextBlock('latest answer continues')])),
+        LogEvent.appended);
+    expect(transcript().contains('block 5 row 499'), isTrue);
+    expect('latest answer'.allMatches(transcript()), hasLength(1));
+    screen.resize(ScreenLayout.fromSize(60, 15, split: false));
+    chat.repaintConsole();
+    expect(transcript().contains('block 5 row 499'), isTrue);
+  });
+
+  test('pruning severs renderer adjacency to discarded blocks', () {
+    previousBlocks(6);
+    expect(chat.blocks, hasLength(5));
+    final rendered = chat.renderer.render(chat.blocks.first,
+        const RenderContext(width: 80, theme: Theme.defaults()));
+    expect(rendered.first.runs.first.text, '03:04 ');
+  });
+
+  test('pruning preserves the selected tool and rebases fold navigation',
+      () async {
+    previousBlocks(5);
+    chat.observe(const ToolStarted(call));
+    chat.observe(const ToolFinished(call, ToolResult('selected tool output')));
+    final selected = chat.blocks.last;
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('draft\x02');
+    await tick();
+    previousRows(2000);
+    expect(chat.blocks.length, lessThan(6));
+    expect(chat.blocks, contains(selected));
+    chat.writeNotice('still running');
+    io.feed('\r');
+    await tick();
+    expect(selected.folded, isFalse);
+    expect(transcript().contains('selected tool output'), isTrue);
+    io.feed('\x1b');
+    await tick();
+    io.feed(' intact\r');
+    expect(await line, 'draft intact');
+  });
+
+  test('open tool calls remain finishable after older blocks are pruned', () {
+    previousBlocks(4);
+    chat.observe(const ToolStarted(call));
+    final pending = chat.blocks.last;
+    previousBlocks(6);
+    expect(chat.blocks.first, same(pending));
+    chat.observe(
+        const ToolFinished(call, ToolResult('finished after pruning')));
+    expect(pending.status, 'ok');
+    expect(
+        pending.body.expand((line) => line.runs).map((run) => run.text).join(),
+        contains('finished after pruning'));
+  });
+
+  test('authoritative correction to the pending paragraph stays visible', () {
+    chat.watch(const SawText('draft paragraph\n\nfinal paragraph'));
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'corrected',
+            message: Message(
+                role: Role.assistant, content: [TextBlock('final paragraph')])),
+        LogEvent.appended);
+    expect(transcript(), contains('final paragraph'));
+    expect(transcript(), isNot(contains('draft paragraph')));
+    chat.entry(
+        const MessageAppendedEntry(
+            turnId: 'next',
+            message: Message(
+                role: Role.assistant, content: [TextBlock('next answer')])),
+        LogEvent.appended);
+    expect(transcript(), contains('final paragraph'));
+    expect(transcript(), contains('next answer'));
+  });
+
   test('streaming rewrites its own row after older scrollback is trimmed', () {
     previousRows(2100);
     const sentence = 'This sentence should appear once.';

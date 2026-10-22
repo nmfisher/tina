@@ -123,7 +123,7 @@ void main() {
       'derive shows summary + kept tail', () async {
     // Turn replies of ~100 tokens each: the second turn-end crosses the
     // 100-token threshold with two turns in the log. keepRecentTokens:
-    // 100 keeps the newest turn verbatim, summarizes turn one.
+    // 101 keeps the newest turn verbatim, summarizes turn one.
     final big = 'x' * 400; // ~100 tokens
     final provider = ScriptedProvider([
       turn(big),
@@ -133,7 +133,7 @@ void main() {
     ]);
     final plugin = CompactionPlugin(
       config:
-          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 100),
+          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 101),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -271,7 +271,7 @@ void main() {
   test(
       'the old summary merges into the next compaction — the synthetic '
       'message is never a turn boundary', () async {
-    // keepRecentTokens: 100, three big turns. Turn one compacts; then
+    // keepRecentTokens: 101, three big turns. Turn one compacts; then
     // the view is summary + turn two + turn three, still over the
     // threshold: the next compaction folds the old summary and turn two
     // into a new summary — the synthetic spends budget like any message
@@ -287,7 +287,7 @@ void main() {
     ]);
     final plugin = CompactionPlugin(
       config:
-          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 100),
+          const CompactionConfig(thresholdTokens: 100, keepRecentTokens: 101),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -317,6 +317,71 @@ void main() {
     host.close();
   });
 
+  for (final automatic in [false, true]) {
+    for (final keepTokens in [0, 100]) {
+      test(
+          'an oversized newest exchange is summarized: '
+          'automatic=$automatic, keepTokens=$keepTokens', () async {
+        final hugeReply = 'x' * 8000;
+        final provider = ScriptedProvider([
+          turn('first reply'),
+          turn(hugeReply),
+          scriptedReply('short summary'),
+        ]);
+        final host = Host.start(HostConfig(
+            providerFactory: (_) => provider,
+            workingDirectory: ws.path,
+            plugins: [
+              CompactionPlugin(
+                  config: CompactionConfig(
+                      thresholdTokens: automatic ? 100 : 0,
+                      keepRecentTokens: keepTokens)),
+            ]));
+        addTearDown(host.close);
+        await host.send('first');
+        await host.send('latest');
+        if (!automatic) await host.commands['compact']!.handler('');
+        await settle();
+        final summaryRequest = provider.requests.singleWhere((request) =>
+            request.systemPrompt == compactionSummarySystemPrompt());
+        expect(
+            summaryRequest.messages.any((message) => message.content
+                .whereType<TextBlock>()
+                .any((block) => block.text == hugeReply)),
+            isTrue);
+        final messages = host.session.loop.derive().messages;
+        expect(messages, hasLength(1));
+        expect(messages.single.isSynthetic, isTrue);
+      });
+    }
+  }
+
+  test('a newest exchange that exactly fits the budget stays verbatim',
+      () async {
+    final reply = 'x' * 400;
+    final provider = ScriptedProvider([
+      turn('first reply'),
+      turn(reply),
+      scriptedReply('short summary'),
+    ]);
+    final host = Host.start(HostConfig(
+        providerFactory: (_) => provider,
+        workingDirectory: ws.path,
+        plugins: [
+          CompactionPlugin(
+              config: const CompactionConfig(
+                  thresholdTokens: 0, keepRecentTokens: 101)),
+        ]));
+    addTearDown(host.close);
+    await host.send('first');
+    await host.send('latest');
+    await host.commands['compact']!.handler('');
+    final messages = host.session.loop.derive().messages;
+    expect(messages, hasLength(3));
+    expect(messages.first.isSynthetic, isTrue);
+    expect((messages.last.content.single as TextBlock).text, reply);
+  });
+
   test('a single exchange summarizes everything and keeps nothing verbatim',
       () async {
     final provider = ScriptedProvider([
@@ -325,9 +390,7 @@ void main() {
     ]);
     final plugin = CompactionPlugin(
       config: const CompactionConfig(
-          thresholdTokens: 1,
-          keepRecentTokens: 5000,
-          minMessagesToCompact: 2),
+          thresholdTokens: 1, keepRecentTokens: 5000, minMessagesToCompact: 2),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -364,9 +427,7 @@ void main() {
     ]);
     final plugin = CompactionPlugin(
       config: const CompactionConfig(
-          thresholdTokens: 1,
-          keepRecentTokens: 5000,
-          minMessagesToCompact: 2),
+          thresholdTokens: 1, keepRecentTokens: 5000, minMessagesToCompact: 2),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -407,11 +468,8 @@ void main() {
     final terminal = _RecordingTerminal();
     final plugin = CompactionPlugin(
       terminal: terminal,
-      config:
-          const CompactionConfig(
-          thresholdTokens: 1,
-          keepRecentTokens: 5000,
-          minMessagesToCompact: 2),
+      config: const CompactionConfig(
+          thresholdTokens: 1, keepRecentTokens: 5000, minMessagesToCompact: 2),
     );
     final host = Host.start(HostConfig(
       providerFactory: (_) => provider,
@@ -424,8 +482,7 @@ void main() {
     await host.commands['compact']!.handler('');
     expect(terminal.lines, isNotEmpty);
     expect(terminal.lines.single, contains('Nothing to compact'));
-    expect(provider.callCount, 0,
-        reason: 'no summary request was spent');
+    expect(provider.callCount, 0, reason: 'no summary request was spent');
     host.close();
   });
 

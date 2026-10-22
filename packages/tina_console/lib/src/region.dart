@@ -67,6 +67,7 @@ class ScrollingTextRegion extends Region {
   /// Lines dropped from the head of the detached buffer by the cap, reported
   /// once on attach so clipped replay is visible rather than silent.
   int _detachedDroppedLines = 0;
+  bool _detachedDiscardingLine = false;
 
   /// SGR code (e.g. `30;47`) tagging every row touched while a styled message
   /// block is open. Set by [beginStyle]/[writeStyledLine]; cleared by
@@ -413,7 +414,14 @@ class ScrollingTextRegion extends Region {
   void _writeInternal(String text, {Object? rowOwner}) => screen.frame(() {
         if (text.isEmpty) return;
         if (_detached) {
-          _detachedBuffer.write(text);
+          var bufferedText = text;
+          if (_detachedDiscardingLine) {
+            final newline = text.indexOf('\n');
+            if (newline < 0) return;
+            bufferedText = text.substring(newline + 1);
+            _detachedDiscardingLine = false;
+          }
+          _detachedBuffer.write(bufferedText);
           _trimDetachedBuffer();
           return;
         }
@@ -573,6 +581,7 @@ class ScrollingTextRegion extends Region {
     _detachedBuffer.clear();
     final dropped = _detachedDroppedLines;
     _detachedDroppedLines = 0;
+    _detachedDiscardingLine = false;
     if (dropped > 0) {
       final keptKiB = (kDetachedReplayNoticeBytes / 1024).round();
       write('$dropped earlier line${dropped == 1 ? '' : 's'} omitted; '
@@ -623,23 +632,18 @@ class ScrollingTextRegion extends Region {
   /// dropped lines for the attach-time omission notice. Only called while
   /// detached, where the cost is amortized over real output.
   void _trimDetachedBuffer() {
-    var len = _detachedBuffer.length;
-    if (len <= _maxDetachedBytes) return;
+    if (_detachedBuffer.length <= _maxDetachedBytes) return;
     final text = _detachedBuffer.toString();
-    // Cut back to [_detachedTrimToBytes] of tail, then walk BACKWARD to a
-    // line boundary so the replay always starts with a complete line (the
-    // write cursor sits mid-line while streaming; a forward newline search
-    // would keep the whole open line, which can dwarf the tail). If the
-    // window holds no newline at all (a pathological single-line flood),
-    // drop the whole buffer rather than keep an unbounded headless line.
-    var cut = text.length - _detachedTrimToBytes;
-    final back = text.lastIndexOf('\n', cut);
-    cut = back < 0 ? text.length : back + 1;
+    final newline = text.indexOf('\n', text.length - _detachedTrimToBytes);
+    final cut = newline < 0 ? text.length : newline + 1;
     _detachedDroppedLines += '\n'.allMatches(text.substring(0, cut)).length;
+    if (newline < 0) {
+      _detachedDiscardingLine = true;
+      _detachedDroppedLines++;
+    }
     _detachedBuffer
       ..clear()
       ..write(text.substring(cut));
-    len = 0;
   }
 
   /// Used by [Screen.clearChat]. Resets the row buffer and write cursor;
@@ -656,6 +660,7 @@ class ScrollingTextRegion extends Region {
     _newWhileScrolled = 0;
     _detachedBuffer.clear();
     _detachedDroppedLines = 0;
+    _detachedDiscardingLine = false;
   }
 
   @override

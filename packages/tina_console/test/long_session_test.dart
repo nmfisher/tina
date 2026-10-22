@@ -52,12 +52,56 @@ void main() {
         reason: 'the oldest records were dropped by the cap');
     // attach() consumes the dropped counter into the notice, so assert the
     // announced count from the notice text itself.
-    final match =
-        RegExp(r'(\d+) earlier lines? omitted').firstMatch(retained);
+    final match = RegExp(r'(\d+) earlier lines? omitted').firstMatch(retained);
     expect(match, isNotNull);
     expect(int.parse(match!.group(1)!), greaterThan(0));
     expect(r.debugDetachedDroppedLines, 0,
         reason: 'the counter resets after it is announced on attach');
+  });
+
+  for (final prefix in ['', 'prefix\n']) {
+    for (final terminated in [false, true]) {
+      test(
+          'detached replay bounds a long line: '
+          'prefix=${prefix.isNotEmpty}, terminated=$terminated', () {
+        final screen = Screen(
+            io: FakeStdio(),
+            layout: ScreenLayout.fromSize(80, 24, split: false));
+        addTearDown(screen.dispose);
+        final region = ScrollingTextRegion(screen)..attach();
+        region.detach();
+        region.write('$prefix${'x' * (1024 * 1024)}'
+            '${terminated ? '\nnewest\n' : ''}');
+        expect(region.debugDetachedBufferLength,
+            lessThanOrEqualTo(ScrollingTextRegion.debugDetachedBufferCap));
+        if (!terminated) {
+          region.write('continued');
+          expect(region.debugDetachedBufferLength, 0);
+          region.write(' remainder\nnewest\n');
+        }
+        region.attach();
+        final retained = region.snapshotLines().join('\n');
+        expect(retained, contains('newest'));
+        expect(retained, contains('earlier line'));
+        expect(retained, isNot(contains('continued')));
+        expect(retained, isNot(contains('remainder')));
+        expect(region.debugDetachedDroppedLines, 0);
+      });
+    }
+  }
+
+  test('clearing a discarded detached line allows a fresh line to replay', () {
+    final screen = Screen(
+        io: FakeStdio(), layout: ScreenLayout.fromSize(80, 24, split: false));
+    addTearDown(screen.dispose);
+    final region = ScrollingTextRegion(screen)..attach();
+    region.detach();
+    region.write('x' * (1024 * 1024));
+    region.resetAfterClear();
+    region.write('fresh\n');
+    region.attach();
+    expect(region.snapshotLines().join('\n'), contains('fresh'));
+    expect(region.debugDetachedDroppedLines, 0);
   });
 
   test('a flood while detached replays the kept tail correctly', () {
