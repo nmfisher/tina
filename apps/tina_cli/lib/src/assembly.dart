@@ -388,6 +388,7 @@ final class SessionAssembly {
       }
     }
     final context = SessionPluginContext(
+      sessionStorePath: path,
       configPath: options.configPath ?? defaultConfigPath(),
       workingDirectory: workingDirectory,
       terminal: output,

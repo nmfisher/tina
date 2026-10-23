@@ -134,7 +134,7 @@ final class SessionStore {
   /// entry rows carry `slice`, so a session's slice is by attribution,
   /// not by contiguity — version 1 files (contiguous slices) are
   /// refused.
-  static const _schemaVersion = 2;
+  static const schemaVersion = 2;
 
   /// Open (or create) the store at [path]. Never silently degrades: a
   /// file from a newer schema throws before anything is written.
@@ -143,7 +143,7 @@ final class SessionStore {
     try {
       db = openTinaDatabase(
         path,
-        schemaVersion: _schemaVersion,
+        schemaVersion: schemaVersion,
         migrate: (d) => createEntryLogTable(d, table: 'log_registry'),
       );
     } on Object catch (e) {

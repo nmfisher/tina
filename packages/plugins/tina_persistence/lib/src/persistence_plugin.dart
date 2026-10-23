@@ -4,13 +4,21 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_settings/tina_settings.dart';
 
 import 'store.dart';
+import 'history_tools.dart';
 
 typedef SessionStoreOpener = SessionStore Function();
 
 /// Owns the session store and its log subscription. The application assembly
 /// supplies an opener for the chosen location, including :memory: in tests.
 final class PersistencePlugin extends AgentPlugin {
-  PersistencePlugin({required this.openStore, this.settings});
+  PersistencePlugin({required this.openStore, this.settings, this.history});
+  final SessionHistoryTools? history;
+
+  @override
+  List<ToolSchema> get tools => history?.tools ?? const [];
+
+  @override
+  void onPrompt(TurnContext context) => history?.onPrompt(context);
   final ScopedSettings? settings;
   void Function()? _stopSettings;
   String? _lastSettings;
@@ -57,6 +65,8 @@ final class PersistencePlugin extends AgentPlugin {
     if (_session != null) throw StateError('persistence plugin already opened');
     _session = session;
     _store = openStore();
+    history?.currentSessionId = session.id;
+    history?.registerStore();
     if (session.resuming) {
       final log = store.readEntries(session.id);
       final gaps = store.checkGaps(session.id);
@@ -81,6 +91,7 @@ final class PersistencePlugin extends AgentPlugin {
 
   @override
   void mountOn(AgentLoop loop) {
+    history?.mountOn(loop);
     _loop = loop;
     final scoped = settings;
     if (scoped != null) {
@@ -153,6 +164,7 @@ final class PersistencePlugin extends AgentPlugin {
 
   @override
   void closeSession() {
+    history?.close();
     _stopSettings?.call();
     _stopSettings = null;
     final subscription = _subscription;

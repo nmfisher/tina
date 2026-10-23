@@ -43,6 +43,7 @@ final class SessionPluginContext {
     this.setReasoning,
     this.reasoningChoices,
     this.openStore,
+    this.sessionStorePath,
     this.version = '0.0.0',
     this.restart,
     this.providerPolicy,
@@ -80,6 +81,7 @@ final class SessionPluginContext {
   /// Effort words the current model accepts. Null means the canonical set.
   final List<String> Function()? reasoningChoices;
   final SessionStoreOpener? openStore;
+  final String? sessionStorePath;
 }
 
 /// Required host plugins also carry metadata, without becoming optional features.
@@ -322,9 +324,18 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         PluginDefinition<SessionPluginContext>(
             'tina/persistence',
             (c) => PersistencePlugin(
-                openStore: c.openStore!, settings: c.settings),
+                openStore: c.openStore!,
+                settings: c.settings,
+                history: c.sessionStorePath == null
+                    ? null
+                    : SessionHistoryTools(
+                        workspace: c.workingDirectory,
+                        store: c.sessionStorePath!,
+                        policy: c.tools.modePolicy,
+                        catalog: HistoryCatalog(
+                            '${File(c.configPath).parent.path}/session-stores'))),
             description:
-                'Saves conversation history in SQLite so sessions can be listed and resumed.',
+                'Saves conversations in SQLite, resumes sessions, and provides workspace-first history search with recent sessions first.',
             live: false),
         PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
             'tina/plans',

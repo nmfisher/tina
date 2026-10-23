@@ -244,6 +244,44 @@ void main() {
     expect(shown, isNot(contains('secret-value')));
   });
 
+  test(
+      'history approval shows query, workspaces and conversation-only Remember scope',
+      () {
+    final dialog = ApprovalDialog(null,
+        ask: ApprovalAskContext(
+            'search session history',
+            '2 workspace histories',
+            'Read saved conversation text into this conversation?',
+            details: {
+              'permission_scope': 'session-history',
+              'permission_scope_label': 'these histories',
+              'permission_scope_description':
+                  'Only these histories for this conversation. New histories still ask.',
+              'description': const ToolDescription(
+                  title: 'Search saved conversations',
+                  target: '2 workspace histories',
+                  fields: {
+                    'Query': 'permission design',
+                    'Workspaces': '/projects/tina, /projects/other',
+                    'Access':
+                        'Read saved user and assistant text into this conversation',
+                  }).toJson(),
+            }));
+    var shown = dialog.rows(width: 120).map(text).join('\n');
+    expect(shown, contains('Search saved conversations'));
+    expect(shown, contains('Query: permission design'));
+    expect(shown, contains('Workspaces: /projects/tina, /projects/other'));
+    expect(shown, contains('Read saved user and assistant text'));
+    expect(shown, contains('[y] allow once'));
+    expect(shown, contains('[n] deny'));
+    dialog.handleKey(ApprovalKey.always);
+    shown = dialog.rows(width: 120).map(text).join('\n');
+    expect(shown, contains('allow these histories for this session'));
+    expect(shown, contains('New histories still ask'));
+    expect(shown, isNot(contains('[p]')));
+    expect(shown, isNot(contains('[g]')));
+  });
+
   test('scope wording matches exact file and command grants', () {
     for (final scope in ['file', 'command']) {
       final dialog = ApprovalDialog(null,

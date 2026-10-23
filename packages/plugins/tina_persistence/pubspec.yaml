@@ -5,6 +5,11 @@ version: 0.1.0
 environment:
   sdk: ^3.6.0
 dependencies:
+  path: ^1.9.0
+  tina_mode:
+    path: ../tina_mode
+  tina_approvals:
+    path: ../tina_approvals
   tina_settings:
     path: ../../libraries/tina_settings
   crypto: ^3.0.6

@@ -48,6 +48,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  classification:
+    dependency: transitive
+    description:
+      path: "../../classification"
+      relative: true
+    source: path
+    version: "0.1.0"
   cli_config:
     dependency: transitive
     description:
@@ -136,6 +143,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
+  http:
+    dependency: transitive
+    description:
+      name: http
+      sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.0"
   http_multi_server:
     dependency: transitive
     description:
@@ -224,6 +239,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
+  petitparser:
+    dependency: transitive
+    description:
+      name: petitparser
+      sha256: "07c8f0b1913bcde1ff0d26e57ace2f3012ccbf2b204e070290dad3bb22797646"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.1.0"
   platform:
     dependency: transitive
     description:
@@ -384,6 +407,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.20"
+  tina_approvals:
+    dependency: transitive
+    description:
+      path: "../tina_approvals"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_core:
     dependency: transitive
     description:
@@ -402,6 +432,13 @@ packages:
     dependency: "direct dev"
     description:
       path: "../../tina_host"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_mode:
+    dependency: transitive
+    description:
+      path: "../tina_mode"
       relative: true
     source: path
     version: "0.1.0"
@@ -426,6 +463,14 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  toml:
+    dependency: transitive
+    description:
+      name: toml
+      sha256: d968d149c8bd06dc14e09ea3a140f90a3f2ba71949e7a91df4a46f3107400e71
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.16.0"
   typed_data:
     dependency: transitive
     description:
