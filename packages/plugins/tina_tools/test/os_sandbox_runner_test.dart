@@ -112,6 +112,8 @@ void main() {
         expect(outcome, isA<CommandBlocked>());
         expect((outcome as CommandBlocked).reason,
             contains('/tmp/project/result'));
+        expect(outcome.accessRequests, isEmpty,
+            reason: 'write grants cannot make a read-only retry writable');
       } else {
         expect(outcome, isA<CommandCompleted>(),
             reason:

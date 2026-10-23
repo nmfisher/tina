@@ -690,12 +690,15 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
     );
     if (denial == null) return completed;
     return CommandBlocked(denial.recoveryInstructions, accessRequests: [
-      if (denial is WriteDenied)
+      // A directory grant cannot upgrade this invocation's read-only profile.
+      if (denial is WriteDenied && !readOnly)
         for (final value in denial.blockedPaths)
           if (plan.canGrant(value,
               write: true, linux: backend == SandboxBackend.bwrap))
             SandboxAccessRequest(value, write: true),
-      if (denial is OperationDenied && denial.write != null)
+      if (denial is OperationDenied &&
+          denial.write != null &&
+          (!readOnly || denial.write == false))
         for (final value in denial.paths)
           if (plan.canGrant(value,
               write: denial.write!, linux: backend == SandboxBackend.bwrap))
