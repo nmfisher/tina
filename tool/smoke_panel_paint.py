@@ -113,7 +113,7 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.expect_idle()
             original_frame = frame()
             line('Plugins')
-            visible('Plugins · [-] inherit · [~] mixed')
+            visible('Plugins · ✓ on in this scope')
             terminal.expect_idle()
             assert frame() == original_frame
             terminal.send('tina/goals')
@@ -124,7 +124,7 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.expect_idle()
             assert frame() == original_frame
             terminal.send('\x1b')
-            visible('Plugins · [-] inherit · [~] mixed')
+            visible('Plugins · ✓ on in this scope')
             assert frame() == original_frame
             # Space out Escape presses beyond the 450ms global cancel window.
             # The usual 350ms idle gate still permits a double-Esc gesture.

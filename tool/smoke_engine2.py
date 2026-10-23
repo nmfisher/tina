@@ -809,7 +809,7 @@ def smoke(launcher, endpoint, columns, rows):
                 terminal.expect('Scope: [session]', start)
                 time.sleep(0.1)
                 start = terminal.send('Plugins\r')
-                terminal.expect('Plugins · [-] inherit · [~] mixed', start)
+                terminal.expect('Plugins · ✓ on in this scope', start)
                 terminal.expect('Session   Workspace Global    All', start)
                 if scope != 'session':
                     terminal.send('\t' * (1 if scope == 'workspace' else 2))
@@ -827,13 +827,15 @@ def smoke(launcher, endpoint, columns, rows):
                     # Wait for the popup to close before Space. On the ANSI
                     # backend ESC waits 150ms to distinguish an Alt sequence;
                     # a fixed 100ms sleep can turn ESC + Space into Alt-Space.
-                    terminal.expect('Plugins · [-] inherit · [~] mixed', back)
+                    terminal.expect('Plugins · ✓ on in this scope', back)
                 time.sleep(0.1)
                 terminal.read()
                 start = terminal.send('\x12' if reset else ' ')
-                # The selected column marks the explicit scope override;
-                # restoring inheritance displays [-], even when effective on.
-                terminal.expect('>[-]' if reset else ('>[x]' if checked else '>[ ]'), start)
+                # The grid resolves each scope: cells always show the scope's
+                # effective on/off state, so restoring inheritance displays ✓
+                # when the plugin is on by default.
+                terminal.expect(
+                    '>[✓]' if reset or checked else '>[ ]', start)
                 terminal.send('\x1b')
                 time.sleep(0.1)
                 closed = terminal.send('\x1b')
