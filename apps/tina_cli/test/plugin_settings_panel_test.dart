@@ -224,7 +224,7 @@ void main() {
         screen.resize(ScreenLayout.fromSize(40, 8, split: false));
       });
       expect(output, matches(RegExp(r'Sess\s+Work\s+Glob\s+All')));
-      expect(output, contains('>[x]'));
+      expect(output, contains('>[✓]'));
       expect(app.pluginSettings.state('tina/goals').enabled, true);
     });
 
@@ -282,7 +282,7 @@ void main() {
       ], resizeEachKey: false, scoped: scoped);
       expect(output, matches(RegExp(r'Session\s+Workspace\s+Global\s+All')));
       expect(output, contains('[~]'));
-      expect(output, contains('[-]'));
+      expect(output, isNot(contains('[-]')));
     });
 
     for (final narrow in [false, true]) {
@@ -470,7 +470,7 @@ void main() {
       escape,
       escape,
     ]);
-    expect(output, matches(RegExp(r'tina/goals[^\n]*\[x\]')));
+    expect(output, matches(RegExp(r'tina/goals[^\n]*\[✓\]')));
     expect(output, matches(RegExp(r'tina/goals[^\n]*\[ \]')));
     expect(app.commands['plugins'], isNull);
     expect(app.commands.all.any((command) => command.name == 'plugins'), false);
@@ -562,6 +562,6 @@ void main() {
     // Full status is available even when the small terminal clips a row.
     expect(app.pluginSettings.status('tina/persistence', app.pluginManager),
         contains('pending restart'));
-    expect(output, matches(RegExp(r'tina/persiste[^\n]*\[x\]')));
+    expect(output, matches(RegExp(r'tina/persiste[^\n]*\[✓\]')));
   });
 }

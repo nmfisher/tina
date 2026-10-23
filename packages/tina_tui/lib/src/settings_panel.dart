@@ -253,7 +253,7 @@ final class SettingsPanel {
         (
           category: 'Plugins',
           label:
-              '[${_showOffPlugins ? 'x' : ' '}] Show settings for plugins that are off',
+              '[${_showOffPlugins ? '✓' : ' '}] Show settings for plugins that are off',
           open: () async {
             _showOffPlugins = !_showOffPlugins;
           },
@@ -594,11 +594,11 @@ final class SettingsPanel {
         return [
           _settingRow(delivery),
           for (final field in fields)
-            '[${pluginInfo[field.owner]?.required == true || _state.read(field, scope: _scope).value == true ? 'x' : ' '}] ${field.owner}'
+            '[${pluginInfo[field.owner]?.required == true || _state.read(field, scope: _scope).value == true ? '✓' : ' '}] ${field.owner}'
         ];
       }
 
-      final choice = await _menu('Plugins · [-] inherit · [~] mixed', items(),
+      final choice = await _menu('Plugins · ✓ on in this scope', items(),
           itemsNow: items,
           checkboxes: true,
           contextLine: _pluginColumnsHeader,
@@ -612,7 +612,10 @@ final class SettingsPanel {
                   '${fields[i - 1].owner}${pluginInfo[fields[i - 1].owner]?.required == true ? ' · required' : ''}',
                   [
                     for (final scope in SettingScope.values)
-                      _state.override(fields[i - 1], scope) as bool?,
+                      _state
+                          .read(fields[i - 1], scope: scope)
+                          .value ==
+                          true,
                   ],
                   column),
           showDescription: true,
@@ -1241,18 +1244,19 @@ final class SettingsPanel {
             : ['Sess', 'Work', 'Glob', 'All'])
           _pluginCell(name),
       ].join()}';
-  String _pluginColumnsRow(String id, List<bool?> values, int column) {
-    final all = values.every((v) => v == true)
-        ? 'x'
-        : values.every((v) => v == false)
+  /// Scope cells show what each scope resolves to — there is no inherit
+  /// glyph. A check mark means that scope's world has the plugin on; empty
+  /// means off. All summarizes the three, with `~` when they disagree.
+  String _pluginColumnsRow(String id, List<bool> values, int column) {
+    final all = values.every((v) => v)
+        ? '✓'
+        : values.every((v) => !v)
             ? ' '
-            : values.every((v) => v == null)
-                ? '-'
-                : '~';
+            : '~';
     return '${_pluginName(id)}${[
       for (var i = 0; i < 4; i++)
         _pluginCell(
-            '${column == i ? '>' : ' '}[${i == 3 ? all : values[i] == null ? '-' : values[i] == true ? 'x' : ' '}]'),
+            '${column == i ? '>' : ' '}[${i == 3 ? all : values[i] ? '✓' : ' '}]'),
     ].join()}';
   }
 

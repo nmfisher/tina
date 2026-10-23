@@ -462,7 +462,7 @@ write_directories = ["/untrusted/writable"]
           app.settings
               .hasOverride(field('tina/goals/enabled'), SettingScope.session),
           false);
-      expect(io.written.toString(), matches(RegExp(r'tina/goals[^\n]*\[x\]')));
+      expect(io.written.toString(), matches(RegExp(r'tina/goals[^\n]*\[✓\]')));
     } finally {
       input.close();
       screen.dispose();

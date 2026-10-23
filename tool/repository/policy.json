@@ -461,6 +461,7 @@
     "tina": [
       "classification",
       "ffi",
+      "path",
       "tina_activity",
       "tina_activity_tui",
       "tina_approvals",
