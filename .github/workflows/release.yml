@@ -146,7 +146,7 @@ jobs:
 
       # Run the actual native UI before uploading any release artifacts.
       # --version cannot catch first-load modal or notcurses lifecycle failures.
-      - name: Smoke-test release binary (seven isolated suites, three at a time)
+      - name: Smoke-test release binary (isolated suites, three at a time)
         timeout-minutes: 15
         run: python3 tool/ci/run_release_smokes.py --jobs 3 --binary build/cli/${{ matrix.os_dir }}/bundle/bin/tina
 

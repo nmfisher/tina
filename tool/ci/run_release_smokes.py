@@ -14,6 +14,7 @@ SUITES = (
     ('classification', 'smoke_classification_panel.py', ()),
     ('panels', 'smoke_panel_paint.py', ()),
     ('backends', 'smoke_backend_selection.py', ()),
+    ('native-input', 'smoke_notcurses_startup.py', ()),
     ('shell', 'smoke_shell.py', ()),
     ('process-output', 'smoke_process_output.py', ()),
 )

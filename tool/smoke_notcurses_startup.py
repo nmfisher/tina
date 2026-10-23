@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check typing on a fresh native launch and continuation, with late OSC replies."""
+"""Check native startup, late replies, and Unicode pastes split across reads."""
 import argparse
 from collections import deque
 import os
@@ -64,6 +64,42 @@ class ReplyingTerminal(Terminal):
         self.wait_for(lambda: text in screen_text(self.output, 100, 28),
                       f'input did not paint {text!r}')
 
+    def write_bytes(self, data):
+        deadline = time.monotonic() + 5
+        while data and time.monotonic() < deadline:
+            self.read()
+            if select.select([], [self.master], [], 0.05)[1]:
+                try:
+                    data = data[os.write(self.master, data):]
+                except BlockingIOError:
+                    pass
+        assert not data, 'native input stopped accepting paste bytes'
+
+
+def check_unicode_paste(terminal):
+    text = 'large pasted line\n' * 400
+    terminal.write_bytes(b'\x1b[200~')
+    terminal.write_bytes(text.encode())
+    # Force every possible read boundary inside 2-, 3-, and 4-byte codepoints.
+    # The old mixed-input parser spins forever on the first incomplete prefix.
+    for char in ('é', '’', '🙂'):
+        encoded = char.encode()
+        for split in range(1, len(encoded)):
+            # Keep each delivered fragment above the temporal paste threshold
+            # so all fragments remain part of the same editable paste chip.
+            text += char + ' padding '
+            terminal.write_bytes(encoded[:split])
+            terminal.settle(0.05)
+            terminal.write_bytes(encoded[split:] + b' padding ')
+    terminal.write_bytes(b'\x1b[201~')
+    terminal.visible(f'[Pasted text : {len(text)} chars]')
+    terminal.send('\x05\x15')
+    terminal.settle()
+    terminal.send('responsive after paste')
+    terminal.visible('responsive after paste')
+    terminal.send('\x05\x15')
+    terminal.settle()
+
 
 def smoke(binary):
     with tempfile.TemporaryDirectory(prefix='tina-native-startup-') as directory:
@@ -103,6 +139,7 @@ def smoke(binary):
                 terminal.visible('typing work!s')
                 terminal.send('\x05\x15')  # Ctrl+E, Ctrl+U clears the whole draft.
                 terminal.settle()
+                check_unicode_paste(terminal)
                 if not continuing:
                     # /clear records a context reset, giving -c a persisted
                     # session to resume without calling a model.
@@ -116,7 +153,7 @@ def smoke(binary):
                 terminal.send('\r')
                 terminal.expect_clean_exit()
                 print(f'PASS native {"continue" if continuing else "fresh launch"}: '
-                      'late BEL reply, typing, arrow editing, quit', flush=True)
+                      'late BEL reply, typing, split Unicode paste, arrow editing, quit', flush=True)
             except Exception:
                 print(screen_text(terminal.output, 100, 28))
                 raise
