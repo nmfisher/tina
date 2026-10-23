@@ -32,6 +32,7 @@ void main() {
           result.verdict,
           switch (mode) {
             PermissionMode.allowEdits => ToolVerdict.allow,
+            PermissionMode.readOnly => ToolVerdict.deny,
             _ => ToolVerdict.ask,
           });
     }
@@ -49,7 +50,7 @@ void main() {
       }
     });
 
-    test('outside the project — even the host — both modes → allow', () {
+    test('external reads require approval in ordinary modes', () {
       // The new posture: reads anywhere the process can reach are allowed.
       // Only the Tina data tree is off-limits to reads, and that refusal
       // stays a structural throw in the filesystem, not a table row.
@@ -60,7 +61,9 @@ void main() {
             mode,
             projectRoot: root,
           );
-          expect(d.verdict, ToolVerdict.allow, reason: '$path under $mode');
+          expect(d.verdict,
+              mode == PermissionMode.yolo ? ToolVerdict.allow : ToolVerdict.ask,
+              reason: '$path under $mode');
         }
       }
     });
@@ -77,13 +80,13 @@ void main() {
       expect(d.reason, contains('inside the project root'));
     });
 
-    test('inside the project in readOnly → ask', () {
+    test('inside the project in readOnly → deny', () {
       final d = decideOperation(
         (op: FileOp.write, path: '$root/lib/main.dart'),
         PermissionMode.readOnly,
         projectRoot: root,
       );
-      expect(d.verdict, ToolVerdict.ask);
+      expect(d.verdict, ToolVerdict.deny);
       expect(d.reason, contains('read-only mode'));
     });
 
@@ -98,13 +101,13 @@ void main() {
       expect(d.reason, contains('hosts')); // the leaf, never a resolved tree
     });
 
-    test('outside the project in readOnly → ask', () {
+    test('outside the project in readOnly → deny', () {
       final d = decideOperation(
         (op: FileOp.write, path: '/etc/hosts'),
         PermissionMode.readOnly,
         projectRoot: root,
       );
-      expect(d.verdict, ToolVerdict.ask);
+      expect(d.verdict, ToolVerdict.deny);
     });
 
     test('a path that merely shares a prefix is not "inside"', () {
@@ -179,7 +182,7 @@ void main() {
       expect(allows('/tmp/other.txt'), isFalse);
     });
 
-    test('read-only honors a remembered human grant', () {
+    test('read-only overrides a remembered write grant', () {
       final grants = FileGrants()..remember('/etc/hosts');
       final d = decideOperation(
         (op: FileOp.write, path: '/etc/hosts'),
@@ -187,7 +190,7 @@ void main() {
         projectRoot: root,
         grants: grants,
       );
-      expect(d.verdict, ToolVerdict.allow);
+      expect(d.verdict, ToolVerdict.deny);
     });
 
     test('remembering twice is idempotent; patterns list oldest first', () {
@@ -216,13 +219,13 @@ void main() {
       expect(d.reason, contains('outside the project root'));
     });
 
-    test('a readOnly ask explains why explicit permission is needed', () {
+    test('read-only denial explains that changing mode is required', () {
       final d = decideOperation(
         (op: FileOp.write, path: '$root/notes.md'),
         PermissionMode.readOnly,
         projectRoot: root,
       );
-      expect(d.reason, contains('allow write in read-only mode'));
+      expect(d.reason, contains('read-only mode blocks'));
     });
   });
 }

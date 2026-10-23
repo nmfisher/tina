@@ -100,7 +100,7 @@ void main() {
         onCommandPattern: (_) => fail('the sibling allows only once'));
     await tick();
     expect(other.asker!.current!.id, ui.asker!.current!.id);
-    io.feed('e');
+    io.feed('ae');
     await tick();
     expect(ui.asker!.currentPatternReview, isNotNull);
     expect(other.asker!.currentPatternReview, isNull);
@@ -164,7 +164,7 @@ void main() {
     unawaited(decision.then((_) => answered = true));
     await tick();
     expect(suggestions, 0);
-    io.feed('e');
+    io.feed('ae');
     await tick();
     expect(suggestions, 1);
     expect(ui.asker!.currentPatternReview!.input.buffer, pattern);
@@ -200,7 +200,7 @@ void main() {
         details: {'command_pattern_target': 'head -n2'},
         onCommandPattern: (_) => fail('must not save'));
     await tick();
-    io.feed('e');
+    io.feed('ae');
     await tick();
     expect(ui.asker!.currentPatternReview, isNotNull);
     io.feed('\x1b');
@@ -225,7 +225,7 @@ void main() {
     screen.resize(ScreenLayout.fromSize(100, 30, split: false));
     ui.repaintConsole();
     expect('\x07'.allMatches(io.output.toString()), hasLength(1));
-    io.feed('a');
+    io.feed('a\r');
     expect(await first, ApprovalDecision.allowAlways);
     await tick();
     expect('\x07'.allMatches(io.output.toString()), hasLength(2));
@@ -241,7 +241,7 @@ void main() {
     final first = ask(kind: ApprovalKind.permission);
     final second = ask(kind: ApprovalKind.permission);
     await tick();
-    io.feed('\x1b[B\x1b[B\r\r');
+    io.feed('\x1b[B\x1b[B\r\r\r');
     expect(await first.timeout(const Duration(seconds: 1)),
         ApprovalDecision.allowAlways);
     var answered = false;
@@ -321,7 +321,7 @@ void main() {
       () async {
     final decision = ask(kind: ApprovalKind.permission);
     await tick();
-    expect(input(), contains('[a] allow matching calls'));
+    expect(input(), contains('[a] Remember…'));
     expect(all(), contains('❯ [y] allow once'));
     io.feed('\x1b[B');
     await tick();
@@ -346,7 +346,8 @@ void main() {
     expect(visible().cursorVisible, isTrue);
   });
 
-  test('the dialog lifts the newest chat lines above itself instead of covering them',
+  test(
+      'the dialog lifts the newest chat lines above itself instead of covering them',
       () async {
     // Fill the chat so the marker sits on the bottom content row.
     for (var i = 0; i < screen.layout.chat.height; i++) {
@@ -367,8 +368,7 @@ void main() {
     await tick();
     final dialogBody = rowOf('Your message contains grok');
     expect(dialogBody, greaterThanOrEqualTo(0));
-    expect(rowOf('Last agent message'),
-        lessThan(dialogBody),
+    expect(rowOf('Last agent message'), lessThan(dialogBody),
         reason: 'the newest chat line must sit above the dialog, not under it');
 
     io.feed('n');

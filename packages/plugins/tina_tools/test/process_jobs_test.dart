@@ -53,7 +53,7 @@ void main() {
       final asked = Completer<void>();
       final jobs = ProcessJobs(SandboxedProcessRunner(
         inner: const IoProcessRunner(),
-        approver: (_, __) {
+        commandApprover: (_, __) {
           asked.complete();
           return decision.future;
         },

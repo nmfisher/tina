@@ -59,6 +59,7 @@ abstract interface class ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants});
@@ -158,6 +159,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants}) {
@@ -172,12 +174,14 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
         kind: kind,
         details: _freezeApprovalDetails(details));
     final result = Completer<ApprovalDecision>();
+    var requestCancelled = false;
     Timer? timer;
     late final ApprovalTicket ticket;
     ticket =
         ApprovalTicket._(request, (decision, commandPattern, directoryGrants) {
       if (!ticket._active) return false;
-      final invalid = _closed || (_turnCancelled?.call() ?? false);
+      final invalid =
+          _closed || requestCancelled || (_turnCancelled?.call() ?? false);
       ticket._active = false;
       _pending.remove(request.id);
       _changed();
@@ -292,14 +296,16 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           invalidPattern = true;
         }
       }
-      result.complete(
-          invalid || invalidScope || invalidPattern || invalidDirectories ||
-                  invalidReadsAlways
-              ? ApprovalDecision.deny
-              : request.kind == ApprovalKind.confirmation &&
-                      decision == ApprovalDecision.allowAlways
-                  ? ApprovalDecision.allow
-                  : decision);
+      result.complete(invalid ||
+              invalidScope ||
+              invalidPattern ||
+              invalidDirectories ||
+              invalidReadsAlways
+          ? ApprovalDecision.deny
+          : request.kind == ApprovalKind.confirmation &&
+                  decision == ApprovalDecision.allowAlways
+              ? ApprovalDecision.allow
+              : decision);
       return !invalid &&
           !invalidScope &&
           !invalidPattern &&
@@ -307,6 +313,12 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           !invalidReadsAlways;
     }, result.future);
     _pending[request.id] = ticket;
+    if (whenCancelled != null) {
+      unawaited(whenCancelled.then((_) {
+        requestCancelled = true;
+        ticket.respond(ApprovalDecision.deny);
+      }));
+    }
     _changed();
     final deadline = timeout;
     if (deadline != null) {

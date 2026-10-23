@@ -12,28 +12,41 @@ the current value; `/mode NAME` selects it. New sessions start in `ask`.
 Session mode persistence and legacy `permissions.mode` configuration remain
 separate migration work; this change does not port legacy permission flags.
 
-| Mode | Reads | Writes inside project | Commands and outside writes |
+All boundaries construct an `AuthorizationRequest` and use the same
+`resolveAuthorization` table. `ModePlugin.request` delivers human/automatic
+reviews; file, process and MCP boundaries enforce the result.
+
+| Mode | Workspace reads and confined read-only scripts | Workspace mutations | Outside access / network / host / MCP |
 | --- | --- | --- | --- |
 | ask | allow | human approval | human approval |
-| read-only | allow | human approval | human approval |
-| allow-edits | allow | allow | human approval |
-| auto | allow | safety judge | safety judge |
-| yolo | allow | allow | allow |
+| read-only | allow | blocked, even with remembered grants | human approval for reads/network; mutations and host/unknown MCP effects blocked |
+| allow-edits | allow | allow while confined | human approval |
+| auto | allow | safety judge, with human fallback | human approval |
+| yolo | allow | authorized at launch | authorized at launch |
 
-`yolo` is **not** selectable through `/mode` or Shift-Tab. It is a launch-time
-flag only (`tina --yolo`): it bypasses every permission and approval check for
-that run, is never persisted, and cannot be reached by resuming a session. It
-does not lift OS sandbox or network confinement — use `--no-sandbox` for that.
+`yolo` is a launch-time preset (`tina --yolo`), excluded from `/mode`, Shift-Tab
+and restored state. It uses the same policy resolver. Protected paths and
+configured OS confinement still apply. Explicit Yes/No confirmations always
+require a human answer, including in yolo.
 
-The tools package enforces these decisions on canonical filesystem paths and
-process requests. Protected Tina paths and OS confinement cannot be bypassed
-by changing mode. Explicit human session grants skip repeat approvals in every
-mode. Sub-agents inherit the mode and approval services at creation;
-their mode plugin has its own cancellation lifecycle and retains OS confinement.
+Commands declare `access: "read-only"` or `access: "workspace-write"`.
+Read-only execution requires an available OS sandbox and can run arbitrary
+scripts without command certification. Recognized reader invocations default
+to that profile in every mode; other commands default to workspace-write,
+except that read-only mode defaults all commands to read-only. The kernel
+blocks workspace mutations; private runtime scratch remains writable.
 
-Read-only and allow-edits automatically allow verified system reader commands
-and supported literal reader pipelines/sequences. Other commands still follow
-the table above. Network and outside-sandbox requests require separate approval.
+Outside filesystem reads, writes, network and host access require a matching
+explicit human grant in normal modes. They never go to the automatic judge.
+Requests bundle the full invocation and its missing capabilities in one review.
+Remember opens Session, Workspace and Global scopes plus directory and command
+pattern controls. Allow once never persists a grant. Files, commands and MCP
+calls share the trusted grant store and revocation lifecycle; legacy directory
+settings remain compatible.
+
+Sub-agents follow their parent's live mode. A mode change invalidates invocation
+approval caches and pending tickets, re-evaluates pending requests under the new
+policy, and cancels started process jobs. A stale answer cannot install grants.
 
 ## Approval precedents
 
@@ -99,8 +112,7 @@ approval details. Missing/blank denial reasons are invalid verdicts and fall bac
 to human review. Tab details show attempt count, answer
 and reasoning character counts, and completion status without storing raw output.
 Cancellation, shutdown or switching to read-only prevents a late ALLOW from
-executing. Changing to another mode reverts to human approval for that pending
-request. The judge stream is cancelled and its provider closed on completion.
+executing. Changing mode re-evaluates the pending request through the same policy table. The judge stream is cancelled and its provider closed on completion.
 
 Accesses inferred by the classifier are descriptive and never certify a command
 or create remembered grants. Tools attach verified accesses independently, so
@@ -110,18 +122,15 @@ The approval view labels inferred accesses, displays coverage and unresolved
 effects, and can offer validated directories for an explicit human grant.
 The tools plugin resolves paths against the command's working directory,
 canonicalizes symlinks and excludes protected paths and ambiguous targets.
-Directory grants default to Workspace; the `s` key cycles Session, Workspace
+Directory controls appear inside Remember; the `s` key cycles Session, Workspace
 and Global. A selected read grant exposes the directory read-only and never
 authorizes command execution, network access or mutations. Write grants include
 create, rename and delete under the existing write capability.
-
-Read-only asks before commands that cannot be certified as system readers.
-Approving a call does not change the selected mode.
 
 Network is a permission on the command invocation. Execution and network are
 reviewed together, including in auto mode; tools own their separate session
 grants. Auto ALLOW never becomes Always. `request(kind: confirmation)` always
 uses human Yes/No approval. `humanOnly: true` can instead require a human for
-a permission while retaining Allow once / Deny / Always; the two flags are
+a permission while retaining Allow once / Deny / Remember; the two flags are
 independent. An approval cached within one tool invocation cannot authorize a
 different permission set or substitute for a confirmation.

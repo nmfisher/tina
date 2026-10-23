@@ -1,14 +1,16 @@
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:tina_tools/src/process_runner.dart';
-import 'package:tina_tools/src/sandboxed_process_runner.dart';
 import 'package:tina_tools/tina_tools.dart';
 
 /// A runner that records the request handed to the inner real runner.
-final class RecordingRunner implements ProcessRunner {
+final class RecordingRunner implements ConfinedProcessRunner {
   RecordingRunner(this.inner);
   final ProcessRunner inner;
+  @override
+  bool get confinesFilesystem =>
+      inner is ConfinedProcessRunner &&
+      (inner as ConfinedProcessRunner).confinesFilesystem;
   final requests = <ProcessRequest>[];
   @override
   Future<RunOutcome> run(ProcessRequest request,
@@ -24,6 +26,14 @@ final class RecordingRunner implements ProcessRunner {
 void main() {
   const gitPath = '/usr/bin:/bin';
   late Directory repo;
+  late SandboxHome home;
+  RecordingRunner makeRecorder() => RecordingRunner(OsSandboxRunner(
+      inner: const IoProcessRunner(),
+      plan: SandboxPlan(
+        workspaceRoot: repo.path,
+        home: home,
+        parentEnvironment: {'HOME': repo.path, 'PATH': gitPath},
+      )));
 
   ProcessRequest request(List<String> args) => (
         command: 'git',
@@ -36,33 +46,42 @@ void main() {
 
   setUp(() async {
     repo = Directory.systemTemp.createTempSync('git-reader-live-');
+    home = SandboxHome(realHome: repo.path, stateRoot: '${repo.path}/.runtime');
     Future<void> git(List<String> args, {String? cwd}) async {
       final result = await Process.run(
         '/usr/bin/git',
         args,
         workingDirectory: cwd ?? repo.path,
-        environment: {'GIT_AUTHOR_NAME': 'T', 'GIT_AUTHOR_EMAIL': 't@example.com',
-                       'GIT_COMMITTER_NAME': 'T', 'GIT_COMMITTER_EMAIL': 't@example.com'},
+        environment: {
+          'GIT_AUTHOR_NAME': 'T',
+          'GIT_AUTHOR_EMAIL': 't@example.com',
+          'GIT_COMMITTER_NAME': 'T',
+          'GIT_COMMITTER_EMAIL': 't@example.com'
+        },
       );
-      expect(result.exitCode, 0, reason: 'git ${args.join(' ')}: ${result.stderr}');
+      expect(result.exitCode, 0,
+          reason: 'git ${args.join(' ')}: ${result.stderr}');
     }
 
     await git(['init', '-q']);
     await git(['config', 'user.email', 't@example.com']);
     await git(['config', 'user.name', 'T']);
-    File('${repo.path}/runtime.py').writeAsStringSync('line one\nline two\nline three\n');
+    File('${repo.path}/runtime.py')
+        .writeAsStringSync('line one\nline two\nline three\n');
     await git(['add', '.']);
     await git(['commit', '-qm', 'init']);
   });
 
   tearDown(() {
+    home.close();
     try {
       repo.deleteSync(recursive: true);
     } catch (_) {}
   });
 
-  test('certified git readers run without approval against a real repo', () async {
-    final recorder = RecordingRunner(const IoProcessRunner());
+  test('certified git readers run without approval against a real repo',
+      () async {
+    final recorder = makeRecorder();
     final gate = SandboxedProcessRunner(
       inner: recorder,
       mode: PermissionMode.readOnly,
@@ -76,6 +95,7 @@ void main() {
     ]) {
       final outcome = await gate.run(request(args));
       expect(outcome, isA<CommandCompleted>(), reason: 'git ${args.join(' ')}');
+      expect((outcome as CommandCompleted).exitCode, 0, reason: outcome.stderr);
     }
     // The spawned git carries the optional-locks guard and the pinned path.
     expect(recorder.requests, isNotEmpty);
@@ -94,10 +114,10 @@ void main() {
           stdin: null,
           timeout: null,
         );
-    final recorder = RecordingRunner(const IoProcessRunner());
+    final recorder = makeRecorder();
     final gate = SandboxedProcessRunner(
       inner: recorder,
-      mode: PermissionMode.allowEdits,
+      mode: PermissionMode.ask,
       executableSearchPath: gitPath,
     );
     final ok = await gate.run(sed(['-n', '1,2p', 'runtime.py']));
@@ -108,11 +128,12 @@ void main() {
       await gate.run(sed(['-i', 's/one/ONE/', 'runtime.py'])),
       isA<CommandRefused>(),
     );
-    expect(File('${repo.path}/runtime.py').readAsStringSync(), contains('line one'));
+    expect(File('${repo.path}/runtime.py').readAsStringSync(),
+        contains('line one'));
   });
 
-  test('mutating git is refused when no approver is wired', () async {
-    final recorder = RecordingRunner(const IoProcessRunner());
+  test('read-only rejects writable git requests without spawning', () async {
+    final recorder = makeRecorder();
     final gate = SandboxedProcessRunner(
       inner: recorder,
       mode: PermissionMode.readOnly,
@@ -127,7 +148,10 @@ void main() {
       ['log', '-S', 'needle'],
       ['tag', '--', 'v1.0.0'],
     ]) {
-      expect(await gate.run(request(args)), isA<CommandRefused>(),
+      expect(
+          await gate.run(request(args),
+              control: const ProcessControl(readOnlyRequested: false)),
+          isA<CommandRefused>(),
           reason: 'git ${args.join(' ')}');
     }
     expect(recorder.requests, isEmpty, reason: 'nothing was spawned');

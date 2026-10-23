@@ -280,11 +280,9 @@ enabled = ["tina/chat-tui"]
           input: {'filePath': 'denied.txt', 'content': 'no'})
     ], stopReason: 'tool_use'));
     await provider.requests.first.close();
-    await waitFor(
-        () => approvalUi(session).interaction.pending.firstOrNull != null);
-    expect(File('${directory.path}/denied.txt').existsSync(), false);
-    io.feedBytes('n'.codeUnits);
     await waitFor(() => provider.requests.length == 2);
+    expect(approvalUi(session).interaction.pending, isEmpty);
+    expect(File('${directory.path}/denied.txt').existsSync(), false);
     final result = session.host.session.loop.log
         .whereType<MessageAppendedEntry>()
         .expand((e) => e.message.content)

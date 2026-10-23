@@ -35,8 +35,7 @@ void main() {
   tearDown(() => root.deleteSync(recursive: true));
 
   ApprovalDialog dialogFor(ApprovalRequest request) => ApprovalDialog(null,
-      ask: ApprovalAskContext(
-          request.operation, request.target, request.reason,
+      ask: ApprovalAskContext(request.operation, request.target, request.reason,
           details: request.details));
 
   // Grants the first request through the real dialog (with the "Allow all
@@ -49,8 +48,9 @@ void main() {
         channel.respond(request.id, ApprovalDecision.deny);
         return;
       }
-      final dialog =
-          dialogFor(request)..handleKey(ApprovalKey.toggleWriteDirectory);
+      final dialog = dialogFor(request)
+        ..handleKey(ApprovalKey.always)
+        ..handleKey(ApprovalKey.toggleWriteDirectory);
       final outcome = dialog.current;
       channel.respond(request.id, outcome.decision,
           directoryGrants: outcome.directoryGrants);
@@ -80,31 +80,25 @@ void main() {
     final edit = plugin.toolList.singleWhere((t) => t.schema.name == 'edit');
 
     final firstPath = '${external.path}/report.txt';
-    final first = await write.execute({'filePath': firstPath, 'content': 'one'});
+    final first =
+        await write.execute({'filePath': firstPath, 'content': 'one'});
     expect(first.isError, isFalse, reason: first.content);
     expect(asks[0], 1);
 
     // A nested subdirectory (created on the fly) and an atomic edit are
     // covered by the same grant — no second prompt.
-    final nested = await write.execute({
-      'filePath': '${external.path}/nested/data.txt',
-      'content': 'two'
-    });
+    final nested = await write.execute(
+        {'filePath': '${external.path}/nested/data.txt', 'content': 'two'});
     expect(nested.isError, isFalse, reason: nested.content);
-    final edited = await edit.execute({
-      'filePath': firstPath,
-      'oldString': 'one',
-      'newString': 'ONE'
-    });
+    final edited = await edit.execute(
+        {'filePath': firstPath, 'oldString': 'one', 'newString': 'ONE'});
     expect(edited.isError, isFalse, reason: edited.content);
     expect(File(firstPath).readAsStringSync(), 'ONE');
     expect(asks[0], 1);
 
     // A sibling root is NOT covered — it still asks (and is denied).
-    final sibling = await write.execute({
-      'filePath': '${other.path}/outside.txt',
-      'content': 'blocked'
-    });
+    final sibling = await write.execute(
+        {'filePath': '${other.path}/outside.txt', 'content': 'blocked'});
     expect(sibling.isError, isTrue);
     expect(asks[0], 2);
     expect(plugin.writeDirectories.paths,
@@ -129,20 +123,16 @@ void main() {
     });
 
     final write = plugin.toolList.singleWhere((t) => t.schema.name == 'write');
-    final first = await write.execute({
-      'filePath': '${external.path}/a.txt',
-      'content': 'one'
-    });
+    final first = await write
+        .execute({'filePath': '${external.path}/a.txt', 'content': 'one'});
     expect(first.isError, isFalse, reason: first.content);
     expect(asks[0], 1);
     expect(plugin.writeDirectories.paths,
         contains(external.resolveSymbolicLinksSync()));
 
     // A second write in the granted directory is still silent.
-    final second = await write.execute({
-      'filePath': '${external.path}/b.txt',
-      'content': 'two'
-    });
+    final second = await write
+        .execute({'filePath': '${external.path}/b.txt', 'content': 'two'});
     expect(second.isError, isFalse, reason: second.content);
     expect(asks[0], 1);
   });

@@ -26,10 +26,14 @@ void main() {
   });
   tearDown(() => root.deleteSync(recursive: true));
 
-  test('explicit workspace write grant persists the logical atomic write once', () async {
+  test('explicit workspace write grant persists the logical atomic write once',
+      () async {
     final settings = newSettings();
-    final plugin = ToolsPlugin(workspaceRoot: workspace.path, tinaDir: tina,
-        settings: settings, osSandbox: false);
+    final plugin = ToolsPlugin(
+        workspaceRoot: workspace.path,
+        tinaDir: tina,
+        settings: settings,
+        osSandbox: false);
     final channel = StreamApprovalChannel();
     final approvals = ApprovalsPlugin(channel: channel);
     plugin.modePolicy.approvals = approvals;
@@ -44,9 +48,12 @@ void main() {
         expect(effect['source'], 'verified');
         final offer = (request.details['directory_accesses'] as List).single;
         channel.respond(request.id, ApprovalDecision.allow, directoryGrants: [
-          DirectoryAccessGrant(offer['path'] as String, DirectoryAccess.write, DirectoryGrantScope.workspace),
+          DirectoryAccessGrant(offer['path'] as String, DirectoryAccess.write,
+              DirectoryGrantScope.workspace),
         ]);
-      } finally { channel.respond(request.id, ApprovalDecision.deny); }
+      } finally {
+        channel.respond(request.id, ApprovalDecision.deny);
+      }
     });
     addTearDown(() async {
       plugin.closeSession();
@@ -54,15 +61,18 @@ void main() {
       await sub.cancel();
       channel.closeSession();
     });
-    final tool = plugin.toolList.singleWhere((tool) => tool.schema.name == 'write');
+    final tool =
+        plugin.toolList.singleWhere((tool) => tool.schema.name == 'write');
     final result = await tool.execute({'filePath': file, 'content': 'saved'});
     expect(result.isError, false, reason: result.content);
     expect(File(file).readAsStringSync(), 'saved');
     expect(asks, 1);
-    expect(settings.read(writeDirectoriesSetting).source, SettingScope.workspace);
+    expect(
+        settings.read(writeDirectoriesSetting).source, SettingScope.workspace);
     expect(settings.layer(SettingScope.global), isEmpty);
     expect(plugin.readDirectories.paths, isEmpty);
-    expect(plugin.processRunner.writableDirectories.roots, contains(external.resolveSymbolicLinksSync()));
+    expect(plugin.processRunner.writableDirectories.roots,
+        contains(external.resolveSymbolicLinksSync()));
   });
 
   test('checkbox saves directory writes, including atomic edits, in every mode',
@@ -106,6 +116,12 @@ void main() {
       final firstPath = '${external.path}/${mode.name}.txt';
       final first =
           await write.execute({'filePath': firstPath, 'content': 'before'});
+      if (mode == PermissionMode.readOnly) {
+        expect(first.isError, isTrue);
+        expect(File(firstPath).existsSync(), false);
+        expect(requests, isEmpty);
+        continue;
+      }
       expect(first.isError, isFalse, reason: first.content);
       expect(requests, hasLength(1));
       expect(requests.single.details['write_directory'],
@@ -254,7 +270,9 @@ void main() {
   });
 }
 
-final class _Recorder implements ProcessRunner {
+final class _Recorder implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   final calls = <ProcessRequest>[];
   @override
   Future<RunOutcome> run(ProcessRequest request,

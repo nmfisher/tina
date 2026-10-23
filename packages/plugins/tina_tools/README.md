@@ -23,59 +23,45 @@ Both wrappers consult the same `tina/mode` policy and fail closed when no
 approval service is available. The mode plugin's console attachment supplies
 Shift-Tab and the status label; no separate `tina/mode-tui` plugin is loaded.
 
-| Mode | Reads | Project writes | Commands / outside writes |
-| --- | --- | --- | --- |
-| `ask` (default) | allow within sandbox | ask | permitted readers run; others ask |
-| `read-only` | allow | human approval | verified readers run; others ask |
-| `allow-edits` | allow | allow | verified readers run; others ask |
-| `auto` | allow within sandbox | classifier review | permitted readers run; others get classifier review |
+All boundaries use `tina_mode.AuthorizationRequest` and the same resolver.
+Workspace reads run freely in every mode. Read-only execution uses enforced
+filesystem confinement, so arbitrary scripts and custom commands can inspect
+workspace data without a reader allowlist.
 
-In `auto`, an exact completed ALLOW approves the operation once. DENY,
-timeout, missing classifier or invalid response falls back to the configured
-human approval channel. Read-only uses human approval for writes and commands
-that are not certified system readers. Cancellation does not fall back to asking.
-Ordinary human “always” grants remain session-scoped; classifier approvals do not create
-persistent or session grants. Protected Tina paths and OS sandbox restrictions
-remain enforced in every mode. Ordinary approval does not disable the OS sandbox.
+| Mode | Workspace mutations | Outside access |
+| --- | --- | --- |
+| `ask` (default) | human approval | human approval |
+| `read-only` | blocked before saved grants | reads/network require human approval; writes and host execution blocked |
+| `allow-edits` | permitted while confined | human approval |
+| `auto` | safety judge, with human fallback | human approval |
+| `yolo` | authorized at launch | authorized at launch |
 
-In every mode, verified system `ls`, `grep`, `cat`, `head`, `tail`, literal `echo`,
-`wc`, `stat`, checksums and constrained `find` run without an execution approval. Supported
-options include the traditional `head -30` form. The runner verifies and pins
-the absolute system executable. Non-system readers such as `rg` can be explicitly
-trusted at workspace/global scope, pinned to their executable content; changed
-versions, custom environments and unknown reader options ask. Ripgrep ignores
-config files. Certified reads use read-only workspace/cache sandbox permissions.
+`exec` and `bash` accept `access: "read-only"` or `access: "workspace-write"`.
+Omitted access defaults to read-only in read-only mode and for recognized reader
+invocations; other commands use workspace-write. The OS wrapper blocks workspace
+and shared-cache writes in a read-only profile. Private HOME and scratch remain
+writable for runtime needs. Forged output-directory permissions cannot create
+writable holes. Without an available OS sandbox, read-only execution fails closed;
+ordinary host execution requires explicit human authorization.
 
-Certified read-only git subcommands also run: `git status`, `git diff`,
-`git log`, `git show`, `git branch` and `git tag` in list form, with the flags
-each subcommand accepts in the reader table, including enumerated long options
-and `--` path separators. Configuration overrides, output flags and other
-subcommands ask. `branch` and
-`tag` need their list form (`-l`) to accept a positional name. Certified git
-readers disable optional locks, pagers, fsmonitor, hooks, external diff and
-textconv. They report the working directory's repository as their read target
-and can join certified pipelines, with their environment applied per component.
+Recognized readers are still pinned to verified executables and receive hardened
+arguments: Git disables optional locks, pagers, hooks, fsmonitor, external diff
+and textconv, and ripgrep ignores config files. This selects a useful default
+profile; it is not required for explicit read-only execution.
 
-A print-only `sed` form is certified as well: exactly `-n`, a script built
-from address-and-print or address-and-quit commands (`180,215p`, `10q`, `$p`)
-and file operands. Any substitution, `w`/`e` command, `-f` script file, `-i`
-edit or other option asks.
+Execution, directory access, network and host capabilities form one review.
+Auto can authorize workspace mutations once; external capabilities always need
+a human grant in ordinary modes. DENY, timeout or invalid automatic output falls
+back to the human channel. Protected paths and OS confinement apply in every
+mode. Yes/No confirmations require a human answer even in yolo.
 
-The bash tool also accepts a limited literal grammar containing reader pipelines
-(`|`), sequences (`;`) and conditional sequences (`&&`). Every component must
-be a verified reader. The runner reconstructs these commands with pinned system
-paths and quoted literal arguments. Literal output redirects are permitted only
-to already-writable directories; only those output directories become writable.
-Substitutions, unquoted wildcards, background jobs, other operators and unsupported
-programs require approval.
-For example, `grep -n 'pattern' file | head; echo ---; head -30 pubspec.yaml`
-runs without an execution prompt. Network and outside-sandbox access still
-need their own approval.
-An explicit approval allows the requested
-operation without changing the mode.
-`WritableDirectories` and network heuristics explain why a command needs
-approval; they do not authorize it without review. `OsSandboxRunner` supplies
-OS confinement separately.
+The prompt starts with **Allow once**, **Deny**, and **Remember…**. Remember opens
+Session, Workspace and Global scopes and advanced directory/regex controls.
+Exact file, command and MCP grants share trusted storage and revocation; directory
+grants retain their existing trusted settings. Allow once expires with the
+invocation, including atomic file staging and any explicitly approved retry.
+A mode change re-evaluates pending reviews, invalidates scoped file permissions,
+and cancels started process jobs. Children follow the live parent mode.
 
 Workspace/global approval can remember supported Dart/Flutter test, analysis,
 formatting and build workflows across project files and subdirectories. Ordinary
@@ -129,17 +115,12 @@ changing Tina's subprocess launcher cannot replace another process's descriptors
 ## Network access
 
 `exec` and `bash` accept `network: true` with a required `network_reason`.
-The process boundary checks execution and network grants separately, then asks
-the mode plugin to review the whole action once for any missing permissions.
-In auto mode, the safety judge sees the full command, tool input, required and
-missing permissions, and network reason. ALLOW applies once; DENY, uncertainty
-or failure asks the human. Other modes ask the human directly.
-
-The human gets Allow once, Deny, and Always allow this command with network
-access for this session. Always remembers the missing permissions for the exact
-program, argv, directory, environment and stdin. An execution-only grant does
-not authorize network. Explicit command patterns also grant execution only.
-Grants are in memory, isolated between panels, and expire on exit/resume.
+The process boundary includes execution and network in one canonical request.
+Missing network access requires human approval in ordinary modes, including auto.
+Remember can save the displayed capabilities for the exact program, argv,
+directory, environment and stdin at Session, Workspace or Global scope.
+An execution-only grant never implies network or host access. A new read-only
+execution grant cannot authorize a workspace-write profile.
 Cancellation cannot create a late grant or start the command.
 
 Network access applies to the entire subprocess tree, without destination/domain
@@ -185,8 +166,9 @@ Child agents share their parent's host-command approval store. Later calls
 still explicitly request `outside_sandbox`; ordinary calls remain confined.
 Declining or cancelling starts nothing and stores no grant.
 
-Sandboxed commands use a session home with selected writable host cache links.
-The parent TMPDIR is preserved when valid; `/tmp` and `/var/tmp` remain shared.
+Sandboxed commands use a private session home and private TMPDIR. No host cache
+is shared by default. Explicit cache settings may expose selected cache paths;
+read-only execution mounts those caches read-only.
 Credentials and Tina configuration are excluded even beneath broad grants.
 Approved host execution restores the real HOME and SSH_AUTH_SOCK while filtering
 other parent environment variables. Agents should request host execution

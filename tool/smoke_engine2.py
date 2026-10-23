@@ -127,12 +127,10 @@ class ModelStub(BaseHTTPRequestHandler):
             ('different network example', 'exec', {'program': '/bin/echo',
                 'args': ['different-network-output'], 'network': True,
                 'network_reason': 'test exact network permission scope'}),
-            ('auto network example', 'exec', {'program': '/bin/echo',
-                'args': ['auto-network-output'], 'network': True,
-                'network_reason': 'test automatic network schema approval'}),
-            ('auto denied network example', 'exec', {'program': '/bin/echo',
-                'args': ['denied-network-output'], 'network': True,
-                'network_reason': 'test automatic denial explanation'}),
+            ('auto workspace example', 'exec', {'program': '/bin/echo',
+                'args': ['auto-workspace-output'], 'access': 'workspace-write'}),
+            ('auto denied workspace example', 'exec', {'program': '/bin/echo',
+                'args': ['denied-workspace-output'], 'access': 'workspace-write'}),
             ('background poll example', 'bash', {'background': True, 'timeout': 120,
                 'command': 'echo background-live; while [ ! -f background-release ]; do sleep 0.1; done; echo background-finished'}),
         ]:
@@ -187,9 +185,9 @@ class ModelStub(BaseHTTPRequestHandler):
                 'required': ['decision', 'reason', 'accesses', 'coverage', 'unresolved'],
                 'additionalProperties': False}}, 'judge schema changed; update the stub'
             evidence = json.loads(prompt[0]['text'])
-            assert evidence['required_permissions'] == ['execution', 'network']
-            assert evidence['arguments'] in [['auto-network-output'], ['denied-network-output']]
-            denied = evidence['arguments'] == ['denied-network-output']
+            assert evidence['required_permissions'] == ['execution', 'workspaceWrite']
+            assert evidence['arguments'] in [['auto-workspace-output'], ['denied-workspace-output']]
+            denied = evidence['arguments'] == ['denied-workspace-output']
             events[1] = {'type': 'content_block_start', 'index': 0,
                          'content_block': {'type': 'text', 'text': ''}}
             events[2] = {'type': 'content_block_delta', 'index': 0,
@@ -428,6 +426,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('\r')  # accept the suggestion beyond the old 200-file cap
             time.sleep(0.1)
             start = terminal.send('\r')
+            terminal.expect('connect MCP server', start)
+            terminal.send('ag')  # Explicit global grant for this configured fixture connection.
             terminal.expect('smoke answer', start)
             assert '@zz_file_target.dart' in json.dumps(ModelStub.requests[-1]['messages'][-1])
             time.sleep(0.1)
@@ -556,8 +556,8 @@ def smoke(launcher, endpoint, columns, rows):
             ModelStub.advance_reasoning.set()
             ModelStub.release_reasoning.set()
             time.sleep(0.1)
-            start = terminal.send('/mode read-only\r')
-            terminal.expect('mode: read-only', start)
+            start = terminal.send('/mode ask\r')
+            terminal.expect('mode: ask', start)
             terminal.resize(columns, rows)
             time.sleep(0.1)
             start = terminal.send('approve this\r')
@@ -589,7 +589,7 @@ def smoke(launcher, endpoint, columns, rows):
             # A remembered grant covers the atomic write's temp/rename steps.
             terminal.expect('❯ [y] allow once', start)
             before_approval = len(ModelStub.requests)
-            start = terminal.send('a')
+            start = terminal.send('a\r')
             terminal.wait_for(lambda: len(ModelStub.requests) > before_approval,
                               'approved write did not finish')
             terminal.expect('smoke answer', start)
@@ -598,7 +598,7 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             # Native MCP discovery, readable approval, exact remembered grants,
             # image wire encoding and cancellation through the normal input area.
-            for message, answer in [('mcp mutate example', 'a'),
+            for message, answer in [('mcp mutate example', 'a\r'),
                                     ('mcp mutate example', None),
                                     ('mcp changed arguments example', 'n'),
                                     ('mcp screenshot example', 'y')]:
@@ -624,8 +624,8 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
-            terminal.expect('[a] allow this command with network access for this session', start)
-            start = terminal.send('a')
+            terminal.expect('[a] Remember…', start)
+            start = terminal.send('a\r')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
@@ -644,7 +644,7 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('different network example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [p] remember this command for this workspace', start)
+            terminal.expect('❯ [y] allow once', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
@@ -655,7 +655,7 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('/mode auto\r')
             terminal.expect('mode: auto', start)
             before_auto = len(ModelStub.requests)
-            start = terminal.send('auto network example\r')
+            start = terminal.send('auto workspace example\r')
             terminal.expect('run command allowed by classifier', start)
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
@@ -666,11 +666,11 @@ def smoke(launcher, endpoint, columns, rows):
             assert b'awaiting approval' not in terminal.output[start:], 'schema-valid ALLOW still prompted'
             time.sleep(0.1)
             before_auto = len(ModelStub.requests)
-            start = terminal.send('auto denied network example\r')
+            start = terminal.send('auto denied workspace example\r')
             terminal.expect('classifier recommends denial', start)
             terminal.expect('Project data could be exposed.', start)
             terminal.expect('Auto approver denied this:', start)
-            terminal.expect('❯ [p] remember this command for this workspace', start)
+            terminal.expect('❯ [y] allow once', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
@@ -682,8 +682,6 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('mode: allow-edits', start)
             before_background = len(ModelStub.requests)
             start = terminal.send('background poll example\r')
-            terminal.expect('❯ [p] remember this command for this workspace', start)
-            start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_background + 2 and time.monotonic() < deadline:
                 terminal.read()
@@ -714,9 +712,7 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('run cancellable tool\r')
             tool_paint_start = start
             terminal.expect('Run shell command', start)
-            terminal.expect('❯ [p] remember this command for this workspace', start)
             terminal.resize(100, 30)
-            start = terminal.send('y')
             terminal.wait_for(lambda: (workspace / 'subprocess-ready').exists(),
                               'approved subprocess never started')
             # Browsing during execution must not cancel or submit input.
@@ -1198,7 +1194,7 @@ def main():
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
         # Each size adds fourteen requests: one file-completion turn, two for
         # line scrolling/draft preservation, six for
-        # automatic network approval/denial (agent/judge/result), and five for the
+        # automatic workspace approval/denial (agent/judge/result), and five for the
         # background job (start/result, another message, inspect/result).
         # Four MCP tool turns add eight requests per terminal size.
         assert 56 * len(sizes) <= len(ModelStub.requests) <= 57 * len(sizes), (

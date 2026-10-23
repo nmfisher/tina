@@ -81,9 +81,9 @@ const dryRunOption = CliOption(
 const yoloOption = CliOption(
   'yolo',
   description:
-      'Start with every permission/approval check disabled. Use with '
-      '--no-sandbox to also lift OS filesystem and network confinement. '
-      'Dangerous: nothing asks for approval; no safety judge runs.',
+      'Authorize requested capabilities for this launch without permission review or a safety judge. '
+      'Explicit Yes/No confirmations and configured OS confinement still apply. '
+      'Use with --no-sandbox to also lift filesystem and network confinement.',
   value: CliValue.none,
 );
 

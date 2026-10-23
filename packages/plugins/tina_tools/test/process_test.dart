@@ -78,12 +78,12 @@ void main() {
           timeout: null,
         );
 
-    test('readOnly asks for every unverified, unapproved command', () {
+    test('readOnly rejects a writable execution profile', () {
       for (final line in ['git status', 'ls', 'echo hi', 'rm -rf /']) {
         final d = decideCommand(req(line), PermissionMode.readOnly,
             writableDirectories: WritableDirectories()..add('/'),
             networkOff: false);
-        expect(d.verdict, ToolVerdict.ask, reason: line);
+        expect(d.verdict, ToolVerdict.deny, reason: line);
         expect(d.reason, contains('read-only mode'), reason: line);
       }
     });
@@ -99,7 +99,7 @@ void main() {
         timeout: null,
       ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
-      expect(d.reason, contains('allow command'));
+      expect(d.reason, contains('requires approval'));
     });
 
     test('ask mode asks when a path argument lands outside the directories',
@@ -114,7 +114,7 @@ void main() {
         timeout: null,
       ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
-      expect(d.reason, contains('outside the session'));
+      expect(d.reason, contains('requires approval'));
     });
 
     test('`..` in a path argument is never certified — it asks', () {
@@ -158,7 +158,7 @@ void main() {
         timeout: null,
       ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
       expect(d.verdict, ToolVerdict.ask);
-      expect(d.reason, contains('cannot be checked'));
+      expect(d.reason, contains('requires approval'));
       // A literal-argv request with the same payload does not hit the rule.
       final argvD = decideCommand((
         command: 'curl',
@@ -178,10 +178,11 @@ void main() {
           networkOff: true,
           grants: grants);
       expect(d.verdict, ToolVerdict.allow);
-      expect(d.reason, contains('session grant'));
+      expect(d.reason, contains('explicit grants'));
     });
 
-    test('yolo allows every command, regardless of session, shell or network', () {
+    test('yolo allows every command, regardless of session, shell or network',
+        () {
       final ws = WritableDirectories();
       for (final line in ['git status', 'rm -rf /', 'curl https://x.example']) {
         final d = decideCommand(req(line), PermissionMode.yolo,
@@ -289,29 +290,26 @@ void main() {
       expect((outcome as CommandCompleted).note, isNotNull);
     });
 
-    test('readOnly waits for approval; yes runs and no refuses', () async {
+    test('readOnly freely runs a confined profile and rejects workspace-write',
+        () async {
       var asked = 0;
-      final inner = _ScriptedRunner([_done(0, 'approved', '')]);
+      final inner = _ScriptedRunner([_done(0, 'analysis', '')]);
       final runner = SandboxedProcessRunner(
         inner: inner,
         mode: PermissionMode.readOnly,
-        writableDirectories: WritableDirectories()..add('/'),
         approver: (_, __) async {
           asked++;
-          return asked == 1 ? Approval.yes : Approval.no;
+          return Approval.yes;
         },
       );
-      // `mkdir` is not a certified reader, so read-only mode always waits
-      // for approval. (`git status` is certified and therefore runs without
-      // a grant — that path is covered by git_sed_live_test.dart.)
-      final outcome = await runner.run(_req('mkdir newdir'));
-      expect(outcome, isA<CommandCompleted>());
-      expect((outcome as CommandCompleted).stdout, 'approved');
-      expect(asked, 1);
-      expect(await runner.run(_req('mkdir newdir')), isA<CommandRefused>());
-      expect(asked, 2);
-      expect(inner.requests, hasLength(1),
-          reason: 'denied execution never started');
+      expect(await runner.run(_req('custom-analysis script')),
+          isA<CommandCompleted>());
+      expect(
+          await runner.run(_req('mkdir newdir'),
+              control: const ProcessControl(readOnlyRequested: false)),
+          isA<CommandRefused>());
+      expect(asked, 0);
+      expect(inner.requests, hasLength(1));
     });
 
     test('ask: outside the directories asks — no denies, yes runs', () async {
@@ -323,7 +321,7 @@ void main() {
         writableDirectories: WritableDirectories()..add('/tmp/ws'),
         approver: (request, reason) async {
           asked++;
-          expect(reason, contains('outside the session'));
+          expect(reason, contains('requires approval'));
           expect(request.path, '/tmp/ws');
           return answers.removeAt(0);
         },
@@ -406,7 +404,9 @@ CommandRefused _refused(String reason) => CommandRefused(reason);
 
 /// A scripted [ProcessRunner]: plays back one outcome per call and records
 /// every request that reached it — the seam's test double.
-final class _ScriptedRunner implements ProcessRunner {
+final class _ScriptedRunner implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   final List<RunOutcome> outcomes;
   final List<ProcessRequest> requests = [];
 

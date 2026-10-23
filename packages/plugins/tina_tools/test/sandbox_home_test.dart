@@ -14,16 +14,21 @@ void main() {
   });
   tearDown(() => root.deleteSync(recursive: true));
 
-  test('temp environment and layout use the same validated parent value', () {
+  test(
+      'temp environment uses private scratch without granting the host temp root',
+      () {
     final env = {
       'TMPDIR': root.path,
       'HOME': host.path,
       'PROVIDER_KEY': 'secret'
     };
-    final plan =
-        SandboxPlan(workspaceRoot: workspace.path, parentEnvironment: env);
-    expect(plan.childEnvironment['TMPDIR'], root.path);
-    expect(plan.writableLayout(), contains(root.path));
+    final home = SandboxHome(realHome: host.path, stateRoot: state.path);
+    addTearDown(home.close);
+    final plan = SandboxPlan(
+        workspaceRoot: workspace.path, parentEnvironment: env, home: home);
+    expect(plan.childEnvironment['TMPDIR'], '${home.ensure()}/tmp');
+    expect(plan.writableLayout(), isNot(contains(root.path)));
+    expect(defaultHomeCaches, isEmpty);
     expect(plan.childEnvironment, isNot(contains('PROVIDER_KEY')));
     for (final value in ['', 'relative', '${root.path}/missing']) {
       expect(sandboxTempDirectory({'TMPDIR': value}), '/tmp');
@@ -304,7 +309,9 @@ ProcessRequest _request(String command, List<String> arguments, String cwd) => (
       timeout: const Duration(seconds: 10)
     );
 
-class _Recorder implements ProcessRunner {
+class _Recorder implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   final calls = <ProcessRequest>[];
   @override
   Future<RunOutcome> run(ProcessRequest request,

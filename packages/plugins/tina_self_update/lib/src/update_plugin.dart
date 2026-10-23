@@ -157,6 +157,7 @@ final class UpdatePlugin extends AgentPlugin implements UpdateStatusSource {
           try {
             if (_closed) return;
             final decision = await approvals.request(
+                kind: ApprovalKind.confirmation,
                 operation: 'install update',
                 target: update.bundleRoot,
                 reason:

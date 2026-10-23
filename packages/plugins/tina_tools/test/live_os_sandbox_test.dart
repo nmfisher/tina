@@ -67,9 +67,8 @@ echo reader-finished
       stdin: null,
       timeout: null
     ));
-    expect(output, isA<CommandCompleted>());
-    expect((output as CommandCompleted).exitCode, 0, reason: output.stderr);
-    expect(File('${reports.path}/result').readAsStringSync(), 'report\n');
+    expect(output, isA<CommandBlocked>());
+    expect(File('${reports.path}/result').existsSync(), false);
   });
 
   test('invocation directory grants expire and preserve protected paths',
@@ -379,8 +378,11 @@ echo reader-finished
     expect((allowed as CommandCompleted).exitCode, 0, reason: allowed.stderr);
     expect(allowed.stdout, 'network works');
     expect(reviews, hasLength(2));
-    expect(reviews.last.requiredPermissions,
-        {ProcessPermission.execution, ProcessPermission.network});
+    expect(reviews.last.requiredPermissions, {
+      ProcessPermission.execution,
+      ProcessPermission.workspaceWrite,
+      ProcessPermission.network
+    });
     expect(reviews.last.missingPermissions, {ProcessPermission.network});
     final remembered = await runner.run(request, control: network);
     expect((remembered as CommandCompleted).stdout, 'network works');
@@ -429,9 +431,13 @@ echo reader-finished
       final setup = await Process.run('git', args);
       expect(setup.exitCode, 0, reason: '${setup.stderr}');
     }
+    final home =
+        SandboxHome(realHome: root.path, stateRoot: '${root.path}/state');
+    addTearDown(home.close);
     final runner = OsSandboxRunner(
         inner: const IoProcessRunner(),
-        plan: SandboxPlan(workspaceRoot: root.path, isolateNetwork: false));
+        plan: SandboxPlan(
+            workspaceRoot: root.path, home: home, isolateNetwork: false));
     for (final args in [
       ['status', '--porcelain=v1', '-b'],
       ['fetch', 'origin']
@@ -444,7 +450,8 @@ echo reader-finished
         stdin: null,
         timeout: null
       ));
-      expect(result, isA<CommandCompleted>(), reason: '$result');
+      expect(result, isA<CommandCompleted>(),
+          reason: result is CommandBlocked ? result.reason : '$result');
       final completed = result as CommandCompleted;
       expect(completed.exitCode, 0, reason: completed.stderr);
     }
@@ -590,7 +597,8 @@ echo reader-finished
       timeout: null,
     ));
     expect(
-      shell is CommandBlocked || shell is CommandCompleted && shell.exitCode != 0,
+      shell is CommandBlocked ||
+          shell is CommandCompleted && shell.exitCode != 0,
       isTrue,
       reason: 'shell strings enjoy no extra freedom: $shell',
     );
@@ -625,10 +633,11 @@ echo reader-finished
       environment: null,
       stdin: null,
       timeout: null,
-    ), control: const ProcessControl(
-      outsideSandboxRequested: true,
-      sandboxReason: 'yolo escalation probe against a loopback fixture',
-    ));
+    ),
+        control: const ProcessControl(
+          outsideSandboxRequested: true,
+          sandboxReason: 'yolo escalation probe against a loopback fixture',
+        ));
     expect(escalated, isA<CommandCompleted>(),
         reason: 'yolo auto-authorizes unconfined requests: $escalated');
     expect((escalated as CommandCompleted).exitCode, 0,

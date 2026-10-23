@@ -1,7 +1,5 @@
-/// Process boundary: certified system readers can run in read-only mode;
-/// other execution requires approval or a matching human session grant.
-/// The mode plugin routes reviews
-/// to a human or the automatic safety judge; OS confinement remains separate.
+/// Converts process capabilities into the shared authorization policy and
+/// enforces the selected filesystem profile for one invocation.
 library;
 
 import 'dart:io' show Platform, FileSystemException, Directory;
@@ -17,7 +15,14 @@ import 'read_only_commands.dart';
 import 'read_directories.dart';
 import 'os_sandbox_runner.dart';
 import 'command_workflow.dart';
-import 'package:tina_mode/tina_mode.dart' show PermissionAccessOperation;
+import 'package:tina_mode/tina_mode.dart'
+    show
+        PermissionAccessOperation,
+        AuthorizationRequest,
+        AccessRequirement,
+        AccessCapability,
+        AuthorizationRoute,
+        resolveAuthorization;
 
 /// The session mode a [SandboxedProcessRunner] enforces. Re-exported from
 /// the permissions vocabulary so callers need one import less.
@@ -29,7 +34,7 @@ enum CommandRule {
   /// Execution requires approval even within writable directories.
   permissionMode,
 
-  /// `readOnly`: commands require explicit human approval.
+  /// `readOnly`: workspace mutations and host execution are blocked.
   readOnly,
 
   /// A direct invocation of a verified system reader with supported options.
@@ -120,7 +125,10 @@ final class CommandGrants {
 
   void rememberRequest(
     ProcessRequest request, {
-    Set<ProcessPermission> permissions = const {ProcessPermission.execution},
+    Set<ProcessPermission> permissions = const {
+      ProcessPermission.execution,
+      ProcessPermission.workspaceWrite
+    },
     ProcessDirectoryAccess directoryAccess =
         const ProcessDirectoryAccess.empty(),
   }) {
@@ -146,10 +154,13 @@ final class CommandGrants {
   }) =>
       _requests.values.any((grant) =>
           grant.identity == _key(request) &&
-          grant.permissions.contains(permission) &&
+          (grant.permissions.contains(permission) ||
+              permission == ProcessPermission.workspaceWrite &&
+                  grant.permissions.contains(ProcessPermission.unconfined)) &&
           grant.directoryAccess.covers(directoryAccess)) ||
-      // Explicit line/pattern grants authorize execution only.
-      (permission == ProcessPermission.execution &&
+      // Legacy line/pattern grants authorize writable execution, never network/host.
+      ({ProcessPermission.execution, ProcessPermission.workspaceWrite}
+              .contains(permission) &&
           patternFor(lineOf(request)) != null);
 
   /// Human-readable labels for explicit grants and approved requests.
@@ -210,6 +221,7 @@ final class CommandApproval {
     required Set<ProcessPermission> missingPermissions,
     this.networkReason,
     this.sandboxReason,
+    this.authorization,
     this.readDirectory,
     this.directoryAccess = const ProcessDirectoryAccess.empty(),
     bool Function()? isActive,
@@ -220,6 +232,7 @@ final class CommandApproval {
   final String reason;
   final Set<ProcessPermission> requiredPermissions;
   final Set<ProcessPermission> missingPermissions;
+  final AuthorizationRequest? authorization;
   final String? networkReason;
   final String? sandboxReason;
   final String? readDirectory;
@@ -232,8 +245,8 @@ final class CommandApproval {
 /// process exists.
 ///
 /// The wrapped [inner] runner only ever sees requests the boundary allowed —
-/// it can be a raw [IoProcessRunner] or a scripting fake; enforcement is
-/// entirely here, per call, the way `SandboxedFileSystem` does it for paths.
+/// read-only execution additionally requires a [ConfinedProcessRunner].
+/// Policy is resolved here; the inner backend enforces filesystem confinement.
 final class SandboxedProcessRunner implements ProcessRunner {
   /// The runner that actually starts processes. Only allowed requests
   /// reach it.
@@ -383,10 +396,23 @@ final class SandboxedProcessRunner implements ProcessRunner {
       }
     }
 
+    final confined = inner is ConfinedProcessRunner &&
+        (inner as ConfinedProcessRunner).confinesFilesystem;
+    final readOnlyProfile = control?.readOnlyRequested ??
+        (mode == PermissionMode.readOnly ||
+            confined && (reader != null || shellReader != null));
+    if (mode == PermissionMode.readOnly &&
+        (!readOnlyProfile ||
+            outsideSandbox ||
+            declaredAccess.write.isNotEmpty)) {
+      return const CommandRefused(
+          'Read-only mode blocks workspace mutations, external writes and host execution.');
+    }
     final requiredPermissions = {
       ProcessPermission.execution,
+      if (!readOnlyProfile && !outsideSandbox) ProcessPermission.workspaceWrite,
       if (network) ProcessPermission.network,
-      if (outsideSandbox) ProcessPermission.unconfined,
+      if (outsideSandbox || !confined) ProcessPermission.unconfined,
       if (!directoryAccess.isEmpty) ProcessPermission.directoryAccess,
     };
     final missing = requiredPermissions
@@ -398,19 +424,67 @@ final class SandboxedProcessRunner implements ProcessRunner {
             !grants.coversRequest(request,
                 permission: permission, directoryAccess: directoryAccess))
         .toSet();
-    final decision = decideCommand(request, mode,
-        writableDirectories: writableDirectories,
-        networkOff: networkOff,
-        grants: grants,
-        certifiedReadOnly: reader != null || shellReader != null);
-    if (decision.verdict == ToolVerdict.deny) {
-      return CommandRefused(decision.reason);
+    bool granted(ProcessPermission permission) => !missing.contains(permission);
+    final authorization = AuthorizationRequest(
+      readOnlyExecution: readOnlyProfile && !outsideSandbox,
+      confined: confined,
+      requirements: [
+        AccessRequirement(AccessCapability.execute, request.command,
+            workspace: !outsideSandbox,
+            granted: granted(ProcessPermission.execution) &&
+                !(mode == PermissionMode.readOnly && !confined)),
+        if (!readOnlyProfile && !outsideSandbox)
+          AccessRequirement(AccessCapability.write,
+              workspaceRoot ?? request.workingDirectory ?? '.',
+              workspace: true,
+              granted: granted(ProcessPermission.workspaceWrite)),
+        if (network)
+          AccessRequirement(AccessCapability.network, request.command,
+              granted: granted(ProcessPermission.network)),
+        if (outsideSandbox || !confined)
+          AccessRequirement(AccessCapability.host, request.command,
+              granted: granted(ProcessPermission.unconfined)),
+        for (final directory in declaredAccess.read)
+          AccessRequirement(AccessCapability.read, directory,
+              workspace: workspaceRoot != null &&
+                  sandboxPathUnder(directory, workspaceRoot!),
+              granted: _canRead(directory) ||
+                  granted(ProcessPermission.directoryAccess)),
+        for (final directory in declaredAccess.write)
+          AccessRequirement(AccessCapability.write, directory,
+              workspace: workspaceRoot != null &&
+                  sandboxPathUnder(directory, workspaceRoot!),
+              granted: plan?.canWrite(directory, linux: _linux) == true ||
+                  granted(ProcessPermission.directoryAccess)),
+      ],
+    );
+    final uncovered = authorization.uncovered(mode);
+    missing.removeWhere(
+        (permission) => !uncovered.any((requirement) => switch (permission) {
+              ProcessPermission.execution =>
+                requirement.capability == AccessCapability.execute,
+              ProcessPermission.workspaceWrite =>
+                requirement.capability == AccessCapability.write &&
+                    requirement.workspace,
+              ProcessPermission.network =>
+                requirement.capability == AccessCapability.network,
+              ProcessPermission.unconfined =>
+                requirement.capability == AccessCapability.host,
+              ProcessPermission.directoryAccess => !requirement.workspace &&
+                  {AccessCapability.read, AccessCapability.write}
+                      .contains(requirement.capability),
+            }));
+    final resolution = resolveAuthorization(authorization, mode);
+    if (resolution.route == AuthorizationRoute.deny) {
+      return CommandRefused(resolution.reason);
     }
     final baseReason = !directoryAccess.isEmpty
         ? 'allow command with additional directory access (${request.command})?'
-        : decision.verdict == ToolVerdict.allow && missing.isNotEmpty
+        : missing.length == 1 && missing.contains(ProcessPermission.network)
             ? 'allow network access for this command (${request.command})?'
-            : decision.reason;
+            : resolution.route == AuthorizationRoute.allow && readOnlyProfile
+                ? 'permitted read: enforced read-only execution'
+                : resolution.reason;
     final reason = outsideSandbox
         ? 'Run this exact command outside the OS sandbox? '
             '${control!.sandboxReason}\n'
@@ -422,9 +496,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 'Filesystem confinement is unchanged.'
             : baseReason;
     var remember = false;
-    if (missing.isNotEmpty) {
+    if (resolution.route != AuthorizationRoute.allow) {
       final review = CommandApproval(
         reason: reason,
+        authorization: authorization,
         isActive: () =>
             !cancelled &&
             control?.isCancelled?.call() != true &&
@@ -484,22 +559,16 @@ final class SandboxedProcessRunner implements ProcessRunner {
           'Reader executable or output permissions changed during approval');
     reader = currentReader;
     shellReader = currentShell;
+    final onlyReads = !outsideSandbox && readOnlyProfile;
+    const outputDirectories = <String>[];
+    if (mode == PermissionMode.readOnly && !onlyReads) {
+      return const CommandRefused(
+          'Permission mode changed: workspace mutation is blocked.');
+    }
     if (remember) {
       grants.rememberRequest(request,
           permissions: missing, directoryAccess: directoryAccess);
     }
-    final onlyReads =
-        !outsideSandbox && (reader != null || shellReader != null);
-    final outputDirectories = onlyReads
-        ? verifiedReaderAccesses(request,
-                searchPath: executableSearchPath,
-                trustedExecutables: currentReaders)
-            .where(
-                (access) => access.operation == PermissionAccessOperation.write)
-            .map((access) => path.dirname(access.path))
-            .toSet()
-            .toList()
-        : <String>[];
     final authorized = (control ?? const ProcessControl()).copyWith(
         readOnly: onlyReads,
         outputDirectories: List.unmodifiable(outputDirectories),
@@ -526,9 +595,6 @@ final class SandboxedProcessRunner implements ProcessRunner {
           );
     bool active() => !cancelled && control?.isCancelled?.call() != true;
     final approveDirectory = directoryApprover;
-    final confined = inner is! OsSandboxRunner ||
-        ((inner as OsSandboxRunner).enabled &&
-            (inner as OsSandboxRunner).backend != SandboxBackend.passThrough);
     var outcome = await inner.run(spawned, control: authorized);
     if (confined &&
         !outsideSandbox &&
@@ -543,7 +609,25 @@ final class SandboxedProcessRunner implements ProcessRunner {
           await approveDirectory(request, candidates.single, true, active) &&
           active()) {
         // Exactly one retry, explicitly authorized after possible partial work.
-        outcome = await inner.run(spawned, control: authorized);
+        final candidate = candidates.single;
+        var directory = Directory(candidate.path).existsSync()
+            ? candidate.path
+            : path.dirname(candidate.path);
+        while (!Directory(directory).existsSync()) {
+          directory = path.dirname(directory);
+        }
+        if (mode == PermissionMode.readOnly &&
+            (candidate.write || !authorized.readOnly)) {
+          return const CommandRefused(
+              'Read-only mode blocks write access and writable retries.');
+        }
+        final retryAccess = plan!.resolveDirectoryAccess(
+            read: [...directoryAccess.read, if (!candidate.write) directory],
+            write: [...directoryAccess.write, if (candidate.write) directory],
+            cwd: request.workingDirectory ?? plan!.workspaceRoot,
+            linux: _linux);
+        outcome = await inner.run(spawned,
+            control: authorized.copyWith(approvedDirectories: retryAccess));
       }
     }
     return _completed(outcome, reason);
@@ -591,10 +675,13 @@ final class SandboxedProcessRunner implements ProcessRunner {
       (writable ? write : read).add(directory);
     }
 
-    final confined = inner is! OsSandboxRunner ||
-        ((inner as OsSandboxRunner).enabled &&
-            (inner as OsSandboxRunner).backend != SandboxBackend.passThrough);
+    final confined = inner is ConfinedProcessRunner &&
+        (inner as ConfinedProcessRunner).confinesFilesystem;
     if (infer && confined) {
+      if (!sandboxPathUnder(canonicalSandboxPath(cwd),
+          canonicalSandboxPath(plan.workspaceRoot))) {
+        add(canonicalSandboxPath(cwd), false);
+      }
       if (commandWorkflow(request, plan.workspaceRoot) != null) {
         try {
           final executable = resolveHostExecutable(
@@ -676,9 +763,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
 /// The command × mode table: the whole rule, as built. Pure — a request in,
 /// a verdict out — so its tests are headless by construction.
 ///
-/// A session grant checked first short-circuits an ask: a command line
-/// remembered by a [CommandGrants] pattern runs in any mode without asking
-/// again.
+/// Compatibility adapter for callers with a structured command. The same
+/// resolver applies the mode ceiling before explicit grants.
 CommandDecision decideCommand(
   ProcessRequest request,
   PermissionMode mode, {
@@ -686,55 +772,37 @@ CommandDecision decideCommand(
   required bool networkOff,
   CommandGrants? grants,
   bool certifiedReadOnly = false,
+  bool confined = true,
+  bool? readOnlyProfile,
 }) {
-  // yolo allows every command — outside session, shell strings, and network
-  // or unconfined requests — without asking.
-  if (mode == PermissionMode.yolo) {
-    return (
-      verdict: ToolVerdict.allow,
-      reason: 'yolo mode: permission checks disabled',
-    );
-  }
-  if (grants?.coversRequest(request) == true) {
-    return (
-      verdict: ToolVerdict.allow,
-      reason: commandReason(CommandRule.sessionGrant, request),
-    );
-  }
-  if (mode == PermissionMode.readOnly) {
-    return (
-      verdict: certifiedReadOnly ? ToolVerdict.allow : ToolVerdict.ask,
-      reason: commandReason(
-          certifiedReadOnly ? CommandRule.readOnlyReader : CommandRule.readOnly,
-          request)
-    );
-  }
-  if (certifiedReadOnly) {
-    return (
-      verdict: ToolVerdict.allow,
-      reason: commandReason(CommandRule.readOnlyReader, request)
-    );
-  }
-  // A single unbreakable string (`sh -c <string>`, the bash-tool shape) can
-  // redirect, read, or reach the network without anything in argv saying so,
-  // so it is never certified by the writable directories — it asks, the way every
-  // unprovable command does. Literal argv keeps the quiet path.
-  if (argumentsCollapsed(request)) {
-    return (
-      verdict: ToolVerdict.ask,
-      reason: commandReason(CommandRule.shellString, request),
-    );
-  }
-  if (writableDirectories.covers(request) &&
-      !(networkOff && needsNetwork(request))) {
-    return (
-      verdict: ToolVerdict.ask,
-      reason: commandReason(CommandRule.permissionMode, request)
-    );
-  }
+  final readOnly = readOnlyProfile ?? certifiedReadOnly;
+  final resolution = resolveAuthorization(
+      AuthorizationRequest(
+          readOnlyExecution: readOnly,
+          confined: confined,
+          requirements: [
+            AccessRequirement(AccessCapability.execute, request.command,
+                workspace: true,
+                granted: grants?.coversRequest(request) == true ||
+                    certifiedReadOnly && !readOnly),
+            if (!readOnly)
+              AccessRequirement(
+                  AccessCapability.write, request.workingDirectory ?? '.',
+                  workspace: true,
+                  granted: grants?.coversRequest(request,
+                          permission: ProcessPermission.workspaceWrite) ==
+                      true),
+          ]),
+      mode);
   return (
-    verdict: ToolVerdict.ask,
-    reason: commandReason(CommandRule.outsideSession, request),
+    verdict: switch (resolution.route) {
+      AuthorizationRoute.allow => ToolVerdict.allow,
+      AuthorizationRoute.deny => ToolVerdict.deny,
+      AuthorizationRoute.human || AuthorizationRoute.review => ToolVerdict.ask,
+    },
+    reason: resolution.route == AuthorizationRoute.allow && readOnly
+        ? 'permitted read: enforced read-only execution'
+        : resolution.reason
   );
 }
 

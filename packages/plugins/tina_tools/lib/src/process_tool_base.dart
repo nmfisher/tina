@@ -32,6 +32,7 @@ abstract class ProcessToolBase implements Tool {
   /// Run one request and shape the outcome for the model.
   Future<ToolResult> runRequest(ProcessRequest request,
       {ProcessControl? control, Map<String, dynamic> input = const {}}) async {
+    bool? readOnly;
     bool network;
     bool background;
     bool outsideSandbox;
@@ -40,6 +41,13 @@ abstract class ProcessToolBase implements Tool {
     List<String> readDirectories;
     List<String> writeDirectories;
     try {
+      final access = input['access'];
+      if (access != null &&
+          !{'read-only', 'workspace-write'}.contains(access)) {
+        throw const ToolValidationException(
+            'access must be read-only or workspace-write');
+      }
+      readOnly = access == null ? null : access == 'read-only';
       network = optionalBool(input, 'network') ?? false;
       background = optionalBool(input, 'background') ?? false;
       if (input.containsKey('outside_sandbox') &&
@@ -76,6 +84,7 @@ abstract class ProcessToolBase implements Tool {
     }
     // Declare requirements; the runner reviews the whole invocation once.
     control = (control ?? const ProcessControl()).copyWith(
+      readOnlyRequested: readOnly,
       networkRequested: network,
       networkReason: reason,
       networkAllowed: false,

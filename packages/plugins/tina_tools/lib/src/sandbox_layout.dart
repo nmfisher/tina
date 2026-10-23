@@ -25,17 +25,25 @@ import 'sandbox_home.dart';
 /// sandbox exists to keep a command away from the user's home and the rest
 /// of the host, and `$HOME` is where the credentials live.
 const List<String> kSandboxReadOnlyBinds = <String>[
-  '/usr',
+  '/usr/bin',
+  '/usr/lib',
+  '/usr/libexec',
+  '/usr/share',
+  '/usr/include',
   '/bin',
   '/sbin',
   '/lib',
   '/lib64',
-  '/etc',
-  '/opt',
+  '/etc/ssl',
+  '/etc/pki',
+  '/etc/hosts',
+  '/etc/nsswitch.conf',
+  '/etc/ld.so.cache',
+  '/etc/localtime',
 ];
 
-/// The temp directories a sandboxed command may write: its scratch space.
-/// Resolved against [Platform.environment] so `TMPDIR` wins where set.
+/// Legacy host temp discovery, used for explicitly approved host execution.
+/// Confined commands use SandboxHome's private scratch directory instead.
 List<String> defaultSandboxTempDirs([Map<String, String>? environment]) {
   final tmp = sandboxTempDirectory(environment ?? Platform.environment);
   return {tmp, '/tmp', '/var/tmp'}.toList();
@@ -109,8 +117,8 @@ class SandboxHostLayout {
       // access to all of /run to guess at a missing dependency.
     }
     return SandboxHostLayout(
-      readOnlyDirectories:
-          readOnlyDirectories.where((d) => Directory(d).existsSync()),
+      readOnlyDirectories: readOnlyDirectories.where(
+          (d) => FileSystemEntity.typeSync(d) != FileSystemEntityType.notFound),
       temporaryDirectories: temporaryDirectories,
       resolverTarget: resolver,
     );
@@ -159,6 +167,9 @@ List<String> buildBwrapArguments({
   // creates destination parents without exposing their host contents.
   if (host.resolverTarget case final String resolver) {
     bind(resolver, resolver, readOnly: true);
+    if (resolver != '/etc/resolv.conf') {
+      bind(resolver, '/etc/resolv.conf', readOnly: true);
+    }
   }
   for (final dir in host.temporaryDirectories) {
     bind(dir, dir);
@@ -267,6 +278,8 @@ String buildSeatbeltProfile({
   Iterable<String> readOnlyPaths = const [],
   Iterable<String> outputDirectories = const [],
   String? hidePath,
+  bool restrictReads = false,
+  Iterable<String> runtimeReadPaths = const [],
   Iterable<String> readAllowPaths = const [],
   Iterable<String> deniedWritePaths = const [],
   Iterable<String> deniedPaths = const [],
@@ -278,6 +291,39 @@ String buildSeatbeltProfile({
   // Programs such as git open /dev/null for output redirection. Grant only
   // data writes to that device, not metadata changes or access to all /dev.
   sb.write('(allow file-write-data (literal "/dev/null"))\n');
+  if (restrictReads) {
+    sb.write('(deny file-read*)\n');
+    // dyld opens the namespace root while resolving its shared cache.
+    sb.write('(allow file-read* (literal "/"))\n');
+    for (final runtimeLink in [
+      '/private/var/select',
+      '/var/select',
+      '/private/var/select/sh',
+      '/private/var/select/developer_dir',
+      '/var/select/developer_dir',
+      '/private/var/db/xcode_select_link',
+      '/var/db/xcode_select_link'
+    ]) {
+      for (final linkPath in {runtimeLink, ..._ancestors(runtimeLink)}) {
+        sb.write('(allow file-read* (literal "$linkPath"))\n');
+      }
+    }
+    final readable = {
+      ...runtimeReadPaths,
+      ...readAllowPaths,
+      ...readOnlyPaths,
+      ...writablePaths
+    };
+    for (final directory in {
+      for (final value in readable) ..._ancestors(value)
+    }) {
+      sb.write(
+          '(allow file-read* (literal "${_escapeProfilePath(directory)}"))\n');
+    }
+    for (final path in readable) {
+      sb.write('(allow file-read* (subpath "${_escapeProfilePath(path)}"))\n');
+    }
+  }
   if (hidePath != null) {
     sb.write('(deny file-read* (subpath "${_escapeProfilePath(hidePath)}"))\n');
     for (final path in readAllowPaths) {
@@ -305,3 +351,13 @@ String buildSeatbeltProfile({
 
 String _escapeProfilePath(String s) =>
     s.replaceAll('\\', r'\\').replaceAll('"', r'\"');
+
+Iterable<String> _ancestors(String value) sync* {
+  var current = path.dirname(path.normalize(value));
+  while (true) {
+    yield current;
+    final next = path.dirname(current);
+    if (next == current) return;
+    current = next;
+  }
+}

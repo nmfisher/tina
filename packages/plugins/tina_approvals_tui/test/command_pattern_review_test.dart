@@ -46,12 +46,12 @@ void main() {
     final dialog = ApprovalDialog(null,
         ask: ApprovalAskContext('run command', command, 'execution approval',
             details: request.details));
-    final outcome = await dialog
-        .awaitDecision(ScriptedKeySource([ApprovalKey.editCommandPattern]));
+    final outcome = await dialog.awaitDecision(ScriptedKeySource(
+        [ApprovalKey.always, ApprovalKey.editCommandPattern]));
     expect(outcome.editCommandPattern, true);
     expect(outcome.commandPattern, isNull);
     expect(dialog.rows().map((r) => r.runs.map((v) => v.text).join()).join(),
-        contains('[e] always approve with editable regex'));
+        contains('[e] Approve with an editable regex'));
   });
 
   test(

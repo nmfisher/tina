@@ -187,18 +187,18 @@ void main() {
   group('SandboxPlan — the one place layout and gate agree', () {
     test(
         'writableLayout is exactly what the gate should take: root, '
-        'grants, temp space — deduplicated', () {
+        'grants and private scratch — deduplicated', () {
       final plan = SandboxPlan(
         workspaceRoot: '/w',
         writablePaths: ['/shared', '/w'],
       );
-      expect(plan.writableLayout(),
-          <String>{'/w', '/shared', ...defaultSandboxTempDirs()}.toList());
+      expect(plan.writableLayout(), ['/w', '/shared']);
     });
 
     test('mountedLayout adds the read-only system directories and tinaDir', () {
       final plan = SandboxPlan(workspaceRoot: '/w', tinaDir: '/t');
-      expect(plan.mountedLayout(), containsAll(['/w', '/usr', '/etc', '/t']));
+      expect(plan.mountedLayout(),
+          containsAll(['/w', '/usr/bin', '/usr/lib', '/t']));
     });
 
     test('the default child environment carries no inherited values', () {

@@ -75,21 +75,20 @@ void main() {
     expect(first.content, contains(ws.resolveSymbolicLinksSync()));
     plugin.mode = PermissionMode.readOnly;
     final second = await exec.execute({'program': '/bin/pwd'});
-    expect(second.isError, false,
-        reason: 'explicit approval works in read-only');
-    expect(second.content, contains(ws.resolveSymbolicLinksSync()));
+    expect(second.isError, true,
+        reason: 'read-only execution needs confinement');
+    expect(second.content, contains('read-only mode'));
     expect(plugin.mode, PermissionMode.readOnly);
   });
 
-  test('read-only tools run direct system ls and grep but still review edits',
-      () async {
+  test('read-only tools run system readers and block edits', () async {
     final source = File('${ws.path}/mesh.py')
       ..writeAsStringSync('head_neck_from_cage = True\n');
     final plugin = ToolsPlugin(
         workspaceRoot: ws.path,
         tinaDir: tina,
         mode: PermissionMode.readOnly,
-        osSandbox: false);
+        osSandbox: true);
     addTearDown(plugin.closeSession);
     var asks = 0;
     plugin.processRunner.commandApprover = (_, __) async {
@@ -115,7 +114,7 @@ void main() {
       'args': ['-i', 's/True/False/', source.path]
     });
     expect(edited.isError, true);
-    expect(asks, 1);
+    expect(asks, 0);
     expect(source.readAsStringSync(), 'head_neck_from_cage = True\n');
     expect(plugin.mode, PermissionMode.readOnly);
   });

@@ -17,7 +17,9 @@ CommandCompleted _completed({
 
 /// An inner runner that records what it was handed and replays scripted
 /// outcomes — the seam the layer-order test reads.
-class ScriptedRunner implements ProcessRunner {
+class ScriptedRunner implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   final List<RunOutcome> outcomes;
   final List<ProcessRequest> starts = [];
   int calls = 0;
@@ -63,10 +65,9 @@ void main() {
             profile, contains('(deny file-write* (subpath "/tmp/project"))'));
         expect(profile, contains('(deny file-write* (subpath "/tmp/cache"))'));
         expect(
-            profile.indexOf(
-                '(allow file-write* (subpath "/tmp/project/reports"))'),
-            greaterThan(profile
-                .indexOf('(deny file-write* (subpath "/tmp/project"))')));
+            profile,
+            isNot(contains(
+                '(allow file-write* (subpath "/tmp/project/reports"))')));
       } else {
         final mounts = [
           for (var index = 0; index < arguments.length - 2; index++)
@@ -79,8 +80,8 @@ void main() {
             contains(equals(['--ro-bind', '/tmp/cache', '/tmp/cache'])));
         expect(
             mounts,
-            contains(equals(
-                ['--bind', '/tmp/project/reports', '/tmp/project/reports'])));
+            isNot(contains(equals(
+                ['--bind', '/tmp/project/reports', '/tmp/project/reports']))));
         expect(
             mounts,
             isNot(

@@ -309,8 +309,8 @@ Future<int> runCli(
 
     if (yolo) {
       stderr.writeln(
-        '⚠️  yolo mode: every permission and approval check is DISABLED. '
-        'The model can read, write and run commands anywhere. '
+        '⚠️  yolo mode: requested capabilities are authorized for this launch. '
+        'Explicit Yes/No confirmations still require your answer. '
         '${osSandbox ? "OS sandbox is still active; add --no-sandbox to lift it too." : "OS sandbox is off (--no-sandbox)."}\n',
       );
     }

@@ -67,7 +67,6 @@ class McpPlugin extends AgentPlugin {
   final _servers = <String, _Server>{};
   final _schemas = <ToolSchema>[];
   final _bindings = <String, ({_Server server, String method, String tool})>{};
-  final _grants = <String>{};
   final _status = <String, String>{};
   Map<String, String> get serverStatus => Map.unmodifiable(_status);
 
@@ -122,7 +121,6 @@ class McpPlugin extends AgentPlugin {
         _servers.remove(name);
         await server.client.close();
         if (abandoned()) return;
-        _grants.removeWhere((grant) => grant.startsWith('$name\n'));
       }
     }
     for (final config in configs) {
@@ -131,6 +129,23 @@ class McpPlugin extends AgentPlugin {
       var server = _servers[config.name];
       try {
         if (server == null) {
+          final decision = await approve(
+              operation: 'connect MCP server',
+              target: config.name,
+              reason:
+                  'Connect this external MCP server? Local servers run with host privileges.',
+              context: {
+                'permission_scope': 'mcp',
+                'mcp_server': config.name,
+                'authorization_identity':
+                    'connect:${config.name}:${config.fingerprint}',
+                'mcp_method': 'connect',
+              });
+          if (abandoned()) return;
+          if (decision == ApprovalDecision.deny) {
+            _setStatus(config.name, 'Connection denied');
+            continue;
+          }
           _setStatus(config.name, 'Connecting');
           final transport = await connect(config, workingDirectory);
           connecting = McpClient(transport,
@@ -337,13 +352,14 @@ class McpPlugin extends AgentPlugin {
             : value;
     final grant =
         '${server.config.name}\n${server.config.fingerprint}\n${binding.method}\n${binding.tool}\n${jsonEncode(canonical(params))}';
-    if (!_grants.contains(grant)) {
+    {
       final decision = await approve(
           operation: 'use MCP tool',
           target: '${server.config.name}: ${binding.tool}',
           reason: 'Allow this call on the configured MCP server?',
           context: {
             'workspace': workingDirectory,
+            'authorization_identity': grant,
             'mcp_server': server.config.name,
             'mcp_method': binding.method,
             'mcp_tool': binding.tool,
@@ -366,7 +382,6 @@ class McpPlugin extends AgentPlugin {
           decision == ApprovalDecision.deny) {
         return ToolResult.error('MCP call denied or cancelled');
       }
-      if (decision == ApprovalDecision.allowAlways) _grants.add(grant);
     }
     try {
       final result = await server.client.request(
@@ -386,7 +401,6 @@ class McpPlugin extends AgentPlugin {
   Future<void> shutdown() => _closing ??= _shutdown();
   Future<void> _shutdown() async {
     _closed = true;
-    _grants.clear();
     final servers = _servers.values.toList();
     _servers.clear();
     for (final server in servers) {

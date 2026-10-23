@@ -23,6 +23,7 @@ import 'package:path/path.dart' as path;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina_settings/tina_settings.dart';
+import 'package:tina_approvals/tina_approvals.dart';
 
 abstract interface class ToolSessionSource implements ModePolicySource {
   PermissionMode get mode;
@@ -97,6 +98,7 @@ final class ToolsPlugin extends AgentPlugin
         permits: osPlan.canWrite);
     sandbox.writeDirectories = writeDirectories;
     sandbox.protectedPath = osPlan.isProtected;
+    sandbox.policyRevision = () => this.modePolicy.revision;
     final osRunner = OsSandboxRunner(
       inner: const IoProcessRunner(),
       plan: osPlan,
@@ -104,9 +106,7 @@ final class ToolsPlugin extends AgentPlugin
       unavailableBehaviour: osUnavailable,
     );
     sandbox.readablePath = (target) =>
-        osPlan.canRead(target,
-            backend:
-                osSandbox ? osRunner.backend : SandboxBackend.passThrough) ||
+        osPlan.canRead(target) ||
         settings?.read(allowReadsOutsideWorkspaceSetting).value == true;
     processRunner = SandboxedProcessRunner(
       inner: osRunner,
@@ -125,12 +125,17 @@ final class ToolsPlugin extends AgentPlugin
             sandbox.mode == PermissionMode.allowEdits ||
             writeDirectories.allows(target));
     processRunner.persistentPermission = (request, permission, directories) =>
+        (permission == ProcessPermission.directoryAccess &&
+            directories.read.isNotEmpty &&
+            directories.write.isEmpty &&
+            settings?.read(allowReadsOutsideWorkspaceSetting).value == true) ||
         commandApprovals.covers(request, {permission},
             directoryAccess: permission == ProcessPermission.directoryAccess
                 ? directories
                 : const ProcessDirectoryAccess.empty());
     processJobs = ProcessJobs(processRunner);
     this.modePolicy.listen((value) {
+      if (sandbox.mode != value) processJobs.cancelAll(runningOnly: true);
       sandbox.mode = value;
       processRunner.mode = value;
     });
@@ -192,6 +197,17 @@ final class ToolsPlugin extends AgentPlugin
         writable.replace(osPlan.writableLayout());
       }, fireImmediately: true);
     }
+    this.modePolicy.hasAccessGrant = commandApprovals.coversAccess;
+    this.modePolicy.saveAccessGrant =
+        (capability, target, decision) => commandApprovals.rememberAccess(
+            capability,
+            target,
+            switch (decision) {
+              ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
+              ApprovalDecision.allowGlobal => CommandApprovalScope.global,
+              _ => CommandApprovalScope.session,
+            });
+    this.modePolicy.persistentAccessGrants = commandApprovals.file != null;
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
         sandboxDescription: osRunner.describeEnvironment);
@@ -439,16 +455,10 @@ final class ToolsPlugin extends AgentPlugin
           'Command execution still follows the current mode.');
     }
     if (readDirectories.paths.isNotEmpty) {
-      c.promptSections.add('User-configured read-only directories: '
-          '${readDirectories.paths.join(', ')}. Use dedicated file tools or '
-          'exec with ls, grep, cat, head, tail, read-only git subcommands or '
-          'print-only sed (-n with address-and-print commands) and literal '
-          'arguments to read '
-          'these directories without repeated execution approval. These '
-          'directories do not grant writes. A single literal reader command '
-          'also works through bash. Verified reader pipelines and sequences '
-          'run in every mode. File output needs an already-writable directory. '
-          'Unsupported scripts and expansions still need approval.');
+      c.promptSections.add('User-approved read-only directories: '
+          '${readDirectories.paths.join(', ')}. File tools and commands using '
+          'access: "read-only" may inspect these directories without repeated '
+          'read approval. These grants never authorize writes, network or host execution.');
     }
   }
 }
@@ -469,17 +479,17 @@ final class HostPromptSection {
       'Working directory: $workingDirectory. Mode: ${mode.label} — '
       '${switch (mode) {
         PermissionMode.ask =>
-          'reads and permitted reader commands run; writes and other commands require approval',
+          'workspace reads and enforced read-only commands or scripts run freely; workspace mutations require human approval; external access requires human approval',
         PermissionMode.readOnly =>
-          'reads and verified system reader commands, pipelines and sequences run; '
-              'writes and other commands require explicit user approval',
+          'freely inspect, search and analyze anything inside the workspace using file tools, arbitrary commands or scripts; '
+              'workspace and external mutations are blocked, including remembered write grants; '
+              'execution uses an enforced read-only workspace profile; external reads and network require explicit human approval',
         PermissionMode.allowEdits =>
-          'project edits and verified system reader commands, pipelines and sequences run; '
-              'other commands and outside writes require approval',
+          'workspace reads, edits and confined commands or scripts run freely; external access requires explicit human approval',
         PermissionMode.auto =>
-          'reads and verified system reader commands run; a safety judge reviews writes, other commands and additional directory access; uncertain decisions ask the user',
+          'workspace reads and enforced read-only commands or scripts run freely; a safety judge reviews workspace mutations; external access requires explicit human approval',
         PermissionMode.yolo =>
-          'every permission and approval check is disabled (yolo mode)',
+          'requested capabilities are authorized by the yolo launch preset; configured OS confinement, protected paths and explicit Yes/No confirmations still apply',
       }}.\n\n'
       '${sandboxDescription?.call() ?? ''}\n\n'
       'Ordinary command approval does not change the OS confinement described '
@@ -492,7 +502,7 @@ final class HostPromptSection {
       'Known reader operands and simple touch/mkdir targets are gathered '
       'before review. Human folder grants can be remembered for the session, '
       'workspace or globally and reused by later commands and file tools. '
-      'Sandboxed commands use a synthetic HOME with selected writable caches. '
+      'Sandboxed commands use a private HOME and private TMPDIR. Host caches are shared only when explicitly configured. '
       'Host credential files and authentication configuration are excluded. '
       'When host authentication is required, request outside_sandbox: true '
       'with sandbox_reason immediately: for example git push over SSH, ssh '
@@ -511,30 +521,17 @@ final class HostPromptSection {
       'working directory. Host exceptions stay separate and exact. '
       'Do not retry unchanged or switch shells '
       'as a workaround. Respect denied or cancelled approvals.\n\n'
-      'Prefer dedicated file tools for listing, reading, searching paths and '
-      'editing. Edit existing files with edit and create or replace files '
-      'with write whenever possible. Use Python scripts, sed, or other '
-      'command-based file patches only when the dedicated file tools cannot '
-      'perform the required change. When a command is needed, use exec to '
-      'run programs such as ls, grep and find directly with literal arguments. '
-      'Read-only git subcommands (status, diff, log, show, list-form branch '
-      'and tag) and print-only sed (-n with address-and-print scripts like '
-      "180,215p), rg, wc, stat, checksums and constrained find are permitted readers in every mode; "
-      'other git operations and sed edits still need approval. '
-      'Use working_directory on exec or bash to select the invocation directory '
-      'instead of commands such as cd some_dir && ls. Relative directories '
-      'resolve from the session working directory; each override applies only '
-      'to that call. Avoid bash '
-      'and sh wrappers whenever possible; do not use exec to invoke sh -c '
-      'or bash -c as a workaround. Use bash only when shell features such as '
-      'pipes, redirects or expansions are actually required. Exec passes options '
-      'and subcommands unchanged; it does not perform shell quoting or expansion. '
-      'For commands requiring network access, set network: true and network_reason '
-      'on exec or bash. Execution and network are reviewed together under the '
-      'current permission mode. Network permission applies to the entire '
-      'subprocess tree; when OS confinement is enabled the filesystem sandbox '
-      'stays active unless outside_sandbox was also explicitly approved. Retrying '
-      'reruns the entire command; do not claim the user must run it manually.\n\n'
+      'Use access: "read-only" on exec/bash for inspection and analysis with arbitrary '
+      'commands or scripts. The OS sandbox blocks mutations; no command allowlist is required. '
+      'Use access: "workspace-write" when a command must create, modify, rename or delete '
+      'workspace files. Read-only mode refuses that profile. Other modes resolve it through '
+      'the shared permission policy. Prefer dedicated file tools for ordinary edits. '
+      'Access to paths outside the workspace, including reads through symlinks, requires an '
+      'explicit human grant. Name read_directories or write_directories on the invocation. '
+      'Network also requires an explicit human grant: set network: true and network_reason. '
+      'Use working_directory to select the invocation directory. exec passes literal arguments; '
+      'bash supports shell syntax. Changing syntax never changes the access policy. '
+      'A blocked command may have partially run; an approved retry reruns the entire command.\n\n'
       'For long builds, servers and polling loops, set background: true on '
       'exec or bash, and set an appropriate timeout in seconds (default 600). '
       'This returns a job ID after approval and startup so you can handle other '

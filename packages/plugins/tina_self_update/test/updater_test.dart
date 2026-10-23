@@ -606,15 +606,12 @@ class _Approvals implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)?
           onDirectoryGrants}) async {
-    expect(
-        kind,
-        operation == 'Restart tina?'
-            ? ApprovalKind.confirmation
-            : ApprovalKind.permission);
+    expect(kind, ApprovalKind.confirmation);
     return answer(operation, target);
   }
 }

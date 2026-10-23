@@ -25,7 +25,13 @@ typedef ProcessRequest = ({
 
 /// Permissions for a process invocation. Network opens access for the entire
 /// subprocess tree; it does not relax filesystem confinement.
-enum ProcessPermission { execution, network, unconfined, directoryAccess }
+enum ProcessPermission {
+  execution,
+  network,
+  unconfined,
+  directoryAccess,
+  workspaceWrite
+}
 
 /// What happened: the command ran to completion ([CommandCompleted]), the
 /// permission boundary refused it before a process existed
@@ -102,6 +108,11 @@ abstract class ProcessRunner {
   Future<RunOutcome> run(ProcessRequest request, {ProcessControl? control});
 }
 
+/// An execution backend that can enforce per-invocation filesystem profiles.
+abstract interface class ConfinedProcessRunner implements ProcessRunner {
+  bool get confinesFilesystem;
+}
+
 /// Requirements, cancellation and output for one invocation. The permission
 /// boundary sets authorization; wrappers preserve the other fields.
 /// No loop or terminal dependency.
@@ -118,6 +129,7 @@ final class ProcessControl {
       this.writeDirectories = const [],
       this.approvedDirectories,
       this.readOnly = false,
+      this.readOnlyRequested,
       this.outputDirectories = const [],
       this.isCancelled,
       this.whenCancelled,
@@ -147,6 +159,7 @@ final class ProcessControl {
   final List<String> writeDirectories;
   final ProcessDirectoryAccess? approvedDirectories;
   final bool readOnly;
+  final bool? readOnlyRequested;
   final List<String> outputDirectories;
   final bool Function()? isCancelled;
   final Future<void>? whenCancelled;
@@ -169,6 +182,7 @@ final class ProcessControl {
     List<String>? writeDirectories,
     ProcessDirectoryAccess? approvedDirectories,
     bool? readOnly,
+    bool? readOnlyRequested,
     List<String>? outputDirectories,
     bool clearDirectoryApproval = false,
     bool? background,
@@ -191,6 +205,7 @@ final class ProcessControl {
             ? null
             : approvedDirectories ?? this.approvedDirectories,
         readOnly: readOnly ?? this.readOnly,
+        readOnlyRequested: readOnlyRequested ?? this.readOnlyRequested,
         outputDirectories: outputDirectories ?? this.outputDirectories,
         isCancelled: isCancelled,
         whenCancelled: whenCancelled,

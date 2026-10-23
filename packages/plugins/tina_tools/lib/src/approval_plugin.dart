@@ -113,6 +113,9 @@ Approval _answer(ApprovalDecision decision, String reason) =>
 /// Connect enforcement boundaries to the shared mode policy.
 void attachModePolicy(ToolsPlugin plugin) {
   plugin.sandbox.approver = (request, reason) async {
+    if (request.op == FileOp.write && plugin.mode == PermissionMode.readOnly) {
+      reason = 'read-only mode blocks writes. Change mode to edit.';
+    }
     final readDirectory = request.op == FileOp.read
         ? Directory(request.path).existsSync()
             ? request.path
@@ -139,6 +142,29 @@ void attachModePolicy(ToolsPlugin plugin) {
         complete: true,
         persistent: plugin.settings != null);
     final decision = await plugin.modePolicy.request(
+      authorization: AuthorizationRequest(requirements: [
+        AccessRequirement(
+            request.op == FileOp.read
+                ? AccessCapability.read
+                : AccessCapability.write,
+            request.path,
+            workspace: sandboxPathUnder(
+                request.path, canonicalSandboxPath(plugin.workingDirectory)),
+            granted: request.op == FileOp.read
+                ? plugin.settings
+                            ?.read(allowReadsOutsideWorkspaceSetting)
+                            .value ==
+                        true ||
+                    plugin.readDirectories.allows(request.path) ||
+                    plugin.writeDirectories.allows(request.path) ||
+                    plugin.sandbox.readGrantsAllow(request.path) ||
+                    plugin.sandbox.grants.allows(request.path) ||
+                    plugin.commandApprovals.coversAccess('read', request.path)
+                : plugin.writeDirectories.allows(request.path) ||
+                    plugin.sandbox.grants.allows(request.path) ||
+                    plugin.commandApprovals
+                        .coversAccess('write', request.path)),
+      ]),
       operation: request.op.name,
       target: request.path,
       reason: reason,
@@ -150,12 +176,30 @@ void attachModePolicy(ToolsPlugin plugin) {
         'description':
             plugin.describeFileRequest(request.op.name, request.path).toJson(),
         'permission_scope': 'file',
+        'persistent_command_approval': plugin.commandApprovals.file != null,
+        'permission_scope_label': 'this file',
         if (readDirectory != null) 'read_directory': readDirectory,
         if (writeDirectory != null) 'write_directory': writeDirectory,
       },
     );
     if (!validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
       return Approval.no;
+    if ({
+      ApprovalDecision.allowAlways,
+      ApprovalDecision.allowWorkspace,
+      ApprovalDecision.allowGlobal
+    }.contains(decision)) {
+      plugin.commandApprovals.rememberAccess(
+          request.op.name,
+          request.path,
+          switch (decision) {
+            ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
+            ApprovalDecision.allowGlobal => CommandApprovalScope.global,
+            _ => CommandApprovalScope.session,
+          });
+      _saveDirectoryGrants(plugin, directoryGrants);
+      return Approval.yes;
+    }
     if (decision == ApprovalDecision.allowReadsAlways &&
         request.op == FileOp.read) {
       _saveDirectoryGrants(plugin, directoryGrants);
@@ -188,6 +232,7 @@ void attachModePolicy(ToolsPlugin plugin) {
     }
     return _answer(decision, reason);
   };
+  plugin.sandbox.authorization = plugin.sandbox.approver;
   plugin.processRunner.directoryApprover =
       (request, candidate, retry, isActive) async {
     if (!isActive() ||
@@ -215,6 +260,7 @@ void attachModePolicy(ToolsPlugin plugin) {
           ? ['session']
           : ['session', 'workspace', 'global'],
       'directory_grant_required': true,
+      'persistent_command_approval': plugin.settings != null,
       'accesses': [
         {
           'operation': access,
@@ -226,6 +272,12 @@ void attachModePolicy(ToolsPlugin plugin) {
       'access_coverage': 'partial',
     };
     final decision = await plugin.modePolicy.request(
+      authorization: AuthorizationRequest(requirements: [
+        AccessRequirement(
+            candidate.write ? AccessCapability.write : AccessCapability.read,
+            directory,
+            workspace: false),
+      ]),
       operation: 'Grant directory access',
       target: directory,
       humanOnly: true,
@@ -247,12 +299,17 @@ void attachModePolicy(ToolsPlugin plugin) {
       },
       onDirectoryGrants: (grants) => directoryGrants = grants,
     );
-    if (decision != ApprovalDecision.allow ||
+    if (!{
+          ApprovalDecision.allow,
+          ApprovalDecision.allowAlways,
+          ApprovalDecision.allowWorkspace,
+          ApprovalDecision.allowGlobal
+        }.contains(decision) ||
         !isActive() ||
-        directoryGrants.isEmpty ||
         !validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
       return false;
-    _saveDirectoryGrants(plugin, directoryGrants);
+    if (decision != ApprovalDecision.allow)
+      _saveDirectoryGrants(plugin, directoryGrants);
     return true;
   };
   plugin.processRunner.commandApprover = (request, review) async {
@@ -260,28 +317,7 @@ void attachModePolicy(ToolsPlugin plugin) {
         review.requiredPermissions.contains(ProcessPermission.network);
     final outsideSandbox =
         review.requiredPermissions.contains(ProcessPermission.unconfined);
-    // The standing "always permit reads" answer: when the user chose it at
-    // this scope, a read-only certified-reader ask — exactly the shape the
-    // dialog offered the choice on — runs without asking again. The shape
-    // test is strict: there must be inferred READ directory access (an ask
-    // with none — a bare write-shaped command, say — is not covered), no
-    // write access may be pending, execution must already be covered by a
-    // certified reader, and no network or host escape rides along.
-    // The kernel sandbox still enforces and protected paths stay excluded.
     final settings = plugin.settings;
-    final standingReads = settings != null &&
-        settings.read(allowReadsOutsideWorkspaceSetting).value &&
-        !network &&
-        !outsideSandbox &&
-        review.directoryAccess.read.isNotEmpty &&
-        review.directoryAccess.write.isEmpty &&
-        review.missingPermissions.every(
-            (permission) => permission == ProcessPermission.directoryAccess);
-    if (standingReads) return Approval.yes;
-    if (plugin.commandApprovals.covers(request, review.requiredPermissions,
-        directoryAccess: review.directoryAccess)) {
-      return Approval.yes;
-    }
     final description = describeCommandRequest(request);
     final readerRequest = literalShellRequest(request) ?? request;
     final readerCandidate = outsideSandbox || network
@@ -343,7 +379,7 @@ void attachModePolicy(ToolsPlugin plugin) {
       operation: 'run command',
       target: [request.command, ...request.arguments].join(' '),
       reason: review.reason,
-      humanOnly: outsideSandbox,
+      authorization: review.authorization,
       onCommandPattern: (pattern) => commandPattern = pattern,
       onDirectoryGrants: (grants) => directoryGrants = grants,
       prepareAccessReview: (judgment) => accessDetails = accessReview(judgment),

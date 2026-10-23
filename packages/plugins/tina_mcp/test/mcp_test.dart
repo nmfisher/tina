@@ -10,10 +10,11 @@ import 'package:tina_tools/tina_tools.dart';
 
 class Channel implements ApprovalChannel {
   int requests = 0;
+  ApprovalDecision Function(ApprovalRequest)? decide;
   @override
   Future<void> deliver(ApprovalTicket ticket) async {
     requests++;
-    ticket.respond(ApprovalDecision.allow);
+    ticket.respond(decide?.call(ticket.request) ?? ApprovalDecision.allow);
   }
 }
 
@@ -30,7 +31,8 @@ class SafetyProvider extends LlmProvider implements StructuredOutputProvider {
       {required String system,
       required List<Message> messages,
       required JsonOutputSchema output}) async* {
-    yield* Stream.fromIterable(scriptedReply('{"decision":"ALLOW","reason":""}'));
+    yield* Stream.fromIterable(
+        scriptedReply('{"decision":"ALLOW","reason":""}'));
   }
 }
 
@@ -163,7 +165,7 @@ void main() {
     final outcome =
         await loop.runTurn(const Input('take screenshot', id: 'one'));
     expect(outcome.stopReason, StopReason.complete);
-    expect(approvals.single['mcp_tool'], 'screenshot');
+    expect(approvals.last['mcp_tool'], 'screenshot');
     expect(provider.requests.first, hasLength(10));
     expect(results(outcome).single.images.single.data, 'aGVsbG8=');
     final replayed = loop.log.map((e) => SessionEntry.fromJson(e.toJson()));
@@ -185,10 +187,11 @@ void main() {
           workingDirectory: directory.path,
           readServers: () => servers,
           approve: (
-              {required operation,
-              required target,
-              required reason,
-              context = const {}}) async => ApprovalDecision.deny);
+                  {required operation,
+                  required target,
+                  required reason,
+                  context = const {}}) async =>
+              ApprovalDecision.deny);
       addTearDown(plugin.shutdown);
       final provider = CallingProvider(null);
       final loop = AgentLoop(provider: provider, plugins: [plugin]);
@@ -211,7 +214,8 @@ void main() {
     final unconnected = await section([
       McpServerConfig('fixture', {'command': '/nonexistent/tina-mcp-absent'})
     ]);
-    expect(unconnected, contains('no configured server is currently connected'));
+    expect(
+        unconnected, contains('no configured server is currently connected'));
   });
 
   test(
@@ -220,20 +224,31 @@ void main() {
     var answer = ApprovalDecision.deny;
     var count = 0;
     final provider = CallingProvider('mutate', input: {'value': 'a'});
+    final channel = Channel()
+      ..decide = (request) {
+        if (request.operation == 'connect MCP server')
+          return ApprovalDecision.allow;
+        count++;
+        return answer;
+      };
+    final approvals = ApprovalsPlugin(channel: channel);
+    final tools = ToolsPlugin(
+        workspaceRoot: directory.path,
+        tinaDir: Directory('${directory.path}/.tina'),
+        hostEnvironment: {'HOME': directory.path, 'PATH': '/usr/bin:/bin'});
+    tools.modePolicy.approvals = approvals;
+    addTearDown(() {
+      tools.closeSession();
+      approvals.closeSession();
+    });
     final plugin = McpPlugin(
         workingDirectory: directory.path,
         readServers: () => [config()],
-        approve: (
-            {required operation,
-            required target,
-            required reason,
-            context = const {}}) async {
-          count++;
-          return answer;
-        });
+        approve: tools.modePolicy.request);
     addTearDown(plugin.shutdown);
-    final loop = AgentLoop(provider: provider, plugins: [plugin]);
-    loop.mountPlugin(plugin);
+    final loop =
+        AgentLoop(provider: provider, plugins: [approvals, tools, plugin]);
+    for (final p in [approvals, tools, plugin]) loop.mountPlugin(p);
     final denied = await loop.runTurn(const Input('deny', id: 'one'));
     expect(results(denied).single.isError, true);
     expect(events().where((e) => e['method'] == 'tools/call'), isEmpty);
@@ -258,7 +273,12 @@ void main() {
     expect(count, 4);
     loop.removePlugin(plugin.id);
     await plugin.shutdown();
-    expect(loop.toolSchema(provider.requests.first.first.name), isNull);
+    expect(
+        loop.toolSchema(provider.requests.first
+            .firstWhere((tool) =>
+                tool.describe?.call({}).title.startsWith('fixture:') == true)
+            .name),
+        isNull);
   });
 
   test('cancellation sends notifications/cancelled and ignores a late response',
@@ -375,12 +395,12 @@ void main() {
     loop.mountPlugin(plugin);
     expect((await loop.runTurn(const Input('hello', id: 'one'))).stopReason,
         StopReason.complete);
-    expect(plugin.serverStatus, {'missing': 'Unavailable'});
+    expect(plugin.serverStatus, {'missing': 'Connection denied'});
     expect(provider.callCount, 1);
   });
 
   test(
-      'all manual modes ask for MCP calls; auto uses the existing safety judge',
+      'MCP calls require human approval in ordinary modes; read-only blocks mutations',
       () async {
     final channel = Channel();
     final approvals = ApprovalsPlugin(channel: channel);
@@ -409,7 +429,7 @@ void main() {
       provider.next('mutate', {'value': mode.label});
       final outcome = await loop.runTurn(Input('run', id: mode.label));
       expect(outcome.stopReason, StopReason.complete);
-      expect(results(outcome).single.isError, false);
+      expect(results(outcome).single.isError, mode == PermissionMode.readOnly);
     }
     expect(channel.requests, 3);
     tools.modePolicy.classifier = PermissionClassifier(() => SafetyProvider());
@@ -417,7 +437,8 @@ void main() {
     provider.next('mutate', {'value': 'auto'});
     final automatic = await loop.runTurn(const Input('run', id: 'auto'));
     expect(results(automatic).single.isError, false);
-    expect(channel.requests, 3, reason: 'allowed auto verdict must not prompt');
+    expect(channel.requests, 4,
+        reason: 'auto cannot authorize external MCP access');
   });
 
   test('server disable closes it and removes its schemas on the next turn',

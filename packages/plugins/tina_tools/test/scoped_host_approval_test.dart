@@ -292,6 +292,7 @@ final class _Approvals implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)?
@@ -303,7 +304,9 @@ final class _Approvals implements ApprovalRequester {
   }
 }
 
-class _PartialRunner implements ProcessRunner {
+class _PartialRunner implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   _PartialRunner(this.path);
   final String path;
   int calls = 0;

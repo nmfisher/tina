@@ -12,6 +12,7 @@ class Requests implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)?
@@ -92,7 +93,7 @@ void main() {
     final command = requests.requests.last['details'] as Map;
     expect(command['permission_scope'], 'command');
     expect(ToolDescription.fromJson(command['description'])!.title,
-        'Push Git changes');
+        'Push Git changes outside sandbox');
     expect(command['cwd'], workspace.path);
   });
 }

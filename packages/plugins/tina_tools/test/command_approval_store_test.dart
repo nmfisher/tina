@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:test/test.dart';
 import 'package:tina_tools/tina_tools.dart';
 
@@ -75,6 +76,35 @@ void main() {
     expect(first.entries, hasLength(2));
     expect(first.covers(request(), permissions), false);
     expect(first.covers(request(), {ProcessPermission.execution}), true);
+  });
+  test('read-only execution grants never widen into workspace-write', () {
+    final approvals = store();
+    approvals.remember(request(), {ProcessPermission.execution},
+        CommandApprovalScope.workspace);
+    expect(
+        store().covers(request(), {ProcessPermission.workspaceWrite}), false);
+    final legacy = jsonDecode(file.readAsStringSync()) as Map;
+    ((legacy['grants'] as List).single as Map).remove('profile_version');
+    file.writeAsStringSync(jsonEncode(legacy));
+    expect(store().covers(request(), {ProcessPermission.workspaceWrite}), true,
+        reason:
+            'legacy execution approval retains its original writable profile');
+  });
+  test('exact file and MCP access share scopes and live revocation', () {
+    final approvals = store();
+    approvals.rememberAccess('write', '/file', CommandApprovalScope.workspace);
+    approvals.rememberAccess(
+        'external', 'server/call', CommandApprovalScope.global);
+    expect(store().coversAccess('read', '/file'), true);
+    expect(store(other.path).coversAccess('write', '/file'), false);
+    expect(store(other.path).coversAccess('external', 'server/call'), true);
+    for (final entry in approvals.entries.toList()) {
+      approvals.revoke(entry['id'] as String);
+    }
+    expect(store().coversAccess('read', '/file'), false);
+    expect(store().coversAccess('external', 'server/call'), false);
+    file.writeAsStringSync('{broken');
+    expect(store().coversAccess('read', '/file'), false);
   });
   test('malformed persisted data cannot authorize a request', () {
     file.parent.createSync(recursive: true);

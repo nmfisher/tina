@@ -44,6 +44,7 @@ class Human implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String)? onCommandPattern,
       void Function(List<DirectoryAccessGrant>)? onDirectoryGrants}) async {
@@ -111,7 +112,7 @@ void main() {
     );
   }
 
-  test('macOS preflight permits external reads already allowed by Seatbelt',
+  test('external data reads require the same approval on macOS and Linux',
       () async {
     final tools = plugin();
     final human = Human()..answer = ApprovalDecision.deny;
@@ -119,7 +120,7 @@ void main() {
     final outsideHome = Directory('${root.path}/outside-home')..createSync();
     final plan = tools.osPlan;
     expect(plan.canRead(outsideHome.path, backend: SandboxBackend.sandboxExec),
-        true);
+        false);
     expect(
         plan.canRead(outsideHome.path, backend: SandboxBackend.bwrap), false);
     expect(plan.canRead(external.path, backend: SandboxBackend.sandboxExec),
@@ -128,13 +129,14 @@ void main() {
     expect(
         await gate(tools, spawn)
             .run(command(program: '/bin/ls', args: [outsideHome.path])),
-        isA<CommandCompleted>());
-    expect(human.details, isEmpty);
-    expect(spawn.requests, hasLength(1));
+        isA<CommandRefused>());
+    expect(human.details, hasLength(1));
+    expect(spawn.requests, isEmpty);
   });
 
   for (final backend in [SandboxBackend.sandboxExec, SandboxBackend.bwrap]) {
-    test('$backend applies automatic directory access only to this invocation',
+    test(
+        '$backend applies human-approved directory access only to this invocation',
         () async {
       final tools = plugin();
       final judge = Judge(const PermissionJudgment(true));
@@ -154,14 +156,14 @@ void main() {
             networkReason: 'dependencies',
           ));
       expect(outcome, isA<CommandCompleted>());
-      expect(judge.requests, hasLength(1));
-      expect(judge.requests.single['required_permissions'],
+      expect(judge.requests, isEmpty);
+      expect(human.details.single['required_permissions'],
           containsAll(['execution', 'network', 'directoryAccess']));
-      expect(judge.requests.single['invocation_directory_access'], {
+      expect(human.details.single['invocation_directory_access'], {
         'read': [other.path],
         'write': [external.path]
       });
-      expect(human.details, isEmpty);
+      expect(human.details, hasLength(1));
       expect(tools.readDirectories.paths, isEmpty);
       expect(tools.writeDirectories.paths, isEmpty);
       expect(
@@ -202,7 +204,7 @@ void main() {
 
   test('temporary read access never creates writable mounts', () async {
     final tools = plugin();
-    tools.modePolicy.classifier = Judge(const PermissionJudgment(true));
+    tools.modePolicy.approvals = Human();
     final spawn = Spawn();
     await gate(tools, spawn, backend: SandboxBackend.bwrap).run(command(),
         control: ProcessControl(readDirectories: [external.path]));
@@ -380,6 +382,7 @@ void main() {
   test('parallel invocation layouts never inherit each other\'s access',
       () async {
     final tools = plugin();
+    tools.modePolicy.approvals = Human();
     tools.modePolicy.classifier = Judge(const PermissionJudgment(true));
     final spawn = Spawn()..hold = Completer<void>();
     final runner = gate(tools, spawn);

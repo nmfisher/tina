@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_core/tina_core.dart';
@@ -9,90 +8,143 @@ import 'package:tina_approvals/tina_approvals.dart';
 void main() {
   String text(RenderLine row) => row.runs.map((run) => run.text).join();
 
-  test('recommended workspace workflow can save its SDK folders globally',
-      () async {
-    final dialog = ApprovalDialog(null,
-        ask: const ApprovalAskContext('run command', 'dart test', 'review',
-            details: {
-              'permission_scope': 'command',
-              'persistent_command_approval': true,
-              'recommended_scope': 'workspace',
-              'missing_permissions': ['execution', 'directoryAccess'],
-              'invocation_directory_access': {
-                'read': ['/sdk'],
-                'write': ['/sdk/cache']
-              },
-              'directory_accesses': [
-                {'path': '/sdk', 'access': 'read', 'source': 'verified'},
-                {'path': '/sdk/cache', 'access': 'write', 'source': 'verified'},
-              ],
-              'directory_grant_scopes': ['session', 'workspace', 'global'],
-            }));
-    expect(dialog.current.decision, ApprovalDecision.allowWorkspace);
-    expect(dialog.current.directoryGrants, isEmpty);
-    expect(dialog.scopeDecision(ApprovalKey.always)!.directoryGrants, isEmpty);
-    final once = await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.allow]));
-    expect(once.decision, ApprovalDecision.allow);
-    expect(once.directoryGrants, isEmpty);
-    final rows = dialog.rows(width: 120).map(text).join('\n');
-    expect(rows, isNot(contains('always permit reads')));
-    final result = await dialog.awaitDecision(ScriptedKeySource([
-      ApprovalKey.toggleReadDirectory,
-      ApprovalKey.toggleWriteDirectory,
-      ApprovalKey.directoryScope,
-      ApprovalKey.confirm,
-    ]));
-    expect(result.decision, ApprovalDecision.allowWorkspace);
-    expect(
-        result.directoryGrants
-            .every((grant) => grant.scope == DirectoryGrantScope.global),
-        isTrue);
-  });
+  ApprovalDialog scoped({bool requiredDirectories = false}) => ApprovalDialog(
+      null,
+      ask: ApprovalAskContext('run command', 'build', 'Needs external data',
+          details: {
+            'permission_scope': 'command',
+            'persistent_command_approval': true,
+            'recommended_scope': 'workspace',
+            'directory_grant_required': requiredDirectories,
+            'invocation_directory_access': {
+              'read': ['/sdk'],
+              'write': ['/sdk/cache']
+            },
+            'directory_accesses': [
+              {'path': '/sdk', 'access': 'read', 'source': 'verified'},
+              {'path': '/sdk/cache', 'access': 'write', 'source': 'verified'},
+              {'path': '/inferred', 'access': 'read', 'source': 'inferred'},
+            ],
+            'directory_grant_scopes': ['session', 'workspace', 'global'],
+          }));
 
   test(
-      'invocation access offers once and direct session/workspace folder choices',
+      'every permission starts with the same three choices and Allow once selected',
       () {
-    ApprovalDialog dialog() => ApprovalDialog(null,
-        ask: const ApprovalAskContext('run command', 'build', 'review',
-            details: {
-              'invocation_directory_access': {
-                'read': ['/input'],
-                'write': ['/output']
-              },
-              'directory_accesses': [
-                {'path': '/input', 'access': 'read', 'source': 'verified'},
-                {'path': '/output', 'access': 'write', 'source': 'verified'},
-                {'path': '/inferred', 'access': 'write', 'source': 'inferred'},
-              ],
-              'directory_grant_scopes': ['session', 'workspace', 'global'],
-            }));
-    final once = dialog();
-    expect(once.current.decision, ApprovalDecision.allow);
-    expect(once.current.directoryGrants, isEmpty);
-    final rows = once.rows(width: 120).map(text).join('\n');
-    expect(rows, contains('This invocation: read access to /input'));
-    expect(rows, contains('write access to /output (includes deletes)'));
-    expect(rows, contains('remember requested folders for this session'));
-    final session = dialog();
-    session.handleKey(ApprovalKey.down);
-    session.handleKey(ApprovalKey.down);
-    expect(session.current.decision, ApprovalDecision.allow);
-    expect(session.current.directoryGrants.map((g) => g.path),
-        ['/input', '/output']);
+    final dialog = scoped();
+    final shown = dialog.rows(width: 120).map(text).join('\n');
+    expect(shown, contains('❯ [y] allow once'));
+    expect(shown, contains('[a] Remember…'));
+    expect(shown, contains('[n] deny'));
+    expect(shown, isNot(contains('[p]')));
+    expect(shown, isNot(contains('[g]')));
+    expect(shown, isNot(contains('[x]')));
+    expect(dialog.current.decision, ApprovalDecision.allow);
+  });
+  test(
+      'Allow once never persists directory access, including recovery requests',
+      () async {
+    for (final required in [false, true]) {
+      final outcome = await scoped(requiredDirectories: required)
+          .awaitDecision(ScriptedKeySource([ApprovalKey.allow]));
+      expect(outcome.decision, ApprovalDecision.allow);
+      expect(outcome.directoryGrants, isEmpty);
+    }
+  });
+  test('Remember opens scopes without authorizing an operation', () async {
+    final dialog = scoped();
+    dialog.handleKey(ApprovalKey.always);
+    final shown = dialog.rows().map(text).join('\n');
+    expect(shown, contains('[p] Save this access for this workspace'));
+    expect(shown, contains('[g] Save this access globally'));
+    final outcome = await dialog.awaitDecision(ScriptedKeySource([
+      ApprovalKey.cancel,
+      ApprovalKey.deny,
+    ]));
+    expect(outcome.decision, ApprovalDecision.deny);
+    expect(outcome.directoryGrants, isEmpty);
+  });
+  for (final entry in {
+    ApprovalKey.always: (
+      ApprovalDecision.allowAlways,
+      DirectoryGrantScope.session
+    ),
+    ApprovalKey.workspace: (
+      ApprovalDecision.allowWorkspace,
+      DirectoryGrantScope.workspace
+    ),
+    ApprovalKey.global: (
+      ApprovalDecision.allowGlobal,
+      DirectoryGrantScope.global
+    ),
+  }.entries) {
+    test(
+        'Remember explicitly saves ${entry.value.$2.name} access and its requested folders',
+        () async {
+      final outcome = await scoped().awaitDecision(ScriptedKeySource([
+        ApprovalKey.always,
+        entry.key,
+      ]));
+      expect(outcome.decision, entry.value.$1);
+      expect(
+          outcome.directoryGrants.map((g) => g.path), ['/sdk', '/sdk/cache']);
+      expect(outcome.directoryGrants.every((g) => g.scope == entry.value.$2),
+          true);
+    });
+  }
+  test('inferred folders require an explicit selection inside Remember',
+      () async {
+    final dialog = scoped()..handleKey(ApprovalKey.always);
+    dialog.handleKey(ApprovalKey.down);
+    dialog.handleKey(ApprovalKey.down);
+    dialog.handleKey(ApprovalKey.down); // first directory
+    dialog.handleKey(ApprovalKey.down);
+    dialog.handleKey(ApprovalKey.down); // inferred directory
+    dialog.handleKey(ApprovalKey.toggleDirectory);
+    final outcome =
+        await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.always]));
+    expect(outcome.directoryGrants.map((g) => g.path),
+        ['/sdk', '/sdk/cache', '/inferred']);
+  });
+  test('a hidden persistent shortcut cannot authorize broader access',
+      () async {
+    final outcome = await scoped().awaitDecision(ScriptedKeySource([
+      ApprovalKey.workspace,
+      ApprovalKey.global,
+      ApprovalKey.cancel,
+    ]));
+    expect(outcome.decision, ApprovalDecision.deny);
+  });
+  test('directory shortcuts are inactive until Remember is open', () async {
+    final dialog = scoped();
+    expect(dialog.handleKey(ApprovalKey.toggleReadDirectory), false);
+    expect(dialog.handleKey(ApprovalKey.toggleWriteDirectory), false);
+    expect(dialog.handleKey(ApprovalKey.directoryScope), false);
+    final outcome =
+        await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.allow]));
+    expect(outcome.directoryGrants, isEmpty);
+  });
+  test('advanced folder scope can differ from the command scope', () async {
+    final outcome = await scoped().awaitDecision(ScriptedKeySource([
+      ApprovalKey.always,
+      ApprovalKey.directoryScope,
+      ApprovalKey.directoryScope,
+      ApprovalKey.workspace,
+    ]));
+    expect(outcome.decision, ApprovalDecision.allowWorkspace);
     expect(
-        session.current.directoryGrants
-            .every((g) => g.scope == DirectoryGrantScope.session),
+        outcome.directoryGrants
+            .every((grant) => grant.scope == DirectoryGrantScope.global),
         true);
-    session.handleKey(ApprovalKey.down);
-    expect(
-        session.current.directoryGrants
-            .every((g) => g.scope == DirectoryGrantScope.workspace),
-        true);
-    expect(session.current.directoryGrants.last.access, DirectoryAccess.write);
+  });
+  test(
+      'external read prompts never offer blanket access to other host directories',
+      () {
+    final dialog = scoped()..handleKey(ApprovalKey.always);
+    expect(dialog.rows().map(text).join('\n'),
+        isNot(contains('always permit reads')));
   });
 
-  // Coverage copy is a warning when knowledge is short, silent when the
-  // analysis is verified complete, and never analyst jargon.
   test('access coverage copy warns in plain language', () {
     String render(Map<String, Object?> details) => ApprovalDialog(null,
             ask: ApprovalAskContext('run command', 'cmd', 'review',
@@ -136,319 +188,6 @@ void main() {
           'access_coverage_source': 'verified'
         }),
         isNot(contains('coverage')));
-  });
-
-  test(
-      'attached approval view returns its selected directory scope through the service',
-      () async {
-    final channel = AttachmentApprovalChannel();
-    final service = ApprovalsPlugin(channel: channel);
-    final asker = QueuedDialogAsker();
-    addTearDown(channel.closeSession);
-    addTearDown(service.closeSession);
-    addTearDown(asker.close);
-    final unlisten = channel.interaction.listen((ticket) {
-      unawaited(asker.ask(ticket,
-          keys: ScriptedKeySource([
-            ApprovalKey.toggleReadDirectory,
-            ApprovalKey.directoryScope,
-            ApprovalKey.allow,
-          ])));
-    });
-    addTearDown(unlisten);
-    List<DirectoryAccessGrant>? selected;
-    expect(
-        await service.request(
-            operation: 'run command',
-            target: 'grep external',
-            reason: 'read',
-            details: {
-              'directory_accesses': [
-                {'path': '/external', 'access': 'read', 'source': 'inferred'}
-              ],
-              'directory_grant_scopes': ['session', 'workspace', 'global']
-            },
-            onDirectoryGrants: (grants) => selected = grants),
-        ApprovalDecision.allow);
-    expect(selected!.single.path, '/external');
-    expect(selected!.single.scope, DirectoryGrantScope.global);
-    expect(selected!.single.access, DirectoryAccess.read);
-  });
-
-  test(
-      'diagnosed directory access keeps scope selection without command Always',
-      () async {
-    final view = ApprovalDialog(null,
-        ask: const ApprovalAskContext(
-            'Grant directory access', '/other', 'Run with access?',
-            details: {
-              'directory_accesses': [
-                {'path': '/other', 'access': 'read', 'source': 'verified'}
-              ],
-              'directory_grant_scopes': ['session', 'workspace', 'global'],
-              'directory_grant_required': true,
-            }));
-    final rendered = view.rows().map(text).join('\n');
-    expect(rendered, contains('[x] Allow all reads'));
-    expect(rendered, isNot(contains('[a]')));
-    expect(rendered, contains('Save directory grants: workspace'));
-    final outcome =
-        await view.awaitDecision(ScriptedKeySource([ApprovalKey.allow]));
-    expect(outcome.decision, ApprovalDecision.allow);
-    expect(outcome.directoryGrants.single.scope, DirectoryGrantScope.workspace);
-  });
-
-  test('inferred accesses offer multiple grants with visible explicit scopes',
-      () async {
-    ApprovalDialog dialog() => ApprovalDialog(null,
-        ask: const ApprovalAskContext(
-            'run command', 'grep | head; rm old', 'review',
-            details: {
-              'accesses': [
-                {
-                  'operation': 'read',
-                  'path': '/library',
-                  'target_kind': 'directory',
-                  'source': 'inferred'
-                },
-                {
-                  'operation': 'delete',
-                  'path': '/output/old',
-                  'target_kind': 'file',
-                  'source': 'inferred'
-                },
-              ],
-              'access_coverage': 'partial',
-              'unresolved_accesses': ['Shell expansion is unresolved.'],
-              'directory_accesses': [
-                {'path': '/library', 'access': 'read', 'source': 'inferred'},
-                {'path': '/output', 'access': 'write', 'source': 'inferred'},
-              ],
-              'directory_grant_scopes': ['session', 'workspace', 'global'],
-            }));
-    final view = dialog();
-    final rendered = view.rows(width: 140).map(text).join('\n');
-    expect(rendered, contains('delete: /output/old (file, inferred)'));
-    expect(
-        rendered,
-        contains(
-            '⚠ File analysis incomplete: may affect files not listed above'));
-    expect(rendered, contains('Not analyzed: Shell expansion is unresolved.'));
-    expect(rendered, isNot(contains('Access coverage')));
-    expect(rendered, contains('Save directory grants: workspace'));
-    expect(rendered, contains('Allow all reads in /library (inferred)'));
-    final outcome = await view.awaitDecision(ScriptedKeySource([
-      ApprovalKey.toggleReadDirectory,
-      ApprovalKey.directoryScope,
-      ApprovalKey.allow,
-    ]));
-    expect(outcome.decision, ApprovalDecision.allow);
-    expect(outcome.directoryGrants.single.path, '/library');
-    expect(outcome.directoryGrants.single.access, DirectoryAccess.read);
-    expect(outcome.directoryGrants.single.scope, DirectoryGrantScope.global);
-    final denied = await dialog().awaitDecision(ScriptedKeySource([
-      ApprovalKey.toggleWriteDirectory,
-      ApprovalKey.cancel,
-    ]));
-    expect(denied.directoryGrants, isEmpty);
-  });
-
-  test('always permit reads is offered for all-read asks with both scopes',
-      () {
-    ApprovalDialog dialog() => ApprovalDialog(null,
-        ask: const ApprovalAskContext('run command', 'cat /library/notes.md',
-            'read-only mode: needs read access to /library',
-            details: {
-              'mode': 'readOnly',
-              'directory_accesses': [
-                {'path': '/library', 'access': 'read', 'source': 'verified'},
-              ],
-              'directory_grant_scopes': ['session', 'workspace'],
-            }));
-    final rows = dialog().rows(width: 120).map(text).join('\n');
-    expect(rows, contains('always permit reads (this session)'));
-    expect(rows, contains('always permit reads (this workspace)'));
-    // Down from 'allow' to 'deny', then to the two reads-rows.
-    final session = dialog();
-    session.handleKey(ApprovalKey.down);
-    session.handleKey(ApprovalKey.down);
-    final sessionOutcome = session.current;
-    expect(sessionOutcome.decision, ApprovalDecision.allowReadsAlways);
-    expect(sessionOutcome.directoryGrants.single.path, '/library');
-    expect(sessionOutcome.directoryGrants.single.scope,
-        DirectoryGrantScope.session);
-    final workspace = dialog();
-    workspace.handleKey(ApprovalKey.down);
-    workspace.handleKey(ApprovalKey.down);
-    workspace.handleKey(ApprovalKey.down);
-    final workspaceOutcome = workspace.current;
-    expect(workspaceOutcome.decision, ApprovalDecision.allowReadsAlways);
-    expect(workspaceOutcome.directoryGrants.single.scope,
-        DirectoryGrantScope.workspace);
-  });
-
-  test('always permit reads is offered across modes, never for writes', () {
-    ApprovalDialog dialog(Map<String, Object?> details) => ApprovalDialog(null,
-        ask: ApprovalAskContext('run command', 'cmd', 'review',
-            details: details));
-    // A write among the offers disqualifies the standing reads grant.
-    final mixed = dialog({
-      'mode': 'readOnly',
-      'directory_accesses': [
-        {'path': '/input', 'access': 'read', 'source': 'verified'},
-        {'path': '/output', 'access': 'write', 'source': 'verified'},
-      ],
-      'directory_grant_scopes': ['session', 'workspace'],
-    });
-    final mixedRows = mixed.rows(width: 120).map(text).join('\n');
-    expect(mixedRows, isNot(contains('always permit reads')));
-    // Same shape, different mode: no standing-reads rows there either.
-    final auto = dialog({
-      'mode': 'auto',
-      'directory_accesses': [
-        {'path': '/library', 'access': 'read', 'source': 'verified'},
-      ],
-      'directory_grant_scopes': ['session', 'workspace'],
-    });
-    expect(auto.rows(width: 120).map(text).join('\n'),
-        contains('always permit reads'));
-    // No offers at all (read_directory single-checkbox shape): not offered.
-    final noOffers = dialog({
-      'mode': 'readOnly',
-      'read_directory': '/library',
-      'directory_grant_scopes': ['session', 'workspace'],
-    });
-    expect(noOffers.rows(width: 120).map(text).join('\n'),
-        isNot(contains('always permit reads')));
-  });
-
-  test('write checkbox remembers only when explicitly checked and approved',
-      () async {
-    ApprovalDialog dialog() => ApprovalDialog(null,
-        ask: const ApprovalAskContext('write', '/external/file', 'ask',
-            details: {
-              'write_directory': '/external',
-              'permission_scope': 'file',
-            }));
-    expect(dialog().rows().map(text).join('\n'),
-        contains('[ ] Allow all writes in this directory'));
-    expect(dialog().rows().map(text).join('\n'),
-        contains('Write directory: /external'));
-    for (final entry in <List<ApprovalKey>, ApprovalDecision>{
-      [ApprovalKey.allow]: ApprovalDecision.allow,
-      [ApprovalKey.toggleWriteDirectory, ApprovalKey.allow]:
-          ApprovalDecision.allowWritesInDirectory,
-      [ApprovalKey.toggleDirectory, ApprovalKey.always]:
-          ApprovalDecision.allowAlwaysAndWritesInDirectory,
-      [
-        ApprovalKey.toggleWriteDirectory,
-        ApprovalKey.toggleWriteDirectory,
-        ApprovalKey.allow
-      ]: ApprovalDecision.allow,
-      [ApprovalKey.toggleWriteDirectory, ApprovalKey.deny]:
-          ApprovalDecision.deny,
-      [ApprovalKey.toggleWriteDirectory, ApprovalKey.cancel]:
-          ApprovalDecision.deny,
-      [
-        ApprovalKey.down,
-        ApprovalKey.down,
-        ApprovalKey.down,
-        ApprovalKey.confirm,
-        ApprovalKey.up,
-        ApprovalKey.up,
-        ApprovalKey.up,
-        ApprovalKey.confirm
-      ]: ApprovalDecision.allowWritesInDirectory,
-    }.entries) {
-      expect(
-          (await dialog().awaitDecision(ScriptedKeySource(entry.key))).decision,
-          entry.value,
-          reason: '${entry.key}');
-    }
-    final checked = dialog()..handleKey(ApprovalKey.toggleWriteDirectory);
-    expect(
-        checked.rows().map(text).join('\n'), contains('[x] Allow all writes'));
-    for (final ask in [
-      const ApprovalAskContext('write', '/file', 'ask'),
-      const ApprovalAskContext('write', '/file', 'confirm',
-          confirmation: true, details: {'write_directory': '/'}),
-      const ApprovalAskContext('run command', 'bash', 'ask',
-          details: {'write_directory': '/'}),
-    ]) {
-      expect(ApprovalDialog(null, ask: ask).rows().map(text).join('\n'),
-          isNot(contains('Allow all writes')));
-    }
-  });
-
-  test(
-      'read checkbox is explicit, reversible and independent of command Always',
-      () async {
-    ApprovalDialog dialog() => ApprovalDialog(null,
-        ask: const ApprovalAskContext(
-            'run command', 'grep needle /external/file', 'approval required',
-            details: {
-              'read_directory': '/external',
-              'permission_scope': 'command'
-            }));
-    final unchecked = dialog();
-    expect(unchecked.rows().map(text).join('\n'),
-        contains('[ ] Allow all reads in this directory'));
-    expect(unchecked.rows().map(text).join('\n'),
-        contains('Read directory: /external'));
-    expect(
-        (await unchecked.awaitDecision(ScriptedKeySource([ApprovalKey.allow])))
-            .decision,
-        ApprovalDecision.allow);
-    final checked = dialog();
-    checked.handleKey(ApprovalKey.toggleReadDirectory);
-    expect(
-        checked.rows().map(text).join('\n'), contains('[x] Allow all reads'));
-    expect(
-        (await checked.awaitDecision(ScriptedKeySource([ApprovalKey.allow])))
-            .decision,
-        ApprovalDecision.allowReadsInDirectory);
-    final always = dialog();
-    expect(
-        (await always.awaitDecision(ScriptedKeySource(
-                [ApprovalKey.toggleReadDirectory, ApprovalKey.always])))
-            .decision,
-        ApprovalDecision.allowAlwaysAndReadsInDirectory);
-    final cancel = dialog();
-    expect(
-        (await cancel.awaitDecision(ScriptedKeySource(
-                [ApprovalKey.toggleReadDirectory, ApprovalKey.cancel])))
-            .decision,
-        ApprovalDecision.deny);
-    final toggled = dialog();
-    expect(
-        (await toggled.awaitDecision(ScriptedKeySource([
-          ApprovalKey.toggleReadDirectory,
-          ApprovalKey.toggleReadDirectory,
-          ApprovalKey.allow
-        ])))
-            .decision,
-        ApprovalDecision.allow);
-    final focused = dialog();
-    expect(
-        (await focused.awaitDecision(ScriptedKeySource([
-          ApprovalKey.down,
-          ApprovalKey.down,
-          ApprovalKey.down,
-          ApprovalKey.confirm,
-          ApprovalKey.up,
-          ApprovalKey.up,
-          ApprovalKey.up,
-          ApprovalKey.confirm
-        ])))
-            .decision,
-        ApprovalDecision.allowReadsInDirectory);
-    expect(
-        ApprovalDialog(null,
-                ask: const ApprovalAskContext('write', '/file', 'ask'))
-            .rows()
-            .map(text)
-            .join('\n'),
-        isNot(contains('Allow all reads')));
   });
 
   test('permission cards render quoted commands and colored edit previews', () {
@@ -510,11 +249,12 @@ void main() {
       final dialog = ApprovalDialog(null,
           ask: ApprovalAskContext('request', '/actual/target', 'needs approval',
               details: {'permission_scope': scope}));
+      dialog.handleKey(ApprovalKey.always);
       expect(dialog.rows(width: 100).map(text).join('\n'),
           contains('[a] allow this $scope for this session'));
       dialog.handleKey(ApprovalKey.down);
       dialog.handleKey(ApprovalKey.down);
-      expect(dialog.current.decision, ApprovalDecision.allowAlways);
+      expect(dialog.current.decision, ApprovalDecision.deny);
     }
   });
 
@@ -584,7 +324,7 @@ void main() {
     expect(rows[1], '│ ⚠ Auto approver denied this: $reason');
     expect(rows[rows.length - 3], '❯ [y] allow once');
     expect(rows[rows.length - 2], '  [n] deny');
-    expect(rows.last, '  [a] allow this command for this session');
+    expect(rows.last, '  [a] Remember…');
     final pages = <String>[];
     for (var i = 0; i < 15; i++) {
       final page = dialog.rows(width: 78, height: 7).map(text).join('\n');
@@ -627,14 +367,12 @@ void main() {
     expect(shown, contains('git fetch origin'));
     expect(shown, contains('[y] allow once'));
     expect(shown, contains('[n] deny'));
-    expect(
-        shown,
-        contains(
-            '[a] allow this command with network access for this session'));
+    expect(shown, contains('[a] Remember…'));
     expect(shown, contains('other commands still ask'));
     expect(shown, isNot(contains('[y] Yes')));
     expect(
-        (await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.always])))
+        (await dialog.awaitDecision(
+                ScriptedKeySource([ApprovalKey.always, ApprovalKey.confirm])))
             .decision,
         ApprovalDecision.allowAlways);
   });
@@ -648,7 +386,7 @@ void main() {
     expect(rows.join('\n'), contains('/outside/notes.txt'));
     expect(rows[rows.length - 3], '❯ [y] allow once');
     expect(rows[rows.length - 2], '  [n] deny');
-    expect(rows.last, '  [a] allow this file for this session');
+    expect(rows.last, '  [a] Remember…');
   });
 
   test('permission and Yes/No answers use the same vertical selector', () {
@@ -734,12 +472,16 @@ void main() {
       final dialog = ApprovalDialog(const ToolUse(
           id: 'x', name: 'bash', input: {'command': 'echo hello'}));
       expect(
-          (await dialog.awaitDecision(ScriptedKeySource([entry.key]))).decision,
+          (await dialog.awaitDecision(ScriptedKeySource([
+            entry.key,
+            if (entry.key == ApprovalKey.always) ApprovalKey.confirm
+          ])))
+              .decision,
           entry.value);
       for (var height = 1; height <= 12; height++) {
         final rows = dialog.rows(width: 30, height: height);
         expect(rows.length, lessThanOrEqualTo(height));
-        expect(rows.map(text).join('\n'), contains('❯ [y]'));
+        expect(rows.map(text).join('\n'), contains('❯ ['));
       }
     }
   });
@@ -844,10 +586,10 @@ void main() {
     expect(texts.any((t) => t.contains('rm -rf build/')), isTrue);
     expect(texts.where((t) => t.startsWith('❯ [')), hasLength(1));
     expect(texts.join(), contains('[n] deny'));
-    expect(texts.join(), contains('[a] allow this command'));
-    expect(texts.any((t) => t.contains('allow this command')), isTrue);
+    expect(texts.join(), contains('[a] Remember…'));
+    expect(texts.any((t) => t.contains('Remember…')), isTrue);
     expect(texts.join(), contains('Esc cancel'));
-    expect(texts.last, contains('[a] allow this command'));
+    expect(texts.last, contains('[a] Remember…'));
   });
 
   test('selected choice is highlighted with the dialog style', () {
@@ -864,7 +606,7 @@ void main() {
         .toList();
     expect(highlighted, hasLength(1));
     expect(highlighted.single.text, contains('deny'));
-    expect(highlighted.single.text, isNot(contains('allow this command')));
+    expect(highlighted.single.text, isNot(contains('Remember…')));
     expect(highlighted.single.code, Theme.defaults().dialog.confirm);
   });
 
@@ -902,7 +644,7 @@ void main() {
         expect(lines.join(), contains('❯ ['));
         dialog.handleKey(ApprovalKey.down);
       }
-      expect(dialog.current.decision, ApprovalDecision.allowAlways);
+      expect(dialog.current.decision, ApprovalDecision.deny);
     }
   });
 

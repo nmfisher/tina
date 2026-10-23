@@ -82,44 +82,33 @@ FileDecision decideOperation(
   required String projectRoot,
   FileGrants? grants,
 }) {
-  // yolo allows every operation — reads and writes anywhere, including
-  // outside the project root — without asking.
-  if (mode == PermissionMode.yolo) {
-    return (
-      verdict: ToolVerdict.allow,
-      reason: 'yolo mode: permission checks disabled',
-    );
-  }
-  if (op.op == FileOp.read) {
-    return (
-      verdict: ToolVerdict.allow,
-      reason: 'reads are allowed anywhere but the Tina data tree',
-    );
-  }
-  final granted = grants?.patternFor(op.path);
-  if (granted != null) {
-    return (
-      verdict: ToolVerdict.allow,
-      reason: 'allowed by session grant: $granted',
-    );
-  }
-  if (mode == PermissionMode.readOnly) {
-    return (
-      verdict: ToolVerdict.ask,
-      reason: operationReason(op, mode),
-    );
-  }
-  if (mode == PermissionMode.allowEdits && _isUnder(op.path, projectRoot)) {
-    return (
-      verdict: ToolVerdict.allow,
-      reason: 'write inside the project root',
-    );
-  }
+  final inside = _isUnder(op.path, projectRoot);
+  final resolution = resolveAuthorization(
+      AuthorizationRequest(requirements: [
+        AccessRequirement(
+            op.op == FileOp.read
+                ? AccessCapability.read
+                : AccessCapability.write,
+            op.path,
+            workspace: inside,
+            granted: grants?.allows(op.path) == true),
+      ]),
+      mode);
   return (
-    verdict: ToolVerdict.ask,
-    reason: _isUnder(op.path, projectRoot)
-        ? 'allow write in the project (${_leaf(op.path)})?'
-        : operationReason(op, mode)
+    verdict: switch (resolution.route) {
+      AuthorizationRoute.allow => ToolVerdict.allow,
+      AuthorizationRoute.deny => ToolVerdict.deny,
+      AuthorizationRoute.human || AuthorizationRoute.review => ToolVerdict.ask,
+    },
+    reason: mode == PermissionMode.yolo
+        ? 'yolo mode: launch-time authorization'
+        : resolution.route == AuthorizationRoute.deny
+            ? resolution.reason
+            : grants?.allows(op.path) == true
+                ? 'allowed by session grant'
+                : resolution.route == AuthorizationRoute.allow
+                    ? 'write inside the project root or workspace read'
+                    : operationReason(op, mode)
   );
 }
 

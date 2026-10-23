@@ -265,7 +265,7 @@ void main() {
       test('approval ${deny ? "Deny continues" : "Escape cancels"} '
           '(panels=$panels)', () async {
         final f = await _start(panels, approvals: true);
-        await f.session.commands['mode']!.handler('read-only');
+        await f.session.commands['mode']!.handler('ask');
         final turn = f.view.submit('write a file');
         await waitFor(() => f.provider.streams.length == 1);
         f.editor.inject(CharInput('keep this draft'));

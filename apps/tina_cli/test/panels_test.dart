@@ -369,7 +369,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
 
     test('Escape dismisses an approval and the next Enter sends (burst=$burst)',
         () async {
-      await session.commands['mode']!.handler('read-only');
+      await session.commands['mode']!.handler('ask');
       await keys('first request\r');
       final provider = providers.first;
       await waitFor(() => provider.requests.length == 1);
@@ -496,7 +496,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
 
   test('Escape in settings also cancels a queued background approval',
       () async {
-    await session.commands['mode']!.handler('read-only');
+    await session.commands['mode']!.handler('ask');
     await keys('edit after reading\r');
     final provider = providers.first;
     await waitFor(() => provider.requests.length == 1);
@@ -520,14 +520,14 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(provider.requests, hasLength(1));
     expect(File('${dir.path}/reviewed.txt').existsSync(), false);
     expect(session.host.session.turns.single.stopReason, StopReason.cancelled);
-    expect(session.assembly.tools.mode.label, 'read-only');
+    expect(session.assembly.tools.mode.label, 'ask');
     await keys('chat draft');
     expect(editor.editState.buffer, 'chat draft');
   });
 
   test('Always entered in the UI is reused on later turns for the same file',
       () async {
-    await session.commands['mode']!.handler('read-only');
+    await session.commands['mode']!.handler('ask');
     final provider = providers.first;
     Future<void> write(int index, String path, String content) async {
       provider.streams[index]
@@ -553,12 +553,12 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
             .firstOrNull!
             .details['permission_scope'],
         'file');
-    await keys('a');
+    await keys('a\r');
     await waitFor(() => provider.requests.length == 2);
     final target = File('${dir.path}/remembered.txt');
     expect(target.readAsStringSync(), 'first');
-    expect(session.assembly.tools.sandbox.grants.patterns,
-        [target.resolveSymbolicLinksSync()]);
+    expect(session.assembly.tools.commandApprovals.coversAccess(
+        'write', target.resolveSymbolicLinksSync()), true);
     provider.answer(1, 'saved');
     await waitFor(() => !session.host.session.loop.running);
 
@@ -568,7 +568,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await waitFor(() => provider.requests.length == 4);
     expect(approvalUi(session).interaction.pending.firstOrNull, isNull);
     expect(target.readAsStringSync(), 'second');
-    expect(session.assembly.tools.sandbox.grants.length, 1);
+    expect(session.assembly.tools.commandApprovals.entries
+        .where((entry) => entry['kind'] == 'access').length, 1);
     provider.answer(3, 'saved again');
     await waitFor(() => !session.host.session.loop.running);
 
@@ -580,7 +581,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('n');
     await waitFor(() => provider.requests.length == 6);
     expect(File('${dir.path}/other.txt').existsSync(), false);
-    expect(session.assembly.tools.sandbox.grants.length, 1);
+    expect(session.assembly.tools.commandApprovals.entries
+        .where((entry) => entry['kind'] == 'access').length, 1);
     provider.answer(5, 'declined');
     await waitFor(() => !session.host.session.loop.running);
   });
@@ -598,17 +600,14 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
       test(
           'UI Always (${selectAlways ? 'arrows and Enter' : 'shortcut'}) remembers the exact command ($access) on later turns, even after failure',
           () async {
-        await session.commands['mode']!.handler('read-only');
+        await session.commands['mode']!.handler('ask');
         final provider = providers.first;
         Future<void> command(int index, String text) async {
           provider.streams[index]
               .add(ToolCallStart(id: 'exec-$index', name: 'exec'));
           provider.streams[index].add(MessageComplete(content: [
             ToolUseBlock(id: 'exec-$index', name: 'exec', input: {
-              // A bare literal echo is a certified read-only reader since
-              // v0.9.50: confined read-only runs execute it without asking.
-              // printf is not certified, so this request still asks, and it
-              // still prints the per-turn text the assertions check for.
+              // printf defaults to workspace-write, so ask mode reviews it.
               'program': outside ? '/usr/bin/false' : '/usr/bin/printf',
               'args': ['%s\\n', text],
               if (network) 'network': true,
@@ -642,6 +641,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
                 .details['required_permissions'],
             [
               'execution',
+              if (!outside) 'workspaceWrite',
               if (network || outside) 'network',
               if (outside) 'unconfined'
             ]);
@@ -649,11 +649,11 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
           await waitFor(
               () => io.written.toString().contains('with network access'));
           expect(io.written.toString(),
-              contains('allow this command with network access'));
+              contains('Remember…'));
         }
         // Exercise both the shortcut and selecting Always with Enter.
         await keys(
-            selectAlways ? (outside ? '\x1b[B\x1b[B\r' : '\x1b[A\r') : 'a');
+            selectAlways ? '\x1b[B\x1b[B\r\r' : 'a\r');
         await waitFor(() => provider.requests.length == 2);
         expect(rememberedCommands(), 1);
         if (outside) {

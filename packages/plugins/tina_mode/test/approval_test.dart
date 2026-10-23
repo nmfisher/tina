@@ -17,6 +17,7 @@ class Human implements ApprovalRequester {
     required String target,
     required String reason,
     ApprovalKind kind = ApprovalKind.permission,
+    Future<void>? whenCancelled,
     Map<String, Object?> details = const {},
     void Function(String pattern)? onCommandPattern,
     void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants,
@@ -53,33 +54,35 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
 
 void main() {
   precedentTests();
-  test('yolo allows every request without approvals, classifier or precedent',
-      () async {
-    final human = Human();
-    final judge = Judge(Future.value(const PermissionJudgment(true)));
-    final mode = ModePlugin(
-      mode: PermissionMode.yolo,
-      approvals: human,
-      classifier: judge,
-    );
-    addTearDown(mode.closeSession);
-    expect(await request(mode), ApprovalDecision.allow);
-    expect(human.calls, 0);
-    expect(judge.calls, 0);
-    // humanOnly (network / directory-grant) paths are bypassed too.
-    expect(
-      await mode.request(
-        operation: 'run command',
-        target: 'rm -rf /',
-        reason: 'unconfined',
-        humanOnly: true,
-      ),
-      ApprovalDecision.allow,
-    );
-    expect(human.calls, 0);
-    expect(judge.calls, 0);
-    expect(mode.approvalRequestCounts, isEmpty);
-  });
+  test(
+    'yolo allows every request without approvals, classifier or precedent',
+    () async {
+      final human = Human();
+      final judge = Judge(Future.value(const PermissionJudgment(true)));
+      final mode = ModePlugin(
+        mode: PermissionMode.yolo,
+        approvals: human,
+        classifier: judge,
+      );
+      addTearDown(mode.closeSession);
+      expect(await request(mode), ApprovalDecision.allow);
+      expect(human.calls, 0);
+      expect(judge.calls, 0);
+      // humanOnly (network / directory-grant) paths are bypassed too.
+      expect(
+        await mode.request(
+          operation: 'run command',
+          target: 'rm -rf /',
+          reason: 'unconfined',
+          humanOnly: true,
+        ),
+        ApprovalDecision.allow,
+      );
+      expect(human.calls, 0);
+      expect(judge.calls, 0);
+      expect(mode.approvalRequestCounts, isEmpty);
+    },
+  );
   test(
     'command cache binds arguments, directory capabilities and target',
     () async {
@@ -99,19 +102,18 @@ void main() {
       Future<ApprovalDecision> run(
         String directory, {
         String argument = 'one',
-      }) =>
-          mode.request(
-            operation: 'run command',
-            target: 'build',
-            reason: 'review',
-            context: {
-              'required_permissions': ['execution', 'directoryAccess'],
-              'approval_identity': {
-                'args': [argument],
-                'write': [directory],
-              },
-            },
-          );
+      }) => mode.request(
+        operation: 'run command',
+        target: 'build',
+        reason: 'review',
+        context: {
+          'required_permissions': ['execution', 'directoryAccess'],
+          'approval_identity': {
+            'args': [argument],
+            'write': [directory],
+          },
+        },
+      );
       await run('/first');
       await run('/first');
       expect(human.calls, 1);
@@ -152,18 +154,46 @@ void main() {
       ]);
     },
   );
-  test('model inferred accesses never create automatic directory grants', () async {
-    final human = Human();
-    final mode = ModePlugin(mode: PermissionMode.auto, approvals: human,
-        classifier: Judge(Future.value(const PermissionJudgment(true, null, {},
-          PermissionAccessAssessment(accesses: [PermissionAccess(
-            PermissionAccessOperation.read, '/other', PermissionTargetKind.directory)],
-            coverage: PermissionAccessCoverage.partial)))));
-    addTearDown(mode.closeSession);
-    expect(await mode.request(operation: 'run command', target: 'grep /other', reason: 'read',
-        onDirectoryGrants: (_) => fail('Classifier cannot grant directories')), ApprovalDecision.allow);
-    expect(human.calls, 0);
-  });
+  test(
+    'model inferred accesses never create automatic directory grants',
+    () async {
+      final human = Human();
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: Judge(
+          Future.value(
+            const PermissionJudgment(
+              true,
+              null,
+              {},
+              PermissionAccessAssessment(
+                accesses: [
+                  PermissionAccess(
+                    PermissionAccessOperation.read,
+                    '/other',
+                    PermissionTargetKind.directory,
+                  ),
+                ],
+                coverage: PermissionAccessCoverage.partial,
+              ),
+            ),
+          ),
+        ),
+      );
+      addTearDown(mode.closeSession);
+      expect(
+        await mode.request(
+          operation: 'run command',
+          target: 'grep /other',
+          reason: 'read',
+          onDirectoryGrants: (_) => fail('Classifier cannot grant directories'),
+        ),
+        ApprovalDecision.allow,
+      );
+      expect(human.calls, 0);
+    },
+  );
   test(
     'judge receives the active user request, never a tool-supplied substitute',
     () async {
@@ -238,27 +268,28 @@ void main() {
     expect(judge.requests.single.containsKey('recent_tool_calls'), false);
   });
 
-  test(
-    'a correction reaches the judge with the failed call it answers',
-    () async {
-      final judge = Judge(Future.value(const PermissionJudgment(true)));
-      final mode = ModePlugin(
-        mode: PermissionMode.auto,
-        approvals: Human(),
-        classifier: judge,
-      );
-      addTearDown(mode.closeSession);
-      // The transcript of the turn whose write to a mistyped volume failed
-      // and was cancelled: the correction that follows needs the failed
-      // call visible to be understood as answering it, not the retry.
-      final turn = TurnContext(
-        CancelToken(),
-        input: Input('that path is not correct', id: 'correction'),
-        messages: [
-          Message(role: Role.user, content: [
-            TextBlock('Update the shop template.'),
-          ]),
-          Message(role: Role.assistant, content: [
+  test('a correction reaches the judge with the failed call it answers', () async {
+    final judge = Judge(Future.value(const PermissionJudgment(true)));
+    final mode = ModePlugin(
+      mode: PermissionMode.auto,
+      approvals: Human(),
+      classifier: judge,
+    );
+    addTearDown(mode.closeSession);
+    // The transcript of the turn whose write to a mistyped volume failed
+    // and was cancelled: the correction that follows needs the failed
+    // call visible to be understood as answering it, not the retry.
+    final turn = TurnContext(
+      CancelToken(),
+      input: Input('that path is not correct', id: 'correction'),
+      messages: [
+        Message(
+          role: Role.user,
+          content: [TextBlock('Update the shop template.')],
+        ),
+        Message(
+          role: Role.assistant,
+          content: [
             ToolUseBlock(
               id: 'write-t4',
               name: 'write',
@@ -268,45 +299,49 @@ void main() {
                 'content': '<html>…</html>',
               },
             ),
-          ]),
-          Message(role: Role.user, content: [
+          ],
+        ),
+        Message(
+          role: Role.user,
+          content: [
             const ToolResultBlock(
               toolUseId: 'write-t4',
               content: 'allow write outside the project root (_layouts)',
               isError: true,
             ),
-          ]),
-        ],
-        promptSections: [],
-        pinnedTools: [],
-        call: ToolUse(id: 'correction', name: 'write', input: {
+          ],
+        ),
+      ],
+      promptSections: [],
+      pinnedTools: [],
+      call: ToolUse(
+        id: 'correction',
+        name: 'write',
+        input: {
           'filePath':
               '/Volumes/T7/projects/holotype_shop/blog/templates/_layouts/shop.liquid',
-        }),
-      );
-      mode.onInput(turn);
-      mode.beforeToolCall(turn);
-      await request(mode);
-      final payload = judge.requests.single;
-      expect(payload['user_request'], 'that path is not correct');
-      final context = payload['recent_context'] as Map<String, Object?>;
-      final users = context['user_messages'] as List;
-      expect(users.first['text'], 'Update the shop template.');
-      final calls = payload['recent_tool_calls'] as List;
-      expect(calls.last['name'], 'write');
-      expect(
-        calls.last['input'],
-        contains('/Volumes/T4/projects/holotype_shop'),
-      );
-      // The call carries its outcome: the judge sees it failed, so the
-      // correction's referent is computed, not inferred.
-      expect(calls.last['error'], contains('outside the project root'));
-      expect(calls.last.containsKey('ok'), false);
-      // The failed tool result payload is not duplicated into the judge
-      // request; the tail carries calls, not result dumps.
-      expect(payload.containsKey('recent_tool_results'), false);
-    },
-  );
+        },
+      ),
+    );
+    mode.onInput(turn);
+    mode.beforeToolCall(turn);
+    await request(mode);
+    final payload = judge.requests.single;
+    expect(payload['user_request'], 'that path is not correct');
+    final context = payload['recent_context'] as Map<String, Object?>;
+    final users = context['user_messages'] as List;
+    expect(users.first['text'], 'Update the shop template.');
+    final calls = payload['recent_tool_calls'] as List;
+    expect(calls.last['name'], 'write');
+    expect(calls.last['input'], contains('/Volumes/T4/projects/holotype_shop'));
+    // The call carries its outcome: the judge sees it failed, so the
+    // correction's referent is computed, not inferred.
+    expect(calls.last['error'], contains('outside the project root'));
+    expect(calls.last.containsKey('ok'), false);
+    // The failed tool result payload is not duplicated into the judge
+    // request; the tail carries calls, not result dumps.
+    expect(payload.containsKey('recent_tool_results'), false);
+  });
 
   test(
     'confirmation asks a human in auto and read-only and bypasses the judge',
@@ -575,8 +610,8 @@ void main() {
       await write('/outside/result');
       expect(human.calls, 2);
       mode.mode = PermissionMode.readOnly;
-      expect(await write('/outside/result'), ApprovalDecision.allow);
-      expect(human.calls, 3);
+      expect(await write('/outside/result'), ApprovalDecision.deny);
+      expect(human.calls, 2);
       mode.closeSession();
     },
   );
@@ -603,7 +638,7 @@ void main() {
   });
 
   test(
-    'ask, read-only and allow-edits send requests to the human, not the judge',
+    'manual modes use human review; read-only blocks unconfined execution',
     () async {
       for (final value in [
         PermissionMode.ask,
@@ -617,8 +652,13 @@ void main() {
           approvals: human,
           classifier: judge,
         );
-        expect(await request(mode), ApprovalDecision.allow);
-        expect(human.calls, 1);
+        expect(
+          await request(mode),
+          value == PermissionMode.readOnly
+              ? ApprovalDecision.deny
+              : ApprovalDecision.allow,
+        );
+        expect(human.calls, value == PermissionMode.readOnly ? 0 : 1);
         expect(judge.calls, 0);
       }
     },
@@ -644,7 +684,7 @@ void main() {
   });
 
   test(
-    'read-only consults the human and honors denial, never the judge',
+    'read-only refuses mutation requests before human or automatic review',
     () async {
       final human = Human();
       final judge = Judge(Future.value(const PermissionJudgment(true)));
@@ -653,10 +693,10 @@ void main() {
         approvals: human,
         classifier: judge,
       );
-      expect(await request(mode), ApprovalDecision.allow);
+      expect(await request(mode), ApprovalDecision.deny);
       human.answer = ApprovalDecision.deny;
       expect(await request(mode), ApprovalDecision.deny);
-      expect(human.calls, 2);
+      expect(human.calls, 0);
       expect(judge.calls, 0);
     },
   );
@@ -695,11 +735,9 @@ void main() {
       pending.complete(const PermissionJudgment(true));
       expect(
         await result,
-        action == 'ask' || action == 'read-only'
-            ? ApprovalDecision.allow
-            : ApprovalDecision.deny,
+        action == 'ask' ? ApprovalDecision.allow : ApprovalDecision.deny,
       );
-      expect(human.calls, action == 'ask' || action == 'read-only' ? 1 : 0);
+      expect(human.calls, action == 'ask' ? 1 : 0);
     });
   }
 }
@@ -711,25 +749,30 @@ void precedentTests() {
     List<String> permissions = const ['execution'],
     String accessKind = 'read',
     String coverage = 'complete',
-  }) =>
+  }) => {
+    'executable': '/usr/bin/git',
+    'arguments': arguments,
+    'required_permissions': permissions,
+    'access_coverage': coverage,
+    'access_coverage_source': 'verified',
+    'accesses': [
       {
-        'executable': '/usr/bin/git',
-        'arguments': arguments,
-        'required_permissions': permissions,
-        'access_coverage': coverage,
-        'access_coverage_source': 'verified',
-        'accesses': [
-          {'operation': accessKind, 'path': '/work/project/a', 'target_kind': 'file', 'source': 'verified'}
-        ],
-      };
-  Future<ApprovalDecision> run(ModePlugin mode,
-          {Map<String, Object?>? context}) =>
-      mode.request(
-        operation: 'run command',
-        target: 'git status',
-        reason: 'approval required',
-        context: context ?? commandContext(),
-      );
+        'operation': accessKind,
+        'path': '/work/project/a',
+        'target_kind': 'file',
+        'source': 'verified',
+      },
+    ],
+  };
+  Future<ApprovalDecision> run(
+    ModePlugin mode, {
+    Map<String, Object?>? context,
+  }) => mode.request(
+    operation: 'run command',
+    target: 'git status',
+    reason: 'approval required',
+    context: context ?? commandContext(),
+  );
 
   test('a human decision is remembered; a denial poisons the shape', () async {
     final store = MemoryPrecedentStore();
@@ -749,19 +792,26 @@ void precedentTests() {
     await run(mode);
     final poisoned = store.read().single;
     expect(poisoned.conflicted, true);
-    expect(poisoned.outcome, PrecedentOutcome.allow,
-        reason: 'the first recorded outcome is retained');
+    expect(
+      poisoned.outcome,
+      PrecedentOutcome.allow,
+      reason: 'the first recorded outcome is retained',
+    );
   });
 
   test('an exact read-only shape runs quietly after two approvals', () async {
     final store = MemoryPrecedentStore();
     final human = Human();
     final judge = Judge(Future.value(const PermissionJudgment(null, 'unused')));
-    final mode = ModePlugin(
-        mode: PermissionMode.auto, approvals: human, classifier: judge)
-      ..precedentStore = store
-      ..readPrecedentMode = (() => PrecedentMode.full)
-      ..precedentScope = (() => scope);
+    final mode =
+        ModePlugin(
+            mode: PermissionMode.auto,
+            approvals: human,
+            classifier: judge,
+          )
+          ..precedentStore = store
+          ..readPrecedentMode = (() => PrecedentMode.full)
+          ..precedentScope = (() => scope);
 
     // Nothing learned yet: the judge denies, the human allows.
     for (var i = 0; i < 2; i++) {
@@ -818,11 +868,12 @@ void precedentTests() {
 
     mode.readPrecedentMode = () => PrecedentMode.off;
     expect(
-        mode.precedentEvidenceFor({
-          'operation': 'run command',
-          'tool': {'name': 'exec'},
-          ...commandContext(),
-        }),
-        isEmpty);
+      mode.precedentEvidenceFor({
+        'operation': 'run command',
+        'tool': {'name': 'exec'},
+        ...commandContext(),
+      }),
+      isEmpty,
+    );
   });
 }

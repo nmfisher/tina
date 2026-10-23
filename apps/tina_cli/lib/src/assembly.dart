@@ -111,7 +111,7 @@ final class AssemblyOptions {
   /// Per-launch OS confinement. Permission policy remains active when false.
   final bool osSandbox;
 
-  /// Start with every permission/approval check disabled (yolo mode). This
+  /// Authorize requested capabilities at launch (yolo mode). This
   /// is a launch-time override only; it is not persisted or selectable via
   /// /mode. OS sandbox and network remain governed by [osSandbox].
   final bool yolo;

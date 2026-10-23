@@ -6,6 +6,8 @@ import 'package:classification/permissions.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'observation.dart';
+import 'authorization.dart';
+export 'authorization.dart';
 export 'mode.dart';
 export 'observation.dart';
 export 'operations.dart';
@@ -70,6 +72,18 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   final _listeners = <void Function(PermissionMode)>[];
   Completer<void> _changed = Completer<void>();
+  int _revision = 0;
+  int get revision => _revision;
+  Future<void> get whenChanged => _changed.future;
+  void Function()? _stopParent;
+
+  /// Children follow the parent's live permission ceiling.
+  void inheritPolicy(ModePlugin parent) {
+    _stopParent?.call();
+    mode = parent.mode;
+    _stopParent = parent.listen((value) => mode = value);
+  }
+
   final _closedSignal = Completer<void>();
   @override
   set mode(PermissionMode value) {
@@ -83,6 +97,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ),
     );
     _mode = value;
+    _revision++;
     _callApprovals.clear();
     _changed.complete();
     _changed = Completer<void>();
@@ -97,6 +112,10 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     return () => _listeners.remove(listener);
   }
 
+  bool Function(String capability, String target)? hasAccessGrant;
+  void Function(String capability, String target, ApprovalDecision decision)?
+  saveAccessGrant;
+  bool persistentAccessGrants = false;
   Terminal? terminal;
   ApprovalRequester? approvals;
   PermissionClassifier? classifier;
@@ -247,24 +266,80 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     Map<String, Object?> context = const {},
     ApprovalKind kind = ApprovalKind.permission,
     bool humanOnly = false,
+    AuthorizationRequest? authorization,
     void Function(String pattern)? onCommandPattern,
     void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants,
     Map<String, Object?> Function(PermissionJudgment judgment)?
     prepareAccessReview,
   }) async {
-    // yolo is a start-time override that bypasses every permission/approval
-    // check before any routing — no classifier, no human prompt, no precedent
-    // record. It also short-circuits the network and directory-grant humanOnly
-    // paths, returning allow unconditionally.
-    if (mode == PermissionMode.yolo) return ApprovalDecision.allow;
     final turn = _turn;
     bool invalid() =>
         _closed || turn?.cancelled == true || !identical(turn, _turn);
     if (invalid()) return ApprovalDecision.deny;
+    final policyRevision = revision;
+    final policyChanged = whenChanged;
+    Future<ApprovalDecision> reconsider() => request(
+      operation: operation,
+      target: target,
+      reason: reason,
+      context: context,
+      kind: kind,
+      humanOnly: humanOnly,
+      authorization: authorization,
+      onCommandPattern: onCommandPattern,
+      onDirectoryGrants: onDirectoryGrants,
+      prepareAccessReview: prepareAccessReview,
+    );
+    final external =
+        context['permission_scope'] == 'mcp' ||
+        (context['required_permissions'] is Iterable &&
+            (context['required_permissions'] as Iterable).any(
+              (p) => {'network', 'unconfined', 'directoryAccess'}.contains(p),
+            ));
+    final identity = context['authorization_identity'] is String
+        ? context['authorization_identity'] as String
+        : target;
+    final mcp = context['permission_scope'] == 'mcp';
+    final mcpRead =
+        context['mcp_method'] == 'resources/read' ||
+        context['mcp_method'] == 'prompts/get';
+    final capability = mcpRead
+        ? AccessCapability.read
+        : external
+        ? AccessCapability.external
+        : operation == 'run command'
+        ? AccessCapability.execute
+        : AccessCapability.write;
+    final canonical =
+        authorization ??
+        AuthorizationRequest(
+          requirements: [
+            AccessRequirement(
+              capability,
+              identity,
+              workspace: !external,
+              granted:
+                  mcp &&
+                  hasAccessGrant?.call(capability.name, identity) == true,
+            ),
+          ],
+        );
+    final resolution = resolveAuthorization(canonical, mode, kind: kind);
+    if (resolution.route == AuthorizationRoute.deny) {
+      terminal?.writeln(resolution.reason);
+      return ApprovalDecision.deny;
+    }
+    if (resolution.route == AuthorizationRoute.allow)
+      return ApprovalDecision.allow;
+    final requireHuman =
+        humanOnly || resolution.route == AuthorizationRoute.human;
     final call = _call;
     final requiredPermissions = context['required_permissions'];
     final cacheKey = jsonEncode([
-      operation, humanOnly,
+      operation, requireHuman,
+      // File atomic staging shares its logical file operation; commands/MCP bind identity.
+      operation == 'write' || operation == 'read' ? null : target,
+      authorization?.toJson(),
       requiredPermissions is Iterable ? requiredPermissions.toList() : const [],
       // File tools own their logical operation (including atomic temporary
       // paths). Commands additionally bind the complete execution identity.
@@ -285,6 +360,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       'target': target,
       'reason': reason,
       ...context,
+      ...canonical.toJson(mode: mode),
+      'authorization_reason': resolution.reason,
       // Owned by the active turn, not the tool's justification or
       // caller-supplied context. Null means no current user request.
       'user_request': turn?.input.text,
@@ -296,7 +373,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ...?_recentContext(turn),
     };
     var judgment = const PermissionJudgment(null, 'not classified');
-    if (mode == PermissionMode.auto && permission && !humanOnly) {
+    if (mode == PermissionMode.auto && permission && !requireHuman) {
       final evidence = requestEvidence();
       // Deterministic fast path: an exact read-only shape the user has already
       // approved twice runs without a model round trip.
@@ -319,6 +396,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               ]),
             );
       if (invalid()) return ApprovalDecision.deny;
+      if (revision != policyRevision) return reconsider();
       judgment = result;
       autoDiagnostics = result.diagnostics;
       if (result.allow == false) autoDenialReason = result.reason;
@@ -374,58 +452,82 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         );
       }
     }
-    final decision =
-        await approvals?.request(
-          operation: operation,
-          target: target,
-          kind: kind,
-          reason: autoFallback == null
-              ? reason
-              : 'Auto approval: $fallbackSentence $reason',
-          details: {
-            ...context,
-            'approval_reason_codes': reasonCodes.toList(),
-            if (prepareAccessReview != null)
-              ...prepareAccessReview(judgment)
-            else if (judgment.assessment.accesses.isNotEmpty ||
-                judgment.assessment.unresolved.isNotEmpty ||
-                judgment.assessment.coverage !=
-                    PermissionAccessCoverage.unknown) ...{
-              'accesses': [
-                for (final access in judgment.assessment.accesses)
-                  {...access.toJson(), 'source': 'inferred'},
-              ],
-              'access_coverage': judgment.assessment.coverage.name,
-              'access_coverage_source': 'inferred',
-              'unresolved_accesses': judgment.assessment.unresolved,
+    final decision = await Future.any<ApprovalDecision>([
+      approvals?.request(
+            operation: operation,
+            target: target,
+            kind: kind,
+            reason: autoFallback == null
+                ? reason
+                : 'Auto approval: $fallbackSentence $reason',
+            whenCancelled: Future.any([
+              policyChanged,
+              _closedSignal.future,
+              if (turn != null) turn.whenCancelled,
+            ]),
+            details: {
+              ...context,
+              ...canonical.toJson(mode: mode),
+              if (mcp && persistentAccessGrants)
+                'persistent_command_approval': true,
+              'authorization_reason': resolution.reason,
+              'approval_reason_codes': reasonCodes.toList(),
+              if (prepareAccessReview != null)
+                ...prepareAccessReview(judgment)
+              else if (judgment.assessment.accesses.isNotEmpty ||
+                  judgment.assessment.unresolved.isNotEmpty ||
+                  judgment.assessment.coverage !=
+                      PermissionAccessCoverage.unknown) ...{
+                'accesses': [
+                  for (final access in judgment.assessment.accesses)
+                    {...access.toJson(), 'source': 'inferred'},
+                ],
+                'access_coverage': judgment.assessment.coverage.name,
+                'access_coverage_source': 'inferred',
+                'unresolved_accesses': judgment.assessment.unresolved,
+              },
+              if (_call != null)
+                'tool': {'name': _call!.name, 'input': _call!.input},
+              'mode': mode.name,
+              if (autoFallback != null) 'auto_approval_fallback': autoFallback,
+              if (autoDenialReason != null)
+                'auto_approval_denial_reason': autoDenialReason,
+              if (autoDiagnostics.isNotEmpty)
+                'auto_approval_classifier': autoDiagnostics,
             },
-            if (_call != null)
-              'tool': {'name': _call!.name, 'input': _call!.input},
-            'mode': mode.name,
-            if (autoFallback != null) 'auto_approval_fallback': autoFallback,
-            if (autoDenialReason != null)
-              'auto_approval_denial_reason': autoDenialReason,
-            if (autoDiagnostics.isNotEmpty)
-              'auto_approval_classifier': autoDiagnostics,
-          },
-          onCommandPattern: onCommandPattern == null
-              ? null
-              : (pattern) {
-                  if (!invalid()) onCommandPattern(pattern);
-                },
-          onDirectoryGrants: onDirectoryGrants == null
-              ? null
-              : (grants) {
-                  if (!invalid()) onDirectoryGrants(grants);
-                },
-        ) ??
-        ApprovalDecision.deny;
+            onCommandPattern: onCommandPattern == null
+                ? null
+                : (pattern) {
+                    if (!invalid() && revision == policyRevision)
+                      onCommandPattern(pattern);
+                  },
+            onDirectoryGrants: onDirectoryGrants == null
+                ? null
+                : (grants) {
+                    if (!invalid() && revision == policyRevision)
+                      onDirectoryGrants(grants);
+                  },
+          ) ??
+          Future.value(ApprovalDecision.deny),
+      policyChanged.then((_) => ApprovalDecision.deny),
+      _closedSignal.future.then((_) => ApprovalDecision.deny),
+      if (turn != null) turn.whenCancelled.then((_) => ApprovalDecision.deny),
+    ]);
     if (invalid()) return ApprovalDecision.deny;
+    if (revision != policyRevision) return reconsider();
     if (permission &&
         call != null &&
         identical(call, _call) &&
         decision == ApprovalDecision.allow) {
       _callApprovals[cacheKey] = decision;
+    }
+    if (mcp &&
+        {
+          ApprovalDecision.allowAlways,
+          ApprovalDecision.allowWorkspace,
+          ApprovalDecision.allowGlobal,
+        }.contains(decision)) {
+      saveAccessGrant?.call(capability.name, identity, decision);
     }
     // Only a human answer is recorded here; the classifier's own ALLOW already
     // returned above, and an unattended automatic denial is not a decision the
@@ -556,6 +658,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   void closeSession() {
     if (_closed) return;
     _closed = true;
+    _revision++;
+    _stopParent?.call();
     _writeState = null;
     _closedSignal.complete();
     _listeners.clear();

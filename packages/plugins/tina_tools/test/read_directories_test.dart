@@ -5,7 +5,9 @@ import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 
-final class Recorder implements ProcessRunner {
+final class Recorder implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   final calls = <ProcessRequest>[];
   @override
   Future<RunOutcome> run(ProcessRequest request,
@@ -276,6 +278,7 @@ final class ReadApprovals implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)?

@@ -11,8 +11,8 @@ import 'tool_input.dart';
 /// the shell interprets all of it, so the command can do anything the
 /// process can do. Argument checking cannot make that safe and this tool
 /// does not pretend to try — the *runner* it is handed decides per call
-/// whether the command runs. A single literal reader may reuse a human
-/// directory read grant; scripts require approval or a session grant.
+/// whether the command runs. Read-only scripts use enforced confinement;
+/// writable scripts follow the shared mode policy.
 /// That is also why this is not `exec` with a string mode bolted
 /// on: the two shapes are kept apart, here and in [ExecTool].
 class BashTool extends ProcessToolBase {
@@ -61,12 +61,18 @@ class BashTool extends ProcessToolBase {
         inputSchema: {
           'type': 'object',
           'properties': {
+            'access': {
+              'type': 'string',
+              'enum': ['read-only', 'workspace-write'],
+              'description':
+                  'Execution profile. read-only allows arbitrary commands and scripts with workspace mutations blocked by the OS sandbox. workspace-write requests workspace mutations. Defaults to read-only in read-only mode; recognized reader commands also default to read-only. Outside paths and network require explicit human approval in every ordinary mode.'
+            },
             'read_directories': {
               'type': 'array',
               'items': {'type': 'string'},
               'maxItems': 32,
               'description':
-                  'Additional existing directories to read for this invocation. Relative paths resolve from working_directory. Reviewed with the command in auto mode; keeps the sandbox active and does not save a grant. Prefer this over outside_sandbox for external files or toolchains.'
+                  'Additional existing directories to read for this invocation. Relative paths resolve from working_directory. Requires explicit human approval with the command; keeps the sandbox active and does not save a grant. Prefer this over outside_sandbox for external files or toolchains.'
             },
             'write_directories': {
               'type': 'array',
@@ -105,7 +111,7 @@ class BashTool extends ProcessToolBase {
             'network': {
               'type': 'boolean',
               'description':
-                  'Request network access for this subprocess and its children. Reviewed with execution under the current permission mode; filesystem confinement is unchanged.'
+                  'Request network access for this subprocess and its children. Requires explicit human approval or a matching human grant; filesystem confinement is unchanged.'
             },
             'network_reason': {
               'type': 'string',

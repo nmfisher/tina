@@ -48,17 +48,19 @@ void main() {
       );
     });
 
-    test('a read outside the root lands — reads anywhere but the tina tree',
-        () async {
+    test('outside reads need approval in each normal mode', () async {
       final outside = Directory.systemTemp.createTempSync('tina_tools_out_');
       addTearDown(() => outside.deleteSync(recursive: true));
       File(p.join(outside.path, 'secret.txt')).writeAsStringSync('s');
-      // Reads anywhere the process can reach are allowed in both modes.
-      for (final m in PermissionMode.values) {
+      final target = p.join(outside.path, 'secret.txt');
+      for (final m
+          in PermissionMode.values.where((m) => m != PermissionMode.yolo)) {
         sandbox.mode = m;
-        expect(await sandbox.readFileString(p.join(outside.path, 'secret.txt')),
-            's',
-            reason: '$m');
+        sandbox.approver = null;
+        await expectLater(
+            sandbox.readFileString(target), throwsA(isA<SandboxViolation>()));
+        sandbox.approver = (_, __) async => Approval.yes;
+        expect(await sandbox.readFileString(target), 's', reason: '$m');
       }
       sandbox.mode = PermissionMode.ask;
     });
@@ -214,17 +216,19 @@ void main() {
       expect(notDir.content, contains('not a directory'));
     });
 
-    test('reads are allowed anywhere; a refusal names the reason', () async {
+    test('outside reads require approval and protected paths stay blocked',
+        () async {
       final outside = Directory.systemTemp.createTempSync('tina_tools_lso_');
       addTearDown(() => outside.deleteSync(recursive: true));
       final sandbox = SandboxedFileSystem(const IoFileSystem(),
           workspaceRoot: tmp.path,
           tinaDir:
               Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
-      // Reads anywhere (both modes) — the guard lets it through.
+      // A direct external read has no grant.
       final res = await LsTool(workspaceRoot: tmp.path, sandbox: sandbox)
           .execute({'path': outside.path});
-      expect(res.isError, isFalse);
+      expect(res.isError, isTrue);
+      expect(res.content, contains('no approver'));
 
       // Only the Tina data tree is refused, and the refusal is explicit.
       final tinaDir =
@@ -306,8 +310,7 @@ void main() {
       expect(noContent.content, contains('content is required'));
     });
 
-    test('readOnly asks before an in-project write; a denial leaves no file',
-        () async {
+    test('readOnly blocks an in-project write before human review', () async {
       final tmp = Directory.systemTemp.createTempSync('tina_tools_write_');
       addTearDown(() => tmp.deleteSync(recursive: true));
       var asked = 0;
@@ -325,7 +328,7 @@ void main() {
           .execute({'filePath': 'in-project.txt', 'content': 'x'});
       expect(res.isError, isTrue);
       expect(res.content, contains('read-only mode'));
-      expect(asked, 1);
+      expect(asked, 0);
       expect(File(p.join(tmp.path, 'in-project.txt')).existsSync(), false);
     });
 
@@ -455,7 +458,7 @@ void main() {
       expect(none.content, equals('(no matches)'));
     });
 
-    test('a read outside the project is allowed in both modes', () async {
+    test('outside globbing requires a grant in every normal mode', () async {
       final outside = Directory.systemTemp.createTempSync('tina_tools_glo_');
       addTearDown(() => outside.deleteSync(recursive: true));
       File('${outside.path}/x.dart').writeAsStringSync('');
@@ -463,8 +466,14 @@ void main() {
           workspaceRoot: tmp.path,
           tinaDir:
               Directory('${Directory.systemTemp.path}/tina_tools_tina_home'));
-      for (final m in PermissionMode.values) {
+      for (final m
+          in PermissionMode.values.where((m) => m != PermissionMode.yolo)) {
         sandbox.mode = m;
+        sandbox.approver = null;
+        final denied = await GlobTool(workspaceRoot: tmp.path, sandbox: sandbox)
+            .execute({'pattern': '*.dart', 'path': outside.path});
+        expect(denied.isError, true, reason: '$m');
+        sandbox.approver = (_, __) async => Approval.yes;
         final res = await GlobTool(workspaceRoot: tmp.path, sandbox: sandbox)
             .execute({'pattern': '*.dart', 'path': outside.path});
         expect(res.isError, isFalse, reason: '$m');

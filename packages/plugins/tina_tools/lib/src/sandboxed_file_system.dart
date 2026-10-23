@@ -63,6 +63,10 @@ class SandboxedFileSystem implements FileSystem {
   /// closed. The filesystem never blocks on the approver beyond this call.
   Approver? approver;
 
+  /// Shared resolver for every access, including quiet workspace reads.
+  Approver? authorization;
+  int Function()? policyRevision;
+
   /// The session's remembered "always" answers, as exact canonical paths. The approver's
   /// [Approval.always] causes a [remember] here; a host may also
   /// pre-seed grants to widen a grant deliberately.
@@ -71,6 +75,7 @@ class SandboxedFileSystem implements FileSystem {
   bool Function(String)? protectedPath;
   bool Function(String)? readablePath;
   final _readGrants = FileGrants();
+  bool readGrantsAllow(String path) => _readGrants.allows(path);
 
   // Only temporary files created by this sandbox inherit the target grant.
   // This permits atomic replacement without approving unrelated siblings.
@@ -237,39 +242,45 @@ class SandboxedFileSystem implements FileSystem {
     if (authorized?.allows(this, op, approvedTarget) == true) {
       return approvedTarget;
     }
-    if (op == FileOp.write &&
+    if (authorization == null &&
+        op == FileOp.write &&
+        mode != PermissionMode.readOnly &&
         writeDirectories?.allows(approvedTarget) == true) {
       return approvedTarget;
     }
     final request = (op: op, path: approvedTarget);
-    final decision = op == FileOp.read &&
-            mode != PermissionMode.yolo &&
-            readablePath?.call(approvedTarget) == false &&
-            !_readGrants.allows(approvedTarget)
-        ? (
-            verdict: ToolVerdict.ask,
-            reason:
-                'allow read outside the sandbox (${p.basename(approvedTarget)})?'
-          )
-        : decideOperation(
-            request,
-            mode,
-            projectRoot: await _realRoot,
-            grants: grants,
-          );
+    final decision = authorization != null
+        ? (verdict: ToolVerdict.ask, reason: 'Access to $approvedTarget')
+        : op == FileOp.read &&
+                mode != PermissionMode.yolo &&
+                readablePath?.call(approvedTarget) == false &&
+                !_readGrants.allows(approvedTarget)
+            ? (
+                verdict: ToolVerdict.ask,
+                reason:
+                    'allow read outside the sandbox (${p.basename(approvedTarget)})?'
+              )
+            : decideOperation(
+                request,
+                mode,
+                projectRoot: await _realRoot,
+                grants: grants,
+              );
     switch (decision.verdict) {
       case ToolVerdict.allow:
         return approvedTarget;
       case ToolVerdict.deny:
         throw SandboxViolation(decision.reason);
       case ToolVerdict.ask:
-        final approver = this.approver;
+        final approver = authorization ?? this.approver;
         if (approver == null) {
           throw SandboxViolation('${decision.reason} — denied: no approver '
               'is wired to approve it');
         }
         final approval = await approver(request, decision.reason);
-        if (approval != Approval.no && await resolveCanonical(path) != target) {
+        if (approval != Approval.no &&
+            (op == FileOp.write && mode == PermissionMode.readOnly ||
+                await resolveCanonical(path) != target)) {
           throw SandboxViolation(
               'Path changed while awaiting approval: ${p.basename(path)}');
         }
@@ -402,7 +413,24 @@ Future<String> _resolveExisting(String path) async {
 /// An approval belongs to this boundary and this invocation, including when
 /// another filesystem is called from the same zone or async work escapes it.
 final class _AuthorizationScope {
-  _AuthorizationScope(this.boundary, this.op, this.target, this.parent);
+  _AuthorizationScope(this.boundary, this.op, this.target, this.parent)
+      : revision = boundary.policyRevision?.call(),
+        newParents =
+            op == FileOp.write ? _missingParents(target) : const <String>{};
+  final Set<String> newParents;
+  static Set<String> _missingParents(String target) {
+    final paths = <String>{};
+    var parent = p.dirname(target);
+    while (!Directory(parent).existsSync()) {
+      paths.add(parent);
+      final next = p.dirname(parent);
+      if (next == parent) break;
+      parent = next;
+    }
+    return paths;
+  }
+
+  final int? revision;
 
   final SandboxedFileSystem boundary;
   final FileOp op;
@@ -416,10 +444,12 @@ final class _AuthorizationScope {
         scope != null;
         scope = scope.parent) {
       // A nested operation cannot extend the lifetime of an inherited grant.
-      if (!scope.active) return false;
+      if (!scope.active ||
+          scope.revision != scope.boundary.policyRevision?.call()) return false;
       if (identical(scope.boundary, boundary) &&
-          scope.op == op &&
-          scope.target == target) matches = true;
+          (scope.op == op || scope.op == FileOp.write && op == FileOp.read) &&
+          (scope.target == target || scope.newParents.contains(target)))
+        matches = true;
     }
     return matches;
   }

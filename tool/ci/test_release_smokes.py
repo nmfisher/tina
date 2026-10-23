@@ -38,9 +38,9 @@ class ReleaseRunnerTest(unittest.TestCase):
             argv = ['runner', '--binary', str(binary), '--logs', str(root / 'logs'), '--jobs', '3']
             with patch('sys.argv', argv), patch.object(runner.subprocess, 'run', execute), redirect_stdout(io.StringIO()):
                 self.assertEqual(runner.main(), 1)
-            self.assertEqual(len(completed), 7)
+            self.assertEqual(len(completed), len(runner.SUITES))
             self.assertEqual(maximum, 3)
-            self.assertEqual(len(list((root / 'logs').glob('*.log'))), 7)
+            self.assertEqual(len(list((root / 'logs').glob('*.log'))), len(runner.SUITES))
             self.assertIn('smoke_engine2.py diagnostics', (root / 'logs/engine2.log').read_text())
 
     def test_timeout_is_reported_as_failure_in_its_log(self):

@@ -47,7 +47,7 @@ ChildSessionFactory standardChildFactory({
       approvals: parentTools.modePolicy.approvals,
       classifier: parentTools.modePolicy.classifier,
       terminal: parentTools.modePolicy.terminal,
-    );
+    )..inheritPolicy(parentTools.modePolicy);
     return Host.child(
       depth: plugin.childDepth,
       sessionId: plugin.nextChildId(),

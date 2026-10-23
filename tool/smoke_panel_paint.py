@@ -64,10 +64,8 @@ def smoke(launcher, endpoint, backend, columns, rows):
                 start = line('failed command approval example')
                 if not repeat:
                     visible('[y] allow once')
-                    # ↓↓ lands on the always-allow row; Enter decides the
-                    # session scope immediately (scope rows are flat; no
-                    # submenu round-trip).
-                    terminal.send('\x1b[B\x1b[B\r')
+                    # Open Remember, then confirm the session scope.
+                    terminal.send('\x1b[B\x1b[B\r\r')
                 terminal.wait_for(
                     lambda: len(ModelStub.requests) == requests_before + 2,
                     f'{backend}: failed command approval was not remembered', timeout=15)

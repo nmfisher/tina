@@ -3,13 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:tina_settings/tina_settings.dart';
 
-const defaultHomeCaches = [
-  '.pub-cache',
-  '.cargo/registry',
-  '.npm/_cacache',
-  '.gradle/caches',
-  '.m2/repository',
-];
+const List<String> defaultHomeCaches = [];
 
 final homeCachesSetting = SettingDefinition<List<String>>(
   id: 'tina/tools/home_caches',
@@ -146,6 +140,7 @@ final class SandboxHome {
     final parent = Directory(stateRoot)..createSync(recursive: true);
     _cleanAbandoned(parent);
     final home = parent.createTempSync('session-$pid-'); // mkdir with mode 0700
+    Directory(p.join(home.path, 'tmp')).createSync();
     final lease = File('${home.path}.lease').openSync(mode: FileMode.write);
     lease.lockSync(FileLock.exclusive);
     _leases[home.path] = lease;

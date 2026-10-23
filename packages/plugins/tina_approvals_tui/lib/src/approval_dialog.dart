@@ -110,14 +110,14 @@ class ApprovalAskContext {
 /// thing to blanket-allow).
 class ApprovalDialog {
   int _selected = 0;
+  bool _rememberMenu = false;
   bool _details = false;
   int _detailOffset = 0;
   int _maxDetailOffset = 0;
   int _previewOffset = 0;
   int _maxPreviewOffset = 0;
   int _pageSize = 1;
-  bool _rememberReads = false;
-  bool _rememberWrites = false;
+  bool _directoryScopeExplicit = false;
   final _selectedDirectories = <int>{};
   final _directoryOffers =
       <({String path, DirectoryAccess access, String source})>[];
@@ -130,45 +130,7 @@ class ApprovalDialog {
       ask?.confirmation != true &&
       call?.argumentsParseError == null;
 
-  /// The standing "always permit reads" answer, offered only when every
-  /// offered directory access is a read: the moment a write or an
-  /// unconfined request is part of the ask, "always permit reads" would
-  /// under-describe what approving it remembers. Unapproved execution and
-  /// network access must not ride along with a read grant.
-  /// Session and workspace are their own rows — one menu, one decision —
-  /// and global is deliberately not offered: a standing read grant for
-  /// every workspace at once is not a prompt-time decision.
-  bool get _hasReadsAlways =>
-      _hasAlways &&
-      (ask?.details['missing_permissions'] is! List ||
-          (ask!.details['missing_permissions'] as List)
-              .every((permission) => permission == 'directoryAccess')) &&
-      (ask?.details['required_permissions'] is! List ||
-          !(ask!.details['required_permissions'] as List).any((permission) =>
-              {'network', 'unconfined'}.contains(permission))) &&
-      _directoryOffers.isNotEmpty &&
-      _directoryOffers.every((offer) => offer.access == DirectoryAccess.read);
-  bool get _hasReadsAlwaysWorkspace =>
-      _hasReadsAlways &&
-      _directoryScopes.contains(DirectoryGrantScope.workspace);
-  bool get _hasInvocationDirectories =>
-      _hasDirectoryOffers && ask?.details['invocation_directory_access'] is Map;
-  String? get _readDirectory => ask?.confirmation != true &&
-          ask?.details['directory_accesses'] is! List &&
-          _hasAlways &&
-          ask?.details['read_directory'] is String
-      ? ask!.details['read_directory'] as String
-      : null;
-  String? get _writeDirectory => ask?.confirmation != true &&
-          ask?.details['directory_accesses'] is! List &&
-          _hasAlways &&
-          ask?.op == 'write' &&
-          ask?.details['write_directory'] is String
-      ? ask!.details['write_directory'] as String
-      : null;
-  bool get _onDirectoryCheckbox =>
-      {'read directory', 'write directory'}.contains(_choices[_selected]) ||
-      _choices[_selected].startsWith('directory ');
+  bool get _onDirectoryCheckbox => _choices[_selected].startsWith('directory ');
   bool get _onScope => _choices[_selected] == 'grant scope';
 
   /// The pending tool call, when the question came from one. A permission
@@ -195,8 +157,7 @@ class ApprovalDialog {
       ];
 
   bool get _hasAlways =>
-      call?.argumentsParseError == null &&
-      ask?.details['directory_grant_required'] != true;
+      ask?.confirmation != true && call?.argumentsParseError == null;
   bool get _hasCommandPattern =>
       ask?.confirmation != true &&
       _hasAlways &&
@@ -231,17 +192,6 @@ class ApprovalDialog {
       _selectedDirectories
           .addAll(List.generate(_directoryOffers.length, (index) => index));
     }
-    if (ask?.confirmation != true &&
-        ask?.details['recommended_scope'] == 'workspace') {
-      final missing = ask?.details['missing_permissions'];
-      final onlyDirectories = missing is List &&
-          missing.isNotEmpty &&
-          missing.every((permission) => permission == 'directoryAccess');
-      final recommended =
-          onlyDirectories ? 'allow directories workspace' : 'allow workspace';
-      final index = _choices.indexOf(recommended);
-      if (index >= 0) _selected = index;
-    }
   }
 
   ApprovalOutcome _outcome(ApprovalDecision decision,
@@ -249,7 +199,6 @@ class ApprovalDialog {
       ApprovalOutcome(decision,
           editCommandPattern: editCommandPattern,
           directoryGrants: {
-            ApprovalDecision.allow,
             ApprovalDecision.allowAlways,
             ApprovalDecision.allowWorkspace,
             ApprovalDecision.allowGlobal
@@ -261,76 +210,65 @@ class ApprovalDialog {
                 ])
               : const []);
 
-  /// The standing reads grant: every offered access is a read, remembered
-  /// at [scope]. The answer's scope rides the grants, never a new enum value.
-  ApprovalOutcome _readsAlwaysOutcome(DirectoryGrantScope scope) =>
-      ApprovalOutcome(ApprovalDecision.allowReadsAlways,
-          directoryGrants: List.unmodifiable([
-            for (final offer in _directoryOffers)
-              DirectoryAccessGrant(offer.path, offer.access, scope)
-          ]));
-
   List<String> get _choices => ask?.confirmation == true
       ? ['Yes', 'No']
-      : [
-          'allow',
-          'deny',
-          if (_hasReadsAlways) 'always permit reads session',
-          if (_hasReadsAlwaysWorkspace) 'always permit reads workspace',
-          if (_hasInvocationDirectories) ...[
-            'allow directories session',
-            if (_directoryScopes.contains(DirectoryGrantScope.workspace))
-              'allow directories workspace',
-            if (_directoryScopes.contains(DirectoryGrantScope.global))
-              'allow directories global',
-          ],
-          // Every remembered-approval scope is its own row: one menu, one
-          // decision, no second round-trip through a submenu.
-          if (_hasAlways) 'allow always',
-          if (_hasPersistent) ...['allow workspace', 'allow global'],
-          if (_hasCommandPattern) 'edit command pattern',
-          if (_readDirectory != null) 'read directory',
-          if (_writeDirectory != null) 'write directory',
-          if (_hasDirectoryOffers) ...[
-            for (var i = 0; i < _directoryOffers.length; i++) 'directory $i',
-            'grant scope',
-          ],
-        ];
+      : !_rememberMenu
+          ? ['allow', 'deny', if (_hasAlways) 'remember']
+          : [
+              'allow always',
+              if (_hasPersistent) 'allow workspace',
+              if (_hasPersistent) 'allow global',
+              if (_hasDirectoryOffers) ...[
+                for (var i = 0; i < _directoryOffers.length; i++)
+                  'directory $i',
+                'grant scope',
+              ],
+              if (_hasCommandPattern) 'edit command pattern',
+              'back',
+            ];
 
-  ApprovalDecision _withDirectoryScope(ApprovalDecision decision) {
-    if (_rememberWrites && _writeDirectory != null) {
-      return switch (decision) {
-        ApprovalDecision.allow => ApprovalDecision.allowWritesInDirectory,
-        ApprovalDecision.allowAlways =>
-          ApprovalDecision.allowAlwaysAndWritesInDirectory,
-        _ => decision,
-      };
+  void _openRemember() {
+    _details = false;
+    _rememberMenu = true;
+    _selected = 0;
+    _directoryScope = DirectoryGrantScope.session;
+    _directoryScopeExplicit = false;
+    // Remember the requested directories, never extra model-inferred folders.
+    final invocation = ask?.details['invocation_directory_access'];
+    if (invocation is Map || ask?.details['directory_grant_required'] == true) {
+      for (var i = 0; i < _directoryOffers.length; i++) {
+        final offer = _directoryOffers[i];
+        if (ask?.details['directory_grant_required'] == true ||
+            (invocation is Map ? invocation[offer.access.name] as List? : null)
+                    ?.contains(offer.path) ==
+                true) {
+          _selectedDirectories.add(i);
+        }
+      }
     }
-    if (!_rememberReads || _readDirectory == null) return decision;
-    return switch (decision) {
-      ApprovalDecision.allow => ApprovalDecision.allowReadsInDirectory,
-      ApprovalDecision.allowAlways =>
-        ApprovalDecision.allowAlwaysAndReadsInDirectory,
-      _ => decision,
-    };
   }
 
-  ApprovalDecision decisionFor(int index) =>
-      _withDirectoryScope(switch (_choices[index]) {
+  bool _navigateRemember() {
+    if (_choices[_selected] == 'remember') {
+      _openRemember();
+      return true;
+    }
+    if (_choices[_selected] == 'back') {
+      _rememberMenu = false;
+      _selected = 0;
+      _selectedDirectories.clear();
+      return true;
+    }
+    return false;
+  }
+
+  ApprovalDecision decisionFor(int index) => switch (_choices[index]) {
         'allow always' => ApprovalDecision.allowAlways,
         'allow workspace' => ApprovalDecision.allowWorkspace,
         'allow global' => ApprovalDecision.allowGlobal,
-        'always permit reads session' ||
-        'always permit reads workspace' =>
-          ApprovalDecision.allowReadsAlways,
-        'allow' ||
-        'Yes' ||
-        'allow directories session' ||
-        'allow directories workspace' ||
-        'allow directories global' =>
-          ApprovalDecision.allow,
+        'allow' || 'Yes' => ApprovalDecision.allow,
         _ => ApprovalDecision.deny,
-      });
+      };
 
   /// Input-anchored rows: context and navigation above the answer selector.
   /// The last row replaces the text input. On narrow screens the selected
@@ -384,6 +322,13 @@ class ApprovalDialog {
     final hasDenialReason =
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
+      if (ask?.details['authorization_reason'] case final String why)
+        'Why approval is needed: $why',
+      if (ask?.details['access_requirements'] case final List requirements)
+        for (final r in requirements)
+          if (r is Map)
+            '${r['granted'] == true ? 'Already permitted' : 'Requested'}: ${r['capability']} ${r['target']}',
+
       if (ask?.details['invocation_directory_access'] case final Map access)
         for (final kind in ['read', 'write'])
           if (access[kind] case final List paths)
@@ -405,8 +350,6 @@ class ApprovalDialog {
           'Files: AI analysis · no other files detected',
       if (ask?.details['unresolved_accesses'] case final List unresolved)
         for (final item in unresolved) 'Not analyzed: $item',
-      if (_readDirectory != null) 'Read directory: $_readDirectory',
-      if (_writeDirectory != null) 'Write directory: $_writeDirectory',
       if (ask?.confirmation == true) ...[
         ask!.reason,
         if (description != null) ...[
@@ -519,26 +462,15 @@ class ApprovalDialog {
         'Yes' => '[y] Yes',
         'No' => '[n] No',
         'allow' => ask?.details['directory_grant_required'] == true
-            ? '[y] grant selected directory access and run'
+            ? '[y] allow once and retry'
             : '[y] allow once',
         'deny' => '[n] deny',
+        'remember' => '[a] Remember…',
+        'back' => 'Back',
         'allow always' => '[a] $alwaysLabel',
-        'allow workspace' => '[p] remember this command for this workspace',
-        'allow global' => '[g] remember this command globally (any directory)',
-        'allow directories session' =>
-          'allow once and remember requested folders for this session',
-        'allow directories workspace' =>
-          'allow once and remember requested folders for this workspace',
-        'allow directories global' =>
-          'allow once and remember requested folders for all workspaces',
-        'always permit reads session' => 'always permit reads (this session)',
-        'always permit reads workspace' =>
-          'always permit reads (this workspace)',
-        'edit command pattern' => '[e] always approve with editable regex',
-        'read directory' =>
-          '[${_rememberReads ? 'x' : ' '}] Allow all reads in this directory (r/Space)',
-        'write directory' =>
-          '[${_rememberWrites ? 'x' : ' '}] Allow all writes in this directory (w/Space)',
+        'allow workspace' => '[p] Save this access for this workspace',
+        'allow global' => '[g] Save this access globally',
+        'edit command pattern' => '[e] Approve with an editable regex',
         'grant scope' =>
           '[s] Save directory grants: ${_directoryScope.name} (s/Enter)',
         _ => choice,
@@ -608,15 +540,23 @@ class ApprovalDialog {
 
   /// Apply one navigation key; returns true when the selection changed.
   bool handleKey(ApprovalKey key) {
-    if (_hasDirectoryOffers &&
+    if (key == ApprovalKey.confirm && !_details && _navigateRemember())
+      return true;
+    if (key == ApprovalKey.always && !_rememberMenu && _hasAlways) {
+      _openRemember();
+      return true;
+    }
+    if (_rememberMenu &&
+        _hasDirectoryOffers &&
         (key == ApprovalKey.directoryScope ||
             key == ApprovalKey.confirm && _onScope && !_details)) {
+      _directoryScopeExplicit = true;
       _directoryScope = _directoryScopes[
           (_directoryScopes.indexOf(_directoryScope) + 1) %
               _directoryScopes.length];
       return true;
     }
-    if (_hasDirectoryOffers) {
+    if (_rememberMenu && _hasDirectoryOffers) {
       int? index;
       if ((key == ApprovalKey.toggleDirectory ||
               key == ApprovalKey.confirm && !_details) &&
@@ -636,23 +576,6 @@ class ApprovalDialog {
           _selectedDirectories.add(index);
         return true;
       }
-    }
-    final toggleFocused = key == ApprovalKey.toggleDirectory ||
-        key == ApprovalKey.confirm && _onDirectoryCheckbox && !_details;
-    if (_writeDirectory != null &&
-        (key == ApprovalKey.toggleWriteDirectory ||
-            toggleFocused &&
-                (_choices[_selected] == 'write directory' ||
-                    _readDirectory == null))) {
-      _rememberWrites = !_rememberWrites;
-      _rememberReads = false;
-      return true;
-    }
-    if (_readDirectory != null &&
-        (key == ApprovalKey.toggleReadDirectory || toggleFocused)) {
-      _rememberReads = !_rememberReads;
-      _rememberWrites = false;
-      return true;
     }
     if ({
       ApprovalKey.pageUp,
@@ -721,24 +644,12 @@ class ApprovalDialog {
   /// The decision the current selection maps to.
   ApprovalOutcome get current {
     final choice = _choices[_selected];
-    if (choice == 'always permit reads session') {
-      return _readsAlwaysOutcome(DirectoryGrantScope.session);
-    }
-    if (choice == 'always permit reads workspace') {
-      return _readsAlwaysOutcome(DirectoryGrantScope.workspace);
-    }
-    if (choice == 'allow directories session' ||
-        choice == 'allow directories workspace' ||
-        choice == 'allow directories global') {
-      final access = ask!.details['invocation_directory_access'] as Map;
-      final scope = DirectoryGrantScope.values.byName(choice.split(' ').last);
-      return ApprovalOutcome(ApprovalDecision.allow, directoryGrants: [
-        for (final offer in _directoryOffers)
-          if ((access[offer.access.name] as List?)?.contains(offer.path) ==
-              true)
-            DirectoryAccessGrant(offer.path, offer.access, scope),
-      ]);
-    }
+    if (!_directoryScopeExplicit)
+      _directoryScope = switch (choice) {
+        'allow workspace' => DirectoryGrantScope.workspace,
+        'allow global' => DirectoryGrantScope.global,
+        _ => DirectoryGrantScope.session,
+      };
     return _outcome(decisionFor(_selected),
         editCommandPattern: choice == 'edit command pattern');
   }
@@ -752,8 +663,15 @@ class ApprovalDialog {
       ApprovalKey.global => 2,
       _ => -1,
     };
-    if (target >= _scopeChoices.length) return null;
-    return _outcome(_withDirectoryScope(_scopeChoices[target]));
+    if (!_rememberMenu || target < 0 || target >= _scopeChoices.length)
+      return null;
+    if (!_directoryScopeExplicit)
+      _directoryScope = switch (shortcut) {
+        ApprovalKey.workspace => DirectoryGrantScope.workspace,
+        ApprovalKey.global => DirectoryGrantScope.global,
+        _ => DirectoryGrantScope.session,
+      };
+    return _outcome(_scopeChoices[target]);
   }
 
   /// Drive the dialog from [keys]: arrows move, Enter confirms, Esc/source
@@ -770,20 +688,25 @@ class ApprovalDialog {
       onAnyKey?.call();
       switch (key) {
         case ApprovalKey.allow:
-          return _outcome(_withDirectoryScope(ApprovalDecision.allow));
+          return _outcome(ApprovalDecision.allow);
         case ApprovalKey.deny:
           return const ApprovalOutcome(ApprovalDecision.deny);
         case ApprovalKey.workspace:
         case ApprovalKey.global:
-          // p/g decide immediately: the scopes are rows on the first menu.
+          // Scope shortcuts are active only inside Remember.
           final outcome = scopeDecision(key!);
           if (outcome != null) return outcome;
         case ApprovalKey.always:
-          if (ask?.confirmation != true && _hasAlways) {
-            return _outcome(_withDirectoryScope(ApprovalDecision.allowAlways));
+          if (_hasAlways) {
+            if (!_rememberMenu) {
+              _openRemember();
+              onKey?.call();
+            } else {
+              return scopeDecision(ApprovalKey.always)!;
+            }
           }
         case ApprovalKey.editCommandPattern:
-          if (_hasCommandPattern) {
+          if (_rememberMenu && _hasCommandPattern) {
             return const ApprovalOutcome(ApprovalDecision.deny,
                 editCommandPattern: true);
           }
@@ -801,12 +724,23 @@ class ApprovalDialog {
           handleKey(key!);
           onKey?.call();
         case ApprovalKey.confirm:
+          if (!_details && _navigateRemember()) {
+            onKey?.call();
+            continue;
+          }
           if (!_details && !_onDirectoryCheckbox && !_onScope) {
             return current;
           }
           handleKey(key!);
           onKey?.call();
         case ApprovalKey.cancel:
+          if (_rememberMenu) {
+            _rememberMenu = false;
+            _selected = 0;
+            _selectedDirectories.clear();
+            onKey?.call();
+            continue;
+          }
           return const ApprovalOutcome(
             ApprovalDecision.deny,
             reason: 'cancelled',

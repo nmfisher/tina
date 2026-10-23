@@ -36,8 +36,8 @@ deny. A delivery returning normally without an answer leaves the ticket pending.
 There is no timeout by default: human approvals wait for a response or explicit
 cancellation. Embedders can opt into expiry with the plugin constructor's
 `timeout` argument.
-Pending requests are session-local and not restored from persistence. Turn
-cancellation is observed through the generic `TurnContext.whenCancelled`
+Pending requests are session-local and not restored from persistence. Callers may pass `whenCancelled` to invalidate one pending request, including
+a mode change. Turn cancellation is also observed through the generic `TurnContext.whenCancelled`
 contract; no engine code imports approval or UI types.
 
 ## Registration

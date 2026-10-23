@@ -89,10 +89,11 @@ void main() {
     tools.settings!
         .set(allowReadsOutsideWorkspaceSetting, true, SettingScope.session);
     final outcome = await tools.processRunner.run(tee());
-    expect(outcome, isA<CommandRefused>(),
-        reason: 'tee writes; it is not a read: $outcome');
-    expect(approvals.calls, 1,
-        reason: 'a write-shaped ask still goes to the human');
+    expect(outcome, isA<CommandBlocked>());
+    expect(File('${library.path}/notes.txt').readAsStringSync(),
+        'library content\n');
+    expect(approvals.calls, 0,
+        reason: 'the read-only OS profile blocks writes');
   });
 
   test('the standing grant answers certified reads in other modes', () async {
@@ -116,7 +117,9 @@ void main() {
                 networkRequested: true,
                 networkReason: 'separate network permission')),
         isA<CommandRefused>());
-    expect(await tools.processRunner.run(tee()), isA<CommandRefused>());
+    expect(await tools.processRunner.run(tee()), isA<CommandBlocked>());
+    expect(File('${library.path}/notes.txt').readAsStringSync(),
+        'library content\n');
     expect(
         tools.settings!.read(allowReadsOutsideWorkspaceSetting).value, isFalse);
   });
@@ -151,6 +154,7 @@ final class _RecordingApprovals implements ApprovalRequester {
       required String target,
       required String reason,
       ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)?

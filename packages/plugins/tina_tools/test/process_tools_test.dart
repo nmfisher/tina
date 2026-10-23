@@ -77,9 +77,10 @@ void main() {
           writableDirectories: WritableDirectories()..add('/'),
         ),
       );
-      final res = await tool.execute({'command': 'touch file'});
+      final res = await tool
+          .execute({'command': 'touch file', 'access': 'workspace-write'});
       expect(res.isError, isTrue);
-      expect(res.content, contains('read-only mode'));
+      expect(res.content, contains('Read-only mode'));
     });
 
     test(
@@ -123,12 +124,11 @@ void main() {
     });
 
     test('end-to-end on the real runner: stdout captured', () async {
-      final approver = _Approving();
       final tool = BashTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
           writableDirectories: WritableDirectories()..add('/'),
-          approver: approver.call,
+          commandApprover: (_, __) async => Approval.yes,
         ),
       );
       final res = await tool.execute({'command': 'echo roundtrip'});
@@ -166,8 +166,11 @@ void main() {
             if (asks == 1) {
               expect(request.arguments, ['push', 'origin']);
               expect(review.networkReason, 'push branch');
-              expect(review.missingPermissions,
-                  {ProcessPermission.execution, ProcessPermission.network});
+              expect(review.missingPermissions, {
+                ProcessPermission.execution,
+                ProcessPermission.workspaceWrite,
+                ProcessPermission.network
+              });
             }
             return Approval.yes;
           });
@@ -266,7 +269,7 @@ void main() {
       final tool = ExecTool(
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
-          approver: (_, __) async => Approval.yes,
+          commandApprover: (_, __) async => Approval.yes,
           writableDirectories: WritableDirectories()..add('/'),
         ),
       );
@@ -329,7 +332,9 @@ CommandCompleted _done(int code, String out, String err) =>
     CommandCompleted(exitCode: code, stdout: out, stderr: err);
 
 /// Records exactly what the tool handed the runner, then plays one outcome.
-final class _RecordingRunner implements ProcessRunner {
+final class _RecordingRunner implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   CommandOutcome _next;
   ProcessControl? receivedControl;
   String? command;

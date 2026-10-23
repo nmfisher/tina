@@ -55,41 +55,32 @@ Tool plugins provide optional action descriptions with their tool schemas;
 the transcript, activity browser and approvals use those descriptions for
 plain-language labels. `tina/approvals-tui` renders permissions above the input
 line with the actual command, directory, affected file or colored edit preview.
-Y allows the invocation once, N denies, and A remembers the displayed scope
-for the session: this file, or this exact command in this directory. Each choice
-has its own row, with an arrow and highlighting on the selected answer.
-Arrows/Enter also work; Tab opens scrollable technical details, and Esc cancels.
-Yes/No confirmations use the same layout and Y/N shortcuts. Very short terminals
-show the selected answer and its position in the list.
-Remembered permissions live in the tools plugin for the running session. File
-grants match the exact canonical path, including later edits and atomic writes.
-Command grants match the program, literal arguments, working directory,
-environment values and stdin; a different command or file asks again. Grants
-are isolated between panels and expire when the session is closed or resumed.
-Network access remains an explicit capability and applies to one invocation.
-Commands can include `read_directories` and `write_directories` for additional
-access limited to that subprocess tree. Execution, network and directories are
-reviewed together. Human prompts offer once, session-folder and workspace-folder
-choices; remembered folders also serve later commands with different arguments.
+Y allows the invocation once, N denies, and A opens Remember. Remember exposes
+Session, Workspace and Global scopes, with directory and command-pattern controls
+where offered. Arrows/Enter work; Tab opens scrollable technical details and Esc
+returns or cancels. Yes/No confirmations use the same presentation and always
+require a human answer.
+
+Exact file, command and MCP grants use a common trusted approval store. Session
+grants expire when the session closes; workspace/global grants survive restart
+and can be revoked in Settings → Permissions. Command identities bind the
+resolved executable, literal arguments, working directory where applicable,
+environment and stdin. Outside directories and network remain separate
+capabilities in the same review. Allow once never creates a persistent grant.
 One-call approval includes the tool's atomic temporary-file/rename work,
 and expires after the invocation. Request details are channel-neutral metadata;
 the engine does not depend on terminal rendering.
-Read-only mode asks before writes and commands other than verified readers. Explicit approval permits the
-displayed operation without changing the mode; remembered grants retain their
-displayed scope. Auto mode runs verified readers directly and asks when
-classification cannot allow other actions. `/mode` with no argument reports
-session-local approval request counts by reason: missing directory access, host
-execution, classifier denial/failure, grant mismatch or permission mode. These
-counters contain no command contents, paths or environment values.
+Read-only mode freely permits workspace reads and arbitrary scripts under an
+enforced read-only profile. It blocks writes before remembered grants and
+requires human approval for external reads/network. Auto reviews workspace
+mutations; external access still requires a human. Mode changes invalidate pending
+reviews and invocation scopes and propagate to running child agents.
 
-`tina --yolo` starts a session with every permission and approval check
-disabled: reads, writes and commands run anywhere without a request, and the
-safety judge never runs. yolo is a launch-time flag only — it is not exposed
-through `/mode` and is not persisted, so a resumed session cannot enter it.
-It bypasses the *permission* gate alone: OS filesystem and network confinement
-remain governed by `--no-sandbox`. Run `tina --yolo --no-sandbox` for a fully
-unconfined session. A prominent warning is printed at launch. This is meant
-for trusted, disposable environments; use with extreme care.
+`tina --yolo` authorizes requested capabilities through the shared resolver for
+that launch. The safety judge is skipped; explicit Yes/No confirmations still
+require a human answer. The flag is excluded from `/mode` and persistence.
+Protected paths and configured OS filesystem/network confinement still apply;
+`--yolo --no-sandbox` also authorizes unconfined host execution.
 
 ## Activity presentation
 

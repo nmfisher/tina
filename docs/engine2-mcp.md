@@ -78,12 +78,18 @@ before retrying a cancelled/timed-out edit.
 
 ## Approval and lifecycle
 
-Ask, read-only and allow-edits modes ask for MCP calls. Server annotations are
-not trusted as permission grants. Auto mode uses the existing structured safety
-classifier, falling back to human approval when it cannot approve the operation.
-Always allow covers the exact server configuration, method, tool and arguments
-for this conversation. A different call asks again. Grants are not persisted or
-restored on resume, and reconnecting/reconfiguring/unloading drops them.
+MCP connection/startup and every call pass through the shared mode policy.
+Connection approval precedes spawning a stdio process or contacting a remote
+server. Server annotations never authorize effects. Ask, allow-edits and auto
+require a human grant for external capabilities; the automatic judge cannot
+approve them. Read-only permits human-approved resource reads and prompts,
+while blocking unknown server startup and mutation/unknown tool effects.
+
+Remember covers the exact server configuration, method, tool and canonical
+arguments at Session, Workspace or Global scope through the common trusted
+approval store. Changing configuration or arguments requires new authorization.
+Revocation affects the next call. No MCP-local approval cache bypasses the mode
+ceiling. Yolo authorizes capabilities at launch through the same resolver.
 
 Schema names include server identity and a stable suffix to avoid collisions
 and fit provider tool-name limits. Tool-list notifications take effect on the

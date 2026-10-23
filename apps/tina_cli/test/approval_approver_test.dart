@@ -112,7 +112,7 @@ void main() {
       final channel = DialogChannel((_) {
         shown++;
         return ScriptedKeySource(
-            [if (!allow) ApprovalKey.cancel, ApprovalKey.always]);
+            [if (!allow) ApprovalKey.cancel, ApprovalKey.always, ApprovalKey.confirm]);
       });
       final service = ApprovalsPlugin(channel: channel);
       addTearDown(service.closeSession);

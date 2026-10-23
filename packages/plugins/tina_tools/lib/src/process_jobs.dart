@@ -39,6 +39,12 @@ final class ProcessJobs implements ProcessRunner {
   int _next = 0;
   bool _closed = false;
 
+  void cancelAll({bool runningOnly = false}) {
+    for (final job in _jobs.values) {
+      if (!runningOnly || job.started.isCompleted) job.stop();
+    }
+  }
+
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
@@ -47,6 +53,7 @@ final class ProcessJobs implements ProcessRunner {
     _jobs[job.id] = job;
     job.done = Future.sync(() => inner.run(request,
         control: ProcessControl(
+          readOnlyRequested: control?.readOnlyRequested,
           networkRequested: control?.networkRequested ?? false,
           networkReason: control?.networkReason,
           networkAllowed: control?.networkAllowed ?? false,

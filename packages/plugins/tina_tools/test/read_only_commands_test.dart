@@ -19,7 +19,9 @@ ProcessRequest request(String program, List<String> args,
       timeout: null
     );
 
-class _Recorder implements ProcessRunner {
+class _Recorder implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   final requests = <ProcessRequest>[];
   final controls = <ProcessControl?>[];
   @override
@@ -45,7 +47,20 @@ void main() {
           executableSearchPath: searchPath,
           commandApprover: review);
 
-  test('reader output uses only an already-writable directory', () async {
+  OsSandboxRunner realRunner() {
+    final home =
+        SandboxHome(realHome: root.path, stateRoot: '${root.path}/state');
+    addTearDown(home.close);
+    return OsSandboxRunner(
+        inner: const IoProcessRunner(),
+        plan: SandboxPlan(
+          workspaceRoot: root.path,
+          home: home,
+          parentEnvironment: {'HOME': root.path, 'PATH': systemPath},
+        ));
+  }
+
+  test('read-only profiles cannot open workspace output holes', () async {
     final output = Directory('${root.path}/output')..createSync();
     final call = request('/bin/sh', ['-c', 'echo hello > output/result'],
         cwd: root.path);
@@ -66,8 +81,7 @@ void main() {
             control: const ProcessControl(outputDirectories: ['/forged'])),
         isA<CommandCompleted>());
     expect(inner.controls.single!.readOnly, isTrue);
-    expect(inner.controls.single!.outputDirectories,
-        [output.resolveSymbolicLinksSync()]);
+    expect(inner.controls.single!.outputDirectories, isEmpty);
     final escaped = Link('${output.path}/escape')..createSync(root.path);
     final outside = request(
         '/bin/sh', ['-c', 'echo hello > ${escaped.path}/result'],
@@ -125,8 +139,10 @@ void main() {
       handle.closeSync();
     }
     Process.runSync('/bin/chmod', ['+x', executable.path]);
-    expect(readOnlyExecutable(request(executable.path, ['--files']),
-        candidateOnly: true), isNull);
+    expect(
+        readOnlyExecutable(request(executable.path, ['--files']),
+            candidateOnly: true),
+        isNull);
   }, skip: Platform.isWindows);
 
   test('constrained find and reader options reject execution and write flags',
@@ -327,7 +343,7 @@ void main() {
     }
   });
 
-  test('PATH shadowing, relative PATH and custom environments need review',
+  test('uncertified commands still use the enforced read-only profile',
       () async {
     final fake = File('${root.path}/grep')
       ..writeAsStringSync('#!/bin/sh\ntouch "${root.path}/WRITTEN"\n');
@@ -340,7 +356,7 @@ void main() {
       return Approval.no;
     });
     expect(await gate.run(request('grep', ['pattern', 'file'], cwd: root.path)),
-        isA<CommandRefused>());
+        isA<CommandCompleted>());
     expect(
         readOnlyExecutable(request('grep', [], cwd: root.path),
             searchPath: ':$systemPath'),
@@ -355,14 +371,14 @@ void main() {
       {'LD_PRELOAD': '/tmp/inject.so'}
     ]) {
       expect(await gate.run(request('/usr/bin/grep', [], environment: env)),
-          isA<CommandRefused>());
+          isA<CommandCompleted>());
     }
-    expect(asks, 4);
-    expect(inner.requests, isEmpty);
+    expect(asks, 0);
+    expect(inner.controls.every((control) => control!.readOnly), true);
     expect(File('${root.path}/WRITTEN').existsSync(), false);
   });
 
-  test('unknown options, shell strings and edits still ask in read-only',
+  test('unknown options and scripts need no reader certification in read-only',
       () async {
     final inner = _Recorder();
     var asks = 0;
@@ -377,10 +393,10 @@ void main() {
       request('/bin/sh', ['-c', 'ls .; touch WRITTEN']),
       request('sed', ['-i', 's/before/after/', 'file']),
     ]) {
-      expect(await gate.run(call), isA<CommandRefused>());
+      expect(await gate.run(call), isA<CommandCompleted>());
     }
-    expect(asks, 5);
-    expect(inner.requests, isEmpty);
+    expect(asks, 0);
+    expect(inner.controls.every((control) => control!.readOnly), true);
   });
 
   test('reader certification permits reads in ask mode too', () async {
@@ -455,7 +471,8 @@ void main() {
       expect(gate.grants.isEmpty, true);
     });
 
-    test('$mode rejects unsafe or unsupported shell components', () async {
+    test('$mode applies the execution profile to arbitrary shell components',
+        () async {
       final inner = _Recorder();
       var asks = 0;
       final gate = runner(inner, review: (_, __) async {
@@ -489,11 +506,21 @@ void main() {
       ]) {
         expect(
             await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
-            isA<CommandRefused>(),
+            mode == PermissionMode.ask || mode == PermissionMode.auto
+                ? isA<CommandRefused>()
+                : isA<CommandCompleted>(),
             reason: script);
       }
-      expect(asks, 22);
-      expect(inner.requests, isEmpty);
+      if (mode == PermissionMode.ask || mode == PermissionMode.auto) {
+        expect(asks, 22);
+        expect(inner.requests, isEmpty);
+      } else {
+        expect(asks, 0);
+        expect(
+            inner.controls.every((control) =>
+                control!.readOnly == (mode == PermissionMode.readOnly)),
+            true);
+      }
     });
 
     test('$mode compound readers still review network and unconfined access',
@@ -521,8 +548,11 @@ void main() {
                 sandboxReason: 'fixture',
               )),
           isA<CommandRefused>());
-      expect(reviews.last.missingPermissions,
-          {ProcessPermission.network, ProcessPermission.unconfined});
+      expect(reviews, hasLength(mode == PermissionMode.readOnly ? 1 : 2));
+      if (mode != PermissionMode.readOnly) {
+        expect(reviews.last.missingPermissions,
+            {ProcessPermission.network, ProcessPermission.unconfined});
+      }
       expect(inner.requests, isEmpty);
     });
   }
@@ -533,7 +563,7 @@ void main() {
         'class Question {}\nabstract class Base {}\nenum Kind { one }\n');
     File('${root.path}/pubspec.yaml')
         .writeAsStringSync('name: fixture\nversion: 1\n');
-    final gate = runner(const IoProcessRunner(),
+    final gate = runner(realRunner(),
         review: (_, __) => throw StateError('unexpected approval'))
       ..mode = PermissionMode.allowEdits;
     final outcome = await gate.run(request(
@@ -579,6 +609,9 @@ void main() {
     expect(inner.controls.last!.networkAllowed, false);
     const outside =
         ProcessControl(outsideSandboxRequested: true, sandboxReason: 'fixture');
+    expect(await gate.run(call, control: outside), isA<CommandRefused>());
+    expect(reviews, hasLength(1));
+    gate.mode = PermissionMode.ask;
     await gate.run(call, control: outside);
     expect(reviews.last.missingPermissions, {ProcessPermission.unconfined});
     expect(inner.controls.last!.outsideSandboxAllowed, true);
@@ -594,7 +627,7 @@ void main() {
     final pattern = '\$(touch ${marker.path}); > ${marker.path}';
     final file = File('${root.path}/notes.txt')
       ..writeAsStringSync('$pattern\n');
-    final gate = runner(const IoProcessRunner());
+    final gate = runner(realRunner());
     final result = await gate.run(request('grep', ['-F', pattern, file.path]));
     expect(result, isA<CommandCompleted>());
     expect((result as CommandCompleted).exitCode, 0);

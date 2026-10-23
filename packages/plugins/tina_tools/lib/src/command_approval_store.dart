@@ -116,13 +116,13 @@ final class CommandApprovalStore {
             entry['setting'] as String: entry['value'],
       };
 
-  void replaceSettings(
-      CommandApprovalScope scope, Map<String, Object?> values,
+  void replaceSettings(CommandApprovalScope scope, Map<String, Object?> values,
       {Map<String, Object?>? expected}) {
     void change(List<Map<String, Object?>> entries) {
       final current = {
         for (final entry in entries)
-          if (entry['kind'] == 'setting' && entry['scope'] == scope.name &&
+          if (entry['kind'] == 'setting' &&
+              entry['scope'] == scope.name &&
               (scope == CommandApprovalScope.global ||
                   entry['workspace'] == canonicalSandboxPath(workspace)))
             entry['setting'] as String: entry['value'],
@@ -201,6 +201,49 @@ final class CommandApprovalStore {
     }
   }
 
+  /// File and MCP access use the same scope, storage and revocation lifecycle.
+  bool coversAccess(String capability, String target) {
+    try {
+      return entries.any((entry) =>
+          entry['kind'] == 'access' &&
+          (entry['capability'] == capability ||
+              capability == 'read' && entry['capability'] == 'write') &&
+          entry['target'] == target);
+    } on FileSystemException {
+      return false;
+    } on FormatException {
+      return false;
+    } on TypeError {
+      return false;
+    }
+  }
+
+  void rememberAccess(
+      String capability, String target, CommandApprovalScope scope) {
+    final entry = <String, Object?>{
+      'kind': 'access',
+      'id': 'access:${scope.name}:$workspace:$capability:$target',
+      'scope': scope.name,
+      if (scope != CommandApprovalScope.global)
+        'workspace': canonicalSandboxPath(workspace),
+      'capability': capability,
+      'target': target,
+      'command': '$capability $target',
+      'directory': workspace,
+    };
+    if (scope == CommandApprovalScope.session) {
+      _session.removeWhere((value) => value['id'] == entry['id']);
+      _session.add(entry);
+    } else {
+      if (file == null)
+        throw StateError('Persistent approval storage is unavailable');
+      _update((entries) {
+        entries.removeWhere((value) => value['id'] == entry['id']);
+        entries.add(entry);
+      });
+    }
+  }
+
   bool covers(ProcessRequest request, Set<ProcessPermission> permissions,
       {ProcessDirectoryAccess directoryAccess =
           const ProcessDirectoryAccess.empty()}) {
@@ -220,8 +263,13 @@ final class CommandApprovalStore {
                 pattern is String &&
                     CommandApprovalPattern(pattern)
                         .matches(approvalCommandText(request))) &&
-            permissions
-                .every((permission) => granted.contains(permission.name)) &&
+            permissions.every((permission) =>
+                granted.contains(permission.name) ||
+                permission == ProcessPermission.workspaceWrite &&
+                    (granted.contains(ProcessPermission.unconfined.name) ||
+                        entry['profile_version'] == null &&
+                            granted
+                                .contains(ProcessPermission.execution.name))) &&
             ProcessDirectoryAccess.fromJson(entry['directory_access'])
                 .covers(directoryAccess);
       });
@@ -263,6 +311,7 @@ final class CommandApprovalStore {
       'scope': scope.name,
       if (scope != CommandApprovalScope.global)
         'workspace': canonicalSandboxPath(workspace),
+      'profile_version': 2,
       'identity': _identity(request, scope,
           patterned: pattern != null, workflow: family),
       'command':

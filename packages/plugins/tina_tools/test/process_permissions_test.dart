@@ -22,7 +22,9 @@ ProcessRequest command({
       timeout: null,
     );
 
-class RecordingRunner implements ProcessRunner {
+class RecordingRunner implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem => true;
   final requests = <ProcessRequest>[];
   final controls = <ProcessControl?>[];
   @override
@@ -52,12 +54,24 @@ void main() {
           });
       expect(
           await gate.run(command(), control: network), isA<CommandCompleted>());
-      expect(reviews, hasLength(1));
-      expect(reviews.single.requiredPermissions,
-          {ProcessPermission.execution, ProcessPermission.network});
-      expect(reviews.single.missingPermissions,
-          reviews.single.requiredPermissions);
-      expect(reviews.single.networkReason, 'fetch project dependencies');
+      if (mode == PermissionMode.yolo) {
+        expect(reviews, isEmpty);
+      } else {
+        expect(reviews, hasLength(1));
+        expect(reviews.single.requiredPermissions, {
+          ProcessPermission.execution,
+          if (mode != PermissionMode.readOnly) ProcessPermission.workspaceWrite,
+          ProcessPermission.network,
+        });
+        expect(reviews.single.missingPermissions, {
+          if (mode == PermissionMode.ask || mode == PermissionMode.auto) ...{
+            ProcessPermission.execution,
+            ProcessPermission.workspaceWrite,
+          },
+          ProcessPermission.network,
+        });
+        expect(reviews.single.networkReason, 'fetch project dependencies');
+      }
       expect(inner.controls.single!.networkAllowed, true);
       expect(gate.grants.isEmpty, true);
     });
@@ -83,8 +97,11 @@ void main() {
     expect(inner.controls.last!.networkAllowed, false);
     await gate.run(request, control: network);
     expect(reviews, hasLength(2));
-    expect(reviews.last.requiredPermissions,
-        {ProcessPermission.execution, ProcessPermission.network});
+    expect(reviews.last.requiredPermissions, {
+      ProcessPermission.execution,
+      ProcessPermission.workspaceWrite,
+      ProcessPermission.network
+    });
     expect(reviews.last.missingPermissions, {ProcessPermission.network});
     expect(reviews.last.reason, contains('allow network access'));
     expect(

@@ -83,6 +83,8 @@ def smoke(binary, endpoint, columns, rows):
             ModelStub.advance_reasoning.clear()
             ModelStub.release_reasoning.clear()
             start = send_line(terminal, 'stream reasoning example')
+            terminal.expect('connect MCP server', start, wrapped=True)
+            terminal.send('y')
             terminal.expect('reasoning (ongoing)', start, wrapped=True)
             terminal.expect('~4 tokens', start, wrapped=True)
             assert not ModelStub.release_reasoning.is_set()
@@ -158,9 +160,9 @@ def smoke(binary, endpoint, columns, rows):
                 # and kill descendants before the next instruction starts.
                 start = send_line(terminal, 'run cancellable tool')
                 terminal.wait_for(
-                    lambda: '❯ [p] remember this command for this workspace' in
+                    lambda: '❯ [y] allow once' in
                         terminal_grid(terminal, columns - 8, rows + 2),
-                    'workspace command approval was not selected')
+                    'command approval was not selected')
                 terminal.expect_cursor(False)
                 terminal.send('y')
                 # The command text in the approval preview also contains the

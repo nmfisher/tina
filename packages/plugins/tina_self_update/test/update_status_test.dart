@@ -23,6 +23,7 @@ class Deny implements ApprovalRequester {
           required String target,
           required String reason,
           ApprovalKind kind = ApprovalKind.permission,
+          Future<void>? whenCancelled,
           Map<String, Object?> details = const {},
           void Function(String pattern)? onCommandPattern,
           void Function(List<DirectoryAccessGrant> grants)?

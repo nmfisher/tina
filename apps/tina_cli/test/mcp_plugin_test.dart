@@ -1,6 +1,7 @@
 import 'support/session_connection.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'package:tina_approvals/tina_approvals.dart';
 import 'dart:isolate';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
@@ -81,6 +82,20 @@ void main() {
       );
     },
   );
+  void authorizeConnections(SessionAssembly assembly) {
+    final channel = StreamApprovalChannel();
+    final service = ApprovalsPlugin(channel: channel);
+    final subscription = channel.requests.listen((request) {
+      expect(request.operation, 'connect MCP server');
+      channel.respond(request.id, ApprovalDecision.allowAlways);
+    });
+    assembly.tools.modePolicy.approvals = service;
+    addTearDown(() async {
+      service.closeSession();
+      await subscription.cancel();
+    });
+  }
+
   test(
     'the registered plugin can connect, unload, clean up and reload between turns',
     () async {
@@ -107,6 +122,7 @@ void main() {
       );
       addTearDown(assembly.close);
       final original = assembly.host.plugins.whereType<McpPlugin>().single;
+      authorizeConnections(assembly);
       await assembly.host.send('connect');
       expect(original.tools, hasLength(10));
       expect(
@@ -182,6 +198,7 @@ void main() {
           providerFactory: (_) => ScriptedProvider([]),
         );
         final original = assembly.host.plugins.whereType<McpPlugin>().single;
+        authorizeConnections(assembly);
         await assembly.host.send('connect');
         final io = FakeIo();
         final screen = fakeScreen(io);

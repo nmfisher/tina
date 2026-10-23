@@ -159,13 +159,22 @@ def smoke(launcher, endpoint, backend, panels):
             terminal.wait_for(lambda: payload in terminal.output[output_start:],
                               'fixture output did not reach the PTY', timeout=5)
 
-        def tool(text, approve=True, auto=False):
+        connected = False
+
+        def tool(text, approve=True):
+            nonlocal connected
             before = len(OutputStub.requests)
             start = submit(text)
+            if not connected:
+                visible('connect MCP server')
+                terminal.send('y')
+                terminal.wait_for(lambda: len(OutputStub.requests) > before,
+                                  'MCP connection approval did not finish', timeout=30)
+                connected = True
             if approve:
                 visible('[y] allow once')
                 terminal.send('y')
-            terminal.wait_for(lambda: len(OutputStub.requests) == before + (3 if auto else 2),
+            terminal.wait_for(lambda: len(OutputStub.requests) == before + 2,
                               'tool did not complete', timeout=30)
             terminal.expect_idle()
             assert b'\n' not in terminal.output[start:], 'raw line breaks escaped positioned painting'
@@ -191,9 +200,10 @@ def smoke(launcher, endpoint, backend, panels):
             assert 'Build failed:' in str(result)
             submit('/mode auto')
             visible('mode: auto')
-            result = tool('pipeline output', approve=False, auto=True)
+            # This fixture deliberately runs without a sandbox. Auto must
+            # obtain human host authorization, even for an approved task.
+            result = tool('pipeline output')
             assert 'Build failed:' in str(result)
-            visible('run command allowed by classifier:')
             submit('/mode ask')
             visible('mode: ask')
             result = tool('background output')

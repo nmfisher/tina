@@ -152,7 +152,9 @@ enum UnavailableBehaviour { allow, refuse }
 /// built from — the brief's "one place": the gate approves exactly the
 /// paths the kernel makes writable, never a hair less or more.
 class SandboxPlan {
-  static const defaultSearchPath = '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+  static const defaultSearchPath =
+      '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+
   /// The session's project root: bound read-write in the namespace.
   final String workspaceRoot;
 
@@ -182,14 +184,15 @@ class SandboxPlan {
   Map<String, String> get hostEnvironment =>
       parentEnvironment ?? Platform.environment;
   String? get hostHome => realHome ?? hostEnvironment['HOME'];
-  String get searchPath =>
-      _childEnvironment?['PATH'] ?? defaultSearchPath;
+  String get searchPath => _childEnvironment?['PATH'] ?? defaultSearchPath;
   Map<String, String> get childEnvironment =>
       _childEnvironment ??
       {
         'PATH': searchPath,
         'HOME': home?.ensure() ?? '/tmp',
-        'TMPDIR': sandboxTempDirectory(hostEnvironment),
+        'TMPDIR': home?.existingPath == null
+            ? '/tmp'
+            : path.join(home!.existingPath!, 'tmp'),
         'LANG': 'C.UTF-8',
       };
   Map<String, String> get outsideEnvironment => {
@@ -246,18 +249,11 @@ class SandboxPlan {
   bool canRead(String value, {SandboxBackend? backend}) {
     if (isProtected(value)) return false;
     final target = canonicalSandboxPath(value);
-    final selected = backend ??
-        (Platform.isMacOS ? SandboxBackend.sandboxExec : SandboxBackend.bwrap);
-    if (selected == SandboxBackend.passThrough) return true;
-    if (selected == SandboxBackend.sandboxExec) {
-      final host = hostHome;
-      if (host == null || !_under(target, canonicalSandboxPath(host)))
-        return true;
-      return sandboxPathAliases(readAllowPaths)
-          .any((root) => _under(target, root));
-    }
-    return sandboxPathAliases([...mountedLayout(), '/dev', '/proc'])
-        .any((root) => _under(target, root));
+    return sandboxPathUnder(target, canonicalSandboxPath(workspaceRoot)) ||
+        readDirectories?.allows(target) == true ||
+        writeDirectories?.allows(target) == true ||
+        writablePaths.any(
+            (root) => sandboxPathUnder(target, canonicalSandboxPath(root)));
   }
 
   List<String> get readAllowPaths => [
@@ -339,7 +335,7 @@ class SandboxPlan {
   }
 
   /// The visible world: workspace, selected caches, session home and host
-  /// temp directories; read-only toolchains and explicit grants. Credential
+  /// private scratch; read-only toolchains and explicit grants. Credential
   /// and configuration exclusions take precedence over broader grants.
   const SandboxPlan({
     required this.workspaceRoot,
@@ -362,10 +358,28 @@ class SandboxPlan {
         ...{
           workspaceRoot,
           ...extraWritablePaths,
-          ...defaultSandboxTempDirs(hostEnvironment),
+          ...scratchDirectories,
           if (home?.existingPath != null) home!.existingPath!,
           ...?home?.targets
         },
+      ];
+
+  List<String> get scratchDirectories => [
+        if (home?.existingPath case final String root) path.join(root, 'tmp'),
+      ];
+
+  List<String> get runtimeReadPaths => [
+        ...kSandboxReadOnlyBinds,
+        if (Platform.isMacOS) ...[
+          '/System',
+          '/Library/Apple',
+          '/Library/Developer/CommandLineTools',
+          '/Applications/Xcode.app/Contents',
+          '/Library/Preferences/com.apple.dt.Xcode.plist',
+          '/private/var/select',
+          '/private/var/db/dyld'
+        ],
+        '/dev',
       ];
 
   List<String> get extraWritablePaths => [
@@ -388,7 +402,11 @@ class SandboxPlan {
 /// A [ProcessRunner] that runs each approved command inside an OS-level
 /// confinement, then asks the failure classifier whether the kernel — not
 /// the command — is why it failed.
-final class OsSandboxRunner implements ProcessRunner {
+final class OsSandboxRunner implements ConfinedProcessRunner {
+  @override
+  bool get confinesFilesystem =>
+      enabled && backend != SandboxBackend.passThrough;
+
   /// The runner beneath: the real spawn when the sandbox is active or the
   /// fallback lets the command through.
   final ProcessRunner inner;
@@ -471,6 +489,13 @@ final class OsSandboxRunner implements ProcessRunner {
       return const CommandRefused(
           'Outside-sandbox execution requires explicit approval for host '
           'filesystem and network access.');
+    }
+    if (control?.readOnly == true &&
+        (!enabled ||
+            backend == SandboxBackend.passThrough ||
+            control?.outsideSandboxRequested == true)) {
+      return const CommandRefused(
+          'Read-only execution requires an available OS sandbox.');
     }
     if (!enabled || control?.outsideSandboxRequested == true) {
       // Keep provider credentials out of the process environment even when
@@ -577,7 +602,11 @@ final class OsSandboxRunner implements ProcessRunner {
             workspaceRoot: plan.workspaceRoot,
             deniedPaths: plan.deniedPaths,
             writablePaths: control?.readOnly == true
-                ? control!.outputDirectories
+                ? sandboxPathAliases([
+                    ...plan.scratchDirectories,
+                    if (plan.home?.existingPath != null)
+                      plan.home!.existingPath!
+                  ])
                 : plan.extraWritablePaths,
             readOnlyPaths:
                 control?.readOnly == true ? plan.extraWritablePaths : const [],
@@ -593,18 +622,24 @@ final class OsSandboxRunner implements ProcessRunner {
             '-p',
             buildSeatbeltProfile(
               writablePaths: control?.readOnly == true
-                  ? defaultSandboxTempDirs(plan.hostEnvironment)
-                  : plan.writableLayout(),
+                  ? sandboxPathAliases([
+                      ...plan.scratchDirectories,
+                      if (plan.home?.existingPath != null)
+                        plan.home!.existingPath!
+                    ])
+                  : sandboxPathAliases(plan.writableLayout()),
               readOnlyPaths: control?.readOnly == true
-                  ? [plan.workspaceRoot, ...plan.extraWritablePaths]
+                  ? sandboxPathAliases([
+                      plan.workspaceRoot,
+                      ...plan.writablePaths,
+                      ...?plan.home?.targets,
+                      ...?plan.writeDirectories?.existingPaths
+                    ])
                   : const [],
-              outputDirectories: control?.readOnly == true
-                  ? control!.outputDirectories
-                  : const [],
+              outputDirectories: const [],
               deniedPaths: plan.deniedPaths,
-              hidePath: plan.hostHome == null
-                  ? null
-                  : canonicalSandboxPath(plan.hostHome!),
+              restrictReads: true,
+              runtimeReadPaths: sandboxPathAliases(plan.runtimeReadPaths),
               readAllowPaths: sandboxPathAliases(plan.readAllowPaths),
               isolateNetwork:
                   plan.isolateNetwork && !(control?.networkAllowed ?? false),
@@ -682,7 +717,7 @@ final class OsSandboxRunner implements ProcessRunner {
     final base = hostLayout?.call() ??
         SandboxHostLayout.inspect(
           readOnlyDirectories: kSandboxReadOnlyBinds,
-          temporaryDirectories: defaultSandboxTempDirs(plan.hostEnvironment),
+          temporaryDirectories: plan.scratchDirectories,
         );
     return SandboxHostLayout(
       readOnlyDirectories: {
@@ -712,8 +747,8 @@ final class OsSandboxRunner implements ProcessRunner {
         ? 'Network is isolated unless network access is approved.'
         : 'Network isolation is disabled.';
     if (backend == SandboxBackend.sandboxExec) {
-      return 'OS sandbox: sandbox-exec (macOS). Real-home reads are restricted '
-          'to the workspace, shared caches and explicit grants. Writes: '
+      return 'OS sandbox: sandbox-exec (macOS). Task data is restricted '
+          'to the workspace and explicit grants; runtime files are read-only. Writes: '
           '${plan.writableLayout().join(', ')}. ${_homeDescription()} $network';
     }
     final layout = _layout();
@@ -738,7 +773,7 @@ final class OsSandboxRunner implements ProcessRunner {
 
   String _homeDescription() =>
       'HOME: ${plan.home?.existingPath ?? (plan.home != null ? "session home created at first command" : plan.childEnvironment['HOME'])}. '
-      'TMPDIR: ${sandboxTempDirectory(plan.hostEnvironment)}. '
+      'TMPDIR: ${plan.home?.existingPath != null ? path.join(plan.home!.existingPath!, 'tmp') : plan.home != null ? 'private scratch created at first command' : plan.childEnvironment['TMPDIR']}. '
       'Shared writable cache targets: ${plan.home?.targets.join(', ') ?? "none"}. '
       'Protected credential/config paths remain excluded even beneath grants: '
       '${plan.deniedPaths.join(', ')}.';

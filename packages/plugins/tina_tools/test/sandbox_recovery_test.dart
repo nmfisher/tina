@@ -9,7 +9,52 @@ import 'process_permissions_test.dart' show command, RecordingRunner;
 const outside = ProcessControl(
     outsideSandboxRequested: true, sandboxReason: 'host executable is hidden');
 
+class RetryRunner implements ConfinedProcessRunner {
+  RetryRunner(this.target);
+  final String target;
+  int calls = 0;
+  @override
+  bool get confinesFilesystem => true;
+  @override
+  Future<RunOutcome> run(ProcessRequest request,
+      {ProcessControl? control}) async {
+    calls++;
+    return CommandBlocked('external read denied', accessRequests: [
+      SandboxAccessRequest(target, write: false),
+    ]);
+  }
+}
+
 void main() {
+  test(
+      'switching to read-only during directory recovery cannot retry a writable profile',
+      () async {
+    final root = Directory.systemTemp.createTempSync('tina-retry-mode-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final workspace = Directory('${root.path}/work')..createSync();
+    final external = Directory('${root.path}/external')..createSync();
+    final inner = RetryRunner(external.path);
+    final ready = Completer<void>();
+    final response = Completer<bool>();
+    final gate = SandboxedProcessRunner(
+        inner: inner,
+        mode: PermissionMode.allowEdits,
+        plan: SandboxPlan(workspaceRoot: workspace.path));
+    gate.directoryApprover = (_, __, ___, ____) {
+      ready.complete();
+      return response.future;
+    };
+    final pending = gate.run(command(
+        program: '/bin/sh',
+        args: ['-c', 'arbitrary script'],
+        cwd: workspace.path));
+    await ready.future;
+    gate.mode = PermissionMode.readOnly;
+    response.complete(true);
+    expect(await pending, isA<CommandRefused>());
+    expect(inner.calls, 1, reason: 'the old writable profile cannot run again');
+  });
+
   for (final mode in PermissionMode.values) {
     test('$mode requires separate confinement approval after execution/network',
         () async {
@@ -26,9 +71,18 @@ void main() {
         ProcessPermission.execution,
         ProcessPermission.network
       });
-      expect(
-          await gate.run(command(), control: outside), isA<CommandRefused>());
+      final result = await gate.run(command(), control: outside);
+      if (mode == PermissionMode.yolo) {
+        expect(result, isA<CommandCompleted>());
+        expect(reviews, isEmpty);
+        return;
+      }
+      expect(result, isA<CommandRefused>());
       expect(inner.requests, isEmpty);
+      if (mode == PermissionMode.readOnly) {
+        expect(reviews, isEmpty);
+        return;
+      }
       expect(reviews.single.requiredPermissions, {
         ProcessPermission.execution,
         ProcessPermission.network,
@@ -284,8 +338,7 @@ void main() {
         inner: RecordingRunner(),
         backend: SandboxBackend.sandboxExec,
         plan: const SandboxPlan(workspaceRoot: '/project'));
-    expect(
-        mac.describeEnvironment(), contains('Real-home reads are restricted'));
+    expect(mac.describeEnvironment(), contains('Task data is restricted'));
     expect(mac.describeEnvironment(), contains('Network is isolated'));
   });
 
