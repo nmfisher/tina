@@ -307,7 +307,7 @@ void main() {
       final firstCall = await loop.runTurn(const Input('first', id: 'one'));
       expect(firstCall.stopReason, StopReason.complete);
       expect(processes, hasLength(1));
-      expect(approvals, 1);
+      expect(approvals, 2);
       expect(plugin.tools, hasLength(10));
       for (final view in [first, second]) {
         expect(
@@ -321,8 +321,8 @@ void main() {
       expect(processes, hasLength(1));
       expect(
         approvals,
-        1,
-        reason: 'detaching must preserve exact session grants',
+        3,
+        reason: 'every call reaches shared authorization while the connection survives detach',
       );
 
       provider.select('slow');
@@ -348,7 +348,7 @@ void main() {
         reason: 'configuration must not change active turn schemas',
       );
       expect(processes, hasLength(1));
-      expect(approvals, 2);
+      expect(approvals, 4);
       final replacement = _Presentation(plugin.management!);
       addTearDown(replacement.dispose);
       expect(replacement.toggle('fixture/enabled').read(), isFalse);

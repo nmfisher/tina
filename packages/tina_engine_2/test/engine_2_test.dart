@@ -814,8 +814,7 @@ void main() {
     });
 
     test(
-        'a certified literal reader (echo) runs in read-only mode without '
-        'an error', () async {
+        'read-only refuses even a reader without an enforcing backend', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_proc4_');
       addTearDown(() => dir.deleteSync(recursive: true));
       final bash = BashTool(
@@ -841,11 +840,10 @@ void main() {
           await loop.runTurn(const Input('run something', id: 'i12d'));
 
       expect(outcome.stopReason, StopReason.complete);
-      // v0.9.50 certified literal `echo` as a read-only reader: it names no
-      // path and executes no code, so it runs rather than being refused.
+      // The raw IO runner cannot enforce the requested read-only profile.
       final result = _result(outcome.messages.firstWhere(_isResult));
-      expect(result.isError, isFalse);
-      expect(result.content, contains('hi'));
+      expect(result.isError, isTrue);
+      expect(result.content, contains('read-only mode'));
     });
 
     test(
@@ -879,9 +877,8 @@ void main() {
       expect(provider.callCount, 2);
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
-      // The bash shape cannot be certified at all — it asks, and with no
-      // approver wired the sandbox denies fail-closed.
-      expect(result.content, contains('shell command string'));
+      // Host execution requires human authorization when no jail is wired.
+      expect(result.content, contains('outside the workspace'));
       expect(result.content, contains('no approver'));
     });
   });

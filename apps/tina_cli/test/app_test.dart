@@ -378,7 +378,7 @@ void main() {
         session,
         screen: fakeScreen(io),
         consoleContextFor: scriptedConsole(
-            () => ScriptedKeySource(const [ApprovalKey.always])),
+            () => ScriptedKeySource(const [ApprovalKey.always, ApprovalKey.confirm])),
       );
       final interaction = approvalUi(session).interaction;
       await Future<void>.delayed(const Duration(milliseconds: 20));

@@ -145,11 +145,15 @@ jobs:
       - name: Install native link dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc -- /bin/true
       - name: Build CLI once for all smoke suites
         working-directory: apps/tina_cli
         run: dart pub get && dart build cli --target bin/tina.dart --output ../../build/cli/linux_x64
-      - name: Test the compiled CLI (seven isolated suites, three at a time)
+      - name: Test the compiled CLI (eight isolated suites, three at a time)
         timeout-minutes: 15
         run: python3 tool/ci/run_release_smokes.py --jobs 3 --binary build/cli/linux_x64/bundle/bin/tina
       - name: Upload smoke diagnostics
@@ -451,6 +455,15 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
+      # Ordinary read-only command tests need confinement too.
+      - name: Install Linux sandbox backend
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc -- /bin/true
       - name: pub get (tina_tools)
         working-directory: packages/plugins/tina_tools
         run: dart pub get
@@ -461,21 +474,9 @@ jobs:
         working-directory: packages/plugins/tina_tools
         run: dart test -j 4
 
-      - name: Install Linux sandbox backend
-        run: sudo apt-get update -q && sudo apt-get install -y bubblewrap
-
       - name: Test active tools against the Linux sandbox
         working-directory: packages/plugins/tina_tools
-        run: |
-          # Hosted Ubuntu restricts user namespaces through AppArmor. Restore
-          # the setting after this explicit integration check on the runner.
-          command -v bwrap
-          if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
-            tina_userns_original=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)
-            trap 'sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns="$tina_userns_original"' EXIT
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-          dart test --tags live-os-sandbox --run-skipped
+        run: dart test --tags live-os-sandbox --run-skipped
 
   tina_engine_2:
     needs: changes
@@ -646,7 +647,11 @@ jobs:
       - name: Install native notcurses + link deps (tina_cli job)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev bubblewrap
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc -- /bin/true
       - name: pub get (tina_cli)
         working-directory: apps/tina_cli
         run: dart pub get
