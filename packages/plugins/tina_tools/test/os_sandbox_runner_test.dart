@@ -90,6 +90,36 @@ void main() {
     }
   });
 
+  test('write failures are classified against the invocation profile',
+      () async {
+    for (final readOnly in [false, true]) {
+      final inner = ScriptedRunner([
+        _completed(stderr: 'sh: /tmp/project/result: Read-only file system'),
+      ]);
+      final runner = OsSandboxRunner(
+          inner: inner,
+          plan: const SandboxPlan(workspaceRoot: '/tmp/project'),
+          backend: SandboxBackend.bwrap);
+      final outcome = await runner.run((
+        command: '/bin/sh',
+        arguments: ['-c', 'printf data > result'],
+        workingDirectory: '/tmp/project',
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), control: ProcessControl(readOnly: readOnly));
+      if (readOnly) {
+        expect(outcome, isA<CommandBlocked>());
+        expect((outcome as CommandBlocked).reason,
+            contains('/tmp/project/result'));
+      } else {
+        expect(outcome, isA<CommandCompleted>(),
+            reason:
+                'a writable profile cannot attribute EROFS within its grants to sandbox policy');
+      }
+    }
+  });
+
   test('approved networking keeps filesystem restrictions for both backends',
       () async {
     for (final backend in [SandboxBackend.sandboxExec, SandboxBackend.bwrap]) {

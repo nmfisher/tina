@@ -530,11 +530,8 @@ echo reader-finished
         .createTempSync('tina_yolo_ws_')
         .resolveSymbolicLinksSync());
     addTearDown(() => ws.deleteSync(recursive: true));
-    // The wiring --yolo produces: PermissionMode.yolo on the gate, an
-    // approver that answers yes without consulting anyone, and the OS
-    // runner enabled exactly as the CLI assembles it (osSandbox governs
-    // enabled; the mode is not an input). The workspace is writable, the
-    // rest of the filesystem is not.
+    // The yolo preset authorizes requested capabilities. OS confinement is
+    // still enabled, with additional directories limited to each invocation.
     final plan = SandboxPlan(workspaceRoot: ws.path);
     final runner = OsSandboxRunner(
       inner: const IoProcessRunner(),
@@ -559,12 +556,15 @@ echo reader-finished
     expect(inside, isA<CommandCompleted>(),
         reason: 'yolo is unrestricted inside the jail: $inside');
 
-    // The dumb command, run for real: outside every writable root. yolo
-    // waives every permission check, so if the kernel did not hold, this
-    // would succeed.
+    // An opaque shell command does not request any additional directories.
+    // Probe a host-writable sibling so failure proves confinement rather than
+    // relying on ownership or a system volume's own write protection.
+    final external = Directory.systemTemp.createTempSync('tina_yolo_outside_');
+    addTearDown(() => external.deleteSync(recursive: true));
+    final target = File('${external.path}/escape');
     final outside = await gate.run((
-      command: 'touch',
-      arguments: ['/usr/share/tina-yolo-escape-probe'],
+      command: '/bin/sh',
+      arguments: ['-c', r'printf escaped > "$1"', 'probe', target.path],
       workingDirectory: ws.path,
       environment: null,
       stdin: null,
@@ -576,18 +576,10 @@ echo reader-finished
       isTrue,
       reason: 'yolo must not read as success outside the jail: $outside',
     );
-    expect(
-      File('/usr/share/tina-yolo-escape-probe').existsSync(),
-      isFalse,
-      reason: 'the kernel jail must hold under yolo',
-    );
+    expect(target.existsSync(), isFalse,
+        reason: 'the kernel jail must hold under yolo');
 
-    // The sharper variant: a shell string the gate cannot classify, plus
-    // an unconfined escalation request. In yolo the humanOnly approval
-    // path returns allow unconditionally — the jail is the only boundary
-    // left, and outside_sandbox is precisely the knob that lifts it, so
-    // the refusal here must come from the runner's control check, not
-    // from an approver.
+    // Changing shell syntax does not add directory access either.
     final shell = await gate.run((
       command: '/bin/sh',
       arguments: ['-c', 'touch /usr/share/tina-yolo-shell-probe'],
@@ -605,7 +597,7 @@ echo reader-finished
     expect(File('/usr/share/tina-yolo-shell-probe').existsSync(), isFalse);
 
     // The documented sharp edge, pinned so it cannot change silently: in
-    // yolo the humanOnly approval path returns allow unconditionally, so
+    // yolo the launch preset authorizes requested host capabilities, so
     // an outside_sandbox request is auto-authorized by the gate — no
     // classifier, no human — and genuinely runs on the host. The startup
     // banner warns about exactly this. Everything here is a loopback

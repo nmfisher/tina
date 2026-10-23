@@ -6,18 +6,15 @@ import 'package:tina_tools/tina_tools.dart';
 
 /// The "always permit reads" standing grant: one answer on a read-only-mode
 /// directory-access ask sets a session or workspace setting; later read-only
-/// certified-reader asks then run without asking. Headless: no OS backend is
-/// required — the behavior under test is the approver's, not the kernel's.
+/// certified-reader asks then run without asking. These checks use the real
+/// OS sandbox to verify that read grants never authorize writes.
 void main() {
   late Directory root, workspace, library, scratch, home;
   setUp(() {
     root = Directory.systemTemp.createTempSync('tina-reads-always-');
     workspace = Directory('${root.path}/work')..createSync();
-    // The session home and tina's temp space must be disjoint, as on a real
-    // host (~/. vs /var/folders): the plan reads its TMPDIR freely, so a
-    // library placed there is never "outside". The library lives inside the
-    // home (~/datasets shape) but outside every writable/readable root —
-    // the case that actually asks.
+    // The library is outside the workspace, private runtime scratch and
+    // every explicit directory grant, so reading it requires authorization.
     scratch = Directory('${root.path}/scratch')..createSync();
     home = Directory('${root.path}/home')..createSync();
     library = Directory('${home.path}/library')..createSync();
@@ -83,12 +80,17 @@ void main() {
         SettingScope.session);
   });
 
-  test('the standing grant never answers a write-shaped ask', () async {
+  test('the standing grant exposes data read-only and never authorizes writes',
+      () async {
     final approvals = _RecordingApprovals(ApprovalDecision.deny);
     final tools = plugin(approvals);
     tools.settings!
         .set(allowReadsOutsideWorkspaceSetting, true, SettingScope.session);
-    final outcome = await tools.processRunner.run(tee());
+    // Declare the read access so both backends expose this target read-only.
+    // Otherwise Linux first reports a hidden path and asks for read access
+    // before it can discover that tee attempts a write.
+    final outcome = await tools.processRunner
+        .run(tee(), control: ProcessControl(readDirectories: [library.path]));
     expect(outcome, isA<CommandBlocked>());
     expect(File('${library.path}/notes.txt').readAsStringSync(),
         'library content\n');

@@ -602,11 +602,7 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
             workspaceRoot: plan.workspaceRoot,
             deniedPaths: plan.deniedPaths,
             writablePaths: control?.readOnly == true
-                ? sandboxPathAliases([
-                    ...plan.scratchDirectories,
-                    if (plan.home?.existingPath != null)
-                      plan.home!.existingPath!
-                  ])
+                ? _privateWritablePaths(plan)
                 : plan.extraWritablePaths,
             readOnlyPaths:
                 control?.readOnly == true ? plan.extraWritablePaths : const [],
@@ -622,11 +618,7 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
             '-p',
             buildSeatbeltProfile(
               writablePaths: control?.readOnly == true
-                  ? sandboxPathAliases([
-                      ...plan.scratchDirectories,
-                      if (plan.home?.existingPath != null)
-                        plan.home!.existingPath!
-                    ])
+                  ? _privateWritablePaths(plan)
                   : sandboxPathAliases(plan.writableLayout()),
               readOnlyPaths: control?.readOnly == true
                   ? sandboxPathAliases([
@@ -657,23 +649,35 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
       timeout: request.timeout,
     ), control: control);
     return completed is CommandCompleted
-        ? _decode(completed, mounted, request, plan)
+        ? _decode(completed, mounted, request, plan,
+            readOnly: control?.readOnly == true)
         : completed;
   }
+
+  List<String> _privateWritablePaths(SandboxPlan plan) => sandboxPathAliases([
+        ...plan.scratchDirectories,
+        if (plan.home?.existingPath != null) plan.home!.existingPath!,
+      ]);
 
   /// Translate the confined run's outcome: a zero exit is a normal
   /// completion; a failure the classifier blames on the kernel becomes
   /// [CommandBlocked]; anything else stays an ordinary completed run.
   RunOutcome _decode(CommandCompleted completed, List<String> mounted,
-      ProcessRequest request, SandboxPlan plan) {
+      ProcessRequest request, SandboxPlan plan,
+      {required bool readOnly}) {
     if (completed.exitCode == 0 || completed.cancelled || completed.timedOut)
       return completed;
+    final writablePaths =
+        readOnly ? _privateWritablePaths(plan) : plan.writableLayout();
     final denial = classifySandboxFailure(
       completed,
-      writablePaths: plan.writableLayout(),
+      writablePaths: writablePaths,
       deniedPaths: plan.deniedPaths,
-      canWrite: (value) =>
-          plan.canWrite(value, linux: backend == SandboxBackend.bwrap),
+      canWrite: (value) => readOnly
+          ? !plan.isProtected(value) &&
+              writablePaths
+                  .any((root) => _under(canonicalSandboxPath(value), root))
+          : plan.canWrite(value, linux: backend == SandboxBackend.bwrap),
       accessIsWrite: {'touch', 'mkdir'}.contains(path.basename(request.command))
           ? true
           : {'cat', 'head', 'tail', 'ls', 'stat', 'grep'}

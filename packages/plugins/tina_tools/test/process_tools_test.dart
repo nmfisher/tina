@@ -187,7 +187,9 @@ void main() {
       expect(inner.receivedControl!.networkAllowed, isTrue);
       await tool.execute({
         'program': 'git',
-        'args': ['status']
+        // Reuse the mutating command so reader detection and the host's PATH
+        // cannot determine whether this invocation needs approval.
+        'args': ['push', 'origin']
       });
       expect(inner.receivedControl!.networkAllowed, isFalse);
       expect(asks, 2);
