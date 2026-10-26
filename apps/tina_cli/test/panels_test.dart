@@ -430,7 +430,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
   });
 
   test(
-      'settings saves during generation and Escape cancels the request',
+      'settings saves during generation and Escape closes settings without cancelling',
       () async {
     await keys('keep working\r');
     final provider = providers.first;
@@ -448,12 +448,18 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
         contains('max_output = 2048'));
     expect(provider.requests, hasLength(1));
     expect(provider.closed, false);
+    // Esc backs the editor out; the request underneath keeps running.
     await keys('\x1b');
     await waitFor(() => !editor.isReadingKey);
-    await waitFor(() => !session.host.session.loop.running);
-    expect(session.host.session.turns.single.stopReason, StopReason.cancelled);
+    expect(session.host.session.loop.running, true,
+        reason: 'closing Settings must not cancel the running request');
+    expect(provider.requests, hasLength(1));
     await keys('draft survives');
     expect(editor.editState.buffer, 'draft survives');
+    // Esc at the prompt still cancels the request.
+    await keys('\x1b');
+    await waitFor(() => !session.host.session.loop.running);
+    expect(session.host.session.turns.single.stopReason, StopReason.cancelled);
     expect(session.inputHistory, ['keep working']);
   });
 
@@ -494,7 +500,7 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(File('${dir.path}/config').readAsStringSync(), before);
   });
 
-  test('Escape in settings also cancels a queued background approval',
+  test('settings defers a queued background approval to its own Esc',
       () async {
     await session.commands['mode']!.handler('ask');
     await keys('edit after reading\r');
@@ -514,6 +520,13 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(approvalUi(session).interaction.pending, hasLength(1),
         reason: 'the runtime retains the question while Settings owns input');
     expect(File('${dir.path}/reviewed.txt').existsSync(), false);
+    // Esc closes Settings only. The turn keeps running; the queued approval
+    // presents as soon as the keyboard is free.
+    await keys('\x1b');
+    expect(session.host.session.loop.running, true,
+        reason: 'closing Settings must not cancel the awaiting turn');
+    await waitFor(() => io.written.toString().contains('[y] allow once'));
+    // Esc at the approval prompt cancels the turn (global prompt path).
     await keys('\x1b');
     await waitFor(() => !session.host.session.loop.running);
     expect(approvalUi(session).interaction.pending, isEmpty);

@@ -968,19 +968,31 @@ class LineEditor {
       _log.fine('[keys] event: $event');
     }
     if (event is EscapeKey) {
-      if (onCancelRequest?.call() == true) {
-        // A second press after cancellation must not erase the saved draft.
-        _lastGlobalEsc = null;
-        _lastEsc = null;
-        _forceCancelInput(preserveDraft: true, notifyCancellation: false);
-        return KeyHandledBy.appShortcut;
+      // A screen-owning dialog (settings, pickers — a non-global input
+      // session or readKey) keeps its Escapes: they back its own menus out
+      // one level and close it at the top. Global prompts (approvals, gate
+      // questions) sit above the conversation, so only they keep the
+      // cancel-work-first and double-Esc force-cancel arms in front. The
+      // double window still tracks a dialog's Escapes: the dialog may
+      // release ownership between two quick presses (a readKey completing
+      // synchronously), and the second press must complete the gesture.
+      final dialogOwnsKeys = (_inputSession?.globalKeys == false) ||
+          (_keyCompleter != null && !_keyCompleterGlobal);
+      if (!dialogOwnsKeys) {
+        if (onCancelRequest?.call() == true) {
+          // A second press after cancellation must not erase the saved draft.
+          _lastGlobalEsc = null;
+          _lastEsc = null;
+          _forceCancelInput(preserveDraft: true, notifyCancellation: false);
+          return KeyHandledBy.appShortcut;
+        }
       }
       final now = DateTime.now();
       final isDouble = _lastGlobalEsc != null &&
           now.difference(_lastGlobalEsc!) <= _activeDoubleEscWindow;
       _lastGlobalEsc = isDouble ? null : now;
       _lastEsc = isDouble ? null : now;
-      if (isDouble) {
+      if (isDouble && !dialogOwnsKeys) {
         _forceCancelInput();
         return KeyHandledBy.appShortcut;
       }

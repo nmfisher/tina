@@ -259,9 +259,36 @@ void main() {
     expect(await draft, 'fresh');
   });
 
-  test('double Escape closes dialog and discards held paste and queued answers',
+  test('double Escape reaches the dialog and keeps its held paste for release',
       () async {
     final input = editor.openInputSession(acceptPaste: false);
+    io.feedBytes('\x1b[200~old\x1b[201~a'.codeUnits);
+    await tick();
+    // Drain the queued typing ('a' — the paste itself is held, not queued).
+    expect(await input.read(), CharInput('a'));
+    io.feedBytes('\x1b'.codeUnits);
+    await tick();
+    io.feedBytes('\x1b'.codeUnits);
+    await tick();
+    // A screen-owning dialog owns its Escapes: both presses are delivered,
+    // the session is not force-closed by the global double-Esc gesture, and
+    // the held paste stays queued until the dialog disposes.
+    expect(input.isClosed, isFalse);
+    expect(await input.read(), isA<EscapeKey>());
+    expect(await input.read(), isA<EscapeKey>());
+    input.dispose();
+    await tick();
+    expect(editor.editState.buffer, isEmpty,
+        reason: 'dispose releases the paste back to the conversation draft');
+    final next = editor.openInputSession();
+    io.feedBytes('n'.codeUnits);
+    expect(await next.read(), CharInput('n'));
+  });
+
+  test('double Escape still force-closes a GLOBAL dialog (approval path)',
+      () async {
+    final input = editor.openInputSession(
+        globalKeys: true, acceptPaste: false, releaseOnEscape: false);
     io.feedBytes('\x1b[200~old\x1b[201~a'.codeUnits);
     await tick();
     io.feedBytes('\x1b'.codeUnits);
@@ -270,8 +297,5 @@ void main() {
     await input.closed;
     expect(await input.read(), ControlKey(ControlCode.ctrlC));
     expect(editor.editState.buffer, isEmpty);
-    final next = editor.openInputSession();
-    io.feedBytes('n'.codeUnits);
-    expect(await next.read(), CharInput('n'));
   });
 }

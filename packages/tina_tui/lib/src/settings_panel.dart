@@ -853,9 +853,10 @@ final class SettingsPanel {
 
   Future<void> _section(
       SettingsRegistry registry, SettingsSection section) async {
+    var selected = 0;
+    var query = '';
     while (registry.contains(section)) {
       var controls = <SettingControl>[];
-      SettingControl? chosen;
       List<String> items() {
         controls = registry.contains(section) ? section.build() : [];
         if (controls.map((c) => c.id).toSet().length != controls.length) {
@@ -876,28 +877,39 @@ final class SettingsPanel {
         ];
       }
 
-      final selected = await _menu(section.title, items(),
+      final chosenIndex = await _menu(section.title, items(),
           itemsNow: items,
           valid: () => registry.contains(section),
           keysNow: () => controls.map((c) => c.id).toList(),
+          initialSelected: selected,
+          initialQuery: query,
+          onSelected: (index) => selected = index,
+          onQuery: (value) => query = value,
           canToggle: (i) =>
               controls[i] is SettingToggle ||
               controls[i] is ScopedSettingControl &&
                   (controls[i] as ScopedSettingControl).definition.kind ==
-                      SettingKind.toggle,
-          onSelected: (index) => chosen = controls[index]);
-      if (selected == null || !registry.contains(section)) return;
-      final control = chosen!;
-      if (_usingScopes &&
-          control.scopes != null &&
-          !control.scopes!.contains(_scope)) {
+                      SettingKind.toggle);
+      if (chosenIndex == null || !registry.contains(section)) return;
+      final control = controls[chosenIndex];
+      // A control that supports exactly one scope edits it without a prompt;
+      // only genuinely multi-scope controls ask which layer to change.
+      if (_usingScopes && control.scopes != null) {
         final scopes =
             SettingScope.values.where(control.scopes!.contains).toList();
-        final selectedScope = await _menu(
-            '${control.label} · choose a supported scope',
-            [for (final scope in scopes) 'Edit ${scope.name}', 'Back']);
-        if (selectedScope == null || selectedScope >= scopes.length) continue;
-        _scope = scopes[selectedScope];
+        if (scopes.isNotEmpty && !scopes.contains(_scope)) {
+          if (scopes.length == 1) {
+            _scope = scopes.single;
+          } else {
+            final selectedScope = await _menu(
+                '${control.label} · choose a supported scope',
+                [for (final scope in scopes) 'Edit ${scope.name}', 'Back']);
+            if (selectedScope == null || selectedScope >= scopes.length) {
+              continue;
+            }
+            _scope = scopes[selectedScope];
+          }
+        }
       }
       // Unloading while an editor is open invalidates its callback.
       bool available() =>
