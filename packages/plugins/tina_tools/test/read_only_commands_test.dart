@@ -506,21 +506,16 @@ void main() {
       ]) {
         expect(
             await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
-            mode == PermissionMode.ask || mode == PermissionMode.auto
-                ? isA<CommandRefused>()
-                : isA<CommandCompleted>(),
+            isA<CommandCompleted>(),
             reason: script);
       }
-      if (mode == PermissionMode.ask || mode == PermissionMode.auto) {
-        expect(asks, 22);
-        expect(inner.requests, isEmpty);
-      } else {
-        expect(asks, 0);
-        expect(
-            inner.controls.every((control) =>
-                control!.readOnly == (mode == PermissionMode.readOnly)),
-            true);
-      }
+      expect(asks, 0);
+      expect(
+          inner.controls.every((control) =>
+              control!.readOnly ==
+              {PermissionMode.ask, PermissionMode.auto, PermissionMode.readOnly}
+                  .contains(mode)),
+          true);
     });
 
     test('$mode compound readers still review network and unconfined access',

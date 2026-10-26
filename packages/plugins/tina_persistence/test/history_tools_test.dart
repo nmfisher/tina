@@ -197,6 +197,85 @@ void main() {
     expect(next['has_more'], true);
   });
 
+  test('a shared custom store is searched once and excludes the active session',
+      () async {
+    final shared = HistoryLocation(
+        workspace: workspace.path, store: '${root.path}/shared.db');
+    final alias =
+        HistoryLocation(workspace: other.workspace, store: shared.store);
+    save(shared, 'older', [user('older text')], at: '2026-01-01T00:00:00Z');
+    save(shared, 'newer', [user('newer text')], at: '2026-02-01T00:00:00Z');
+    save(shared, 'active', [user('current text')], at: '2026-03-01T00:00:00Z');
+    catalog.remember(shared);
+    catalog.remember(alias);
+    history.close();
+    history = SessionHistoryTools(
+        workspace: workspace.path,
+        store: shared.store,
+        policy: policy,
+        catalog: catalog)
+      ..currentSessionId = 'active';
+    answer = ApprovalDecision.allowAlways;
+    final first =
+        await call('search_sessions', {'scope': 'global', 'limit': 1});
+    final hit = (first['results'] as List).single;
+    expect(hit['session_id'], 'newer');
+    expect(hit['store_id'], shared.id);
+    expect(hit['workspace'], shared.workspace);
+    expect(first['next_offset'], 1);
+    expect(requests.single.details['access_requirements'], hasLength(1));
+    answer = ApprovalDecision.deny;
+    final next = await call('search_sessions', {
+      'scope': 'global',
+      'limit': 1,
+      'offset': first['next_offset'],
+    });
+    expect((next['results'] as List).single['session_id'], 'older');
+    expect(next['has_more'], false);
+    expect(next['next_offset'], isNull);
+    expect(requests, hasLength(1));
+  });
+
+  test(
+      'global search deduplicates external stores without hiding other sessions',
+      () async {
+    save(local, 'active', [user('current text')]);
+    save(local, 'local', [user('local text')]);
+    save(other, 'active', [user('different session in another store')]);
+    save(other, 'external', [user('external text')]);
+    final third = Directory('${root.path}/third')..createSync();
+    catalog.remember(other);
+    catalog
+        .remember(HistoryLocation(workspace: third.path, store: other.store));
+    answer = ApprovalDecision.allow;
+    final result = await call('search_sessions', {'scope': 'global'});
+    final hits = result['results'] as List;
+    expect(hits.map((hit) => hit['session_id']),
+        unorderedEquals(['local', 'active', 'external']));
+    expect(hits.where((hit) => hit['session_id'] == 'active').single['snippet'],
+        'different session in another store');
+    expect(requests.single.details['access_requirements'], hasLength(2));
+  });
+
+  test(
+      'store registration aliases can read past sessions but not the active one',
+      () async {
+    save(local, 'active', [user('current text')]);
+    save(local, 'past', [user('past text')]);
+    final alias =
+        HistoryLocation(workspace: other.workspace, store: local.store);
+    catalog.remember(alias);
+    answer = ApprovalDecision.allow;
+    final result = await history.execute(
+        'read_session', {'session_id': 'active', 'store_id': alias.id});
+    expect(result.isError, true);
+    expect(result.content, contains('Use the current conversation'));
+    expect(requests, isEmpty);
+    final past = await call(
+        'read_session', {'session_id': 'past', 'store_id': alias.id});
+    expect((past['messages'] as List).single['text'], 'past text');
+  });
+
   test(
       'Remember covers only these histories in this conversation, including reads',
       () async {

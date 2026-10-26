@@ -201,6 +201,17 @@ class ApprovalDialog {
     }
   }
 
+  // An explicit folder scope overrides the approval scope. Otherwise rendering
+  // and confirmation must derive the same scope from the selected decision.
+  DirectoryGrantScope _directoryScopeFor(ApprovalDecision decision) =>
+      _directoryScopeExplicit
+          ? _directoryScope
+          : switch (decision) {
+              ApprovalDecision.allowWorkspace => DirectoryGrantScope.workspace,
+              ApprovalDecision.allowGlobal => DirectoryGrantScope.global,
+              _ => DirectoryGrantScope.session,
+            };
+
   ApprovalOutcome _outcome(ApprovalDecision decision,
           {bool editCommandPattern = false}) =>
       ApprovalOutcome(decision,
@@ -212,8 +223,10 @@ class ApprovalDialog {
           }.contains(decision)
               ? List.unmodifiable([
                   for (final index in _selectedDirectories)
-                    DirectoryAccessGrant(_directoryOffers[index].path,
-                        _directoryOffers[index].access, _directoryScope)
+                    DirectoryAccessGrant(
+                        _directoryOffers[index].path,
+                        _directoryOffers[index].access,
+                        _directoryScopeFor(decision))
                 ])
               : const []);
 
@@ -489,7 +502,7 @@ class ApprovalDialog {
         // scope rows above is confirmed. This line only sets their scope,
         // so its label states that instead of implying it saves something.
         'grant scope' =>
-          'Checked folders will be remembered: ${_scopeWord[_directoryScope]} (s/Enter)',
+          'Checked folders will be remembered: ${_scopeWord[_directoryScopeFor(decisionFor(_selected))]} (s/Enter)',
         _ => choice,
       };
     }
@@ -567,10 +580,10 @@ class ApprovalDialog {
         _hasDirectoryOffers &&
         (key == ApprovalKey.directoryScope ||
             key == ApprovalKey.confirm && _onScope && !_details)) {
+      final scope = _directoryScopeFor(decisionFor(_selected));
       _directoryScopeExplicit = true;
       _directoryScope = _directoryScopes[
-          (_directoryScopes.indexOf(_directoryScope) + 1) %
-              _directoryScopes.length];
+          (_directoryScopes.indexOf(scope) + 1) % _directoryScopes.length];
       return true;
     }
     if (_rememberMenu && _hasDirectoryOffers) {
@@ -661,12 +674,6 @@ class ApprovalDialog {
   /// The decision the current selection maps to.
   ApprovalOutcome get current {
     final choice = _choices[_selected];
-    if (!_directoryScopeExplicit)
-      _directoryScope = switch (choice) {
-        'allow workspace' => DirectoryGrantScope.workspace,
-        'allow global' => DirectoryGrantScope.global,
-        _ => DirectoryGrantScope.session,
-      };
     return _outcome(decisionFor(_selected),
         editCommandPattern: choice == 'edit command pattern');
   }
@@ -682,12 +689,6 @@ class ApprovalDialog {
     };
     if (!_rememberMenu || target < 0 || target >= _scopeChoices.length)
       return null;
-    if (!_directoryScopeExplicit)
-      _directoryScope = switch (shortcut) {
-        ApprovalKey.workspace => DirectoryGrantScope.workspace,
-        ApprovalKey.global => DirectoryGrantScope.global,
-        _ => DirectoryGrantScope.session,
-      };
     return _outcome(_scopeChoices[target]);
   }
 

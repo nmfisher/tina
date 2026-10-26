@@ -232,12 +232,14 @@ model = "scripted"
         return Approval.always;
       };
       const network = ProcessControl(
+        readOnlyRequested: false,
         networkRequested: true,
         networkReason: 'test network grant',
       );
+      const writable = ProcessControl(readOnlyRequested: false);
       await app.tools.processRunner.run(command, control: network);
       await app.tools.processRunner.run(command, control: network);
-      await app.tools.processRunner.run(command);
+      await app.tools.processRunner.run(command, control: writable);
       expect(commandAsks, 1);
       expect(
         app.tools.processRunner.grants.coversRequest(
@@ -268,7 +270,7 @@ model = "scripted"
         return Approval.no;
       };
       expect(
-        await panel.tools.processRunner.run(command),
+        await panel.tools.processRunner.run(command, control: writable),
         isA<CommandRefused>(),
       );
       expect(
@@ -295,7 +297,7 @@ model = "scripted"
         return Approval.no;
       };
       expect(
-        await resumed.tools.processRunner.run(command),
+        await resumed.tools.processRunner.run(command, control: writable),
         isA<CommandRefused>(),
       );
       expect(

@@ -155,8 +155,8 @@ void main() {
       CharInput('Example'), enter, CharInput(' '), // section, toggle
       down, enter, EditingKey(EditingAction.killToStart), CharInput('new'),
       enter,
-      down, down, enter, down, enter, // choice
-      down, down, down, enter, // action
+      down, enter, down, enter, // choice; selection stayed on Text
+      down, enter, // action; selection stayed on Choice
       EscapeKey(), EscapeKey(),
     ];
     final panel =

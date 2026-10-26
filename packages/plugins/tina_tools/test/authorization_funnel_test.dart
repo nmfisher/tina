@@ -80,6 +80,113 @@ void main() {
     expect(file.readAsStringSync(), 'workspace data\n');
     expect(requests, isEmpty);
   });
+  for (final mode in [
+    PermissionMode.ask,
+    PermissionMode.auto,
+    PermissionMode.readOnly,
+  ]) {
+    test('$mode inspects workspace Git and shell scripts without prompting',
+        () async {
+      tools.mode = mode;
+      final judge = WorkspaceJudge();
+      tools.modePolicy.classifier = judge;
+      Future<void> git(List<String> args) async {
+        final result = await Process.run('/usr/bin/git', args,
+            workingDirectory: workspace.path);
+        expect(result.exitCode, 0,
+            reason: '${result.stdout}\n${result.stderr}');
+      }
+
+      await git(['init', '-q']);
+      await git(['add', 'input.txt']);
+      await git([
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '-qm',
+        'workspace fixture',
+      ]);
+      final exec = tools.toolList.singleWhere((t) => t.schema.name == 'exec');
+      final bash = tools.toolList.singleWhere((t) => t.schema.name == 'bash');
+      for (final args in [
+        ['status', '--short'],
+        ['log', '-n', '1', '--format=%s'],
+        ['-C', workspace.path, 'status', '--porcelain'],
+        ['--no-pager', 'log', '-1', '--oneline'],
+      ]) {
+        final result = await exec.execute({'program': 'git', 'args': args});
+        expect(result.isError, false, reason: 'git $args: ${result.content}');
+      }
+      final script = await bash.execute({
+        'command': 'git -C "${workspace.path}" log -n 1 --format=%s | '
+            'head -n 1; for file in *.txt; do cat "\$file"; done',
+      });
+      expect(script.isError, false, reason: script.content);
+      expect(script.content, contains('workspace fixture'));
+      expect(script.content, contains('workspace data'));
+      expect(requests, isEmpty);
+      expect(judge.calls, 0, reason: 'workspace reads need no AI review');
+    }, skip: !Platform.isMacOS && !Platform.isLinux);
+  }
+  test('default read access cannot mutate files or replace a write approval',
+      () async {
+    tools.mode = PermissionMode.ask;
+    final bash = tools.toolList.singleWhere((t) => t.schema.name == 'bash');
+    final blocked =
+        await bash.execute({'command': 'printf changed > input.txt'});
+    expect(blocked.isError, true);
+    expect(requests, isEmpty);
+    expect(File('${workspace.path}/input.txt').readAsStringSync(),
+        'workspace data\n');
+    final denied = await bash.execute({
+      'command': 'printf changed > input.txt',
+      'access': 'workspace-write',
+    });
+    expect(denied.isError, true);
+    expect(requests, hasLength(1));
+    expect(File('${workspace.path}/input.txt').readAsStringSync(),
+        'workspace data\n');
+  }, skip: !Platform.isMacOS && !Platform.isLinux);
+  test('default command reads still ask for external paths and network',
+      () async {
+    tools.mode = PermissionMode.ask;
+    final exec = tools.toolList.singleWhere((t) => t.schema.name == 'exec');
+    Link('${workspace.path}/outside').createSync(external.path);
+    final denied = await exec.execute({
+      'program': 'cat',
+      'args': ['${workspace.path}/outside/secret.txt'],
+    });
+    expect(denied.isError, true);
+    expect(requests, hasLength(1));
+    final network = await exec.execute({
+      'program': 'git',
+      'args': ['--version'],
+      'network': true,
+      'network_reason': 'test the approval boundary',
+    });
+    expect(network.isError, true);
+    expect(requests, hasLength(2));
+    expect(requests.last.details['missing_permissions'], ['network']);
+  }, skip: !Platform.isMacOS && !Platform.isLinux);
+  for (final mode in [PermissionMode.ask, PermissionMode.auto]) {
+    test(
+        '$mode cannot read external data through an unrecognized shell command',
+        () async {
+      tools.mode = mode;
+      final judge = WorkspaceJudge();
+      tools.modePolicy.classifier = judge;
+      Link('${workspace.path}/outside').createSync(external.path);
+      final bash = tools.toolList.singleWhere((t) => t.schema.name == 'bash');
+      final result = await bash.execute({
+        'command': r'cat "$PWD/outside/secret.txt"',
+      });
+      expect(result.isError, true);
+      expect(result.content, isNot(contains('external data')));
+      expect(judge.calls, 0, reason: 'the AI cannot authorize external reads');
+    }, skip: !Platform.isMacOS && !Platform.isLinux);
+  }
   test(
       'symlinks inside the workspace require approval for their resolved target',
       () async {

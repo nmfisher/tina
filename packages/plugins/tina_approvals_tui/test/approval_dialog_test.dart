@@ -137,6 +137,46 @@ void main() {
             .every((grant) => grant.scope == DirectoryGrantScope.global),
         true);
   });
+  for (final (steps, scope, caption) in [
+    (0, DirectoryGrantScope.session, 'this session'),
+    (1, DirectoryGrantScope.workspace, 'this workspace'),
+    (2, DirectoryGrantScope.global, 'every workspace'),
+  ]) {
+    test('folder caption matches the selected $scope approval before saving',
+        () async {
+      final dialog = scoped()..handleKey(ApprovalKey.always);
+      for (var i = 0; i < steps; i++) {
+        dialog.handleKey(ApprovalKey.down);
+      }
+      expect(dialog.rows(width: 140, height: 40).map(text).join('\n'),
+          contains('Checked folders will be remembered: $caption (s/Enter)'));
+      final outcome =
+          await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.confirm]));
+      expect(outcome.directoryGrants, hasLength(2));
+      expect(
+          outcome.directoryGrants.every((grant) => grant.scope == scope), true);
+    });
+  }
+  test('cycling folder scope starts from the displayed approval scope',
+      () async {
+    final dialog = scoped()
+      ..handleKey(ApprovalKey.always)
+      ..handleKey(ApprovalKey.down); // workspace approval
+    dialog.handleKey(ApprovalKey.directoryScope); // workspace -> global
+    dialog
+        .handleKey(ApprovalKey.up); // session approval, explicit global folders
+    expect(
+        dialog.rows(width: 140, height: 40).map(text).join('\n'),
+        contains(
+            'Checked folders will be remembered: every workspace (s/Enter)'));
+    final outcome =
+        await dialog.awaitDecision(ScriptedKeySource([ApprovalKey.confirm]));
+    expect(outcome.decision, ApprovalDecision.allowAlways);
+    expect(
+        outcome.directoryGrants
+            .every((g) => g.scope == DirectoryGrantScope.global),
+        true);
+  });
   test(
       'external read prompts never offer blanket access to other host directories',
       () {

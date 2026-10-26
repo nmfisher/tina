@@ -125,7 +125,8 @@ void main() {
     expect((ok as CommandCompleted).stdout, contains('line one'));
     // -i edit has no approver wired -> refused.
     expect(
-      await gate.run(sed(['-i', 's/one/ONE/', 'runtime.py'])),
+      await gate.run(sed(['-i', 's/one/ONE/', 'runtime.py']),
+          control: const ProcessControl(readOnlyRequested: false)),
       isA<CommandRefused>(),
     );
     expect(File('${repo.path}/runtime.py').readAsStringSync(),

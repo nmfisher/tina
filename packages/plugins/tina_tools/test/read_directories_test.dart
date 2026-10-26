@@ -9,10 +9,12 @@ final class Recorder implements ConfinedProcessRunner {
   @override
   bool get confinesFilesystem => true;
   final calls = <ProcessRequest>[];
+  final controls = <ProcessControl?>[];
   @override
   Future<RunOutcome> run(ProcessRequest request,
       {ProcessControl? control}) async {
     calls.add(request);
+    controls.add(control);
     return const CommandCompleted(
         exitCode: 0, stdout: 'reader output', stderr: '');
   }
@@ -94,8 +96,9 @@ void main() {
     final directories = ReadOnlyDirectories()..replace([external.path]);
     final outside = File('${other.path}/file')..writeAsStringSync('needle');
     final link = Link('${external.path}/escaped')..createSync(outside.path);
+    final spawn = Recorder();
     final gate = SandboxedProcessRunner(
-        inner: Recorder(),
+        inner: spawn,
         readDirectories: directories,
         plan: plan(directories),
         workspaceRoot: workspace.path,
@@ -105,7 +108,6 @@ void main() {
       ['needle', link.path],
       ['-f', outside.path, source.path],
       ['--exclude-from=${outside.path}', 'needle', source.path],
-      ['--unsupported-option', 'needle', source.path],
     ]) {
       expect(await gate.run(request('grep', args, workspace)),
           isA<CommandRefused>(),
@@ -123,8 +125,16 @@ void main() {
           reason: '$args');
     }
     expect(
-        await gate.run(request(
-            '/bin/sh', ['-c', 'cat ${source.path} > written'], workspace)),
+        await gate.run(request('grep',
+            ['--unsupported-option', 'needle', source.path], workspace)),
+        isA<CommandCompleted>());
+    expect(spawn.controls.last!.readOnly, true,
+        reason: 'unrecognized arguments still run inside a read-only profile');
+    expect(
+        await gate.run(
+            request(
+                '/bin/sh', ['-c', 'cat ${source.path} > written'], workspace),
+            control: const ProcessControl(readOnlyRequested: false)),
         isA<CommandRefused>());
     expect(
         await gate.run(request('cat', [source.path], workspace),
@@ -156,13 +166,14 @@ void main() {
     expect(runner.describeEnvironment(), isNot(contains(dir)));
   });
 
-  test('literal shell readers reuse read access while scripts still ask',
+  test('literal readers and arbitrary scripts reuse read access while confined',
       () async {
     final directories = ReadOnlyDirectories()..replace([external.path]);
     final spawn = Recorder();
     final gate = SandboxedProcessRunner(
         inner: spawn,
         readDirectories: directories,
+        plan: plan(directories),
         workspaceRoot: workspace.path,
         executableSearchPath: '/usr/bin:/bin');
     expect(
@@ -183,14 +194,16 @@ void main() {
       "grep --unknown '${source.path}'",
     ]) {
       expect(await gate.run(request('/bin/sh', ['-c', script], workspace)),
-          isA<CommandRefused>(),
+          isA<CommandCompleted>(),
           reason: script);
+      expect(spawn.controls.last!.readOnly, true,
+          reason: 'the sandbox must block any writes in $script');
     }
     expect(
         await gate.run(request('/bin/sh',
             ['-c', "grep needle '${source.path}' | cat"], workspace)),
         isA<CommandCompleted>());
-    expect(spawn.calls, hasLength(2));
+    expect(spawn.controls.every((control) => control!.readOnly), true);
   }, skip: Platform.isWindows);
 
   test('approval checkbox persists reads without an execution or write grant',

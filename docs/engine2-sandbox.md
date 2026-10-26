@@ -20,9 +20,15 @@ a human answer. Model instructions describe the actual selected mode.
 ## Execution profiles
 
 Both `exec` and `bash` accept `access: "read-only"` or
-`access: "workspace-write"`. Read-only mode defaults all commands to read-only.
-Recognized readers default to read-only in every mode; other commands default to
-workspace-write. Explicit read-only execution supports arbitrary scripts, options
+`access: "workspace-write"`. With confinement available, `ask`, `auto` and
+`read-only` modes default commands to read-only. Workspace inspection, including
+`git log`, `git -C <workspace> status`, pipelines and arbitrary scripts, runs
+without execution approval or an initial folder-trust prompt. Commands that
+mutate files must request `access: "workspace-write"`; additional write-directory
+requirements also select that profile for unrecognized commands unless access
+is explicit. Recognized readers default to read-only in every mode; other
+commands in `allow-edits` and `yolo` use workspace-write.
+Read-only execution supports arbitrary scripts, options
 and shell syntax without requiring a command allowlist. The kernel blocks writes
 to the workspace and shared host caches. Output-directory hints cannot open
 writable holes. Private HOME/scratch are writable for runtime needs.

@@ -84,7 +84,7 @@ void main() {
     });
 
     test(
-        'a shell string is never certified silently: it asks, and an '
+        'a workspace-write shell command asks, and an '
         'approval runs it', () async {
       final approver = _Approving();
       final inner = _RecordingRunner(_done(0, 'ran', ''));
@@ -95,9 +95,12 @@ void main() {
           approver: approver.call,
         ),
       );
-      final res = await tool.execute({'command': 'echo hi > /tmp/ws/out'});
+      final res = await tool.execute({
+        'command': 'echo hi > /tmp/ws/out',
+        'access': 'workspace-write',
+      });
       expect(res.isError, isFalse);
-      expect(approver.asked, 1, reason: 'the string itself triggered the ask');
+      expect(approver.asked, 1, reason: 'write access requires approval');
       expect(inner.command, '/bin/sh');
     });
 
@@ -180,6 +183,7 @@ void main() {
       await tool.execute({
         'program': 'git',
         'args': ['push', 'origin'],
+        'access': 'workspace-write',
         'network': true,
         'network_reason': 'push branch'
       });
@@ -189,7 +193,8 @@ void main() {
         'program': 'git',
         // Reuse the mutating command so reader detection and the host's PATH
         // cannot determine whether this invocation needs approval.
-        'args': ['push', 'origin']
+        'args': ['push', 'origin'],
+        'access': 'workspace-write',
       });
       expect(inner.receivedControl!.networkAllowed, isFalse);
       expect(asks, 2);
@@ -260,6 +265,7 @@ void main() {
       final res = await tool.execute({
         'program': 'tee',
         'args': ['/etc/hostname'],
+        'access': 'workspace-write',
       });
       // /etc/hostname is path-shaped and outside the writable directories → ask →
       // no approver wired → deny.

@@ -383,7 +383,7 @@ bool _acceptsFind(List<String> arguments) {
 /// address-and-quit commands, then paths. The certified scripts are limited to
 /// `p` and `q` — which take no flags — over numeric or `$` addresses, so any
 /// other sed feature (substitutions, `w`, `e`, `i`) is structurally
-/// unrecognized and asks.
+/// unrecognized and uses the invocation's execution profile instead.
 final _sedPrintCommand = RegExp(r'^(\d+(,\d+)?|\$)?[pq]$');
 
 /// The accepted `-n` script list, or null when [arguments] is anything else.
@@ -457,8 +457,10 @@ ProcessRequest? readOnlyShellRequest(ProcessRequest request,
 }
 
 /// Certifies system readers and explicitly trusted, version-pinned readers.
-/// Unknown options, custom environments and replacement programs fall back
-/// to normal approval. The returned absolute path is also used at spawn, so
+/// Unknown options, custom environments and replacement programs use the
+/// invocation's execution profile without reader-specific hardening. An
+/// enforced read-only profile still permits workspace inspection. The returned
+/// absolute path is also used at spawn, so
 /// a different PATH inside the OS sandbox cannot select a different program.
 String? readOnlyExecutable(ProcessRequest request,
     {String? searchPath,

@@ -37,10 +37,15 @@ workspace data without a reader allowlist.
 | `yolo` | authorized at launch | authorized at launch |
 
 `exec` and `bash` accept `access: "read-only"` or `access: "workspace-write"`.
-Omitted access defaults to read-only in read-only mode and for recognized reader
-invocations; other commands use workspace-write. The OS wrapper blocks workspace
-and shared-cache writes in a read-only profile. Private HOME and scratch remain
-writable for runtime needs. Forged output-directory permissions cannot create
+With confinement available, omitted access defaults to read-only in `ask`, `auto`
+and `read-only` modes. Workspace inspection, including arbitrary Git options,
+pipelines and scripts, needs no execution approval or folder-trust prompt.
+Commands that mutate files must request `access: "workspace-write"`. Additional
+write-directory requirements also select that profile for unrecognized commands
+unless access is explicit. Recognized readers default to read-only in other
+modes; other invocations there use workspace-write. The OS wrapper blocks
+workspace and shared-cache writes in a read-only profile. Private HOME and
+scratch remain writable for runtime needs. Forged output-directory permissions cannot create
 writable holes. Without an available OS sandbox, read-only execution fails closed;
 ordinary host execution requires explicit human authorization.
 

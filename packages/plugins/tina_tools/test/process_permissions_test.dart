@@ -4,7 +4,10 @@ import 'package:test/test.dart';
 import 'package:tina_tools/tina_tools.dart';
 
 const network = ProcessControl(
-    networkRequested: true, networkReason: 'fetch project dependencies');
+    readOnlyRequested: false,
+    networkRequested: true,
+    networkReason: 'fetch project dependencies');
+const writable = ProcessControl(readOnlyRequested: false);
 
 ProcessRequest command({
   String program = 'git',
@@ -53,7 +56,10 @@ void main() {
             return Approval.yes;
           });
       expect(
-          await gate.run(command(), control: network), isA<CommandCompleted>());
+          await gate.run(command(),
+              control: network.copyWith(
+                  readOnlyRequested: mode == PermissionMode.readOnly)),
+          isA<CommandCompleted>());
       if (mode == PermissionMode.yolo) {
         expect(reviews, isEmpty);
       } else {
@@ -88,7 +94,7 @@ void main() {
           return Approval.always;
         });
     final request = command();
-    await gate.run(request);
+    await gate.run(request, control: writable);
     expect(gate.grants.coversRequest(request), true);
     expect(
         gate.grants
@@ -111,7 +117,7 @@ void main() {
     await gate.run(request, control: network);
     expect(reviews, hasLength(2));
     expect(inner.controls.last!.networkAllowed, true);
-    await gate.run(request);
+    await gate.run(request, control: writable);
     expect(reviews, hasLength(2));
     expect(inner.controls.last!.networkAllowed, false,
         reason: 'a remembered network grant never opens an offline invocation');

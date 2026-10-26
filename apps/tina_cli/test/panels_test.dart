@@ -620,9 +620,10 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
               .add(ToolCallStart(id: 'exec-$index', name: 'exec'));
           provider.streams[index].add(MessageComplete(content: [
             ToolUseBlock(id: 'exec-$index', name: 'exec', input: {
-              // printf defaults to workspace-write, so ask mode reviews it.
+              // Explicitly request writes so this fixture exercises approval.
               'program': outside ? '/usr/bin/false' : '/usr/bin/printf',
               'args': ['%s\\n', text],
+              if (!outside) 'access': 'workspace-write',
               if (network) 'network': true,
               if (network) 'network_reason': 'test session network approval',
               if (outside) 'outside_sandbox': true,

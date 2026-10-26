@@ -55,7 +55,7 @@ class ExecTool extends ProcessToolBase {
               'type': 'string',
               'enum': ['read-only', 'workspace-write'],
               'description':
-                  'Execution profile. read-only allows arbitrary commands and scripts with workspace mutations blocked by the OS sandbox. workspace-write requests workspace mutations. Defaults to read-only in read-only mode; recognized reader commands also default to read-only. Outside paths and network require explicit human approval in every ordinary mode.'
+                  'Execution profile. Sandboxed commands default to read-only in ask, auto and read-only modes, so workspace inspection never asks for execution approval, including arbitrary scripts and Git options. Request workspace-write explicitly for commands that create, modify, rename or delete files. Unrecognized commands also select a writable profile when write_directories is declared. Recognized readers default to read-only in other modes. Outside paths and network require explicit human approval in every ordinary mode.'
             },
             'read_directories': {
               'type': 'array',

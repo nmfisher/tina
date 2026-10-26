@@ -68,7 +68,9 @@ void main() {
             stdin: null,
             timeout: const Duration(seconds: 10),
           );
-      final control = hostCommand ? outside : null;
+      final control = hostCommand
+          ? outside
+          : const ProcessControl(readOnlyRequested: false);
       for (final value in ['2', '20']) {
         final outcome = await tools.processRunner
             .run(shell('printf hello | head -n$value'), control: control);
@@ -163,7 +165,10 @@ void main() {
       stdin: null,
       timeout: null
     );
-    expect(await tools.processRunner.run(request), isA<CommandCompleted>());
+    expect(
+        await tools.processRunner.run(request,
+            control: const ProcessControl(readOnlyRequested: false)),
+        isA<CommandCompleted>());
     expect(tools.commandApprovals.entries.single['permissions'],
         isNot(contains('unconfined')));
     approvals.decision = ApprovalDecision.deny;

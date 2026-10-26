@@ -399,8 +399,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final confined = inner is ConfinedProcessRunner &&
         (inner as ConfinedProcessRunner).confinesFilesystem;
     final readOnlyProfile = control?.readOnlyRequested ??
-        (mode == PermissionMode.readOnly ||
-            confined && (reader != null || shellReader != null));
+        _defaultReadOnlyProfile(mode,
+            confined: confined,
+            certifiedReadOnly: reader != null || shellReader != null,
+            writeRequested: declaredAccess.write.isNotEmpty);
     if (mode == PermissionMode.readOnly &&
         (!readOnlyProfile ||
             outsideSandbox ||
@@ -760,6 +762,18 @@ final class SandboxedProcessRunner implements ProcessRunner {
       );
 }
 
+// Inspection is quiet by default when the backend can enforce it. A command
+// that needs mutations must request workspace-write (or additional write paths).
+bool _defaultReadOnlyProfile(PermissionMode mode,
+        {required bool confined,
+        required bool certifiedReadOnly,
+        bool writeRequested = false}) =>
+    mode == PermissionMode.readOnly ||
+    confined &&
+        (certifiedReadOnly ||
+            !writeRequested &&
+                (mode == PermissionMode.ask || mode == PermissionMode.auto));
+
 /// The command × mode table: the whole rule, as built. Pure — a request in,
 /// a verdict out — so its tests are headless by construction.
 ///
@@ -775,7 +789,9 @@ CommandDecision decideCommand(
   bool confined = true,
   bool? readOnlyProfile,
 }) {
-  final readOnly = readOnlyProfile ?? certifiedReadOnly;
+  final readOnly = readOnlyProfile ??
+      _defaultReadOnlyProfile(mode,
+          confined: confined, certifiedReadOnly: certifiedReadOnly);
   final resolution = resolveAuthorization(
       AuthorizationRequest(
           readOnlyExecution: readOnly,
@@ -813,8 +829,8 @@ typedef CommandDecision = ({ToolVerdict verdict, String reason});
 /// the `command: <shell>, arguments: ['-c', <string>]` shape every bash tool
 /// produces. What the string runs cannot be proven from argv: redirects,
 /// backticks, and newlines mean the writable directories can say nothing about it.
-/// Writable directories never authorize these requests. Uncertified scripts
-/// ask; certified reader scripts have a separate exception in reader modes.
+/// Shell syntax never grants access: the selected execution profile and the
+/// shared permission policy determine which capabilities a script receives.
 ///
 /// Shape test: the basename of [ProcessRequest.command] is a known shell and
 /// the shell's flag is followed by a payload — i.e. there is at least one

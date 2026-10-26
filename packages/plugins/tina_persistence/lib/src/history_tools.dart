@@ -149,7 +149,14 @@ final class SessionHistoryTools {
         final offset = _integer(input, 'offset', 0, 0, 1000);
         // Workspace is deliberately a single store, even when the catalog
         // knows of other stores. Zero results never trigger global discovery.
-        final locations = scope == 'workspace' ? [current] : await _locations();
+        // A custom store can be registered by multiple workspaces. Search each
+        // physical store once, preferring this session's registration for it.
+        final locations = scope == 'workspace'
+            ? [current]
+            : {
+                for (final location in [...(await _locations()), current])
+                  location.store: location
+              }.values.toList();
         if (cancelled())
           return ToolResult.error('Session history request cancelled');
         if (!await _authorize(locations, 'search', query))
@@ -157,7 +164,7 @@ final class SessionHistoryTools {
         if (cancelled())
           return ToolResult.error('Session history request cancelled');
         final excluded = currentSessionId;
-        final currentStore = current.id;
+        final currentStore = current.store;
         final result = await _runSearch(
             locations, query, limit, offset, excluded, currentStore);
         if (cancelled())
@@ -192,7 +199,7 @@ final class SessionHistoryTools {
       if (locations.isEmpty)
         throw const FormatException('Unknown store_id; search again');
       final location = locations.single;
-      if (location.id == current.id && session == currentSessionId)
+      if (location.store == current.store && session == currentSessionId)
         throw const FormatException(
             'Use the current conversation for the active session');
       if (cancelled())
@@ -330,7 +337,7 @@ Map<String, Object?> _search(List<HistoryLocation> locations, String query,
   final cap = offset + limit + 1;
   for (final location in locations) {
     if (!File(location.store).existsSync()) {
-      if (location.id != currentStore) unavailable++;
+      if (location.store != currentStore) unavailable++;
       continue;
     }
     try {
@@ -339,7 +346,7 @@ Map<String, Object?> _search(List<HistoryLocation> locations, String query,
       try {
         for (final row in reader.search(
             query: query,
-            excludeSession: location.id == currentStore ? excluded : null,
+            excludeSession: location.store == currentStore ? excluded : null,
             limit: cap,
             orderByTime: locations.length > 1)) {
           matches.add({

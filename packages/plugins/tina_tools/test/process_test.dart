@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:test/test.dart';
 
+const writable = ProcessControl(readOnlyRequested: false);
+
 /// The command × mode table, the approver, and the grants — headless: the
 /// runner is scripted except where a test says `real:`, and nothing here
 /// opens a terminal or needs an OS sandbox.
@@ -82,6 +84,7 @@ void main() {
       for (final line in ['git status', 'ls', 'echo hi', 'rm -rf /']) {
         final d = decideCommand(req(line), PermissionMode.readOnly,
             writableDirectories: WritableDirectories()..add('/'),
+            readOnlyProfile: false,
             networkOff: false);
         expect(d.verdict, ToolVerdict.deny, reason: line);
         expect(d.reason, contains('read-only mode'), reason: line);
@@ -97,7 +100,8 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
+      ), PermissionMode.ask,
+          writableDirectories: ws, networkOff: true, readOnlyProfile: false);
       expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('requires approval'));
     });
@@ -112,7 +116,8 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
+      ), PermissionMode.ask,
+          writableDirectories: ws, networkOff: true, readOnlyProfile: false);
       expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('requires approval'));
     });
@@ -126,7 +131,8 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
+      ), PermissionMode.ask,
+          writableDirectories: ws, networkOff: true, readOnlyProfile: false);
       expect(d.verdict, ToolVerdict.ask);
     });
 
@@ -134,13 +140,13 @@ void main() {
       final ws = WritableDirectories()..add('/');
       for (final line in ['curl https://x.example', 'git push']) {
         final d = decideCommand(req(line), PermissionMode.ask,
-            writableDirectories: ws, networkOff: true);
+            writableDirectories: ws, networkOff: true, readOnlyProfile: false);
         expect(d.verdict, ToolVerdict.ask, reason: line);
       }
       // Network access does not bypass the approval policy.
       for (final line in ['curl https://x.example', 'git push']) {
         final d = decideCommand(req(line), PermissionMode.ask,
-            writableDirectories: ws, networkOff: false);
+            writableDirectories: ws, networkOff: false, readOnlyProfile: false);
         expect(d.verdict, ToolVerdict.ask, reason: line);
       }
     });
@@ -156,7 +162,8 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.ask, writableDirectories: ws, networkOff: true);
+      ), PermissionMode.ask,
+          writableDirectories: ws, networkOff: true, readOnlyProfile: false);
       expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('requires approval'));
       // A literal-argv request with the same payload does not hit the rule.
@@ -167,7 +174,8 @@ void main() {
         environment: null,
         stdin: null,
         timeout: null,
-      ), PermissionMode.ask, writableDirectories: ws, networkOff: false);
+      ), PermissionMode.ask,
+          writableDirectories: ws, networkOff: false, readOnlyProfile: false);
       expect(argvD.verdict, ToolVerdict.ask);
     });
 
@@ -176,6 +184,7 @@ void main() {
       final d = decideCommand(req('git status'), PermissionMode.ask,
           writableDirectories: WritableDirectories(),
           networkOff: true,
+          readOnlyProfile: false,
           grants: grants);
       expect(d.verdict, ToolVerdict.allow);
       expect(d.reason, contains('explicit grants'));
@@ -229,12 +238,15 @@ void main() {
             timeout: null,
           );
       final original = shell(['-c', 'printf *'], '/tmp/one');
-      await runner.run(original);
-      await runner.run(original);
+      await runner.run(original, control: writable);
+      await runner.run(original, control: writable);
       expect(asked, 1);
-      await runner.run(shell(['-c', 'printf secret'], '/tmp/one'));
-      await runner.run(shell(['-c', 'printf', '*'], '/tmp/one'));
-      await runner.run(shell(['-c', 'printf *'], '/tmp/two'));
+      await runner.run(shell(['-c', 'printf secret'], '/tmp/one'),
+          control: writable);
+      await runner.run(shell(['-c', 'printf', '*'], '/tmp/one'),
+          control: writable);
+      await runner.run(shell(['-c', 'printf *'], '/tmp/two'),
+          control: writable);
       expect(asked, 4);
     });
 
@@ -260,18 +272,26 @@ void main() {
             stdin: stdin,
             timeout: null,
           );
-      expect(await runner.run(request({'LANG': 'C', 'PATH': '/bin'})),
+      expect(
+          await runner.run(request({'LANG': 'C', 'PATH': '/bin'}),
+              control: writable),
           isA<CommandCompleted>());
-      expect(await runner.run(request({'PATH': '/bin', 'LANG': 'C'})),
+      expect(
+          await runner.run(request({'PATH': '/bin', 'LANG': 'C'}),
+              control: writable),
           isA<CommandCompleted>());
       expect(asked, 1);
-      expect(await runner.run(request({'LANG': 'C', 'PATH': '/other'})),
+      expect(
+          await runner.run(request({'LANG': 'C', 'PATH': '/other'}),
+              control: writable),
           isA<CommandRefused>());
       expect(
-          await runner
-              .run(request({'LANG': 'C', 'PATH': '/bin'}, stdin: 'other')),
+          await runner.run(
+              request({'LANG': 'C', 'PATH': '/bin'}, stdin: 'other'),
+              control: writable),
           isA<CommandRefused>());
-      expect(await runner.run(request(null)), isA<CommandRefused>(),
+      expect(await runner.run(request(null), control: writable),
+          isA<CommandRefused>(),
           reason: 'inheriting the host environment is a different permission');
       expect(asked, 4);
       expect(runner.grants.length, 1);
@@ -326,13 +346,15 @@ void main() {
           return answers.removeAt(0);
         },
       );
-      final refused = await runner.run(_req('tee /etc/hosts'));
+      final refused =
+          await runner.run(_req('tee /etc/hosts'), control: writable);
       expect(refused, isA<CommandRefused>());
       expect(
           (refused as CommandRefused).reason, contains('denied by the user'));
       expect(asked, 1);
 
-      final allowed = await runner.run(_req('tee /etc/hosts'));
+      final allowed =
+          await runner.run(_req('tee /etc/hosts'), control: writable);
       expect(allowed, isA<CommandCompleted>());
       expect(asked, 2);
     });
@@ -343,7 +365,8 @@ void main() {
         inner: inner,
         writableDirectories: WritableDirectories()..add('/tmp/ws'),
       );
-      final outcome = await runner.run(_req('tee /etc/hosts'));
+      final outcome =
+          await runner.run(_req('tee /etc/hosts'), control: writable);
       expect(outcome, isA<CommandRefused>());
       expect((outcome as CommandRefused).reason, contains('no approver'));
       expect(inner.requests, isEmpty);
@@ -362,14 +385,14 @@ void main() {
           return Approval.always;
         },
       );
-      await runner.run(_req('tee /etc/hosts'));
-      await runner.run(_req('tee /etc/hosts'));
+      await runner.run(_req('tee /etc/hosts'), control: writable);
+      await runner.run(_req('tee /etc/hosts'), control: writable);
       expect(asked, 1,
           reason: 'the second identical command skips the approver');
       // The grant was recorded as the exact command line.
       expect(runner.grants.patterns, ['tee /etc/hosts']);
       // But a different command still asks.
-      await runner.run(_req('tee /etc/passwd'));
+      await runner.run(_req('tee /etc/passwd'), control: writable);
       expect(asked, 2);
     });
 

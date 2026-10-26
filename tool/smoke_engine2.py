@@ -92,7 +92,8 @@ class ModelStub(BaseHTTPRequestHandler):
                                            "name": "bash", "input": {}}}
             events[2] = {"type": "content_block_delta", "index": 0,
                          "delta": {"type": "input_json_delta", "partial_json": json.dumps({
-                             "command": "(sleep 2; echo leaked > cancel-leak) &\necho subprocess-live\n: > subprocess-ready\nwait"})}}
+                             "command": "(sleep 2; echo leaked > cancel-leak) &\necho subprocess-live\n: > subprocess-ready\nwait",
+                             "access": "workspace-write"})}}
             events[4]['delta']['stop_reason'] = 'tool_use'
         if 'approve this' in json.dumps(prompt):
             events[1] = {"type": "content_block_start", "index": 0,
@@ -504,10 +505,18 @@ def smoke(launcher, endpoint, columns, rows):
             assert not ModelStub.release_stream.is_set()
             closed = terminal.send('\x1b')
             terminal.expect('Settings closed.', closed)
-            terminal.expect('cancelled: escape', closed)
             terminal.expect_cursor(True)
+            # The request is still running, so its spinner keeps repainting.
+            time.sleep(0.1)
+            terminal.read()
+            assert b'cancelled: escape' not in terminal.output[closed:], 'closing settings cancelled generation'
+            assert len(ModelStub.requests) == active_requests
+            # Settings owns its Escape. Cancellation belongs to the restored
+            # conversation prompt, where a separate Escape stops the request.
+            cancelled = terminal.send('\x1b')
+            terminal.expect('cancelled: escape', cancelled)
             start = terminal.resize(100, 20)
-            # Escape in settings cancelled the stalled request: its partial
+            # Escape at the prompt cancelled the stalled request: its partial
             # text is not guaranteed to survive the cancel/persist, so don't
             # assert on it. The essential behavior — new input works
             # immediately and in order, and the later release still yields the
