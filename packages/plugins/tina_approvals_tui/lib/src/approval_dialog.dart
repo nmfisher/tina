@@ -125,6 +125,13 @@ class ApprovalDialog {
     DirectoryGrantScope.session
   ];
   DirectoryGrantScope _directoryScope = DirectoryGrantScope.workspace;
+  // The folder-scope caption writes its own words; the enum names it cycles
+  // through (session/workspace/global) should not leak into the label.
+  static const _scopeWord = {
+    DirectoryGrantScope.session: 'this session',
+    DirectoryGrantScope.workspace: 'this workspace',
+    DirectoryGrantScope.global: 'every workspace',
+  };
   bool get _hasDirectoryOffers =>
       _directoryOffers.isNotEmpty &&
       ask?.confirmation != true &&
@@ -295,14 +302,19 @@ class ApprovalDialog {
                     {'read', 'write'}.contains(ask?.op)
                 ? 'file'
                 : null);
+    // Name the object a remembered approval covers: the plugin's label when
+    // supplied, otherwise derived from the ask's scope. The [a]/[p]/[g] rows
+    // all describe remembering this same object, so they share one phrase —
+    // command asks say "this command", file asks say "this file".
     final scopeLabel = ask?.details['permission_scope_label'];
-    final alwaysLabel = scopeLabel is String
-        ? 'allow $scopeLabel for this session'
+    final object = scopeLabel is String
+        ? scopeLabel
         : switch (scope) {
-            'file' => 'allow this file for this session',
-            'command' => 'allow this command for this session',
-            _ => 'allow matching calls for this session',
+            'file' => 'this file',
+            'command' => 'this command',
+            _ => 'matching calls',
           };
+    final alwaysLabel = 'allow $object for this session';
     final label = ask?.confirmation == true
         ? ask!.title
         : description?.title ??
@@ -454,7 +466,9 @@ class ApprovalDialog {
       if (choice.startsWith('directory ')) {
         final index = int.parse(choice.substring(10));
         final offer = _directoryOffers[index];
-        return '[${_selectedDirectories.contains(index) ? 'x' : ' '}] Allow all '
+        // Indented: these rows modify the scope rows above (which folders a
+        // remembered approval includes), they are not peer actions.
+        return '  [${_selectedDirectories.contains(index) ? 'x' : ' '}] Allow all '
             '${offer.access == DirectoryAccess.read ? 'reads' : 'writes (including deletes)'} '
             'in ${offer.path}${offer.source == 'inferred' ? ' (inferred)' : ''} (Space)';
       }
@@ -468,11 +482,14 @@ class ApprovalDialog {
         'remember' => '[a] Remember…',
         'back' => 'Back',
         'allow always' => '[a] $alwaysLabel',
-        'allow workspace' => '[p] Save this access for this workspace',
-        'allow global' => '[g] Save this access globally',
+        'allow workspace' => '[p] Remember $object for this workspace',
+        'allow global' => '[g] Remember $object in every workspace',
         'edit command pattern' => '[e] Approve with an editable regex',
+        // Not a decision row: the checked folders are saved when one of the
+        // scope rows above is confirmed. This line only sets their scope,
+        // so its label states that instead of implying it saves something.
         'grant scope' =>
-          '[s] Save directory grants: ${_directoryScope.name} (s/Enter)',
+          'Checked folders will be remembered: ${_scopeWord[_directoryScope]} (s/Enter)',
         _ => choice,
       };
     }

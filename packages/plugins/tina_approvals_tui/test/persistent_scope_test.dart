@@ -5,7 +5,10 @@ void main() {
   ApprovalDialog persistentDialog() => ApprovalDialog(null,
       ask: const ApprovalAskContext(
           'run command', 'git push origin main', 'host SSH identity',
-          details: {'persistent_command_approval': true}));
+          details: {
+            'permission_scope': 'command',
+            'persistent_command_approval': true
+          }));
 
   test('persistent scopes appear only after Remember', () {
     final dialog = persistentDialog()..handleKey(ApprovalKey.always);
@@ -13,8 +16,8 @@ void main() {
         .rows(width: 100, height: 30)
         .map((r) => r.runs.map((run) => run.text).join())
         .join('\n');
-    expect(rows, contains('[p] Save this access for this workspace'));
-    expect(rows, contains('[g] Save this access globally'));
+    expect(rows, contains('[p] Remember this command for this workspace'));
+    expect(rows, contains('[g] Remember this command in every workspace'));
     expect(rows, isNot(contains('always allow…')));
   });
 

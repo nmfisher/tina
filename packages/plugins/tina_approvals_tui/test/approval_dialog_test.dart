@@ -55,8 +55,8 @@ void main() {
     final dialog = scoped();
     dialog.handleKey(ApprovalKey.always);
     final shown = dialog.rows().map(text).join('\n');
-    expect(shown, contains('[p] Save this access for this workspace'));
-    expect(shown, contains('[g] Save this access globally'));
+    expect(shown, contains('[p] Remember this command for this workspace'));
+    expect(shown, contains('[g] Remember this command in every workspace'));
     final outcome = await dialog.awaitDecision(ScriptedKeySource([
       ApprovalKey.cancel,
       ApprovalKey.deny,
