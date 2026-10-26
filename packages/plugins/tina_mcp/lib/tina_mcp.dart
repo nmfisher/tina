@@ -328,7 +328,7 @@ class McpPlugin extends AgentPlugin {
           'but $state in this session. A missing tool for an external '
           'application means unconfigured, not unsupported: say the '
           'integration is not configured rather than that Tina lacks it. '
-          'Servers are configured in Settings \u2192 MCP servers or the '
+          'Servers are configured in Settings \u2192 MCP, or the '
           '[mcp.servers] tables of Tina\'s config file.');
     }
   }

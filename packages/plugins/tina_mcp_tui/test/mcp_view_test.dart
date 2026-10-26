@@ -39,7 +39,18 @@ final class _Presentation {
   late final editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
   late final context = ConsoleContext(screen: screen, editor: editor);
   late final ConsoleAttachment attachment;
-  List<SettingControl> get fields => context.settings.sections.single.build();
+
+  /// Server controls live inside SettingGroup rows; expand groups so the
+  /// helpers can address controls by ID the same way as before grouping.
+  List<SettingControl> get fields => [
+    for (final control in context.settings.sections.single.build())
+      ..._expand(control),
+  ];
+  static List<SettingControl> _expand(SettingControl control) => [
+    control,
+    if (control is SettingGroup)
+      for (final child in control.controls()) ..._expand(child),
+  ];
   SettingText text(String id) =>
       fields.whereType<SettingText>().singleWhere((field) => field.id == id);
   SettingToggle toggle(String id) =>

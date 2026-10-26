@@ -43,8 +43,15 @@ final class SettingsPanel {
     'Models',
     'Appearance',
     'Permissions',
-    'Plugins'
+    'Plugins',
+    'MCP'
   ];
+
+  /// The MCP category only exists when the MCP plugin registered its settings
+  /// section; the root list drops it otherwise.
+  static const _mcpSectionId = 'tina/mcp';
+  bool _hasMcpSection(SettingsRegistry? sections) =>
+      sections?.sections.any((s) => s.id == _mcpSectionId) ?? false;
   final _breadcrumbs = <String>[];
   Rect get _frame => dialogBounds(screen.layout,
       preferredWidth: _menuWidth, preferredHeight: _menuMaxHeight);
@@ -313,21 +320,19 @@ final class SettingsPanel {
                   open: () => _scopedValue(definition)
                 ),
             ],
-        attention: () => _state.applicationErrors.values.join('\n'));
+        attention: () => _state.applicationErrors.values.join('\n'),
+        sections: sections);
   }
 
   String _ownerCategory(String id) => id.startsWith('tina/providers')
       ? 'Models'
       : switch (id) {
-          'tina/mode' ||
-          'tina/tools' ||
-          'tina/approvals' ||
-          'tina/mcp' =>
-            'Permissions',
-          'tina/step-limit' || 'tina/subagents' || 'tina/goals' => 'General',
-          'tina/chat-tui' || 'tina/console' => 'Appearance',
-          _ => 'Plugins',
-        };
+            'tina/mcp' => 'MCP',
+            'tina/mode' || 'tina/tools' || 'tina/approvals' => 'Permissions',
+            'tina/step-limit' || 'tina/subagents' || 'tina/goals' => 'General',
+            'tina/chat-tui' || 'tina/console' => 'Appearance',
+            _ => 'Plugins',
+          };
 
   /// A plugin's settings section appears in the Plugins category only when the
   /// plugin is on in this conversation (or has no enable switch). The
@@ -348,7 +353,8 @@ final class SettingsPanel {
 
   Future<bool> _browseSettings(List<_SettingsEntry> Function() entries,
       {List<_SettingsEntry> Function()? searchEntries,
-      String Function()? attention}) async {
+      String Function()? attention,
+      SettingsRegistry? sections}) async {
     var categorySelected = 0;
     while (!_cancelled) {
       var visible = <_SettingsEntry>[];
@@ -356,7 +362,12 @@ final class SettingsPanel {
       List<String> items(String query) {
         searching = query.isNotEmpty;
         visible = [...entries(), if (searching) ...?searchEntries?.call()];
-        return searching ? visible.map((e) => e.label).toList() : _categories;
+        return searching
+            ? visible.map((e) => e.label).toList()
+            : [
+                for (final category in _categories)
+                  if (category != 'MCP' || _hasMcpSection(sections)) category
+              ];
       }
 
       final choice = await _menu('Settings', _categories,
@@ -372,7 +383,11 @@ final class SettingsPanel {
       if (searching) {
         await _openEntry(visible[choice]);
       } else {
-        final category = _categories[choice];
+        // items() may drop categories (MCP without its section), so re-derive
+        // the category from the rendered list instead of indexing _categories.
+        final shown = items('');
+        if (choice >= shown.length) continue;
+        final category = shown[choice];
         categorySelected = choice;
         var selectedIndex = 0;
         var query = '';
@@ -851,20 +866,33 @@ final class SettingsPanel {
     }
   }
 
-  Future<void> _section(
-      SettingsRegistry registry, SettingsSection section) async {
+  /// One level of controls inside a settings section: rows, space toggles,
+  /// Enter-to-edit. A [SettingGroup] row opens this same list one level
+  /// deeper over the group's controls, so sections can collapse many fields
+  /// for one object into a single row (Enter for details).
+  Future<void> _controlList(
+      List<SettingControl> Function() controls,
+      {required String title,
+      required bool Function() valid,
+      String initialQuery = ''}) async {
     var selected = 0;
-    var query = '';
-    while (registry.contains(section)) {
-      var controls = <SettingControl>[];
-      List<String> items() {
-        controls = registry.contains(section) ? section.build() : [];
-        if (controls.map((c) => c.id).toSet().length != controls.length) {
-          throw StateError('duplicate control ID in ${section.id}');
+    var query = initialQuery;
+    while (valid()) {
+      List<SettingControl> current() {
+        final built = valid() ? controls() : <SettingControl>[];
+        if (built.map((c) => c.id).toSet().length != built.length) {
+          throw StateError('duplicate control ID in $title');
         }
+        return built;
+      }
+
+      List<String> items() {
+        final built = current();
         return [
-          for (final control in controls)
+          for (final control in built)
             switch (control) {
+              SettingGroup() =>
+                '${control.label}: ${control.value()}',
               SettingToggle() =>
                 '${control.label}: ${control.read() ? 'On' : 'Off'}',
               SettingText() =>
@@ -877,21 +905,30 @@ final class SettingsPanel {
         ];
       }
 
-      final chosenIndex = await _menu(section.title, items(),
+      final chosenIndex = await _menu(title, items(),
           itemsNow: items,
-          valid: () => registry.contains(section),
-          keysNow: () => controls.map((c) => c.id).toList(),
+          valid: valid,
+          keysNow: () => current().map((c) => c.id).toList(),
           initialSelected: selected,
           initialQuery: query,
           onSelected: (index) => selected = index,
           onQuery: (value) => query = value,
           canToggle: (i) =>
-              controls[i] is SettingToggle ||
-              controls[i] is ScopedSettingControl &&
-                  (controls[i] as ScopedSettingControl).definition.kind ==
+              current()[i] is SettingToggle ||
+              current()[i] is ScopedSettingControl &&
+                  (current()[i] as ScopedSettingControl).definition.kind ==
                       SettingKind.toggle);
-      if (chosenIndex == null || !registry.contains(section)) return;
-      final control = controls[chosenIndex];
+      if (chosenIndex == null || !valid()) return;
+      final built = current();
+      if (chosenIndex >= built.length) return;
+      final control = built[chosenIndex];
+      if (control is SettingGroup) {
+        // Rebuild the submenu on every open so it reflects live state; the
+        // group controls keep editing through their own change callbacks.
+        await _controlList(control.controls,
+            title: control.label, valid: valid);
+        continue;
+      }
       // A control that supports exactly one scope edits it without a prompt;
       // only genuinely multi-scope controls ask which layer to change.
       if (_usingScopes && control.scopes != null) {
@@ -913,11 +950,12 @@ final class SettingsPanel {
       }
       // Unloading while an editor is open invalidates its callback.
       bool available() =>
-          registry.contains(section) &&
-          section.build().any((c) => c.id == control.id);
+          valid() && controls().any((c) => c.id == control.id);
       try {
         await _withinScopes(control.scopes ?? _availableScopes, () async {
           switch (control) {
+            case SettingGroup():
+              break;
             case SettingToggle():
               if (available()) await control.change(!control.read());
             case SettingText():
@@ -938,11 +976,16 @@ final class SettingsPanel {
           }
         });
       } catch (_) {
-        if (registry.contains(section))
-          await _menu('Could not apply setting', ['Back'],
-              valid: () => registry.contains(section));
+        if (valid())
+          await _menu('Could not apply setting', ['Back'], valid: valid);
       }
     }
+  }
+
+  Future<void> _section(
+      SettingsRegistry registry, SettingsSection section) async {
+    await _controlList(() => section.build(),
+        title: section.title, valid: () => registry.contains(section));
   }
 
   Future<InputEvent> _formEvent() async {

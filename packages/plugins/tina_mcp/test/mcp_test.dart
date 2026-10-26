@@ -203,7 +203,7 @@ void main() {
 
     final none = await section([]);
     expect(none, contains('no server is configured'));
-    expect(none, contains('Settings \u2192 MCP servers'));
+    expect(none, contains('Settings \u2192 MCP'));
 
     final disabled = await section([
       McpServerConfig('fixture', {'command': 'python3', 'enabled': false})

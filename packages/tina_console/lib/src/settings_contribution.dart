@@ -60,6 +60,20 @@ final class SettingChoice extends SettingControl {
   final List<String> options;
 }
 
+/// A row that opens a submenu of related controls. The row shows [label] plus
+/// the live [value] summary; Enter rebuilds [controls] into a nested list, so
+/// a plugin can collapse many fields for one object into a single row.
+final class SettingGroup extends SettingControl {
+  const SettingGroup(
+      {required super.id,
+      required super.label,
+      super.scopes,
+      required this.value,
+      required this.controls});
+  final String Function() value;
+  final List<SettingControl> Function() controls;
+}
+
 final class SettingAction extends SettingControl {
   const SettingAction(
       {required super.id, required super.label, required this.invoke});

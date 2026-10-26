@@ -79,17 +79,20 @@ void main() {
     await waitFor(() => editor.isEditing);
     io.feedBytes('/settings\r'.codeUnits);
     await waitFor(() => editor.isReadingKey);
-    io.feedBytes('MCP servers\r'.codeUnits);
+    // MCP is now a top-level category (no Permissions detour).
+    io.feedBytes('MCP\r'.codeUnits);
     await waitFor(() => visible().contains('Add local server (name)'));
     // The compact row shows the label left, the toggle value right.
     expect(visible(), contains(RegExp(r'blender\s+On')),
-        reason: 'the blender toggle must be visible with its current value');
+        reason: 'the blender row must be visible with its current state');
 
-    // Toggle blender off: move past the two add-server rows to the toggle.
+    // Enter opens the server's details submenu; Space toggles Enabled.
+    editor.inject(down); // past the two add-server rows to blender
     editor.inject(down);
-    editor.inject(down);
+    editor.inject(enter);
+    await waitFor(() => visible().contains(RegExp(r'Enabled\s+On')));
     editor.inject(space);
-    final off = RegExp(r'blender\s+Off');
+    final off = RegExp(r'Enabled\s+Off');
     final scopeChoice = 'choose a supported scope';
     await waitFor(() =>
         visible().contains(off) || visible().contains(scopeChoice));
@@ -100,25 +103,27 @@ void main() {
     }
     final stored = McpConfigStore(config.path).read();
     expect(stored.single.enabled, isFalse,
-        reason: 'space on the toggle row must persist enabled=false');
+        reason: 'space on the Enabled row must persist enabled=false');
 
-    // Toggle back on. Selection survives the section rebuild, so the same
-    // row stays armed — no re-navigation needed.
+    // Toggle back on. The details menu stays open and the toggle row stays
+    // armed, so the same keypress position toggles again.
     editor.inject(space);
-    await waitFor(() => visible().contains(RegExp(r'blender\s+On')));
+    await waitFor(() => visible().contains(RegExp(r'Enabled\s+On')));
     expect(McpConfigStore(config.path).read().single.enabled, isTrue);
 
-    // Esc closes the submenu (back to the settings root), not the panel.
+    // Esc closes the details submenu (back to the MCP server list), then the
+    // second Esc leaves the category, the third closes the panel.
     editor.inject(escape);
     try {
-      await waitFor(() => visible().contains('Settings'));
+      await waitFor(() => visible().contains('Add local server (name)'));
     } catch (_) {
       // ignore: avoid_print
-      print('--- visible after escape from MCP submenu ---\n${visible()}');
+      print('--- visible after escape from server details ---\n${visible()}');
       rethrow;
     }
-    expect(visible(), isNot(contains('Add local server (name)')),
-        reason: 'Esc leaves the MCP submenu but keeps the panel open');
+    expect(visible(), contains('blender'),
+        reason: 'Esc leaves the details submenu but keeps the MCP list open');
+    editor.inject(escape);
     editor.inject(escape);
     try {
       // The closing toast says "Settings closed." — check the dialog frame
@@ -126,7 +131,7 @@ void main() {
       await waitFor(() => !visible().contains('┌ Settings'));
     } catch (_) {
       // ignore: avoid_print
-      print('--- visible after second escape (panel should be closed) ---\n${visible()}');
+      print('--- visible after final escapes (panel should be closed) ---\n${visible()}');
       rethrow;
     }
     io.feedBytes('/quit\r'.codeUnits);
