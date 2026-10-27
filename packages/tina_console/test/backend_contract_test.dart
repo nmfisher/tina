@@ -94,10 +94,16 @@ void main() {
       expect(out, contains('\x1b8'));
     });
 
-    test('enterAltScreen emits escape', () {
+    test('enterAltScreen preserves native drag selection', () {
       backend.enterAltScreen();
       backend.flush();
-      expect(io.written.toString(), '\x1b[?1049h\x1b[?1000h\x1b[?1006h');
+      final output = io.written.toString();
+      expect(output, contains('\x1b[?1049h'));
+      for (final mode in [1000, 1002, 1003, 1006, 1016]) {
+        expect(output, contains('\x1b[?${mode}l'),
+            reason: 'clear inherited mouse reporting so dragging selects text');
+        expect(output, isNot(contains('\x1b[?${mode}h')));
+      }
     });
 
     test('leaveAltScreen emits escape', () {

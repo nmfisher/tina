@@ -169,22 +169,16 @@ class _LiveNotcursesPlatform implements NotcursesPlatform {
         throw StateError('Failed to initialize notcurses');
       }
       initialized = nc_;
-      // Deliver mouse-button events (scroll wheel included) as key events, so
-      // the wheel can scroll the chat scrollback instead of falling through to
-      // the terminal's wheel→arrow translation (which the editor would treat
-      // as command-history up/down). Best-effort: a terminal without mouse
-      // support leaves the wheel unhandled rather than mis-routed.
-      //
-      // There is no wheel-only reporting mode: enabling this routes button-1
-      // click-drags to the app too. Native selection uses Fn-drag in macOS
-      // Terminal, Option-drag in iTerm2, or Shift-drag in most other terminals.
-      // Terminal also offers View > Allow Mouse Reporting (Cmd+R).
-      if (mouseWheel) nc_.miceEnable(nc.MiceEvents.buttonEvent);
       // macOS' line discipline eats 0x0F (Ctrl+O, the VDISCARD toggle)
       // before it reaches the input pump; unbind it so the byte arrives.
       DiscardUnbinder.unbind(0);
       final platform = _LiveNotcursesPlatform._(nc_, nc_.stdplane());
       platform._replyGuard = guard;
+      // Leave drag selection with the terminal, including when an earlier
+      // app left mouse tracking enabled. Button reporting also captures drags,
+      // so wheel handling must be explicitly requested by the caller.
+      platform.writeRawToTty(disableMouseReporting);
+      if (mouseWheel) nc_.miceEnable(nc.MiceEvents.buttonEvent);
       return platform;
     } catch (_) {
       // No live platform owns the guard on this path, so nothing would ever
@@ -390,12 +384,12 @@ class NotcursesBackend
 
   /// Create and return a [NotcursesBackend] backed by libnotcurses.
   ///
-  /// [mouseWheel] (default true) enables mouse-button reporting so the wheel
-  /// scrolls the chat scrollback; false (off) keeps the terminal's native
-  /// click-drag text selection.
+  /// [mouseWheel] defaults to false to preserve native click-drag text
+  /// selection. Opting in enables mouse-button reporting so the wheel scrolls
+  /// chat history, and requires the terminal's override modifier to select text.
   ///
   /// Throws if the notcurses library cannot be initialized.
-  static NotcursesBackend create({required Stdio io, bool mouseWheel = true}) {
+  static NotcursesBackend create({required Stdio io, bool mouseWheel = false}) {
     return NotcursesBackend._(
         io, _LiveNotcursesPlatform.init(mouseWheel: mouseWheel));
   }

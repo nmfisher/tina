@@ -37,6 +37,13 @@ def smoke(launcher, endpoint, selection, term, expected):
         def visible(text):
             terminal.wait_for(lambda: text in grid(), f'grid does not contain {text!r}')
 
+        def expect_native_selection():
+            # Enabling button reports steals drag gestures from the terminal.
+            # Check while the app is running, before exit resets the modes.
+            for mode in [1000, 1002, 1003, 1006, 1016]:
+                assert f'\x1b[?{mode}l'.encode() in terminal.output, f'mouse mode {mode} was not reset'
+                assert f'\x1b[?{mode}h'.encode() not in terminal.output, f'mouse mode {mode} blocks text selection'
+
         def turn(text):
             answers_before = grid().count('smoke answer')
             terminal.send(text)
@@ -64,18 +71,22 @@ def smoke(launcher, endpoint, selection, term, expected):
                               f'status does not identify {expected}',
                               timeout=60 if len(launcher) > 1 else 10)
             visible('smoke >')
+            expect_native_selection()
             turn(f'backend launch {selection or "default"} {term}')
+            expect_native_selection()
             terminal.quit()
             terminal.close()
 
             terminal = Terminal(command + ['--resume'], env, 120, 24)
             terminal.expect('Enter resume', wrapped=True)
+            expect_native_selection()
             terminal.send('\r')
             terminal.wait_for(lambda: expected in grid().splitlines()[-1],
                               f'resumed status does not identify {expected}')
             visible('smoke >')
             terminal.expect_idle()
             turn(f'backend resume {selection or "default"} {term}')
+            expect_native_selection()
             terminal.quit()
             print(f'PASS backend {selection or "default"} / {term}: {expected}, status, turn, resume', flush=True)
         except Exception:

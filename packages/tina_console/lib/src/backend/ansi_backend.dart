@@ -194,10 +194,9 @@ class AnsiBackend
   @override
   void enterAltScreen() {
     _buf.write('\x1b[?1049h');
-    // Receive wheel reports instead of terminal-generated history arrows.
-    // Native selection uses the terminal's override: Fn-drag in macOS
-    // Terminal, Option-drag in iTerm2, or Shift-drag in most other terminals.
-    _buf.write('\x1b[?1000h\x1b[?1006h');
+    // Let the terminal handle drag selection without an override modifier.
+    // Clear tracking inherited from a previous app as well.
+    _buf.write(disableMouseReporting);
     _cursor = _savedCursor = null;
   }
 
