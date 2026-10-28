@@ -385,14 +385,18 @@ void main() {
           return Approval.always;
         },
       );
-      await runner.run(_req('tee /etc/hosts'), control: writable);
-      await runner.run(_req('tee /etc/hosts'), control: writable);
+      // Fake sacrificial paths, not real system files: the scripted inner
+      // runner never executes anything, but a future refactor could swap
+      // in a real one, and root-context runs must not clobber the genuine
+      // article if the approver/gate ever regresses.
+      await runner.run(_req('tee /etc/hosts-fixture'), control: writable);
+      await runner.run(_req('tee /etc/hosts-fixture'), control: writable);
       expect(asked, 1,
           reason: 'the second identical command skips the approver');
       // The grant was recorded as the exact command line.
-      expect(runner.grants.patterns, ['tee /etc/hosts']);
+      expect(runner.grants.patterns, ['tee /etc/hosts-fixture']);
       // But a different command still asks.
-      await runner.run(_req('tee /etc/passwd'), control: writable);
+      await runner.run(_req('tee /etc/passwd-fixture'), control: writable);
       expect(asked, 2);
     });
 

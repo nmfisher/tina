@@ -144,8 +144,10 @@ final class ToolsPlugin extends AgentPlugin
     toolList = [
       LsTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       ReadTool(fs: sandbox, workspaceRoot: workspaceRoot),
-      WriteTool(fs: sandbox, workspaceRoot: workspaceRoot),
-      EditTool(fs: sandbox, workspaceRoot: workspaceRoot),
+      WriteTool(fs: sandbox, workspaceRoot: workspaceRoot,
+          scratchNoticeFor: _scratchNoticeFor),
+      EditTool(fs: sandbox, workspaceRoot: workspaceRoot,
+          scratchNoticeFor: _scratchNoticeFor),
       GlobTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       StatTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       BashTool(runner: processJobs, workingDirectory: workspaceRoot),
@@ -219,6 +221,18 @@ final class ToolsPlugin extends AgentPlugin
   late final SandboxPlan osPlan;
   late final CommandApprovalStore commandApprovals;
   late final SandboxHome? home;
+
+  /// The scratch notice for a resolved write target, when the target is
+  /// session scratch (a sandbox-home generation or its TMPDIR). Null when
+  /// no sandbox home exists (no OS sandbox) or the target is durable.
+  String? _scratchNoticeFor(String target) {
+    final root = home?.stateRoot;
+    if (root == null) return null;
+    return scratchPathNotice(target,
+        sandboxHomesRoot: root,
+        tmpdir: path.join(home!.existingPath ?? '', 'tmp'));
+  }
+
   void Function()? _stopHomeSettings;
   final ScopedSettings? settings;
   final ReadOnlyDirectories readDirectories = ReadOnlyDirectories();
@@ -503,6 +517,11 @@ final class HostPromptSection {
       'before review. Human folder grants can be remembered for the session, '
       'workspace or globally and reused by later commands and file tools. '
       'Sandboxed commands use a private HOME and private TMPDIR. Host caches are shared only when explicitly configured. '
+      'That private HOME (a session home under the Tina sandbox-homes '
+      'directory) and its TMPDIR are ephemeral scratch: both are deleted '
+      'when this session ends. Never store deliverables there — files the '
+      'user should keep belong in the workspace (for example .plans/ at the '
+      'workspace root) or another durable location the user chose. '
       'Host credential files and authentication configuration are excluded. '
       'When host authentication is required, request outside_sandbox: true '
       'with sandbox_reason immediately: for example git push over SSH, ssh '

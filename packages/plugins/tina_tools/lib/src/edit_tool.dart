@@ -27,7 +27,11 @@ class EditTool implements Tool {
   /// boundary live here, not in the tool body.
   final ToolFileSystem _routes;
 
-  EditTool({FileSystem? fs, this.workspaceRoot})
+  /// When set, an edit landing in session scratch (the sandbox home or its
+  /// TMPDIR) carries the ephemeral-location notice in its result.
+  final String? Function(String path)? scratchNoticeFor;
+
+  EditTool({FileSystem? fs, this.workspaceRoot, this.scratchNoticeFor})
       : fs = fs ?? IoFileSystem(),
         _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
             workspaceRoot: workspaceRoot);
@@ -112,8 +116,11 @@ class EditTool implements Tool {
         : current.replaceFirst(request.oldString, request.newString);
     await atomicWriteFile(fs, request.path, updatedText);
     final n = request.replaceAll ? matches : 1;
-    return ToolResult(
-        'edited ${request.path} ($n replacement${n == 1 ? '' : 's'})');
+    final notice = scratchNoticeFor?.call(request.path);
+    return ToolResult(notice == null
+        ? 'edited ${request.path} ($n replacement${n == 1 ? '' : 's'})'
+        : 'edited ${request.path} '
+            '($n replacement${n == 1 ? '' : 's'})\n\n$notice');
   }
 }
 

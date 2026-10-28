@@ -169,7 +169,8 @@ final class SessionHistoryTools {
             locations, query, limit, offset, excluded, currentStore);
         if (cancelled())
           return ToolResult.error('Session history request cancelled');
-        return ToolResult(jsonEncode({'scope': scope, ...result}));
+        return ToolResult(
+            jsonEncode({'scope': scope, ..._annotateScratch(result)}));
       }
       if (name != 'read_session')
         throw const FormatException('Unknown history tool');
@@ -217,7 +218,7 @@ final class SessionHistoryTools {
         'workspace': location.workspace,
         'store_id': location.id,
         'historical_text': true,
-        ...result,
+        ..._annotateScratch(result),
       }));
     } on FormatException catch (e) {
       return ToolResult.error('$name: ${e.message}');
@@ -233,6 +234,30 @@ final class SessionHistoryTools {
     return {
       for (final location in [...found, current]) location.id: location
     }.values.toList();
+  }
+
+  /// Mark saved text that references a sandbox-home path: those homes are
+  /// deleted with their session, so the path must not be read as a live
+  /// file. The flag is advisory; snippets keep the original text.
+  Map<String, Object?> _annotateScratch(Map<String, Object?> result) {
+    final messages = result['messages'];
+    if (messages is! List) return result;
+    var referenced = false;
+    for (final message in messages) {
+      if (message is Map && _scratchHomePath.hasMatch('${message['text']}')) {
+        referenced = true;
+        break;
+      }
+    }
+    if (!referenced) return result;
+    return {
+      ...result,
+      'notes': [
+        'A sandbox-homes path appears in this text. Session homes under '
+        '~/.tina/sandbox-homes are deleted when their session ends, so such '
+        'a file most likely no longer exists; do not try to read it as-is.'
+      ],
+    };
   }
 
   Future<bool> _authorize(
@@ -289,6 +314,9 @@ final class SessionHistoryTools {
 // frame can otherwise send its live host/SQLite connections into the isolate.
 Future<List<HistoryLocation>> _runCatalog(String directory) =>
     Isolate.run(() => HistoryCatalog(directory).read());
+
+final RegExp _scratchHomePath = RegExp(
+    "\\.tina/sandbox-homes/session-[^\\s\"']*/");
 
 Future<Map<String, Object?>> _runSearch(
         List<HistoryLocation> locations,

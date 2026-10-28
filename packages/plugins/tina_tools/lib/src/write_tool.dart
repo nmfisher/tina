@@ -20,7 +20,11 @@ class WriteTool implements Tool {
   /// boundary live here, not in the tool body.
   final ToolFileSystem _routes;
 
-  WriteTool({FileSystem? fs, this.workspaceRoot})
+  /// When set, a write landing in session scratch (the sandbox home or its
+  /// TMPDIR) carries the ephemeral-location notice in its result.
+  final String? Function(String path)? scratchNoticeFor;
+
+  WriteTool({FileSystem? fs, this.workspaceRoot, this.scratchNoticeFor})
       : fs = fs ?? IoFileSystem(),
         _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
             workspaceRoot: workspaceRoot);
@@ -79,6 +83,9 @@ class WriteTool implements Tool {
     // the file half-written. No backup store — one loop, git is the recovery.
     await atomicWriteFile(fs, path, content);
     final action = existed ? 'overwrote' : 'created';
-    return ToolResult('$action $path (${content.length} bytes)');
+    final notice = scratchNoticeFor?.call(path);
+    return ToolResult(notice == null
+        ? '$action $path (${content.length} bytes)'
+        : '$action $path (${content.length} bytes)\n\n$notice');
   }
 }

@@ -105,6 +105,26 @@ void main() {
     expect(File(local.store).existsSync(), true);
   });
 
+  test('reads referencing sandbox-home paths carry the ephemeral note',
+      () async {
+    save(local, 'gone', [
+      user('review the plan'),
+      assistant('Done — written to:\n\n'
+          '/Users/nickfisher/.tina/sandbox-homes/session-22055-RZL4TR/'
+          'plans/deploy-coolify-readiness-plan.md\n\n(that is this session\'s '
+          'writable home)'),
+    ]);
+    final read = await call('read_session', {'session_id': 'gone'});
+    final note = (read['notes'] as List).single as String;
+    expect(note, contains('deleted when their session ends'));
+    final last = (read['messages'] as List).last as Map<String, dynamic>;
+    expect(last['text'], contains('session-22055-RZL4TR'));
+
+    save(local, 'clean', [user('plain conversation, no scratch paths')]);
+    final clean = await call('read_session', {'session_id': 'clean'});
+    expect(clean.containsKey('notes'), isFalse);
+  });
+
   test(
       'recent activity beats relevance and creation time; pagination is bounded',
       () async {

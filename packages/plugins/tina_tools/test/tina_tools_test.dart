@@ -42,10 +42,18 @@ void main() {
     });
 
     test('refuses an absolute path outside the root', () async {
+      // Sacrificial outside-root file, not a real system file: a guard
+      // regression must not be able to clobber the genuine article when
+      // tests run with elevated privileges (root CI containers).
+      final outside = Directory.systemTemp.createTempSync('tina_tools_out_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final target = p.join(outside.path, 'outside.txt');
+      File(target).writeAsStringSync('keep me');
       expect(
-        () => sandbox.writeFile('/etc/passwd', 'x'),
+        () => sandbox.writeFile(target, 'x'),
         throwsA(isA<SandboxViolation>()),
       );
+      expect(File(target).readAsStringSync(), 'keep me');
     });
 
     test('outside reads need approval in each normal mode', () async {
@@ -145,8 +153,16 @@ void main() {
 
     test('delete/rename/createDirectory are confined too', () async {
       File(p.join(tmp.path, 'f.txt')).writeAsStringSync('x');
+      // A sacrificial file OUTSIDE the workspace root: the same
+      // outside-root property /etc/passwd used to prove, without aiming a
+      // destructive test at a real system file (CI can run as root, where
+      // nothing else would stop a guard regression from deleting it).
+      final outside = Directory.systemTemp.createTempSync('tina_tools_out_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final outsideTarget = p.join(outside.path, 'passwd');
+      File(outsideTarget).writeAsStringSync('system:x:0:0');
       // Outside-root targets are asked about; nothing wired → refuse.
-      expect(() => sandbox.delete('/etc/passwd'),
+      expect(() => sandbox.delete(outsideTarget),
           throwsA(isA<SandboxViolation>()));
       expect(
           () => sandbox.rename(
@@ -154,7 +170,7 @@ void main() {
           throwsA(isA<SandboxViolation>()));
       expect(() => sandbox.createDirectory(p.join(tina.path, 'sidecar')),
           throwsA(isA<SandboxViolation>()));
-      expect(File('/etc/passwd').existsSync(), isTrue);
+      expect(File(outsideTarget).existsSync(), isTrue);
       expect(File(p.join(tmp.path, 'g.txt')).existsSync(), isFalse);
     });
   });
@@ -359,6 +375,45 @@ void main() {
       expect(readOnly.content, contains('read-only mode'));
       expect(File(p.join(tmp.path, 'b.txt')).existsSync(), isFalse);
     });
+
+    test('writing session scratch carries the ephemeral-location notice',
+        () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_scratch_ws_');
+      final homes = Directory.systemTemp.createTempSync('tina_scratch_homes_');
+      addTearDown(() {
+        tmp.deleteSync(recursive: true);
+        homes.deleteSync(recursive: true);
+      });
+      final home = Directory(p.join(homes.path, 'session-22055-RZL4TR'))
+        ..createSync();
+      Directory(p.join(home.path, 'tmp')).createSync();
+      final sandbox = SandboxedFileSystem(const IoFileSystem(),
+          workspaceRoot: tmp.path,
+          tinaDir:
+              Directory('${Directory.systemTemp.path}/tina_tools_tina_home'),
+          mode: PermissionMode.allowEdits,
+          // The sandbox home is outside the project; approve that write.
+          approver: (_, __) async => Approval.yes);
+      String? noticeFor(String target) => scratchPathNotice(target,
+          sandboxHomesRoot: homes.path, tmpdir: p.join(home.path, 'tmp'));
+      final tool = WriteTool(
+          fs: sandbox, workspaceRoot: tmp.path, scratchNoticeFor: noticeFor);
+
+      // A write into a sandbox-home generation carries the notice.
+      final scratch = await tool.execute({
+        'filePath': p.join(home.path, 'plans', 'deploy.md'),
+        'content': 'plan',
+      });
+      expect(scratch.isError, isFalse);
+      expect(scratch.content, contains('session scratch'));
+      expect(File(p.join(home.path, 'plans', 'deploy.md')).existsSync(), isTrue);
+
+      // A workspace write does not.
+      final workspace = await tool
+          .execute({'filePath': 'in-project.txt', 'content': 'durable'});
+      expect(workspace.isError, isFalse);
+      expect(workspace.content, isNot(contains('session scratch')));
+    });
   });
 
   group('edit tool', () {
@@ -408,6 +463,41 @@ void main() {
       });
       expect(identical.isError, isTrue);
       expect(identical.content, contains('identical'));
+    });
+
+    test('editing session scratch carries the ephemeral-location notice',
+        () async {
+      final tmp = Directory.systemTemp.createTempSync('tina_scratch_edit_');
+      final homes = Directory.systemTemp.createTempSync('tina_scratch_homes_');
+      addTearDown(() {
+        tmp.deleteSync(recursive: true);
+        homes.deleteSync(recursive: true);
+      });
+      final home = Directory(p.join(homes.path, 'session-91011-QQQQQQ'))
+        ..createSync();
+      final target = File(p.join(home.path, 'plan.md'))..writeAsStringSync('a');
+      final sandbox = SandboxedFileSystem(const IoFileSystem(),
+          workspaceRoot: tmp.path,
+          tinaDir:
+              Directory('${Directory.systemTemp.path}/tina_tools_tina_home'),
+          mode: PermissionMode.allowEdits,
+          // The sandbox home is outside the project; approve that edit.
+          approver: (_, __) async => Approval.yes);
+      final tool = EditTool(
+          fs: sandbox,
+          workspaceRoot: tmp.path,
+          scratchNoticeFor: (t) => scratchPathNotice(t,
+              sandboxHomesRoot: homes.path,
+              tmpdir: p.join(home.path, 'tmp')));
+
+      final res = await tool.execute({
+        'filePath': target.path,
+        'oldString': 'a',
+        'newString': 'b',
+      });
+      expect(res.isError, isFalse);
+      expect(res.content, contains('1 replacement'));
+      expect(res.content, contains('session scratch'));
     });
 
     test('a write outside the project asks; no approver wired → denied',
