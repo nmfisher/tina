@@ -10,6 +10,19 @@ final classifierInstructionSetting = SettingDefinition<String>(
   applyAt: ApplyAt.nextRequest,
 );
 
+final classifierModelSetting = SettingDefinition<String>(
+  id: 'tina/mode/classifier_model',
+  label: 'Auto-approval classifier model',
+  description:
+      'Model for auto-approval judgments, for example "anthropic/claude-haiku". '
+      'Empty follows this conversation\'s model. The provider must support '
+      'structured output; unsupported models fall back with an error in the '
+      'approval diagnostics.',
+  defaultValue: '',
+  kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
 final precedentSetting = SettingDefinition<String>(
   id: 'tina/mode/precedents',
   label: 'Approval precedents',

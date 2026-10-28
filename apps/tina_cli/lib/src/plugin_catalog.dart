@@ -28,6 +28,13 @@ import 'package:tina_tasks/tina_tasks.dart';
 
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
+/// The model for permission-side judgments: the configured classifier model,
+/// or the conversation's current model when the setting is empty.
+String _classifierModel(SessionPluginContext c) {
+  final value = (c.settings?.read(classifierModelSetting).value ?? '').trim();
+  return value.isEmpty ? c.currentModel() : value;
+}
+
 /// Explicit dependencies available to factories in the application assembly.
 final class SessionPluginContext {
   const SessionPluginContext({
@@ -98,7 +105,8 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
               'Connects configured models and providers and enforces request and token limits.'),
       PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
           'tina/mode',
-          settings: [classifierInstructionSetting, precedentSetting],
+          settings: [classifierInstructionSetting, classifierModelSetting,
+              precedentSetting],
           operations: modeOperations,
           dependency: modePolicySource,
           create: (c, source) => ModeControlsPlugin(source.modePolicy),
@@ -205,7 +213,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             create: (c, models) => AttachmentApprovalChannel(
                     suggestCommandPattern: (request, cancelled) async {
                   final suggestion = await CommandRegexSuggester(
-                          () => models.mainProvider(c.currentModel()))
+                          () => models.mainProvider(_classifierModel(c)))
                       .suggest(
                           request.details['command_pattern_target'] as String,
                           whenCancelled: cancelled);
@@ -247,7 +255,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           policy.readPrecedentMode = () =>
               parsePrecedentMode(c.settings?.read(precedentSetting).value);
           policy.classifier = PermissionClassifier(
-              () => models.mainProvider(c.currentModel()),
+              () => models.mainProvider(_classifierModel(c)),
               readInstruction: () =>
                   c.settings?.read(classifierInstructionSetting).value ?? '',
               readPrecedents: policy.precedentEvidenceFor);

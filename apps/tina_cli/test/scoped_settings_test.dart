@@ -345,6 +345,19 @@ write_directories = ["/untrusted/writable"]
     expect(judges.last.systems.single, contains(instruction));
     expect(global.readAsStringSync(), isNot(contains(instruction)));
   });
+  test('classifier model setting reroutes judgments and clears back', () async {
+    await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
+    expect(judges.last.model, 'fixture');
+    app.settings.set(
+        classifierModelSetting, 'anthropic/haiku', SettingScope.workspace);
+    final judgment =
+        await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
+    expect(judgment.allow, true);
+    expect(judges.last.model, 'anthropic/haiku');
+    app.settings.removeOverride(classifierModelSetting, SettingScope.workspace);
+    await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
+    expect(judges.last.model, 'fixture');
+  });
   test('unsupported scopes and invalid limits cannot modify files', () {
     final original = global.readAsStringSync();
     expect(
