@@ -371,22 +371,25 @@ echo reader-finished
             denied is CommandCompleted && denied.exitCode != 0,
         isTrue);
     expect(connections, 0);
+    // Quiet read-only default: an unrecognized offline command asks nobody.
+    // The OS jail enforces confinement, and this probe made no connection.
+    expect(reviews, isEmpty);
     const network = ProcessControl(
         networkRequested: true, networkReason: 'contact local fixture server');
     final allowed = await runner.run(request, control: network);
     expect(allowed, isA<CommandCompleted>());
     expect((allowed as CommandCompleted).exitCode, 0, reason: allowed.stderr);
     expect(allowed.stdout, 'network works');
-    expect(reviews, hasLength(2));
-    expect(reviews.last.requiredPermissions, {
-      ProcessPermission.execution,
-      ProcessPermission.workspaceWrite,
-      ProcessPermission.network
-    });
+    // The network ask is the only human review. The quiet read-only profile
+    // already covers execution, so no workspace-write permission rides it.
+    expect(reviews, hasLength(1));
+    expect(reviews.last.requiredPermissions,
+        {ProcessPermission.execution, ProcessPermission.network});
     expect(reviews.last.missingPermissions, {ProcessPermission.network});
     final remembered = await runner.run(request, control: network);
     expect((remembered as CommandCompleted).stdout, 'network works');
-    expect(reviews, hasLength(2));
+    // The stored network grant answers the repeat without a new ask.
+    expect(reviews, hasLength(1));
     expect(connections, 2);
     final offline = await runner.run(request);
     expect(
