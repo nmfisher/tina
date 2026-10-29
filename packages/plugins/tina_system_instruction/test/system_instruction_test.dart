@@ -16,4 +16,18 @@ void main() {
     expect(prompt, contains('Answer from what you already know'));
     expect(prompt, contains('as few tool calls as the work allows'));
   });
+
+  test('multi-step shell work is steered to write-then-run scripts', () async {
+    final provider = ScriptedProvider([scriptedReply('hello')]);
+    final loop =
+        AgentLoop(provider: provider, plugins: [const SystemInstructionPlugin()]);
+    await loop.runTurn(const Input('hello', id: 't1'));
+    final prompt = provider.requests.single.systemPrompt;
+    expect(prompt, contains('prefer writing a script with the write tool'));
+    expect(prompt, contains('running it with exec'));
+    // The escape hatch keeps one-command inspection plain.
+    expect(prompt, contains('do not script what one command already answers'));
+    // The stated reason is the stable approval target.
+    expect(prompt, contains('an approval covers the rerun'));
+  });
 }

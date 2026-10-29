@@ -173,6 +173,9 @@ GenerationOptions generationFor(TinaConfig config, String id, String model) {
       thinkingBudget: descriptor.wire == ProviderWire.gemini && effort == 'none'
           ? 0
           : budget,
+      webSearch: descriptor.wire == ProviderWire.openAiCompatible
+          ? descriptor.supportsWebSearch
+          : false,
       openAiOutputField: settings?.outputTokenField ??
           (id == 'openai' ? 'max_completion_tokens' : 'max_tokens'));
 }

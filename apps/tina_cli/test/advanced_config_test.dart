@@ -287,4 +287,108 @@ void main() {
     expect((await requestFormat('json_schema'))!['json_schema'],
         containsPair('strict', true));
   });
+  test('web_search validates values and reaches the descriptor', () {
+    Map<String, dynamic> providers(Map<String, dynamic> table) => {
+          'default': {'provider': 'p', 'model': 'm'},
+          'providers': {'p': table}
+        };
+    expect(
+        () => parseTinaConfig(providers({
+              'wire': 'openai',
+              'base_url': 'https://example.invalid',
+              'web_search': 'yes'
+            })),
+        throwsFormatException);
+    // The Anthropic and Gemini wires have no web-search request field.
+    expect(
+        () => parseTinaConfig(providers({
+              'wire': 'anthropic',
+              'base_url': 'https://example.invalid',
+              'web_search': true
+            })),
+        throwsFormatException);
+    final enabled =
+        parseTinaConfig(providers({
+          'wire': 'openai',
+          'base_url': 'https://example.invalid',
+          'web_search': true
+        })).config;
+    expect(enabled.providers['p']!.webSearch, isTrue);
+    expect(descriptorByIdFor('p', enabled.descriptors)!.supportsWebSearch,
+        isTrue);
+    // Unset on a custom provider: the endpoint was never claimed to
+    // support it.
+    final unset = parseTinaConfig(providers({
+      'wire': 'openai',
+      'base_url': 'https://example.invalid',
+      'api_key': 'fixture'
+    })).config;
+    expect(unset.providers['p']!.webSearch, isNull);
+    expect(descriptorByIdFor('p', unset.descriptors)!.supportsWebSearch,
+        isFalse);
+  });
+  test('web_search overrides built-in pins and inherits when unset', () {
+    List<ProviderDescriptor> descriptorsOf(
+            Map<String, dynamic> providersTable) =>
+        parseTinaConfig({
+          'default': {'provider': 'openai', 'model': 'gpt-4o'},
+          'providers': providersTable,
+        }).config.descriptors;
+    // Config can enable a provider the descriptors left off, and turn a
+    // verified one off.
+    expect(
+        descriptorByIdFor('openai',
+            descriptorsOf({
+              'openai': {'web_search': true}
+            }))!.supportsWebSearch,
+        isTrue);
+    expect(
+        descriptorByIdFor('glm',
+            descriptorsOf({
+              'glm': {'web_search': false}
+            }))!.supportsWebSearch,
+        isFalse);
+    // An override that does not mention it leaves the built-in pin.
+    expect(
+        descriptorByIdFor('glm',
+            descriptorsOf({
+              'glm': {'base_url': 'https://open.bigmodel.cn/api/paas/v4'}
+            }))!.supportsWebSearch,
+        isTrue);
+    // A wire override to a wire without the field clears it.
+    expect(
+        descriptorByIdFor('glm',
+            descriptorsOf({
+              'glm': {
+                'wire': 'anthropic',
+                'base_url': 'https://open.bigmodel.cn/api/paas/v4'
+              }
+            }))!.supportsWebSearch,
+        isFalse);
+  });
+  test('web_search rides the request tools on the openai wire', () async {
+    final endpoint = CaptureEndpoint();
+    final result = parseTinaConfig({
+      'default': {'provider': 'p', 'model': 'model'},
+      'providers': {
+        'p': {
+          'wire': 'openai',
+          'base_url': 'https://example.invalid',
+          'api_key': 'fixture',
+          'web_search': true,
+        }
+      }
+    });
+    final provider = configuredProvider(result.config, 'model',
+        environment: {}, endpoint: endpoint);
+    await provider
+        .send(system: '', messages: const [], tools: const [])
+        .drain<void>();
+    provider.close();
+    final body = endpoint.body!;
+    final tools = body['tools'] as List;
+    expect(tools.whereType<Map>().map((t) => t['type']).single, 'web_search');
+    expect(tools.whereType<Map>().single['web_search'],
+        {'enable': true});
+  });
 }

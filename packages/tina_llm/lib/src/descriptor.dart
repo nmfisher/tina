@@ -110,6 +110,15 @@ class ProviderDescriptor {
   /// the Anthropic and Gemini wires ignore it. Null keeps the default.
   final OpenAiStructuredOutput? structuredOutput;
 
+  /// This endpoint accepts a server-side web-search request field: the
+  /// provider searches mid-generation and folds the results into its
+  /// answer, so the model never sees a tool call for it. OpenAI-compatible
+  /// only — the field rides `tools` as a non-function entry and results
+  /// stream back as `delta.web_search`. Off everywhere until verified
+  /// against the endpoint's own documentation; a custom provider may
+  /// enable it by declaring `web_search` in its config table.
+  final bool supportsWebSearch;
+
   const ProviderDescriptor({
     required this.id,
     required this.name,
@@ -120,6 +129,7 @@ class ProviderDescriptor {
     required this.keyStyle,
     this.models = const {},
     this.structuredOutput,
+    this.supportsWebSearch = false,
   });
 
   /// Construct the wire provider for [model]. The token closure is

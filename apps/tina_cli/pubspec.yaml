@@ -90,6 +90,8 @@ dependencies:
     path: ../../packages/plugins/tina_tools
   tina_tui:
     path: ../../packages/tina_tui
+  tina_web_search:
+    path: ../../packages/plugins/tina_web_search
   toml: ^0.16.0
 dev_dependencies:
   dart_notcurses:

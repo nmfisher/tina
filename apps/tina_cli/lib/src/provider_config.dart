@@ -11,6 +11,7 @@ final class ProviderSettings {
       this.thinkingBudget,
       this.outputTokenField,
       this.structuredOutput,
+      this.webSearch,
       this.name,
       this.baseUrl,
       this.wire,
@@ -26,6 +27,10 @@ final class ProviderSettings {
   final int? requestsPerMinute, minIntervalMs, maxOutput, thinkingBudget;
   final String? reasoningEffort, outputTokenField;
   final OpenAiStructuredOutput? structuredOutput;
+
+  /// Server-side web search. Tri-state: null inherits the built-in
+  /// descriptor's verified default; true/false override it.
+  final bool? webSearch;
 
   factory ProviderSettings.parse(String id, Map<String, dynamic> values) {
     String? string(String key) {
@@ -115,6 +120,10 @@ final class ProviderSettings {
       _ => throw FormatException(
           'providers.$id.structured_output must be json_object or json_schema'),
     };
+    final rawWebSearch = values['web_search'];
+    if (rawWebSearch != null && rawWebSearch is! bool) {
+      throw FormatException('providers.$id.web_search must be true or false');
+    }
     return ProviderSettings(
         members: members,
         requestsPerMinute: integer('requests_per_minute'),
@@ -124,6 +133,7 @@ final class ProviderSettings {
         thinkingBudget: integer('thinking_budget'),
         outputTokenField: outputField,
         structuredOutput: structuredOutput,
+        webSearch: rawWebSearch as bool?,
         name: string('name'),
         baseUrl: base,
         wire: wire,
@@ -143,12 +153,20 @@ final class ProviderSettings {
           keyEnvVar: '',
           keyStyle: ProviderKeyStyle.bearer,
           structuredOutput: structuredOutput,
+          // A custom provider declaring web_search claims the endpoint
+          // accepts it — the same self-declaration as its base_url.
+          supportsWebSearch: webSearch ?? false,
           models: models ?? const {});
     if ((builtin == null || wire != null) && baseUrl == null) {
       throw FormatException(
           'providers.$id.base_url is required for a custom provider or wire override');
     }
     final protocol = wire ?? builtin?.wire ?? ProviderWire.openAiCompatible;
+    if (webSearch == true && protocol != ProviderWire.openAiCompatible) {
+      throw FormatException(
+          'providers.$id.web_search requires the openai wire; '
+          'the ${protocol.name} wire has no web-search request field');
+    }
     return ProviderDescriptor(
         id: id,
         name: name ?? builtin?.name ?? id,
@@ -162,6 +180,8 @@ final class ProviderSettings {
         structuredOutput: protocol == ProviderWire.openAiCompatible
             ? (structuredOutput ?? builtin?.structuredOutput)
             : null,
+        supportsWebSearch: protocol == ProviderWire.openAiCompatible &&
+            (webSearch ?? builtin?.supportsWebSearch ?? false),
         models: {
           ...?builtin?.models,
           for (final model in models?.values ?? const <ModelInfo>[])

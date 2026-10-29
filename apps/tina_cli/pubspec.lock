@@ -711,6 +711,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_web_search:
+    dependency: "direct main"
+    description:
+      path: "../../packages/plugins/tina_web_search"
+      relative: true
+    source: path
+    version: "0.1.0"
   toml:
     dependency: "direct main"
     description:

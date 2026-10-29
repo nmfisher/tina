@@ -25,6 +25,20 @@ import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_step_limit/tina_step_limit.dart';
 import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_tasks/tina_tasks.dart';
+import 'package:tina_web_search/tina_web_search.dart';
+
+/// Result count for the web_search tool. A setting, not a constant: heavy
+/// researchers want more hits, token-pinched setups fewer.
+final webSearchSetting = SettingDefinition<int>(
+    id: 'tina/web-search/result_count',
+    label: 'Web search results per call',
+    description:
+        'Maximum results the web_search tool returns per call, 1–20.',
+    defaultValue: 5,
+    kind: SettingKind.integer,
+    minimum: 1,
+    maximum: 20,
+    applyAt: ApplyAt.nextRequest);
 
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
@@ -464,6 +478,46 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                 ),
             description:
                 'Reads skill folders from the workspace and makes their instructions available to the agent.',
+            live: true),
+        PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
+            'tina/web-search',
+            dependency: modePolicySource,
+            settings: [webSearchSetting],
+            create: (c, source) {
+              final backend =
+                  BraveSearchBackend(keyFrom: () => Platform.environment[
+                          'BRAVE_SEARCH_API_KEY'] ??
+                      '');
+              return WebSearchPlugin(
+                backend: backend,
+                defaultCount: c.settings?.read(webSearchSetting).value ?? 5,
+                // The tool's network ask rides the session's mode policy —
+                // the same channel as every other external access — so a
+                // Remember… answer is stored and re-checked like the rest.
+                authorize: (host, query) async {
+                  final decision = await source.modePolicy.request(
+                    operation: 'web search',
+                    target: query,
+                    reason: 'Search $host for this query?',
+                    context: {
+                      'permission_scope': 'network',
+                      'authorization_identity': '$host/web_search',
+                      'required_permissions': ['network'],
+                    },
+                  );
+                  return switch (decision) {
+                    ApprovalDecision.allow ||
+                    ApprovalDecision.allowAlways ||
+                    ApprovalDecision.allowWorkspace ||
+                    ApprovalDecision.allowGlobal =>
+                      true,
+                    _ => false,
+                  };
+                },
+              );
+            },
+            description:
+                'Lets the agent search the web with the web_search tool. Requires BRAVE_SEARCH_API_KEY; each search asks permission through the current approval mode.',
             live: true),
       ],
     );

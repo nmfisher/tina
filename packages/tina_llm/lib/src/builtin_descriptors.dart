@@ -133,6 +133,11 @@ const ProviderDescriptor _deepseek = ProviderDescriptor(
   // The API documents JSON mode (`response_format: json_object`) only;
   // strict `json_schema` is rejected (checked 2026-10).
   structuredOutput: OpenAiStructuredOutput.jsonObject,
+  // https://api-docs.deepseek.com/guides/web_search (checked 2026-10):
+  // the chat-completions endpoint accepts the same `web_search` tools
+  // entry as GLM and reports it in `delta.web_search`. Not verified
+  // against any Anthropic-wire mirror.
+  supportsWebSearch: true,
   models: {
     'deepseek-chat': ModelInfo(
       id: 'deepseek-chat',
@@ -185,6 +190,12 @@ const ProviderDescriptor _glm = ProviderDescriptor(
   baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
   keyEnvVar: 'GLM_API_KEY',
   keyStyle: ProviderKeyStyle.bearer,
+  // The chat-completions endpoint accepts a server-side `web_search` tool
+  // entry and streams hits back in `delta.web_search`
+  // (https://docs.z.ai/guides/tools/web_search, checked 2026-10). The
+  // Anthropic-wire gateway (api.z.ai/api/anthropic) is a different
+  // endpoint with no verified mapping — not enabled there.
+  supportsWebSearch: true,
   models: {
     'glm-4.6': ModelInfo(
       id: 'glm-4.6',

@@ -54,6 +54,11 @@ final class ChatCompletionsBuilder with WireBuilderState {
 
   final Map<int, _PartialCall> calls = {};
 
+  /// Server-side web-search results observed in `delta.web_search`,
+  /// counted for diagnostics. The results themselves are not retained:
+  /// the provider folds them into its own answer text.
+  int webSearchResults = 0;
+
   /// `finish_reason` as the wire sent it, e.g. `tool_calls`, `stop`.
   String? finishReason;
 
@@ -106,6 +111,16 @@ final class ChatCompletionsBuilder with WireBuilderState {
         if (content is String && content.isNotEmpty) {
           text.write(content);
           out.add(TextDelta(content));
+        }
+        final searches = delta['web_search'];
+        if (searches is List) {
+          // Server-side search results, announced by providers like
+          // GLM/z.ai: the model never sees a tool call for these, so they
+          // are not transcript content. They surface as a notice — why
+          // tokens paused — never as message text.
+          webSearchResults += searches.length;
+          out.add(StreamNotice('web search: ${searches.length} result'
+              '${searches.length == 1 ? '' : 's'} from the provider'));
         }
         final toolCalls = delta['tool_calls'];
         if (toolCalls is List) {

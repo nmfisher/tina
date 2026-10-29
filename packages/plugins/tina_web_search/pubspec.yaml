@@ -1,0 +1,19 @@
+name: tina_web_search
+description: >-
+  A plugin that mounts one `web_search` tool: a query in, formatted search
+  results out, over an injectable HTTP seam and an authorization callback
+  wired to the session's approval flow. No network and no decisions of its
+  own — the backend is handed in, the approval is asked per call.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_llm:
+    path: ../../tina_llm
+dev_dependencies:
+  test: ^1.25.0

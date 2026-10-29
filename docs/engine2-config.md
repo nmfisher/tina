@@ -120,6 +120,7 @@ min_request_interval_ms = 500
 max_output = 4096
 # output_token_field = "max_completion_tokens" # OpenAI-compatible wire
 # structured_output = "json_object" # json_object | json_schema (OpenAI-compatible wire)
+# web_search = true # OpenAI-compatible wire: server-side search while generating
 
 [providers.other]
 wire = "openai"
@@ -139,6 +140,15 @@ Environment compatibility includes `TINA_LLM_ENDPOINT`/`TINA_LLM_TOKEN` for the
 bare Anthropic path, and provider-specific `*_BASE_URL`, `*_AUTH_TOKEN` and
 `*_API_KEY` variables. Secrets are masked in the settings UI.
 
+`web_search` turns on the provider's server-side search: the provider
+searches the web mid-generation and folds the results into its own answer,
+so the model never sees a tool call and the terminal shows a "web search"
+notice when results arrive. It exists only on the OpenAI-compatible wire
+(GLM via z.ai and DeepSeek ship verified on; `false` turns a verified
+provider off; a custom provider declaring `true` claims its endpoint accepts
+it). Searches bill on the provider's own meter — tina's spend ledger sees
+only the tokens, never the per-search fee.
+
 A pool member is `provider` (uses the selected model) or `provider/model`.
 Models may contain slashes. Pools cannot contain pools. Routing rotates the
 starting member; a transient failure can try the remaining members once,
@@ -154,6 +164,34 @@ and child sessions. Provider RPM and minimum interval both apply, using the
 larger interval. 429/503 Retry-After adds a cooldown capped at 60 seconds.
 Cancellation removes queued requests and releases active slots. There is no
 unbounded retry ladder and no cross-process scheduler.
+
+## Web search
+
+Two independent mechanisms, both named web search:
+
+**Provider-side search** (`[providers.<id>] web_search = true`) has the
+provider search while it generates. Nothing is mounted; the model never sees
+a tool call, and the answer simply arrives with its sources consulted. GLM
+and DeepSeek ship verified on the OpenAI-compatible wire; the terminal shows
+a notice when search results stream in. Searches bill on the provider's own
+meter — the spend ledger sees only tokens.
+
+**The `web_search` tool** (`tina/web-search`, disabled by default) is a
+tool the model calls deliberately: a query in, titles/URLs/summaries out.
+Enable it through Settings → Plugins or:
+
+```toml
+[plugins.overrides]
+"tina/web-search" = true
+```
+
+The shipped backend is the Brave Search API and reads `BRAVE_SEARCH_API_KEY`
+from the environment; result count is the plugin's "Web search results per
+call" setting (1–20, default 5). Every search goes through the session's
+approval flow as network access to `api.search.brave.com`, so ordinary modes
+ask, and Remember… can save the grant. A setup can use one mechanism, the
+other, or both — they never interact: the flag is wire-level, the tool is a
+function tool.
 
 ## Agent-managed context
 
