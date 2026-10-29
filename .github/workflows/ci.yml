@@ -112,12 +112,6 @@ jobs:
       - name: Check native keyboard decoding
         timeout-minutes: 6
         run: python3 packages/tina_console/tool/altkey_pty_driver.py
-      - name: Test active tools against the macOS sandbox
-        if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tools')
-        working-directory: packages/plugins/tina_tools
-        run: |
-          dart pub get
-          dart test --tags live-os-sandbox --run-skipped
       - name: Build native CLI
         working-directory: apps/tina_cli
         run: dart pub get && dart build cli --target bin/tina.dart --output ../../build/cli/macos_arm64
@@ -129,6 +123,27 @@ jobs:
           mkdir -p "$RUNNER_TEMP/tina-launcher"
           ln -s "$PWD/build/cli/macos_arm64/bundle/bin/tina" "$RUNNER_TEMP/tina-launcher/tina"
           python3 tool/smoke_engine2.py --quick --binary "$RUNNER_TEMP/tina-launcher/tina"
+
+  # Kept separate from macos_interactive on purpose: these live jail tests
+  # gate nothing else, and chaining them meant one red step silently skipped
+  # the CLI build and typing/picker smokes on three releases (402/404/406).
+  macos_sandbox:
+    name: macOS live sandbox tests (tina_tools)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_tools')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12'
+      - name: Test active tools against the macOS sandbox
+        working-directory: packages/plugins/tina_tools
+        run: |
+          dart pub get
+          dart test --tags live-os-sandbox --run-skipped
 
   linux_interactive:
     name: Linux compiled CLI smoke tests
