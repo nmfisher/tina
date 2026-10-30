@@ -28,7 +28,8 @@ final RegExp _shellSeparator = RegExp(r';|&&|\|\||\||\n|`|\$\(|\)');
 /// --force`, `rm` alone covers everything).
 String? _prefixHead(String command) {
   final words = command.trim().split(RegExp(r'\s+'));
-  if (words.length < 2 || words.take(2).any((word) => word.isEmpty)) return null;
+  if (words.length < 2 || words.take(2).any((word) => word.isEmpty))
+    return null;
   return '${words[0]} ${words[1]}';
 }
 
@@ -56,11 +57,13 @@ final class CommandRegexSuggester {
     final head = prefix ? _prefixHead(command) : null;
     if (prefix && _shellSeparator.hasMatch(command)) {
       return const CommandRegexSuggestion(
-          failure: 'compound command: no prefix rule');
+        failure: 'compound command: no prefix rule',
+      );
     }
     if (prefix && head == null) {
       return const CommandRegexSuggestion(
-          failure: 'bare program: no prefix rule');
+        failure: 'bare program: no prefix rule',
+      );
     }
     LlmProvider? provider;
     StreamSubscription<StreamEvent>? subscription;
@@ -119,9 +122,11 @@ final class CommandRegexSuggester {
                 .whereType<TextBlock>()
                 .map((b) => b.text)
                 .join();
-            finish(prefix
-                ? _requirePrefixSuggestion(_parse(answer), head!)
-                : _parse(answer));
+            finish(
+              prefix
+                  ? _requirePrefixSuggestion(_parse(answer), head!)
+                  : _parse(answer),
+            );
           }
         },
         onError: (Object _) {
@@ -149,7 +154,9 @@ final class CommandRegexSuggester {
 /// different subcommand) is refused the same way, so the editor falls back to
 /// the plain escaped command instead of a wildcard rule.
 CommandRegexSuggestion _requirePrefixSuggestion(
-    CommandRegexSuggestion parsed, String head) {
+  CommandRegexSuggestion parsed,
+  String head,
+) {
   final pattern = parsed.pattern;
   if (pattern != null &&
       (!pattern.startsWith(RegExp.escape(head)) ||
