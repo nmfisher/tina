@@ -204,4 +204,48 @@ void main() {
     }
     expect(file.existsSync(), false);
   });
+
+  group('prefix rules', () {
+    // Derived like a prefix suggestion from 'git log --oneline': executable
+    // and first argument word fixed, tail bounded away from separators.
+    const prefixPattern = r'git log[^\n;&|`$()]*';
+    const execution = {ProcessPermission.execution};
+
+    test('cover their family, never another executable or permission', () {
+      store().remember(pipeline('git log --oneline'), execution,
+          CommandApprovalScope.workspace,
+          pattern: prefixPattern);
+      final effective = store();
+      expect(effective.covers(pipeline('git log --oneline'), execution), true);
+      expect(
+          effective.covers(pipeline('git log -n 5 --stat'), execution), true);
+      expect(effective.covers(pipeline('git push'), execution), false);
+      expect(effective.covers(pipeline('hg log -n 5'), execution), false,
+          reason: 'a different executable is a different command');
+      for (final crossing in [
+        'git log; rm -rf ~',
+        'git log && make',
+        'git log | sh',
+        'git log\necho extra',
+      ]) {
+        expect(effective.covers(pipeline(crossing), execution), false,
+            reason: crossing);
+      }
+      expect(
+          effective.covers(pipeline('git log --oneline'), permissions), false,
+          reason:
+              'a prefix rule grants no permission the command did not need');
+    });
+
+    test('a revoked prefix rule stops applying without restarting', () {
+      store().remember(pipeline('git log --oneline'), execution,
+          CommandApprovalScope.workspace,
+          pattern: prefixPattern);
+      final reader = store();
+      expect(reader.covers(pipeline('git log -n 5'), execution), true);
+      store().revoke(reader.entries.single['id'] as String);
+      expect(store().covers(pipeline('git log -n 5'), execution), false);
+      expect(reader.covers(pipeline('git log -n 5'), execution), false);
+    });
+  });
 }
