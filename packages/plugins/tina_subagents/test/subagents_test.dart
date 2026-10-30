@@ -12,7 +12,7 @@
 /// the parent's model calls. The exception is the cancellation case,
 /// whose child needs a provider that never completes — [StallingProvider]
 /// — because a scripted queue always ends.
-library;
+
 
 import 'package:tina_persistence/tina_persistence.dart';
 import 'dart:async';
@@ -123,9 +123,13 @@ void main() {
     expect(o.stopReason, StopReason.complete);
     final id = h.plugin.launchedChildIds.single;
     // The launch result named the id immediately; the parent did not wait
-    // for the child.
-    final launchResults = o.messages
-        .expand((m) => m.content)
+    // for the child. The settled child may deliver its notice while the
+    // parent's send is still draining (steering), so the launch result is
+    // asserted from the transcript rather than the last outcome.
+    await h.host.whenIdle();
+    final launchResults = h.host.session.loop.log
+        .whereType<MessageAppendedEntry>()
+        .expand((e) => e.message.content)
         .whereType<ToolResultBlock>()
         .map((b) => b.content)
         .join('\n');
@@ -136,6 +140,113 @@ void main() {
     expect(r.content, startsWith('[sub-agent $id]'));
     expect(r.content, contains('the workspace is quiet'));
     expect(h.plugin.childrenInFlight, 0);
+    // The settled answer is delivered to the parent unprompted; let its
+    // turn run before closing.
+    await h.host.whenIdle();
+    h.host.close();
+    h.dir.deleteSync(recursive: true);
+  });
+
+  test('a settled child\'s answer starts a parent turn on its own',
+      () async {
+    final ws = workspace();
+    final h = harness(
+      dir: ws.dir,
+      scripts: [
+        // Turn 1: the parent launches and ends its turn. Turn 2 is the
+        // notice turn the delivery itself starts.
+        [
+          scriptedReply('', calls: [
+            ToolUseBlock(
+                id: 'c1',
+                name: 'launch_subagent',
+                input: {'prompt': 'find the answer'}),
+          ]),
+        ],
+        [scriptedReply('noted, continuing')],
+      ],
+      childScripts: [
+        [scriptedReply('forty-two')],
+      ],
+    );
+    await h.host.send('delegate and stop');
+    // Nobody waits on the child; the parent is idle. The settlement must
+    // wake it: a notice turn runs, with the answer as its input text and
+    // the parent's second script entry as its model reply. (The launch
+    // turn itself spans two calls: the tool-use reply and the
+    // post-result continuation.)
+    await h.host.whenIdle();
+    final parentProvider = h.providers.first;
+    expect(parentProvider.callCount, 3,
+        reason: 'the notice turn is a real model call');
+    final noticeRequest = parentProvider.requests.last;
+    expect(
+        noticeRequest.messages
+            .where((m) => m.role == Role.user)
+            .map((m) => [
+                  for (final b in m.content.whereType<TextBlock>()) b.text
+                ].join())
+            .last,
+        contains('forty-two'));
+    h.host.close();
+    h.dir.deleteSync(recursive: true);
+  });
+
+  test('a notice delivered mid-turn joins the steering queue', () async {
+    final ws = workspace();
+    // The seam under test is the host's deliverNotice, not the sub-agents
+    // plugin: a plain host whose provider never completes holds a turn
+    // genuinely in flight while the notice lands.
+    final tools = ToolsPlugin(
+      workspaceRoot: ws.dir.path,
+      tinaDir: Directory('${ws.dir.path}/.tina'),
+      mode: PermissionMode.allowEdits,
+      osSandbox: false,
+    );
+    final host = Host.start(HostConfig(
+      providerFactory: (model) => StallingProvider(),
+      workingDirectory: ws.dir.path,
+      plugins: [tools],
+      sessionTitle: 'notice-steering-test',
+    ));
+    final running = host.send('long work');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(host.session.loop.running, isTrue);
+    host.context.deliverNotice!.call('out-of-band result text');
+    expect(host.session.loop.pendingInputCount, 1,
+        reason: 'mid-turn the notice rides the loop\'s steering queue');
+    host.session.loop.cancel('test teardown');
+    await running;
+    host.close();
+    ws.dir.deleteSync(recursive: true);
+  });
+
+  test('the prompt section names the depth cap only at the cap', () async {
+    final ws = workspace();
+    final h = harness(
+      dir: ws.dir,
+      config: const SubagentsConfig(maxDepth: 2),
+      scripts: const [],
+    );
+    // Below the cap: no cap line.
+    final ctxBelow = TurnContext(CancelToken(),
+        input: const Input('x', id: 'i1'),
+        messages: const [],
+        promptSections: [],
+        pinnedTools: const []);
+    h.plugin.onPrompt(ctxBelow);
+    expect(ctxBelow.promptSections.single, isNot(contains('depth cap')));
+    expect(ctxBelow.promptSections.single, contains('Delegate proactively'));
+    // At the cap: the child would sit deeper than maxDepth.
+    h.plugin.parent.details.depth = 2;
+    final ctxAt = TurnContext(CancelToken(),
+        input: const Input('x', id: 'i2'),
+        messages: const [],
+        promptSections: [],
+        pinnedTools: const []);
+    h.plugin.onPrompt(ctxAt);
+    expect(ctxAt.promptSections.single, contains('depth cap'));
+    expect(ctxAt.promptSections.single, contains('carry out the work directly'));
     h.host.close();
     h.dir.deleteSync(recursive: true);
   });
@@ -170,6 +281,7 @@ void main() {
     expect(r.isError, true);
     expect(r.content, contains('sub-agent'));
     expect(h.plugin.childrenInFlight, 0);
+    await h.host.whenIdle();
   });
 
   test('a child at the maximum depth is refused, and the refusal names '
@@ -247,6 +359,7 @@ void main() {
     expect(r.isError, isTrue);
     expect(r.content, contains('cancelled'));
     expect(h.plugin.childrenInFlight, 0);
+    await h.host.whenIdle();
     h.host.close();
     h.dir.deleteSync(recursive: true);
   });
@@ -356,6 +469,7 @@ void main() {
     await h.plugin.inspect(id, action: 'wait');
     expect(asked, isFalse, reason: 'a read-only child must never ask');
     expect(File('${ws.dir.path}/escape.txt').existsSync(), isFalse);
+    await h.host.whenIdle();
     h.host.close();
     h.dir.deleteSync(recursive: true);
   });
@@ -392,6 +506,7 @@ void main() {
     await h.plugin.inspect(id, action: 'wait');
     expect(
         File('${ws.dir.path}/inside.txt').readAsStringSync(), 'from the child');
+    await h.host.whenIdle();
     h.host.close();
     h.dir.deleteSync(recursive: true);
   });
@@ -420,6 +535,7 @@ void main() {
     await h.host.send('go');
     final id = h.plugin.launchedChildIds.single;
     await h.plugin.inspect(id, action: 'wait');
+    await h.host.whenIdle();
     h.host.close();
     final store = SessionStore.open(storePath);
     final ids = store.list().map((s) => s.id).toList();
@@ -476,6 +592,7 @@ void main() {
     await h.host.send('go');
     final id = h.plugin.launchedChildIds.single;
     await h.plugin.inspect(id, action: 'wait');
+    await h.host.whenIdle();
     h.host.close();
     final store = SessionStore.open(storePath);
     final parentEntries = store.readEntries(h.plugin.parent.id);
@@ -500,11 +617,11 @@ void main() {
         .map((b) => b.content)
         .join('\n');
     expect(launchResults, contains('launched sub-agent'));
-    // And nothing of the child's transcript rides in the parent's log:
-    // exactly one user input — the parent's own.
-    final parentTexts =
+    // The child's answer arrives as its own delivered notice — its
+    // transcript never rides along.
+    final parentInputs =
         parentEntries.whereType<InputRecordedEntry>().map((e) => e.text);
-    expect(parentTexts, ['go']);
+    expect(parentInputs, ['go', contains('child final answer')]);
     expect(childIds, hasLength(1));
     h.dir.deleteSync(recursive: true);
   });
@@ -544,6 +661,7 @@ void main() {
     await h.host.send('go');
     final id = h.plugin.launchedChildIds.single;
     await h.plugin.inspect(id, action: 'wait');
+    await h.host.whenIdle();
     final store = SessionStore.open(storePath);
     final ids = store.list().map((s) => s.id).toList();
     final childId = ids.where((i) => i.endsWith('-child1')).single;
@@ -673,8 +791,10 @@ void main() {
     await h.host.send('go');
     final id = h.plugin.launchedChildIds.single;
     // Let the child finish so its answer is persisted (the parent never
-    // waited on it), then quit.
+    // waited on it), then quit. The notice drain that follows the settle
+    // must also run out before closing.
     await h.plugin.inspect(id, action: 'wait');
+    await h.host.whenIdle();
     h.host.saveDetails();
     h.host.close();
 

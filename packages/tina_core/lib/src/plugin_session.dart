@@ -11,6 +11,7 @@ final class PluginSession {
     this.resuming = false,
     SessionDetails? details,
     required this.notifyChanged,
+    this.deliverNotice,
   }) : details = details ?? SessionDetails();
 
   final String id;
@@ -20,6 +21,14 @@ final class PluginSession {
   final bool resuming;
   SessionDetails details;
   final void Function() notifyChanged;
+
+  /// Delivers asynchronous text into this session's transcript as a new
+  /// turn (or, mid-turn, as queued steering input) — the seam a plugin
+  /// uses to hand the model a result that arrived outside any turn, such
+  /// as a background job's output or a spawned child's answer. The host
+  /// supplies the implementation; null means the application does not
+  /// support injection and the plugin keeps its results pollable instead.
+  final void Function(String text)? deliverNotice;
 }
 
 /// Restored session state. The host seeds the loop; plugins never append to

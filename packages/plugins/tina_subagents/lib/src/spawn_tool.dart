@@ -28,11 +28,17 @@ final class LaunchSubagentTool extends Tool {
         describe: (input) => ToolDescription(
             title: 'Launch subagent', target: '${input['prompt'] ?? ''}'),
         name: SubagentsPlugin.launchSchemaName,
-        description: 'Launch a sub-agent to do a scoped piece of work. '
-            'Give it a self-contained prompt; the tool returns immediately '
-            'with the sub-agent\'s id, and the sub-agent runs in the '
-            'background while you keep working. Check on it with the '
-            '`subagent` tool. Refused when the depth, concurrency or '
+        description: 'Launch a sub-agent to do a scoped piece of work: '
+            'research, a scoped implementation, an analysis, an '
+            'independent check — anything self-contained that would '
+            'otherwise fill this conversation with intermediate steps. '
+            'The sub-agent works in its own context and does not return '
+            'intermediate steps; you receive its result as a message '
+            'when it finishes. The tool returns immediately with the '
+            'sub-agent\'s id, and the sub-agent runs in the background '
+            'while you keep working. Launch several independent '
+            'delegations in one message. `subagent` can still retrieve '
+            'a settled result. Refused when the depth, concurrency or '
             'token-budget limit is hit.',
         inputSchema: const {
           'type': 'object',
@@ -70,10 +76,11 @@ final class SubagentInspectTool extends Tool {
             title: 'Subagent status', target: '${input['id'] ?? ''}'),
         name: SubagentsPlugin.inspectSchemaName,
         description:
-            'Inspect, wait for, or cancel a launched sub-agent. `wait` '
-            'blocks until the sub-agent finishes; `status` reports its '
-            'current state (and its final answer once done); `cancel` '
-            'stops it.',
+            'Inspect, wait for, or cancel a launched sub-agent. You are '
+            'told when a sub-agent finishes — its answer arrives as a '
+            'message — so do not poll a running one: use `status` once '
+            'to re-read a settled result, `wait` only when genuinely '
+            'blocked on it, `cancel` to stop it.',
         inputSchema: const {
           'type': 'object',
           'properties': {

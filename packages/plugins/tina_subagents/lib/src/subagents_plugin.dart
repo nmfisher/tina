@@ -311,8 +311,10 @@ final class SubagentsPlugin extends AgentPlugin {
     _jobs[job.id] = job;
     unawaited(_run(job, prompt));
     return ToolResult('launched sub-agent ${job.id}\n\n'
-        'It runs in the background while you keep working. Use the '
-        '`subagent` tool to check on it: action status | wait | cancel.');
+        'It runs in the background while you keep working. Its answer '
+        'arrives as a message when it finishes — end your turn if that '
+        'is all you are waiting on. `subagent` re-reads a settled '
+        'result or cancels.');
   }
 
   /// Inspect a launched child. [action] is one of:
@@ -471,7 +473,21 @@ final class SubagentsPlugin extends AgentPlugin {
       if (!_closed) parent.notifyChanged();
       job.done.complete(result);
     }
+    // Hand the answer to the parent without being asked: the transcript
+    // notice starts a parent turn when idle (or queues as steering input
+    // mid-turn). The `subagent` tool stays as the retrieval path for
+    // applications without notice delivery, and as an idempotent re-read.
+    if (!_closed) {
+      final delivery = parent.deliverNotice;
+      if (delivery != null) delivery(_settlement(result));
+    }
   }
+
+  /// The transcript text a settled child contributes: its answer, or the
+  /// failure that stands in for one. Mirrors what `status` returns.
+  String _settlement(ToolResult result) => result.isError
+      ? '[sub-agent settled with an error] ${result.content}'
+      : '[sub-agent finished] ${result.content}';
 
   /// The two tools this plugin contributes: launch, and inspect.
   @override
@@ -495,14 +511,34 @@ final class SubagentsPlugin extends AgentPlugin {
 
   @override
   void onPrompt(TurnContext c) {
-    c.promptSections.add(
-      '<sub-agents>You can launch a sub-agent per call with the '
-      '`launch_subagent` tool: give it a self-contained prompt; it '
-      'returns immediately with the sub-agent\'s id and runs in the '
-      'background. Check on it with the `subagent` tool (action '
-      'status | wait | cancel). Sub-agents inherit your working '
-      'directory and permission mode.</sub-agents>',
-    );
+    c.promptSections.add(_sectionText());
+  }
+
+  /// The model-facing delegation section. Delegation is presented as the
+  /// default for scoped independent work, with the completion contract
+  /// spelled out so the model ends its turn instead of polling. At the
+  /// depth cap the section tells the model to work directly, mirroring
+  /// the refusal it would otherwise meet.
+  String _sectionText() {
+    final depthLine = childDepth > config.maxDepth
+        ? 'You are at the delegation depth cap (${config.maxDepth}): do '
+            'not call `launch_subagent`; carry out the work directly.\n'
+        : '';
+    return '<sub-agents>You can launch a sub-agent per call with the '
+        '`launch_subagent` tool: give it a self-contained prompt; it '
+        'returns immediately with the sub-agent\'s id and runs in the '
+        'background. Sub-agents inherit your working directory and '
+        'permission mode.\n'
+        '$depthLine'
+        'Delegate proactively: research, surveying, breadth-first '
+        'exploration, independent implementation chunks, and any '
+        'self-contained check are sub-agent work — offloading them keeps '
+        'this conversation\'s context for decisions and integration. '
+        'Launch independent delegations together in one message and '
+        'continue useful work while they run. Each finished sub-agent\'s '
+        'answer arrives as its own message; when only waiting remains, '
+        'end your turn instead of polling — never sleep or busy-check the '
+        '`subagent` tool for a running child.</sub-agents>';
   }
 
   /// Mount: build the tools with this plugin as their backend and register

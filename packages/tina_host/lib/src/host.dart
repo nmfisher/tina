@@ -369,6 +369,7 @@ final class Host {
           ? a.order.compareTo(b.order)
           : a.id.compareTo(b.id));
     late final PluginSession context;
+    late final Host host;
     context = PluginSession(
       id: id,
       workingDirectory: config.workingDirectory,
@@ -381,6 +382,9 @@ final class Host {
           plugin.sessionChanged(context);
         }
       },
+      // Deferred through the closure: no notice can arrive before the
+      // host exists, because plugins only see the session at open.
+      deliverNotice: (text) => host._deliverNotice(text),
     );
     final opened = <AgentPlugin>[];
     final questions = config.questions ?? SessionQuestions();
@@ -413,7 +417,7 @@ final class Host {
       for (final plugin in plugins) {
         loop.mountPlugin(plugin);
       }
-      return Host._(
+      return host = Host._(
           config,
           Session(id: id, loop: loop, details: context.details),
           context,
@@ -443,6 +447,108 @@ final class Host {
         Input(text, id: 't-${session.loop.seq}-input-${++_nextInput}'));
     if (accepted) _changed();
     return accepted;
+  }
+
+  /// Notices that arrived while a turn or operation owned the session.
+  /// They drain, in arrival order, at the next idle point.
+  final _noticeQueue = <String>[];
+  bool _noticeDraining = false;
+  final _idleWaiters = <Completer<void>>[];
+
+  /// Whether the session has no active or queued work: no turn, operation,
+  /// command, or pending notice drain.
+  bool get _idleNow =>
+      !busy && !_noticeDraining && _noticeQueue.isEmpty;
+
+  /// Completes when the host next reaches idle with nothing queued —
+  /// turns, operations, and notice drains included. Immediate when idle
+  /// already, or once the host is closed. The awaiting counterpart of
+  /// [onIdle]: a caller that caused background work (its own or a
+  /// plugin's) awaits settlement before closing, where [close] would
+  /// refuse active work.
+  Future<void> whenIdle() {
+    if (_idleNow || _closed) return Future.value();
+    final waiter = Completer<void>();
+    _idleWaiters.add(waiter);
+    return waiter.future;
+  }
+
+  void _releaseIdleWaiters() {
+    if (!_idleNow || _idleWaiters.isEmpty) return;
+    final waiters = List.of(_idleWaiters);
+    _idleWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.complete();
+    }
+  }
+
+  /// Delivers asynchronous text into the transcript as its own turn.
+  /// Arrivals during a turn or operation are buffered, in order, and run
+  /// when the session next goes idle — so a spawned child's answer, a
+  /// background job's output, or any out-of-band result reaches the model
+  /// without being polled for. This is the plugin seam behind
+  /// [PluginSession.deliverNotice].
+  void _deliverNotice(String text) {
+    if (_closed || _stopping) return;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    _noticeQueue.add(trimmed);
+    _changed();
+    _drainNotices();
+  }
+
+  String _nextNoticeId() => 't-${session.loop.seq}-notice-${++_nextInput}';
+
+  /// Turns queued notices into transcript content. One pump runs at a
+  /// time. Mid-turn, a notice becomes steering input through the loop's
+  /// existing queue, so a running turn sees the answer in its next
+  /// request; between turns or idle, each notice runs as its own turn.
+  void _drainNotices() {
+    if (_noticeDraining || _closed || _stopping) return;
+    if (_noticeQueue.isEmpty) return;
+    // Mid-turn fast path: the turn accepts steering, so hand the notices
+    // over synchronously and return — the turn's own flow drains them.
+    if (session.loop.running) {
+      if (!session.loop.acceptsInput) return; // between turns; idle re-pumps
+      while (_noticeQueue.isNotEmpty && session.loop.acceptsInput) {
+        final text = _noticeQueue.removeAt(0);
+        if (!session.loop.offerInput(Input(text, id: _nextNoticeId()))) {
+          _noticeQueue.insert(0, text);
+          break; // stopped accepting; idle re-pumps
+        }
+        _changed();
+      }
+      return;
+    }
+    if (busy) return; // operation or command work owns the session; idle re-pumps
+    if (_noticeQueue.isEmpty) return;
+    _noticeDraining = true;
+    unawaited(() async {
+      try {
+        while (_noticeQueue.isNotEmpty && !_closed && !_stopping) {
+          if (session.loop.running) return; // busy again; idle re-pumps
+          final text = _noticeQueue.removeAt(0);
+          try {
+            await _send(text, turnId: _nextNoticeId());
+          } catch (_) {
+            // A failed notice turn must not wedge the pump or crash its
+            // caller; the notice re-queues and a later idle retries.
+            _noticeQueue.insert(0, text);
+            return;
+          }
+        }
+      } finally {
+        _noticeDraining = false;
+        // The idle-transition hook ran while this pump still counted as
+        // work; the waiters see true idle only here, at pump exit.
+        _releaseIdleWaiters();
+      }
+      if (_noticeQueue.isNotEmpty) {
+        _drainNotices();
+      } else {
+        _changed();
+      }
+    }());
   }
 
   void switchModel(String model) {
@@ -537,7 +643,11 @@ final class Host {
           _ => SessionRequestState.completed,
         },
         result);
-    if (!_stopping) onIdle?.call();
+    if (!_stopping) {
+      onIdle?.call();
+      _releaseIdleWaiters();
+      _drainNotices();
+    }
   }
 
   Future<Outcome> send(String text, {String? turnId}) async {
@@ -566,7 +676,11 @@ final class Host {
           scope.cancel();
         }
       });
-      if (!_stopping && _operation == null) onIdle?.call();
+      if (!_stopping && _operation == null) {
+        onIdle?.call();
+        _releaseIdleWaiters();
+        _drainNotices();
+      }
       return outcome;
     } finally {
       _turnInputId = null;
@@ -648,6 +762,10 @@ final class Host {
     session.loop.unsubscribe(_statusSubscription);
     _changed();
     onIdle = null;
+    for (final waiter in List.of(_idleWaiters)) {
+      waiter.complete();
+    }
+    _idleWaiters.clear();
     Object? failure;
     StackTrace? trace;
     void attempt(void Function() action) {
