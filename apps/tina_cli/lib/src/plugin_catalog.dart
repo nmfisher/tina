@@ -30,15 +30,15 @@ import 'package:tina_web_search/tina_web_search.dart';
 /// Result count for the web_search tool. A setting, not a constant: heavy
 /// researchers want more hits, token-pinched setups fewer.
 final webSearchSetting = SettingDefinition<int>(
-    id: 'tina/web-search/result_count',
-    label: 'Web search results per call',
-    description:
-        'Maximum results the web_search tool returns per call, 1–20.',
-    defaultValue: 5,
-    kind: SettingKind.integer,
-    minimum: 1,
-    maximum: 20,
-    applyAt: ApplyAt.nextRequest);
+  id: 'tina/web-search/result_count',
+  label: 'Web search results per call',
+  description: 'Maximum results the web_search tool returns per call, 1–20.',
+  defaultValue: 5,
+  kind: SettingKind.integer,
+  minimum: 1,
+  maximum: 20,
+  applyAt: ApplyAt.nextRequest,
+);
 
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
@@ -107,420 +107,500 @@ final class SessionPluginContext {
 
 /// Required host plugins also carry metadata, without becoming optional features.
 List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
-      PluginDefinition(
-          'tina/system-instruction', (_) => const SystemInstructionPlugin(),
-          description:
-              'Supplies the agent identity and base instructions for conversations.'),
-      PluginDefinition('tina/providers', (c) => c.providerPolicy!,
-          cli: providersCli,
-          settings: providerLimitSettings,
-          provides: [modelAccess],
-          description:
-              'Connects configured models and providers and enforces request and token limits.'),
-      PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
-          'tina/mode',
-          settings: [classifierInstructionSetting, classifierModelSetting,
-              precedentSetting],
-          operations: modeOperations,
-          dependency: modePolicySource,
-          create: (c, source) => ModeControlsPlugin(source.modePolicy),
-          live: true,
-          description:
-              'Adds /mode and Shift-Tab controls for the tools permission policy.'),
-    ];
+  PluginDefinition(
+    'tina/system-instruction',
+    (_) => const SystemInstructionPlugin(),
+    description:
+        'Supplies the agent identity and base instructions for conversations.',
+  ),
+  PluginDefinition(
+    'tina/providers',
+    (c) => c.providerPolicy!,
+    cli: providersCli,
+    settings: providerLimitSettings,
+    provides: [modelAccess],
+    description:
+        'Connects configured models and providers and enforces request and token limits.',
+  ),
+  PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
+    'tina/mode',
+    settings: [
+      classifierInstructionSetting,
+      classifierModelSetting,
+      precedentSetting,
+    ],
+    operations: modeOperations,
+    dependency: modePolicySource,
+    create: (c, source) => ModeControlsPlugin(source.modePolicy),
+    live: true,
+    description:
+        'Adds /mode and Shift-Tab controls for the tools permission policy.',
+  ),
+];
 
 Map<String, String> pluginDescriptions(
-        PluginRegistry<SessionPluginContext> registry) =>
-    {
-      for (final id in registry.ids) id: registry.definition(id).description,
-      for (final definition in basePluginDefinitions())
-        definition.id: definition.description,
-    };
+  PluginRegistry<SessionPluginContext> registry,
+) => {
+  for (final id in registry.ids) id: registry.definition(id).description,
+  for (final definition in basePluginDefinitions())
+    definition.id: definition.description,
+};
 
 /// This catalog alone grants first-party names. Extension registration on
 /// the returned registry rejects the reserved namespace.
 PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
-      requiredCapabilities: [modelAccess],
-      definitions: [
-        ...basePluginDefinitions(),
-        PluginDefinition<SessionPluginContext>(
-            'tina/shell',
-            (c) => ShellPlugin(
-                terminal: c.terminal, workingDirectory: c.workingDirectory),
-            description:
-                'Runs !command or /shell command with your shell permissions, without sending it to a model.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/session-controls',
-            (c) => SessionControlsPlugin(
-                terminal: c.terminal,
-                currentModel: c.currentModel,
-                switchModel: c.switchModel,
-                modelCatalog: c.modelCatalog,
-                currentReasoning: c.currentReasoning,
-                setReasoning: c.setReasoning,
-                reasoningChoices: c.reasoningChoices),
-            settings: [defaultModelSetting, reasoningSetting],
-            operations: sessionControlsOperations,
-            description:
-                'Switches the active conversation model and reasoning effort, and clears its context and display.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/step-limit',
-            (c) => StepLimitPlugin.configured(
-                configPath: c.configPath, settings: c.settings),
-            settings: [stepLimitSetting],
-            description:
-                'Optionally limits foreground model rounds per turn. Multiple tool calls in one response count as one round. Zero means unlimited.',
-            live: true),
-        grokGuardDefinition<SessionPluginContext>(),
-        PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
-            'tina/mcp',
-            dependency: modePolicySource,
-            create: (c, source) => McpPlugin.configured(
-                store: McpConfigStore(c.configPath),
-                workingDirectory: c.workingDirectory,
-                terminal: c.terminal,
-                approve: source.modePolicy.request),
-            live: true,
-            description:
-                'Connects configured MCP servers, discovers their tools and resources, and routes calls through the current approval mode. Local server commands run with your account privileges.'),
-        PluginDefinition.dependingOn<SessionPluginContext, UpdateStatusSource>(
-            'tina/update-tui',
-            dependency: updateStatusSource,
-            live: true,
-            create: (_, status) =>
-                PresentationPlugin(id: 'tina/update-tui', source: status),
-            description:
-                'Shows the running version and update availability in the status bar.'),
-        PluginDefinition<SessionPluginContext>(
-            'tina/status-strip-tui',
-            (_) =>
-                PresentationPlugin(id: 'tina/status-strip-tui', source: null),
-            description:
-                'Arranges the status bar: how plugin lines and the mode label share the strip under width pressure.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/token-rate-tui',
-            (_) =>
-                PresentationPlugin(id: 'tina/token-rate-tui', source: null),
-            description:
-                'Shows a live tokens-per-second gauge for the active model turn in the status bar.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/cwd-tui',
-            (c) => PresentationPlugin(
-                id: 'tina/cwd-tui',
-                source: Directory(c.workingDirectory).absolute.path),
-            description:
-                'Shows the active session working directory in the status bar.',
-            live: true),
-        updateDefinition<SessionPluginContext>(
-            version: (c) => c.version,
-            terminal: (c) => c.terminal,
-            restart: (c) => c.restart),
-        approvalsDefinition<SessionPluginContext>(),
-        PluginDefinition.dependingOn<SessionPluginContext, ModelAccess>(
-            'tina/approvals-tui',
-            dependency: modelAccess,
-            provides: [approvalChannel],
-            create: (c, models) => AttachmentApprovalChannel(
-                    suggestCommandPattern: (request, cancelled) async {
-                  final suggestion = await CommandRegexSuggester(
-                          () => models.mainProvider(_classifierModel(c)))
-                      .suggest(
-                          request.details['command_pattern_target'] as String,
-                          whenCancelled: cancelled);
-                  return (
-                    pattern: suggestion.pattern,
-                    explanation: suggestion.explanation,
-                    failure: suggestion.failure
-                  );
-                }),
-            description:
-                'Shows approval choices and edits model-suggested command approval regexes.'),
-        PluginDefinition<SessionPluginContext>(
-            'tina/approvals-stream', (_) => StreamApprovalChannel(),
-            provides: [approvalChannel],
-            description:
-                'Delivers approval requests through a stream for an external interaction channel.'),
-        PluginDefinition.dependingOn2<SessionPluginContext, ApprovalRequester,
-                ModelAccess>('tina/tools',
-            cli: toolsCli,
-            settings: [
-              readOnlyDirectoriesSetting,
-              writeDirectoriesSetting,
-              homeCachesSetting,
-              allowReadsOutsideWorkspaceSetting,
-            ],
-            first: approvalRequester,
-            second: modelAccess,
-            provides: [toolProvider, modePolicySource],
-            create: (c, approvals, models) {
-          final workspace = Directory(c.workingDirectory).absolute.path;
-          // Statements, not one cascade: a cascade after an arrow body binds
-          // to that body's expression.
-          final policy = c.tools.modePolicy;
-          policy.approvals = approvals;
-          policy.terminal = c.terminal;
-          policy.precedentStore = FilePrecedentStore(
-              '${File(c.configPath).parent.path}/precedents/'
-              '${_workspaceKey(workspace)}.jsonl');
-          policy.readPrecedentMode = () =>
-              parsePrecedentMode(c.settings?.read(precedentSetting).value);
-          policy.classifier = PermissionClassifier(
-              () => models.mainProvider(_classifierModel(c)),
-              readInstruction: () =>
-                  c.settings?.read(classifierInstructionSetting).value ?? '',
-              readPrecedents: policy.precedentEvidenceFor);
-          policy.precedentScope = () => PrecedentScope(
-                workspace: workspace,
-                readDirectories: c.tools.readDirectories.paths,
-                writeDirectories: c.tools.writeDirectories.paths,
+  requiredCapabilities: [modelAccess],
+  definitions: [
+    ...basePluginDefinitions(),
+    PluginDefinition<SessionPluginContext>(
+      'tina/shell',
+      (c) => ShellPlugin(
+        terminal: c.terminal,
+        workingDirectory: c.workingDirectory,
+      ),
+      description:
+          'Runs !command or /shell command with your shell permissions, without sending it to a model.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/session-controls',
+      (c) => SessionControlsPlugin(
+        terminal: c.terminal,
+        currentModel: c.currentModel,
+        switchModel: c.switchModel,
+        modelCatalog: c.modelCatalog,
+        currentReasoning: c.currentReasoning,
+        setReasoning: c.setReasoning,
+        reasoningChoices: c.reasoningChoices,
+      ),
+      settings: [defaultModelSetting, reasoningSetting],
+      operations: sessionControlsOperations,
+      description:
+          'Switches the active conversation model and reasoning effort, and clears its context and display.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/step-limit',
+      (c) => StepLimitPlugin.configured(
+        configPath: c.configPath,
+        settings: c.settings,
+      ),
+      settings: [stepLimitSetting],
+      description:
+          'Optionally limits foreground model rounds per turn. Multiple tool calls in one response count as one round. Zero means unlimited.',
+      live: true,
+    ),
+    grokGuardDefinition<SessionPluginContext>(),
+    PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
+      'tina/mcp',
+      dependency: modePolicySource,
+      create: (c, source) => McpPlugin.configured(
+        store: McpConfigStore(c.configPath),
+        workingDirectory: c.workingDirectory,
+        terminal: c.terminal,
+        approve: source.modePolicy.request,
+      ),
+      live: true,
+      description:
+          'Connects configured MCP servers, discovers their tools and resources, and routes calls through the current approval mode. Local server commands run with your account privileges.',
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, UpdateStatusSource>(
+      'tina/update-tui',
+      dependency: updateStatusSource,
+      live: true,
+      create: (_, status) =>
+          PresentationPlugin(id: 'tina/update-tui', source: status),
+      description:
+          'Shows the running version and update availability in the status bar.',
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/status-strip-tui',
+      (_) => PresentationPlugin(id: 'tina/status-strip-tui', source: null),
+      description:
+          'Arranges the status bar: how plugin lines and the mode label share the strip under width pressure.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/token-rate-tui',
+      (_) => PresentationPlugin(id: 'tina/token-rate-tui', source: null),
+      description:
+          'Shows a live tokens-per-second gauge for the active model turn in the status bar.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/cwd-tui',
+      (c) => PresentationPlugin(
+        id: 'tina/cwd-tui',
+        source: Directory(c.workingDirectory).absolute.path,
+      ),
+      description:
+          'Shows the active session working directory in the status bar.',
+      live: true,
+    ),
+    updateDefinition<SessionPluginContext>(
+      version: (c) => c.version,
+      terminal: (c) => c.terminal,
+      restart: (c) => c.restart,
+    ),
+    approvalsDefinition<SessionPluginContext>(),
+    PluginDefinition.dependingOn<SessionPluginContext, ModelAccess>(
+      'tina/approvals-tui',
+      dependency: modelAccess,
+      provides: [approvalChannel],
+      create: (c, models) {
+        // Both editors draft through the same model lease; only the
+        // instruction differs (full command vs starting-with rule).
+        Future<CommandPatternSuggestion> suggest(
+          CommandRegexSuggestionMode mode,
+          ApprovalRequest request,
+          Future<void> cancelled,
+        ) async {
+          final suggestion =
+              await CommandRegexSuggester(
+                () => models.mainProvider(_classifierModel(c)),
+                mode: mode,
+              ).suggest(
+                request.details['command_pattern_target'] as String,
+                whenCancelled: cancelled,
               );
-          return c.tools;
-        },
-            description:
-                'Provides sandboxed file, search and shell tools with permission policy and approval routing.'),
-        PluginDefinition.dependingOn<SessionPluginContext, ModelAccess>(
-            'tina/classification',
-            dependency: modelAccess,
-            create: (c, models) => ClassificationPlugin.configured(
-                terminal: c.terminal,
-                configPath: c.configPath,
-                createProvider: () => models.mainProvider(c.currentModel())),
-            description:
-                'Classifies user input and Git operations, learns reusable categories from Other using the active model, and counts selections. Displays results without changing how the agent responds.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/panels-tui',
-            (c) => PresentationPlugin(
-                    id: 'tina/panels-tui',
-                    source: null,
-                    commands: [
-                      Command(
-                          name: 'spawn',
-                          description:
-                              'open a conversation panel [/spawn provider/model]',
-                          handler: (_) => c.terminal.writeln(
-                              'Panels require the interactive console.')),
-                      Command(
-                          name: 'close',
-                          description: 'close the focused panel (Ctrl+X)',
-                          handler: (_) => c.terminal.writeln(
-                              'Panels require the interactive console.')),
-                    ]),
-            description:
-                'Opens multiple conversations in terminal panels and lets you switch between them.',
-            live: false),
-        PluginDefinition<SessionPluginContext>(
-            'tina/chat-tui',
-            (c) => ChatPlugin(
-                model: c.model,
-                tokenCap: c.limits.sessionTokens,
-                currentTokenCap: () => c.currentLimits.sessionTokens,
-                showSessionId: c.openStore != null,
-                terminalAlertsEnabled: () =>
-                    c.settings?.read(terminalAlertsSetting).value ?? true,
-                sessionTokens: c.providerPolicy == null
-                    ? null
-                    : () => c.providerPolicy!.sessionTokens,
-                sessionEstimatedTokens: c.providerPolicy == null
-                    ? null
-                    : () => c.providerPolicy!.sessionEstimatedTokens),
-            settings: [themeSetting, terminalAlertsSetting],
-            description:
-                'Displays conversation history, model responses, tool calls, timestamps and token spend.',
-            live: true),
-        PluginDefinition<SessionPluginContext>('tina/activity-tui',
-            (c) => ActivityPlugin(terminal: c.terminal, printTranscript: false),
-            description:
-                'Shows tool progress, results, file diffs and subagent activity in the activity browser.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/bg-tui',
-            (_) => PresentationPlugin(id: 'tina/bg-tui', source: null),
-            description:
-                'Shows running background processes in the status bar with a browsable list and live output (F5).',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/persistence',
-            (c) => PersistencePlugin(
-                openStore: c.openStore!,
-                settings: c.settings,
-                history: c.sessionStorePath == null
-                    ? null
-                    : SessionHistoryTools(
-                        workspace: c.workingDirectory,
-                        store: c.sessionStorePath!,
-                        policy: c.tools.modePolicy,
-                        catalog: HistoryCatalog(
-                            '${File(c.configPath).parent.path}/session-stores'))),
-            description:
-                'Saves conversations in SQLite, resumes sessions, and provides workspace-first history search with recent sessions first.',
-            live: false),
-        PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
-            'tina/plans',
-            dependency: approvalRequester,
-            create: (c, approvals) => PlansPlugin(
-                  terminal: c.terminal,
-                  // Plan consent is always human, never a tool-safety judgment.
-                  approver: (request, reason) async {
-                    final decision = await approvals.request(
-                      operation: 'approve plan',
-                      target: request.path,
-                      reason: reason,
-                      kind: ApprovalKind.confirmation,
-                    );
-                    return decision == ApprovalDecision.allow
-                        ? Approval.yes
-                        : Approval.no;
-                  },
-                ),
-            description:
-                'Lets the agent maintain a task plan and track progress through its steps.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/goals', (c) => GoalsPlugin(terminal: c.terminal),
-            cli: goalsCli,
-            operations: goalsOperations,
-            description:
-                'Tracks an active goal and its progress across turns, with optional token budgets.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/tasks', (c) => TasksPlugin(terminal: c.terminal),
-            description:
-                'Maintains a queue of follow-up tasks distinct from the plan, and auto-advances when the current task completes.',
-            live: true),
-        PluginDefinition<SessionPluginContext>(
-            'tina/auto-compact',
-            (c) => CompactionPlugin(
-                terminal: c.terminal,
-                canCompact: () => !(c.contextLoaded?.call() ?? false)),
-            description:
-                'Summarizes older conversation history when context grows large to make room for more work.',
-            live: true),
-        PluginDefinition.dependingOn<SessionPluginContext, ToolSessionSource>(
-            'tina/context',
-            dependency: toolProvider,
-            provides: [_workingContext],
-            settings: [contextBudgetSetting, contextResponseReserveSetting],
-            create: (c, _) => ContextPlugin.sessionMirror(
-                readResponseReserveTokens: () =>
-                    c.settings?.read(contextResponseReserveSetting).value ??
-                    defaultContextResponseReserveTokens,
-                readBudgetTokens: () =>
-                    c.settings?.read(contextBudgetSetting).value ??
-                    defaultContextBudgetTokens,
-                onMirrorReady: (file) => c.tools.sandbox.grants
-                    .rememberExact(file.resolveSymbolicLinksSync())),
-            description:
-                'Experimental: lets the agent edit its working conversation through a temporary file. Preserves the original log and pauses automatic and manual compaction while loaded. Changes require restart.',
-            live: false),
-        PluginDefinition.dependingOn<SessionPluginContext, ContextPlugin>(
-            'tina/context-tui',
-            dependency: _workingContext,
-            create: (c, _) => PresentationPlugin<void>(
-                    id: 'tina/context-tui',
-                    source: null,
-                    commands: [
-                      Command(
-                          name: 'context',
-                          description:
-                              'inspect accepted working context and edits',
-                          allowWhileRunning: true,
-                          handler: (_) => c.terminal.writeln(
-                              'The context viewer requires the interactive console.'))
-                    ]),
-            description:
-                'Adds /context to inspect accepted working messages, estimated tokens, pending file edits and the latest accepted changes. Requires tina/context.',
-            live: true),
-        PluginDefinition.dependingOn2<SessionPluginContext, ToolSessionSource,
-                ModelAccess>('tina/subagents',
-            first: toolProvider,
-            second: modelAccess,
-            settings: subagentSettings,
-            create: (c, parentTools, models) => SubagentsPlugin(
-                  config: SubagentsConfig(
-                      maxDepth: c.limits.childDepth,
-                      maxConcurrency: c.limits.childConcurrency,
-                      tokenBudget: 0),
-                  configFor: () => SubagentsConfig(
-                      maxDepth: c.currentLimits.childDepth,
-                      maxConcurrency: c.currentLimits.childConcurrency,
-                      tokenBudget: 0),
-                  sessionFactory: standardChildFactory(
-                    parentTools: parentTools,
-                    providerFactory: models.childProvider,
-                    model: c.model,
-                    currentModel: c.currentModel,
-                    childPlugins: () => [
-                      const SystemInstructionPlugin(),
-                      if (c.openStore != null)
-                        PersistencePlugin(openStore: c.openStore!),
-                    ],
-                  ),
-                  history: c.openStore != null
-                      ? _StoreHistory(c.openStore!)
-                      : null,
-                ),
-            description:
-                'Lets the agent delegate work to child sessions with bounded depth and concurrency.',
-            live: false),
-        PluginDefinition<SessionPluginContext>(
-            'tina/file-resources',
-            (c) => FileResourcesPlugin(
-                  config: FileResourcesConfig(
-                    directory:
-                        Directory('${c.workingDirectory}/.tina/skills').path,
-                    heading: '## Skills',
-                  ),
-                ),
-            description:
-                'Reads skill folders from the workspace and makes their instructions available to the agent.',
-            live: true),
-        PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
-            'tina/web-search',
-            dependency: modePolicySource,
-            settings: [webSearchSetting],
-            create: (c, source) {
-              final backend =
-                  BraveSearchBackend(keyFrom: () => Platform.environment[
-                          'BRAVE_SEARCH_API_KEY'] ??
-                      '');
-              return WebSearchPlugin(
-                backend: backend,
-                defaultCount: c.settings?.read(webSearchSetting).value ?? 5,
-                // The tool's network ask rides the session's mode policy —
-                // the same channel as every other external access — so a
-                // Remember… answer is stored and re-checked like the rest.
-                authorize: (host, query) async {
-                  final decision = await source.modePolicy.request(
-                    operation: 'web search',
-                    target: query,
-                    reason: 'Search $host for this query?',
-                    context: {
-                      'permission_scope': 'network',
-                      'authorization_identity': '$host/web_search',
-                      'required_permissions': ['network'],
-                    },
-                  );
-                  return switch (decision) {
-                    ApprovalDecision.allow ||
-                    ApprovalDecision.allowAlways ||
-                    ApprovalDecision.allowWorkspace ||
-                    ApprovalDecision.allowGlobal =>
-                      true,
-                    _ => false,
-                  };
-                },
-              );
-            },
-            description:
-                'Lets the agent search the web with the web_search tool. Requires BRAVE_SEARCH_API_KEY; each search asks permission through the current approval mode.',
-            live: true),
+          return (
+            pattern: suggestion.pattern,
+            explanation: suggestion.explanation,
+            failure: suggestion.failure,
+          );
+        }
+
+        return AttachmentApprovalChannel(
+          suggestCommandPattern: (request, cancelled) =>
+              suggest(CommandRegexSuggestionMode.exact, request, cancelled),
+          suggestCommandPrefix: (request, cancelled) =>
+              suggest(CommandRegexSuggestionMode.prefix, request, cancelled),
+        );
+      },
+      description:
+          'Shows approval choices and edits model-suggested command approval regexes.',
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/approvals-stream',
+      (_) => StreamApprovalChannel(),
+      provides: [approvalChannel],
+      description:
+          'Delivers approval requests through a stream for an external interaction channel.',
+    ),
+    PluginDefinition.dependingOn2<
+      SessionPluginContext,
+      ApprovalRequester,
+      ModelAccess
+    >(
+      'tina/tools',
+      cli: toolsCli,
+      settings: [
+        readOnlyDirectoriesSetting,
+        writeDirectoriesSetting,
+        homeCachesSetting,
+        allowReadsOutsideWorkspaceSetting,
       ],
-    );
+      first: approvalRequester,
+      second: modelAccess,
+      provides: [toolProvider, modePolicySource],
+      create: (c, approvals, models) {
+        final workspace = Directory(c.workingDirectory).absolute.path;
+        // Statements, not one cascade: a cascade after an arrow body binds
+        // to that body's expression.
+        final policy = c.tools.modePolicy;
+        policy.approvals = approvals;
+        policy.terminal = c.terminal;
+        policy.precedentStore = FilePrecedentStore(
+          '${File(c.configPath).parent.path}/precedents/'
+          '${_workspaceKey(workspace)}.jsonl',
+        );
+        policy.readPrecedentMode = () =>
+            parsePrecedentMode(c.settings?.read(precedentSetting).value);
+        policy.classifier = PermissionClassifier(
+          () => models.mainProvider(_classifierModel(c)),
+          readInstruction: () =>
+              c.settings?.read(classifierInstructionSetting).value ?? '',
+          readPrecedents: policy.precedentEvidenceFor,
+        );
+        policy.precedentScope = () => PrecedentScope(
+          workspace: workspace,
+          readDirectories: c.tools.readDirectories.paths,
+          writeDirectories: c.tools.writeDirectories.paths,
+        );
+        return c.tools;
+      },
+      description:
+          'Provides sandboxed file, search and shell tools with permission policy and approval routing.',
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, ModelAccess>(
+      'tina/classification',
+      dependency: modelAccess,
+      create: (c, models) => ClassificationPlugin.configured(
+        terminal: c.terminal,
+        configPath: c.configPath,
+        createProvider: () => models.mainProvider(c.currentModel()),
+      ),
+      description:
+          'Classifies user input and Git operations, learns reusable categories from Other using the active model, and counts selections. Displays results without changing how the agent responds.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/panels-tui',
+      (c) => PresentationPlugin(
+        id: 'tina/panels-tui',
+        source: null,
+        commands: [
+          Command(
+            name: 'spawn',
+            description: 'open a conversation panel [/spawn provider/model]',
+            handler: (_) =>
+                c.terminal.writeln('Panels require the interactive console.'),
+          ),
+          Command(
+            name: 'close',
+            description: 'close the focused panel (Ctrl+X)',
+            handler: (_) =>
+                c.terminal.writeln('Panels require the interactive console.'),
+          ),
+        ],
+      ),
+      description:
+          'Opens multiple conversations in terminal panels and lets you switch between them.',
+      live: false,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/chat-tui',
+      (c) => ChatPlugin(
+        model: c.model,
+        tokenCap: c.limits.sessionTokens,
+        currentTokenCap: () => c.currentLimits.sessionTokens,
+        showSessionId: c.openStore != null,
+        terminalAlertsEnabled: () =>
+            c.settings?.read(terminalAlertsSetting).value ?? true,
+        sessionTokens: c.providerPolicy == null
+            ? null
+            : () => c.providerPolicy!.sessionTokens,
+        sessionEstimatedTokens: c.providerPolicy == null
+            ? null
+            : () => c.providerPolicy!.sessionEstimatedTokens,
+      ),
+      settings: [themeSetting, terminalAlertsSetting],
+      description:
+          'Displays conversation history, model responses, tool calls, timestamps and token spend.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/activity-tui',
+      (c) => ActivityPlugin(terminal: c.terminal, printTranscript: false),
+      description:
+          'Shows tool progress, results, file diffs and subagent activity in the activity browser.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/bg-tui',
+      (_) => PresentationPlugin(id: 'tina/bg-tui', source: null),
+      description:
+          'Shows running background processes in the status bar with a browsable list and live output (F5).',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/persistence',
+      (c) => PersistencePlugin(
+        openStore: c.openStore!,
+        settings: c.settings,
+        history: c.sessionStorePath == null
+            ? null
+            : SessionHistoryTools(
+                workspace: c.workingDirectory,
+                store: c.sessionStorePath!,
+                policy: c.tools.modePolicy,
+                catalog: HistoryCatalog(
+                  '${File(c.configPath).parent.path}/session-stores',
+                ),
+              ),
+      ),
+      description:
+          'Saves conversations in SQLite, resumes sessions, and provides workspace-first history search with recent sessions first.',
+      live: false,
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
+      'tina/plans',
+      dependency: approvalRequester,
+      create: (c, approvals) => PlansPlugin(
+        terminal: c.terminal,
+        // Plan consent is always human, never a tool-safety judgment.
+        approver: (request, reason) async {
+          final decision = await approvals.request(
+            operation: 'approve plan',
+            target: request.path,
+            reason: reason,
+            kind: ApprovalKind.confirmation,
+          );
+          return decision == ApprovalDecision.allow
+              ? Approval.yes
+              : Approval.no;
+        },
+      ),
+      description:
+          'Lets the agent maintain a task plan and track progress through its steps.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/goals',
+      (c) => GoalsPlugin(terminal: c.terminal),
+      cli: goalsCli,
+      operations: goalsOperations,
+      description:
+          'Tracks an active goal and its progress across turns, with optional token budgets.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/tasks',
+      (c) => TasksPlugin(terminal: c.terminal),
+      description:
+          'Maintains a queue of follow-up tasks distinct from the plan, and auto-advances when the current task completes.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/auto-compact',
+      (c) => CompactionPlugin(
+        terminal: c.terminal,
+        canCompact: () => !(c.contextLoaded?.call() ?? false),
+      ),
+      description:
+          'Summarizes older conversation history when context grows large to make room for more work.',
+      live: true,
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, ToolSessionSource>(
+      'tina/context',
+      dependency: toolProvider,
+      provides: [_workingContext],
+      settings: [contextBudgetSetting, contextResponseReserveSetting],
+      create: (c, _) => ContextPlugin.sessionMirror(
+        readResponseReserveTokens: () =>
+            c.settings?.read(contextResponseReserveSetting).value ??
+            defaultContextResponseReserveTokens,
+        readBudgetTokens: () =>
+            c.settings?.read(contextBudgetSetting).value ??
+            defaultContextBudgetTokens,
+        onMirrorReady: (file) => c.tools.sandbox.grants.rememberExact(
+          file.resolveSymbolicLinksSync(),
+        ),
+      ),
+      description:
+          'Experimental: lets the agent edit its working conversation through a temporary file. Preserves the original log and pauses automatic and manual compaction while loaded. Changes require restart.',
+      live: false,
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, ContextPlugin>(
+      'tina/context-tui',
+      dependency: _workingContext,
+      create: (c, _) => PresentationPlugin<void>(
+        id: 'tina/context-tui',
+        source: null,
+        commands: [
+          Command(
+            name: 'context',
+            description: 'inspect accepted working context and edits',
+            allowWhileRunning: true,
+            handler: (_) => c.terminal.writeln(
+              'The context viewer requires the interactive console.',
+            ),
+          ),
+        ],
+      ),
+      description:
+          'Adds /context to inspect accepted working messages, estimated tokens, pending file edits and the latest accepted changes. Requires tina/context.',
+      live: true,
+    ),
+    PluginDefinition.dependingOn2<
+      SessionPluginContext,
+      ToolSessionSource,
+      ModelAccess
+    >(
+      'tina/subagents',
+      first: toolProvider,
+      second: modelAccess,
+      settings: subagentSettings,
+      create: (c, parentTools, models) => SubagentsPlugin(
+        config: SubagentsConfig(
+          maxDepth: c.limits.childDepth,
+          maxConcurrency: c.limits.childConcurrency,
+          tokenBudget: 0,
+        ),
+        configFor: () => SubagentsConfig(
+          maxDepth: c.currentLimits.childDepth,
+          maxConcurrency: c.currentLimits.childConcurrency,
+          tokenBudget: 0,
+        ),
+        sessionFactory: standardChildFactory(
+          parentTools: parentTools,
+          providerFactory: models.childProvider,
+          model: c.model,
+          currentModel: c.currentModel,
+          childPlugins: () => [
+            const SystemInstructionPlugin(),
+            if (c.openStore != null) PersistencePlugin(openStore: c.openStore!),
+          ],
+        ),
+        history: c.openStore != null ? _StoreHistory(c.openStore!) : null,
+      ),
+      description:
+          'Lets the agent delegate work to child sessions with bounded depth and concurrency.',
+      live: false,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/file-resources',
+      (c) => FileResourcesPlugin(
+        config: FileResourcesConfig(
+          directory: Directory('${c.workingDirectory}/.tina/skills').path,
+          heading: '## Skills',
+        ),
+      ),
+      description:
+          'Reads skill folders from the workspace and makes their instructions available to the agent.',
+      live: true,
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
+      'tina/web-search',
+      dependency: modePolicySource,
+      settings: [webSearchSetting],
+      create: (c, source) {
+        final backend = BraveSearchBackend(
+          keyFrom: () => Platform.environment['BRAVE_SEARCH_API_KEY'] ?? '',
+        );
+        return WebSearchPlugin(
+          backend: backend,
+          defaultCount: c.settings?.read(webSearchSetting).value ?? 5,
+          // The tool's network ask rides the session's mode policy —
+          // the same channel as every other external access — so a
+          // Remember… answer is stored and re-checked like the rest.
+          authorize: (host, query) async {
+            final decision = await source.modePolicy.request(
+              operation: 'web search',
+              target: query,
+              reason: 'Search $host for this query?',
+              context: {
+                'permission_scope': 'network',
+                'authorization_identity': '$host/web_search',
+                'required_permissions': ['network'],
+              },
+            );
+            return switch (decision) {
+              ApprovalDecision.allow ||
+              ApprovalDecision.allowAlways ||
+              ApprovalDecision.allowWorkspace ||
+              ApprovalDecision.allowGlobal => true,
+              _ => false,
+            };
+          },
+        );
+      },
+      description:
+          'Lets the agent search the web with the web_search tool. Requires BRAVE_SEARCH_API_KEY; each search asks permission through the current approval mode.',
+      live: true,
+    ),
+  ],
+);
 
 /// A stable, filesystem-safe per-workspace name for its precedent file.
 ///
@@ -534,8 +614,9 @@ String _workspaceKey(String path) {
   }
   final safe = path.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-');
   final trimmed = safe.replaceAll(RegExp(r'^-+|-+$'), '');
-  final prefix =
-      trimmed.length > 60 ? trimmed.substring(trimmed.length - 60) : trimmed;
+  final prefix = trimmed.length > 60
+      ? trimmed.substring(trimmed.length - 60)
+      : trimmed;
   return '${prefix.isEmpty ? 'workspace' : prefix}-${hash.toRadixString(16).padLeft(8, '0')}';
 }
 
