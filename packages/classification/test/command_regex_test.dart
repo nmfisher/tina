@@ -120,4 +120,92 @@ void main() {
       await stream.close();
     }
   });
+
+  group('prefix mode', () {
+    const prefixCommand = 'git log --oneline --stat';
+    const prefixPattern = r'git log[^\n;&|`$()]*';
+    test('a prefix suggestion keeps its head and matches its command',
+        () async {
+      final provider = Provider(completed(jsonEncode({
+        'pattern': prefixPattern,
+        'explanation': 'Arguments after git log vary.',
+      })));
+      final result = await CommandRegexSuggester(() => provider,
+              mode: CommandRegexSuggestionMode.prefix)
+          .suggest(prefixCommand);
+      expect(result.failure, isNull);
+      expect(result.pattern, prefixPattern);
+      expect(RegExp('^(?:${result.pattern})\$').hasMatch(prefixCommand), true,
+          reason: 'the suggestion must match the command it came from');
+      expect(RegExp('^(?:${result.pattern})\$').hasMatch('git log -5'), true);
+      expect(
+          RegExp('^(?:${result.pattern})\$')
+              .hasMatch('git log; rm -rf ~'), isFalse,
+          reason: 'the tail must not cross a shell separator');
+      expect(RegExp('^(?:${result.pattern})\$').hasMatch('git push'), isFalse);
+      expect(provider.system, contains('first argument word'));
+      expect(provider.closed, true);
+    });
+    test('a compound command is refused without consulting the model',
+        () async {
+      final provider = Provider(completed('{}'));
+      final result = await CommandRegexSuggester(() => provider,
+              mode: CommandRegexSuggestionMode.prefix)
+          .suggest('git log --oneline; rm -rf ~');
+      expect(result.pattern, isNull);
+      expect(result.failure, 'compound command: no prefix rule');
+      expect(provider.closed, isFalse,
+          reason: 'a refused prefix must not lease a provider');
+      for (final command in [
+        'git log | head -n2',
+        'git log && make',
+        'git log || true',
+        'echo `whoami`',
+        'echo \$(whoami)',
+      ]) {
+        final refused = await CommandRegexSuggester(() => provider,
+                mode: CommandRegexSuggestionMode.prefix)
+            .suggest(command);
+        expect(refused.pattern, isNull, reason: command);
+        expect(refused.failure, 'compound command: no prefix rule',
+            reason: command);
+      }
+      expect(provider.closed, isFalse);
+    });
+    test('a bare program is never offered as a prefix', () async {
+      final provider = Provider(completed('{}'));
+      for (final command in ['git', ' rm ', 'git ']) {
+        final result = await CommandRegexSuggester(() => provider,
+                mode: CommandRegexSuggestionMode.prefix)
+            .suggest(command);
+        expect(result.pattern, isNull, reason: command);
+        expect(result.failure, 'bare program: no prefix rule', reason: command);
+      }
+      expect(provider.closed, isFalse);
+    });
+    test('a model answer that drops the head is refused', () async {
+      for (final pattern in [r'git.*', r'git log .*', r'git push.*']) {
+        final provider = Provider(completed(
+            jsonEncode({'pattern': pattern, 'explanation': 'wildcard'})));
+        final result = await CommandRegexSuggester(() => provider,
+                mode: CommandRegexSuggestionMode.prefix)
+            .suggest(prefixCommand);
+        expect(result.pattern, isNull, reason: pattern);
+        expect(result.failure, 'invalid suggestion', reason: pattern);
+        expect(provider.closed, true);
+      }
+    });
+    test('exact mode never applies the prefix guards', () async {
+      // A single-word command and a compound one both reach the provider in
+      // the historical full-command mode, exactly as before.
+      for (final entry in [command, 'git']) {
+        final provider = Provider(completed(
+            jsonEncode({'pattern': 'git log', 'explanation': 'literal'})));
+        final result = await CommandRegexSuggester(() => provider)
+            .suggest(command);
+        expect(result.pattern, 'git log');
+        expect(provider.closed, true);
+      }
+    });
+  });
 }
