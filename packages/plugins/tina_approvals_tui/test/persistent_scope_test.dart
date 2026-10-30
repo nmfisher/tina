@@ -4,11 +4,10 @@ import 'package:tina_approvals_tui/tina_approvals_tui.dart';
 void main() {
   ApprovalDialog persistentDialog() => ApprovalDialog(null,
       ask: const ApprovalAskContext(
-          'run command', 'git push origin main', 'host SSH identity',
-          details: {
-            'permission_scope': 'command',
-            'persistent_command_approval': true
-          }));
+          'run command', 'git push origin main', 'host SSH identity', details: {
+        'permission_scope': 'command',
+        'persistent_command_approval': true
+      }));
 
   test('persistent scopes appear only after Remember', () {
     final dialog = persistentDialog()..handleKey(ApprovalKey.always);

@@ -33,6 +33,7 @@ enum ApprovalKey {
   workspace,
   global,
   editCommandPattern,
+  allowCommandPrefix,
   toggleReadDirectory,
   toggleWriteDirectory,
   toggleDirectory,
@@ -69,12 +70,17 @@ class ApprovalOutcome {
   final String? reason;
   final String? commandPattern;
   final bool editCommandPattern;
+
+  /// The editor should draft an "any command starting with …" rule instead of
+  /// a full-command one; rides an [editCommandPattern] outcome.
+  final bool prefixCommandPattern;
   final List<DirectoryAccessGrant> directoryGrants;
 
   const ApprovalOutcome(this.decision,
       {this.reason,
       this.commandPattern,
       this.editCommandPattern = false,
+      this.prefixCommandPattern = false,
       this.directoryGrants = const []});
 
   bool get isCancellation => reason == 'cancelled';
@@ -222,9 +228,11 @@ class ApprovalDialog {
             };
 
   ApprovalOutcome _outcome(ApprovalDecision decision,
-          {bool editCommandPattern = false}) =>
+          {bool editCommandPattern = false,
+          bool prefixCommandPattern = false}) =>
       ApprovalOutcome(decision,
           editCommandPattern: editCommandPattern,
+          prefixCommandPattern: prefixCommandPattern,
           directoryGrants: {
             ApprovalDecision.allowAlways,
             ApprovalDecision.allowWorkspace,
@@ -248,6 +256,7 @@ class ApprovalDialog {
               if (!_resourcePermissions) 'allow always',
               if (_hasPersistent) 'allow workspace',
               if (_hasPersistent && !_resourcePermissions) 'allow global',
+              if (_hasCommandPattern) 'allow command prefix',
               if (_hasDirectoryOffers) ...[
                 for (var i = 0; i < _directoryOffers.length; i++)
                   'directory $i',
@@ -514,6 +523,7 @@ class ApprovalDialog {
         'allow workspace' => '[p] Remember $object for this workspace',
         'allow global' => '[g] Remember $object in every workspace',
         'edit command pattern' => '[e] Approve with an editable regex',
+        'allow command prefix' => '[b] Allow any command starting with …',
         // Not a decision row: the checked folders are saved when one of the
         // scope rows above is confirmed. This line only sets their scope,
         // so its label states that instead of implying it saves something.
@@ -663,6 +673,7 @@ class ApprovalDialog {
       case ApprovalKey.global:
       case ApprovalKey.always:
       case ApprovalKey.editCommandPattern:
+      case ApprovalKey.allowCommandPrefix:
       case ApprovalKey.details:
       case ApprovalKey.toggleReadDirectory:
       case ApprovalKey.toggleWriteDirectory:
@@ -691,7 +702,9 @@ class ApprovalDialog {
   ApprovalOutcome get current {
     final choice = _choices[_selected];
     return _outcome(decisionFor(_selected),
-        editCommandPattern: choice == 'edit command pattern');
+        editCommandPattern: choice == 'edit command pattern' ||
+            choice == 'allow command prefix',
+        prefixCommandPattern: choice == 'allow command prefix');
   }
 
   /// The decision for the scope matching [shortcut], when the ask offers
@@ -743,6 +756,11 @@ class ApprovalDialog {
           if (_rememberMenu && _hasCommandPattern) {
             return const ApprovalOutcome(ApprovalDecision.deny,
                 editCommandPattern: true);
+          }
+        case ApprovalKey.allowCommandPrefix:
+          if (_rememberMenu && _hasCommandPattern) {
+            return const ApprovalOutcome(ApprovalDecision.deny,
+                editCommandPattern: true, prefixCommandPattern: true);
           }
         case ApprovalKey.pageUp:
         case ApprovalKey.pageDown:

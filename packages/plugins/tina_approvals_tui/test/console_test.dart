@@ -211,6 +211,66 @@ void main() {
     expect(await pending, ApprovalDecision.deny);
   });
 
+  test(
+      'prefix option asks the prefix suggester; cancel stores nothing, accept saves the rule',
+      () async {
+    service.closeSession();
+    ui.detachConsole();
+    channel.closeSession();
+    var exact = 0, prefixes = 0;
+    const prefixPattern = r'git log[^\n;&|`$()]*';
+    channel = AttachmentApprovalChannel(
+        suggestCommandPattern: (request, cancelled) async {
+      exact++;
+      return (pattern: 'never', explanation: null, failure: null);
+    }, suggestCommandPrefix: (request, cancelled) async {
+      prefixes++;
+      return (
+        pattern: prefixPattern,
+        explanation: 'Arguments after git log vary.',
+        failure: null
+      );
+    });
+    ui = ApprovalView(channel.interaction)
+      ..attachConsole(ConsoleContext(screen: screen, editor: editor));
+    service = ApprovalsPlugin(channel: channel);
+    String? saved;
+    var answered = false;
+    final decision = service.request(
+        operation: 'run command',
+        target: 'git log --oneline',
+        reason: 'execute',
+        details: {
+          'command_pattern_target': 'git log --oneline',
+          'persistent_command_pattern': true,
+        },
+        onCommandPattern: (value) => saved = value);
+    unawaited(decision.then((_) => answered = true));
+    await tick();
+    io.feed('ab');
+    await tick();
+    expect(exact, 0,
+        reason: 'the prefix option never consults the full-command suggester');
+    expect(prefixes, 1);
+    expect(ui.asker!.currentPatternReview!.input.buffer, prefixPattern);
+    expect(all(), contains('Edit starting-with approval regex'));
+    expect(saved, isNull);
+    expect(answered, false);
+    io.feed('\x1b'); // back out of the review
+    await tick();
+    expect(ui.asker!.currentPatternReview, isNull);
+    expect(saved, isNull);
+    expect(answered, false,
+        reason: 'cancel leaves the pending request unanswered');
+    io.feed('b\r'); // reopen, then Enter reviews the rule
+    await tick();
+    io.feed('\x1b[B\r'); // workspace scope accepts it
+    expect(await decision, ApprovalDecision.allowWorkspace);
+    expect(saved, prefixPattern);
+    await tick();
+    expect(ui.asker!.current, isNull);
+  });
+
   test('alerts once per presented approval, including queued questions',
       () async {
     screen.enterAltScreen();

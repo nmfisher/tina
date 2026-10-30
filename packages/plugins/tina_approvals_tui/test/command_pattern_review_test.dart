@@ -165,4 +165,64 @@ void main() {
     expect(paints, 0);
     expect(review.input.buffer, RegExp.escape(command));
   });
+
+  const prefixCommand = 'git log --oneline';
+  const prefixPattern = r'git log[^\n;&|`$()]*';
+  final prefixRequest = ApprovalRequest(
+      id: 'prefix',
+      operation: 'run command',
+      target: prefixCommand,
+      reason: 'execution approval',
+      details: {
+        'command_pattern_target': prefixCommand,
+        'persistent_command_pattern': true,
+        'required_permissions': ['execution'],
+        'cwd': '/project',
+      });
+
+  test('a prefix suggestion is reviewed and saved like any other rule',
+      () async {
+    final review = CommandPatternReview(prefixRequest, prefix: true,
+        suggest: (req, _) async {
+      expect(req, same(prefixRequest));
+      return (
+        pattern: prefixPattern,
+        explanation: 'Arguments after git log vary.',
+        failure: null
+      );
+    });
+    addTearDown(review.close);
+    await tick();
+    expect(review.input.buffer, prefixPattern);
+    expect(shown(review), contains('Edit starting-with approval regex'));
+    expect(shown(review), contains('starts with the fixed part'));
+    expect(review.handle(enter()), CommandPatternReviewResult.pending);
+    expect(review.reviewing, true);
+    review.handle(ArrowKey(ArrowDirection.down));
+    expect(review.handle(enter()), CommandPatternReviewResult.approved);
+    expect(review.outcome.commandPattern, prefixPattern);
+    expect(review.outcome.decision, ApprovalDecision.allowWorkspace);
+    expect(CommandApprovalPattern(prefixPattern).matches(prefixCommand), true);
+  });
+
+  test('a refused prefix keeps the plain escaped command and stores nothing',
+      () async {
+    // The compound command carries a shell separator: no prefix rule exists,
+    // so the editor offers the plain escaped command instead.
+    final review = CommandPatternReview(request,
+        prefix: true,
+        suggest: (_, __) async => (
+              pattern: null,
+              explanation: null,
+              failure: 'compound command: no prefix rule'
+            ));
+    addTearDown(review.close);
+    await tick();
+    expect(review.input.buffer, RegExp.escape(command),
+        reason: 'the literal command is the offered rule');
+    expect(review.status, contains('compound command: no prefix rule'));
+    expect(review.handle(enter()), CommandPatternReviewResult.pending);
+    expect(review.reviewing, true,
+        reason: 'the literal rule still reaches scoped confirmation');
+  });
 }

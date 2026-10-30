@@ -16,13 +16,15 @@ enum CommandPatternReviewResult { pending, back, approved, denied }
 
 final class CommandPatternReview {
   CommandPatternReview(this.request,
-      {SuggestCommandPattern? suggest, this.onChange}) {
+      {SuggestCommandPattern? suggest, this.onChange, this.prefix = false}) {
     final literal = CommandApprovalPattern.escape(target);
     input = TextLineInput(buffer: literal, cursor: literal.length);
     if (suggest == null) {
       status = 'Model suggestion unavailable; edit the literal pattern.';
     } else {
-      status = 'Asking the model to suggest a flexible regex…';
+      status = prefix
+          ? 'Asking the model to suggest a starting-with rule…'
+          : 'Asking the model to suggest a flexible regex…';
       unawaited(
           Future.sync(() => suggest(request, _cancel.future)).then((draft) {
         if (_closed) return;
@@ -54,6 +56,10 @@ final class CommandPatternReview {
 
   final ApprovalRequest request;
   String get target => request.details['command_pattern_target'] as String;
+
+  /// This editor drafts an "any command starting with …" rule: the wording
+  /// says so, but validation, scopes and saving are identical.
+  final bool prefix;
   late TextLineInput input;
   String? status, error;
   bool reviewing = false;
@@ -199,7 +205,12 @@ final class CommandPatternReview {
     final context = [
       'Command: $target',
       if (reviewing) 'Regex: ${input.buffer}',
-      'Matches the entire command. Keep patterns narrow around values that may vary.',
+      if (prefix) ...[
+        'The rule allows any command that starts with the fixed part of the regex.',
+        'The varying part must not be able to match ;, &&, ||, |, a newline, a backtick, \$('
+            ' or ).',
+      ] else
+        'Matches the entire command. Keep patterns narrow around values that may vary.',
       'Executable, environment, input and granted permissions stay fixed.',
       outside
           ? 'Access: outside sandbox, host filesystem, real HOME credentials and network.'
@@ -241,8 +252,12 @@ final class CommandPatternReview {
     final lines = [
       row(
           reviewing
-              ? 'Review always-approve regex'
-              : 'Edit always-approve regex',
+              ? prefix
+                  ? 'Review starting-with approval regex'
+                  : 'Review always-approve regex'
+              : prefix
+                  ? 'Edit starting-with approval regex'
+                  : 'Edit always-approve regex',
           theme.dialog.confirm),
       ...wrapped.skip(_offset).take(available),
       if (note != null)

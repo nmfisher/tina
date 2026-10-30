@@ -36,7 +36,9 @@ final class ApprovalView implements ConsoleContribution {
     _overlay = OverlayRegion(
         context.screen, Rect(row: 1, col: 1, width: 1, height: 1));
     _asker = QueuedDialogAsker(
-        suggestCommandPattern: interaction.suggest, denyOnClose: false)
+        suggestCommandPattern: interaction.suggest,
+        suggestCommandPrefix: interaction.suggestPrefix,
+        denyOnClose: false)
       ..onChange = repaintConsole;
     _unlisten = context.own(interaction.listen((question) {
       unawaited(_present(question));
@@ -175,12 +177,19 @@ final class ApprovalView implements ConsoleContribution {
 /// Serializes dialogs while allowing cancelled queued requests to disappear.
 final class QueuedDialogAsker {
   QueuedDialogAsker(
-      {this.keysFor, this.suggestCommandPattern, this.denyOnClose = true});
+      {this.keysFor,
+      this.suggestCommandPattern,
+      this.suggestCommandPrefix,
+      this.denyOnClose = true});
   final bool denyOnClose;
   final _cancel = Completer<void>();
   Future<void> get whenClosed => _cancel.future;
   final KeySource Function(ApprovalQuestion)? keysFor;
   final SuggestCommandPattern? suggestCommandPattern;
+
+  /// Drafts the prefix-shaped rule for the "allow any command starting with
+  /// …" option. Null keeps the editor's literal fallback.
+  final SuggestCommandPattern? suggestCommandPrefix;
   final _pending = <ApprovalQuestion>{};
   Future<void> _tail = Future.value();
   ApprovalRequest? current;
@@ -229,7 +238,11 @@ final class QueuedDialogAsker {
           }
           if (source is! CommandPatternKeySource) continue;
           final review = CommandPatternReview(request,
-              suggest: suggestCommandPattern, onChange: onChange);
+              suggest: outcome.prefixCommandPattern
+                  ? suggestCommandPrefix
+                  : suggestCommandPattern,
+              prefix: outcome.prefixCommandPattern,
+              onChange: onChange);
           currentPatternReview = review;
           try {
             var back = false;
@@ -324,6 +337,7 @@ final class _ConsoleKeys implements CommandPatternKeySource {
         CharInput(text: 'p') => ApprovalKey.workspace,
         CharInput(text: 'g') => ApprovalKey.global,
         CharInput(text: 'e') => ApprovalKey.editCommandPattern,
+        CharInput(text: 'b') => ApprovalKey.allowCommandPrefix,
         CharInput(text: 'r') => ApprovalKey.toggleReadDirectory,
         CharInput(text: 'w') => ApprovalKey.toggleWriteDirectory,
         CharInput(text: 's') => ApprovalKey.directoryScope,
