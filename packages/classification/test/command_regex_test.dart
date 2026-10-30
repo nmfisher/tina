@@ -198,11 +198,11 @@ void main() {
     test('exact mode never applies the prefix guards', () async {
       // A single-word command and a compound one both reach the provider in
       // the historical full-command mode, exactly as before.
-      for (final entry in [command, 'git']) {
+      for (final command in [command, 'git']) {
         final provider = Provider(completed(
             jsonEncode({'pattern': 'git log', 'explanation': 'literal'})));
-        final result = await CommandRegexSuggester(() => provider)
-            .suggest(command);
+        final result =
+            await CommandRegexSuggester(() => provider).suggest(command);
         expect(result.pattern, 'git log');
         expect(provider.closed, true);
       }
