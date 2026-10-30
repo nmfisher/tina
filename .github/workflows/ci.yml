@@ -581,6 +581,28 @@ jobs:
         working-directory: packages/plugins/tina_subagents
         run: dart test -j 4
 
+  # tina_web_search is terminal-free and native-free (its HTTP runs through
+  # tina_llm's injectable endpoint seam, so tests never open sockets).
+  tina_web_search:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_web_search')
+    name: tina_web_search (packages/plugins/tina_web_search)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_web_search)
+        working-directory: packages/plugins/tina_web_search
+        run: dart pub get
+      - name: analyze (tina_web_search)
+        working-directory: packages/plugins/tina_web_search
+        run: dart analyze
+      - name: test (tina_web_search)
+        working-directory: packages/plugins/tina_web_search
+        run: dart test -j 4
+
   tina_workflows:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'tina_workflows')

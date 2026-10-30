@@ -16,6 +16,7 @@
     "tina_host",
     "tina_sqlite",
     "tina_subagents",
+    "tina_web_search",
     "tina_file_resources",
     "tina_tui",
     "tina_workflows",
@@ -119,6 +120,10 @@
       "tool"
     ],
     "tina_subagents": [
+      "lib",
+      "test"
+    ],
+    "tina_web_search": [
       "lib",
       "test"
     ],
@@ -328,6 +333,7 @@
     "tina_host": "packages/tina_host",
     "tina_sqlite": "packages/tina_sqlite",
     "tina_subagents": "packages/plugins/tina_subagents",
+    "tina_web_search": "packages/plugins/tina_web_search",
     "tina_file_resources": "packages/plugins/tina_file_resources",
     "tina_tui": "packages/tina_tui",
     "tina_workflows": "packages/plugins/tina_workflows",
@@ -457,6 +463,11 @@
       "tina_approvals",
       "tina_tools"
     ],
+    "tina_web_search": [
+      "tina_core",
+      "tina_engine_2",
+      "tina_llm"
+    ],
     "tina_settings": [],
     "tina": [
       "classification",
@@ -500,6 +511,7 @@
       "tina_token_rate_tui",
       "tina_tools",
       "tina_tui",
+      "tina_web_search",
       "toml"
     ],
     "tina_context_tui": [
