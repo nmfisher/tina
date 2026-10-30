@@ -755,4 +755,49 @@ void main() {
     ]));
     expect(outcome.decision, ApprovalDecision.deny);
   });
+
+  ApprovalDialog commandAsk() => ApprovalDialog(null,
+      ask: ApprovalAskContext('run command', 'git log --oneline', 'execute',
+          details: {
+            'permission_scope': 'command',
+            'persistent_command_approval': true,
+            'command_pattern_target': 'git log --oneline',
+          }));
+
+  test('the prefix allowance rides with the other remembered allowances',
+      () async {
+    final dialog = commandAsk()..handleKey(ApprovalKey.always);
+    final shown = dialog.rows(width: 120).map(text).join('\n');
+    expect(shown, contains('[a] allow this command for this session'));
+    expect(shown, contains('[b] Allow any command starting with …'));
+    final shortcut = await dialog
+        .awaitDecision(ScriptedKeySource([ApprovalKey.allowCommandPrefix]));
+    expect(shortcut.editCommandPattern, true);
+    expect(shortcut.prefixCommandPattern, true);
+    expect(shortcut.decision, ApprovalDecision.deny,
+        reason: 'opening the review never answers the ask');
+    // The row itself reaches the same review through Enter.
+    final selected = commandAsk()..handleKey(ApprovalKey.always);
+    selected.handleKey(ApprovalKey.down);
+    selected.handleKey(ApprovalKey.down);
+    selected.handleKey(ApprovalKey.down);
+    final outcome =
+        await selected.awaitDecision(ScriptedKeySource([ApprovalKey.confirm]));
+    expect(outcome.editCommandPattern, true);
+    expect(outcome.prefixCommandPattern, true);
+  });
+
+  test('asks without command text never offer the prefix allowance', () async {
+    final plain = scoped()..handleKey(ApprovalKey.always);
+    expect(plain.rows(width: 120).map(text).join('\n'),
+        isNot(contains('starting with')));
+    expect(plain.rows(width: 120).map(text).join('\n'), isNot(contains('[b]')));
+    final outcome = await plain
+        .awaitDecision(ScriptedKeySource([ApprovalKey.allowCommandPrefix]));
+    expect(outcome.editCommandPattern, isFalse,
+        reason: 'the shortcut is inactive without a command-shaped target');
+    expect(outcome.decision, ApprovalDecision.deny);
+    expect(outcome.isCancellation, isTrue,
+        reason: 'the unused key is consumed, never an answer');
+  });
 }
