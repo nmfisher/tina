@@ -198,11 +198,18 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       'tina/approvals-tui',
       dependency: modelAccess,
       provides: [approvalChannel],
-      create: (c, models) => AttachmentApprovalChannel(
-        suggestCommandPattern: (request, cancelled) async {
+      create: (c, models) {
+        // Both editors draft through the same model lease; only the
+        // instruction differs (full command vs starting-with rule).
+        Future<CommandPatternSuggestion> suggest(
+          CommandRegexSuggestionMode mode,
+          ApprovalRequest request,
+          Future<void> cancelled,
+        ) async {
           final suggestion =
               await CommandRegexSuggester(
                 () => models.mainProvider(_classifierModel(c)),
+                mode: mode,
               ).suggest(
                 request.details['command_pattern_target'] as String,
                 whenCancelled: cancelled,
@@ -212,8 +219,15 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             explanation: suggestion.explanation,
             failure: suggestion.failure,
           );
-        },
-      ),
+        }
+
+        return AttachmentApprovalChannel(
+          suggestCommandPattern: (request, cancelled) =>
+              suggest(CommandRegexSuggestionMode.exact, request, cancelled),
+          suggestCommandPrefix: (request, cancelled) =>
+              suggest(CommandRegexSuggestionMode.prefix, request, cancelled),
+        );
+      },
       description:
           'Shows approval choices and edits model-suggested command approval regexes.',
     ),
