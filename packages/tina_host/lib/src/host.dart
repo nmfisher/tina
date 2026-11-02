@@ -552,7 +552,14 @@ final class Host {
   }
 
   void switchModel(String model) {
-    _checkIdle();
+    _checkOpen();
+    // Switching only re-points future requests: between-turns work such as
+    // a running compaction keeps the provider it started with, and the
+    // loop installs the replacement when that work ends. A running turn
+    // owns the request stream, and plugin operations may start turns —
+    // both keep refusing the switch.
+    if (session.loop.inTurn || _operation != null)
+      throw StateError('model switching requires an idle turn');
     if (model == this.model) return;
     final provider = config.providerFactory(model);
     session.loop.replaceProvider(provider);

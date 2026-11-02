@@ -10,6 +10,7 @@
 library;
 
 import 'package:tina_persistence/tina_persistence.dart';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:test/test.dart';
@@ -574,6 +575,84 @@ void main() {
         reason: 'both hosts appended to one continuous slice');
     resumed.close();
   });
+
+  test(
+      'switching models during /compact keeps the summary on its own provider '
+      'and still bypasses the size trigger', () async {
+    // `/compact` compacts on demand: the threshold above is never reached,
+    // the command still summarizes.
+    final original = ScriptedProvider([
+      turn('x' * 400),
+      turn('y' * 400),
+      scriptedReply('summary'),
+    ]);
+    final held = _HeldProvider(original, holdAt: 2);
+    final next = ScriptedProvider([turn('after the switch')]);
+    final host = Host.start(HostConfig(
+      providerFactory: (model) => model == 'next-model' ? next : held,
+      workingDirectory: ws.path,
+      plugins: [
+        CompactionPlugin(
+            config: const CompactionConfig(
+                thresholdTokens: 100000, keepRecentTokens: 100)),
+      ],
+    ));
+    addTearDown(host.shutdown);
+    await host.send('one');
+    await host.send('two');
+    final compacting = host.commands['compact']!.handler('');
+    await held.started.future; // the summary request is in flight
+    host.switchModel('next-model'); // must succeed mid-compaction
+    expect(host.model, 'next-model');
+    expect(held.closed, isFalse,
+        reason: 'the in-flight summary keeps the provider it started with');
+    held.release();
+    await compacting;
+    expect(original.callCount, 3, reason: 'the summary rode the old provider');
+    expect(next.callCount, 0);
+    expect(held.closed, isTrue, reason: 'retired when the compaction ended');
+    expect(host.session.loop.provider, same(next));
+    expect(host.session.loop.log.whereType<CompactedEntry>(), hasLength(1));
+    await host.send('three'); // the next main request uses the new model
+    expect(next.callCount, 1);
+    expect(original.callCount, 3);
+  });
+}
+
+/// Wraps a scripted provider and holds one designated reply mid-stream so
+/// a test can act while the loop owns an in-flight request.
+final class _HeldProvider implements LlmProvider {
+  _HeldProvider(this.inner, {required this.holdAt});
+
+  final ScriptedProvider inner;
+  final int holdAt;
+  final started = Completer<void>();
+  Completer<void>? _release;
+  bool closed = false;
+
+  @override
+  String get model => inner.model;
+
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) async* {
+    if (inner.requests.length == holdAt) {
+      _release = Completer<void>();
+      started.complete();
+      await _release!.future;
+    }
+    yield* inner.send(system: system, messages: messages, tools: tools);
+  }
+
+  void release() => _release?.complete();
+
+  @override
+  void close() {
+    closed = true;
+    inner.close();
+  }
 }
 
 /// A terminal that records what the plugin writes, for decline-path
