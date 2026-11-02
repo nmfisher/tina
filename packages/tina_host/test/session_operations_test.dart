@@ -366,4 +366,105 @@ void main() {
     expect(host.session.loop.running, isFalse);
     await expectLater(retained.send('late'), throwsStateError);
   });
+
+  test(
+      'model switching during between-turns work applies to the next request',
+      () async {
+    final inside = Completer<void>(), held = Completer<void>();
+    final worker = _BetweenTurnsPlugin(inside, held);
+    final first = ScriptedProvider([scriptedReply('one')]);
+    final second = ScriptedProvider([scriptedReply('two')]);
+    final host = Host.start(HostConfig(
+      workingDirectory: '.',
+      providerFactory: (model) => model == 'next' ? second : first,
+      plugins: [worker],
+    ));
+    addTearDown(host.shutdown);
+    // The command holds between-turns work the way /compact holds its
+    // summary request.
+    final work = host.commands['between']!.handler('');
+    await inside.future;
+    expect(host.session.loop.running, isTrue);
+    host.switchModel('next'); // succeeds immediately, mid-work
+    expect(host.model, 'next');
+    expect(host.session.loop.provider, same(first),
+        reason: 'the running work keeps its provider until it ends');
+    held.complete();
+    await work;
+    expect(host.session.loop.provider, same(second));
+    expect(first.requests, isEmpty);
+    final outcome = await host.send('go');
+    expect(outcome.stopReason, StopReason.complete);
+    expect(second.callCount, 1, reason: 'the next main request switched');
+    expect(first.callCount, 0);
+  });
+
+  test('model switching during a running turn still throws', () async {
+    final release = Completer<void>();
+    final provider = _WaitingProvider(release.future);
+    final host = Host.start(HostConfig(
+      workingDirectory: '.',
+      providerFactory: (_) => provider,
+      plugins: [_Plugin()],
+    ));
+    addTearDown(host.shutdown);
+    final turn = host.send('go');
+    await provider.arrived.future;
+    expect(host.session.loop.inTurn, isTrue);
+    expect(() => host.switchModel('next'), throwsStateError);
+    expect(host.model, isNot('next'));
+    release.complete();
+    expect((await turn).stopReason, StopReason.complete);
+  });
+}
+
+/// A plugin whose command holds between-turns loop work open, shaped like
+/// the compaction plugin's /compact.
+final class _BetweenTurnsPlugin extends AgentPlugin {
+  _BetweenTurnsPlugin(this.inside, this.held);
+
+  final Completer<void> inside, held;
+  AgentLoop? _loop;
+
+  @override
+  String get id => 'test/between';
+
+  @override
+  void mountOn(AgentLoop loop) => _loop = loop;
+
+  @override
+  List<Command> get commands => [
+        Command(
+            name: 'between',
+            description: 'hold between-turns work open',
+            handler: (_) => _loop!.betweenTurns(() async {
+                  inside.complete();
+                  await held.future;
+                }))
+      ];
+}
+
+/// A provider that never answers until released, so a test can act while
+/// the loop owns an in-flight turn request.
+final class _WaitingProvider implements LlmProvider {
+  _WaitingProvider(this.release);
+
+  final Future<void> release;
+  final arrived = Completer<void>();
+
+  @override
+  String get model => 'waiting';
+
+  @override
+  Stream<StreamEvent> send(
+      {required String system,
+      required List<Message> messages,
+      required List<ToolSchema> tools}) async* {
+    arrived.complete();
+    await release;
+    yield const MessageComplete(content: [TextBlock('done')], stopReason: 'end_turn');
+  }
+
+  @override
+  void close() {}
 }
