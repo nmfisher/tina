@@ -7,7 +7,8 @@ import 'package:tina_approvals/tina_approvals.dart';
 
 final class Recorder implements ConfinedProcessRunner {
   @override
-  bool get confinesFilesystem => true;
+  final bool confinesFilesystem;
+  Recorder({this.confinesFilesystem = true});
   final calls = <ProcessRequest>[];
   final controls = <ProcessControl?>[];
   @override
@@ -88,6 +89,129 @@ void main() {
       if (mode != PermissionMode.yolo) {
         expect(await gate.run(call), isA<CommandRefused>());
       }
+    }
+  }, skip: Platform.isWindows);
+
+  // The reported read: a find|grep|head pipeline whose pattern quotes pipes
+  // and whose names glob. Capability (the static certification) plus a read
+  // grant (authorization) must answer it without the fallback flow — with
+  // or without an OS sandbox behind the runner.
+  test('the reported pipeline reads a granted directory without asking',
+      () async {
+    final engine = Directory('${root.path}/engine')..createSync();
+    final source =
+        Directory('${engine.path}/plugins/animation/rig-logic/Source')
+          ..createSync(recursive: true);
+    File('${source.path}/A.h').writeAsStringSync('int A;\n');
+    ProcessRequest call() => request(
+        '/bin/sh',
+        [
+          '-c',
+          'find ${source.path} -name "*.h" -o -name "*.cpp" | grep -vE '
+              '"ThirdParty|SEdit|SNode|SGraph|Detail|Editor" | head -20'
+        ],
+        workspace);
+    for (final confined in [true, false]) {
+      for (final mode in [PermissionMode.ask, PermissionMode.readOnly]) {
+        final directories = ReadOnlyDirectories()..replace([engine.path]);
+        final inner = Recorder(confinesFilesystem: confined);
+        var approvals = 0;
+        final gate = SandboxedProcessRunner(
+            inner: inner,
+            mode: mode,
+            readDirectories: directories,
+            plan: plan(directories),
+            workspaceRoot: workspace.path,
+            executableSearchPath: '/usr/bin:/bin',
+            commandApprover: (_, __) async {
+              approvals++;
+              return Approval.no;
+            });
+        // A parent grant covers the find target; nothing may ask.
+        expect(await gate.run(call()), isA<CommandCompleted>(),
+            reason: 'confined=$confined mode=$mode');
+        expect(approvals, 0, reason: 'the grant is the authorization');
+        final spawned = inner.calls.last;
+        expect(spawned.command, '/bin/sh');
+        // Quoted pipes stay data, globs stay literal, and the pipeline
+        // shape survives with pinned executables.
+        expect(spawned.arguments.last, contains("'-vE'"));
+        expect(spawned.arguments.last,
+            contains("'ThirdParty|SEdit|SNode|SGraph|Detail|Editor'"));
+        expect(spawned.arguments.last, contains(" '-o' "));
+        expect(spawned.arguments.last, contains("'*.h'"));
+        expect(spawned.arguments.last, contains("| '/usr/bin/grep'"));
+        expect(spawned.arguments.last, contains("| '/usr/bin/head'"));
+        expect(inner.controls.last!.readOnly, true);
+        // Without the grant the read is unauthorized: the fallback asks.
+        directories.replace([]);
+        expect(await gate.run(call()), isA<CommandRefused>(),
+            reason: 'confined=$confined mode=$mode');
+        expect(
+            approvals,
+            mode == PermissionMode.readOnly && !confined ? 0 : 1,
+            reason: 'an ungranted read still prompts '
+                '(read-only refuses unconfined uncertified reads silently)');
+      }
+    }
+  }, skip: Platform.isWindows);
+
+  test('grant matching realpaths both sides across symlinks, .. and slashes',
+      () async {
+    final real = Directory('${external.path}/real')..createSync();
+    final notes = File('${real.path}/notes.txt')..writeAsStringSync('needle\n');
+    final alias = Link('${external.path}/alias')..createSync(real.path);
+    final fileAlias = Link('${real.path}/file-alias')..createSync(notes.path);
+    for (final granted in [
+      alias.path, // the grant itself recorded through a symlink
+      '${real.path}/../real/', // .. segments and a trailing slash
+    ]) {
+      final directories = ReadOnlyDirectories()..replace([granted]);
+      final inner = Recorder(confinesFilesystem: false);
+      final gate = SandboxedProcessRunner(
+          inner: inner,
+          mode: PermissionMode.ask,
+          readDirectories: directories,
+          plan: plan(directories),
+          workspaceRoot: workspace.path,
+          executableSearchPath: '/usr/bin:/bin',
+          commandApprover: (_, __) async => Approval.no);
+      expect(await gate.run(request('cat', [notes.path], workspace)),
+          isA<CommandCompleted>(),
+          reason: 'granted=$granted');
+      // The target itself may be a symlink into the granted tree.
+      expect(await gate.run(request('cat', [fileAlias.path], workspace)),
+          isA<CommandCompleted>(), reason: 'granted=$granted');
+      expect(inner.calls, isNotEmpty);
+    }
+  }, skip: Platform.isWindows);
+
+  test('write primitives inside a granted directory still take the ask flow',
+      () async {
+    final directories = ReadOnlyDirectories()..replace([external.path]);
+    for (final call in [
+      request(
+          '/bin/sh',
+          ['-c', "cat '${source.path}' > '${external.path}/written'"],
+          workspace),
+      request('touch', ['${external.path}/written'], workspace),
+    ]) {
+      final inner = Recorder(confinesFilesystem: false);
+      var approvals = 0;
+      final gate = SandboxedProcessRunner(
+          inner: inner,
+          mode: PermissionMode.ask,
+          readDirectories: directories,
+          plan: plan(directories),
+          workspaceRoot: workspace.path,
+          executableSearchPath: '/usr/bin:/bin',
+          commandApprover: (_, __) async {
+            approvals++;
+            return Approval.no;
+          });
+      expect(await gate.run(call), isA<CommandRefused>(), reason: '$call');
+      expect(approvals, 1, reason: 'a read grant never waves writes through');
+      expect(inner.calls, isEmpty);
     }
   }, skip: Platform.isWindows);
 
