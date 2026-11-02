@@ -20,6 +20,7 @@ final classifierModelSetting = SettingDefinition<String>(
       'approval diagnostics.',
   defaultValue: '',
   kind: SettingKind.text,
+  modelRef: true,
   applyAt: ApplyAt.nextRequest,
 );
 
