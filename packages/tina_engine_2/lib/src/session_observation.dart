@@ -301,14 +301,24 @@ final class SessionObservationSource implements WatchObserver {
     final through = loop?.publishedSeq ?? -1;
     final tail = _compactPreview(_tail);
     final truncated = _previewTruncated;
+    // Rewound sessions replay only the active prefix: a RewoundEntry cuts
+    // the entries it removed, so a reopened session shows the rewound
+    // conversation, not the discarded tail. Computed once per replay; a
+    // marker-free log (the common case) keeps every seq live.
+    final full = loop?.log ?? const <SessionEntry>[];
+    final live = rewoundLog(full)
+        ? {for (final entry in activeLog(full)) entry.seq}
+        : null;
     subscription.pending.clear();
     subscription.characters = 0;
     subscription.resync = false;
     for (var after = -1; after < through;) {
       final page = loop!
           .publishedEntries(afterSeq: after, throughSeq: through, limit: 128);
-      for (final entry in page)
+      for (final entry in page) {
+        if (live != null && !live.contains(entry.seq)) continue;
         subscription.listener(ObservedEntry(_snapshot(entry), LogEvent.replay));
+      }
       after += page.length;
     }
     for (final event in tail) subscription.listener(event);
@@ -316,6 +326,11 @@ final class SessionObservationSource implements WatchObserver {
       subscription.listener(const ObservedModel(SawNotice(
           'Earlier live preview omitted; the completed response will reconcile it.')));
   }
+
+  /// Whether [log] carries any rewind marker — the cheap gate that decides
+  /// whether a replay must compute the active prefix.
+  static bool rewoundLog(List<SessionEntry> log) =>
+      log.any((entry) => entry is RewoundEntry);
 
   void _publish(SessionObservationEvent event) {
     for (final subscription in _listeners.values) {
