@@ -29,7 +29,13 @@ final sessionControlsOperations = <String, SessionOperation>{
         detail: 'Selected model is no longer available. Open the picker again.',
       );
     }
-    controls.selectModel(model, expectedModel: expected);
+    // The host's own check refuses switches that would disturb a running
+    // turn; surface its reason instead of a bare type name.
+    try {
+      controls.selectModel(model, expectedModel: expected);
+    } on StateError catch (error) {
+      return SessionResult(stopReason: StopReason.error, detail: '$error');
+    }
     return const SessionResult();
-  }),
+  }, allowWhileRunning: true),
 };

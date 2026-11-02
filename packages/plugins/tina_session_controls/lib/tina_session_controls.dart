@@ -46,6 +46,10 @@ final class SessionControlsPlugin extends AgentPlugin {
     Command(
       name: 'model',
       description: 'pick or change this conversation model',
+      // Switching re-points future requests only: between-turns work such
+      // as a running /compact keeps its provider, and the loop installs
+      // the replacement when that work ends.
+      allowWhileRunning: true,
       complete: (prefix) =>
           modelCatalog().models.where((m) => m.startsWith(prefix)).toList(),
       handler: (argument) async {

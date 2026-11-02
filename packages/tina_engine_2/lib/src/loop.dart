@@ -101,6 +101,7 @@ final class AgentLoop {
   }
 
   LlmProvider _provider;
+  LlmProvider? _pendingProvider;
 
   /// The session's provider, read-only. Compaction needs it: the summary
   /// is one extra request on the provider the turn already uses — the
@@ -118,12 +119,38 @@ final class AgentLoop {
     return null;
   }
 
-  /// Replace the request resource only between turns.
+  /// Replace the request resource for future requests.
+  ///
+  /// A running turn owns the request stream and refuses the change. Work
+  /// between turns — a compaction summary — keeps the provider it started
+  /// with: while such work owns the loop the replacement is queued and
+  /// installed the moment it ends, so an in-flight request is never
+  /// redirected or closed underneath. A superseded queued replacement is
+  /// closed unused.
   void replaceProvider(LlmProvider provider) {
-    if (running) throw StateError('provider changes require an idle loop');
+    if (_inTurn) throw StateError('provider changes require an idle loop');
+    if (_running) {
+      _pendingProvider?.close();
+      _pendingProvider = provider;
+      return;
+    }
+    _installProvider(provider);
+  }
+
+  void _installProvider(LlmProvider provider) {
     final old = _provider;
     _provider = provider;
     old.close();
+  }
+
+  /// Apply a replacement queued while between-turns work held the loop.
+  /// Runs inside the same synchronous block that clears `_running`, so no
+  /// caller can observe an idle loop that still owes a provider.
+  void _flushPendingProvider() {
+    final pending = _pendingProvider;
+    if (pending == null) return;
+    _pendingProvider = null;
+    _installProvider(pending);
   }
 
   /// Reserve the session for an asynchronous operation outside a turn.
@@ -134,6 +161,7 @@ final class AgentLoop {
       return await operation();
     } finally {
       _running = false;
+      _flushPendingProvider();
     }
   }
 
@@ -695,6 +723,11 @@ final class AgentLoop {
             input.id, StopReason.error, 'Input failed (${error.runtimeType})',
             started: true));
         rethrow;
+      } finally {
+        // A replacement queued during this input's post-turn work —
+        // automatic compaction — belongs to the next request, not to a
+        // later queued input.
+        _flushPendingProvider();
       }
     }
 
@@ -720,6 +753,7 @@ final class AgentLoop {
       _cancel = CancelToken();
       _dropInputs(dropReason, dropDetail);
       _inputPending = Completer<void>();
+      _flushPendingProvider();
     }
   }
 
