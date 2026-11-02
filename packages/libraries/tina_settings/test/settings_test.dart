@@ -103,4 +103,23 @@ void main() {
     expect(settings.read(limit).value, 4);
     expect(settings.applicationErrors[limit.id], contains('saved'));
   });
+  test('modelRef is opt-in and reaches the descriptive setting info', () {
+    final plain = SettingDefinition<String>(
+        id: 'acme/worker/name',
+        label: 'Name',
+        description: 'Worker name',
+        defaultValue: '',
+        kind: SettingKind.text);
+    final reference = SettingDefinition<String>(
+        id: 'acme/worker/model',
+        label: 'Model',
+        description: 'Worker model',
+        defaultValue: '',
+        kind: SettingKind.text,
+        modelRef: true);
+    expect(plain.modelRef, isFalse);
+    expect(reference.modelRef, isTrue);
+    expect(SettingInfo(plain).modelRef, isFalse);
+    expect(SettingInfo(reference).modelRef, isTrue);
+  });
 }

@@ -23,6 +23,7 @@ final class SettingDefinition<T extends Object> {
     this.applyAt = ApplyAt.immediately,
     this.scopeReason = '',
     this.secret = false,
+    this.modelRef = false,
     this.minimum,
     this.maximum,
     List<String> choices = const [],
@@ -55,6 +56,10 @@ final class SettingDefinition<T extends Object> {
   final Set<SettingScope> scopes;
   final ApplyAt applyAt;
   final bool secret;
+
+  /// Text settings holding a `provider/model` reference offer the model picker
+  /// instead of a blind free-text field.
+  final bool modelRef;
   final int? minimum, maximum;
   final List<String> choices;
 
