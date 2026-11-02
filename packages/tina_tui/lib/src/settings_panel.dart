@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_settings/tina_settings.dart';
+import 'model_setting_editor.dart' show modelChoices, searchModelPicker;
 import 'providers_panel.dart';
+import 'setting_editors.dart';
 import 'settings_management.dart';
 
 typedef _SettingsEntry = ({
@@ -13,10 +15,20 @@ typedef _SettingsEntry = ({
 
 /// Shared scope editor plus specialized provider forms and plugin UI actions.
 final class SettingsPanel {
-  SettingsPanel(this.screen, this.editor, {this.readEvent});
+  SettingsPanel(this.screen, this.input,
+      {this.readEvent, this.editors = const []});
   final Screen screen;
-  final LineEditor editor;
+
+  /// The shared line input the panel reads keys from and hands the input
+  /// owner back to. This is a [LineEditor], not an editor from [editors].
+  final LineEditor input;
   final Future<InputEvent> Function()? readEvent;
+
+  /// Application-contributed [ScopedSettingEditor]s that may replace a
+  /// setting's built-in editor. Unrelated to [input]: these edit setting
+  /// values, not console keys. Empty keeps the panel's own behavior for
+  /// every setting.
+  final List<ScopedSettingEditor> editors;
   late Future<InputEvent> Function() _read;
   late OverlayRegion _overlay;
   late ScreenCursor _cursor;
@@ -109,8 +121,8 @@ final class SettingsPanel {
     repaint();
   }
 
-  /// Uses one disposable editor connection; closing the dialog releases that
-  /// connection without closing the runtime's shared settings.
+  /// Uses one disposable input session; closing the dialog releases that
+  /// session without closing the runtime's shared settings.
   Future<bool> run(
       {required SettingsManagement management,
       SettingsRegistry? sections}) async {
@@ -123,10 +135,10 @@ final class SettingsPanel {
     _cancelled = false;
     _breadcrumbs.clear();
     _cancel = Completer<void>();
-    final input = readEvent == null
-        ? editor.openInputSession(cancelSignal: _cancel.future)
+    final inputSession = readEvent == null
+        ? input.openInputSession(cancelSignal: _cancel.future)
         : null;
-    _read = readEvent ?? input!.read;
+    _read = readEvent ?? inputSession!.read;
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
     final stopSettings = management.listen(_refresh);
@@ -142,11 +154,11 @@ final class SettingsPanel {
         management.close();
         _paint = null;
         if (!_cancel.isCompleted) _cancel.complete();
-        input?.dispose();
+        inputSession?.dispose();
         await _pendingRead;
         _pendingRead = null;
         _overlay.hide();
-        editor.handleResize();
+        input.handleResize();
       } finally {
         _cursor.release();
       }
@@ -525,7 +537,45 @@ final class SettingsPanel {
       {bool Function()? valid, SettingsClient? client}) async {
     if (!await _allowedScope(definition)) return;
     await _withinScopes(definition.scopes,
-        () => _editScopedValue(definition, valid: valid, client: client));
+        () => _contributedValue(definition, valid: valid, client: client));
+  }
+
+  /// Contributed editors run before the built-in editors: the first one that
+  /// handles the definition owns the edit and returns a value; the panel
+  /// alone writes it through the scoped-settings path. Without a contributor
+  /// the built-in editors run unchanged.
+  Future<void> _contributedValue(SettingInfo definition,
+      {bool Function()? valid, SettingsClient? client}) async {
+    final editor = editors.where((e) => e.handles(definition)).firstOrNull;
+    if (editor == null) {
+      await _editScopedValue(definition, valid: valid, client: client);
+      return;
+    }
+    if (valid?.call() == false) return;
+    final connection = client ?? _management.settings;
+    final snapshot = connection.snapshot(refresh: true);
+    final scope = _scope;
+    final value = await editor.edit(ScopedSettingEdit(
+        definition: definition,
+        value: snapshot.read(definition, scope: scope).value.toString(),
+        scope: scope,
+        providers: _management.providers,
+        openDraft: () => _management.openDraft(scope),
+        closeDraft: _management.closeDraft,
+        editText: (label, initial) => _edit(label, initial, valid: valid),
+        screen: screen,
+        title: _title,
+        bounds: () => _frame,
+        contextLine: () => _scopeLine,
+        readEvent: _formEvent,
+        hideOverlay: _overlay.hide,
+        setRepaint: (paint) => _paint = paint));
+    if (value == null) return;
+    if (valid?.call() == false) return;
+    connection.update(scope,
+        expectedRevision: snapshot.revision, values: {definition.id: value});
+    _refresh();
+    _savedSection = true;
   }
 
   Future<void> _editScopedValue(SettingInfo definition,
@@ -998,58 +1048,27 @@ final class SettingsPanel {
 
   Future<bool> _defaultModel(
       ProviderDraft document, List<ProviderOption> descriptors) async {
-    final providers = document.table('providers');
     final defaults = document.table('default');
-    final currentId = defaults['provider'] as String? ?? 'anthropic';
-    final ids = providers.isEmpty
-        ? {...descriptors.map((d) => d.id), currentId}.toList()
-        : {...providers.keys, currentId}.toList();
-    final refs = <String>[];
-    final names = <String, String>{};
-    final modelNames = <String, String>{};
-    for (final id in ids) {
-      final descriptor = descriptors.where((d) => d.id == id).firstOrNull;
-      final values = providers[id];
-      final fields =
-          (values as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final disabled =
-          (fields['disabled_models'] as List? ?? const []).cast<String>();
-      names[id] = fields['name'] as String? ?? descriptor?.name ?? id;
-      final models = providerModels(descriptor, fields);
-      for (final model in models.entries) {
-        if (disabled.contains(model.key)) continue;
-        refs.add('$id/${model.key}');
-        modelNames['$id/${model.key}'] = model.value;
-      }
-      final current = defaults['model'] as String? ?? '';
-      if (id == currentId &&
-          current.isNotEmpty &&
-          !disabled.contains(current) &&
-          !refs.contains('$id/$current')) refs.add('$id/$current');
+    final current =
+        '${defaults['provider'] as String? ?? 'anthropic'}/${defaults['model'] as String? ?? ''}';
+    final choices = modelChoices(document, descriptors, current);
+    final chosen = choices == null
+        ? null
+        : await searchModelPicker(
+            screen: screen,
+            title: _title('Choose default model'),
+            choices: choices,
+            bounds: () => _frame,
+            contextLine: () => _scopeLine,
+            readEvent: _formEvent,
+            hideOverlay: _overlay.hide,
+            setRepaint: (paint) => _paint = paint);
+    if (chosen != null) {
+      final slash = chosen.indexOf('/');
+      defaults['provider'] = chosen.substring(0, slash);
+      defaults['model'] = chosen.substring(slash + 1);
     }
-    final picker = ModelSearchPicker(
-        screen: screen,
-        modelRefs: refs,
-        providerNames: names,
-        modelNames: modelNames,
-        title: _title('Choose default model'),
-        bounds: () => _frame,
-        contextLine: () => _scopeLine,
-        readEvent: _formEvent,
-        accent: screen.theme.border.focus);
-    _overlay.hide();
-    _paint = picker.repaint;
-    try {
-      final chosen = await picker.run();
-      if (chosen != null) {
-        final slash = chosen.indexOf('/');
-        defaults['provider'] = chosen.substring(0, slash);
-        defaults['model'] = chosen.substring(slash + 1);
-      }
-      return chosen != null;
-    } finally {
-      _paint = null;
-    }
+    return chosen != null;
   }
 
   Future<bool> _providers(
