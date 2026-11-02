@@ -15,14 +15,19 @@ typedef _SettingsEntry = ({
 
 /// Shared scope editor plus specialized provider forms and plugin UI actions.
 final class SettingsPanel {
-  SettingsPanel(this.screen, this.editor,
+  SettingsPanel(this.screen, this.input,
       {this.readEvent, this.editors = const []});
   final Screen screen;
-  final LineEditor editor;
+
+  /// The shared line input the panel reads keys from and hands the input
+  /// owner back to. This is a [LineEditor], not an editor from [editors].
+  final LineEditor input;
   final Future<InputEvent> Function()? readEvent;
 
-  /// Application-contributed editors that may replace a setting's built-in
-  /// editor. Empty keeps the panel's own behavior for every setting.
+  /// Application-contributed [ScopedSettingEditor]s that may replace a
+  /// setting's built-in editor. Unrelated to [input]: these edit setting
+  /// values, not console keys. Empty keeps the panel's own behavior for
+  /// every setting.
   final List<ScopedSettingEditor> editors;
   late Future<InputEvent> Function() _read;
   late OverlayRegion _overlay;
@@ -116,8 +121,8 @@ final class SettingsPanel {
     repaint();
   }
 
-  /// Uses one disposable editor connection; closing the dialog releases that
-  /// connection without closing the runtime's shared settings.
+  /// Uses one disposable input session; closing the dialog releases that
+  /// session without closing the runtime's shared settings.
   Future<bool> run(
       {required SettingsManagement management,
       SettingsRegistry? sections}) async {
@@ -130,10 +135,10 @@ final class SettingsPanel {
     _cancelled = false;
     _breadcrumbs.clear();
     _cancel = Completer<void>();
-    final input = readEvent == null
-        ? editor.openInputSession(cancelSignal: _cancel.future)
+    final inputSession = readEvent == null
+        ? input.openInputSession(cancelSignal: _cancel.future)
         : null;
-    _read = readEvent ?? input!.read;
+    _read = readEvent ?? inputSession!.read;
     _pendingRead = null;
     final unlisten = sections?.listen(_refresh);
     final stopSettings = management.listen(_refresh);
@@ -149,11 +154,11 @@ final class SettingsPanel {
         management.close();
         _paint = null;
         if (!_cancel.isCompleted) _cancel.complete();
-        input?.dispose();
+        inputSession?.dispose();
         await _pendingRead;
         _pendingRead = null;
         _overlay.hide();
-        editor.handleResize();
+        input.handleResize();
       } finally {
         _cursor.release();
       }

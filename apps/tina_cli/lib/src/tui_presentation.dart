@@ -10,9 +10,14 @@ import 'package:tina_host/tina_host.dart';
 /// Application composition: concrete feature instances and configuration
 /// services are wired here, never reached through by a view.
 SessionPresentation presentationForAssembly(SessionAssembly assembly,
-        {required SessionConnection connection,
-        ConsoleViewFactory viewFactory = createConsoleView}) =>
-    SessionPresentation(
+    {required SessionConnection connection,
+    ConsoleViewFactory viewFactory = createConsoleView}) {
+  // Settings whose text value is a `provider/model` ref, so they open the
+  // searchable model picker instead of a free-form line. Wired once here;
+  // every settings panel consults this list by setting identity before its
+  // built-in editors.
+  final modelRefEditors = [ModelSettingEditor([classifierModelSetting])];
+  return SessionPresentation(
       theme: () => resolveTheme(assembly.theme),
       configNote: assembly.configNote,
       quitRequested: () => assembly.quitRequested,
@@ -39,7 +44,7 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
       },
       settingsFor: (context) {
         final panel = SettingsPanel(context.screen, context.input,
-            editors: [ModelSettingEditor([classifierModelSetting])]);
+            editors: modelRefEditors);
         return SessionSettingsView(
             open: () async {
               connection.access.requireControl();
@@ -68,3 +73,4 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
             close: panel.cancel);
       },
     );
+}
