@@ -22,6 +22,10 @@ const descriptors = [
       keyStyle: ProviderKeyStyle.bearer)
 ];
 
+/// The app wiring under test: the classifier model edits through the
+/// contributed model picker.
+final _classifierModelEditor = [ModelSettingEditor([classifierModelSetting])];
+
 void main() {
   late Directory directory;
   late File config;
@@ -47,6 +51,7 @@ enabled = []
   Future<(bool, String)> drive(List<InputEvent> keys,
       {List<ProviderDescriptor> providerDescriptors = descriptors,
       void Function()? applyConfiguration,
+      List<ScopedSettingEditor>? editors,
       void Function(SessionAssembly assembly)? verify}) async {
     final io = FakeIo();
     final screen = fakeScreen(io);
@@ -54,7 +59,9 @@ enabled = []
     final editor = LineEditor(screen: screen);
     var index = 0;
     late final SettingsPanel panel;
-    panel = SettingsPanel(screen, editor, readEvent: () async {
+    panel = SettingsPanel(screen, editor,
+        editors: editors ?? _classifierModelEditor,
+        readEvent: () async {
       if (index >= keys.length)
         fail('settings consumed more keys than expected');
       // Reflow every other key to exercise selection and edit preservation.
@@ -309,6 +316,22 @@ enabled = []
     expect(saved, isTrue);
     expect(output, isNot(contains('filter models')));
     expect(output, contains('anthropic/claude-haiku'));
+  });
+
+  test('without contributed editors the classifier model stays plain text',
+      () async {
+    final (saved, output) = await drive([
+      CharInput('classifier model'), enter,
+      CharInput('custom/next'), // the built-in text editor
+      enter,
+      escape,
+    ], editors: const [], verify: (assembly) {
+      final state = assembly.settings.read(classifierModelSetting);
+      expect(state.value, 'custom/next');
+      expect(state.source, SettingScope.session);
+    });
+    expect(saved, isTrue);
+    expect(output, isNot(contains('filter models')));
   });
 
   test('provider tree checks models and preserves unrelated provider fields',

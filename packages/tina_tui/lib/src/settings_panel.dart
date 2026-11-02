@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_settings/tina_settings.dart';
+import 'model_setting_editor.dart' show modelChoices, searchModelPicker;
 import 'providers_panel.dart';
+import 'setting_editors.dart';
 import 'settings_management.dart';
 
 typedef _SettingsEntry = ({
@@ -11,20 +13,17 @@ typedef _SettingsEntry = ({
   Future<void> Function() open
 });
 
-/// Everything the searchable model picker offers: `provider/model` refs in
-/// registry order plus the display names for providers and models.
-typedef _ModelChoices = ({
-  List<String> refs,
-  Map<String, String> providerNames,
-  Map<String, String> modelNames
-});
-
 /// Shared scope editor plus specialized provider forms and plugin UI actions.
 final class SettingsPanel {
-  SettingsPanel(this.screen, this.editor, {this.readEvent});
+  SettingsPanel(this.screen, this.editor,
+      {this.readEvent, this.editors = const []});
   final Screen screen;
   final LineEditor editor;
   final Future<InputEvent> Function()? readEvent;
+
+  /// Application-contributed editors that may replace a setting's built-in
+  /// editor. Empty keeps the panel's own behavior for every setting.
+  final List<ScopedSettingEditor> editors;
   late Future<InputEvent> Function() _read;
   late OverlayRegion _overlay;
   late ScreenCursor _cursor;
@@ -533,7 +532,45 @@ final class SettingsPanel {
       {bool Function()? valid, SettingsClient? client}) async {
     if (!await _allowedScope(definition)) return;
     await _withinScopes(definition.scopes,
-        () => _editScopedValue(definition, valid: valid, client: client));
+        () => _contributedValue(definition, valid: valid, client: client));
+  }
+
+  /// Contributed editors run before the built-in editors: the first one that
+  /// handles the definition owns the edit and returns a value; the panel
+  /// alone writes it through the scoped-settings path. Without a contributor
+  /// the built-in editors run unchanged.
+  Future<void> _contributedValue(SettingInfo definition,
+      {bool Function()? valid, SettingsClient? client}) async {
+    final editor = editors.where((e) => e.handles(definition)).firstOrNull;
+    if (editor == null) {
+      await _editScopedValue(definition, valid: valid, client: client);
+      return;
+    }
+    if (valid?.call() == false) return;
+    final connection = client ?? _management.settings;
+    final snapshot = connection.snapshot(refresh: true);
+    final scope = _scope;
+    final value = await editor.edit(ScopedSettingEdit(
+        definition: definition,
+        value: snapshot.read(definition, scope: scope).value.toString(),
+        scope: scope,
+        providers: _management.providers,
+        openDraft: () => _management.openDraft(scope),
+        closeDraft: _management.closeDraft,
+        editText: (label, initial) => _edit(label, initial, valid: valid),
+        screen: screen,
+        title: _title,
+        bounds: () => _frame,
+        contextLine: () => _scopeLine,
+        readEvent: _formEvent,
+        hideOverlay: _overlay.hide,
+        setRepaint: (paint) => _paint = paint));
+    if (value == null) return;
+    if (valid?.call() == false) return;
+    connection.update(scope,
+        expectedRevision: snapshot.revision, values: {definition.id: value});
+    _refresh();
+    _savedSection = true;
   }
 
   Future<void> _editScopedValue(SettingInfo definition,
@@ -556,18 +593,16 @@ final class SettingsPanel {
       if (selected == null) return;
       value = options[selected];
     } else {
-      final text = definition.modelRef && definition.kind == SettingKind.text
-          ? await _editModelRef(definition, current.toString(), valid: valid)
-          : await _edit(
-              definition.label,
-              definition.secret
-                  ? ''
-                  : definition.kind == SettingKind.object
-                      ? jsonEncode(current)
-                      : current.toString(),
-              numeric: definition.kind == SettingKind.integer,
-              secret: definition.secret,
-              valid: valid);
+      final text = await _edit(
+          definition.label,
+          definition.secret
+              ? ''
+              : definition.kind == SettingKind.object
+                  ? jsonEncode(current)
+                  : current.toString(),
+          numeric: definition.kind == SettingKind.integer,
+          secret: definition.secret,
+          valid: valid);
       if (text == null) return;
       value = definition.kind == SettingKind.integer
           ? int.tryParse(text.replaceAll(',', ''))
@@ -580,25 +615,6 @@ final class SettingsPanel {
         expectedRevision: snapshot.revision, values: {definition.id: value});
     _refresh();
     _savedSection = true;
-  }
-
-  /// Text settings that hold a `provider/model` reference edit through the
-  /// searchable model picker, built exactly like the default-model picker:
-  /// one ref per configured provider's model, `disabled_models` excluded, the
-  /// current value offered even when the catalog does not list it. Without a
-  /// provider catalog the raw text editor stays available. Null when
-  /// cancelled; the write itself goes through the scoped-settings path.
-  Future<String?> _editModelRef(SettingInfo definition, String current,
-      {bool Function()? valid}) async {
-    final draft = _management.openDraft(_scope);
-    final _ModelChoices? choices;
-    try {
-      choices = _modelChoices(draft, _management.providers, current);
-    } finally {
-      _management.closeDraft(draft);
-    }
-    if (choices != null) return _searchModel(definition.label, choices);
-    return _edit(definition.label, current, valid: valid);
   }
 
   String _definitionHelp(SettingInfo definition) =>
@@ -1030,87 +1046,24 @@ final class SettingsPanel {
     final defaults = document.table('default');
     final current =
         '${defaults['provider'] as String? ?? 'anthropic'}/${defaults['model'] as String? ?? ''}';
-    final choices = _modelChoices(document, descriptors, current);
+    final choices = modelChoices(document, descriptors, current);
     final chosen = choices == null
         ? null
-        : await _searchModel('Choose default model', choices);
+        : await searchModelPicker(
+            screen: screen,
+            title: _title('Choose default model'),
+            choices: choices,
+            bounds: () => _frame,
+            contextLine: () => _scopeLine,
+            readEvent: _formEvent,
+            hideOverlay: _overlay.hide,
+            setRepaint: (paint) => _paint = paint);
     if (chosen != null) {
       final slash = chosen.indexOf('/');
       defaults['provider'] = chosen.substring(0, slash);
       defaults['model'] = chosen.substring(slash + 1);
     }
     return chosen != null;
-  }
-
-  /// Everything the model picker can offer: one `provider/model` ref per
-  /// configured provider's models (`providerModels(descriptor, fields)`),
-  /// honoring `disabled_models`, plus [current] (`provider/model`, empty when
-  /// unset) when it is not already listed — the current value stays pickable
-  /// even when the catalog does not carry it. Null when no provider supplies
-  /// any model, so callers can fall back to another editor.
-  _ModelChoices? _modelChoices(ProviderDraft document,
-      List<ProviderOption> descriptors, String current) {
-    final providers = document.table('providers');
-    final slash = current.indexOf('/');
-    final currentId = slash > 0 ? current.substring(0, slash) : '';
-    final currentModel = slash > 0 ? current.substring(slash + 1) : '';
-    final ids = providers.isEmpty
-        ? {
-            ...descriptors.map((d) => d.id),
-            if (currentId.isNotEmpty) currentId
-          }.toList()
-        : {
-            ...providers.keys,
-            if (currentId.isNotEmpty) currentId
-          }.toList();
-    final refs = <String>[];
-    final names = <String, String>{};
-    final modelNames = <String, String>{};
-    for (final id in ids) {
-      final descriptor = descriptors.where((d) => d.id == id).firstOrNull;
-      final values = providers[id];
-      final fields =
-          (values as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-      final disabled =
-          (fields['disabled_models'] as List? ?? const []).cast<String>();
-      names[id] = fields['name'] as String? ?? descriptor?.name ?? id;
-      final models = providerModels(descriptor, fields);
-      for (final model in models.entries) {
-        if (disabled.contains(model.key)) continue;
-        refs.add('$id/${model.key}');
-        modelNames['$id/${model.key}'] = model.value;
-      }
-      if (id == currentId &&
-          currentModel.isNotEmpty &&
-          !disabled.contains(currentModel) &&
-          !refs.contains(current)) refs.add(current);
-    }
-    return refs.isEmpty
-        ? null
-        : (refs: refs, providerNames: names, modelNames: modelNames);
-  }
-
-  /// The searchable model picker shared by the default-model editor and
-  /// `modelRef` settings. Returns the chosen `provider/model` ref, or null
-  /// when cancelled.
-  Future<String?> _searchModel(String title, _ModelChoices choices) async {
-    final picker = ModelSearchPicker(
-        screen: screen,
-        modelRefs: choices.refs,
-        providerNames: choices.providerNames,
-        modelNames: choices.modelNames,
-        title: _title(title),
-        bounds: () => _frame,
-        contextLine: () => _scopeLine,
-        readEvent: _formEvent,
-        accent: screen.theme.border.focus);
-    _overlay.hide();
-    _paint = picker.repaint;
-    try {
-      return await picker.run();
-    } finally {
-      _paint = null;
-    }
   }
 
   Future<bool> _providers(
