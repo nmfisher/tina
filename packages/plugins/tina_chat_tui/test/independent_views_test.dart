@@ -127,6 +127,38 @@ void main() {
     expect(first.io.output.toString(), contains('mode: read-only'));
     replacement.dispose();
   });
+  test('the rewind picker is offered only for a bare /rewind', () async {
+    final controls = SessionControlsPlugin(
+      terminal: _Terminal(),
+      currentModel: () => 'acme/one',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(models: ['acme/one']),
+    );
+    final host = controlsHost(controls: controls);
+    final connection = host.connect();
+    final client = _Client();
+    final attachment = ConsoleAttachment.attach(
+        SessionControlsView(ConnectionSessionControls(connection)),
+        client.context);
+    addTearDown(() {
+      attachment.dispose();
+      client.dispose();
+      connection.close();
+    });
+
+    // An argument goes to the host command; only the bare form opens UI.
+    expect(
+        SessionControlsView(ConnectionSessionControls(connection))
+            .handleConsoleCommand('rewind', '2'),
+        isNull);
+
+    final opened = (attachment.contribution as SessionControlsView)
+        .handleConsoleCommand('rewind', '')!;
+    await opened.timeout(const Duration(seconds: 1));
+    // A session with no turns yet has no rewind points: a notice, no crash,
+    // and the session log is untouched.
+    expect(client.io.output.toString(), contains('Nothing to rewind to yet.'));
+  });
 }
 
 final class _Terminal implements Terminal {

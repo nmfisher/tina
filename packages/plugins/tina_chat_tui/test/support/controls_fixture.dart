@@ -23,6 +23,16 @@ Host controlsHost({ModePlugin? mode, SessionControlsPlugin? controls}) {
             'provider_names': data.catalog.providerNames,
             'model_names': data.catalog.modelNames,
             'recent_models': data.recentModels,
+            'rewind_points': [
+              for (final point in data.rewindPoints)
+                {
+                  'to_seq': point.toSeq,
+                  'at': point.at,
+                  'label': point.label,
+                  'kind': point.kind,
+                },
+            ],
+            'rewind_head': data.rewindHead,
           });
     },
   ));
