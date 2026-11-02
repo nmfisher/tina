@@ -19,7 +19,6 @@ final class SettingInfo {
         kind = definition.kind,
         applyAt = definition.applyAt,
         secret = definition.secret,
-        modelRef = definition.modelRef,
         minimum = definition.minimum,
         maximum = definition.maximum,
         choices = List.unmodifiable(definition.choices),
@@ -31,9 +30,6 @@ final class SettingInfo {
   final SettingKind kind;
   final ApplyAt applyAt;
   final bool secret;
-
-  /// Whether this text setting holds a `provider/model` reference.
-  final bool modelRef;
   final int? minimum, maximum;
   final List<String> choices, configPath;
   final Object? defaultValue;
