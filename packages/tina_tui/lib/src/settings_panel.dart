@@ -11,6 +11,14 @@ typedef _SettingsEntry = ({
   Future<void> Function() open
 });
 
+/// Everything the searchable model picker offers: `provider/model` refs in
+/// registry order plus the display names for providers and models.
+typedef _ModelChoices = ({
+  List<String> refs,
+  Map<String, String> providerNames,
+  Map<String, String> modelNames
+});
+
 /// Shared scope editor plus specialized provider forms and plugin UI actions.
 final class SettingsPanel {
   SettingsPanel(this.screen, this.editor, {this.readEvent});
@@ -548,16 +556,18 @@ final class SettingsPanel {
       if (selected == null) return;
       value = options[selected];
     } else {
-      final text = await _edit(
-          definition.label,
-          definition.secret
-              ? ''
-              : definition.kind == SettingKind.object
-                  ? jsonEncode(current)
-                  : current.toString(),
-          numeric: definition.kind == SettingKind.integer,
-          secret: definition.secret,
-          valid: valid);
+      final text = definition.modelRef && definition.kind == SettingKind.text
+          ? await _editModelRef(definition, current.toString(), valid: valid)
+          : await _edit(
+              definition.label,
+              definition.secret
+                  ? ''
+                  : definition.kind == SettingKind.object
+                      ? jsonEncode(current)
+                      : current.toString(),
+              numeric: definition.kind == SettingKind.integer,
+              secret: definition.secret,
+              valid: valid);
       if (text == null) return;
       value = definition.kind == SettingKind.integer
           ? int.tryParse(text.replaceAll(',', ''))
@@ -570,6 +580,25 @@ final class SettingsPanel {
         expectedRevision: snapshot.revision, values: {definition.id: value});
     _refresh();
     _savedSection = true;
+  }
+
+  /// Text settings that hold a `provider/model` reference edit through the
+  /// searchable model picker, built exactly like the default-model picker:
+  /// one ref per configured provider's model, `disabled_models` excluded, the
+  /// current value offered even when the catalog does not list it. Without a
+  /// provider catalog the raw text editor stays available. Null when
+  /// cancelled; the write itself goes through the scoped-settings path.
+  Future<String?> _editModelRef(SettingInfo definition, String current,
+      {bool Function()? valid}) async {
+    final draft = _management.openDraft(_scope);
+    final _ModelChoices? choices;
+    try {
+      choices = _modelChoices(draft, _management.providers, current);
+    } finally {
+      _management.closeDraft(draft);
+    }
+    if (choices != null) return _searchModel(definition.label, choices);
+    return _edit(definition.label, current, valid: valid);
   }
 
   String _definitionHelp(SettingInfo definition) =>
@@ -998,12 +1027,42 @@ final class SettingsPanel {
 
   Future<bool> _defaultModel(
       ProviderDraft document, List<ProviderOption> descriptors) async {
-    final providers = document.table('providers');
     final defaults = document.table('default');
-    final currentId = defaults['provider'] as String? ?? 'anthropic';
+    final current =
+        '${defaults['provider'] as String? ?? 'anthropic'}/${defaults['model'] as String? ?? ''}';
+    final choices = _modelChoices(document, descriptors, current);
+    final chosen = choices == null
+        ? null
+        : await _searchModel('Choose default model', choices);
+    if (chosen != null) {
+      final slash = chosen.indexOf('/');
+      defaults['provider'] = chosen.substring(0, slash);
+      defaults['model'] = chosen.substring(slash + 1);
+    }
+    return chosen != null;
+  }
+
+  /// Everything the model picker can offer: one `provider/model` ref per
+  /// configured provider's models (`providerModels(descriptor, fields)`),
+  /// honoring `disabled_models`, plus [current] (`provider/model`, empty when
+  /// unset) when it is not already listed — the current value stays pickable
+  /// even when the catalog does not carry it. Null when no provider supplies
+  /// any model, so callers can fall back to another editor.
+  _ModelChoices? _modelChoices(ProviderDraft document,
+      List<ProviderOption> descriptors, String current) {
+    final providers = document.table('providers');
+    final slash = current.indexOf('/');
+    final currentId = slash > 0 ? current.substring(0, slash) : '';
+    final currentModel = slash > 0 ? current.substring(slash + 1) : '';
     final ids = providers.isEmpty
-        ? {...descriptors.map((d) => d.id), currentId}.toList()
-        : {...providers.keys, currentId}.toList();
+        ? {
+            ...descriptors.map((d) => d.id),
+            if (currentId.isNotEmpty) currentId
+          }.toList()
+        : {
+            ...providers.keys,
+            if (currentId.isNotEmpty) currentId
+          }.toList();
     final refs = <String>[];
     final names = <String, String>{};
     final modelNames = <String, String>{};
@@ -1021,18 +1080,26 @@ final class SettingsPanel {
         refs.add('$id/${model.key}');
         modelNames['$id/${model.key}'] = model.value;
       }
-      final current = defaults['model'] as String? ?? '';
       if (id == currentId &&
-          current.isNotEmpty &&
-          !disabled.contains(current) &&
-          !refs.contains('$id/$current')) refs.add('$id/$current');
+          currentModel.isNotEmpty &&
+          !disabled.contains(currentModel) &&
+          !refs.contains(current)) refs.add(current);
     }
+    return refs.isEmpty
+        ? null
+        : (refs: refs, providerNames: names, modelNames: modelNames);
+  }
+
+  /// The searchable model picker shared by the default-model editor and
+  /// `modelRef` settings. Returns the chosen `provider/model` ref, or null
+  /// when cancelled.
+  Future<String?> _searchModel(String title, _ModelChoices choices) async {
     final picker = ModelSearchPicker(
         screen: screen,
-        modelRefs: refs,
-        providerNames: names,
-        modelNames: modelNames,
-        title: _title('Choose default model'),
+        modelRefs: choices.refs,
+        providerNames: choices.providerNames,
+        modelNames: choices.modelNames,
+        title: _title(title),
         bounds: () => _frame,
         contextLine: () => _scopeLine,
         readEvent: _formEvent,
@@ -1040,13 +1107,7 @@ final class SettingsPanel {
     _overlay.hide();
     _paint = picker.repaint;
     try {
-      final chosen = await picker.run();
-      if (chosen != null) {
-        final slash = chosen.indexOf('/');
-        defaults['provider'] = chosen.substring(0, slash);
-        defaults['model'] = chosen.substring(slash + 1);
-      }
-      return chosen != null;
+      return await picker.run();
     } finally {
       _paint = null;
     }
