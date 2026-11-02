@@ -5,6 +5,8 @@ import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_settings/tina_settings.dart' show SettingScope;
+import 'package:tina_mode/tina_mode.dart' show classifierModelSetting;
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
@@ -44,7 +46,8 @@ enabled = []
 
   Future<(bool, String)> drive(List<InputEvent> keys,
       {List<ProviderDescriptor> providerDescriptors = descriptors,
-      void Function()? applyConfiguration}) async {
+      void Function()? applyConfiguration,
+      void Function(SessionAssembly assembly)? verify}) async {
     final io = FakeIo();
     final screen = fakeScreen(io);
     screen.resize(ScreenLayout.fromSize(40, 8, split: false));
@@ -78,6 +81,7 @@ enabled = []
                 pluginDescriptions:
                     pluginDescriptions(assembly.pluginSettings.registry)));
         expect(index, keys.length);
+        verify?.call(assembly);
         return (saved, io.written.toString());
       } finally {
         assembly.close();
@@ -209,6 +213,102 @@ enabled = []
     expect(loaded.model, 'org/model');
     expect(output, contains('Choose default model'));
     expect(output, contains('org/model'));
+  });
+
+  test('the classifier model setting opens the searchable model picker',
+      () async {
+    final (saved, output) = await drive([
+      CharInput('classifier model'), enter, // search finds the setting
+      CharInput('Next'), enter, // filter and choose custom/next
+      escape, // close settings
+    ], verify: (assembly) {
+      final state = assembly.settings.read(classifierModelSetting);
+      expect(state.value, 'custom/next');
+      expect(state.source, SettingScope.session);
+    });
+    expect(saved, isTrue);
+    expect(output, contains('Auto-approval classifier model'));
+    expect(output, isNot(contains('Hidden')));
+  });
+
+  test('the chosen classifier model lands in the selected scope', () async {
+    final (saved, _) = await drive([
+      ControlKey(ControlCode.tab),
+      ControlKey(ControlCode.tab), // global scope
+      CharInput('classifier model'), enter,
+      CharInput('next'), enter,
+      escape,
+    ], verify: (assembly) {
+      final state = assembly.settings.read(classifierModelSetting);
+      expect(state.value, 'custom/next');
+      expect(state.source, SettingScope.global);
+    });
+    expect(saved, isTrue);
+    final section =
+        ConfigDocument.open(config.path).table('plugin_config')['tina/mode']
+            as Map;
+    expect(section['classifier_model'], 'custom/next');
+  });
+
+  test('the classifier picker omits disabled models', () async {
+    final (saved, output) = await drive([
+      CharInput('classifier model'), enter,
+      CharInput('hidden'), // the disabled model matches nothing
+      escape, // cancel the picker
+      escape, // close settings
+    ]);
+    expect(saved, isFalse);
+    expect(output, contains('no models match'));
+    expect(output, isNot(contains('custom/hidden')));
+    expect(output, isNot(contains('Hidden')));
+    expect(config.readAsStringSync(), isNot(contains('classifier_model')));
+  });
+
+  test('the current classifier model stays pickable when unlisted', () async {
+    config.writeAsStringSync(
+        '${config.readAsStringSync()}\n[plugin_config."tina/mode"]\n'
+        'classifier_model = "custom/mystery"\n');
+    final (saved, output) = await drive([
+      CharInput('classifier model'), enter,
+      CharInput('mystery'), enter, // the unlisted current value still matches
+      escape,
+    ], verify: (assembly) {
+      final state = assembly.settings.read(classifierModelSetting);
+      expect(state.value, 'custom/mystery');
+      expect(state.source, SettingScope.session);
+    });
+    expect(saved, isTrue);
+    expect(output, contains('mystery'));
+  });
+
+  test('without a model catalog the classifier model falls back to text',
+      () async {
+    // The provider exists but lists no models, and the descriptor carries
+    // none either: the picker has nothing to offer.
+    config.writeAsStringSync('''
+[default]
+provider = "custom"
+model = "original"
+[providers.custom]
+wire = "openai"
+base_url = "https://custom.example/v1"
+api_key = "original-secret"
+[plugins]
+enabled = []
+''');
+    final (saved, output) = await drive([
+      CharInput('classifier model'), enter,
+      CharInput('anthropic/claude-haiku'), // the raw text editor
+      enter,
+      escape,
+    ], providerDescriptors: const [], verify: (assembly) {
+      final state = assembly.settings.read(classifierModelSetting);
+      expect(state.value, 'anthropic/claude-haiku');
+      expect(state.source, SettingScope.session);
+    });
+    expect(saved, isTrue);
+    expect(output, isNot(contains('filter models')));
+    expect(output, contains('anthropic/claude-haiku'));
   });
 
   test('provider tree checks models and preserves unrelated provider fields',
