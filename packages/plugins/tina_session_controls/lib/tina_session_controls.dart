@@ -151,10 +151,14 @@ final class SessionControlsPlugin extends AgentPlugin {
           );
           return;
         }
-        rewindTo(
-          toSeq: points[points.length - back].toSeq,
-          expectedHead: rewindHeadOf(loop.log),
-        );
+        try {
+          rewindTo(
+            toSeq: points[points.length - back].toSeq,
+            expectedHead: rewindHeadOf(loop.log),
+          );
+        } on StateError catch (error) {
+          terminal.writeln('Could not rewind: ${error.message}');
+        }
       },
     ),
   ];
