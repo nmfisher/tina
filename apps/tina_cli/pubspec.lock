@@ -620,6 +620,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_rewind:
+    dependency: "direct main"
+    description:
+      path: "../../packages/plugins/tina_rewind"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_self_update:
     dependency: "direct main"
     description:

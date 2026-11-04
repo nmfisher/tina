@@ -11,6 +11,7 @@ import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_plans/tina_plans.dart';
 import 'package:tina_self_update/tina_self_update.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
+import 'package:tina_rewind/tina_rewind.dart';
 import 'package:tina_tasks/tina_tasks.dart';
 
 /// Public data adapters for attachment snapshots. Feature policy, persistence
@@ -163,8 +164,15 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
         'models': controls.catalog.models,
         'provider_names': controls.catalog.providerNames,
         'model_names': controls.catalog.modelNames,
+      },
+    );
+  }
+  if (plugin is RewindPlugin) {
+    final rewind = plugin.observation;
+    return SnapshotFeature(
+      () => {
         'rewind_points': [
-          for (final point in controls.rewindPoints)
+          for (final point in rewind.rewindPoints)
             {
               'to_seq': point.toSeq,
               'at': point.at,
@@ -172,7 +180,7 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
               'kind': point.kind,
             },
         ],
-        'rewind_head': controls.rewindHead,
+        'rewind_head': rewind.rewindHead,
       },
     );
   }

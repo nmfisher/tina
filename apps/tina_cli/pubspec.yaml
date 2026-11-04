@@ -70,6 +70,8 @@ dependencies:
     path: ../../packages/plugins/tina_self_update
   tina_session_controls:
     path: ../../packages/plugins/tina_session_controls
+  tina_rewind:
+    path: ../../packages/plugins/tina_rewind
   tina_settings:
     path: ../../packages/libraries/tina_settings
   tina_shell:

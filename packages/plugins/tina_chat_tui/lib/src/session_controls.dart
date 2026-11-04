@@ -1,5 +1,5 @@
 import 'package:tina_console/tina_console.dart';
-import 'package:tina_session_controls/observation.dart';
+import 'package:tina_rewind/tina_rewind.dart';
 import 'connection_controls.dart';
 export 'package:tina_session_controls/observation.dart';
 

@@ -14,6 +14,23 @@ final class _Terminal implements Terminal {
 }
 
 void main() {
+  test('rewind is no longer part of session controls', () {
+    // Rewind moved to the tina_rewind plugin (tina/rewind): the command,
+    // its operation and its observation data must not creep back here, so
+    // the two features can be enabled or disabled independently.
+    final plugin = SessionControlsPlugin(
+      terminal: _Terminal(),
+      currentModel: () => 'm',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(models: ['m']),
+    );
+    expect(
+      plugin.commands.map((command) => command.name),
+      isNot(contains('rewind')),
+    );
+    expect(sessionControlsOperations.keys, ['select-model']);
+  });
+
   test(
     'model operations share recent selections and reject stale picker responses',
     () async {
@@ -158,14 +175,15 @@ void main() {
           throw StateError('model switching requires an idle turn'),
       modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
     );
-    final result = sessionControlsOperations['select-model']!.control!(
-        plugin, {'model': 'two', 'expected_model': 'one'});
+    final result = sessionControlsOperations['select-model']!.control!(plugin, {
+      'model': 'two',
+      'expected_model': 'one',
+    });
     expect(result.stopReason, StopReason.error);
     expect(result.detail, 'Bad state: model switching requires an idle turn');
   });
 
-  test(
-      'the picker switches models while between-turns work is running '
+  test('the picker switches models while between-turns work is running '
       'and the next request uses the new model', () async {
     Host? hostRef;
     var current = 'one';
@@ -181,27 +199,37 @@ void main() {
     final inside = Completer<void>(), held = Completer<void>();
     final one = ScriptedProvider([scriptedReply('one')]);
     final two = ScriptedProvider([scriptedReply('two')]);
-    final host = hostRef = Host.start(HostConfig(
-      workingDirectory: '.',
-      providerFactory: (model) => model == 'two' ? two : one,
-      plugins: [controls, _HoldPlugin(inside, held)],
-      operationsFor: (_) => sessionControlsOperations,
-    ));
+    final host = hostRef = Host.start(
+      HostConfig(
+        workingDirectory: '.',
+        providerFactory: (model) => model == 'two' ? two : one,
+        plugins: [controls, _HoldPlugin(inside, held)],
+        operationsFor: (_) => sessionControlsOperations,
+      ),
+    );
     addTearDown(host.shutdown);
     final client = host.connect();
     addTearDown(client.close);
     // Between-turns work in flight, shaped like a running /compact.
     final work = host.commands['hold']!.handler('');
     await inside.future;
-    final request = client.submitOperation('tina/session-controls',
-        'select-model',
-        arguments: {'model': 'two', 'expected_model': 'one'},
-        id: client.requestWindow.id('pick'));
-    expect(request.snapshot.state, SessionRequestState.completed,
-        reason: 'a read of the picker during compaction must not be idle-gated');
+    final request = client.submitOperation(
+      'tina/session-controls',
+      'select-model',
+      arguments: {'model': 'two', 'expected_model': 'one'},
+      id: client.requestWindow.id('pick'),
+    );
+    expect(
+      request.snapshot.state,
+      SessionRequestState.completed,
+      reason: 'a read of the picker during compaction must not be idle-gated',
+    );
     expect(host.model, 'two');
-    expect(host.session.loop.provider, same(one),
-        reason: 'the running work keeps its provider until it ends');
+    expect(
+      host.session.loop.provider,
+      same(one),
+      reason: 'the running work keeps its provider until it ends',
+    );
     held.complete();
     await work;
     expect(host.session.loop.provider, same(two));
@@ -210,44 +238,53 @@ void main() {
     expect(one.callCount, 0);
   });
 
-  test('the picker during a running turn fails with the refusal reason',
-      () async {
-    Host? hostRef;
-    var current = 'one';
-    final release = Completer<void>();
-    final provider = _WaitingProvider(release.future);
-    final controls = SessionControlsPlugin(
-      terminal: _Terminal(),
-      currentModel: () => current,
-      switchModel: (value) {
-        hostRef!.switchModel(value);
-        current = value;
-      },
-      modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
-    );
-    final host = hostRef = Host.start(HostConfig(
-      workingDirectory: '.',
-      providerFactory: (_) => provider,
-      plugins: [controls],
-      operationsFor: (_) => sessionControlsOperations,
-    ));
-    addTearDown(host.shutdown);
-    final client = host.connect();
-    addTearDown(client.close);
-    final turn = host.send('go');
-    await provider.arrived.future;
-    expect(host.session.loop.inTurn, isTrue);
-    final request = client.submitOperation('tina/session-controls',
+  test(
+    'the picker during a running turn fails with the refusal reason',
+    () async {
+      Host? hostRef;
+      var current = 'one';
+      final release = Completer<void>();
+      final provider = _WaitingProvider(release.future);
+      final controls = SessionControlsPlugin(
+        terminal: _Terminal(),
+        currentModel: () => current,
+        switchModel: (value) {
+          hostRef!.switchModel(value);
+          current = value;
+        },
+        modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
+      );
+      final host = hostRef = Host.start(
+        HostConfig(
+          workingDirectory: '.',
+          providerFactory: (_) => provider,
+          plugins: [controls],
+          operationsFor: (_) => sessionControlsOperations,
+        ),
+      );
+      addTearDown(host.shutdown);
+      final client = host.connect();
+      addTearDown(client.close);
+      final turn = host.send('go');
+      await provider.arrived.future;
+      expect(host.session.loop.inTurn, isTrue);
+      final request = client.submitOperation(
+        'tina/session-controls',
         'select-model',
         arguments: {'model': 'two', 'expected_model': 'one'},
-        id: client.requestWindow.id('pick'));
-    final result = await request.completed;
-    expect(result.state, SessionRequestState.failed);
-    expect(result.result!.detail, 'Bad state: model switching requires an idle turn');
-    expect(current, 'one', reason: 'the turn keeps its model');
-    release.complete();
-    expect((await turn).stopReason, StopReason.complete);
-  });
+        id: client.requestWindow.id('pick'),
+      );
+      final result = await request.completed;
+      expect(result.state, SessionRequestState.failed);
+      expect(
+        result.result!.detail,
+        'Bad state: model switching requires an idle turn',
+      );
+      expect(current, 'one', reason: 'the turn keeps its model');
+      release.complete();
+      expect((await turn).stopReason, StopReason.complete);
+    },
+  );
 }
 
 /// A plugin whose command holds between-turns loop work open, shaped like
@@ -266,14 +303,15 @@ final class _HoldPlugin extends AgentPlugin {
 
   @override
   List<Command> get commands => [
-        Command(
-            name: 'hold',
-            description: 'hold between-turns work open',
-            handler: (_) => _loop!.betweenTurns(() async {
-                  inside.complete();
-                  await held.future;
-                }))
-      ];
+    Command(
+      name: 'hold',
+      description: 'hold between-turns work open',
+      handler: (_) => _loop!.betweenTurns(() async {
+        inside.complete();
+        await held.future;
+      }),
+    ),
+  ];
 }
 
 /// A provider that never answers until released, so a test can act while
@@ -288,14 +326,17 @@ final class _WaitingProvider implements LlmProvider {
   String get model => 'waiting';
 
   @override
-  Stream<StreamEvent> send(
-      {required String system,
-      required List<Message> messages,
-      required List<ToolSchema> tools}) async* {
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
     arrived.complete();
     await release;
     yield const MessageComplete(
-        content: [TextBlock('done')], stopReason: 'end_turn');
+      content: [TextBlock('done')],
+      stopReason: 'end_turn',
+    );
   }
 
   @override

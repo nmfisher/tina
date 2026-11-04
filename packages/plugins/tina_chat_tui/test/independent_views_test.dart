@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show Terminal;
+import 'package:tina_rewind/tina_rewind.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
 import 'support/controls_fixture.dart';
 import 'package:tina_mode/tina_mode.dart';
@@ -134,7 +135,8 @@ void main() {
       switchModel: (_) {},
       modelCatalog: () => const ModelCatalog(models: ['acme/one']),
     );
-    final host = controlsHost(controls: controls);
+    final host = controlsHost(
+        controls: controls, rewind: RewindPlugin(terminal: _Terminal()));
     final connection = host.connect();
     final client = _Client();
     final attachment = ConsoleAttachment.attach(

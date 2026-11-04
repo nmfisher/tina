@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_session_controls/tina_session_controls.dart';
+import 'package:tina_rewind/tina_rewind.dart';
 
 final class _Terminal implements Terminal {
   final lines = <String>[];
@@ -56,12 +56,7 @@ void main() {
 
   test('/rewind 2 takes back the last two user messages', () async {
     final terminal = _Terminal();
-    final plugin = SessionControlsPlugin(
-      terminal: terminal,
-      currentModel: () => 'm',
-      switchModel: (_) {},
-      modelCatalog: () => const ModelCatalog(models: ['m']),
-    );
+    final plugin = RewindPlugin(terminal: terminal);
     final loop = AgentLoop(
       provider: ScriptedProvider([
         scriptedReply('a1'),
@@ -73,7 +68,7 @@ void main() {
     plugin.mountOn(loop);
     await loop.runTurn(const Input('first', id: 't1'));
     await loop.runTurn(const Input('second', id: 't2'));
-    await loop.runTurn(const Input('third', id: 't3'));
+    await loop.runTurn(const Input('third message', id: 't3'));
 
     final rewind = plugin.commands.firstWhere(
       (command) => command.name == 'rewind',
@@ -103,12 +98,7 @@ void main() {
     '/rewind with no argument lists the points and the current position',
     () async {
       final terminal = _Terminal();
-      final plugin = SessionControlsPlugin(
-        terminal: terminal,
-        currentModel: () => 'm',
-        switchModel: (_) {},
-        modelCatalog: () => const ModelCatalog(models: ['m']),
-      );
+      final plugin = RewindPlugin(terminal: terminal);
       final loop = AgentLoop(
         provider: ScriptedProvider([scriptedReply('a1'), scriptedReply('a2')]),
         plugins: [plugin],
@@ -132,12 +122,7 @@ void main() {
 
   test('rewindTo refuses a stale head and out-of-range positions', () async {
     final terminal = _Terminal();
-    final plugin = SessionControlsPlugin(
-      terminal: terminal,
-      currentModel: () => 'm',
-      switchModel: (_) {},
-      modelCatalog: () => const ModelCatalog(models: ['m']),
-    );
+    final plugin = RewindPlugin(terminal: terminal);
     final loop = AgentLoop(
       provider: ScriptedProvider([scriptedReply('a1')]),
       plugins: [plugin],
