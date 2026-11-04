@@ -6,7 +6,6 @@ import 'package:tina_host/tina_host.dart';
 import 'package:path/path.dart' as path;
 import '../tina_tools.dart';
 import 'access_review.dart';
-import 'read_only_commands.dart';
 import 'command_workflow.dart';
 import 'package:tina_settings/tina_settings.dart';
 
@@ -319,18 +318,12 @@ void attachModePolicy(ToolsPlugin plugin) {
         review.requiredPermissions.contains(ProcessPermission.unconfined);
     final settings = plugin.settings;
     final description = describeCommandRequest(request);
-    final readerRequest = literalShellRequest(request) ?? request;
-    final readerCandidate = outsideSandbox || network
-        ? null
-        : readOnlyExecutable(readerRequest,
-            searchPath: plugin.processRunner.executableSearchPath,
-            candidateOnly: true);
-    final readerDigest = readerCandidate != null &&
-            readOnlyExecutable(readerRequest,
-                    searchPath: plugin.processRunner.executableSearchPath,
-                    trustedExecutables:
-                        plugin.commandApprovals.readerExecutables) ==
-                null
+    final envelope = CapabilityEnvelope.parse(request,
+        searchPath: plugin.processRunner.executableSearchPath,
+        trustedExecutables: plugin.commandApprovals.readerExecutables);
+    final readerCandidate =
+        outsideSandbox || network ? null : envelope.readerCandidateOnly;
+    final readerDigest = readerCandidate != null && envelope.reader == null
         ? sha256.convert(File(readerCandidate).readAsBytesSync()).toString()
         : null;
     final workflow = outsideSandbox || network
@@ -338,12 +331,8 @@ void attachModePolicy(ToolsPlugin plugin) {
         : commandWorkflow(request, plugin.workingDirectory);
     String? commandPattern;
     List<DirectoryAccessGrant> directoryGrants = const [];
-    final verified = verifiedReaderAccesses(request,
-        searchPath: plugin.processRunner.executableSearchPath,
-        trustedExecutables: plugin.commandApprovals.readerExecutables);
-    final certified = hasCompleteReaderAccesses(request,
-        searchPath: plugin.processRunner.executableSearchPath,
-        trustedExecutables: plugin.commandApprovals.readerExecutables);
+    final verified = envelope.verifiedAccesses;
+    final certified = envelope.completeVerifiedAccesses;
     Map<String, Object?> accessReview(PermissionJudgment judgment) {
       final details = permissionAccessReview(
           plan: plugin.osPlan,

@@ -12,6 +12,7 @@ export 'package:tina_core/tina_core.dart'
     show ToolResult, ToolSchema, ToolDescription;
 
 export 'src/atomic_write.dart';
+export 'src/capability_envelope.dart';
 export 'src/bash_tool.dart';
 export 'src/edit_tool.dart';
 export 'src/exec_tool.dart';
