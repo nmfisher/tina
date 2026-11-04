@@ -152,4 +152,43 @@ void main() {
     expect(text, contains('Image unavailable'));
     expect(text, contains('Still working'));
   });
+
+  test('replayed history images stay placeholders until scrolled into view',
+      () async {
+    MessageAppendedEntry pad(String turn, String text) => MessageAppendedEntry(
+        turnId: turn,
+        message: Message(role: Role.assistant, content: [TextBlock(text)]));
+    // History long enough that the replayed image is never inside the
+    // viewport while it is written: it must lay out as a sized placeholder.
+    for (var i = 0; i < 30; i++) {
+      chat.entry(pad('old', 'history row $i'), LogEvent.replay);
+    }
+    chat.entry(
+        MessageAppendedEntry(
+            turnId: 'img',
+            message: const Message(role: Role.assistant, content: [image])),
+        LogEvent.replay);
+    for (var i = 0; i < 30; i++) {
+      chat.entry(pad('new', 'later row $i'), LogEvent.replay);
+    }
+    expect(chat.blocks.where((b) => b.subject.startsWith('Image ·')),
+        hasLength(1));
+    // The caption names the probed dimensions; no pixels were ever decoded.
+    expect(screen.chat.snapshotLines().join('\n'), contains('24×32'));
+    expect(backend.visible.containsKey(screen.chat), isFalse);
+    final rowsBefore = screen.chat.contentRows;
+    // Scrolling the placeholder into view decodes it in place: the reserved
+    // rows are filled, none are added, so the layout cannot shift.
+    final captionRow = screen.chat
+        .snapshotLines()
+        .indexWhere((line) => line.contains('24×32'));
+    expect(captionRow, greaterThanOrEqualTo(0));
+    screen.chat.scrollRowIntoView(captionRow);
+    await Future<void>.delayed(Duration.zero);
+    final placed = backend.visible[screen.chat];
+    expect(placed, isNotNull);
+    expect(placed!, isNotEmpty);
+    expect(placed.last.image.rows, 16);
+    expect(screen.chat.contentRows, rowsBefore);
+  });
 }

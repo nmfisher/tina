@@ -761,6 +761,83 @@ class ScrollingTextRegion extends Region {
   /// The window's blank tail is not counted.
   int get contentRows => _history.length + _contentRowCount;
 
+  /// The content-row range currently visible (oldest-first coordinates),
+  /// null when the region has no usable height. This is what a caller needs
+  /// to decide which already-retained rows are worth their lazy work — an
+  /// image to decode, say — without touching scroll internals.
+  ({int first, int last})? get visibleContentRows {
+    final usable = _usableHeight;
+    if (usable <= 0) return null;
+    final total = _history.length + _contentRowCount;
+    final top = total - usable - _scrollOffset;
+    return (
+      first: top.clamp(0, total),
+      last: (top + usable - 1).clamp(0, total)
+    );
+  }
+
+  /// Prepend already laid-out rows above the scrollback history — the
+  /// tail-first resume path: older transcript blocks' rows enter at the top
+  /// as the user scrolls toward them, without rewriting anything below.
+  ///
+  /// At most the history cap's remaining capacity is accepted; the return
+  /// value is how many of [lines] were retained (0 when the cap is already
+  /// full — extension stops there, exactly as scrolling does). The scroll
+  /// offset is bumped by the retained count so the viewport stays anchored
+  /// to the same content: the offset is measured from the tail, which just
+  /// grew by that many rows above the view.
+  int prependHistory(List<RegionLine> lines) {
+    final capacity = _maxHistoryRows - _history.length;
+    if (capacity <= 0 || lines.isEmpty) return 0;
+    final count = lines.length < capacity ? lines.length : capacity;
+    final rows = List.generate(count, (i) {
+      final line = lines[i];
+      final row = _StyledRow();
+      if (line.image != null) {
+        row.image = line.image;
+        row.append(line.text.isEmpty ? ' ' : line.text);
+      } else {
+        row.append(line.text);
+      }
+      row.styleCode = line.bar;
+      return row;
+    });
+    _history.insertAll(0, rows);
+    if (_scrollOffset > 0) _scrollOffset += count;
+    _notifyScrollbackChanged();
+    return count;
+  }
+
+  /// Attach decoded image slices to already-retained rows — the lazy image
+  /// decode path. The rows were laid out as reserved space sized by the
+  /// image's header dimensions; decoding later fills exactly that space, so
+  /// no row count or layout changes and the viewport cannot jump. Rows
+  /// outside the retained range (already evicted) are skipped silently.
+  void attachImageRows(int fromContentRow, List<ImageRow?> images) {
+    if (_detached || screen.passthrough || images.isEmpty) return;
+    var changed = false;
+    final total = _history.length + _contentRowCount;
+    for (var i = 0; i < images.length; i++) {
+      final image = images[i];
+      if (image == null) continue;
+      final index = fromContentRow + i;
+      if (index < 0 || index >= total) continue;
+      final row = index < _history.length
+          ? _history[index]
+          : _rows[index - _history.length];
+      if (row.image != null) continue;
+      row.image = image;
+      row.clearPaintSnapshot();
+      changed = true;
+    }
+    if (!changed) return;
+    _retainImages();
+    screen.frame(() {
+      paintImages();
+      _redraw();
+    });
+  }
+
   /// Append an already laid-out row, including an optional image slice.
   void writeLine(RegionLine line) {
     if (line.image == null ||

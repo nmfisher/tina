@@ -33,6 +33,64 @@ final class ConsoleImage {
     }
   }
 
+  /// Header-only probe: the image's dimensions without decoding a single
+  /// pixel row (the decoder parses the container header and stops). Same
+  /// size guards as [decode]; null when the bytes are not a recognizable
+  /// image header. This is what lets resume show a correctly-sized
+  /// placeholder for a history image and defer the real decode until the
+  /// block is actually looked at.
+  static (int, int)? probeSize(Uint8List bytes) {
+    try {
+      if (bytes.length > 32 * 1024 * 1024) return null;
+      final decoder = img.findDecoderForData(bytes);
+      final info = decoder?.startDecode(bytes);
+      if (info == null || info.width * info.height > 16 * 1024 * 1024) {
+        return null;
+      }
+      return (info.width, info.height);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The pixel size a [fit] with these arguments produces, from the source
+  /// dimensions alone — the same scale math [fit] applies, shared so a
+  /// placeholder can reserve exactly the rows the decoded raster will fill.
+  static (int, int) fittedSize(
+      {required int sourceWidth,
+      required int sourceHeight,
+      required int columns,
+      required int rows,
+      required ImageCellSize cells}) {
+    final c = math.max(1, columns), r = math.max(1, rows);
+    final scale = math.min(
+        1.0,
+        math.min(
+            c * cells.width / sourceWidth, r * cells.height / sourceHeight));
+    return (
+      math.max(1, (sourceWidth * scale).floor()),
+      math.max(1, (sourceHeight * scale).floor()),
+    );
+  }
+
+  /// The cell-row count a [fit] with these arguments occupies — computable
+  /// before decoding, so reserved placeholder rows and the eventual raster
+  /// agree on layout.
+  static int rasterRows(
+      {required int sourceWidth,
+      required int sourceHeight,
+      required int columns,
+      required int rows,
+      required ImageCellSize cells}) {
+    final (_, h) = fittedSize(
+        sourceWidth: sourceWidth,
+        sourceHeight: sourceHeight,
+        columns: columns,
+        rows: rows,
+        cells: cells);
+    return (h + cells.height - 1) ~/ cells.height;
+  }
+
   ImageRaster fit(
       {required int columns, required int rows, required ImageCellSize cells}) {
     columns = math.max(1, columns);
@@ -42,12 +100,12 @@ final class ConsoleImage {
       // A bounded cache keeps resize/repaint cheap without retaining every
       // geometry a terminal has ever had.
       if (_fits.length >= 4) _fits.clear();
-      final scale = math.min(
-          1.0,
-          math.min(
-              columns * cells.width / width, rows * cells.height / height));
-      final w = math.max(1, (width * scale).floor());
-      final h = math.max(1, (height * scale).floor());
+      final (w, h) = fittedSize(
+          sourceWidth: width,
+          sourceHeight: height,
+          columns: columns,
+          rows: rows,
+          cells: cells);
       final fitted = img.copyResize(_image,
           width: w, height: h, interpolation: img.Interpolation.average);
       final bytes = fitted.getBytes(order: img.ChannelOrder.rgba);

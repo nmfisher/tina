@@ -2,6 +2,7 @@ import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_chat/observation.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'chat_transcript.dart';
@@ -68,6 +69,18 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   int _renderedRows = 0, _trailingBlankRows = 0;
   final _sources = Expando<String>('markdown-source');
   final _images = Expando<ConsoleImage>('chat-image');
+  final _imageBytes = Expando<String>('chat-image-bytes');
+  final _imageDims = Expando<(int, int)>('chat-image-dims');
+
+  /// Replayed image blocks whose pixels have not been decoded yet. They hold
+  /// reserved rows sized from their headers and decode when scrolled into
+  /// view (see [_decodeVisibleImages]).
+  final _undecodedImages = <ChatBlock>[];
+
+  /// True while a replayed log entry is being folded into the projection.
+  /// Replay is history, not the live turn: images take the lazy path (header
+  /// probe now, decode on visibility) and nothing is painted eagerly.
+  bool _inReplayEntry = false;
   MarkdownStyle get _style => MarkdownStyle.fromChatTheme(
       _console?.screen.theme.chat ?? const Theme.defaults().chat);
 
@@ -160,8 +173,17 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       _paintUsage();
       _console?.refreshInput();
     }));
+    // Scrolling is what makes deferred work due: history images decode when
+    // their reserved rows enter the viewport. Chained behind any previous
+    // subscriber of the same hook.
+    final previousScrollNotice = context.chat.onScrollbackChanged;
+    context.chat.onScrollbackChanged = () {
+      previousScrollNotice?.call();
+      _decodeVisibleImages();
+    };
     _width = -1;
     repaintConsole();
+    _decodeVisibleImages();
   }
 
   void _resetProjection() {
@@ -172,6 +194,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _outputs.clear();
     _finished.clear();
     _recordedInputs.clear();
+    _undecodedImages.clear();
     _tokens = 0;
     _goal = null;
     _streamed = _thinking = '';
@@ -229,6 +252,9 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     for (final block in droppedBlocks) {
       _sources[block] = null;
       _images[block] = null;
+      _imageBytes[block] = null;
+      _imageDims[block] = null;
+      _undecodedImages.remove(block);
     }
     for (final id in _calls.keys.toList()) {
       if (droppedBlocks.contains(_calls[id])) _calls.remove(id);
@@ -333,6 +359,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   /// Authoritative completion reconciles transient deltas; replay takes the
   /// same path, including imported tool calls and reasoning.
   void entry(SessionEntry entry, LogEvent event) {
+    _inReplayEntry = event == LogEvent.replay;
     final at =
         DateTime.tryParse(entry.toJson()['at'] as String? ?? '')?.toLocal();
     if (entry is ContextClearedEntry) {
@@ -342,6 +369,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       _calls.clear();
       _finished.clear();
       _recordedInputs.clear();
+      _undecodedImages.clear();
       _responseBlocks.clear();
       _thinking = '';
       _thinkingPreview = null;
@@ -446,6 +474,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
         _console?.requestAttention();
       }
     }
+    _inReplayEntry = false;
     _console?.refreshInput();
   }
 
@@ -529,18 +558,103 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
 
   void _image(ImageBlock image,
       {ChatSpeaker speaker = _speaker, DateTime? at}) {
-    ConsoleImage? decoded;
+    Uint8List? bytes;
     try {
-      decoded = ConsoleImage.decode(base64Decode(image.data));
+      bytes = base64Decode(image.data);
     } catch (_) {/* A malformed attachment must not stop the turn. */}
+    // Live attachments decode now — the current turn's images render in full.
+    // A replayed history attachment only has its header read: the caption and
+    // the reserved rows are laid out from the dimensions, and the pixels are
+    // decoded when the block actually scrolls into view.
+    ConsoleImage? decoded;
+    (int, int)? dims;
+    if (bytes != null) {
+      if (_inReplayEntry) {
+        dims = ConsoleImage.probeSize(bytes);
+      } else {
+        decoded = ConsoleImage.decode(bytes);
+        if (decoded != null) dims = (decoded.width, decoded.height);
+      }
+    }
     final block = ChatBlock.notice(
         speaker,
-        decoded == null
+        dims == null
             ? 'Image unavailable · ${_clean(image.mimeType)}'
-            : 'Image · ${_clean(image.mimeType)} · ${decoded.width}×${decoded.height}');
+            : 'Image · ${_clean(image.mimeType)} · ${dims.$1}×${dims.$2}');
+    if (bytes != null) _imageBytes[block] = image.data;
+    if (dims != null) {
+      _imageDims[block] = dims;
+      if (decoded == null) _undecodedImages.add(block);
+    }
     if (decoded != null) _images[block] = decoded;
     _add(block, at: at);
   }
+
+  /// Decode image blocks whose reserved rows are inside the visible window.
+  ///
+  /// A replayed image's rows were sized from its header, so decoding now and
+  /// attaching the raster fills exactly the space already reserved — the
+  /// layout cannot shift and the viewport cannot jump. Live-tail images never
+  /// reach this list; they decode at creation.
+  void _decodeVisibleImages() {
+    final console = _console;
+    if (console == null || _undecodedImages.isEmpty) return;
+    final chat = console.chat;
+    final cells = console.screen.imageCellSize;
+    final range = chat.visibleContentRows;
+    if (cells == null || range == null) return;
+    final width = chat.bounds.width;
+    final gutter = width > TimestampChatRenderer.stampWidth + 2
+        ? TimestampChatRenderer.stampWidth + 1
+        : 1;
+    if (width <= gutter) return;
+    final retainedStart = _renderedRows - _trailingBlankRows - chat.contentRows;
+    for (final block in _undecodedImages.toList()) {
+      final index = _blocks.indexOf(block);
+      if (index < 0 || index >= _rows.length) continue;
+      final dims = _imageDims[block];
+      final data = _imageBytes[block];
+      if (dims == null || data == null) continue;
+      final rasterRows = ConsoleImage.rasterRows(
+          sourceWidth: dims.$1,
+          sourceHeight: dims.$2,
+          columns: width - gutter,
+          rows: (chat.usableHeight - 2).clamp(1, 20),
+          cells: cells);
+      if (rasterRows <= 0) continue;
+      final startRow = _rows[index]; // first row of the caption
+      final rasterStart = startRow + _blockLineCount(block) - rasterRows;
+      final contentRow = rasterStart - retainedStart;
+      // Visible when any reserved row intersects the viewport.
+      if (contentRow > range.last ||
+          contentRow + rasterRows - 1 < range.first) {
+        continue;
+      }
+      final decoded = ConsoleImage.decode(base64Decode(data));
+      if (decoded == null) {
+        _imageBytes[block] = null;
+        _imageDims[block] = null;
+        _undecodedImages.remove(block);
+        continue;
+      }
+      _images[block] = decoded;
+      _imageBytes[block] = null;
+      _undecodedImages.remove(block);
+      final raster = decoded.fit(
+          columns: width - gutter,
+          rows: (chat.usableHeight - 2).clamp(1, 20),
+          cells: cells);
+      chat.attachImageRows(contentRow, [
+        for (var row = 0; row < raster.rows; row++)
+          ImageRow(raster, row, column: gutter),
+      ]);
+    }
+  }
+
+  /// How many rows [block]'s render produces at the current width — the
+  /// caption plus any reserved image rows. Used to locate an image block's
+  /// reserved rows without re-rendering it.
+  int _blockLineCount(ChatBlock block) => _render(block).length;
 
   @override
   void writeNotice(String text) {
@@ -571,6 +685,16 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
         }
       });
       _pruneUnpaintableBlocks();
+      // Deferred image decode is due when the view moved, and — while a
+      // replay's content still fits the viewport, so every written row is
+      // visible — right away. A long session's replayed images stay lazy:
+      // they pass "through" the tail while the region scrolls, but they are
+      // history, and only the ones the resumed view actually shows decode
+      // (at attach, after the replay completes).
+      if (!_inReplayEntry ||
+          console.chat.contentRows <= console.chat.usableHeight) {
+        _decodeVisibleImages();
+      }
     }
   }
 
@@ -590,20 +714,37 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     final image = _images[block];
     final console = _console!;
     final cells = console.screen.imageCellSize;
-    if (image != null && cells != null) {
+    if (cells != null) {
       final width = console.chat.bounds.width;
       final gutter = width > TimestampChatRenderer.stampWidth + 2
           ? TimestampChatRenderer.stampWidth + 1
           : 1;
       if (width > gutter) {
-        final raster = image.fit(
-            columns: width - gutter,
-            rows: (console.chat.usableHeight - 2).clamp(1, 20),
-            cells: cells);
-        lines.addAll([
-          for (var row = 0; row < raster.rows; row++)
-            RegionLine(' ', image: ImageRow(raster, row, column: gutter)),
-        ]);
+        final heightCap = (console.chat.usableHeight - 2).clamp(1, 20);
+        if (image != null) {
+          final raster =
+              image.fit(columns: width - gutter, rows: heightCap, cells: cells);
+          lines.addAll([
+            for (var row = 0; row < raster.rows; row++)
+              RegionLine(' ', image: ImageRow(raster, row, column: gutter)),
+          ]);
+        } else {
+          // Undecoded history image: reserve exactly the rows the raster will
+          // fill (same fit math, from the header dimensions alone) so the
+          // later decode swaps pixels in without moving anything.
+          final dims = _imageDims[block];
+          if (dims != null) {
+            final reserved = ConsoleImage.rasterRows(
+                sourceWidth: dims.$1,
+                sourceHeight: dims.$2,
+                columns: width - gutter,
+                rows: heightCap,
+                cells: cells);
+            lines.addAll([
+              for (var row = 0; row < reserved; row++) const RegionLine(' ')
+            ]);
+          }
+        }
       }
     }
     return lines;
@@ -651,6 +792,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _renderedRows = lines.length;
     _trailingBlankRows = _countTrailingBlanks(lines);
     _console!.chat.rewriteFrom(0, lines);
+    _decodeVisibleImages();
   }
 
   @override
@@ -785,6 +927,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
 
   @override
   void detachConsole() {
+    _console?.chat.onScrollbackChanged = null;
     _unlistenState?.call();
     _unlistenState = null;
     _unlisten?.call();
