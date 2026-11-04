@@ -72,7 +72,9 @@ void main() {
     );
     plugin.mountOn(loop);
     await loop.runTurn(const Input('go', id: 'turn'));
-    await plugin.commands.last.handler('');
+    await plugin.commands
+        .firstWhere((command) => command.name == 'clear')
+        .handler('');
     expect(loop.log.last, isA<ContextClearedEntry>());
     plugin.closeSession();
   });
@@ -94,12 +96,17 @@ void main() {
     expect(terminal.lines.last, 'Reasoning: medium');
     await reasoning.handler('high');
     expect(effort, 'high');
-    expect(terminal.lines.last, 'Reasoning: high (applies to the next request)');
+    expect(
+      terminal.lines.last,
+      'Reasoning: high (applies to the next request)',
+    );
     terminal.lines.clear();
     await reasoning.handler('bogus');
     expect(effort, 'high');
-    expect(terminal.lines.last,
-        'no reasoning level named bogus — choices: auto, none, low, medium, high');
+    expect(
+      terminal.lines.last,
+      'no reasoning level named bogus — choices: auto, none, low, medium, high',
+    );
     // Completion offers the model's vocabulary, not the canonical superset.
     expect(reasoning.complete!('h'), ['high']);
   });
@@ -122,8 +129,10 @@ void main() {
     expect(effort, 'high');
     await reasoning.handler('Auto');
     expect(effort, isNull);
-    expect(terminal.lines.last,
-        'Reasoning: automatic (applies to the next request)');
+    expect(
+      terminal.lines.last,
+      'Reasoning: automatic (applies to the next request)',
+    );
   });
 
   test('reasoning reports unavailable without host wiring', () async {
@@ -135,7 +144,10 @@ void main() {
       modelCatalog: () => const ModelCatalog(),
     );
     await plugin.commands[1].handler('high');
-    expect(terminal.lines.last, 'Reasoning control is unavailable in this session.');
+    expect(
+      terminal.lines.last,
+      'Reasoning control is unavailable in this session.',
+    );
   });
 
   test('a refused switch surfaces its reason, not a bare type name', () {

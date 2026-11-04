@@ -170,6 +170,20 @@ final class AgentLoop {
     _append(ContextClearedEntry(at: _now()));
   }
 
+  /// Rewind the conversation to the state after entry seq `toSeq - 1`:
+  /// append a [RewoundEntry] marking the active position. Between turns
+  /// only. Nothing is deleted — the log keeps every entry (the removed
+  /// tail stays persisted and exportable); [derive] and replays simply
+  /// stop seeing it. `toSeq` must address the log (`0 <= toSeq <=
+  /// _seq`); `toSeq == _seq` is a no-op marker.
+  void rewind(int toSeq) {
+    if (running) throw StateError('rewind between turns');
+    if (toSeq < 0 || toSeq > _seq) {
+      throw RangeError.range(toSeq, 0, _seq, 'rewind position');
+    }
+    _append(RewoundEntry(toSeq: toSeq, at: _now()));
+  }
+
   /// Plugins in registration order. A duplicate id throws here.
   final LinkedHashMap<String, AgentPlugin> _byId = LinkedHashMap();
 

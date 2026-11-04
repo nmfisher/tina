@@ -163,6 +163,16 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
         'models': controls.catalog.models,
         'provider_names': controls.catalog.providerNames,
         'model_names': controls.catalog.modelNames,
+        'rewind_points': [
+          for (final point in controls.rewindPoints)
+            {
+              'to_seq': point.toSeq,
+              'at': point.at,
+              'label': point.label,
+              'kind': point.kind,
+            },
+        ],
+        'rewind_head': controls.rewindHead,
       },
     );
   }

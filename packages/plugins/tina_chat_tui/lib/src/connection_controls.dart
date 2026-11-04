@@ -63,6 +63,12 @@ final class ConnectionSessionControls implements SessionControlsObservation {
   @override
   List<String> get recentModels => _recentModels;
   List<String> _recentModels = const [];
+  @override
+  List<RewindPoint> get rewindPoints => _rewindPoints;
+  List<RewindPoint> _rewindPoints = const [];
+  @override
+  int get rewindHead => _rewindHead;
+  int _rewindHead = -1;
 
   void _apply(SessionSnapshot snapshot) {
     if (snapshot.cursor.revision <= _revision) return;
@@ -81,15 +87,28 @@ final class ConnectionSessionControls implements SessionControlsObservation {
       final model = data['model'] as String;
       final recent = List<String>.unmodifiable(
           (data['recent_models'] as List).cast<String>());
+      final points = List<RewindPoint>.unmodifiable([
+        for (final item in (data['rewind_points'] as List).cast<Map>())
+          RewindPoint(
+            toSeq: item['to_seq'] as int,
+            at: (item['at'] as String?) ?? '',
+            label: (item['label'] as String?) ?? '',
+            kind: (item['kind'] as String?) ?? 'user',
+          ),
+      ]);
       _catalog = next;
       _currentModel = model;
       _recentModels = recent;
+      _rewindPoints = points;
+      _rewindHead = (data['rewind_head'] as num?)?.toInt() ?? -1;
       _available = true;
     } catch (_) {
       _available = false;
       _currentModel = '';
       _catalog = const ModelCatalog();
       _recentModels = const [];
+      _rewindPoints = const [];
+      _rewindHead = -1;
     }
   }
 
@@ -105,6 +124,19 @@ final class ConnectionSessionControls implements SessionControlsObservation {
         'tina/session-controls', 'select-model',
         arguments: {'model': model, 'expected_model': expectedModel},
         id: _connection.requestWindow.id('model-${++_nextRequest}'));
+    _requireCompleted(await request.completed);
+  }
+
+  /// Rewind to [toSeq], refusing when the conversation moved since the
+  /// picker read [expectedHead].
+  Future<void> rewind(int toSeq, {required int expectedHead}) async {
+    refresh();
+    _connection.access.requireControl();
+    if (!available) throw StateError('Rewind is unavailable.');
+    final request = _connection.submitOperation(
+        'tina/session-controls', 'rewind',
+        arguments: {'to_seq': toSeq, 'expected_head': expectedHead},
+        id: _connection.requestWindow.id('rewind-${++_nextRequest}'));
     _requireCompleted(await request.completed);
   }
 }

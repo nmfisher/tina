@@ -153,4 +153,37 @@ void main() {
     source.close();
     expect(() => source.observation.listen((_) {}), throwsStateError);
   });
+  test('replay after a rewind delivers only the active prefix', () async {
+    final provider = ScriptedProvider(
+        [scriptedReply('a1'), scriptedReply('a2'), scriptedReply('a3')]);
+    final loop = AgentLoop(provider: provider, plugins: []);
+    final source = SessionObservationSource()..mountOn(loop);
+    await loop.runTurn(const Input('first', id: 't1'));
+    await loop.runTurn(const Input('second', id: 't2'));
+    loop.rewind(5); // before turn 2
+
+    final replay = <SessionEntry>[];
+    final release = source.observation.listen((event) {
+      if (event is ObservedEntry && event.event == LogEvent.replay) {
+        replay.add(event.entry);
+      }
+    });
+    addTearDown(release);
+    // A reopened session shows the rewound conversation: turn 2's entries
+    // and the marker itself are filtered out of replay.
+    expect(
+      [for (final e in replay) e.kind],
+      [
+        'turn_started',
+        'input_recorded',
+        'message_appended',
+        'message_appended',
+        'turn_ended'
+      ],
+    );
+    expect(
+      replay.whereType<InputRecordedEntry>().single.text,
+      'first',
+    );
+  });
 }
