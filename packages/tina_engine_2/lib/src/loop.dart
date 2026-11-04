@@ -38,6 +38,7 @@ import 'context.dart';
 import 'message_projection.dart';
 import 'model.dart';
 import 'plugin.dart';
+import 'tool_breaker.dart';
 import 'tool_execution.dart';
 
 /// Why an entry reached a listener: [LogEvent.appended] as it landed (in
@@ -774,6 +775,12 @@ final class AgentLoop {
     var usage = const EntryUsage();
     String? changedBy;
 
+    /// The turn's tool-call breaker: one per turn, so a new turn resets
+    /// every counter. `breakerStop` holds the hard-stop notice once the
+    /// model has retried a blocked call once too often.
+    final breaker = ToolCallBreaker();
+    String? breakerStop;
+
     // The turn begins in the log before anything else: the start and the
     // raw input as typed are the two entries no path may skip. Listener
     // errors propagate (a broken store must not be papered over), but the
@@ -1123,6 +1130,20 @@ final class AgentLoop {
             final owner = ownerOf[call.name];
             if (owner != null && !_byId.containsKey(owner)) {
               result = ToolResult('skipped: plugin $owner left', isError: true);
+            } else if (breaker.blocks(call.name, call.input)) {
+              // Circuit breaker: this exact call already failed the same
+              // way twice. It is refused without executing — and without
+              // the guard phase, because a call that will never run must
+              // not prompt. A model that keeps retrying the blocked call
+              // stops the turn; the rest of this batch still pairs, it
+              // just never runs.
+              final stop = breaker.registerBlocked(call.name, call.input);
+              result = ToolResult(breaker.blockedMessage(call.name, call.input),
+                  isError: true);
+              if (stop != null) {
+                breakerStop = stop;
+                dispatchStopped = true;
+              }
             } else {
               ctx
                 ..call = call
@@ -1223,6 +1244,9 @@ final class AgentLoop {
                     active = false;
                   }
                   _toolActivity.add(ToolFinished(call, result));
+                  // Only an executed call has an outcome worth remembering:
+                  // the breaker counts identical failing executions.
+                  breaker.recordExecution(call.name, call.input, result);
                 }
               }
             }
@@ -1240,6 +1264,13 @@ final class AgentLoop {
           _append(MessageAppendedEntry(
               turnId: turnId, message: message, at: _now()));
           appended.add(message);
+        }
+
+        // The breaker's hard stop: the model retried a blocked call once
+        // too often and the turn ends here, visibly, with the tool name,
+        // the counts and the last error in the outcome detail.
+        if (breakerStop != null) {
+          return await finish(StopReason.error, breakerStop);
         }
 
         // The pinning invariant: the live tool set still matches the pinned
