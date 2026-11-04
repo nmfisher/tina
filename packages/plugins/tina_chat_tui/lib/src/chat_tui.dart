@@ -1,5 +1,6 @@
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_chat/observation.dart';
+import 'package:meta/meta.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -66,6 +67,23 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   /// rows is what [ScrollingTextRegion] keeps; the margin covers the window
   /// itself and rebuild slack, so pruning never touches anything paintable.
   static const int _pruneMarginRows = 400;
+
+  /// Rows written above the viewport on resume — the tail window's scroll
+  /// margin. Older blocks stay in memory unrendered ("cold") and their rows
+  /// are built when scrolling reaches toward them ([_extendWindowTowardScroll]).
+  static const int _tailMarginRows = 160;
+
+  /// Index of the oldest block whose rows are written to the region. Blocks
+  /// before it are cold: present in [_blocks] (fold state, sources, image
+  /// bytes kept), but with no rows in the region until a scroll builds them.
+  /// The written window is always a suffix of [_blocks].
+  int _windowStart = 0;
+
+  /// True while a synchronous replay fills the projection at attach: adds
+  /// are buffered without rendering or writing, so replay cost grows with
+  /// the tail window only — not with the whole history. Cleared when the
+  /// replay ends; [flushReplayTail] then writes the window.
+  bool _attachReplaying = false;
   int _renderedRows = 0, _trailingBlankRows = 0;
   final _sources = Expando<String>('markdown-source');
   final _images = Expando<ConsoleImage>('chat-image');
@@ -155,30 +173,38 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       context.refreshInput();
     });
     _resetProjection();
-    _unlisten = context.own(chat.events.listen((event) {
-      switch (event) {
-        case ObservedReset():
-          _resetProjection();
-        case ObservedEntry():
-          entry(event.entry, event.event);
-        case ObservedActivity():
-          observe(event.activity);
-        case ObservedModel():
-          watch(event.event);
-      }
-    }));
+    _attachReplaying = true;
+    try {
+      _unlisten = context.own(chat.events.listen((event) {
+        switch (event) {
+          case ObservedReset():
+            _resetProjection();
+          case ObservedEntry():
+            entry(event.entry, event.event);
+          case ObservedActivity():
+            observe(event.activity);
+          case ObservedModel():
+            watch(event.event);
+        }
+      }));
+    } finally {
+      _attachReplaying = false;
+    }
+    flushReplayTail();
     _busy = chat.events.running;
     _unlistenState = context.own(chat.events.listenChanges(() {
       _busy = chat.events.running;
       _paintUsage();
       _console?.refreshInput();
     }));
-    // Scrolling is what makes deferred work due: history images decode when
+    // Scrolling is what makes deferred work due: the written window extends
+    // toward blocks the user scrolls up to, and history images decode when
     // their reserved rows enter the viewport. Chained behind any previous
     // subscriber of the same hook.
     final previousScrollNotice = context.chat.onScrollbackChanged;
     context.chat.onScrollbackChanged = () {
       previousScrollNotice?.call();
+      _extendWindowTowardScroll();
       _decodeVisibleImages();
     };
     _width = -1;
@@ -190,6 +216,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _blocks.clear();
     _rows.clear();
     _renderedRows = _trailingBlankRows = 0;
+    _windowStart = 0;
     _calls.clear();
     _outputs.clear();
     _finished.clear();
@@ -239,16 +266,26 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     var dropped = 0;
     while (dropped + 1 < _rows.length &&
         _rows[dropped + 1] <= pruneRows &&
-        !protected.contains(_blocks[dropped])) {
+        !protected.contains(_blocks[_windowStart + dropped])) {
       dropped++;
     }
     if (dropped == 0) return;
-    final droppedBlocks = _blocks.sublist(0, dropped).toSet();
-    _blocks.removeRange(0, dropped);
+    // The dropped blocks are the oldest WRITTEN ones — cold blocks before
+    // [_windowStart] stay in memory by design.
+    final droppedBlocks =
+        _blocks.sublist(_windowStart, _windowStart + dropped).toSet();
+    _blocks.removeRange(_windowStart, _windowStart + dropped);
     _rows.removeRange(0, dropped);
     _responseBlocks.removeWhere(droppedBlocks.contains);
-    if (_selected != null) _selected = _selected! - dropped;
-    renderer.follow(_blocks.first, null);
+    if (_selected != null) {
+      if (_selected! >= _windowStart + dropped) {
+        _selected = _selected! - dropped;
+      } else if (_selected! >= _windowStart) {
+        _selected = _windowStart; // the selected block itself was dropped
+      }
+    }
+    if (_windowStart < _blocks.length)
+      renderer.follow(_blocks[_windowStart], null);
     for (final block in droppedBlocks) {
       _sources[block] = null;
       _images[block] = null;
@@ -310,12 +347,24 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
 
   ChatBlock? _prose(String text, {DateTime? at}) {
     if (text.trim().isEmpty) return null;
-    final block =
-        ChatBlock.prose(_speaker, renderMarkdown(_clean(text), _style));
+    // The markdown render is deferred to [_materialize]: a block replayed
+    // into the cold prefix costs a struct and its source string, not a
+    // render. Live blocks materialize immediately inside [_add].
+    final block = ChatBlock.prose(_speaker, const []);
     _sources[block] = text;
     _responseBlocks.add(block);
     _add(block, at: at);
     return block;
+  }
+
+  /// Render a prose block's markdown the first time its rows are needed.
+  /// Live blocks materialize at add; cold blocks materialize when they
+  /// enter the written window.
+  void _materialize(ChatBlock block) {
+    if (block.kind != ChatBlockKind.prose || block.hasBody) return;
+    final source = _sources[block];
+    if (source == null) return;
+    block.body = renderMarkdown(_clean(source), _style);
   }
 
   void _completeProse(String text) {
@@ -366,6 +415,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       _blocks.clear();
       _rows.clear();
       _renderedRows = _trailingBlankRows = 0;
+      _windowStart = 0;
       _calls.clear();
       _finished.clear();
       _recordedInputs.clear();
@@ -610,7 +660,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     if (width <= gutter) return;
     final retainedStart = _renderedRows - _trailingBlankRows - chat.contentRows;
     for (final block in _undecodedImages.toList()) {
-      final index = _blocks.indexOf(block);
+      // _rows is indexed over the written window (a suffix of _blocks).
+      final index = _blocks.indexOf(block) - _windowStart;
       if (index < 0 || index >= _rows.length) continue;
       final dims = _imageDims[block];
       final data = _imageBytes[block];
@@ -668,33 +719,36 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     renderer.follow(block, _blocks.lastOrNull);
     _blocks.add(block);
     final console = _console;
-    if (console != null) {
-      console.screen.frame(() {
-        final chat = console.chat;
-        if (_blocks.length > 1) {
-          chat.writeln();
-          _renderedRows++;
-        }
-        _rows.add(_renderedRows);
-        final lines = _render(block);
-        _renderedRows += lines.length;
-        _trailingBlankRows = _countTrailingBlanks(lines);
-        for (final line in lines) {
-          chat.writeLine(RegionLine(line.text,
-              bar: line.bar ?? _style.base, image: line.image));
-        }
-      });
-      _pruneUnpaintableBlocks();
-      // Deferred image decode is due when the view moved, and — while a
-      // replay's content still fits the viewport, so every written row is
-      // visible — right away. A long session's replayed images stay lazy:
-      // they pass "through" the tail while the region scrolls, but they are
-      // history, and only the ones the resumed view actually shows decode
-      // (at attach, after the replay completes).
-      if (!_inReplayEntry ||
-          console.chat.contentRows <= console.chat.usableHeight) {
-        _decodeVisibleImages();
+    if (console == null) return;
+    // Buffered replay: the block list grows, nothing is laid out. The tail
+    // window is written once, at [flushReplayTail].
+    if (_attachReplaying) return;
+    _materialize(block);
+    console.screen.frame(() {
+      final chat = console.chat;
+      if (_blocks.length > 1) {
+        chat.writeln();
+        _renderedRows++;
       }
+      _rows.add(_renderedRows);
+      final lines = _render(block);
+      _renderedRows += lines.length;
+      _trailingBlankRows = _countTrailingBlanks(lines);
+      for (final line in lines) {
+        chat.writeLine(RegionLine(line.text,
+            bar: line.bar ?? _style.base, image: line.image));
+      }
+    });
+    _pruneUnpaintableBlocks();
+    // Deferred image decode is due when the view moved, and — while a
+    // replay's content still fits the viewport, so every written row is
+    // visible — right away. A long session's replayed images stay lazy:
+    // they pass "through" the tail while the region scrolls, but they are
+    // history, and only the ones the resumed view actually shows decode
+    // (at attach, after the replay completes).
+    if (!_inReplayEntry ||
+        console.chat.contentRows <= console.chat.usableHeight) {
+      _decodeVisibleImages();
     }
   }
 
@@ -761,9 +815,14 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
 
   void _changed(ChatBlock block) {
     if (_console == null) return;
+    // Buffered replay: no rows exist yet; the flushed window renders the
+    // block's final state.
+    if (_attachReplaying) return;
+    // The written window is a suffix of _blocks, so the last block — the
+    // streaming hot path — always has rows and _rows.last is its row.
     if (_blocks.isNotEmpty &&
-        identical(_blocks.last, block) &&
-        _rows.length == _blocks.length) {
+        _rows.isNotEmpty &&
+        identical(_blocks.last, block)) {
       final chat = _console!.chat;
       final oldContentRows = _renderedRows - _rows.last - _trailingBlankRows;
       final from = chat.contentRows - oldContentRows;
@@ -779,15 +838,112 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     }
   }
 
+  /// Write the tail window after a buffered replay.
+  ///
+  /// Replay constructed every block — the block list stays complete in
+  /// memory, so nothing is lost — but laid out only the tail: blocks are
+  /// rendered and written back-to-front until they fill the viewport plus
+  /// [_tailMarginRows]. Everything older stays cold until a scroll reaches
+  /// toward it. Called by [attachConsole] when the synchronous replay ends;
+  /// public so tests can drive the same path.
+  @visibleForTesting
+  void flushReplayTail() {
+    final console = _console;
+    if (console == null || _blocks.isEmpty || _renderedRows > 0) return;
+    final chat = console.chat;
+    final budget = chat.usableHeight + _tailMarginRows;
+    final windowBlocks = <ChatBlock>[]; // newest first
+    final windowLines = <List<RegionLine>>[];
+    var rows = 0;
+    for (var i = _blocks.length - 1; i >= 0; i--) {
+      final block = _blocks[i];
+      _materialize(block);
+      final lines = _render(block);
+      windowBlocks.add(block);
+      windowLines.add(lines);
+      rows += lines.length + (windowBlocks.length > 1 ? 1 : 0);
+      if (rows >= budget) break;
+    }
+    console.screen.frame(() {
+      for (var k = windowBlocks.length - 1; k >= 0; k--) {
+        if (_renderedRows > 0) {
+          chat.writeln();
+          _renderedRows++;
+        }
+        _rows.add(_renderedRows);
+        final lines = windowLines[k];
+        _renderedRows += lines.length;
+        _trailingBlankRows = _countTrailingBlanks(lines);
+        for (final line in lines) {
+          chat.writeLine(RegionLine(line.text,
+              bar: line.bar ?? _style.base, image: line.image));
+        }
+      }
+    });
+    _windowStart = _blocks.length - windowBlocks.length;
+    _pruneUnpaintableBlocks();
+    _decodeVisibleImages();
+  }
+
+  /// Extend the written window upward when a scroll approaches its top.
+  ///
+  /// Older blocks' rows are built (markdown materialized, image placeholders
+  /// sized from headers) and prepended above the scrollback history, so the
+  /// rows appear above the view without rewriting anything below it: the
+  /// scroll offset is compensated for the prepended rows and the viewport
+  /// stays anchored. Bounded by the margin and by the region's remaining
+  /// history capacity.
+  void _extendWindowTowardScroll() {
+    final console = _console;
+    if (console == null || _windowStart <= 0) return;
+    final chat = console.chat;
+    final range = chat.visibleContentRows;
+    if (range == null || range.first >= _tailMarginRows) return;
+    final capacity = chat.historyCapacity;
+    if (capacity <= 0) return;
+    var target = _tailMarginRows - range.first;
+    if (target > capacity) target = capacity;
+    final builtBlocks = <ChatBlock>[]; // newest first
+    final builtLines = <List<RegionLine>>[];
+    var rows = 0;
+    for (var i = _windowStart - 1; i >= 0 && rows < target; i--) {
+      final block = _blocks[i];
+      _materialize(block);
+      final lines = _render(block);
+      builtBlocks.add(block);
+      builtLines.add(lines);
+      rows += lines.length + 1; // its leading separator
+    }
+    if (builtBlocks.isEmpty) return;
+    final chunkLines = <RegionLine>[];
+    final chunkStarts = <int>[];
+    for (var i = builtBlocks.length - 1; i >= 0; i--) {
+      chunkLines.add(const RegionLine(''));
+      chunkStarts.add(chunkLines.length);
+      chunkLines.addAll(builtLines[i]);
+    }
+    final retained = chat.prependHistory(chunkLines);
+    if (retained != chunkLines.length) return; // capacity moved under us
+    for (var i = 0; i < _rows.length; i++) {
+      _rows[i] += retained;
+    }
+    _rows.insertAll(0, chunkStarts);
+    _windowStart -= builtBlocks.length;
+    _renderedRows += retained;
+    _decodeVisibleImages();
+  }
+
   void _rebuild() {
     if (_console == null) return;
     final lines = <RegionLine>[];
     renderer.group(_blocks);
     _rows.clear();
-    for (final block in _blocks) {
+    // Only the written window has rows; cold blocks beyond [_windowStart]
+    // stay unrendered until a scroll reaches them.
+    for (var i = _windowStart; i < _blocks.length; i++) {
       if (lines.isNotEmpty) lines.add(const RegionLine(''));
       _rows.add(lines.length);
-      lines.addAll(_render(block));
+      lines.addAll(_render(_blocks[i]));
     }
     _renderedRows = lines.length;
     _trailingBlankRows = _countTrailingBlanks(lines);
@@ -879,12 +1035,15 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       ];
   void _paintSelection() {
     _rebuild();
-    if (_selected != null && _selected! < _rows.length) {
+    if (_selected != null &&
+        _selected! >= _windowStart &&
+        _selected! - _windowStart < _rows.length) {
       final chat = _console?.chat;
       if (chat != null) {
         final retainedStart =
             _renderedRows - _trailingBlankRows - chat.contentRows;
-        chat.scrollRowIntoView(_rows[_selected!] - retainedStart);
+        chat.scrollRowIntoView(
+            _rows[_selected! - _windowStart] - retainedStart);
       }
     }
   }

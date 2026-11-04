@@ -776,6 +776,9 @@ class ScrollingTextRegion extends Region {
     );
   }
 
+  /// Rows still accepted above the scrollback history by [prependHistory].
+  int get historyCapacity => _maxHistoryRows - _history.length;
+
   /// Prepend already laid-out rows above the scrollback history — the
   /// tail-first resume path: older transcript blocks' rows enter at the top
   /// as the user scrolls toward them, without rewriting anything below.
@@ -804,7 +807,9 @@ class ScrollingTextRegion extends Region {
     });
     _history.insertAll(0, rows);
     if (_scrollOffset > 0) _scrollOffset += count;
-    _notifyScrollbackChanged();
+    // No scrollback notification: nothing the user did moved — the offset
+    // grew exactly as the content above grew, keeping the view anchored. A
+    // notify here would re-enter any scroll-driven extension logic.
     return count;
   }
 
