@@ -29,11 +29,11 @@ final sessionControlsOperations = <String, SessionOperation>{
         detail: 'Selected model is no longer available. Open the picker again.',
       );
     }
-    // Runs alongside between-turns work (a running /compact) but is
-    // rejected while a main turn streams: switching re-points future
-    // requests, and a live turn owns its request stream. Admission rejects
-    // rather than throwing, and the host's control dispatch keeps
-    // sanitizing thrown errors, so no provider detail can leak.
+    // Model switching runs during compaction but never during a live turn.
+    // A live turn owns its request stream. Switching only re-points future
+    // requests. The host rejects a mid-turn request at admission. If the
+    // switch still throws, the host sanitizes the error, so provider
+    // details never reach the client.
     controls.selectModel(model, expectedModel: expected);
     return const SessionResult();
   }, allowWhileRunning: true, allowWhileInTurn: false),

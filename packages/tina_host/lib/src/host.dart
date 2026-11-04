@@ -573,9 +573,13 @@ final class Host {
     final plugin = _plugins.where((p) => p.id == owner).firstOrNull;
     final definition =
         plugin == null ? null : config.operationsFor?.call(plugin)[name];
-    // A control that opts out of in-turn admission keeps its rejection even
-    // under allowWhileRunning: between-turns work (a running /compact) is
-    // allowed, a streaming main turn or a foreground operation is not.
+    // Admission rules for a control:
+    // - no definition for it: reject.
+    // - the session is busy and the control does not allow running: reject.
+    // - a turn is streaming or another operation owns the session, and the
+    //   control does not allow in-turn work: reject. This holds even when
+    //   the control allows running. Model switching is such a control: it
+    //   may overlap compaction (between-turns work), never a live turn.
     final requiresIdleTurn = definition != null &&
         !definition.allowWhileInTurn &&
         (session.loop.inTurn || _operation != null);

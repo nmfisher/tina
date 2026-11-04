@@ -146,9 +146,9 @@ void main() {
           throw StateError('model switching requires an idle turn'),
       modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
     );
-    // The operation never stringifies thrown state: a provider failure is
-    // as much a StateError as a refusal, and its message is private. The
-    // host's control dispatch reports the sanitized shape instead.
+    // The operation does not catch StateError. A refusal and a provider
+    // failure both surface as StateError here, and a provider failure's
+    // message is private. The host reports a sanitized error instead.
     expect(
         () => sessionControlsOperations['select-model']!.control!(
             plugin, {'model': 'two', 'expected_model': 'one'}),
