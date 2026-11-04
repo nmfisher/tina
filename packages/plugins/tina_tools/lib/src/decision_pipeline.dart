@@ -1,19 +1,20 @@
 /// The decision pipeline: one precedence implementation.
 ///
-/// Every permission check for a command funnels through [decidePermission]:
-/// the capability envelope (what the command touches), the scopes (what is
-/// already approved), and sandbox feasibility (can a backend hold the
-/// command inside those scopes) produce one of three outcomes —
+/// Every permission check for a command funnels through [decidePermission].
+/// It takes the capability envelope (what the command touches), the scopes
+/// (what is already approved), and sandbox feasibility (whether a backend
+/// can hold the command inside those scopes). It returns one of three
+/// outcomes:
 ///
 /// - [PermissionOutcome.run]: the mechanical layer answered. No model, no
-///   ask. Everything touched sits inside an approved scope and the sandbox
-///   can keep it there.
-/// - [PermissionOutcome.refuse]: fail closed. No enforcing backend means
-///   refuse, even for certified readers with a grant — a grant authorizes,
-///   it never confines.
+///   ask. Everything the command touches sits inside an approved scope,
+///   and the sandbox can keep it there.
+/// - [PermissionOutcome.refuse]: fail closed. When no enforcing backend is
+///   available, refuse — even for a certified reader with a grant. A
+///   grant allows the read; it does not make the run safe.
 /// - [PermissionOutcome.judgment]: everything else. Interactive mode asks
-///   the user; auto mode asks the classifier. Destructive commands always
-///   land here — a table verdict routes to judgment, never a silent run.
+///   the user. Auto mode asks the classifier. Destructive commands always
+///   land here: a table verdict goes to judgment, never to a silent run.
 ///
 /// Certified reads, command patterns, directory grants and MCP rules are
 /// all inputs to this one function, expressed through the [ScopesView].
@@ -54,19 +55,21 @@ final class PermissionDecision {
   bool get needsJudgment => outcome == PermissionOutcome.judgment;
 }
 
-/// One precedence, in order:
+/// The precedence, one rule at a time:
 ///
-/// 1. Destructive table verdict → judgment (batched/denied there per mode).
-/// 2. Network or host execution requested → judgment (unconfined execution
-///    is human-only; the classifier denies and batches it).
-/// 3. No enforcing backend ([confined] false) → refuse, fail closed. The
-///    grant authorizes the read; it does not remove the need for a backend
-///    that can confine execution.
-/// 4. Everything the command touches inside approved scopes → run. This
-///    covers certified readers with grant-covered paths, and the
-///    agent-created-script fast path: a script this session created,
-///    executed confined to workspace + temp with no network and no paths
-///    outside approved scopes.
+/// 1. The command is destructive by table → judgment. Each mode then
+///    batches or denies it.
+/// 2. The command wants the network or host execution → judgment. Only a
+///    human approves running without the sandbox. The classifier denies
+///    and batches such requests.
+/// 3. No enforcing backend ([confined] is false) → refuse. A grant allows
+///    the read; it does not remove the need for a backend that can
+///    confine execution.
+/// 4. Everything the command touches sits inside approved scopes → run.
+///    This covers certified readers with grant-covered paths. It also
+///    covers the agent-created-script fast path: a script this session
+///    created, executed confined to workspace and temp, with no network
+///    and no paths outside approved scopes.
 /// 5. Anything else → judgment.
 PermissionDecision decidePermission(
   CapabilityEnvelope envelope, {
@@ -86,10 +89,10 @@ PermissionDecision decidePermission(
     return const PermissionDecision._(PermissionOutcome.refuse,
         'no enforcing sandbox backend: refusing, fail closed');
   }
-  // The sandbox fast path: the agent wrote this script itself, this session,
-  // and runs it confined. The sandbox holds it inside workspace + temp; no
-  // ask needed for the execution itself. Writes the script performs still
-  // ride the sandbox's own enforcement.
+  // The agent-script fast path: the agent wrote this script itself, this
+  // session, and runs it confined. The sandbox holds it inside workspace
+  // and temp, so the execution itself needs no question. Writes the script
+  // performs are enforced by the sandbox.
   if (agentCreatedScript &&
       envelope.reads.every((path) => scopes.canRead(path)) &&
       envelope.argumentPaths.every((path) => scopes.canRead(path)) &&
@@ -98,9 +101,10 @@ PermissionDecision decidePermission(
         'agent-created script inside workspace and temp');
   }
 
-  // The certified-reader fast path: a pinned read-only pipeline whose every
-  // touched path sits inside a granted read or write scope. The certification
-  // pins capability; the grants carry authorization; the backend enforces.
+  // The certified-reader fast path: a pinned read-only pipeline, and every
+  // path it touches sits inside a granted read scope. The certification
+  // proves the command cannot write. The grants carry the user's approval.
+  // The backend enforces both.
   final readTouches = {...envelope.reads, ...envelope.argumentPaths};
   if (envelope.certifiedReadOnly &&
       readTouches.isNotEmpty &&
@@ -110,7 +114,8 @@ PermissionDecision decidePermission(
         'certified reader inside granted scopes');
   }
 
-  // Unknown commands with effects: judgment decides scope questions.
+  // Anything else has effects the mechanical layer cannot clear. Judgment
+  // decides whether the scopes cover them.
   return const PermissionDecision._(
       PermissionOutcome.judgment, 'uncovered effects');
 }

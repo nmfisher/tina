@@ -1,17 +1,22 @@
 /// The capability envelope: what a command touches, parsed once.
 ///
 /// Layer 1 of the permission restructure. Every permission check consumes
-/// this one component instead of parsing the command again: the envelope
-/// carries the touched paths (reads, writes), whether the command wants the
-/// network, which executable runs (with provenance), whether the whole
-/// pipeline is a certified reader, and whether the command is destructive.
+/// this one component instead of parsing the command again. The envelope
+/// carries:
+///
+/// - the paths the command reads and writes,
+/// - whether the command wants the network,
+/// - which executables it runs and where they came from,
+/// - whether the whole pipeline is a certified reader,
+/// - whether the command is destructive.
 ///
 /// The quote-aware parser and the certified-reader tables
-/// (read_only_commands.dart) are this component's internal knowledge:
-/// callers ask the envelope, not the tables. Parsing is pure — the same
-/// request and tables produce the same envelope — and grants nothing by
-/// itself; the decision pipeline (sandboxed_process_runner.dart) matches
-/// the envelope against scopes and sandbox feasibility.
+/// (read_only_commands.dart) are internal to this component. Callers ask
+/// the envelope; they never read the tables. Parsing is pure: the same
+/// request and tables always produce the same envelope. The envelope
+/// grants nothing by itself. The decision pipeline
+/// (sandboxed_process_runner.dart) compares it against approved scopes
+/// and sandbox feasibility.
 library;
 
 import 'dart:io';
@@ -49,12 +54,14 @@ final class CapabilityExecution {
   String toString() => '$executable (${provenance.name})';
 }
 
-/// What a command touches. A value: computed once per check, compared
-/// everywhere. [reads] and [writes] list the paths the parse identified —
-/// report operands for certified readers, plus directories declared through
-/// the request's control. They are facts, not grants: the decision pipeline
-/// decides whether they sit inside approved scopes and whether the sandbox
-/// can hold them there.
+/// What a command touches. The envelope is computed once per check and
+/// compared everywhere afterwards.
+///
+/// [reads] and [writes] list the paths the parse identified: report
+/// operands for certified readers, plus directories declared through the
+/// request's control. These are facts, not grants. The decision pipeline
+/// checks whether the paths sit inside approved scopes and whether the
+/// sandbox can hold them there.
 final class CapabilityEnvelope {
   CapabilityEnvelope._({
     required this.literalRequest,
@@ -88,8 +95,9 @@ final class CapabilityEnvelope {
   /// or null when the command is not a certified reader.
   final String? reader;
 
-  /// The resolved first component regardless of trusted-reader status (the
-  /// digest input for reviewing a not-yet-trusted reader candidate).
+  /// The first component, resolved, whether or not it is a trusted reader.
+  /// This is the digest input when reviewing a reader candidate that is
+  /// not trusted yet.
   final String? readerCandidateOnly;
 
   /// The argv a certified single reader runs (pinned executable, literal
@@ -97,8 +105,7 @@ final class CapabilityEnvelope {
   final List<String> certifiedArguments;
 
   /// The filesystem effects the certified parse identified. Empty when the
-  /// command is not certified — unknown commands have no verified accesses
-  /// by construction.
+  /// command is not certified. An unknown command has no verified accesses.
   final List<PermissionAccess> verifiedAccesses;
 
   /// Whether the certified parse identified every effect completely.
@@ -114,16 +121,16 @@ final class CapabilityEnvelope {
   /// Whether the command's subprocess tree asks for the network.
   final bool network;
 
-  /// The executables this command would run, in order: a certified reader
-  /// pins its resolved pipeline; otherwise the request's components as far
-  /// as they resolve (a shell's payload stays named — its internals are
-  /// what certification would pin).
+  /// The executables this command would run, in order. A certified reader
+  /// pins its resolved pipeline. Otherwise this lists the request's
+  /// components as far as they resolve. A shell's payload stays named: its
+  /// internals are what certification would pin.
   final List<CapabilityExecution> executions;
 
-  /// Non-empty when the command is destructive by table (irreversible
+  /// Non-null when the command is destructive by table (irreversible
   /// delete/format utilities, force-push flags, device-writing dd). The
-  /// string names the reason; it feeds refusal messages and end-of-turn
-  /// batching, never a silent run.
+  /// string names the reason. It feeds refusal messages and end-of-turn
+  /// batching. A destructive command is never run silently.
   final String? destructiveBecause;
 
   /// Certified reader end to end: single trusted reader or pinned script.
@@ -245,9 +252,10 @@ final class CapabilityEnvelope {
     return out;
   }
 
-  /// The destructive table: irreversible utilities and force flags. A
-  /// conservative static list — a destructive verdict routes to judgment,
-  /// never to a silent run. Certified readers never appear here.
+  /// The destructive table: irreversible utilities and force flags. The
+  /// list is deliberately conservative. A destructive verdict always goes
+  /// to judgment; the command is never run silently. Certified readers
+  /// never appear here.
   static const _destructiveUtilities = {
     'rm': 'removes files or directories',
     'rmdir': 'removes directories',

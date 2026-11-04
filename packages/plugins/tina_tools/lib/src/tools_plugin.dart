@@ -211,8 +211,9 @@ final class ToolsPlugin extends AgentPlugin
               _ => CommandApprovalScope.session,
             });
     this.modePolicy.persistentAccessGrants = commandApprovals.file != null;
-    // Classifier approvals are recorded in the scopes store, marked auto at
-    // session scope: visible and removable beside human decisions.
+    // Classifier approvals go into the scopes store, marked auto, at
+    // session scope. They appear beside human decisions in the
+    // remembered-permissions screen and can be removed there too.
     this.modePolicy.saveAutoGrant = (capability, target) =>
         commandApprovals.rememberAccess(capability, target,
             CommandApprovalScope.session,
@@ -379,9 +380,10 @@ final class ToolsPlugin extends AgentPlugin
           : null;
       register(name, (input, context) async {
         settings?.reload();
-        // The sandbox fast path: remember files this session's write/edit
-        // tools created. Executing one's own script confined to workspace +
-        // temp needs no execution question — the sandbox holds it.
+        // The agent-script fast path: remember files this session's own
+        // write/edit tools created. Running one's own script inside the
+        // sandbox (workspace and temp) needs no execution question; the
+        // sandbox holds it there.
         if (name == 'write' || name == 'edit') {
           final target = input['filePath'];
           if (target is String) _agentCreatedFiles.add(_absolute(target));
@@ -434,7 +436,8 @@ final class ToolsPlugin extends AgentPlugin
   String _absolute(String target) =>
       target.startsWith('/') ? target : '$workingDirectory/$target';
 
-  /// Did this session's own write/edit tools create (or last write) [path]?
+  /// Did this session's own write/edit tools create (or last write)
+  /// [path]? Used by the agent-script fast path in the decision pipeline.
   bool agentCreated(String path) => _agentCreatedFiles.contains(path);
 
   @override

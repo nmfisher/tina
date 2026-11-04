@@ -5,8 +5,8 @@
 /// (server, tool) rules — becomes a [ScopeRule] with the same shape:
 /// what is allowed, where it applies, at which scope, decided by whom.
 /// The remembered-permissions screen and the auto-mode classifier's
-/// recorded decisions both read through this view, so `auto` entries are
-/// as visible and removable as human ones.
+/// recorded decisions both read through this view. `auto` entries are as
+/// visible and as removable as human ones.
 library;
 
 import 'command_approval_store.dart';
@@ -96,7 +96,7 @@ final class ScopeRule {
   }
 }
 
-/// The fold: one list of rules over every remembered permission.
+/// All remembered rules, as one list.
 List<ScopeRule> scopeRules(CommandApprovalStore store) => [
       for (final entry in store.entries)
         if (ScopeRule.of(entry) case final rule?) rule,

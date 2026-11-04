@@ -53,13 +53,15 @@ String resolveHostExecutable(ProcessRequest request,
       'Cannot resolve approval executable', request.command);
 }
 
-/// The one scopes store: every remembered permission — command patterns,
-/// read/write directory settings, trusted readers, file and MCP access —
-/// is an entry here with the same (what is allowed, where it applies,
-/// scope, decided-by) shape. Entries written by a human carry
-/// `decided_by: user` (absent means user); automatic decisions from the
-/// auto-mode classifier carry `decided_by: auto` and are equally visible
-/// and removable in the remembered-permissions screen.
+/// The one scopes store. Every remembered permission is an entry here:
+/// command patterns, read/write directory settings, trusted readers, file
+/// access, and MCP access.
+///
+/// Every entry has the same shape: what is allowed, where it applies, at
+/// which scope, and who decided. A human decision carries
+/// `decided_by: user` (an absent field also means user). A decision from
+/// the auto-mode classifier carries `decided_by: auto`. Both kinds are
+/// visible and removable in the remembered-permissions screen.
 ///
 /// Human decisions only. Never loaded from a repository's settings. Every
 /// lookup rereads disk, so revocation takes effect in other running sessions.

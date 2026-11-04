@@ -361,9 +361,9 @@ final class SandboxedProcessRunner implements ProcessRunner {
       }
     }
     final network = (control?.networkRequested ?? false) || outsideSandbox;
-    // Parse once: the capability envelope owns the quote-aware parser and
-    // the certified-reader tables; every later question in this check reads
-    // the envelope instead of re-parsing the command.
+    // Parse the command once. The envelope owns the quote-aware parser and
+    // the certified-reader tables. Every later question in this check
+    // reads the envelope; nothing re-parses the command.
     final envelope = CapabilityEnvelope.parse(request,
         control: control,
         searchPath: executableSearchPath,
@@ -408,24 +408,24 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final confined = inner is ConfinedProcessRunner &&
         (inner as ConfinedProcessRunner).confinesFilesystem;
     final certifiedReadOnly = reader != null || shellReader != null;
-    // The read question, answered before the fallback flow: can the command
-    // write, execute or exfiltrate (capability — the static, quote-aware
-    // certification above, which pins every component to a trusted reader
-    // executable and literal arguments), and is every path it touches
-    // already inside a granted read or write scope (authorization — the
-    // user's grant IS the answer, not something to re-ask)? Both yes runs
-    // without a prompt. Jail availability must not turn an authorized read
-    // back into a question: without a backend the certification is the
-    // enforcement, exactly as unknown-flag readers already rely on it under
-    // a jail. Anything unproven keeps today's flow: ask, classifier, sandbox.
-    // Layer 1 of the decision pipeline (decision_pipeline.dart): capability
-    // (the quote-aware certification above), authorization (every touched
-    // path inside a granted scope) and enforceability (a backend that can
-    // confine execution). All three run without a prompt. No enforcing
-    // backend means refuse, even for a certified reader with a grant: the
-    // grant authorizes the read, it does not confine execution.
+    // Layer 1 of the decision pipeline (decision_pipeline.dart): checks
+    // that run without a prompt. Three facts must hold:
+    //
+    // - Capability: the quote-aware certification above pins every
+    //   component to a trusted reader executable with literal arguments.
+    //   The command cannot write, execute, or exfiltrate.
+    // - Authorization: every path the command touches is already inside a
+    //   granted read or write scope. The user's grant is the answer; it is
+    //   not asked again.
+    // - Enforceability: a backend is present that can confine execution.
+    //
+    // Without an enforcing backend the command is refused, even for a
+    // certified reader with a grant. A grant allows the read; it does not
+    // make the run safe. Anything unproven keeps today's flow: ask, run
+    // the classifier, use the sandbox.
+    //
     // Layer 1, second fast path (decision_pipeline.dart): a script this
-    // session's own tools created, run confined inside workspace + temp.
+    // session's own tools created, run confined inside workspace and temp.
     final scriptFastPath = confined &&
         !outsideSandbox &&
         !network &&

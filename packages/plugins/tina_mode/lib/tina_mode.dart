@@ -117,9 +117,10 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   saveAccessGrant;
   bool persistentAccessGrants = false;
 
-  /// Records a classifier approval into the scopes store, marked auto at
-  /// session scope. Wired by the tools plugin; equally visible and
-  /// removable in the remembered-permissions screen.
+  /// Records a classifier approval into the scopes store, marked auto, at
+  /// session scope. The tools plugin wires this. The entry appears beside
+  /// human decisions in the remembered-permissions screen and can be
+  /// removed there too.
   void Function(String capability, String target)? saveAutoGrant;
   Terminal? terminal;
   ApprovalRequester? approvals;
@@ -434,9 +435,9 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         if (call != null && identical(call, _call)) {
           _callApprovals[cacheKey] = ApprovalDecision.allow;
         }
-        // The classifier stood in for the user: its approval is recorded in
-        // the scopes store, marked auto at session scope. A confined scope
-        // extension is additionally listed in the end-of-turn batch.
+        // The classifier stood in for the user. Record its approval in the
+        // scopes store, marked auto, at session scope. If the request also
+        // widened the confined scope, list it in the end-of-turn batch.
         saveAutoGrant?.call(capability.name, identity);
         if (_isScopeExtension(evidence, judgment)) {
           _batchAutoDecision(
@@ -451,9 +452,9 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         return ApprovalDecision.allow;
       }
       if (mode == PermissionMode.auto && result.allow == false) {
-        // A classifier denial is final: do not run, batch for the user,
-        // keep the turn going. The user reads command and reason at end of
-        // turn; no dialog interrupts the run.
+        // A classifier denial is final. Do not run the command. Keep the
+        // turn going. Batch the command and the reason for the user to
+        // read at end of turn; no dialog interrupts the run.
         final denial =
             'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}';
         _batchAutoDecision('denied', target, denial);
@@ -717,18 +718,18 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   final _autoBatch = <String, List<(String, String, String)>>{};
 
-  /// Collect one auto-mode decision for the end-of-turn batch, keyed by the
-  /// turn it happened in.
+  /// Collect one auto-mode decision for the end-of-turn batch. Decisions
+  /// are grouped by the turn they happened in.
   void _batchAutoDecision(String verdict, String target, String reason) {
     final turnId = _turn?.input.id;
     if (turnId == null) return;
     (_autoBatch[turnId] ??= []).add((verdict, target, reason));
   }
 
-  /// A confined scope extension: the request adds directory access beyond
-  /// what it already had, or the assessment identifies write-classified
-  /// effects. Auto-granted scopes never cover destructive operations —
-  /// those denied above.
+  /// A confined scope extension: the request asks for directory access it
+  /// did not have before, or the assessment found write-classified
+  /// effects. Destructive operations never get this far; they are denied
+  /// above.
   bool _isScopeExtension(
       Map<String, Object?> evidence, PermissionJudgment judgment) {
     if (evidence['invocation_directory_access'] != null) return true;
@@ -736,8 +737,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         .any((access) => access.operation != PermissionAccessOperation.read);
   }
 
-  /// The end-of-turn batch: every auto-mode denial (and allowed scope
-  /// extension) of the closing turn, one line each.
+  /// The end-of-turn batch. Every auto-mode denial of the closing turn is
+  /// one line. Allowed scope extensions are listed too.
   void _emitAutoBatch() {
     final turnId = _turn?.input.id;
     if (turnId == null) return;
