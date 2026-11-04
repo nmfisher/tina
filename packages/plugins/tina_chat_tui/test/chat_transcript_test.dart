@@ -148,6 +148,68 @@ void main() {
     });
   });
 
+  group('entity decoding', () {
+    test('expanded reasoning decodes entities in the revealed text', () {
+      final block = ChatBlock.reasoning(
+          _main, 'the &quot;matters right now&quot; part');
+      block.folded = false;
+      final rendered = _render([block]);
+      expect(rendered, contains('the "matters right now" part'));
+      expect(rendered, isNot(contains('&quot;')));
+    });
+
+    test('a folded tool call decodes entities in subject and status', () {
+      final rendered = _render([
+        ChatBlock.toolCall(
+          _main,
+          subject: 'bash · echo &quot;hi&quot;',
+          status: 'failed · &quot;boom&quot;',
+          body: plainLines('silent'),
+        ),
+      ]);
+      expect(rendered, ' → bash · echo "hi"  failed · "boom"');
+    });
+
+    test('an expanded tool call decodes entities in its output body', () {
+      final block = ChatBlock.toolCall(
+        _main,
+        subject: 'bash · grep flake',
+        body: plainLines('test/a_test.dart:12: &quot;flake&quot;'),
+      );
+      block.folded = false;
+      final rendered = _render([block]);
+      expect(rendered, contains('test/a_test.dart:12: "flake"'));
+      expect(rendered, isNot(contains('&quot;')));
+    });
+
+    test('a notice decodes entities in its one-line form', () {
+      final rendered = _render([
+        ChatBlock.notice(_main, 'retry &quot;soon&quot;', notice: 'warn'),
+      ]);
+      expect(rendered, ' warn · retry "soon"');
+    });
+
+    test('prose is the control: the markdown path already decoded', () {
+      final rendered = _render([
+        ChatBlock.prose(
+          _main,
+          renderMarkdown('say &quot;hi&quot;', const MarkdownStyle()),
+        ),
+      ]);
+      expect(rendered, ' say "hi"');
+    });
+
+    test('a user-typed entity in a code span stays literal', () {
+      final rendered = _render([
+        ChatBlock.prose(
+          _main,
+          renderMarkdown('run `a &amp; b`', const MarkdownStyle()),
+        ),
+      ]);
+      expect(rendered, ' run a &amp; b');
+    });
+  });
+
   group('wrapping', () {
     test('a long paragraph wraps under the shared margin', () {
       final rendered = _render([

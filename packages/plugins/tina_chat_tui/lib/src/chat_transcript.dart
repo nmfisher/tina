@@ -387,7 +387,10 @@ List<MarkdownRun> _headerRuns(ChatBlock block) {
 // Signposts occupy one physical row. Shell heredocs, error descriptions and
 // plugin notices may contain source line breaks; they are text here, never
 // terminal cursor instructions. User/prose line breaks are laid out below.
-String _headerText(String text) => text.replaceAll(RegExp(r'[\r\n\t]+'), ' ');
+// Entities decode here: subjects and statuses are raw model/tool text that
+// never travels the markdown path, so this is the single decode.
+String _headerText(String text) =>
+    decodeEntities(text.replaceAll(RegExp(r'[\r\n\t]+'), ' '));
 
 /// Prefix visual lines: [first] opens the block, [rest] continues it.
 ///
@@ -546,8 +549,12 @@ String _takeWidth(String text, int width) {
 }
 
 /// Plain content lines from [text] — one visual line per source line.
+///
+/// The shared entity decode lives here: raw text bodies (reasoning, tool
+/// output) enter display through this function, so every surface that shows
+/// them inherits the decode.
 List<MarkdownLine> plainLines(String text) => [
-      for (final line in text.split('\n'))
+      for (final line in decodeEntities(text).split('\n'))
         line.isEmpty
             ? const MarkdownLine.blank()
             : MarkdownLine(runs: [MarkdownRun(line, null)]),
@@ -557,6 +564,6 @@ List<MarkdownLine> plainLines(String text) => [
 /// room even for the margin.
 List<MarkdownLine> _bodyLines(ChatBlock block) => block.body.isEmpty
     ? [
-        MarkdownLine(runs: [MarkdownRun(block.subject, null)]),
+        MarkdownLine(runs: [MarkdownRun(_headerText(block.subject), null)]),
       ]
     : block.body;

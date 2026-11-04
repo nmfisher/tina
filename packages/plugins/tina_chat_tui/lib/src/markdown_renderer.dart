@@ -86,7 +86,8 @@ List<MarkdownLine> _renderNode(
 }) {
   if (node is md.Text) {
     // Bare text at block level (rare): treat as a paragraph.
-    return _linesFromRuns([MarkdownRun(node.text, null)], indent: indent);
+    return _linesFromRuns([MarkdownRun(decodeEntities(node.text), null)],
+        indent: indent);
   }
   if (node is! md.Element) {
     return const [];
@@ -102,7 +103,9 @@ List<MarkdownLine> _renderNode(
     case 'h6':
       return [
         MarkdownLine(
-          runs: [MarkdownRun(indent + node.textContent, style.header)],
+          runs: [
+            MarkdownRun(indent + decodeEntities(node.textContent), style.header)
+          ],
         ),
       ];
     case 'blockquote':
@@ -135,7 +138,8 @@ List<MarkdownLine> _renderNode(
       }
       if (out.isEmpty && node.textContent.isNotEmpty) {
         out.addAll(
-          _linesFromRuns([MarkdownRun(node.textContent, null)], indent: indent),
+          _linesFromRuns([MarkdownRun(decodeEntities(node.textContent), null)],
+              indent: indent),
         );
       }
       return out;
@@ -169,7 +173,7 @@ List<MarkdownRun> _inlineRuns(
   final out = <MarkdownRun>[];
   for (final node in nodes) {
     if (node is md.Text) {
-      out.add(MarkdownRun(_decodeEntities(node.text), _bitsCode(bits)));
+      out.add(MarkdownRun(decodeEntities(node.text), _bitsCode(bits)));
       continue;
     }
     if (node is! md.Element) continue;
@@ -182,11 +186,11 @@ List<MarkdownRun> _inlineRuns(
         // The parser entity-encodes code-span content once (it targets HTML
         // output); a single decode restores the source text exactly.
         out.add(
-          MarkdownRun(_decodeEntities(node.textContent), style.inlineCode),
+          MarkdownRun(decodeEntities(node.textContent), style.inlineCode),
         );
       case 'a':
         final href = node.attributes['href'] ?? '';
-        final label = node.textContent;
+        final label = decodeEntities(node.textContent);
         if (href.isEmpty || href == label) {
           out.add(MarkdownRun(label, style.link));
         } else {
@@ -196,7 +200,7 @@ List<MarkdownRun> _inlineRuns(
         }
       case 'img':
         final src = node.attributes['src'] ?? '';
-        final alt = node.attributes['alt'] ?? node.textContent;
+        final alt = decodeEntities(node.attributes['alt'] ?? node.textContent);
         out
           ..add(MarkdownRun(alt, style.link))
           ..add(MarkdownRun(' ($src)', style.dim));
@@ -240,12 +244,15 @@ const _namedEntities = <String, String>{
   'copy': '©',
 };
 
-/// Decode HTML entities in prose text. The markdown package leaves them
-/// literal in Text nodes (its HTML renderer does the decoding); agents emit
-/// `&amp;`/`&lt;` constantly, so rendered prose decodes the common set.
-/// Code spans are passed through undecoded (CommonMark) — they never come
-/// through here.
-String _decodeEntities(String text) {
+/// Decode HTML entities in display text — the single shared decoder every
+/// render surface funnels through (transcript bodies and headers as well as
+/// this renderer). The markdown package leaves entities literal in Text
+/// nodes (its HTML renderer does the decoding); agents emit `&amp;`/`&lt;`
+/// constantly, so rendered text decodes the common set. Code spans are
+/// passed through undecoded (CommonMark) — the code-span and code-block
+/// call sites decode only the parser's own single escape layer, so source
+/// text round-trips.
+String decodeEntities(String text) {
   if (!text.contains('&')) return text;
   return text.replaceAllMapped(_entityRe, (m) {
     final body = m.group(1)!;
@@ -468,14 +475,14 @@ List<MarkdownLine> _renderTable(
 String _normalizeCellText(String text) {
   // Simple whitespace normalization.
   text = text.replaceAllMapped(RegExp(r'\s+'), (m) => ' ');
-  return text.trim();
+  return decodeEntities(text.trim());
 }
 
 List<MarkdownLine> _renderCodeBlock(md.Element pre, MarkdownStyle style) {
   // pre > code > Text; the text carries a leading newline from the fence,
   // and entity-encoded content (the parser targets HTML output) — one
   // decode restores the source.
-  var text = _decodeEntities(pre.textContent);
+  var text = decodeEntities(pre.textContent);
   if (text.startsWith('\n')) text = text.substring(1);
   final lines = text.split('\n');
   // The fence's final newline produces one trailing empty segment — drop it.

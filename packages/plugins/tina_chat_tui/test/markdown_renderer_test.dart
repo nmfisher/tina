@@ -262,6 +262,34 @@ void main() {
       expect(lines.single.runs.single.text, 'a &amp; b');
     });
 
+    test('headers, link labels and table cells decode entities', () {
+      final header = renderMarkdown('## Done &quot;now&quot;', style);
+      expect(
+        header,
+        hasRuns([
+          [styledRun('Done "now"', style.header)],
+        ]),
+      );
+
+      final link = renderMarkdown('[a &quot;q&quot;](https://e.x/y)', style);
+      expect(
+        link,
+        hasRuns([
+          [
+            styledRun('a "q"', style.link),
+            styledRun(' (https://e.x/y)', style.dim)
+          ],
+        ]),
+      );
+
+      final table =
+          renderMarkdown('| h &quot;1&quot; |\n| --- |\n| c &amp; d |', style);
+      final flat =
+          table.map((l) => l.runs.map((r) => r.text).join()).join('\n');
+      expect(flat, contains('h "1"'));
+      expect(flat, contains('c & d'));
+    });
+
     test('emphasis inside a list item works', () {
       final lines = renderMarkdown('- **big** point', style);
       expect(
