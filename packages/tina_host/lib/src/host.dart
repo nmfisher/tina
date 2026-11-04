@@ -573,7 +573,15 @@ final class Host {
     final plugin = _plugins.where((p) => p.id == owner).firstOrNull;
     final definition =
         plugin == null ? null : config.operationsFor?.call(plugin)[name];
-    if (definition == null || (busy && !definition.allowWhileRunning)) {
+    // A control that opts out of in-turn admission keeps its rejection even
+    // under allowWhileRunning: between-turns work (a running /compact) is
+    // allowed, a streaming main turn or a foreground operation is not.
+    final requiresIdleTurn = definition != null &&
+        !definition.allowWhileInTurn &&
+        (session.loop.inTurn || _operation != null);
+    if (definition == null ||
+        (busy && !definition.allowWhileRunning) ||
+        requiresIdleTurn) {
       record.finish(
           SessionRequestState.rejected,
           SessionResult(

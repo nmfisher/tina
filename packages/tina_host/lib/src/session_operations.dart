@@ -12,18 +12,27 @@ typedef SessionControlHandler = SessionResult Function(
 /// A foreground operation owns the session until its future settles. A control
 /// is synchronous, cannot start turns, and may opt into running alongside work.
 /// Scheduling belongs to the plugin declaration, never to client arguments.
+///
+/// [allowWhileRunning] admits a control while the session is busy at all —
+/// a streaming turn, between-turns work such as compaction, or another
+/// operation. [allowWhileInTurn] narrows that: false keeps the control
+/// rejected while a main turn streams or a foreground operation owns the
+/// session, so it runs only alongside between-turns work. The loop's
+/// `running` flag alone cannot express that distinction.
 final class SessionOperation {
   const SessionOperation(SessionOperationHandler handler)
       : handler = handler,
         control = null,
-        allowWhileRunning = false;
+        allowWhileRunning = false,
+        allowWhileInTurn = true;
   const SessionOperation.control(SessionControlHandler control,
-      {this.allowWhileRunning = false})
+      {this.allowWhileRunning = false, this.allowWhileInTurn = true})
       : control = control,
         handler = null;
   final SessionOperationHandler? handler;
   final SessionControlHandler? control;
   final bool allowWhileRunning;
+  final bool allowWhileInTurn;
 }
 
 /// Capabilities valid only for this invocation. Cancellation spans every turn
