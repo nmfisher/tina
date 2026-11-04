@@ -138,7 +138,7 @@ void main() {
     expect(terminal.lines.last, 'Reasoning control is unavailable in this session.');
   });
 
-  test('a refused switch surfaces its reason, not a bare type name', () {
+  test('a refused switch propagates for the host to sanitize', () {
     final plugin = SessionControlsPlugin(
       terminal: _Terminal(),
       currentModel: () => 'one',
@@ -146,10 +146,13 @@ void main() {
           throw StateError('model switching requires an idle turn'),
       modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
     );
-    final result = sessionControlsOperations['select-model']!.control!(
-        plugin, {'model': 'two', 'expected_model': 'one'});
-    expect(result.stopReason, StopReason.error);
-    expect(result.detail, 'Bad state: model switching requires an idle turn');
+    // The operation never stringifies thrown state: a provider failure is
+    // as much a StateError as a refusal, and its message is private. The
+    // host's control dispatch reports the sanitized shape instead.
+    expect(
+        () => sessionControlsOperations['select-model']!.control!(
+            plugin, {'model': 'two', 'expected_model': 'one'}),
+        throwsStateError);
   });
 
   test(
@@ -198,7 +201,7 @@ void main() {
     expect(one.callCount, 0);
   });
 
-  test('the picker during a running turn fails with the refusal reason',
+  test('the picker during a running turn is rejected at admission',
       () async {
     Host? hostRef;
     var current = 'one';
@@ -230,8 +233,9 @@ void main() {
         arguments: {'model': 'two', 'expected_model': 'one'},
         id: client.requestWindow.id('pick'));
     final result = await request.completed;
-    expect(result.state, SessionRequestState.failed);
-    expect(result.result!.detail, 'Bad state: model switching requires an idle turn');
+    expect(result.state, SessionRequestState.rejected,
+        reason: 'a streaming turn owns its request stream');
+    expect(result.result!.detail, 'Operation requires an idle session.');
     expect(current, 'one', reason: 'the turn keeps its model');
     release.complete();
     expect((await turn).stopReason, StopReason.complete);
