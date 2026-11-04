@@ -141,6 +141,7 @@ final class ToolsPlugin extends AgentPlugin
     });
     sandbox.mode = this.modePolicy.mode;
     processRunner.mode = this.modePolicy.mode;
+    processRunner.agentCreated = agentCreated;
     toolList = [
       LsTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       ReadTool(fs: sandbox, workspaceRoot: workspaceRoot),
@@ -372,6 +373,13 @@ final class ToolsPlugin extends AgentPlugin
           : null;
       register(name, (input, context) async {
         settings?.reload();
+        // The sandbox fast path: remember files this session's write/edit
+        // tools created. Executing one's own script confined to workspace +
+        // temp needs no execution question — the sandbox holds it.
+        if (name == 'write' || name == 'edit') {
+          final target = input['filePath'];
+          if (target is String) _agentCreatedFiles.add(_absolute(target));
+        }
         // A mutating tool's result cannot be trusted to leave the world
         // unchanged, whatever it reported: block caching during execution
         // and invalidate both before dispatch and after it settles.
@@ -414,6 +422,14 @@ final class ToolsPlugin extends AgentPlugin
     _speculative.clear();
     modePolicy.onInput(c);
   }
+
+  final _agentCreatedFiles = <String>{};
+
+  String _absolute(String target) =>
+      target.startsWith('/') ? target : '$workingDirectory/$target';
+
+  /// Did this session's own write/edit tools create (or last write) [path]?
+  bool agentCreated(String path) => _agentCreatedFiles.contains(path);
 
   @override
   void beforeToolCall(TurnContext c) {

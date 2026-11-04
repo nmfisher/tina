@@ -140,6 +140,14 @@ final class CapabilityEnvelope {
         ...declaredReads,
       ];
 
+  /// Arguments that name paths (absolute or containing separators). For an
+  /// uncertified command these are the only touchable paths the parse can
+  /// see; the fast path checks them against approved scopes.
+  late final List<String> argumentPaths = List.unmodifiable([
+        for (final argument in readerRequest.arguments)
+          if (argument.startsWith('/') || argument.contains('/')) argument,
+      ]);
+
   /// Paths the command writes, creates, deletes or moves: verified
   /// write-classified operands plus declared write directories.
   List<String> get writes => [

@@ -282,6 +282,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
   final String? workspaceRoot;
   final SandboxPlan? plan;
   Map<String, String> Function()? trustedReaderExecutables;
+
+  /// The sandbox fast path lookup: files this session's own write/edit
+  /// tools created (decision_pipeline.dart). Null disables the path.
+  bool Function(String path)? agentCreated;
   bool Function(String)? outputWritePermission;
   bool Function(ProcessRequest, ProcessPermission, ProcessDirectoryAccess)?
       persistentPermission;
@@ -414,7 +418,26 @@ final class SandboxedProcessRunner implements ProcessRunner {
     // back into a question: without a backend the certification is the
     // enforcement, exactly as unknown-flag readers already rely on it under
     // a jail. Anything unproven keeps today's flow: ask, classifier, sandbox.
-    final readsAuthorized = !outsideSandbox &&
+    // Layer 1 of the decision pipeline (decision_pipeline.dart): capability
+    // (the quote-aware certification above), authorization (every touched
+    // path inside a granted scope) and enforceability (a backend that can
+    // confine execution). All three run without a prompt. No enforcing
+    // backend means refuse, even for a certified reader with a grant: the
+    // grant authorizes the read, it does not confine execution.
+    // Layer 1, second fast path (decision_pipeline.dart): a script this
+    // session's own tools created, run confined inside workspace + temp.
+    final scriptFastPath = confined &&
+        !outsideSandbox &&
+        !network &&
+        agentCreated != null &&
+        request.arguments.isNotEmpty &&
+        request.arguments.every((argument) =>
+            !argument.startsWith('-') &&
+            (path.isAbsolute(argument)
+                ? agentCreated!(argument)
+                : agentCreated!(path.join(
+                    request.workingDirectory ?? workspaceRoot ?? '.', argument))));
+    final readsAuthorized = confined &&
         !network &&
         certifiedReadOnly &&
         declaredAccess.read.isEmpty &&
@@ -424,6 +447,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 _canRead(access.path));
     final readOnlyProfile = control?.readOnlyRequested ??
         (readsAuthorized ||
+            scriptFastPath ||
             _defaultReadOnlyProfile(mode,
                 confined: confined,
                 certifiedReadOnly: certifiedReadOnly,
@@ -439,8 +463,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
       ProcessPermission.execution,
       if (!readOnlyProfile && !outsideSandbox) ProcessPermission.workspaceWrite,
       if (network) ProcessPermission.network,
-      if (outsideSandbox || !confined && !readOnlyProfile)
-        ProcessPermission.unconfined,
+      if (outsideSandbox || !confined) ProcessPermission.unconfined,
       if (!directoryAccess.isEmpty) ProcessPermission.directoryAccess,
     };
     final missing = requiredPermissions
@@ -455,16 +478,12 @@ final class SandboxedProcessRunner implements ProcessRunner {
     bool granted(ProcessPermission permission) => !missing.contains(permission);
     final authorization = AuthorizationRequest(
       readOnlyExecution: readOnlyProfile && !outsideSandbox,
-      // A jail enforces the read-only profile; for a grant-authorized
-      // certified reader the static certification is the enforcement, so
-      // the request reports an enforced read either way. Everything else
-      // still needs the backend and reports its true confinement.
-      confined: confined || readsAuthorized,
+      confined: confined,
       requirements: [
         AccessRequirement(AccessCapability.execute, request.command,
             workspace: !outsideSandbox,
             granted: granted(ProcessPermission.execution) &&
-                !(mode == PermissionMode.readOnly && !confined && !readOnlyProfile)),
+                !(mode == PermissionMode.readOnly && !confined)),
         if (!readOnlyProfile && !outsideSandbox)
           AccessRequirement(AccessCapability.write,
               workspaceRoot ?? request.workingDirectory ?? '.',
@@ -473,7 +492,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         if (network)
           AccessRequirement(AccessCapability.network, request.command,
               granted: granted(ProcessPermission.network)),
-        if (outsideSandbox || !confined && !readOnlyProfile)
+        if (outsideSandbox || !confined)
           AccessRequirement(AccessCapability.host, request.command,
               granted: granted(ProcessPermission.unconfined)),
         for (final directory in declaredAccess.read)
