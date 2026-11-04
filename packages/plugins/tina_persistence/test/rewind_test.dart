@@ -29,10 +29,13 @@ void main() {
     addTearDown(store.close);
 
     // Two finished turns, a rewind before the second, then a third turn
-    // that continues from the rewound point.
+    // that continues from the rewound point. The marker is written as the
+    // legacy 'rewound' wire type — exactly what a log persisted by the old
+    // code holds — so this test pins the compatibility alias end to end.
     final turn1 = turnEntries('t1', 'first', 0);
     final turn2 = turnEntries('t2', 'second', 5);
-    final marker = RewoundEntry(toSeq: 5, at: 'b').withSeq(10);
+    final marker = SessionEntry.fromJson(
+        {'type': 'rewound', 'to_seq': 5, 'at': 'b', 'seq': 10});
     final turn3 = turnEntries('t3', 'third', 11);
 
     store.createSession('s', title: 'rewind', entries: turn1);
@@ -44,7 +47,7 @@ void main() {
     // disk, in order, and readable by anything deriving an export.
     final stored = store.readEntries('s');
     expect(stored.length, 16);
-    expect(stored[10], isA<RewoundEntry>());
+    expect(stored[10], isA<CutEntry>());
     expect(stored.whereType<InputRecordedEntry>().map((e) => e.text).toList(),
         ['first', 'second', 'third']);
     expect(store.checkGaps('s'), isEmpty,
@@ -79,7 +82,7 @@ void main() {
     addTearDown(store.close);
     final turn1 = turnEntries('t1', 'only', 0);
     store.createSession('s', entries: turn1);
-    store.append('s', [RewoundEntry(toSeq: 0, at: 'b').withSeq(5)]);
+    store.append('s', [CutEntry(toSeq: 0, at: 'b').withSeq(5)]);
 
     final stored = store.readEntries('s');
     expect(stored.length, 6);

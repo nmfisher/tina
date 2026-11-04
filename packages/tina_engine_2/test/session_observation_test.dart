@@ -153,14 +153,15 @@ void main() {
     source.close();
     expect(() => source.observation.listen((_) {}), throwsStateError);
   });
-  test('replay after a rewind delivers only the active prefix', () async {
+  test('replay after a cut directive delivers only the active prefix',
+      () async {
     final provider = ScriptedProvider(
         [scriptedReply('a1'), scriptedReply('a2'), scriptedReply('a3')]);
     final loop = AgentLoop(provider: provider, plugins: []);
     final source = SessionObservationSource()..mountOn(loop);
     await loop.runTurn(const Input('first', id: 't1'));
     await loop.runTurn(const Input('second', id: 't2'));
-    loop.rewind(5); // before turn 2
+    loop.cutFrom(5); // before turn 2
 
     final replay = <SessionEntry>[];
     final release = source.observation.listen((event) {

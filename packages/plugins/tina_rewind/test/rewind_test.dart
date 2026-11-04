@@ -115,7 +115,7 @@ void main() {
       expect(terminal.lines.first, contains('current position: after entry 9'));
       expect(terminal.lines.join('\n'), contains('first'));
       expect(terminal.lines.join('\n'), contains('second'));
-      expect(loop.log.whereType<RewoundEntry>(), isEmpty);
+      expect(loop.log.whereType<CutEntry>(), isEmpty);
       plugin.closeSession();
     },
   );
