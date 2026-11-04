@@ -211,6 +211,12 @@ final class ToolsPlugin extends AgentPlugin
               _ => CommandApprovalScope.session,
             });
     this.modePolicy.persistentAccessGrants = commandApprovals.file != null;
+    // Classifier approvals are recorded in the scopes store, marked auto at
+    // session scope: visible and removable beside human decisions.
+    this.modePolicy.saveAutoGrant = (capability, target) =>
+        commandApprovals.rememberAccess(capability, target,
+            CommandApprovalScope.session,
+            decidedBy: 'auto');
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
         sandboxDescription: osRunner.describeEnvironment);

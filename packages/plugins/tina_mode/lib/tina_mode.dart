@@ -116,6 +116,11 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   void Function(String capability, String target, ApprovalDecision decision)?
   saveAccessGrant;
   bool persistentAccessGrants = false;
+
+  /// Records a classifier approval into the scopes store, marked auto at
+  /// session scope. Wired by the tools plugin; equally visible and
+  /// removable in the remembered-permissions screen.
+  void Function(String capability, String target)? saveAutoGrant;
   Terminal? terminal;
   ApprovalRequester? approvals;
   PermissionClassifier? classifier;
@@ -384,6 +389,19 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ...?_recentContext(turn),
     };
     var judgment = const PermissionJudgment(null, 'not classified');
+    // Unconfined execution is human-only. In auto mode the classifier can
+    // never approve running without the sandbox: deny without asking it,
+    // batch for the user, and let them decide at end of turn.
+    if (mode == PermissionMode.auto &&
+        permission &&
+        requiredPermissions is Iterable &&
+        requiredPermissions.contains('unconfined')) {
+      _batchAutoDecision('denied', target, 'runs without sandbox (human-only)');
+      terminal?.writeln(
+          'auto mode denied: $target — runs without sandbox; batched for '
+          'your review');
+      return ApprovalDecision.deny;
+    }
     if (mode == PermissionMode.auto && permission && !requireHuman) {
       final evidence = requestEvidence();
       // Deterministic fast path: an exact read-only shape the user has already
@@ -413,9 +431,16 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       if (result.allow == false) autoDenialReason = result.reason;
       if (mode == PermissionMode.auto && result.allow == true) {
         terminal?.writeln('$operation allowed by classifier: $target');
-        // Classifier approvals apply once, never become human session grants.
         if (call != null && identical(call, _call)) {
           _callApprovals[cacheKey] = ApprovalDecision.allow;
+        }
+        // The classifier stood in for the user: its approval is recorded in
+        // the scopes store, marked auto at session scope. A confined scope
+        // extension is additionally listed in the end-of-turn batch.
+        saveAutoGrant?.call(capability.name, identity);
+        if (_isScopeExtension(evidence, judgment)) {
+          _batchAutoDecision(
+              'allowed', target, 'confined scope extension (session, auto)');
         }
         _rememberDecision(
           evidence,
@@ -425,10 +450,18 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         );
         return ApprovalDecision.allow;
       }
+      if (mode == PermissionMode.auto && result.allow == false) {
+        // A classifier denial is final: do not run, batch for the user,
+        // keep the turn going. The user reads command and reason at end of
+        // turn; no dialog interrupts the run.
+        final denial =
+            'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}';
+        _batchAutoDecision('denied', target, denial);
+        terminal?.writeln('auto mode denied: $target — $denial (batched)');
+        return ApprovalDecision.deny;
+      }
       autoFallback = mode != PermissionMode.auto
           ? 'mode changed to ${mode.label}'
-          : result.allow == false
-          ? 'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}'
           : 'classifier ${result.failure ?? 'unavailable'}';
       if (autoDiagnostics['model'] is String) {
         autoFallback = '$autoFallback (${autoDiagnostics['model']})';
@@ -676,9 +709,45 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   @override
   void onTurnEnd(TurnContext context) {
+    _emitAutoBatch();
     _turn = null;
     _call = null;
     _callApprovals.clear();
+  }
+
+  final _autoBatch = <String, List<(String, String, String)>>{};
+
+  /// Collect one auto-mode decision for the end-of-turn batch, keyed by the
+  /// turn it happened in.
+  void _batchAutoDecision(String verdict, String target, String reason) {
+    final turnId = _turn?.input.id;
+    if (turnId == null) return;
+    (_autoBatch[turnId] ??= []).add((verdict, target, reason));
+  }
+
+  /// A confined scope extension: the request adds directory access beyond
+  /// what it already had, or the assessment identifies write-classified
+  /// effects. Auto-granted scopes never cover destructive operations —
+  /// those denied above.
+  bool _isScopeExtension(
+      Map<String, Object?> evidence, PermissionJudgment judgment) {
+    if (evidence['invocation_directory_access'] != null) return true;
+    return judgment.assessment.accesses
+        .any((access) => access.operation != PermissionAccessOperation.read);
+  }
+
+  /// The end-of-turn batch: every auto-mode denial (and allowed scope
+  /// extension) of the closing turn, one line each.
+  void _emitAutoBatch() {
+    final turnId = _turn?.input.id;
+    if (turnId == null) return;
+    final entries = _autoBatch.remove(turnId);
+    if (entries == null || entries.isEmpty) return;
+    terminal?.writeln('auto mode decisions this turn:');
+    for (var i = 0; i < entries.length; i++) {
+      final (verdict, target, reason) = entries[i];
+      terminal?.writeln('  ${i + 1}. $verdict: $target — $reason');
+    }
   }
 
   @override
