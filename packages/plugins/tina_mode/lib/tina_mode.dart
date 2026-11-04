@@ -300,6 +300,13 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         ? context['authorization_identity'] as String
         : target;
     final mcp = context['permission_scope'] == 'mcp';
+    // MCP rules key on (server, tool), never on arguments: remembering a
+    // tool trusts any argument set, so a rule answers every later call of
+    // that tool on that server without asking again.
+    final mcpRule = context['mcp_rule_target'] is String
+        ? context['mcp_rule_target'] as String
+        : null;
+    final mcpGrantTarget = mcpRule ?? identity;
     final mcpRead =
         context['mcp_method'] == 'resources/read' ||
         context['mcp_method'] == 'prompts/get';
@@ -310,6 +317,10 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         : operation == 'run command'
         ? AccessCapability.execute
         : AccessCapability.write;
+    // A (server, tool) rule answers this call without arguments mattering.
+    final ruleGranted = mcp &&
+        mcpRule != null &&
+        hasAccessGrant?.call(capability.name, mcpRule) == true;
     final canonical =
         authorization ??
         AuthorizationRequest(
@@ -318,9 +329,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               capability,
               identity,
               workspace: !external,
-              granted:
-                  mcp &&
-                  hasAccessGrant?.call(capability.name, identity) == true,
+              granted: mcp && hasAccessGrant?.call(capability.name, mcpGrantTarget) == true,
             ),
           ],
         );
@@ -329,8 +338,10 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       terminal?.writeln(resolution.reason);
       return ApprovalDecision.deny;
     }
-    if (resolution.route == AuthorizationRoute.allow)
+    if (resolution.route == AuthorizationRoute.allow) {
+      if (ruleGranted) _noticeMcpRule(mcpRule);
       return ApprovalDecision.allow;
+    }
     final requireHuman =
         humanOnly || resolution.route == AuthorizationRoute.human;
     final call = _call;
@@ -527,7 +538,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
           ApprovalDecision.allowWorkspace,
           ApprovalDecision.allowGlobal,
         }.contains(decision)) {
-      saveAccessGrant?.call(capability.name, identity, decision);
+      saveAccessGrant?.call(capability.name, mcpGrantTarget, decision);
     }
     // Only a human answer is recorded here; the classifier's own ALLOW already
     // returned above, and an unattended automatic denial is not a decision the
@@ -541,6 +552,22 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       );
     }
     return decision;
+  }
+
+  String? _mcpNoticeTurn;
+  final _mcpRulesNoticed = <String>{};
+
+  /// One notice per turn per rule: the first grant-answered MCP call in a
+  /// turn says which rule allowed it, later calls stay quiet.
+  void _noticeMcpRule(String rule) {
+    final turnId = _turn?.input.id;
+    if (turnId == null) return;
+    if (_mcpNoticeTurn != turnId) {
+      _mcpNoticeTurn = turnId;
+      _mcpRulesNoticed.clear();
+    }
+    if (!_mcpRulesNoticed.add(rule)) return;
+    terminal?.writeln('use MCP tool allowed by rule $rule');
   }
 
   /// Whether this exact read-only shape has been approved often enough to run

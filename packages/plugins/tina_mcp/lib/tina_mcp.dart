@@ -365,9 +365,15 @@ class McpPlugin extends AgentPlugin {
             'mcp_tool': binding.tool,
             'arguments': params,
             'permission_scope': 'mcp',
-            'permission_scope_label': 'this exact MCP call',
+            // Persistent rules key on (server, tool): remembering a tool
+            // allows ANY arguments to it — paths and network-touching
+            // values included. The user trusts the tool, not one call.
+            'mcp_rule_target': '${server.config.name}/${binding.tool}',
+            'permission_scope_label': 'this server and tool',
             'permission_scope_description':
-                'Session approval covers this exact MCP server, tool and arguments for this conversation.',
+                'Allow once covers this call. Remembering allows any '
+                'arguments to ${server.config.name}/${binding.tool} for the '
+                'chosen scope — you are trusting the tool, not one call.',
             'description': ToolDescription(
                 title: '${server.config.name}: ${binding.tool}',
                 fields: {

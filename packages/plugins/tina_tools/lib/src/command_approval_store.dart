@@ -53,6 +53,14 @@ String resolveHostExecutable(ProcessRequest request,
       'Cannot resolve approval executable', request.command);
 }
 
+/// The one scopes store: every remembered permission — command patterns,
+/// read/write directory settings, trusted readers, file and MCP access —
+/// is an entry here with the same (what is allowed, where it applies,
+/// scope, decided-by) shape. Entries written by a human carry
+/// `decided_by: user` (absent means user); automatic decisions from the
+/// auto-mode classifier carry `decided_by: auto` and are equally visible
+/// and removable in the remembered-permissions screen.
+///
 /// Human decisions only. Never loaded from a repository's settings. Every
 /// lookup rereads disk, so revocation takes effect in other running sessions.
 final class CommandApprovalStore {
@@ -218,8 +226,8 @@ final class CommandApprovalStore {
     }
   }
 
-  void rememberAccess(
-      String capability, String target, CommandApprovalScope scope) {
+  void rememberAccess(String capability, String target,
+      CommandApprovalScope scope, {String decidedBy = 'user'}) {
     final entry = <String, Object?>{
       'kind': 'access',
       'id': 'access:${scope.name}:$workspace:$capability:$target',
@@ -228,6 +236,7 @@ final class CommandApprovalStore {
         'workspace': canonicalSandboxPath(workspace),
       'capability': capability,
       'target': target,
+      'decided_by': decidedBy,
       'command': '$capability $target',
       'directory': workspace,
     };
