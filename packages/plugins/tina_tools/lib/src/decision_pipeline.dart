@@ -1,29 +1,35 @@
 /// The decision pipeline: one precedence implementation.
 ///
-/// Every permission check for a command funnels through [decidePermission].
-/// It takes the capability envelope (what the command touches), the scopes
-/// (what is already approved), and sandbox feasibility (whether a backend
-/// can hold the command inside those scopes). It returns one of three
-/// outcomes:
+/// Every permission check for a command funnels through here.
+/// [readOnlyProfileOf] computes the execution profile (the Layer-1 fast
+/// paths live inside it); [decidePermission] returns the verdict. Inputs
+/// are the capability envelope (what the command touches), the scopes
+/// (what is already approved), sandbox feasibility (whether a backend can
+/// confine the command), the mode, and the grant-coverage facts the caller
+/// computes as plumbing. One of three outcomes:
 ///
 /// - [PermissionOutcome.run]: the mechanical layer answered. No model, no
-///   ask. Everything the command touches sits inside an approved scope,
-///   and the sandbox can keep it there.
-/// - [PermissionOutcome.refuse]: fail closed. When no enforcing backend is
-///   available, refuse — even for a certified reader with a grant. A
-///   grant allows the read; it does not make the run safe.
+///   ask. The request's requirements are covered — by grants, by the mode
+///   ceiling, or by the certified-reader exemption (a pinned reader's
+///   execution requirement is covered by certification).
+/// - [PermissionOutcome.refuse]: a mode ceiling or the sandbox refused.
+///   Without an enforcing backend, a read-profile command is refused —
+///   a grant allows the read; it does not make the run safe. A
+///   write-profile command without a backend is NOT refused here: it
+///   carries a host requirement and goes to judgment, where only a human
+///   can approve it.
 /// - [PermissionOutcome.judgment]: everything else. Interactive mode asks
-///   the user. Auto mode asks the classifier. Destructive commands always
-///   land here: a table verdict goes to judgment, never to a silent run.
+///   the user; auto mode asks the classifier. The judgment layer — the
+///   mode plugin — owns the asking and its consequences.
 ///
 /// Certified reads, command patterns, directory grants and MCP rules are
-/// all inputs to this one function, expressed through the [ScopesView].
+/// all inputs, expressed through the [ScopesView] and the caller's
+/// coverage facts.
 library;
 
 import 'capability_envelope.dart';
-
-/// What the pipeline decided, and why.
-enum PermissionOutcome { run, refuse, judgment }
+import 'package:tina_mode/tina_mode.dart'
+    show PermissionMode, PermissionAccessOperation;
 
 /// The scopes the pipeline matches against — the one scopes store seen from
 /// the command side. Implemented by the runner over its plan and grants.
@@ -39,15 +45,42 @@ abstract interface class ScopesView {
   bool withinPlan(String path);
 }
 
-/// The mechanical-layer verdict.
+/// Which rule produced the verdict. The caller wires behavior (dialog
+/// text, execution profile) off the rule, never off strings.
+enum PermissionRule {
+  /// Every requirement covered by grants, the mode ceiling, or the
+  /// certified-reader exemption.
+  grantsRun,
+
+  /// Read-only mode ceiling: mutations, host execution or declared writes.
+  readOnlyCeilingRefuse,
+
+  /// A read-profile command with no enforcing backend.
+  readOnlyBackendRefuse,
+
+  /// An uncovered requirement: ask (human, or the classifier in auto).
+  judgment,
+}
+
+/// What the pipeline decided, and why.
+enum PermissionOutcome { run, refuse, judgment }
+
 final class PermissionDecision {
-  const PermissionDecision._(this.outcome, this.reason);
+  const PermissionDecision._(
+      this.outcome, this.rule, this.reason, this.readOnlyProfile);
 
   /// The outcome.
   final PermissionOutcome outcome;
 
+  /// Which rule fired.
+  final PermissionRule rule;
+
   /// Human-readable; also the refusal text on [PermissionOutcome.refuse].
   final String reason;
+
+  /// The execution profile the verdict implies. Callers need it to build
+  /// the permission set and the sandbox control (read-only enforcement).
+  final bool readOnlyProfile;
 
   /// Convenience predicates.
   bool get runs => outcome == PermissionOutcome.run;
@@ -55,67 +88,167 @@ final class PermissionDecision {
   bool get needsJudgment => outcome == PermissionOutcome.judgment;
 }
 
-/// The precedence, one rule at a time:
+/// The execution profile for a command in a mode — the Layer-1 fast paths
+/// plus the mode default. Pure: the same inputs always give the same
+/// profile.
 ///
-/// 1. The command is destructive by table → judgment. Each mode then
-///    batches or denies it.
-/// 2. The command wants the network or host execution → judgment. Only a
-///    human approves running without the sandbox. The classifier denies
-///    and batches such requests.
-/// 3. No enforcing backend ([confined] is false) → refuse. A grant allows
-///    the read; it does not remove the need for a backend that can
-///    confine execution.
-/// 4. Everything the command touches sits inside approved scopes → run.
-///    This covers certified readers with grant-covered paths. It also
-///    covers the agent-created-script fast path: a script this session
-///    created, executed confined to workspace and temp, with no network
-///    and no paths outside approved scopes.
-/// 5. Anything else → judgment.
+/// The fast paths, exactly as the merged contract defines them:
+/// - A certified reader whose declared directories are empty and whose
+///   verified read accesses all sit inside granted scopes, confined, with
+///   no network.
+/// - The agent's own script ([agentCreatedScriptArguments] — every
+///   argument names a file this session's own write/edit tools created),
+///   run confined, inside the sandbox, with no network.
+///
+/// Neither fast path is by itself permission to run: they select the
+/// read-only enforcement profile. The run verdict still comes from
+/// [decidePermission] — a certified reader's execution requirement is
+/// exempt from the missing set, an agent script's is not and still asks.
+bool readOnlyProfileOf(
+  CapabilityEnvelope envelope, {
+  required ScopesView scopes,
+  required bool confined,
+  required bool network,
+  required bool outsideSandbox,
+  required bool agentCreatedScriptArguments,
+  required bool declaredReadsEmpty,
+  required bool declaredWritesEmpty,
+  bool? controlReadOnlyRequested,
+  required PermissionMode mode,
+}) {
+  if (controlReadOnlyRequested != null) return controlReadOnlyRequested;
+  return _certifiedReadWithinGrants(
+          envelope,
+          scopes: scopes,
+          confined: confined,
+          network: network,
+          outsideSandbox: outsideSandbox,
+          declaredReadsEmpty: declaredReadsEmpty,
+          declaredWritesEmpty: declaredWritesEmpty) ||
+      _agentScriptFastPath(
+          confined: confined,
+          network: network,
+          outsideSandbox: outsideSandbox,
+          agentCreatedScriptArguments: agentCreatedScriptArguments) ||
+      _defaultReadOnlyProfile(mode,
+          confined: confined,
+          certifiedReadOnly: envelope.certifiedReadOnly,
+          writeRequested: !declaredWritesEmpty);
+}
+
+bool _certifiedReadWithinGrants(
+  CapabilityEnvelope envelope, {
+  required ScopesView scopes,
+  required bool confined,
+  required bool network,
+  required bool outsideSandbox,
+  required bool declaredReadsEmpty,
+  required bool declaredWritesEmpty,
+}) =>
+    confined &&
+    !outsideSandbox &&
+    !network &&
+    envelope.certifiedReadOnly &&
+    declaredReadsEmpty &&
+    declaredWritesEmpty &&
+    envelope.verifiedAccesses.every((access) =>
+        access.operation != PermissionAccessOperation.read ||
+        scopes.canRead(access.path));
+
+bool _agentScriptFastPath({
+  required bool confined,
+  required bool network,
+  required bool outsideSandbox,
+  required bool agentCreatedScriptArguments,
+}) =>
+    confined && !outsideSandbox && !network && agentCreatedScriptArguments;
+
+bool _defaultReadOnlyProfile(PermissionMode mode,
+        {required bool confined,
+        required bool certifiedReadOnly,
+        bool writeRequested = false}) =>
+    mode == PermissionMode.readOnly ||
+    confined &&
+        (certifiedReadOnly ||
+            !writeRequested &&
+                (mode == PermissionMode.ask || mode == PermissionMode.auto));
+
+/// The verdict, in the live precedence order:
+///
+/// 1. The execution profile (the Layer-1 fast paths above): read-only
+///    enforcement where they apply.
+/// 2. The read-only mode ceiling: a mutation, host execution or a declared
+///    write in read-only mode → refuse.
+/// 3. A read-profile command with no enforcing backend → refuse. The
+///    sandbox is the enforcement; without it the read claim cannot hold.
+/// 4. Every requirement covered — grants, the mode ceiling, the
+///    certified-reader exemption, or yolo launch-time authorization → run.
+/// 5. Anything else → judgment, with the reason the dialog shows. A
+///    requirement outside the workspace — network, host, external — says
+///    so; a workspace write asks for approval.
 PermissionDecision decidePermission(
   CapabilityEnvelope envelope, {
   required ScopesView scopes,
   required bool confined,
-  required bool agentCreatedScript,
+  required bool network,
+  required bool outsideSandbox,
+  bool? controlReadOnlyRequested,
+  required bool agentCreatedScriptArguments,
+  required bool declaredReadsEmpty,
+  required bool declaredWritesEmpty,
+  required PermissionMode mode,
+  required bool requirementsCovered,
+  required bool judgmentOutsideWorkspace,
 }) {
-  if (envelope.destructive) {
-    return const PermissionDecision._(
-        PermissionOutcome.judgment, 'destructive operation');
+  final readOnlyProfile = readOnlyProfileOf(envelope,
+      scopes: scopes,
+      confined: confined,
+      network: network,
+      outsideSandbox: outsideSandbox,
+      agentCreatedScriptArguments: agentCreatedScriptArguments,
+      declaredReadsEmpty: declaredReadsEmpty,
+      declaredWritesEmpty: declaredWritesEmpty,
+      controlReadOnlyRequested: controlReadOnlyRequested,
+      mode: mode);
+  if (mode == PermissionMode.readOnly &&
+      (!readOnlyProfile || outsideSandbox || !declaredWritesEmpty)) {
+    return PermissionDecision._(
+        PermissionOutcome.refuse,
+        PermissionRule.readOnlyCeilingRefuse,
+        'Read-only mode blocks workspace mutations, external writes and '
+        'host execution.',
+        readOnlyProfile);
   }
-  if (envelope.network) {
-    return const PermissionDecision._(
-        PermissionOutcome.judgment, 'network access');
+  // The judgment table's read-only mutation deny: in read-only mode the
+  // host requirement a missing backend adds counts as a mutation. It runs
+  // before the backend deny and carries its own message.
+  if (mode == PermissionMode.readOnly && !confined) {
+    return PermissionDecision._(
+        PermissionOutcome.refuse,
+        PermissionRule.readOnlyCeilingRefuse,
+        'read-only mode blocks mutations and host or external execution. '
+        'Change mode to edit.',
+        readOnlyProfile);
   }
-  if (!confined) {
-    return const PermissionDecision._(PermissionOutcome.refuse,
-        'no enforcing sandbox backend: refusing, fail closed');
+  if (readOnlyProfile && !outsideSandbox && !confined) {
+    return PermissionDecision._(
+        PermissionOutcome.refuse,
+        PermissionRule.readOnlyBackendRefuse,
+        'Read-only execution requires an available OS sandbox.',
+        readOnlyProfile);
   }
-  // The agent-script fast path: the agent wrote this script itself, this
-  // session, and runs it confined. The sandbox holds it inside workspace
-  // and temp, so the execution itself needs no question. Writes the script
-  // performs are enforced by the sandbox.
-  if (agentCreatedScript &&
-      envelope.reads.every((path) => scopes.canRead(path)) &&
-      envelope.argumentPaths.every((path) => scopes.canRead(path)) &&
-      envelope.writes.every((path) => scopes.canWrite(path))) {
-    return const PermissionDecision._(PermissionOutcome.run,
-        'agent-created script inside workspace and temp');
+  if (requirementsCovered || mode == PermissionMode.yolo) {
+    return PermissionDecision._(
+        PermissionOutcome.run,
+        PermissionRule.grantsRun,
+        'Covered by workspace policy or explicit grants',
+        readOnlyProfile);
   }
-
-  // The certified-reader fast path: a pinned read-only pipeline, and every
-  // path it touches sits inside a granted read scope. The certification
-  // proves the command cannot write. The grants carry the user's approval.
-  // The backend enforces both.
-  final readTouches = {...envelope.reads, ...envelope.argumentPaths};
-  if (envelope.certifiedReadOnly &&
-      readTouches.isNotEmpty &&
-      readTouches.every((path) => scopes.canRead(path)) &&
-      envelope.writes.isEmpty) {
-    return const PermissionDecision._(PermissionOutcome.run,
-        'certified reader inside granted scopes');
-  }
-
-  // Anything else has effects the mechanical layer cannot clear. Judgment
-  // decides whether the scopes cover them.
-  return const PermissionDecision._(
-      PermissionOutcome.judgment, 'uncovered effects');
+  return PermissionDecision._(
+      PermissionOutcome.judgment,
+      PermissionRule.judgment,
+      judgmentOutsideWorkspace
+          ? 'Access outside the workspace requires explicit human approval'
+          : 'Workspace mutation requires approval',
+      readOnlyProfile);
 }
