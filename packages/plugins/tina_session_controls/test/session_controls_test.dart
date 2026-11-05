@@ -167,7 +167,7 @@ void main() {
     );
   });
 
-  test('a refused switch surfaces its reason, not a bare type name', () {
+  test('a refused switch propagates for the host to sanitize', () {
     final plugin = SessionControlsPlugin(
       terminal: _Terminal(),
       currentModel: () => 'one',
@@ -175,12 +175,13 @@ void main() {
           throw StateError('model switching requires an idle turn'),
       modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
     );
-    final result = sessionControlsOperations['select-model']!.control!(plugin, {
-      'model': 'two',
-      'expected_model': 'one',
-    });
-    expect(result.stopReason, StopReason.error);
-    expect(result.detail, 'Bad state: model switching requires an idle turn');
+    // The operation does not catch StateError. A refusal and a provider
+    // failure both surface as StateError here, and a provider failure's
+    // message is private. The host reports a sanitized error instead.
+    expect(
+        () => sessionControlsOperations['select-model']!.control!(
+            plugin, {'model': 'two', 'expected_model': 'one'}),
+        throwsStateError);
   });
 
   test('the picker switches models while between-turns work is running '
@@ -238,53 +239,44 @@ void main() {
     expect(one.callCount, 0);
   });
 
-  test(
-    'the picker during a running turn fails with the refusal reason',
-    () async {
-      Host? hostRef;
-      var current = 'one';
-      final release = Completer<void>();
-      final provider = _WaitingProvider(release.future);
-      final controls = SessionControlsPlugin(
-        terminal: _Terminal(),
-        currentModel: () => current,
-        switchModel: (value) {
-          hostRef!.switchModel(value);
-          current = value;
-        },
-        modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
-      );
-      final host = hostRef = Host.start(
-        HostConfig(
-          workingDirectory: '.',
-          providerFactory: (_) => provider,
-          plugins: [controls],
-          operationsFor: (_) => sessionControlsOperations,
-        ),
-      );
-      addTearDown(host.shutdown);
-      final client = host.connect();
-      addTearDown(client.close);
-      final turn = host.send('go');
-      await provider.arrived.future;
-      expect(host.session.loop.inTurn, isTrue);
-      final request = client.submitOperation(
-        'tina/session-controls',
+  test('the picker during a running turn is rejected at admission', () async {
+    Host? hostRef;
+    var current = 'one';
+    final release = Completer<void>();
+    final provider = _WaitingProvider(release.future);
+    final controls = SessionControlsPlugin(
+      terminal: _Terminal(),
+      currentModel: () => current,
+      switchModel: (value) {
+        hostRef!.switchModel(value);
+        current = value;
+      },
+      modelCatalog: () => const ModelCatalog(models: ['one', 'two']),
+    );
+    final host = hostRef = Host.start(HostConfig(
+      workingDirectory: '.',
+      providerFactory: (_) => provider,
+      plugins: [controls],
+      operationsFor: (_) => sessionControlsOperations,
+    ));
+    addTearDown(host.shutdown);
+    final client = host.connect();
+    addTearDown(client.close);
+    final turn = host.send('go');
+    await provider.arrived.future;
+    expect(host.session.loop.inTurn, isTrue);
+    final request = client.submitOperation('tina/session-controls',
         'select-model',
         arguments: {'model': 'two', 'expected_model': 'one'},
-        id: client.requestWindow.id('pick'),
-      );
-      final result = await request.completed;
-      expect(result.state, SessionRequestState.failed);
-      expect(
-        result.result!.detail,
-        'Bad state: model switching requires an idle turn',
-      );
-      expect(current, 'one', reason: 'the turn keeps its model');
-      release.complete();
-      expect((await turn).stopReason, StopReason.complete);
-    },
-  );
+        id: client.requestWindow.id('pick'));
+    final result = await request.completed;
+    expect(result.state, SessionRequestState.rejected,
+        reason: 'a streaming turn owns its request stream');
+    expect(result.result!.detail, 'Operation requires an idle session.');
+    expect(current, 'one', reason: 'the turn keeps its model');
+    release.complete();
+    expect((await turn).stopReason, StopReason.complete);
+  });
 }
 
 /// A plugin whose command holds between-turns loop work open, shaped like
