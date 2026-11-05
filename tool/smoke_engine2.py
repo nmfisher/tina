@@ -682,12 +682,16 @@ def smoke(launcher, endpoint, columns, rows):
             budget.spent('approved write turn', before_approved_write, 2)
             terminal.resize(columns, rows)
             time.sleep(0.1)
-            # Native MCP discovery, readable approval, exact remembered grants,
-            # image wire encoding and cancellation through the normal input area.
+            # Native MCP discovery, readable approval, remembered
+            # (server, tool) rules, image wire encoding and cancellation
+            # through the normal input area. Remembering a tool trusts any
+            # arguments to it: a rule answers every later call of that tool
+            # on that server, changed arguments included, without a dialog.
             for message, answer in [('mcp mutate example', 'a\r'),
                                     ('mcp mutate example', None),
-                                    ('mcp changed arguments example', 'n'),
-                                    ('mcp screenshot example', 'y')]:
+                                    ('mcp changed arguments example', None),
+                                    ('mcp screenshot example', 'y'),
+                                    ('mcp screenshot example', 'n')]:
                 before_mcp = len(ModelStub.requests)
                 start = terminal.send(message + '\r')
                 if answer is not None:
@@ -701,13 +705,22 @@ def smoke(launcher, endpoint, columns, rows):
                 assert len(ModelStub.requests) == before_mcp + 2, (
                     f'{message}: expected {before_mcp + 2} model requests, got {len(ModelStub.requests)}; '
                     f'MCP events: {[json.loads(line).get("method", "reply") for line in mcp_events.read_text().splitlines()[-8:]]}')
-                if 'screenshot' in message:
+                if answer is None:
+                    # The remembered rule answered this call: its notice
+                    # named the rule, and no approval dialog appeared.
+                    terminal.expect('use MCP tool allowed by rule fixture/mutate', start)
+                    assert b'allow once' not in terminal.output[start:], (
+                        f'{message}: a remembered (server, tool) rule still asked')
+                if 'screenshot' in message and answer != 'n':
                     results = [b for m in ModelStub.requests[-1]['messages'] for b in m['content'] if b['type'] == 'tool_result' and b['tool_use_id'] == 'mcp-native']
                     assert results[-1]['content'][1] == {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'aGVsbG8='}}
                 budget.spent(f'mcp turn ({message})', before_mcp, 2)
                 time.sleep(0.15)  # The response request arriving is earlier than the turn's final repaint.
             invocations = [json.loads(line) for line in mcp_events.read_text().splitlines() if json.loads(line).get('method') == 'tools/call']
-            assert len(invocations) == 3, 'MCP denial executed or remembered approval did not work'
+            # The mutate rule answered three calls (same and changed
+            # arguments); the first screenshot ran on an allow-once answer;
+            # the denied screenshot never executed.
+            assert len(invocations) == 4, 'MCP rule coverage, allow-once or denial did not work'
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
