@@ -760,15 +760,16 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('auto denied workspace example\r')
             terminal.expect('classifier recommends denial', start)
             terminal.expect('Project data could be exposed.', start)
-            terminal.expect('Auto approver denied this:', start)
-            terminal.expect('❯ [y] allow once', start)
-            start = terminal.send('n')
+            terminal.expect('auto mode denied', start, wrapped=True)
+            terminal.expect('batched', start, wrapped=True)
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_auto + 3, 'denial explanation did not use the structured judge'
             budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
+            # The end-of-turn batch lists the denial for the user.
+            terminal.expect('auto mode decisions this turn', start, wrapped=True)
             time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
             terminal.expect('mode: allow-edits', start)

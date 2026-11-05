@@ -116,6 +116,12 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   void Function(String capability, String target, ApprovalDecision decision)?
   saveAccessGrant;
   bool persistentAccessGrants = false;
+
+  /// Records a classifier approval into the scopes store, marked auto, at
+  /// session scope. The tools plugin wires this. The entry appears beside
+  /// human decisions in the remembered-permissions screen and can be
+  /// removed there too.
+  void Function(String capability, String target)? saveAutoGrant;
   Terminal? terminal;
   ApprovalRequester? approvals;
   PermissionClassifier? classifier;
@@ -300,6 +306,13 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         ? context['authorization_identity'] as String
         : target;
     final mcp = context['permission_scope'] == 'mcp';
+    // MCP rules key on (server, tool), never on arguments: remembering a
+    // tool trusts any argument set, so a rule answers every later call of
+    // that tool on that server without asking again.
+    final mcpRule = context['mcp_rule_target'] is String
+        ? context['mcp_rule_target'] as String
+        : null;
+    final mcpGrantTarget = mcpRule ?? identity;
     final mcpRead =
         context['mcp_method'] == 'resources/read' ||
         context['mcp_method'] == 'prompts/get';
@@ -310,6 +323,10 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         : operation == 'run command'
         ? AccessCapability.execute
         : AccessCapability.write;
+    // A (server, tool) rule answers this call without arguments mattering.
+    final ruleGranted = mcp &&
+        mcpRule != null &&
+        hasAccessGrant?.call(capability.name, mcpRule) == true;
     final canonical =
         authorization ??
         AuthorizationRequest(
@@ -318,9 +335,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               capability,
               identity,
               workspace: !external,
-              granted:
-                  mcp &&
-                  hasAccessGrant?.call(capability.name, identity) == true,
+              granted: mcp && hasAccessGrant?.call(capability.name, mcpGrantTarget) == true,
             ),
           ],
         );
@@ -329,8 +344,10 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       terminal?.writeln(resolution.reason);
       return ApprovalDecision.deny;
     }
-    if (resolution.route == AuthorizationRoute.allow)
+    if (resolution.route == AuthorizationRoute.allow) {
+      if (ruleGranted) _noticeMcpRule(mcpRule);
       return ApprovalDecision.allow;
+    }
     final requireHuman =
         humanOnly || resolution.route == AuthorizationRoute.human;
     final call = _call;
@@ -373,6 +390,19 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ...?_recentContext(turn),
     };
     var judgment = const PermissionJudgment(null, 'not classified');
+    // Unconfined execution is human-only. In auto mode the classifier can
+    // never approve running without the sandbox: deny without asking it,
+    // batch for the user, and let them decide at end of turn.
+    if (mode == PermissionMode.auto &&
+        permission &&
+        requiredPermissions is Iterable &&
+        requiredPermissions.contains('unconfined')) {
+      _batchAutoDecision('denied', target, 'runs without sandbox (human-only)');
+      terminal?.writeln(
+          'auto mode denied: $target — runs without sandbox; batched for '
+          'your review');
+      return ApprovalDecision.deny;
+    }
     if (mode == PermissionMode.auto && permission && !requireHuman) {
       final evidence = requestEvidence();
       // Deterministic fast path: an exact read-only shape the user has already
@@ -402,9 +432,16 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       if (result.allow == false) autoDenialReason = result.reason;
       if (mode == PermissionMode.auto && result.allow == true) {
         terminal?.writeln('$operation allowed by classifier: $target');
-        // Classifier approvals apply once, never become human session grants.
         if (call != null && identical(call, _call)) {
           _callApprovals[cacheKey] = ApprovalDecision.allow;
+        }
+        // The classifier stood in for the user. Record its approval in the
+        // scopes store, marked auto, at session scope. If the request also
+        // widened the confined scope, list it in the end-of-turn batch.
+        saveAutoGrant?.call(capability.name, identity);
+        if (_isScopeExtension(evidence, judgment)) {
+          _batchAutoDecision(
+              'allowed', target, 'confined scope extension (session, auto)');
         }
         _rememberDecision(
           evidence,
@@ -414,10 +451,18 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         );
         return ApprovalDecision.allow;
       }
+      if (mode == PermissionMode.auto && result.allow == false) {
+        // A classifier denial is final. Do not run the command. Keep the
+        // turn going. Batch the command and the reason for the user to
+        // read at end of turn; no dialog interrupts the run.
+        final denial =
+            'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}';
+        _batchAutoDecision('denied', target, denial);
+        terminal?.writeln('auto mode denied: $target — $denial (batched)');
+        return ApprovalDecision.deny;
+      }
       autoFallback = mode != PermissionMode.auto
           ? 'mode changed to ${mode.label}'
-          : result.allow == false
-          ? 'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}'
           : 'classifier ${result.failure ?? 'unavailable'}';
       if (autoDiagnostics['model'] is String) {
         autoFallback = '$autoFallback (${autoDiagnostics['model']})';
@@ -527,7 +572,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
           ApprovalDecision.allowWorkspace,
           ApprovalDecision.allowGlobal,
         }.contains(decision)) {
-      saveAccessGrant?.call(capability.name, identity, decision);
+      saveAccessGrant?.call(capability.name, mcpGrantTarget, decision);
     }
     // Only a human answer is recorded here; the classifier's own ALLOW already
     // returned above, and an unattended automatic denial is not a decision the
@@ -541,6 +586,22 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       );
     }
     return decision;
+  }
+
+  String? _mcpNoticeTurn;
+  final _mcpRulesNoticed = <String>{};
+
+  /// One notice per turn per rule: the first grant-answered MCP call in a
+  /// turn says which rule allowed it, later calls stay quiet.
+  void _noticeMcpRule(String rule) {
+    final turnId = _turn?.input.id;
+    if (turnId == null) return;
+    if (_mcpNoticeTurn != turnId) {
+      _mcpNoticeTurn = turnId;
+      _mcpRulesNoticed.clear();
+    }
+    if (!_mcpRulesNoticed.add(rule)) return;
+    terminal?.writeln('use MCP tool allowed by rule $rule');
   }
 
   /// Whether this exact read-only shape has been approved often enough to run
@@ -649,9 +710,45 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   @override
   void onTurnEnd(TurnContext context) {
+    _emitAutoBatch();
     _turn = null;
     _call = null;
     _callApprovals.clear();
+  }
+
+  final _autoBatch = <String, List<(String, String, String)>>{};
+
+  /// Collect one auto-mode decision for the end-of-turn batch. Decisions
+  /// are grouped by the turn they happened in.
+  void _batchAutoDecision(String verdict, String target, String reason) {
+    final turnId = _turn?.input.id;
+    if (turnId == null) return;
+    (_autoBatch[turnId] ??= []).add((verdict, target, reason));
+  }
+
+  /// A confined scope extension: the request asks for directory access it
+  /// did not have before, or the assessment found write-classified
+  /// effects. Destructive operations never get this far; they are denied
+  /// above.
+  bool _isScopeExtension(
+      Map<String, Object?> evidence, PermissionJudgment judgment) {
+    if (evidence['invocation_directory_access'] != null) return true;
+    return judgment.assessment.accesses
+        .any((access) => access.operation != PermissionAccessOperation.read);
+  }
+
+  /// The end-of-turn batch. Every auto-mode denial of the closing turn is
+  /// one line. Allowed scope extensions are listed too.
+  void _emitAutoBatch() {
+    final turnId = _turn?.input.id;
+    if (turnId == null) return;
+    final entries = _autoBatch.remove(turnId);
+    if (entries == null || entries.isEmpty) return;
+    terminal?.writeln('auto mode decisions this turn:');
+    for (var i = 0; i < entries.length; i++) {
+      final (verdict, target, reason) = entries[i];
+      terminal?.writeln('  ${i + 1}. $verdict: $target — $reason');
+    }
   }
 
   @override

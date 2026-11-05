@@ -3,6 +3,7 @@
 library;
 
 import 'dart:io' show Platform, FileSystemException, Directory;
+import 'capability_envelope.dart';
 import 'command_approval_store.dart';
 import 'package:path/path.dart' as path;
 import 'sandbox_home.dart';
@@ -281,6 +282,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
   final String? workspaceRoot;
   final SandboxPlan? plan;
   Map<String, String> Function()? trustedReaderExecutables;
+
+  /// The sandbox fast path lookup: files this session's own write/edit
+  /// tools created (decision_pipeline.dart). Null disables the path.
+  bool Function(String path)? agentCreated;
   bool Function(String)? outputWritePermission;
   bool Function(ProcessRequest, ProcessPermission, ProcessDirectoryAccess)?
       persistentPermission;
@@ -356,23 +361,26 @@ final class SandboxedProcessRunner implements ProcessRunner {
       }
     }
     final network = (control?.networkRequested ?? false) || outsideSandbox;
-    final literal = literalShellRequest(request);
-    final readerRequest = literal ?? request;
-    var shellReader = readOnlyShellRequest(request,
+    // Parse the command once. The envelope owns the quote-aware parser and
+    // the certified-reader tables. Every later question in this check
+    // reads the envelope; nothing re-parses the command.
+    final envelope = CapabilityEnvelope.parse(request,
+        control: control,
         searchPath: executableSearchPath,
         trustedExecutables: trustedReaderExecutables?.call() ?? const {},
         canWrite: outputWritePermission);
-    final candidate = readOnlyExecutable(readerRequest,
-        searchPath: executableSearchPath,
-        trustedExecutables: trustedReaderExecutables?.call() ?? const {});
+    final readerRequest = envelope.readerRequest;
+    var shellReader = envelope.shellReader;
+    final candidate = envelope.reader;
     var reader = candidate;
     final ProcessDirectoryAccess declaredAccess;
     final ProcessDirectoryAccess explicitAccess;
     final ProcessDirectoryAccess directoryAccess;
     try {
-      explicitAccess = _directoryRequirements(request, control, infer: false);
-      declaredAccess =
-          _directoryRequirements(request, control, infer: !outsideSandbox);
+      explicitAccess =
+          _directoryRequirements(envelope, request, control, infer: false);
+      declaredAccess = _directoryRequirements(
+          envelope, request, control, infer: !outsideSandbox);
       directoryAccess = ProcessDirectoryAccess(
           read: declaredAccess.read.where((value) => !_canRead(value)),
           write: declaredAccess.write
@@ -386,7 +394,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
       try {
         return (plan?.validDirectoryAccess(declaredAccess, linux: _linux) ??
                 true) &&
-            jsonEncode(_directoryRequirements(request, control, infer: false)
+            jsonEncode(_directoryRequirements(envelope, request, control,
+                    infer: false)
                     .toJson()) ==
                 jsonEncode(explicitAccess.toJson());
       } on FileSystemException {
@@ -399,33 +408,49 @@ final class SandboxedProcessRunner implements ProcessRunner {
     final confined = inner is ConfinedProcessRunner &&
         (inner as ConfinedProcessRunner).confinesFilesystem;
     final certifiedReadOnly = reader != null || shellReader != null;
-    // The read question, answered before the fallback flow: can the command
-    // write, execute or exfiltrate (capability — the static, quote-aware
-    // certification above, which pins every component to a trusted reader
-    // executable and literal arguments), is every path it touches already
-    // inside a granted read or write scope (authorization — the user's
-    // grant IS the answer, not something to re-ask), and can a backend
-    // enforce the confinement the grant never removes? All yes runs
-    // without a prompt. No enforcing backend means refuse, even for a
-    // certified reader with a grant: the grant authorizes the read, it
-    // does not confine execution. Anything unproven keeps today's flow:
-    // ask, classifier, sandbox.
-    final trustedExecutables =
-        this.trustedReaderExecutables?.call() ?? const <String, String>{};
-    final readsAuthorized = confined &&
+    // Layer 1 of the decision pipeline (decision_pipeline.dart): checks
+    // that run without a prompt. Three facts must hold:
+    //
+    // - Capability: the quote-aware certification above pins every
+    //   component to a trusted reader executable with literal arguments.
+    //   The command cannot write, execute, or exfiltrate.
+    // - Authorization: every path the command touches is already inside a
+    //   granted read or write scope. The user's grant is the answer; it is
+    //   not asked again.
+    // - Enforceability: a backend is present that can confine execution.
+    //   Host execution (outsideSandbox) has no such backend by
+    //   definition, so it is excluded here.
+    //
+    // Without an enforcing backend the command is refused, even for a
+    // certified reader with a grant. A grant allows the read; it does not
+    // make the run safe. Anything unproven keeps today's flow: ask, run
+    // the classifier, use the sandbox.
+    //
+    // Layer 1, second fast path (decision_pipeline.dart): a script this
+    // session's own tools created, run confined inside workspace and temp.
+    final scriptFastPath = confined &&
+        !outsideSandbox &&
+        !network &&
+        agentCreated != null &&
+        request.arguments.isNotEmpty &&
+        request.arguments.every((argument) =>
+            !argument.startsWith('-') &&
+            (path.isAbsolute(argument)
+                ? agentCreated!(argument)
+                : agentCreated!(path.join(
+                    request.workingDirectory ?? workspaceRoot ?? '.', argument))));
+    final certifiedReadWithinGrants = confined &&
         !outsideSandbox &&
         !network &&
         certifiedReadOnly &&
         declaredAccess.read.isEmpty &&
         declaredAccess.write.isEmpty &&
-        verifiedReaderAccesses(request,
-                searchPath: executableSearchPath,
-                trustedExecutables: trustedExecutables)
-            .every((access) =>
+        envelope.verifiedAccesses.every((access) =>
                 access.operation != PermissionAccessOperation.read ||
                 _canRead(access.path));
     final readOnlyProfile = control?.readOnlyRequested ??
-        (readsAuthorized ||
+        (certifiedReadWithinGrants ||
+            scriptFastPath ||
             _defaultReadOnlyProfile(mode,
                 confined: confined,
                 certifiedReadOnly: certifiedReadOnly,
@@ -576,12 +601,12 @@ final class SandboxedProcessRunner implements ProcessRunner {
     }
     final currentReaders =
         trustedReaderExecutables?.call() ?? const <String, String>{};
-    final currentReader = readOnlyExecutable(readerRequest,
-        searchPath: executableSearchPath, trustedExecutables: currentReaders);
-    final currentShell = readOnlyShellRequest(request,
+    final current = CapabilityEnvelope.parse(request,
         searchPath: executableSearchPath,
         trustedExecutables: currentReaders,
         canWrite: outputWritePermission);
+    final currentReader = current.reader;
+    final currentShell = current.shellReader;
     if (reader != null && currentReader == null ||
         shellReader != null && currentShell == null)
       return const CommandRefused(
@@ -610,7 +635,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         ? shellReader ?? request
         : (
             command: reader,
-            arguments: certifiedReaderArguments(readerRequest),
+            arguments: envelope.certifiedArguments,
             workingDirectory: request.workingDirectory,
             environment: path.basename(reader) == 'git'
                 ? {
@@ -674,7 +699,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
       true;
 
   ProcessDirectoryAccess _directoryRequirements(
-      ProcessRequest request, ProcessControl? control,
+      CapabilityEnvelope envelope, ProcessRequest request,
+      ProcessControl? control,
       {required bool infer}) {
     final read = <String>[...?control?.readDirectories];
     final write = <String>[...?control?.writeDirectories];
@@ -714,7 +740,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
       if (commandWorkflow(request, plan.workspaceRoot) != null) {
         try {
           final executable = resolveHostExecutable(
-              literalShellRequest(request) ?? request,
+              envelope.literalRequest ?? request,
               workspace: plan.workspaceRoot,
               searchPath: executableSearchPath);
           var ancestor = Directory(path.dirname(executable));
@@ -732,9 +758,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
           }
         } on FileSystemException {}
       }
-      for (final access in verifiedReaderAccesses(request,
-          searchPath: executableSearchPath,
-          trustedExecutables: trustedReaderExecutables?.call() ?? const {})) {
+      for (final access in envelope.verifiedAccesses) {
         add(access.path, access.operation != PermissionAccessOperation.read);
       }
       if ({'touch', 'mkdir'}.contains(path.basename(request.command)) &&

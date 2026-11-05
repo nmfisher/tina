@@ -141,6 +141,7 @@ final class ToolsPlugin extends AgentPlugin
     });
     sandbox.mode = this.modePolicy.mode;
     processRunner.mode = this.modePolicy.mode;
+    processRunner.agentCreated = agentCreated;
     toolList = [
       LsTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       ReadTool(fs: sandbox, workspaceRoot: workspaceRoot),
@@ -210,6 +211,13 @@ final class ToolsPlugin extends AgentPlugin
               _ => CommandApprovalScope.session,
             });
     this.modePolicy.persistentAccessGrants = commandApprovals.file != null;
+    // Classifier approvals go into the scopes store, marked auto, at
+    // session scope. They appear beside human decisions in the
+    // remembered-permissions screen and can be removed there too.
+    this.modePolicy.saveAutoGrant = (capability, target) =>
+        commandApprovals.rememberAccess(capability, target,
+            CommandApprovalScope.session,
+            decidedBy: 'auto');
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
         sandboxDescription: osRunner.describeEnvironment);
@@ -372,6 +380,14 @@ final class ToolsPlugin extends AgentPlugin
           : null;
       register(name, (input, context) async {
         settings?.reload();
+        // The agent-script fast path: remember files this session's own
+        // write/edit tools created. Running one's own script inside the
+        // sandbox (workspace and temp) needs no execution question; the
+        // sandbox holds it there.
+        if (name == 'write' || name == 'edit') {
+          final target = input['filePath'];
+          if (target is String) _agentCreatedFiles.add(_absolute(target));
+        }
         // A mutating tool's result cannot be trusted to leave the world
         // unchanged, whatever it reported: block caching during execution
         // and invalidate both before dispatch and after it settles.
@@ -414,6 +430,15 @@ final class ToolsPlugin extends AgentPlugin
     _speculative.clear();
     modePolicy.onInput(c);
   }
+
+  final _agentCreatedFiles = <String>{};
+
+  String _absolute(String target) =>
+      target.startsWith('/') ? target : '$workingDirectory/$target';
+
+  /// Did this session's own write/edit tools create (or last write)
+  /// [path]? Used by the agent-script fast path in the decision pipeline.
+  bool agentCreated(String path) => _agentCreatedFiles.contains(path);
 
   @override
   void beforeToolCall(TurnContext c) {

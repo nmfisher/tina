@@ -219,7 +219,7 @@ void main() {
   });
 
   test(
-      'deny executes nothing; always is exact, conversation scoped, and survives notification',
+      'deny executes nothing; remembering is a (server, tool) rule covering any arguments',
       () async {
     var answer = ApprovalDecision.deny;
     var count = 0;
@@ -267,10 +267,11 @@ void main() {
         hasLength(1));
     provider.next('mutate', {'value': 'b'});
     await loop.runTurn(const Input('different arguments', id: 'four'));
-    expect(count, 3);
+    expect(count, 2,
+        reason: 'a remembered rule keys on (server, tool), not arguments');
     provider.next('screenshot');
     await loop.runTurn(const Input('different tool', id: 'five'));
-    expect(count, 4);
+    expect(count, 3, reason: 'a different tool on the same server still asks');
     loop.removePlugin(plugin.id);
     await plugin.shutdown();
     expect(
