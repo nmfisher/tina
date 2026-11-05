@@ -348,8 +348,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       if (ruleGranted) _noticeMcpRule(mcpRule);
       return ApprovalDecision.allow;
     }
-    final requireHuman =
-        humanOnly || resolution.route == AuthorizationRoute.human;
+    var requireHuman = humanOnly || resolution.route == AuthorizationRoute.human;
     final call = _call;
     final requiredPermissions = context['required_permissions'];
     final cacheKey = jsonEncode([
@@ -390,18 +389,25 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ...?_recentContext(turn),
     };
     var judgment = const PermissionJudgment(null, 'not classified');
-    // Unconfined execution is human-only. In auto mode the classifier can
-    // never approve running without the sandbox: deny without asking it,
-    // batch for the user, and let them decide at end of turn.
+    // Unconfined execution is human-only. The classifier can never approve
+    // running without the sandbox. A real pipeline request — an
+    // authorization review the exec funnel is holding open for an answer —
+    // is routed to the human instead: one ask, and an allow-always answer
+    // remembers the exact command grant. A bare request with no pipeline
+    // behind it cannot surface that ask mid-run: deny it and batch it for
+    // the user to decide on at end of turn.
     if (mode == PermissionMode.auto &&
         permission &&
         requiredPermissions is Iterable &&
         requiredPermissions.contains('unconfined')) {
-      _batchAutoDecision('denied', target, 'runs without sandbox (human-only)');
-      terminal?.writeln(
-          'auto mode denied: $target — runs without sandbox; batched for '
-          'your review');
-      return ApprovalDecision.deny;
+      if (authorization == null) {
+        _batchAutoDecision('denied', target, 'runs without sandbox (human-only)');
+        terminal?.writeln(
+            'auto mode denied: $target — runs without sandbox; batched for '
+            'your review');
+        return ApprovalDecision.deny;
+      }
+      requireHuman = true;
     }
     if (mode == PermissionMode.auto && permission && !requireHuman) {
       final evidence = requestEvidence();
