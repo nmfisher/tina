@@ -322,7 +322,7 @@ void attachModePolicy(ToolsPlugin plugin) {
         searchPath: plugin.processRunner.executableSearchPath,
         trustedExecutables: plugin.commandApprovals.readerExecutables);
     final readerCandidate =
-        outsideSandbox || network ? null : envelope.readerCandidateOnly;
+        outsideSandbox || network ? null : envelope.firstComponentResolved;
     final readerDigest = readerCandidate != null && envelope.reader == null
         ? sha256.convert(File(readerCandidate).readAsBytesSync()).toString()
         : null;

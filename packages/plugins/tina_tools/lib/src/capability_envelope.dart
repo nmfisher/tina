@@ -68,7 +68,7 @@ final class CapabilityEnvelope {
     required this.readerRequest,
     required this.shellReader,
     required this.reader,
-    required this.readerCandidateOnly,
+    required this.firstComponentResolved,
     required this.certifiedArguments,
     required this.verifiedAccesses,
     required this.completeVerifiedAccesses,
@@ -98,7 +98,7 @@ final class CapabilityEnvelope {
   /// The first component, resolved, whether or not it is a trusted reader.
   /// This is the digest input when reviewing a reader candidate that is
   /// not trusted yet.
-  final String? readerCandidateOnly;
+  final String? firstComponentResolved;
 
   /// The argv a certified single reader runs (pinned executable, literal
   /// arguments). Empty unless [reader] is set.
@@ -183,7 +183,7 @@ final class CapabilityEnvelope {
     final shellReader = readOnlyShellRequest(request,
         searchPath: searchPath,
         trustedExecutables: trustedExecutables,
-        canWrite: canWrite ?? _noWrite);
+        canWrite: canWrite ?? writesNothing);
     final reader = readOnlyExecutable(readerRequest,
         searchPath: searchPath, trustedExecutables: trustedExecutables);
     final accesses = verifiedReaderAccesses(request,
@@ -193,7 +193,7 @@ final class CapabilityEnvelope {
       readerRequest: readerRequest,
       shellReader: shellReader,
       reader: reader,
-      readerCandidateOnly: readOnlyExecutable(readerRequest,
+      firstComponentResolved: readOnlyExecutable(readerRequest,
           searchPath: searchPath, candidateOnly: true),
       certifiedArguments: reader != null
           ? certifiedReaderArguments(readerRequest)
@@ -214,7 +214,7 @@ final class CapabilityEnvelope {
     );
   }
 
-  static bool _noWrite(String executable) => false;
+  static bool writesNothing(String executable) => false;
 
   static List<CapabilityExecution> _executions(ProcessRequest request,
       {String? searchPath, required String? reader}) {

@@ -437,7 +437,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 ? agentCreated!(argument)
                 : agentCreated!(path.join(
                     request.workingDirectory ?? workspaceRoot ?? '.', argument))));
-    final readsAuthorized = confined &&
+    final certifiedReadWithinGrants = confined &&
         !network &&
         certifiedReadOnly &&
         declaredAccess.read.isEmpty &&
@@ -446,7 +446,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 access.operation != PermissionAccessOperation.read ||
                 _canRead(access.path));
     final readOnlyProfile = control?.readOnlyRequested ??
-        (readsAuthorized ||
+        (certifiedReadWithinGrants ||
             scriptFastPath ||
             _defaultReadOnlyProfile(mode,
                 confined: confined,
