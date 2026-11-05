@@ -29,13 +29,12 @@ final sessionControlsOperations = <String, SessionOperation>{
         detail: 'Selected model is no longer available. Open the picker again.',
       );
     }
-    // The host's own check refuses switches that would disturb a running
-    // turn; surface its reason instead of a bare type name.
-    try {
-      controls.selectModel(model, expectedModel: expected);
-    } on StateError catch (error) {
-      return SessionResult(stopReason: StopReason.error, detail: '$error');
-    }
+    // Model switching runs during compaction but never during a live turn.
+    // A live turn owns its request stream. Switching only re-points future
+    // requests. The host rejects a mid-turn request at admission. If the
+    // switch still throws, the host sanitizes the error, so provider
+    // details never reach the client.
+    controls.selectModel(model, expectedModel: expected);
     return const SessionResult();
-  }, allowWhileRunning: true),
+  }, allowWhileRunning: true, requiresIdleTurn: true),
 };
