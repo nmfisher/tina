@@ -771,8 +771,11 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_auto = len(ModelStub.requests)
             start = terminal.send('auto denied workspace example\r')
-            terminal.expect('classifier recommends denial', start)
-            terminal.expect('Project data could be exposed.', start)
+            # The classifier's DENY is final: no dialog interrupts the run.
+            # At 80 columns the one-line denial notice truncates in the
+            # middle (the reason is elided), so the reason is asserted from
+            # the end-of-turn batch entry, whose head-and-tail rendering
+            # keeps both the denied target and the full reason.
             terminal.expect('auto mode denied', start, wrapped=True)
             terminal.expect('batched', start, wrapped=True)
             deadline = time.monotonic() + 10
@@ -781,8 +784,11 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_auto + 3, 'denial explanation did not use the structured judge'
             budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
+            assert b'allow once' not in terminal.output[start:], 'a final auto denial still asked'
             # The end-of-turn batch lists the denial for the user.
             terminal.expect('auto mode decisions this turn', start, wrapped=True)
+            terminal.expect('denied: /bin/echo denied-workspace-output', start, wrapped=True)
+            terminal.expect('Project data could be exposed.', start, wrapped=True)
             time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
             terminal.expect('mode: allow-edits', start)
