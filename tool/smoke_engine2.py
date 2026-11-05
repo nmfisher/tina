@@ -785,9 +785,12 @@ def smoke(launcher, endpoint, columns, rows):
             budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
             assert b'allow once' not in terminal.output[start:], 'a final auto denial still asked'
-            # The end-of-turn batch lists the denial for the user.
+            # The end-of-turn batch lists the denial for the user. At 80
+            # columns the entry's head truncates inside the target
+            # ('…denied-workspace-out…') and its tail keeps the full
+            # reason, so assert exactly what renders.
             terminal.expect('auto mode decisions this turn', start, wrapped=True)
-            terminal.expect('denied: /bin/echo denied-workspace-output', start, wrapped=True)
+            terminal.expect('denied: /bin/echo denied-workspace-out', start, wrapped=True)
             terminal.expect('Project data could be exposed.', start, wrapped=True)
             time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
