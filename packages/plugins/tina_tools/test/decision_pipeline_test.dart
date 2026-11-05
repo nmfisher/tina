@@ -23,8 +23,7 @@ final class _Scopes implements ScopesView {
   bool withinPlan(String path) => false;
 }
 
-ProcessRequest _req(String command, List<String> arguments) =>
-    (
+ProcessRequest _req(String command, List<String> arguments) => (
       command: command,
       arguments: arguments,
       workingDirectory: '/workspace',
@@ -65,13 +64,11 @@ PermissionDecision _decide(
         judgmentOutsideWorkspace: judgmentOutsideWorkspace);
 
 void main() {
-  test('the read-only mode ceiling refuses mutations and host execution',
-      () {
+  test('the read-only mode ceiling refuses mutations and host execution', () {
     final envelope =
         CapabilityEnvelope.parse(_req('sh', []), searchPath: '/usr/bin:/bin');
     expect(
-        _decide(envelope,
-                controlReadOnlyRequested: false, mode: _readOnly)
+        _decide(envelope, controlReadOnlyRequested: false, mode: _readOnly)
             .refuses,
         isTrue);
     final outside = _decide(envelope, outsideSandbox: true, mode: _readOnly);
@@ -81,8 +78,8 @@ void main() {
 
   test('read-only mode without a backend refuses with the mutation message',
       () {
-    final envelope =
-        CapabilityEnvelope.parse(_req('cat', ['/workspace/a']), searchPath: '/usr/bin:/bin');
+    final envelope = CapabilityEnvelope.parse(_req('cat', ['/workspace/a']),
+        searchPath: '/usr/bin:/bin');
     final decision = _decide(envelope, confined: false, mode: _readOnly);
     expect(decision.refuses, isTrue);
     expect(decision.reason,
@@ -95,7 +92,8 @@ void main() {
     // goes uncovered, and only a human can approve it. In read-only mode
     // the ceiling refuses instead (test above).
     final envelope = CapabilityEnvelope.parse(
-        _req('cat', ['/granted/notes.txt']), searchPath: '/usr/bin:/bin');
+        _req('cat', ['/granted/notes.txt']),
+        searchPath: '/usr/bin:/bin');
     final decision = _decide(envelope,
         scopes: const _Scopes(reads: {'/granted/notes.txt'}),
         confined: false,
@@ -106,39 +104,40 @@ void main() {
 
   test('a write-profile command without a backend asks, not refuses', () {
     final envelope = CapabilityEnvelope.parse(
-        _req('custom-build-tool', ['--link', '/outside']), searchPath: '');
-    final decision = _decide(envelope,
-        controlReadOnlyRequested: false, confined: false);
+        _req('custom-build-tool', ['--link', '/outside']),
+        searchPath: '');
+    final decision =
+        _decide(envelope, controlReadOnlyRequested: false, confined: false);
     expect(decision.needsJudgment, isTrue,
-        reason: 'unconfined execution is human-only: it escalates, never refuses');
+        reason:
+            'unconfined execution is human-only: it escalates, never refuses');
   });
 
   test('covered requirements run, whatever they were covered by', () {
-    final envelope = CapabilityEnvelope.parse(
-        _req('make', ['build']), searchPath: '/usr/bin:/bin');
-    final decision =
-        _decide(envelope, controlReadOnlyRequested: false, requirementsCovered: true);
+    final envelope = CapabilityEnvelope.parse(_req('make', ['build']),
+        searchPath: '/usr/bin:/bin');
+    final decision = _decide(envelope,
+        controlReadOnlyRequested: false, requirementsCovered: true);
     expect(decision.runs, isTrue);
     expect(decision.rule, PermissionRule.grantsRun);
   });
 
   test('yolo launch-time authorization runs uncovered requests', () {
-    final envelope = CapabilityEnvelope.parse(
-        _req('make', ['build']), searchPath: '/usr/bin:/bin');
+    final envelope = CapabilityEnvelope.parse(_req('make', ['build']),
+        searchPath: '/usr/bin:/bin');
     expect(_decide(envelope, mode: _yolo).runs, isTrue);
   });
 
   test('an uncovered workspace write asks with the mutation reason', () {
-    final envelope = CapabilityEnvelope.parse(
-        _req('make', ['build']), searchPath: '/usr/bin:/bin');
+    final envelope = CapabilityEnvelope.parse(_req('make', ['build']),
+        searchPath: '/usr/bin:/bin');
     final decision = _decide(envelope, controlReadOnlyRequested: false);
     expect(decision.needsJudgment, isTrue);
     expect(decision.reason, 'Workspace mutation requires approval');
   });
 
   test('an uncovered requirement outside the workspace escalates', () {
-    final envelope = CapabilityEnvelope.parse(
-        _req('curl', ['https://x.test']),
+    final envelope = CapabilityEnvelope.parse(_req('curl', ['https://x.test']),
         control: const ProcessControl(networkRequested: true),
         searchPath: '/usr/bin:/bin');
     final decision = _decide(envelope,
@@ -153,7 +152,8 @@ void main() {
     test('a certified reader with empty declared directories reads enforced',
         () {
       final envelope = CapabilityEnvelope.parse(
-          _req('cat', ['/granted/notes.txt']), searchPath: '/usr/bin:/bin');
+          _req('cat', ['/granted/notes.txt']),
+          searchPath: '/usr/bin:/bin');
       expect(
           readOnlyProfileOf(envelope,
               scopes: const _Scopes(reads: {'/granted/notes.txt'}),
@@ -172,7 +172,8 @@ void main() {
       // The fast path is lost, but the mode default still enforces
       // read-only for a certified reader; the grants gate nothing here.
       final envelope = CapabilityEnvelope.parse(
-          _req('cat', ['/elsewhere/notes.txt']), searchPath: '/usr/bin:/bin');
+          _req('cat', ['/elsewhere/notes.txt']),
+          searchPath: '/usr/bin:/bin');
       expect(
           readOnlyProfileOf(envelope,
               scopes: const _Scopes(reads: {'/granted'}),
@@ -187,8 +188,8 @@ void main() {
     });
 
     test('the agent script fast path selects read-only enforcement', () {
-      final envelope =
-          CapabilityEnvelope.parse(_req('/workspace/run.sh', []), searchPath: '');
+      final envelope = CapabilityEnvelope.parse(_req('/workspace/run.sh', []),
+          searchPath: '');
       expect(
           readOnlyProfileOf(envelope,
               scopes: const _Scopes(),
@@ -225,7 +226,8 @@ void main() {
 
     test('an explicit control profile wins over every fast path', () {
       final envelope = CapabilityEnvelope.parse(
-          _req('cat', ['/granted/notes.txt']), searchPath: '/usr/bin:/bin');
+          _req('cat', ['/granted/notes.txt']),
+          searchPath: '/usr/bin:/bin');
       expect(
           readOnlyProfileOf(envelope,
               scopes: const _Scopes(reads: {'/granted/notes.txt'}),
@@ -241,14 +243,15 @@ void main() {
     });
 
     test('the agent script still asks: only coverage runs', () {
-      final envelope =
-          CapabilityEnvelope.parse(_req('/workspace/run.sh', []), searchPath: '');
+      final envelope = CapabilityEnvelope.parse(_req('/workspace/run.sh', []),
+          searchPath: '');
       final decision = _decide(envelope, agentCreatedScriptArguments: true);
       expect(decision.needsJudgment, isTrue,
           reason: 'the fast path enforces read-only; execution still asks');
       expect(decision.readOnlyProfile, isTrue);
       expect(
-          _decide(envelope, agentCreatedScriptArguments: true, requirementsCovered: true)
+          _decide(envelope,
+                  agentCreatedScriptArguments: true, requirementsCovered: true)
               .runs,
           isTrue);
     });
