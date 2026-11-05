@@ -1,0 +1,15 @@
+name: tina_rewind
+description: The rewind plugin for tina - /rewind and the rewind operation.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.12.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_host:
+    path: ../../tina_host
+dev_dependencies:
+  test: ^1.25.0

@@ -261,6 +261,11 @@ sealed class SessionEntry {
           summary: j['summary'] as String,
           at: at,
         ).withSeq(stamped);
+      case RewoundEntry.kindName:
+        return RewoundEntry(
+          toSeq: (j['to_seq'] as num).toInt(),
+          at: at,
+        ).withSeq(stamped);
       default:
         throw FormatException('Unknown session entry type: $type');
     }
@@ -663,6 +668,50 @@ final class CompactedEntry extends SessionEntry {
       'Compacted($replacedFrom..$replacedTo, ${summary.length} chars)';
 }
 
+/// The conversation was rewound: derivation continues from the state after
+/// entry seq `toSeq - 1` — every log entry between that position and this
+/// marker never happened, from the model's point of view. Nothing is
+/// deleted: the log stays append-only, the removed tail stays on disk and
+/// exportable, and this marker simply names the active position.
+///
+/// Rewinding is a between-turns operation, so the cut lands on a turn
+/// boundary (the seq of the [TurnStartedEntry] the rewind removes). A
+/// [CompactedEntry] after the cut is dead like any other entry — the raw
+/// prefix re-derives without it.
+final class RewoundEntry extends SessionEntry {
+  static const kindName = 'rewound';
+
+  /// The exclusive bound: entries with `seq < toSeq` stay live.
+  final int toSeq;
+
+  final String at;
+
+  const RewoundEntry({required this.toSeq, this.at = '', super.seq = 0});
+
+  @override
+  RewoundEntry withSeq(int seq) => RewoundEntry(toSeq: toSeq, at: at, seq: seq);
+
+  @override
+  String get kind => kindName;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        'to_seq': toSeq,
+        if (at.isNotEmpty) 'at': at,
+      };
+
+  @override
+  bool operator ==(Object other) =>
+      other is RewoundEntry && toSeq == other.toSeq && at == other.at;
+
+  @override
+  int get hashCode => Object.hash(kindName, toSeq, at);
+
+  @override
+  String toString() => 'Rewound(to seq $toSeq)';
+}
+
 /// The per-session settings derive consults. Plain strings — the core
 /// owns no mode vocabulary and no prompt text. A session restarts these;
 /// the log does not carry them.
@@ -719,10 +768,45 @@ final class DerivedSession {
 /// replaced range, so a summary over completed history survives the snap
 /// rule, and the boundary rule still holds: compaction happens between
 /// turns, and a summary is never asked to stand in for a half turn.
+///
+/// Rewind: [RewoundEntry] markers cut the log they sit in — see
+/// [activeLog]. Derivation folds only the active entries; the removed tail
+/// is never sent, summarized or tombstoned. It simply never happened, from
+/// the model's point of view.
 DerivedSession deriveSession(
   List<SessionEntry> log,
   SessionSettings settings, {
   bool includePendingTurn = false,
+}) {
+  return _deriveForward(activeLog(log), settings,
+      includePendingTurn: includePendingTurn, logLength: log.length);
+}
+
+/// The live sub-log after applying every [RewoundEntry]: the marker with
+/// the highest position wins, cutting everything between its [RewoundEntry
+/// .toSeq] bound and itself; entries appended after the marker stay live.
+/// Markers inside the surviving prefix cut their own ranges in turn (each
+/// pass removes at least the marker itself, so this terminates). A log
+/// without markers is returned as is.
+List<SessionEntry> activeLog(List<SessionEntry> log) {
+  var live = log;
+  while (true) {
+    final markerIndex = live.lastIndexWhere((e) => e is RewoundEntry);
+    if (markerIndex < 0) return live;
+    final marker = live[markerIndex] as RewoundEntry;
+    live = [
+      for (final e in live.take(markerIndex))
+        if (e.seq < marker.toSeq) e,
+      ...live.skip(markerIndex + 1),
+    ];
+  }
+}
+
+DerivedSession _deriveForward(
+  List<SessionEntry> log,
+  SessionSettings settings, {
+  required bool includePendingTurn,
+  required int logLength,
 }) {
   // The message slots, in log order. A slot remembers the turn that was
   // in flight when it was appended; the completed-turn set decides what
@@ -757,6 +841,9 @@ DerivedSession deriveSession(
           :final summary
         ):
         _compact(slots, replacedFrom, replacedTo, summary);
+      case RewoundEntry():
+        // Unreachable: [activeLog] strips every marker before the fold.
+        break;
       case PluginStateEntry():
         (states[e.pluginId] ??= {})[e.stateKey] = e;
     }
@@ -777,7 +864,7 @@ DerivedSession deriveSession(
   return DerivedSession(
     messages: messages,
     systemPrompt: systemPrompt,
-    entriesConsumed: log.length,
+    entriesConsumed: logLength,
     pendingTurnId: pendingTurnId,
     pluginStates: Map.unmodifiable({
       for (final entry in states.entries)

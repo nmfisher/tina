@@ -142,7 +142,25 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       context.refreshInput();
     });
     _resetProjection();
-    _unlisten = context.own(chat.events.listen((event) {
+    _observe();
+    _busy = chat.events.running;
+    _unlistenState = context.own(chat.events.listenChanges(() {
+      _busy = chat.events.running;
+      _paintUsage();
+      _console?.refreshInput();
+    }));
+    _width = -1;
+    repaintConsole();
+  }
+
+  /// Subscribe to the observation stream. Called once at attach and again
+  /// after a rewind lands live: the fresh subscription replays the active
+  /// prefix (a rewound log's discarded tail is filtered out of replay), so
+  /// the transcript shows the rewound conversation, not the removed one.
+  void _observe() {
+    _unlisten?.call();
+    _unlisten = null;
+    _unlisten = _console?.own(chat.events.listen((event) {
       switch (event) {
         case ObservedReset():
           _resetProjection();
@@ -154,14 +172,6 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
           watch(event.event);
       }
     }));
-    _busy = chat.events.running;
-    _unlistenState = context.own(chat.events.listenChanges(() {
-      _busy = chat.events.running;
-      _paintUsage();
-      _console?.refreshInput();
-    }));
-    _width = -1;
-    repaintConsole();
   }
 
   void _resetProjection() {
@@ -335,6 +345,19 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   void entry(SessionEntry entry, LogEvent event) {
     final at =
         DateTime.tryParse(entry.toJson()['at'] as String? ?? '')?.toLocal();
+    if (entry is RewoundEntry) {
+      // Live: rebuild from the active prefix (replay filters the removed
+      // tail, so a fresh subscription is the rewound transcript). Replayed
+      // markers never arrive — replay skips them — so this cannot loop.
+      if (event == LogEvent.appended) {
+        _resetProjection();
+        _observe();
+        _add(ChatBlock.notice(_speaker,
+            'Rewound · filesystem effects of earlier tool calls are not undone.'));
+      }
+      _console?.refreshInput();
+      return;
+    }
     if (entry is ContextClearedEntry) {
       _blocks.clear();
       _rows.clear();

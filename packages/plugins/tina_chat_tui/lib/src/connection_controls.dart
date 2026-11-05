@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_mode/observation.dart';
+import 'package:tina_rewind/tina_rewind.dart';
 import 'package:tina_session_controls/observation.dart';
 
 /// Each view reads public snapshots and submits data to the plugin owner.
@@ -53,7 +54,8 @@ final class ConnectionSessionControls implements SessionControlsObservation {
   int _revision = -1;
   bool get available => _available;
   bool _available = false;
-  bool get canControl => available && _connection.canControl;
+  bool get canControl =>
+      (available || rewindAvailable) && _connection.canControl;
   @override
   String get currentModel => _currentModel;
   String _currentModel = '';
@@ -64,11 +66,24 @@ final class ConnectionSessionControls implements SessionControlsObservation {
   List<String> get recentModels => _recentModels;
   List<String> _recentModels = const [];
 
+  /// Rewind rides its own plugin and its own snapshot feature, so it works
+  /// (and reports "unavailable") independently of the model controls.
+  bool get rewindAvailable => _rewindAvailable;
+  bool _rewindAvailable = false;
+  List<RewindPoint> get rewindPoints => _rewindPoints;
+  List<RewindPoint> _rewindPoints = const [];
+  int get rewindHead => _rewindHead;
+  int _rewindHead = -1;
+
   void _apply(SessionSnapshot snapshot) {
     if (snapshot.cursor.revision <= _revision) return;
     _revision = snapshot.cursor.revision;
+    if (snapshot.historyPublicationFailed) {
+      _resetModels();
+      _resetRewind();
+      return;
+    }
     try {
-      if (snapshot.historyPublicationFailed) throw StateError('unavailable');
       final data = snapshot.features['tina/session-controls'] as Map;
       final next = ModelCatalog(
         models:
@@ -86,11 +101,41 @@ final class ConnectionSessionControls implements SessionControlsObservation {
       _recentModels = recent;
       _available = true;
     } catch (_) {
-      _available = false;
-      _currentModel = '';
-      _catalog = const ModelCatalog();
-      _recentModels = const [];
+      _resetModels();
     }
+    final rewind = snapshot.features['tina/rewind'];
+    if (rewind is Map) {
+      try {
+        _rewindPoints = List<RewindPoint>.unmodifiable([
+          for (final item in (rewind['rewind_points'] as List).cast<Map>())
+            RewindPoint(
+              toSeq: item['to_seq'] as int,
+              at: (item['at'] as String?) ?? '',
+              label: (item['label'] as String?) ?? '',
+              kind: (item['kind'] as String?) ?? 'user',
+            ),
+        ]);
+        _rewindHead = (rewind['rewind_head'] as num?)?.toInt() ?? -1;
+        _rewindAvailable = true;
+      } catch (_) {
+        _resetRewind();
+      }
+    } else {
+      _resetRewind();
+    }
+  }
+
+  void _resetModels() {
+    _available = false;
+    _currentModel = '';
+    _catalog = const ModelCatalog();
+    _recentModels = const [];
+  }
+
+  void _resetRewind() {
+    _rewindAvailable = false;
+    _rewindPoints = const [];
+    _rewindHead = -1;
   }
 
   void refresh() => _refresh(_connection, _apply);
@@ -105,6 +150,18 @@ final class ConnectionSessionControls implements SessionControlsObservation {
         'tina/session-controls', 'select-model',
         arguments: {'model': model, 'expected_model': expectedModel},
         id: _connection.requestWindow.id('model-${++_nextRequest}'));
+    _requireCompleted(await request.completed);
+  }
+
+  /// Rewind to [toSeq], refusing when the conversation moved since the
+  /// picker read [expectedHead].
+  Future<void> rewind(int toSeq, {required int expectedHead}) async {
+    refresh();
+    _connection.access.requireControl();
+    if (!rewindAvailable) throw StateError('Rewind is unavailable.');
+    final request = _connection.submitOperation('tina/rewind', 'rewind',
+        arguments: {'to_seq': toSeq, 'expected_head': expectedHead},
+        id: _connection.requestWindow.id('rewind-${++_nextRequest}'));
     _requireCompleted(await request.completed);
   }
 }

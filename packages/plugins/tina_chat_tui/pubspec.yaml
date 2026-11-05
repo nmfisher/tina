@@ -11,6 +11,8 @@ dependencies:
     path: ../tina_chat
   tina_session_controls:
     path: ../tina_session_controls
+  tina_rewind:
+    path: ../tina_rewind
   tina_goals:
     path: ../tina_goals
   tina_mode:

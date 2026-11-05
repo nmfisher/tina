@@ -1297,3 +1297,20 @@ jobs:
         working-directory: packages/plugins/tina_session_controls
       - run: dart test -j 4
         working-directory: packages/plugins/tina_session_controls
+
+  tina_rewind:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_rewind')
+    name: tina_rewind (packages/plugins/tina_rewind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+        working-directory: packages/plugins/tina_rewind
+      - run: dart analyze
+        working-directory: packages/plugins/tina_rewind
+      - run: dart test -j 4
+        working-directory: packages/plugins/tina_rewind

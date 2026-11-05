@@ -265,4 +265,111 @@ void main() {
           jsonEncode(b.messages.map((m) => m.toJson()).toList()));
     });
   });
+
+  group('rewind', () {
+    /// Two completed turns, seq-stamped like the loop would write them.
+    List<SessionEntry> twoTurns() => [
+          const TurnStartedEntry(turnId: 't1', at: '2026-01-01T10:00:00Z'),
+          const InputRecordedEntry(
+              turnId: 't1', text: 'first', at: '2026-01-01T10:00:00Z'),
+          MessageAppendedEntry(
+              turnId: 't1', message: user('first'), at: '2026-01-01T10:00:00Z'),
+          MessageAppendedEntry(turnId: 't1', message: assistant('a1')),
+          const TurnEndedEntry(turnId: 't1', reason: TurnStopReason.complete),
+          const TurnStartedEntry(turnId: 't2', at: '2026-01-01T10:01:00Z'),
+          const InputRecordedEntry(
+              turnId: 't2', text: 'second', at: '2026-01-01T10:01:00Z'),
+          MessageAppendedEntry(
+              turnId: 't2',
+              message: user('second'),
+              at: '2026-01-01T10:01:00Z'),
+          MessageAppendedEntry(turnId: 't2', message: assistant('a2')),
+          const TurnEndedEntry(turnId: 't2', reason: TurnStopReason.complete),
+        ].asMap().map((i, e) => MapEntry(i, e.withSeq(i))).values.toList();
+
+    test('RewoundEntry round-trips through JSON', () {
+      final e = roundTrip(RewoundEntry(toSeq: 7, at: 'x').withSeq(10));
+      expect(e, isA<RewoundEntry>());
+      expect((e as RewoundEntry).toSeq, 7);
+      expect(e.at, 'x');
+      expect(e.seq, 10);
+    });
+
+    test('a rewind marker derives exactly the log prefix before the cut', () {
+      final base = twoTurns();
+      // Rewind to before t2 started (seq 5): t2 never happened.
+      final log = [...base, RewoundEntry(toSeq: 5).withSeq(10)];
+      final d = deriveSession(log, const SessionSettings());
+      expect(d.messages.length, 2);
+      expect((d.messages[0].content.single as TextBlock).text, 'first');
+      expect((d.messages[1].content.single as TextBlock).text, 'a1');
+      // entriesConsumed still counts the raw log — nothing was deleted.
+      expect(d.entriesConsumed, log.length);
+      expect(d.pendingTurnId, isNull);
+    });
+
+    test('entries appended after the marker stay live', () {
+      final base = twoTurns();
+      final log = [
+        ...base,
+        RewoundEntry(toSeq: 5).withSeq(10),
+        const TurnStartedEntry(turnId: 't3'),
+        const InputRecordedEntry(turnId: 't3', text: 'third'),
+        MessageAppendedEntry(turnId: 't3', message: user('third')),
+        MessageAppendedEntry(turnId: 't3', message: assistant('a3')),
+        const TurnEndedEntry(turnId: 't3', reason: TurnStopReason.complete),
+      ].asMap().map((i, e) => MapEntry(i, e.withSeq(i))).values.toList();
+      final d = deriveSession(log, const SessionSettings());
+      expect(
+        d.messages.map((m) => (m.content.single as TextBlock).text).toList(),
+        ['first', 'a1', 'third', 'a3'],
+      );
+    });
+
+    test('a later marker wins; an earlier marker in its dead range drops', () {
+      final base = twoTurns();
+      // First rewind kills t2 (to seq 5); work continues; a second rewind
+      // goes back to seq 2 — t1's start and input. Everything from seq 2 on
+      // is dead, including the first marker: it never happened either. The
+      // kept prefix is t1's start + input with no end, so the snap rule
+      // leaves an empty derive pending t1's replay.
+      final log = [
+        ...base,
+        RewoundEntry(toSeq: 5).withSeq(10),
+        MessageAppendedEntry(turnId: 't9', message: user('post')),
+        RewoundEntry(toSeq: 2).withSeq(12),
+      ].asMap().map((i, e) => MapEntry(i, e.withSeq(i))).values.toList();
+      final d = deriveSession(log, const SessionSettings());
+      expect(d.messages, isEmpty);
+      expect(d.pendingTurnId, 't1');
+    });
+
+    test('rewinding before a compaction re-derives from the raw entries', () {
+      final log = [
+        const TurnStartedEntry(turnId: 't1'),
+        MessageAppendedEntry(turnId: 't1', message: user('q1')),
+        MessageAppendedEntry(turnId: 't1', message: assistant('a1')),
+        const TurnEndedEntry(turnId: 't1', reason: TurnStopReason.complete),
+        const TurnStartedEntry(turnId: 't2'),
+        MessageAppendedEntry(turnId: 't2', message: user('q2')),
+        MessageAppendedEntry(turnId: 't2', message: assistant('a2')),
+        const TurnEndedEntry(turnId: 't2', reason: TurnStopReason.complete),
+        const CompactedEntry(
+            replacedFrom: 0, replacedTo: 3, summary: 'was q1/a1 and q2'),
+        RewoundEntry(toSeq: 8), // before the compaction entry (seq 8)
+      ].asMap().map((i, e) => MapEntry(i, e.withSeq(i))).values.toList();
+      final d = deriveSession(log, const SessionSettings());
+      // The compaction is dead; the raw turns derive untouched.
+      expect(
+        d.messages.map((m) => (m.content.single as TextBlock).text).toList(),
+        ['q1', 'a1', 'q2', 'a2'],
+      );
+      expect(d.messages.any((m) => m.isSynthetic), isFalse);
+    });
+
+    test('activeLog returns the log itself when no marker exists', () {
+      final base = twoTurns();
+      expect(activeLog(base), same(base));
+    });
+  });
 }

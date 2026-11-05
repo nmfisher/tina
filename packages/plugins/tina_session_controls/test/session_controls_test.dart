@@ -14,6 +14,23 @@ final class _Terminal implements Terminal {
 }
 
 void main() {
+  test('rewind is no longer part of session controls', () {
+    // Rewind moved to the tina_rewind plugin (tina/rewind): the command,
+    // its operation and its observation data must not creep back here, so
+    // the two features can be enabled or disabled independently.
+    final plugin = SessionControlsPlugin(
+      terminal: _Terminal(),
+      currentModel: () => 'm',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(models: ['m']),
+    );
+    expect(
+      plugin.commands.map((command) => command.name),
+      isNot(contains('rewind')),
+    );
+    expect(sessionControlsOperations.keys, ['select-model']);
+  });
+
   test(
     'model operations share recent selections and reject stale picker responses',
     () async {
@@ -72,7 +89,9 @@ void main() {
     );
     plugin.mountOn(loop);
     await loop.runTurn(const Input('go', id: 'turn'));
-    await plugin.commands.last.handler('');
+    await plugin.commands
+        .firstWhere((command) => command.name == 'clear')
+        .handler('');
     expect(loop.log.last, isA<ContextClearedEntry>());
     plugin.closeSession();
   });
@@ -94,12 +113,17 @@ void main() {
     expect(terminal.lines.last, 'Reasoning: medium');
     await reasoning.handler('high');
     expect(effort, 'high');
-    expect(terminal.lines.last, 'Reasoning: high (applies to the next request)');
+    expect(
+      terminal.lines.last,
+      'Reasoning: high (applies to the next request)',
+    );
     terminal.lines.clear();
     await reasoning.handler('bogus');
     expect(effort, 'high');
-    expect(terminal.lines.last,
-        'no reasoning level named bogus — choices: auto, none, low, medium, high');
+    expect(
+      terminal.lines.last,
+      'no reasoning level named bogus — choices: auto, none, low, medium, high',
+    );
     // Completion offers the model's vocabulary, not the canonical superset.
     expect(reasoning.complete!('h'), ['high']);
   });
@@ -122,8 +146,10 @@ void main() {
     expect(effort, 'high');
     await reasoning.handler('Auto');
     expect(effort, isNull);
-    expect(terminal.lines.last,
-        'Reasoning: automatic (applies to the next request)');
+    expect(
+      terminal.lines.last,
+      'Reasoning: automatic (applies to the next request)',
+    );
   });
 
   test('reasoning reports unavailable without host wiring', () async {
@@ -135,7 +161,10 @@ void main() {
       modelCatalog: () => const ModelCatalog(),
     );
     await plugin.commands[1].handler('high');
-    expect(terminal.lines.last, 'Reasoning control is unavailable in this session.');
+    expect(
+      terminal.lines.last,
+      'Reasoning control is unavailable in this session.',
+    );
   });
 
   test('a refused switch propagates for the host to sanitize', () {
@@ -155,8 +184,7 @@ void main() {
         throwsStateError);
   });
 
-  test(
-      'the picker switches models while between-turns work is running '
+  test('the picker switches models while between-turns work is running '
       'and the next request uses the new model', () async {
     Host? hostRef;
     var current = 'one';
@@ -172,27 +200,37 @@ void main() {
     final inside = Completer<void>(), held = Completer<void>();
     final one = ScriptedProvider([scriptedReply('one')]);
     final two = ScriptedProvider([scriptedReply('two')]);
-    final host = hostRef = Host.start(HostConfig(
-      workingDirectory: '.',
-      providerFactory: (model) => model == 'two' ? two : one,
-      plugins: [controls, _HoldPlugin(inside, held)],
-      operationsFor: (_) => sessionControlsOperations,
-    ));
+    final host = hostRef = Host.start(
+      HostConfig(
+        workingDirectory: '.',
+        providerFactory: (model) => model == 'two' ? two : one,
+        plugins: [controls, _HoldPlugin(inside, held)],
+        operationsFor: (_) => sessionControlsOperations,
+      ),
+    );
     addTearDown(host.shutdown);
     final client = host.connect();
     addTearDown(client.close);
     // Between-turns work in flight, shaped like a running /compact.
     final work = host.commands['hold']!.handler('');
     await inside.future;
-    final request = client.submitOperation('tina/session-controls',
-        'select-model',
-        arguments: {'model': 'two', 'expected_model': 'one'},
-        id: client.requestWindow.id('pick'));
-    expect(request.snapshot.state, SessionRequestState.completed,
-        reason: 'a read of the picker during compaction must not be idle-gated');
+    final request = client.submitOperation(
+      'tina/session-controls',
+      'select-model',
+      arguments: {'model': 'two', 'expected_model': 'one'},
+      id: client.requestWindow.id('pick'),
+    );
+    expect(
+      request.snapshot.state,
+      SessionRequestState.completed,
+      reason: 'a read of the picker during compaction must not be idle-gated',
+    );
     expect(host.model, 'two');
-    expect(host.session.loop.provider, same(one),
-        reason: 'the running work keeps its provider until it ends');
+    expect(
+      host.session.loop.provider,
+      same(one),
+      reason: 'the running work keeps its provider until it ends',
+    );
     held.complete();
     await work;
     expect(host.session.loop.provider, same(two));
@@ -201,8 +239,7 @@ void main() {
     expect(one.callCount, 0);
   });
 
-  test('the picker during a running turn is rejected at admission',
-      () async {
+  test('the picker during a running turn is rejected at admission', () async {
     Host? hostRef;
     var current = 'one';
     final release = Completer<void>();
@@ -258,14 +295,15 @@ final class _HoldPlugin extends AgentPlugin {
 
   @override
   List<Command> get commands => [
-        Command(
-            name: 'hold',
-            description: 'hold between-turns work open',
-            handler: (_) => _loop!.betweenTurns(() async {
-                  inside.complete();
-                  await held.future;
-                }))
-      ];
+    Command(
+      name: 'hold',
+      description: 'hold between-turns work open',
+      handler: (_) => _loop!.betweenTurns(() async {
+        inside.complete();
+        await held.future;
+      }),
+    ),
+  ];
 }
 
 /// A provider that never answers until released, so a test can act while
@@ -280,14 +318,17 @@ final class _WaitingProvider implements LlmProvider {
   String get model => 'waiting';
 
   @override
-  Stream<StreamEvent> send(
-      {required String system,
-      required List<Message> messages,
-      required List<ToolSchema> tools}) async* {
+  Stream<StreamEvent> send({
+    required String system,
+    required List<Message> messages,
+    required List<ToolSchema> tools,
+  }) async* {
     arrived.complete();
     await release;
     yield const MessageComplete(
-        content: [TextBlock('done')], stopReason: 'end_turn');
+      content: [TextBlock('done')],
+      stopReason: 'end_turn',
+    );
   }
 
   @override

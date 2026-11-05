@@ -375,6 +375,49 @@ void main() {
     expect(loop.log.last.seq, loop.log.length - 1);
     expect(loop.log.length, seed.length + 5);
   });
+  group('rewind', () {
+    test('rewind appends a marker; the next request carries the prefix only',
+        () async {
+      final provider = ScriptedProvider(
+          [scriptedReply('a1'), scriptedReply('a2'), scriptedReply('a3')]);
+      final loop = AgentLoop(provider: provider, plugins: []);
+      await loop.runTurn(const Input('first', id: 't1'));
+      await loop.runTurn(const Input('second', id: 't2'));
+
+      // Rewind to before turn 2: its exchange never happened.
+      loop.rewind(5); // seq 5 is t2's TurnStartedEntry
+      expect(loop.log.last, isA<RewoundEntry>());
+      expect((loop.log.last as RewoundEntry).toSeq, 5);
+
+      final view = loop.derive();
+      expect(view.messages.length, 2);
+      expect((view.messages[0].content.single as TextBlock).text, 'first');
+      expect((view.messages[1].content.single as TextBlock).text, 'a1');
+
+      // The next turn continues from the rewound point.
+      await loop.runTurn(const Input('third', id: 't3'));
+      final request = loop.provider as ScriptedProvider;
+      expect(request, isNotNull);
+      final next = loop.derive();
+      expect(
+        next.messages.map((m) => (m.content.single as TextBlock).text).toList(),
+        ['first', 'a1', 'third', 'a3'],
+      );
+      // The log keeps everything: 10 entries + marker + turn 3.
+      expect(loop.log.whereType<RewoundEntry>().length, 1);
+      expect(loop.log.length, 16);
+    });
+
+    test('rewind refuses mid-turn and out-of-range positions', () async {
+      final provider = ScriptedProvider([scriptedReply('a1')]);
+      final loop = AgentLoop(provider: provider, plugins: []);
+      await loop.runTurn(const Input('first', id: 't1'));
+      expect(() => loop.rewind(-1), throwsRangeError);
+      expect(() => loop.rewind(99), throwsRangeError);
+      loop.rewind(5); // == log length: a no-op marker, still valid
+      expect((loop.log.last as RewoundEntry).toSeq, 5);
+    });
+  });
 }
 
 final class _ThrowingProvider implements LlmProvider {

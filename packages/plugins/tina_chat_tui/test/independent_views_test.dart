@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 import 'package:tina_chat_tui/tina_chat_tui.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show Terminal;
+import 'package:tina_rewind/tina_rewind.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
 import 'support/controls_fixture.dart';
 import 'package:tina_mode/tina_mode.dart';
@@ -126,6 +127,39 @@ void main() {
         ModeView(mode: ConnectionModeObservation(connection1)), first.context);
     expect(first.io.output.toString(), contains('mode: read-only'));
     replacement.dispose();
+  });
+  test('the rewind picker is offered only for a bare /rewind', () async {
+    final controls = SessionControlsPlugin(
+      terminal: _Terminal(),
+      currentModel: () => 'acme/one',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(models: ['acme/one']),
+    );
+    final host = controlsHost(
+        controls: controls, rewind: RewindPlugin(terminal: _Terminal()));
+    final connection = host.connect();
+    final client = _Client();
+    final attachment = ConsoleAttachment.attach(
+        SessionControlsView(ConnectionSessionControls(connection)),
+        client.context);
+    addTearDown(() {
+      attachment.dispose();
+      client.dispose();
+      connection.close();
+    });
+
+    // An argument goes to the host command; only the bare form opens UI.
+    expect(
+        SessionControlsView(ConnectionSessionControls(connection))
+            .handleConsoleCommand('rewind', '2'),
+        isNull);
+
+    final opened = (attachment.contribution as SessionControlsView)
+        .handleConsoleCommand('rewind', '')!;
+    await opened.timeout(const Duration(seconds: 1));
+    // A session with no turns yet has no rewind points: a notice, no crash,
+    // and the session log is untouched.
+    expect(client.io.output.toString(), contains('Nothing to rewind to yet.'));
   });
 }
 

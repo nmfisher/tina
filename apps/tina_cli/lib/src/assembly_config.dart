@@ -34,12 +34,12 @@ const legacyProfilePlugins = <String>[
 ];
 
 List<String> pluginBaseline(List<String> ids, {int selectionVersion = 1}) => [
-      ...{
-        if (selectionVersion == 1) ...legacyProfilePlugins,
-        for (final id in ids)
-          if (!retiredPluginIds.contains(id)) canonicalPluginId(id)
-      },
-    ];
+  ...{
+    if (selectionVersion == 1) ...legacyProfilePlugins,
+    for (final id in ids)
+      if (!retiredPluginIds.contains(id)) canonicalPluginId(id),
+  },
+];
 
 const defaultPluginIds = <String>[
   ...legacyProfilePlugins,
@@ -47,6 +47,7 @@ const defaultPluginIds = <String>[
   'tina/classification',
   'tina/chat-tui',
   'tina/session-controls',
+  'tina/rewind',
   'tina/status-strip-tui',
   'tina/cwd-tui',
   'tina/panels-tui',
@@ -72,18 +73,19 @@ const String kTinaDefaultModel = 'scripted';
 
 /// The parsed `~/.tina/config`, narrowed to what the assembly needs.
 final class TinaConfig {
-  const TinaConfig(
-      {this.limits = const RequestLimits(),
-      this.theme = const {},
-      this.reasoningEffort,
-      this.thinkingBudget,
-      this.maxOutputTokens = 8192,
-      this.providerId,
-      required this.model,
-      this.plugins = defaultPluginIds,
-      this.approvalChannel = defaultApprovalChannel,
-      this.providers = const {},
-      this.descriptors = builtinDescriptors});
+  const TinaConfig({
+    this.limits = const RequestLimits(),
+    this.theme = const {},
+    this.reasoningEffort,
+    this.thinkingBudget,
+    this.maxOutputTokens = 8192,
+    this.providerId,
+    required this.model,
+    this.plugins = defaultPluginIds,
+    this.approvalChannel = defaultApprovalChannel,
+    this.providers = const {},
+    this.descriptors = builtinDescriptors,
+  });
 
   /// The provider id from the config — null when the file did not name
   /// one, which sends a bare model down the Anthropic wire.
@@ -111,9 +113,9 @@ sealed class TinaConfigResult {
   const TinaConfigResult();
 
   TinaConfig get config => switch (this) {
-        TinaConfigOk(:final resolved) => resolved,
-        TinaConfigProblem(:final resolved) => resolved,
-      };
+    TinaConfigOk(:final resolved) => resolved,
+    TinaConfigProblem(:final resolved) => resolved,
+  };
 
   /// One status line for the front end's banner, or null when nothing was
   /// read (a missing config file is silent).
@@ -135,8 +137,8 @@ final class TinaConfigOk extends TinaConfigResult {
   String? get note => path == null
       ? null
       : 'config: $path — '
-          '${config.providerId == null ? 'anthropic wire' : config.providerId}'
-          '/${config.model}';
+            '${config.providerId == null ? 'anthropic wire' : config.providerId}'
+            '/${config.model}';
 }
 
 /// The file exists but cannot be honored: bad syntax, wrong version, or
@@ -151,7 +153,8 @@ final class TinaConfigProblem extends TinaConfigResult {
   final TinaConfig resolved;
 
   /// One status line for the front end's banner.
-  String get note => 'config: $problem — falling back to '
+  String get note =>
+      'config: $problem — falling back to '
       '${config.providerId == null ? 'the anthropic wire' : config.providerId}'
       '/${config.model}';
 }
@@ -173,30 +176,38 @@ TinaConfigResult loadTinaConfig({
     text = file.readAsStringSync();
   } catch (e) {
     return TinaConfigProblem(
-        'cannot read $file: $e', const TinaConfig(model: kTinaDefaultModel));
+      'cannot read $file: $e',
+      const TinaConfig(model: kTinaDefaultModel),
+    );
   }
   final Map<String, dynamic> parsed;
   try {
     parsed = TomlDocument.parse(text).toMap();
   } catch (_) {
-    return TinaConfigProblem('$file is not valid config syntax',
-        const TinaConfig(model: kTinaDefaultModel));
+    return TinaConfigProblem(
+      '$file is not valid config syntax',
+      const TinaConfig(model: kTinaDefaultModel),
+    );
   }
-  return parseTinaConfig(parsed,
-      path: file.path,
-      descriptors: descriptors ?? configuredDescriptors(environment));
+  return parseTinaConfig(
+    parsed,
+    path: file.path,
+    descriptors: descriptors ?? configuredDescriptors(environment),
+  );
 }
 
 /// Legacy discovery is a read-only startup input; explicit config still wins.
-List<ProviderDescriptor> configuredDescriptors(
-    [Map<String, String> environment = const {}]) {
+List<ProviderDescriptor> configuredDescriptors([
+  Map<String, String> environment = const {},
+]) {
   final env = environment.isEmpty ? Platform.environment : environment;
   if (env['COCOON_MODELS_DEV'] == '0') return builtinDescriptors;
   final home = env['HOME'] ?? Platform.environment['HOME'];
   return home == null
       ? builtinDescriptors
       : cachedProviderDescriptors(
-          '$home/.tina/cache/models.dev.providers.json');
+          '$home/.tina/cache/models.dev.providers.json',
+        );
 }
 
 /// Parse an already-read document, also used to validate settings before save.
@@ -219,11 +230,15 @@ TinaConfigResult parseTinaConfig(
           entry.value is! Map) {
         throw FormatException('invalid provider table');
       }
-      final settings =
-          ProviderSettings.parse(id, Map<String, dynamic>.from(entry.value));
+      final settings = ProviderSettings.parse(
+        id,
+        Map<String, dynamic>.from(entry.value),
+      );
       providers[id] = settings;
-      resolvedDescriptors[id] =
-          settings.descriptor(id, resolvedDescriptors[id]);
+      resolvedDescriptors[id] = settings.descriptor(
+        id,
+        resolvedDescriptors[id],
+      );
     }
   }
   for (final entry in providers.entries) {
@@ -233,7 +248,8 @@ TinaConfigResult parseTinaConfig(
           (providers[parts.first]?.members.isNotEmpty ?? false) ||
           (parts.length > 1 && parts.skip(1).join('/').isEmpty)) {
         throw FormatException(
-            'providers.${entry.key}.members must name existing, non-pool providers with nonempty model IDs');
+          'providers.${entry.key}.members must name existing, non-pool providers with nonempty model IDs',
+        );
       }
     }
   }
@@ -242,13 +258,16 @@ TinaConfigResult parseTinaConfig(
   if (parsed.containsKey('plugins')) {
     final table = parsed['plugins'];
     if (table is! Map ||
-        table.keys.any((key) =>
-            key != 'enabled' &&
-            key != 'approval_channel' &&
-            key != 'overrides' &&
-            key != 'selection_version')) {
+        table.keys.any(
+          (key) =>
+              key != 'enabled' &&
+              key != 'approval_channel' &&
+              key != 'overrides' &&
+              key != 'selection_version',
+        )) {
       throw FormatException(
-          '[plugins] supports enabled, overrides and approval_channel');
+        '[plugins] supports enabled, overrides and approval_channel',
+      );
     }
     if (table.containsKey('approval_channel')) {
       final channel = table['approval_channel'];
@@ -258,7 +277,8 @@ TinaConfigResult parseTinaConfig(
         validatePluginId(channel);
       } on ArgumentError {
         throw FormatException(
-            'approval_channel must be a publisher/name plugin ID');
+          'approval_channel must be a publisher/name plugin ID',
+        );
       }
       approvalChannel = channel;
     }
@@ -266,7 +286,8 @@ TinaConfigResult parseTinaConfig(
       final enabled = table['enabled'];
       if (enabled is! List || enabled.any((id) => id is! String)) {
         throw FormatException(
-            '[plugins].enabled must be an array of plugin IDs');
+          '[plugins].enabled must be an array of plugin IDs',
+        );
       }
       plugins = List<String>.unmodifiable(enabled.cast<String>());
       final seen = <String>{};
@@ -275,7 +296,8 @@ TinaConfigResult parseTinaConfig(
           validatePluginId(id);
         } on ArgumentError {
           throw FormatException(
-              'invalid plugin ID "$id": expected publisher/name');
+            'invalid plugin ID "$id": expected publisher/name',
+          );
         }
         if (!seen.add(id)) throw FormatException('duplicate plugin ID: $id');
       }
@@ -299,40 +321,48 @@ TinaConfigResult parseTinaConfig(
   final version = parsed['version'];
   if (version != null && version != kTinaConfigVersion) {
     return TinaConfigProblem(
-        '$file is config version $version; this reader understands '
-        'version $kTinaConfigVersion',
-        TinaConfig(
-            model: kTinaDefaultModel,
-            plugins: plugins,
-            approvalChannel: approvalChannel));
+      '$file is config version $version; this reader understands '
+      'version $kTinaConfigVersion',
+      TinaConfig(
+        model: kTinaDefaultModel,
+        plugins: plugins,
+        approvalChannel: approvalChannel,
+      ),
+    );
   }
   final section = parsed['default'];
   if (section is! Map<String, dynamic>) {
     return TinaConfigProblem(
-        '$file has no [default] section',
-        TinaConfig(
-            model: kTinaDefaultModel,
-            plugins: plugins,
-            approvalChannel: approvalChannel));
+      '$file has no [default] section',
+      TinaConfig(
+        model: kTinaDefaultModel,
+        plugins: plugins,
+        approvalChannel: approvalChannel,
+      ),
+    );
   }
   final provider = section['provider'];
   if (provider != null && provider is! String) {
     return TinaConfigProblem(
-        '$file: [default] provider must be a string',
-        TinaConfig(
-            model: kTinaDefaultModel,
-            plugins: plugins,
-            approvalChannel: approvalChannel));
+      '$file: [default] provider must be a string',
+      TinaConfig(
+        model: kTinaDefaultModel,
+        plugins: plugins,
+        approvalChannel: approvalChannel,
+      ),
+    );
   }
   final model = section['model'];
   if (model is! String || model.isEmpty) {
     return TinaConfigProblem(
-        '$file has no [default] model',
-        TinaConfig(
-            providerId: provider as String?,
-            model: kTinaDefaultModel,
-            plugins: plugins,
-            approvalChannel: approvalChannel));
+      '$file has no [default] model',
+      TinaConfig(
+        providerId: provider as String?,
+        model: kTinaDefaultModel,
+        plugins: plugins,
+        approvalChannel: approvalChannel,
+      ),
+    );
   }
   // `provider/model` in the model wins over the section's provider — the
   // old engine's rule, so a config written for tina reads the same here.
@@ -347,19 +377,23 @@ TinaConfigResult parseTinaConfig(
   }
   if (modelId.trim().isEmpty) {
     return TinaConfigProblem(
-        '$file has an empty model ID',
-        TinaConfig(
-            model: kTinaDefaultModel,
-            plugins: plugins,
-            approvalChannel: approvalChannel));
+      '$file has an empty model ID',
+      TinaConfig(
+        model: kTinaDefaultModel,
+        plugins: plugins,
+        approvalChannel: approvalChannel,
+      ),
+    );
   }
   if (providerId != null && !resolvedDescriptors.containsKey(providerId)) {
     return TinaConfigProblem(
-        '$file: unknown provider "$providerId"',
-        TinaConfig(
-            model: modelId,
-            plugins: plugins,
-            approvalChannel: approvalChannel));
+      '$file: unknown provider "$providerId"',
+      TinaConfig(
+        model: modelId,
+        plugins: plugins,
+        approvalChannel: approvalChannel,
+      ),
+    );
   }
   Map<String, dynamic> table(String key) {
     final value = parsed[key];
@@ -381,8 +415,15 @@ TinaConfigResult parseTinaConfig(
   final effort = section['reasoning_effort'];
   if (effort != null &&
       (effort is! String ||
-          !['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-              .contains(effort)))
+          ![
+            'none',
+            'minimal',
+            'low',
+            'medium',
+            'high',
+            'xhigh',
+            'max',
+          ].contains(effort)))
     throw FormatException('invalid default.reasoning_effort');
   final theme = table('theme');
   if (theme['variant'] != null &&
@@ -396,25 +437,28 @@ TinaConfigResult parseTinaConfig(
           (entry.key != 'variant' &&
               !RegExp(r'^[0-9;]*$').hasMatch(entry.value as String)))
         throw FormatException(
-            'theme values must be ANSI color numbers separated by semicolons');
+          'theme values must be ANSI color numbers separated by semicolons',
+        );
     }
   }
 
   validateTheme(theme);
   return TinaConfigOk(
-      TinaConfig(
-          limits: RequestLimits.fromMap(table('limits')),
-          theme: Map.unmodifiable(theme),
-          reasoningEffort: effort as String?,
-          thinkingBudget: integer('thinking_budget'),
-          maxOutputTokens: maxOutput,
-          providerId: providerId,
-          model: modelId,
-          plugins: plugins,
-          approvalChannel: approvalChannel,
-          providers: Map.unmodifiable(providers),
-          descriptors: List.unmodifiable(resolvedDescriptors.values)),
-      path: path);
+    TinaConfig(
+      limits: RequestLimits.fromMap(table('limits')),
+      theme: Map.unmodifiable(theme),
+      reasoningEffort: effort as String?,
+      thinkingBudget: integer('thinking_budget'),
+      maxOutputTokens: maxOutput,
+      providerId: providerId,
+      model: modelId,
+      plugins: plugins,
+      approvalChannel: approvalChannel,
+      providers: Map.unmodifiable(providers),
+      descriptors: List.unmodifiable(resolvedDescriptors.values),
+    ),
+    path: path,
+  );
 }
 
 /// The model reference the way the old engine prints it: `provider/model`
@@ -427,7 +471,9 @@ String configModelReference(TinaConfig config) => config.providerId == null
 
 /// Look one descriptor up by id among [descriptors].
 ProviderDescriptor? descriptorByIdFor(
-    String id, List<ProviderDescriptor> descriptors) {
+  String id,
+  List<ProviderDescriptor> descriptors,
+) {
   for (final d in descriptors) {
     if (d.id == id) return d;
   }
@@ -435,7 +481,8 @@ ProviderDescriptor? descriptorByIdFor(
 }
 
 String defaultConfigPath([Map<String, String> environment = const {}]) {
-  final home = environment['HOME'] ??
+  final home =
+      environment['HOME'] ??
       (() {
         try {
           return Platform.environment['HOME'];
@@ -458,7 +505,8 @@ Map<String, bool> parsePluginOverrides(Object? pluginTable) {
   for (final entry in raw.entries) {
     if (entry.key is! String || entry.value is! bool) {
       throw FormatException(
-          'plugin overrides must map plugin IDs to true or false');
+        'plugin overrides must map plugin IDs to true or false',
+      );
     }
     try {
       validatePluginId(entry.key as String);
@@ -479,10 +527,12 @@ void validateWorkspacePlugins(Map<String, dynamic> values) {
   final plugins = values['plugins'];
   if (plugins == null) return;
   if (plugins is! Map ||
-      plugins.keys
-          .any((key) => key != 'overrides' && key != 'approval_channel')) {
+      plugins.keys.any(
+        (key) => key != 'overrides' && key != 'approval_channel',
+      )) {
     throw FormatException(
-        'workspace [plugins] supports overrides and approval_channel; use overrides instead of an enabled list');
+      'workspace [plugins] supports overrides and approval_channel; use overrides instead of an enabled list',
+    );
   }
   parsePluginOverrides(plugins);
   final channel = plugins['approval_channel'];
@@ -493,7 +543,8 @@ void validateWorkspacePlugins(Map<String, dynamic> values) {
       validatePluginId(channel);
     } on ArgumentError {
       throw FormatException(
-          'approval_channel must be a publisher/name plugin ID');
+        'approval_channel must be a publisher/name plugin ID',
+      );
     }
   }
 }

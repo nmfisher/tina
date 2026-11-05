@@ -72,10 +72,9 @@ final class SessionControlsPlugin extends AgentPlugin {
       name: 'reasoning',
       description:
           'reasoning effort: ${reasoningEffortWords.join(', ')} (empty shows the current choice)',
-      complete: (prefix) =>
-          (reasoningChoices?.call() ?? reasoningEffortWords)
-              .where((m) => m.startsWith(prefix))
-              .toList(),
+      complete: (prefix) => (reasoningChoices?.call() ?? reasoningEffortWords)
+          .where((m) => m.startsWith(prefix))
+          .toList(),
       handler: (argument) async {
         if (_closed) return;
         final word = argument.trim().toLowerCase();
