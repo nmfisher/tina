@@ -238,6 +238,36 @@ class ModelStub(BaseHTTPRequestHandler):
 
 
 
+# A middle-ellipsis as rendered by the transcript's signpost truncation
+# (head…tail) and its ASCII fallback.
+_ELLIPSIS = (b"\xe2\x80\xa6", b"...")
+
+
+def _elided_in(expected, shown):
+    """Whether [expected] appears in [shown] with one middle elision.
+
+    A one-line notice that does not fit the pane is truncated head-and-tail
+    into `head…tail` at a column this harness cannot predict. A match with
+    one ellipsis between a prefix and a suffix of the expected text (at
+    least three bytes each) proves the whole text was rendered, with only
+    an unpredictable middle removed. Both inputs arrive whitespace-stripped.
+    """
+    if not any(mark in shown for mark in _ELLIPSIS):
+        return False
+    floor = 3
+    for head in range(floor, len(expected) - floor - 1):
+        prefix = expected[:head]
+        for mark in _ELLIPSIS:
+            at = shown.find(prefix + mark)
+            while at >= 0:
+                after = at + len(prefix) + len(mark)
+                for tail in range(head + 1, len(expected) - floor + 1):
+                    if shown.startswith(expected[tail:], after):
+                        return True
+                at = shown.find(prefix + mark, at + 1)
+    return False
+
+
 class Terminal:
     def __init__(self, command, env, columns, rows):
         self.master, self.slave = pty.openpty()
@@ -271,7 +301,7 @@ class Terminal:
             if time.monotonic() >= deadline or not select.select([self.master], [], [], 0)[0]:
                 return
 
-    def expect(self, text, start=0, *, wrapped=False):
+    def expect(self, text, start=0, *, wrapped=False, elided=False):
         expected = text.encode()
         if wrapped:
             expected = re.sub(rb'\s+', b'', expected)
@@ -279,11 +309,13 @@ class Terminal:
         while time.monotonic() < deadline:
             self.read()
             shown = ANSI.sub(b"", self.output[start:])
-            if wrapped:
+            if wrapped or elided:
                 # Dialog continuation rows may split a word and add a gutter.
                 # Still require every character of the expected description.
                 shown = re.sub(rb'\s+', b'', shown)
             if expected in shown:
+                return
+            if elided and _elided_in(expected, shown):
                 return
             if self.process.poll() is not None:
                 break
@@ -682,12 +714,16 @@ def smoke(launcher, endpoint, columns, rows):
             budget.spent('approved write turn', before_approved_write, 2)
             terminal.resize(columns, rows)
             time.sleep(0.1)
-            # Native MCP discovery, readable approval, exact remembered grants,
-            # image wire encoding and cancellation through the normal input area.
+            # Native MCP discovery, readable approval, remembered
+            # (server, tool) rules, image wire encoding and cancellation
+            # through the normal input area. Remembering a tool trusts any
+            # arguments to it: a rule answers every later call of that tool
+            # on that server, changed arguments included, without a dialog.
             for message, answer in [('mcp mutate example', 'a\r'),
                                     ('mcp mutate example', None),
-                                    ('mcp changed arguments example', 'n'),
-                                    ('mcp screenshot example', 'y')]:
+                                    ('mcp changed arguments example', None),
+                                    ('mcp screenshot example', 'y'),
+                                    ('mcp screenshot example', 'n')]:
                 before_mcp = len(ModelStub.requests)
                 start = terminal.send(message + '\r')
                 if answer is not None:
@@ -701,13 +737,22 @@ def smoke(launcher, endpoint, columns, rows):
                 assert len(ModelStub.requests) == before_mcp + 2, (
                     f'{message}: expected {before_mcp + 2} model requests, got {len(ModelStub.requests)}; '
                     f'MCP events: {[json.loads(line).get("method", "reply") for line in mcp_events.read_text().splitlines()[-8:]]}')
-                if 'screenshot' in message:
+                if answer is None:
+                    # The remembered rule answered this call: its notice
+                    # named the rule, and no approval dialog appeared.
+                    terminal.expect('use MCP tool allowed by rule fixture/mutate', start)
+                    assert b'allow once' not in terminal.output[start:], (
+                        f'{message}: a remembered (server, tool) rule still asked')
+                if 'screenshot' in message and answer != 'n':
                     results = [b for m in ModelStub.requests[-1]['messages'] for b in m['content'] if b['type'] == 'tool_result' and b['tool_use_id'] == 'mcp-native']
                     assert results[-1]['content'][1] == {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'aGVsbG8='}}
                 budget.spent(f'mcp turn ({message})', before_mcp, 2)
                 time.sleep(0.15)  # The response request arriving is earlier than the turn's final repaint.
             invocations = [json.loads(line) for line in mcp_events.read_text().splitlines() if json.loads(line).get('method') == 'tools/call']
-            assert len(invocations) == 3, 'MCP denial executed or remembered approval did not work'
+            # The mutate rule answered three calls (same and changed
+            # arguments); the first screenshot ran on an allow-once answer;
+            # the denied screenshot never executed.
+            assert len(invocations) == 4, 'MCP rule coverage, allow-once or denial did not work'
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
@@ -758,8 +803,11 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_auto = len(ModelStub.requests)
             start = terminal.send('auto denied workspace example\r')
-            terminal.expect('classifier recommends denial', start)
-            terminal.expect('Project data could be exposed.', start)
+            # The classifier's DENY is final: no dialog interrupts the run.
+            # At 80 columns the one-line denial notice truncates in the
+            # middle (the reason is elided), so the reason is asserted from
+            # the end-of-turn batch entry, whose head-and-tail rendering
+            # keeps both the denied target and the full reason.
             terminal.expect('auto mode denied', start, wrapped=True)
             terminal.expect('batched', start, wrapped=True)
             deadline = time.monotonic() + 10
@@ -768,8 +816,17 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_auto + 3, 'denial explanation did not use the structured judge'
             budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
-            # The end-of-turn batch lists the denial for the user.
+            assert b'allow once' not in terminal.output[start:], 'a final auto denial still asked'
+            # The end-of-turn batch lists the denial for the user. At 80
+            # columns the entry renders head…tail with the middle elided at
+            # a column the pane decides, so assert the whole entry —
+            # verdict, denied target and classifier reason — with elision
+            # tolerated (expect(elided=True)).
             terminal.expect('auto mode decisions this turn', start, wrapped=True)
+            terminal.expect(
+                '1. denied: /bin/echo denied-workspace-output — classifier '
+                'recommends denial: Project data could be exposed.',
+                start, wrapped=True, elided=True)
             time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
             terminal.expect('mode: allow-edits', start)
@@ -885,14 +942,21 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_delegate = len(ModelStub.requests)
             start = terminal.send('delegate example\r')
-            # launch_subagent is non-blocking: the call returns immediately with
-            # a sub-agent id. The visible artifact is the tool block titled
-            # "Launch subagent" (the child runs in the background and its
-            # answer is retrieved later via the subagent tool, not rendered
-            # inline here).
+            # launch_subagent is non-blocking: the call returns immediately
+            # with a sub-agent id. Four requests: the parent's tool round,
+            # the child's own turn over its prompt, the parent's answer to
+            # the launch result, and the child's finished answer delivered
+            # to the parent unprompted as a new user message (a main
+            # feature, subagents_plugin's "[sub-agent finished]" delivery —
+            # NOT a classifier call: none of the four carries the judge's
+            # output_config). The old budget of 3 predated that delivery
+            # and was never executed until this stretch ran.
             terminal.expect('Launch subagent', start)
+            terminal.wait_for(lambda: len(ModelStub.requests) >= before_delegate + 4,
+                              'sub-agent answer was not delivered to the parent')
+            terminal.expect('[sub-agent finished]', start, wrapped=True)
             terminal.expect_idle()
-            budget.spent('subagent delegation', before_delegate, 3)
+            budget.spent('subagent delegation', before_delegate, 4)
             time.sleep(0.1)
             start = terminal.send('/settings\r')
             terminal.expect('Settings', start)
