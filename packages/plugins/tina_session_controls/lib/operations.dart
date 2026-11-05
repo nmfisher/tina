@@ -36,5 +36,5 @@ final sessionControlsOperations = <String, SessionOperation>{
     // details never reach the client.
     controls.selectModel(model, expectedModel: expected);
     return const SessionResult();
-  }, allowWhileRunning: true, allowWhileInTurn: false),
+  }, allowWhileRunning: true, requiresIdleTurn: true),
 };

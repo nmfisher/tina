@@ -17,24 +17,29 @@ typedef SessionControlHandler = SessionResult Function(
 /// means any of these: a streaming turn, between-turns work such as
 /// compaction, or another operation.
 ///
-/// [allowWhileInTurn] is the narrower switch. When false, the control is
-/// rejected while a turn streams or another operation owns the session. It
-/// still runs during between-turns work such as compaction. The loop's
-/// `running` flag cannot make this distinction on its own.
+/// [requiresIdleTurn] is the narrower switch. When true, the control
+/// waits for an idle session: it is rejected while a turn streams or
+/// another operation owns the session. It still runs during between-turns
+/// work such as compaction. The loop's `running` flag cannot make this
+/// distinction on its own.
 final class SessionOperation {
   const SessionOperation(SessionOperationHandler handler)
       : handler = handler,
         control = null,
         allowWhileRunning = false,
-        allowWhileInTurn = true;
+        requiresIdleTurn = false;
   const SessionOperation.control(SessionControlHandler control,
-      {this.allowWhileRunning = false, this.allowWhileInTurn = true})
+      {this.allowWhileRunning = false, this.requiresIdleTurn = false})
       : control = control,
         handler = null;
   final SessionOperationHandler? handler;
   final SessionControlHandler? control;
   final bool allowWhileRunning;
-  final bool allowWhileInTurn;
+
+  /// True when the control must wait for an idle session: no streaming
+  /// turn and no foreground operation. Between-turns work such as
+  /// compaction is idle enough.
+  final bool requiresIdleTurn;
 }
 
 /// Capabilities valid only for this invocation. Cancellation spans every turn
