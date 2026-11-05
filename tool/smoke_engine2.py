@@ -369,6 +369,58 @@ class Terminal:
         self.process.wait(timeout=5)
 
 
+class RequestBudget:
+    """Per-scenario model-request accounting for one terminal size.
+
+    The old single global bound (56-57 per size) could not separate a real
+    regression - a command or resume path calling the model - from runner
+    variance: whether a queued input coalesces into the in-flight request
+    or lands as its own request is timing-dependent, and with a queued
+    input per size plus the resume-picker turn, the all-coalesced-high
+    case legitimately reached totals the global ceiling excluded (CI: 172
+    against a 168-171 bound, on an otherwise green commit). Each scenario
+    now asserts its own delta, with `coalescing=1` exactly where a queued
+    input can miss the window - so one spurious request from any command
+    or resume path still fails, attributed to its scenario, while honest
+    coalescing variance stays inside its named scenario's bound.
+    """
+
+    def __init__(self, size):
+        self.size = size
+        self.start = 0
+        self.rows = []
+
+    def begin(self):
+        self.start = len(ModelStub.requests)
+        self.rows = []
+
+    def spent(self, name, before, expected, *, coalescing=0):
+        """Assert this scenario spent `expected` (plus `coalescing` when a
+        queued input can miss the coalescing window) requests since
+        `before`, and record the row for the per-size reconciliation."""
+        actual = len(ModelStub.requests) - before
+        high = expected + coalescing
+        assert expected <= actual <= high, (
+            f'{self.size} {name}: expected {expected}'
+            + (f'-{high} (coalescing tolerance)' if coalescing else '')
+            + f' model requests, got {actual}; '
+            'commands or resume unexpectedly called the model')
+        self.rows.append((name, expected, high, actual))
+
+    def reconcile(self):
+        """Every request this size must belong to a scenario - no orphans."""
+        total = len(ModelStub.requests) - self.start
+        accounted = sum(row[3] for row in self.rows)
+        assert accounted == total, (
+            f'{self.size}: {total - accounted} model requests arrived outside '
+            'any scenario; commands or resume unexpectedly called the model')
+        low = sum(row[1] for row in self.rows)
+        high = sum(row[2] for row in self.rows)
+        print(f'PASS request accounting {self.size}: {total} model requests '
+              f'across {len(self.rows)} scenarios (bounds {low}-{high})',
+              flush=True)
+
+
 def smoke(launcher, endpoint, columns, rows):
     with tempfile.TemporaryDirectory(prefix="tina-engine2-smoke-") as directory:
         # Seatbelt matches canonical paths (/private/var on macOS).
@@ -408,6 +460,8 @@ def smoke(launcher, endpoint, columns, rows):
         command = launcher + ["--config", str(config),
                    "--cwd", str(workspace), "--store", str(store)]
         request_start = len(ModelStub.requests)
+        budget = RequestBudget(f'{columns}x{rows}')
+        budget.begin()
         ModelStub.release_stream.clear()
         ModelStub.release_cancelled.clear()
         ModelStub.advance_reasoning.clear()
@@ -431,10 +485,13 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('ag')  # Explicit global grant for this configured fixture connection.
             terminal.expect('smoke answer', start)
             assert '@zz_file_target.dart' in json.dumps(ModelStub.requests[-1]['messages'][-1])
+            budget.spent('file completion turn', request_start, 1)
             time.sleep(0.1)
+            before_line_scroll = len(ModelStub.requests)
             start = terminal.send('line scroll example\r')
             terminal.expect('LINE_SCROLL_ROW_119', start)
             terminal.expect_idle()
+            budget.spent('line scroll turn', before_line_scroll, 1)
             before_scroll = len(ModelStub.requests)
             terminal.send('scroll draft')
             def scroll_line(sequence):
@@ -464,7 +521,9 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send(' intact\r')
             terminal.expect('draft answer', start)
             assert 'scroll draft intact' in json.dumps(ModelStub.requests[-1]['messages'][-1]), 'line scrolling changed the draft'
+            budget.spent('scroll draft submission', before_scroll, 1)
             time.sleep(0.1)
+            before_reasoning = len(ModelStub.requests)
             start = terminal.send('stream reasoning example\r')
             terminal.expect('reasoning (ongoing)', start)
             terminal.expect('~4 tokens', start)
@@ -474,6 +533,7 @@ def smoke(launcher, endpoint, columns, rows):
             ModelStub.release_reasoning.set()
             terminal.expect('▸ reasoning  ~6 tokens', start)
             terminal.expect_idle()
+            budget.spent('streaming reasoning turn', before_reasoning, 1)
             time.sleep(0.1)
             start = terminal.send("\x1b[Z")
             terminal.expect("mode: read-only", start)
@@ -489,9 +549,11 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect("mode: read-only", start)
             # The editor diffs its rows; an unchanged prompt emits no bytes.
             time.sleep(0.05)
+            before_stream = len(ModelStub.requests)
             start = terminal.send("terminal smoke\r")
             # The provider is blocked: text must be visible before completion.
             terminal.expect("streaming prefix", start)
+            budget.spent('stalled stream turn', before_stream, 1)
             active_requests = len(ModelStub.requests)
             start = terminal.send('\x1b\x1b[A\x1b[1;9B')
             time.sleep(0.1)
@@ -523,6 +585,7 @@ def smoke(launcher, endpoint, columns, rows):
             # final answer — is verified below.
             # Submitted input must work immediately. Multiple inputs may be coalesced into
             # one request, while every input remains in transcript order.
+            before_queued = len(ModelStub.requests)
             terminal.send('queued one\rqueued two\rdra')
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
@@ -536,6 +599,12 @@ def smoke(launcher, endpoint, columns, rows):
             ModelStub.release_stream.set()
             terminal.expect("smoke answer", start)
             time.sleep(0.2)
+            # The one scenario with a coalescing bound: 'queued one' may
+            # coalesce into the interrupted turn's request or land as its
+            # own request (a queued input that misses the streaming window
+            # becomes one extra model request on slow runners).
+            budget.spent('queued input while stalled', before_queued, 1,
+                         coalescing=1)
             before_draft = len(ModelStub.requests)
             start = terminal.send('ft\r')
             # The enlarged transcript may repaint an earlier draft answer.
@@ -545,13 +614,16 @@ def smoke(launcher, endpoint, columns, rows):
                               'preserved draft did not reach the provider')
             terminal.expect('draft answer', start)
             assert 'draft' in json.dumps(ModelStub.requests[-1]['messages'][-1])
+            budget.spent('preserved draft submission', before_draft, 1)
             time.sleep(0.1)
+            before_cancel = len(ModelStub.requests)
             start = terminal.send("cancel this\r")
             terminal.expect("cancel pending", start)
             terminal.send("preserved ")
             start = terminal.send("\x1b")
             terminal.expect(' est', start)
             terminal.expect("cancelled: escape", start)
+            budget.spent('cancel pending turn', before_cancel, 1)
             # A later turn must work even while the cancelled server is stalled.
             time.sleep(0.1)
             before_replacement = len(ModelStub.requests)
@@ -561,6 +633,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect("smoke answer", start)
             assert 'preserved after cancel' in json.dumps(
                 ModelStub.requests[-1]['messages'][-1]), 'Escape discarded the unsent draft'
+            budget.spent('replacement after cancel', before_replacement, 1)
             ModelStub.release_cancelled.set()
             ModelStub.advance_reasoning.set()
             ModelStub.release_reasoning.set()
@@ -569,6 +642,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('mode: ask', start)
             terminal.resize(columns, rows)
             time.sleep(0.1)
+            before_denied_write = len(ModelStub.requests)
             start = terminal.send('approve this\r')
             terminal.expect('Write file', start)
             terminal.expect('❯ [y] allow once', start)
@@ -591,8 +665,10 @@ def smoke(launcher, endpoint, columns, rows):
                               'denied write did not finish')
             terminal.expect('smoke answer', start)
             assert not ModelStub.approval_target.exists(), 'denied write landed'
+            budget.spent('denied write turn', before_denied_write, 2)
             terminal.expect_cursor(True)
             time.sleep(0.1)
+            before_approved_write = len(ModelStub.requests)
             start = terminal.send('approve this\r')
             terminal.expect('Write file', start)
             # A remembered grant covers the atomic write's temp/rename steps.
@@ -603,6 +679,7 @@ def smoke(launcher, endpoint, columns, rows):
                               'approved write did not finish')
             terminal.expect('smoke answer', start)
             assert ModelStub.approval_target.read_text() == 'approved'
+            budget.spent('approved write turn', before_approved_write, 2)
             terminal.resize(columns, rows)
             time.sleep(0.1)
             # Native MCP discovery, readable approval, exact remembered grants,
@@ -627,6 +704,7 @@ def smoke(launcher, endpoint, columns, rows):
                 if 'screenshot' in message:
                     results = [b for m in ModelStub.requests[-1]['messages'] for b in m['content'] if b['type'] == 'tool_result' and b['tool_use_id'] == 'mcp-native']
                     assert results[-1]['content'][1] == {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'aGVsbG8='}}
+                budget.spent(f'mcp turn ({message})', before_mcp, 2)
                 time.sleep(0.15)  # The response request arriving is earlier than the turn's final repaint.
             invocations = [json.loads(line) for line in mcp_events.read_text().splitlines() if json.loads(line).get('method') == 'tools/call']
             assert len(invocations) == 3, 'MCP denial executed or remembered approval did not work'
@@ -639,6 +717,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_network + 2, 'one approval did not complete the network command'
+            budget.spent('network permission approval', before_network, 2)
             terminal.expect('smoke answer', start)  # One decision covers both permissions.
             time.sleep(0.1)
             before_network = len(ModelStub.requests)
@@ -647,6 +726,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_network + 2, 'remembered network command did not finish'
+            budget.spent('remembered network command', before_network, 2)
             terminal.expect('smoke answer', start)
             assert b'awaiting approval' not in terminal.output[start:], 'network Always was not reused'
             time.sleep(0.1)
@@ -659,6 +739,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_network + 2, 'denied network command did not finish'
+            budget.spent('denied network command', before_network, 2)
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
             start = terminal.send('/mode auto\r')
@@ -673,6 +754,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             assert 'output_config' in ModelStub.requests[before_auto + 1]
             assert b'awaiting approval' not in terminal.output[start:], 'schema-valid ALLOW still prompted'
+            budget.spent('auto workspace approval', before_auto, 3)
             time.sleep(0.1)
             before_auto = len(ModelStub.requests)
             start = terminal.send('auto denied workspace example\r')
@@ -684,6 +766,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_auto + 3, 'denial explanation did not use the structured judge'
+            budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
             # The end-of-turn batch lists the denial for the user.
             terminal.expect('auto mode decisions this turn', start, wrapped=True)
@@ -698,6 +781,7 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_background + 2, 'background start held the conversation'
             messages = json.dumps(ModelStub.requests[-1]['messages'])
             assert 'Job ID:' in messages, 'background process did not return an inspectable job'
+            budget.spent('background job start', before_background, 2)
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
             before_talk = len(ModelStub.requests)
@@ -709,6 +793,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             assert 'talk while poller runs' in json.dumps(ModelStub.requests[-1]['messages'][-1])
             assert not (workspace / 'background-release').exists(), 'poller finished before the new input'
+            budget.spent('message during background poll', before_talk, 1)
             (workspace / 'background-release').write_text('finish')
             before_status = len(ModelStub.requests)
             start = terminal.send('check background job\r')
@@ -717,14 +802,17 @@ def smoke(launcher, endpoint, columns, rows):
                 terminal.read()
             assert len(ModelStub.requests) == before_status + 2
             assert 'background-finished' in json.dumps(ModelStub.requests[-1]['messages'])
+            budget.spent('background job completion', before_status, 2)
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
+            before_subprocess = len(ModelStub.requests)
             start = terminal.send('run cancellable tool\r')
             tool_paint_start = start
             terminal.expect('Run shell command', start)
             terminal.resize(100, 30)
             terminal.wait_for(lambda: (workspace / 'subprocess-ready').exists(),
                               'approved subprocess never started')
+            budget.spent('cancellable subprocess turn', before_subprocess, 1)
             # Browsing during execution must not cancel or submit input.
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
@@ -745,6 +833,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < after_count + 1 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == after_count + 1
+            budget.spent('message after subprocess cancel', after_count, 1)
             terminal.expect('smoke answer', start)
             # Drain repaint output while waiting for any leaked descendant.
             deadline = time.monotonic() + 2.2
@@ -758,6 +847,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < count_before_edit + 2 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == count_before_edit + 2
+            budget.spent('file edit turn', count_before_edit, 2)
             terminal.expect('smoke answer', start)
             start = terminal.send('\x1bOS')
             terminal.expect('Activity', start)
@@ -773,6 +863,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < count_before_conflict + 2 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == count_before_conflict + 2
+            budget.spent('conflicting edit turn', count_before_conflict, 2)
             terminal.expect('failed', start)
             terminal.expect('smoke answer', start)
             assert (workspace / 'preview.txt').read_text() == 'after\n'
@@ -792,6 +883,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.send('\x1bOS')
             terminal.resize(80, 24)
             time.sleep(0.1)
+            before_delegate = len(ModelStub.requests)
             start = terminal.send('delegate example\r')
             # launch_subagent is non-blocking: the call returns immediately with
             # a sub-agent id. The visible artifact is the tool block titled
@@ -800,6 +892,7 @@ def smoke(launcher, endpoint, columns, rows):
             # inline here).
             terminal.expect('Launch subagent', start)
             terminal.expect_idle()
+            budget.spent('subagent delegation', before_delegate, 3)
             time.sleep(0.1)
             start = terminal.send('/settings\r')
             terminal.expect('Settings', start)
@@ -885,14 +978,17 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_guard + 1
             request_text = json.dumps(ModelStub.requests[-1]['messages'])
             assert 'grok approved' in request_text and 'GROK declined' not in request_text
+            budget.spent('guard-approved message', before_guard, 1)
             time.sleep(0.1)
             plugin_checkbox('tina/grok-guard', False)
+            before_unguarded = len(ModelStub.requests)
             start = terminal.send('grok unguarded\r')
             terminal.expect('smoke answer', start)
             deadline = time.monotonic() + 5
             while len(ModelStub.requests) < before_guard + 2 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_guard + 2, 'unguarded input did not reach provider'
+            budget.spent('unguarded message', before_unguarded, 1)
             time.sleep(0.1)
             # A new interactive panel owns a separate session and request log.
             start = terminal.send('/spawn\r')
@@ -906,6 +1002,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             child_request = json.dumps(ModelStub.requests[-1]['messages'])
             assert 'child panel message' in child_request and 'terminal smoke' not in child_request
+            budget.spent('child panel message', before_child, 1)
             time.sleep(0.1)
             terminal.send('\x07\t\t\r')  # Skip status controls and focus the root.
             time.sleep(0.1)
@@ -918,6 +1015,7 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             root_request = json.dumps(ModelStub.requests[-1]['messages'])
             assert 'root panel message' in root_request and 'child panel message' not in root_request
+            budget.spent('root panel paste', before_root, 1)
             time.sleep(0.1)
             start = terminal.send('\x1b[A')
             terminal.expect('paste second paste third', start)
@@ -935,6 +1033,7 @@ def smoke(launcher, endpoint, columns, rows):
             while len(ModelStub.requests) < before_plan + 2 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_plan + 2, 'plan tool response did not reach the provider'
+            budget.spent('plan creation turn', before_plan, 2)
             terminal.expect('smoke answer', start)
             time.sleep(0.1)
             # The real input dispatcher must browse the plan without sending
@@ -961,10 +1060,12 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_browse, 'plan navigation submitted a message'
             terminal.send('\x15')  # clear the restored draft
             time.sleep(0.1)
+            before_finish = len(ModelStub.requests)
             start = terminal.send('finish plan example\r')
             terminal.expect('plan · 4/4', start)
             terminal.expect('smoke answer', start)
             terminal.expect_idle()
+            budget.spent('plan completion turn', before_finish, 2)
             terminal.send('\x10')  # Ctrl+P hides the plan without changing it.
             time.sleep(0.1)
             start = terminal.send('\x10')
@@ -1026,6 +1127,7 @@ def smoke(launcher, endpoint, columns, rows):
                                   'resumed app did not submit input after the picker')
                 terminal.expect('smoke answer', start)
                 assert len(ModelStub.requests) == before_input + 1
+                budget.spent('resumed input after picker', before_input, 1)
             terminal.quit()
         except Exception as error:
             print(f'FAIL resume {columns}x{rows}: {error}', flush=True)
@@ -1077,9 +1179,11 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('legacy hello')
             terminal.expect('legacy reply')
             terminal.send('\x1b[6~' * 20)
+            before_imported = len(ModelStub.requests)
             start = terminal.send('continue imported\r')
             terminal.expect('smoke answer', start)
             assert not (workspace / 'legacy-replayed').exists(), 'import replayed an old tool'
+            budget.spent('imported session continuation', before_imported, 1)
             terminal.quit()
         except Exception:
             print(terminal.output[-24000:].decode(errors='replace').replace('\x1b', '<ESC>'))
@@ -1099,6 +1203,7 @@ def smoke(launcher, endpoint, columns, rows):
         while any(alive(pid) for pid in server_pids) and time.monotonic() < deadline:
             time.sleep(0.01)
         assert not any(alive(pid) for pid in server_pids), 'MCP server survived conversation shutdown'
+        budget.reconcile()
         print(f"PASS {columns}x{rows}: prompt, full file completion, streaming, queued input/draft, resize, cancel/retry, subprocess output/cancellation/background jobs, approvals/network grants/JSON schema, MCP discovery/exact grants/images/shutdown, activity/diffs/errors/subagents, settings, scoped plugins, resume, legacy import/continue, clean exit")
 
 
@@ -1202,17 +1307,12 @@ def main():
         sizes = [(80, 24)] if args.quick else [(80, 10), (80, 24), (120, 30)]
         for columns, rows in sizes:
             smoke(launcher, f"http://127.0.0.1:{server.server_port}", columns, rows)
-        # Each size adds fourteen requests: one file-completion turn, two for
-        # line scrolling/draft preservation, six for
-        # automatic workspace approval/denial (agent/judge/result), and five for the
-        # background job (start/result, another message, inspect/result).
-        # Four MCP tool turns add eight requests per terminal size.
-        assert 56 * len(sizes) <= len(ModelStub.requests) <= 57 * len(sizes), (
-            f"expected {56 * len(sizes)}–{57 * len(sizes)} model requests depending on input coalescing, got {len(ModelStub.requests)}; "
-            "commands or resume unexpectedly called the model")
+        # Per-scenario budgets already asserted every scenario's request
+        # count (RequestBudget above); the grand total is informational.
         assert all(r["model"] == "smoke" for r in ModelStub.requests)
         assert all(key == "config-smoke-key" and bearer is None for key, bearer in ModelStub.auth_headers)
-        print(f"PASS request accounting: {len(ModelStub.requests)} requests, configured model and credentials preserved")
+        print(f"PASS request accounting: {len(ModelStub.requests)} requests over {len(sizes)} terminal size(s), "
+              "configured model and credentials preserved")
     finally:
         server.shutdown()
         server.server_close()

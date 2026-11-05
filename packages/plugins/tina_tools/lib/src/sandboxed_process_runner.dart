@@ -418,6 +418,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
     //   granted read or write scope. The user's grant is the answer; it is
     //   not asked again.
     // - Enforceability: a backend is present that can confine execution.
+    //   Host execution (outsideSandbox) has no such backend by
+    //   definition, so it is excluded here.
     //
     // Without an enforcing backend the command is refused, even for a
     // certified reader with a grant. A grant allows the read; it does not
@@ -438,6 +440,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 : agentCreated!(path.join(
                     request.workingDirectory ?? workspaceRoot ?? '.', argument))));
     final certifiedReadWithinGrants = confined &&
+        !outsideSandbox &&
         !network &&
         certifiedReadOnly &&
         declaredAccess.read.isEmpty &&
