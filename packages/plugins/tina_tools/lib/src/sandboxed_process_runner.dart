@@ -402,16 +402,18 @@ final class SandboxedProcessRunner implements ProcessRunner {
     // The read question, answered before the fallback flow: can the command
     // write, execute or exfiltrate (capability — the static, quote-aware
     // certification above, which pins every component to a trusted reader
-    // executable and literal arguments), and is every path it touches
-    // already inside a granted read or write scope (authorization — the
-    // user's grant IS the answer, not something to re-ask)? Both yes runs
-    // without a prompt. Jail availability must not turn an authorized read
-    // back into a question: without a backend the certification is the
-    // enforcement, exactly as unknown-flag readers already rely on it under
-    // a jail. Anything unproven keeps today's flow: ask, classifier, sandbox.
+    // executable and literal arguments), is every path it touches already
+    // inside a granted read or write scope (authorization — the user's
+    // grant IS the answer, not something to re-ask), and can a backend
+    // enforce the confinement the grant never removes? All yes runs
+    // without a prompt. No enforcing backend means refuse, even for a
+    // certified reader with a grant: the grant authorizes the read, it
+    // does not confine execution. Anything unproven keeps today's flow:
+    // ask, classifier, sandbox.
     final trustedExecutables =
         this.trustedReaderExecutables?.call() ?? const <String, String>{};
-    final readsAuthorized = !outsideSandbox &&
+    final readsAuthorized = confined &&
+        !outsideSandbox &&
         !network &&
         certifiedReadOnly &&
         declaredAccess.read.isEmpty &&
@@ -439,8 +441,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
       ProcessPermission.execution,
       if (!readOnlyProfile && !outsideSandbox) ProcessPermission.workspaceWrite,
       if (network) ProcessPermission.network,
-      if (outsideSandbox || !confined && !readOnlyProfile)
-        ProcessPermission.unconfined,
+      if (outsideSandbox || !confined) ProcessPermission.unconfined,
       if (!directoryAccess.isEmpty) ProcessPermission.directoryAccess,
     };
     final missing = requiredPermissions
@@ -455,16 +456,12 @@ final class SandboxedProcessRunner implements ProcessRunner {
     bool granted(ProcessPermission permission) => !missing.contains(permission);
     final authorization = AuthorizationRequest(
       readOnlyExecution: readOnlyProfile && !outsideSandbox,
-      // A jail enforces the read-only profile; for a grant-authorized
-      // certified reader the static certification is the enforcement, so
-      // the request reports an enforced read either way. Everything else
-      // still needs the backend and reports its true confinement.
-      confined: confined || readsAuthorized,
+      confined: confined,
       requirements: [
         AccessRequirement(AccessCapability.execute, request.command,
             workspace: !outsideSandbox,
             granted: granted(ProcessPermission.execution) &&
-                !(mode == PermissionMode.readOnly && !confined && !readOnlyProfile)),
+                !(mode == PermissionMode.readOnly && !confined)),
         if (!readOnlyProfile && !outsideSandbox)
           AccessRequirement(AccessCapability.write,
               workspaceRoot ?? request.workingDirectory ?? '.',
@@ -473,7 +470,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         if (network)
           AccessRequirement(AccessCapability.network, request.command,
               granted: granted(ProcessPermission.network)),
-        if (outsideSandbox || !confined && !readOnlyProfile)
+        if (outsideSandbox || !confined)
           AccessRequirement(AccessCapability.host, request.command,
               granted: granted(ProcessPermission.unconfined)),
         for (final directory in declaredAccess.read)

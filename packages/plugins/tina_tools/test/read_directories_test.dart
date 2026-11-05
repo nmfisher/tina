@@ -94,8 +94,10 @@ void main() {
 
   // The reported read: a find|grep|head pipeline whose pattern quotes pipes
   // and whose names glob. Capability (the static certification) plus a read
-  // grant (authorization) must answer it without the fallback flow — with
-  // or without an OS sandbox behind the runner.
+  // grant (authorization) answers it without the fallback flow — but only
+  // when a backend can enforce the read-only profile. Without one the read
+  // is refused: a grant authorizes the read, it never substitutes for
+  // confinement (fail closed).
   test('the reported pipeline reads a granted directory without asking',
       () async {
     final engine = Directory('${root.path}/engine')..createSync();
@@ -127,28 +129,41 @@ void main() {
               approvals++;
               return Approval.no;
             });
-        // A parent grant covers the find target; nothing may ask.
-        expect(await gate.run(call()), isA<CommandCompleted>(),
-            reason: 'confined=$confined mode=$mode');
-        expect(approvals, 0, reason: 'the grant is the authorization');
-        final spawned = inner.calls.last;
-        expect(spawned.command, '/bin/sh');
-        // Quoted pipes stay data, globs stay literal, and the pipeline
-        // shape survives with pinned executables.
-        expect(spawned.arguments.last, contains("'-vE'"));
-        expect(spawned.arguments.last,
-            contains("'ThirdParty|SEdit|SNode|SGraph|Detail|Editor'"));
-        expect(spawned.arguments.last, contains(" '-o' "));
-        expect(spawned.arguments.last, contains("'*.h'"));
-        expect(spawned.arguments.last, contains("| '/usr/bin/grep'"));
-        expect(spawned.arguments.last, contains("| '/usr/bin/head'"));
-        expect(inner.controls.last!.readOnly, true);
+        if (confined) {
+          // A parent grant covers the find target; nothing may ask.
+          expect(await gate.run(call()), isA<CommandCompleted>(),
+              reason: 'confined=$confined mode=$mode');
+          expect(approvals, 0, reason: 'the grant is the authorization');
+          final spawned = inner.calls.last;
+          expect(spawned.command, '/bin/sh');
+          // Quoted pipes stay data, globs stay literal, and the pipeline
+          // shape survives with pinned executables.
+          expect(spawned.arguments.last, contains("'-vE'"));
+          expect(spawned.arguments.last,
+              contains("'ThirdParty|SEdit|SNode|SGraph|Detail|Editor'"));
+          expect(spawned.arguments.last, contains(" '-o' "));
+          expect(spawned.arguments.last, contains("'*.h'"));
+          expect(spawned.arguments.last, contains("| '/usr/bin/grep'"));
+          expect(spawned.arguments.last, contains("| '/usr/bin/head'"));
+          expect(inner.controls.last!.readOnly, true);
+        } else {
+          // No enforcing backend: the grant does not remove the need for
+          // one. Read-only denies before any prompt; ask offers the host
+          // decision and the refusal keeps the gate closed.
+          expect(await gate.run(call()), isA<CommandRefused>(),
+              reason: 'confined=$confined mode=$mode');
+          expect(inner.calls, isEmpty,
+              reason: 'confined=$confined mode=$mode: nothing ran');
+          expect(approvals, mode == PermissionMode.readOnly ? 0 : 1,
+              reason: 'confined=$confined mode=$mode');
+        }
         // Without the grant the read is unauthorized: the fallback asks.
+        final beforeFallback = approvals;
         directories.replace([]);
         expect(await gate.run(call()), isA<CommandRefused>(),
             reason: 'confined=$confined mode=$mode');
         expect(
-            approvals,
+            approvals - beforeFallback,
             mode == PermissionMode.readOnly && !confined ? 0 : 1,
             reason: 'an ungranted read still prompts '
                 '(read-only refuses unconfined uncertified reads silently)');
@@ -167,7 +182,10 @@ void main() {
       '${real.path}/../real/', // .. segments and a trailing slash
     ]) {
       final directories = ReadOnlyDirectories()..replace([granted]);
-      final inner = Recorder(confinesFilesystem: false);
+      // A confined runner: the grant answers the read without asking.
+      // Without a backend the same read would refuse (fail closed) — the
+      // no-backend matrix lives in the pipeline test above.
+      final inner = Recorder(confinesFilesystem: true);
       final gate = SandboxedProcessRunner(
           inner: inner,
           mode: PermissionMode.ask,
