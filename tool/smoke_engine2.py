@@ -238,6 +238,36 @@ class ModelStub(BaseHTTPRequestHandler):
 
 
 
+# A middle-ellipsis as rendered by the transcript's signpost truncation
+# (head…tail) and its ASCII fallback.
+_ELLIPSIS = (b"\xe2\x80\xa6", b"...")
+
+
+def _elided_in(expected, shown):
+    """Whether [expected] appears in [shown] with one middle elision.
+
+    A one-line notice that does not fit the pane is truncated head-and-tail
+    into `head…tail` at a column this harness cannot predict. A match with
+    one ellipsis between a prefix and a suffix of the expected text (at
+    least three bytes each) proves the whole text was rendered, with only
+    an unpredictable middle removed. Both inputs arrive whitespace-stripped.
+    """
+    if not any(mark in shown for mark in _ELLIPSIS):
+        return False
+    floor = 3
+    for head in range(floor, len(expected) - floor - 1):
+        prefix = expected[:head]
+        for mark in _ELLIPSIS:
+            at = shown.find(prefix + mark)
+            while at >= 0:
+                after = at + len(prefix) + len(mark)
+                for tail in range(head + 1, len(expected) - floor + 1):
+                    if shown.startswith(expected[tail:], after):
+                        return True
+                at = shown.find(prefix + mark, at + 1)
+    return False
+
+
 class Terminal:
     def __init__(self, command, env, columns, rows):
         self.master, self.slave = pty.openpty()
@@ -271,7 +301,7 @@ class Terminal:
             if time.monotonic() >= deadline or not select.select([self.master], [], [], 0)[0]:
                 return
 
-    def expect(self, text, start=0, *, wrapped=False):
+    def expect(self, text, start=0, *, wrapped=False, elided=False):
         expected = text.encode()
         if wrapped:
             expected = re.sub(rb'\s+', b'', expected)
@@ -279,11 +309,13 @@ class Terminal:
         while time.monotonic() < deadline:
             self.read()
             shown = ANSI.sub(b"", self.output[start:])
-            if wrapped:
+            if wrapped or elided:
                 # Dialog continuation rows may split a word and add a gutter.
                 # Still require every character of the expected description.
                 shown = re.sub(rb'\s+', b'', shown)
             if expected in shown:
+                return
+            if elided and _elided_in(expected, shown):
                 return
             if self.process.poll() is not None:
                 break
@@ -786,12 +818,15 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('smoke answer', start)
             assert b'allow once' not in terminal.output[start:], 'a final auto denial still asked'
             # The end-of-turn batch lists the denial for the user. At 80
-            # columns the entry's head truncates inside the target
-            # ('…denied-workspace-out…') and its tail keeps the full
-            # reason, so assert exactly what renders.
+            # columns the entry renders head…tail with the middle elided at
+            # a column the pane decides, so assert the whole entry —
+            # verdict, denied target and classifier reason — with elision
+            # tolerated (expect(elided=True)).
             terminal.expect('auto mode decisions this turn', start, wrapped=True)
-            terminal.expect('denied: /bin/echo denied-workspace-out', start, wrapped=True)
-            terminal.expect('Project data could be exposed.', start, wrapped=True)
+            terminal.expect(
+                '1. denied: /bin/echo denied-workspace-output — classifier '
+                'recommends denial: Project data could be exposed.',
+                start, wrapped=True, elided=True)
             time.sleep(0.1)
             start = terminal.send('/mode allow-edits\r')
             terminal.expect('mode: allow-edits', start)
