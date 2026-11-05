@@ -942,14 +942,21 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_delegate = len(ModelStub.requests)
             start = terminal.send('delegate example\r')
-            # launch_subagent is non-blocking: the call returns immediately with
-            # a sub-agent id. The visible artifact is the tool block titled
-            # "Launch subagent" (the child runs in the background and its
-            # answer is retrieved later via the subagent tool, not rendered
-            # inline here).
+            # launch_subagent is non-blocking: the call returns immediately
+            # with a sub-agent id. Four requests: the parent's tool round,
+            # the child's own turn over its prompt, the parent's answer to
+            # the launch result, and the child's finished answer delivered
+            # to the parent unprompted as a new user message (a main
+            # feature, subagents_plugin's "[sub-agent finished]" delivery —
+            # NOT a classifier call: none of the four carries the judge's
+            # output_config). The old budget of 3 predated that delivery
+            # and was never executed until this stretch ran.
             terminal.expect('Launch subagent', start)
+            terminal.wait_for(lambda: len(ModelStub.requests) >= before_delegate + 4,
+                              'sub-agent answer was not delivered to the parent')
+            terminal.expect('[sub-agent finished]', start, wrapped=True)
             terminal.expect_idle()
-            budget.spent('subagent delegation', before_delegate, 3)
+            budget.spent('subagent delegation', before_delegate, 4)
             time.sleep(0.1)
             start = terminal.send('/settings\r')
             terminal.expect('Settings', start)
