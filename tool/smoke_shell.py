@@ -110,10 +110,28 @@ def smoke(launcher, endpoint, backend, panels):
             submit('terminal smoke draft')
             terminal.wait_for(lambda: len(ModelStub.requests) == before + 2,
                               'model turn for quit check did not start')
-            submit("!trap 'echo stopped > quit_stopped; exit' TERM; "
-                   "echo ready > quit_started; while :; do sleep 0.1; done", busy=True)
-            terminal.wait_for(lambda: (root / 'quit_started').exists(),
-                              'shell command for quit check did not start')
+            # The quit-check shell spawn is timing-sensitive on loaded
+            # runners: the Enter that submits the pasted command can land
+            # before the input burst settles, leaving the command unsent,
+            # and the marker file then never appears. Retry the spawn once
+            # after a short delay — never more — clearing any half-submitted
+            # draft first so the command text cannot double up. If the first
+            # attempt did start late, its trap writes the same marker file,
+            # so the retry cannot corrupt the check.
+            for attempt in range(2):
+                submit("!trap 'echo stopped > quit_stopped; exit' TERM; "
+                       "echo ready > quit_started; while :; do sleep 0.1; done", busy=True)
+                try:
+                    terminal.wait_for(lambda: (root / 'quit_started').exists(),
+                                      'shell command for quit check did not start')
+                    break
+                except AssertionError:
+                    if attempt:
+                        raise AssertionError(
+                            'shell command for quit check did not start '
+                            'after one retry; rendered screen:\n' + grid()) from None
+                    time.sleep(0.5)
+                    terminal.send('\x15')  # Clear any half-submitted draft.
             ModelStub.release_stream.set()
             terminal.expect_idle()
             terminal.wait_for(

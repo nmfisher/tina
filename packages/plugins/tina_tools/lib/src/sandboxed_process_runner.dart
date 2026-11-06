@@ -3,6 +3,7 @@
 library;
 
 import 'dart:io' show Platform, FileSystemException, Directory;
+import 'capability_envelope.dart';
 import 'command_approval_store.dart';
 import 'package:path/path.dart' as path;
 import 'sandbox_home.dart';
@@ -23,6 +24,7 @@ import 'package:tina_mode/tina_mode.dart'
         AccessCapability,
         AuthorizationRoute,
         resolveAuthorization;
+import 'decision_pipeline.dart';
 
 /// The session mode a [SandboxedProcessRunner] enforces. Re-exported from
 /// the permissions vocabulary so callers need one import less.
@@ -281,6 +283,10 @@ final class SandboxedProcessRunner implements ProcessRunner {
   final String? workspaceRoot;
   final SandboxPlan? plan;
   Map<String, String> Function()? trustedReaderExecutables;
+
+  /// The sandbox fast path lookup: files this session's own write/edit
+  /// tools created (decision_pipeline.dart). Null disables the path.
+  bool Function(String path)? agentCreated;
   bool Function(String)? outputWritePermission;
   bool Function(ProcessRequest, ProcessPermission, ProcessDirectoryAccess)?
       persistentPermission;
@@ -356,23 +362,26 @@ final class SandboxedProcessRunner implements ProcessRunner {
       }
     }
     final network = (control?.networkRequested ?? false) || outsideSandbox;
-    final literal = literalShellRequest(request);
-    final readerRequest = literal ?? request;
-    var shellReader = readOnlyShellRequest(request,
+    // Parse the command once. The envelope owns the quote-aware parser and
+    // the certified-reader tables. Every later question in this check
+    // reads the envelope; nothing re-parses the command.
+    final envelope = CapabilityEnvelope.parse(request,
+        control: control,
         searchPath: executableSearchPath,
         trustedExecutables: trustedReaderExecutables?.call() ?? const {},
         canWrite: outputWritePermission);
-    final candidate = readOnlyExecutable(readerRequest,
-        searchPath: executableSearchPath,
-        trustedExecutables: trustedReaderExecutables?.call() ?? const {});
+    final readerRequest = envelope.readerRequest;
+    var shellReader = envelope.shellReader;
+    final candidate = envelope.reader;
     var reader = candidate;
     final ProcessDirectoryAccess declaredAccess;
     final ProcessDirectoryAccess explicitAccess;
     final ProcessDirectoryAccess directoryAccess;
     try {
-      explicitAccess = _directoryRequirements(request, control, infer: false);
-      declaredAccess =
-          _directoryRequirements(request, control, infer: !outsideSandbox);
+      explicitAccess =
+          _directoryRequirements(envelope, request, control, infer: false);
+      declaredAccess = _directoryRequirements(
+          envelope, request, control, infer: !outsideSandbox);
       directoryAccess = ProcessDirectoryAccess(
           read: declaredAccess.read.where((value) => !_canRead(value)),
           write: declaredAccess.write
@@ -386,7 +395,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
       try {
         return (plan?.validDirectoryAccess(declaredAccess, linux: _linux) ??
                 true) &&
-            jsonEncode(_directoryRequirements(request, control, infer: false)
+            jsonEncode(_directoryRequirements(envelope, request, control,
+                    infer: false)
                     .toJson()) ==
                 jsonEncode(explicitAccess.toJson());
       } on FileSystemException {
@@ -398,49 +408,37 @@ final class SandboxedProcessRunner implements ProcessRunner {
 
     final confined = inner is ConfinedProcessRunner &&
         (inner as ConfinedProcessRunner).confinesFilesystem;
-    final certifiedReadOnly = reader != null || shellReader != null;
-    // The read question, answered before the fallback flow: can the command
-    // write, execute or exfiltrate (capability — the static, quote-aware
-    // certification above, which pins every component to a trusted reader
-    // executable and literal arguments), and is every path it touches
-    // already inside a granted read or write scope (authorization — the
-    // user's grant IS the answer, not something to re-ask)? Both yes runs
-    // without a prompt. Jail availability must not turn an authorized read
-    // back into a question: without a backend the certification is the
-    // enforcement, exactly as unknown-flag readers already rely on it under
-    // a jail. Anything unproven keeps today's flow: ask, classifier, sandbox.
-    final trustedExecutables =
-        this.trustedReaderExecutables?.call() ?? const <String, String>{};
-    final readsAuthorized = !outsideSandbox &&
-        !network &&
-        certifiedReadOnly &&
-        declaredAccess.read.isEmpty &&
-        declaredAccess.write.isEmpty &&
-        verifiedReaderAccesses(request,
-                searchPath: executableSearchPath,
-                trustedExecutables: trustedExecutables)
-            .every((access) =>
-                access.operation != PermissionAccessOperation.read ||
-                _canRead(access.path));
-    final readOnlyProfile = control?.readOnlyRequested ??
-        (readsAuthorized ||
-            _defaultReadOnlyProfile(mode,
-                confined: confined,
-                certifiedReadOnly: certifiedReadOnly,
-                writeRequested: declaredAccess.write.isNotEmpty));
-    if (mode == PermissionMode.readOnly &&
-        (!readOnlyProfile ||
-            outsideSandbox ||
-            declaredAccess.write.isNotEmpty)) {
-      return const CommandRefused(
-          'Read-only mode blocks workspace mutations, external writes and host execution.');
-    }
+    // The one decision maker: the pipeline (decision_pipeline.dart) owns
+    // the execution profile — the Layer-1 fast paths (a certified reader
+    // inside granted scopes; the agent's own script) select read-only
+    // enforcement — and, below, the mode ceilings, backend feasibility and
+    // grant coverage that decide run / refuse / judgment. The plumbing
+    // between the two calls (the permission set, the requirement list and
+    // its coverage) is computed here and handed back in.
+    final scopes = _RunnerScopes(this);
+    final agentScriptArguments = agentCreated != null &&
+        request.arguments.isNotEmpty &&
+        request.arguments.every((argument) =>
+            !argument.startsWith('-') &&
+            (path.isAbsolute(argument)
+                ? agentCreated!(argument)
+                : agentCreated!(path.join(
+                    request.workingDirectory ?? workspaceRoot ?? '.', argument))));
+    final readOnlyProfile = readOnlyProfileOf(envelope,
+        scopes: scopes,
+        confined: confined,
+        network: network,
+        outsideSandbox: outsideSandbox,
+        agentCreatedScriptArguments: agentScriptArguments,
+        declaredReadsEmpty: declaredAccess.read.isEmpty,
+        declaredWritesEmpty: declaredAccess.write.isEmpty,
+        controlReadOnlyRequested: control?.readOnlyRequested,
+        mode: mode);
     final requiredPermissions = {
       ProcessPermission.execution,
       if (!readOnlyProfile && !outsideSandbox) ProcessPermission.workspaceWrite,
       if (network) ProcessPermission.network,
-      if (outsideSandbox || !confined && !readOnlyProfile)
-        ProcessPermission.unconfined,
+      if (outsideSandbox || !confined) ProcessPermission.unconfined,
       if (!directoryAccess.isEmpty) ProcessPermission.directoryAccess,
     };
     final missing = requiredPermissions
@@ -455,16 +453,12 @@ final class SandboxedProcessRunner implements ProcessRunner {
     bool granted(ProcessPermission permission) => !missing.contains(permission);
     final authorization = AuthorizationRequest(
       readOnlyExecution: readOnlyProfile && !outsideSandbox,
-      // A jail enforces the read-only profile; for a grant-authorized
-      // certified reader the static certification is the enforcement, so
-      // the request reports an enforced read either way. Everything else
-      // still needs the backend and reports its true confinement.
-      confined: confined || readsAuthorized,
+      confined: confined,
       requirements: [
         AccessRequirement(AccessCapability.execute, request.command,
             workspace: !outsideSandbox,
             granted: granted(ProcessPermission.execution) &&
-                !(mode == PermissionMode.readOnly && !confined && !readOnlyProfile)),
+                !(mode == PermissionMode.readOnly && !confined)),
         if (!readOnlyProfile && !outsideSandbox)
           AccessRequirement(AccessCapability.write,
               workspaceRoot ?? request.workingDirectory ?? '.',
@@ -473,7 +467,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         if (network)
           AccessRequirement(AccessCapability.network, request.command,
               granted: granted(ProcessPermission.network)),
-        if (outsideSandbox || !confined && !readOnlyProfile)
+        if (outsideSandbox || !confined)
           AccessRequirement(AccessCapability.host, request.command,
               granted: granted(ProcessPermission.unconfined)),
         for (final directory in declaredAccess.read)
@@ -506,17 +500,39 @@ final class SandboxedProcessRunner implements ProcessRunner {
                   {AccessCapability.read, AccessCapability.write}
                       .contains(requirement.capability),
             }));
-    final resolution = resolveAuthorization(authorization, mode);
-    if (resolution.route == AuthorizationRoute.deny) {
-      return CommandRefused(resolution.reason);
+    // The verdict: the pipeline decides (decision_pipeline.dart). A
+    // refusal carries its reason; covered requirements run silently;
+    // everything else asks below.
+    final decision = decidePermission(envelope,
+        scopes: scopes,
+        confined: confined,
+        network: network,
+        outsideSandbox: outsideSandbox,
+        controlReadOnlyRequested: control?.readOnlyRequested,
+        agentCreatedScriptArguments: agentScriptArguments,
+        declaredReadsEmpty: declaredAccess.read.isEmpty,
+        declaredWritesEmpty: declaredAccess.write.isEmpty,
+        mode: mode,
+        requirementsCovered: uncovered.isEmpty,
+        judgmentOutsideWorkspace: uncovered.any((requirement) =>
+            !requirement.workspace ||
+            {
+              AccessCapability.network,
+              AccessCapability.host,
+              AccessCapability.external,
+            }.contains(requirement.capability)));
+    if (decision.refuses) {
+      return CommandRefused(decision.reason);
     }
     final baseReason = !directoryAccess.isEmpty
         ? 'allow command with additional directory access (${request.command})?'
         : missing.length == 1 && missing.contains(ProcessPermission.network)
             ? 'allow network access for this command (${request.command})?'
-            : resolution.route == AuthorizationRoute.allow && readOnlyProfile
+            // A silent covered run carries this as its note; an ask never
+            // reaches this arm (runs do not ask).
+            : decision.runs && decision.readOnlyProfile
                 ? 'permitted read: enforced read-only execution'
-                : resolution.reason;
+                : decision.reason;
     final reason = outsideSandbox
         ? 'Run this exact command outside the OS sandbox? '
             '${control!.sandboxReason}\n'
@@ -528,7 +544,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 'Filesystem confinement is unchanged.'
             : baseReason;
     var remember = false;
-    if (resolution.route != AuthorizationRoute.allow) {
+    if (decision.needsJudgment) {
       final review = CommandApproval(
         reason: reason,
         authorization: authorization,
@@ -579,12 +595,12 @@ final class SandboxedProcessRunner implements ProcessRunner {
     }
     final currentReaders =
         trustedReaderExecutables?.call() ?? const <String, String>{};
-    final currentReader = readOnlyExecutable(readerRequest,
-        searchPath: executableSearchPath, trustedExecutables: currentReaders);
-    final currentShell = readOnlyShellRequest(request,
+    final current = CapabilityEnvelope.parse(request,
         searchPath: executableSearchPath,
         trustedExecutables: currentReaders,
         canWrite: outputWritePermission);
+    final currentReader = current.reader;
+    final currentShell = current.shellReader;
     if (reader != null && currentReader == null ||
         shellReader != null && currentShell == null)
       return const CommandRefused(
@@ -613,7 +629,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
         ? shellReader ?? request
         : (
             command: reader,
-            arguments: certifiedReaderArguments(readerRequest),
+            arguments: envelope.certifiedArguments,
             workingDirectory: request.workingDirectory,
             environment: path.basename(reader) == 'git'
                 ? {
@@ -677,7 +693,8 @@ final class SandboxedProcessRunner implements ProcessRunner {
       true;
 
   ProcessDirectoryAccess _directoryRequirements(
-      ProcessRequest request, ProcessControl? control,
+      CapabilityEnvelope envelope, ProcessRequest request,
+      ProcessControl? control,
       {required bool infer}) {
     final read = <String>[...?control?.readDirectories];
     final write = <String>[...?control?.writeDirectories];
@@ -717,7 +734,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
       if (commandWorkflow(request, plan.workspaceRoot) != null) {
         try {
           final executable = resolveHostExecutable(
-              literalShellRequest(request) ?? request,
+              envelope.literalRequest ?? request,
               workspace: plan.workspaceRoot,
               searchPath: executableSearchPath);
           var ancestor = Directory(path.dirname(executable));
@@ -735,9 +752,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
           }
         } on FileSystemException {}
       }
-      for (final access in verifiedReaderAccesses(request,
-          searchPath: executableSearchPath,
-          trustedExecutables: trustedReaderExecutables?.call() ?? const {})) {
+      for (final access in envelope.verifiedAccesses) {
         add(access.path, access.operation != PermissionAccessOperation.read);
       }
       if ({'touch', 'mkdir'}.contains(path.basename(request.command)) &&
@@ -1005,4 +1020,24 @@ bool _isUnder(String child, String parent) {
   final c = trail(child == '' ? '/' : child);
   final par = trail(parent == '' ? '/' : parent);
   return c == par || c.startsWith(par);
+}
+
+/// The runner's scopes, as the decision pipeline sees them: the sandbox
+/// plan plus this runner's read grants decide what a path may do.
+final class _RunnerScopes implements ScopesView {
+  _RunnerScopes(this._runner);
+  final SandboxedProcessRunner _runner;
+
+  @override
+  bool canRead(String path) => _runner._canRead(path);
+
+  @override
+  bool canWrite(String path) =>
+      _runner.plan?.canWrite(path, linux: _runner._linux) == true;
+
+  @override
+  bool withinPlan(String path) =>
+      _runner._canRead(path) ||
+      _runner.plan?.canWrite(path, linux: _runner._linux) == true ||
+      _runner.plan?.canGrant(path, linux: _runner._linux) == true;
 }

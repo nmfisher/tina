@@ -170,7 +170,8 @@ final class SettingsPanel {
       final entries = _management.commandApprovals;
       final selected = await _menu('Remembered permissions', [
         for (final entry in entries)
-          '${entry['scope']}: ${entry['pattern'] == null ? entry['command'] : 'regex: ${entry['pattern']}'} (${entry['directory']})',
+          '${entry['scope']}${entry['decided_by'] == 'auto' ? ' (auto)' : ''}: '
+          '${entry['pattern'] == null ? entry['command'] : 'regex: ${entry['pattern']}'} (${entry['directory']})',
         entries.isEmpty ? 'No remembered approvals — Back' : 'Back',
       ]);
       if (selected == null || selected >= entries.length) return;

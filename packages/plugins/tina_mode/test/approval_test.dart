@@ -46,6 +46,14 @@ class Judge extends PermissionClassifier {
   }
 }
 
+class _Terminal implements Terminal {
+  final lines = <String>[];
+  @override
+  void writeln([String? line]) => lines.add(line ?? '');
+  @override
+  Future<String> ask(String prompt) async => '';
+}
+
 Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
   operation: 'run command',
   target: 'git status',
@@ -493,7 +501,7 @@ void main() {
     'auto fallback reason travels with the approval instead of only chat',
     () async {
       for (final entry in {
-        const PermissionJudgment(false): 'classifier recommends denial',
+        // A denial is final (batched test below); only failures ask.
         const PermissionJudgment(null, 'timed out'): 'classifier timed out',
         const PermissionJudgment(null, 'provider error'):
             'classifier provider error',
@@ -550,28 +558,26 @@ void main() {
   );
 
   test(
-    'a classifier denial explains the risk and still asks the human',
+    'a classifier denial is final, explains the risk, and never asks',
     () async {
       const risk = 'Force pushing can overwrite remote history.';
-      final human = Human()..answer = ApprovalDecision.deny;
+      final human = Human()..answer = ApprovalDecision.allow;
+      final terminal = _Terminal();
       final mode = ModePlugin(
         mode: PermissionMode.auto,
         approvals: human,
+        terminal: terminal,
         classifier: Judge(Future.value(const PermissionJudgment.denied(risk))),
       );
+      addTearDown(mode.closeSession);
       expect(await request(mode), ApprovalDecision.deny);
-      expect(human.calls, 1);
-      expect(human.lastReason, contains('classifier recommends denial: $risk'));
-      expect(human.lastReason, isNot(contains('..')));
-      expect(human.lastDetails['auto_approval_denial_reason'], risk);
-      human.answer = ApprovalDecision.allow;
-      expect(await request(mode), ApprovalDecision.allow);
-      expect(
-        human.calls,
-        2,
-        reason: 'a DENY verdict cannot remember permission',
-      );
-      mode.closeSession();
+      expect(human.calls, 0, reason: 'the classifier stands in for the user');
+      expect(terminal.lines.join('\n'), contains('auto mode denied'));
+      expect(terminal.lines.join('\n'), contains(risk));
+      expect(terminal.lines.join('\n'), contains('batched'));
+      // The refusal is final for this call; a later decision stands on its own.
+      expect(await request(mode), ApprovalDecision.deny);
+      expect(human.calls, 0);
     },
   );
 
@@ -664,23 +670,67 @@ void main() {
     },
   );
 
-  test('auto allows once; denial, errors and no judge ask the human', () async {
+  test('auto allows once; denials are final, errors and no judge ask the human',
+      () async {
     final human = Human();
     final mode = ModePlugin(mode: PermissionMode.auto, approvals: human);
+    addTearDown(mode.closeSession);
     mode.classifier = Judge(Future.value(const PermissionJudgment(true)));
     expect(await request(mode), ApprovalDecision.allow);
     expect(human.calls, 0);
-    for (final judgment in [
-      const PermissionJudgment(false),
-      const PermissionJudgment(null, 'timeout'),
-    ]) {
+    // A denial never reaches the human: it is final and batched.
+    mode.classifier = Judge(Future.value(const PermissionJudgment(false)));
+    human.answer = ApprovalDecision.allow;
+    expect(await request(mode), ApprovalDecision.deny);
+    expect(human.calls, 0);
+    // A classifier failure or a missing judge still asks the human.
+    for (final judgment in [const PermissionJudgment(null, 'timeout')]) {
       mode.classifier = Judge(Future.value(judgment));
       human.answer = ApprovalDecision.deny;
       expect(await request(mode), ApprovalDecision.deny);
     }
     mode.classifier = null;
     expect(await request(mode), ApprovalDecision.deny);
-    expect(human.calls, 3);
+    expect(human.calls, 2);
+  });
+
+  test('auto-mode approvals are recorded through the auto-grant hook', () async {
+    final recorded = <(String, String)>[];
+    final mode = ModePlugin(
+      mode: PermissionMode.auto,
+      approvals: Human(),
+      classifier: Judge(Future.value(const PermissionJudgment(true))),
+    )..saveAutoGrant = (capability, target) => recorded.add((capability, target));
+    addTearDown(mode.closeSession);
+    expect(await request(mode), ApprovalDecision.allow);
+    expect(recorded, [('execute', 'git status')],
+        reason: 'a classifier approval lands in the scopes store');
+  });
+
+  test('unconfined execution is human-only in auto mode: denied and batched',
+      () async {
+    final human = Human()..answer = ApprovalDecision.allow;
+    final terminal = _Terminal();
+    final judge = Judge(Future.value(const PermissionJudgment(true)));
+    final mode = ModePlugin(
+      mode: PermissionMode.auto,
+      approvals: human,
+      terminal: terminal,
+      classifier: judge,
+    );
+    addTearDown(mode.closeSession);
+    // Direct request without a turn: the decision and notice still fire.
+    final decision = await ModePlugin(mode: PermissionMode.auto, approvals: human)
+        .request(
+      operation: 'run command',
+      target: 'deploy',
+      reason: 'outside sandbox',
+      context: const {
+        'required_permissions': ['execution', 'unconfined'],
+      },
+    );
+    expect(decision, ApprovalDecision.deny);
+    mode.closeSession();
   });
 
   test(
