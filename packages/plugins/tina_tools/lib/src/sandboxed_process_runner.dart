@@ -24,6 +24,7 @@ import 'package:tina_mode/tina_mode.dart'
         AccessCapability,
         AuthorizationRoute,
         resolveAuthorization;
+import 'decision_pipeline.dart';
 
 /// The session mode a [SandboxedProcessRunner] enforces. Re-exported from
 /// the permissions vocabulary so callers need one import less.
@@ -407,31 +408,15 @@ final class SandboxedProcessRunner implements ProcessRunner {
 
     final confined = inner is ConfinedProcessRunner &&
         (inner as ConfinedProcessRunner).confinesFilesystem;
-    final certifiedReadOnly = reader != null || shellReader != null;
-    // Layer 1 of the decision pipeline (decision_pipeline.dart): checks
-    // that run without a prompt. Three facts must hold:
-    //
-    // - Capability: the quote-aware certification above pins every
-    //   component to a trusted reader executable with literal arguments.
-    //   The command cannot write, execute, or exfiltrate.
-    // - Authorization: every path the command touches is already inside a
-    //   granted read or write scope. The user's grant is the answer; it is
-    //   not asked again.
-    // - Enforceability: a backend is present that can confine execution.
-    //   Host execution (outsideSandbox) has no such backend by
-    //   definition, so it is excluded here.
-    //
-    // Without an enforcing backend the command is refused, even for a
-    // certified reader with a grant. A grant allows the read; it does not
-    // make the run safe. Anything unproven keeps today's flow: ask, run
-    // the classifier, use the sandbox.
-    //
-    // Layer 1, second fast path (decision_pipeline.dart): a script this
-    // session's own tools created, run confined inside workspace and temp.
-    final scriptFastPath = confined &&
-        !outsideSandbox &&
-        !network &&
-        agentCreated != null &&
+    // The one decision maker: the pipeline (decision_pipeline.dart) owns
+    // the execution profile — the Layer-1 fast paths (a certified reader
+    // inside granted scopes; the agent's own script) select read-only
+    // enforcement — and, below, the mode ceilings, backend feasibility and
+    // grant coverage that decide run / refuse / judgment. The plumbing
+    // between the two calls (the permission set, the requirement list and
+    // its coverage) is computed here and handed back in.
+    final scopes = _RunnerScopes(this);
+    final agentScriptArguments = agentCreated != null &&
         request.arguments.isNotEmpty &&
         request.arguments.every((argument) =>
             !argument.startsWith('-') &&
@@ -439,29 +424,16 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 ? agentCreated!(argument)
                 : agentCreated!(path.join(
                     request.workingDirectory ?? workspaceRoot ?? '.', argument))));
-    final certifiedReadWithinGrants = confined &&
-        !outsideSandbox &&
-        !network &&
-        certifiedReadOnly &&
-        declaredAccess.read.isEmpty &&
-        declaredAccess.write.isEmpty &&
-        envelope.verifiedAccesses.every((access) =>
-                access.operation != PermissionAccessOperation.read ||
-                _canRead(access.path));
-    final readOnlyProfile = control?.readOnlyRequested ??
-        (certifiedReadWithinGrants ||
-            scriptFastPath ||
-            _defaultReadOnlyProfile(mode,
-                confined: confined,
-                certifiedReadOnly: certifiedReadOnly,
-                writeRequested: declaredAccess.write.isNotEmpty));
-    if (mode == PermissionMode.readOnly &&
-        (!readOnlyProfile ||
-            outsideSandbox ||
-            declaredAccess.write.isNotEmpty)) {
-      return const CommandRefused(
-          'Read-only mode blocks workspace mutations, external writes and host execution.');
-    }
+    final readOnlyProfile = readOnlyProfileOf(envelope,
+        scopes: scopes,
+        confined: confined,
+        network: network,
+        outsideSandbox: outsideSandbox,
+        agentCreatedScriptArguments: agentScriptArguments,
+        declaredReadsEmpty: declaredAccess.read.isEmpty,
+        declaredWritesEmpty: declaredAccess.write.isEmpty,
+        controlReadOnlyRequested: control?.readOnlyRequested,
+        mode: mode);
     final requiredPermissions = {
       ProcessPermission.execution,
       if (!readOnlyProfile && !outsideSandbox) ProcessPermission.workspaceWrite,
@@ -528,17 +500,39 @@ final class SandboxedProcessRunner implements ProcessRunner {
                   {AccessCapability.read, AccessCapability.write}
                       .contains(requirement.capability),
             }));
-    final resolution = resolveAuthorization(authorization, mode);
-    if (resolution.route == AuthorizationRoute.deny) {
-      return CommandRefused(resolution.reason);
+    // The verdict: the pipeline decides (decision_pipeline.dart). A
+    // refusal carries its reason; covered requirements run silently;
+    // everything else asks below.
+    final decision = decidePermission(envelope,
+        scopes: scopes,
+        confined: confined,
+        network: network,
+        outsideSandbox: outsideSandbox,
+        controlReadOnlyRequested: control?.readOnlyRequested,
+        agentCreatedScriptArguments: agentScriptArguments,
+        declaredReadsEmpty: declaredAccess.read.isEmpty,
+        declaredWritesEmpty: declaredAccess.write.isEmpty,
+        mode: mode,
+        requirementsCovered: uncovered.isEmpty,
+        judgmentOutsideWorkspace: uncovered.any((requirement) =>
+            !requirement.workspace ||
+            {
+              AccessCapability.network,
+              AccessCapability.host,
+              AccessCapability.external,
+            }.contains(requirement.capability)));
+    if (decision.refuses) {
+      return CommandRefused(decision.reason);
     }
     final baseReason = !directoryAccess.isEmpty
         ? 'allow command with additional directory access (${request.command})?'
         : missing.length == 1 && missing.contains(ProcessPermission.network)
             ? 'allow network access for this command (${request.command})?'
-            : resolution.route == AuthorizationRoute.allow && readOnlyProfile
+            // A silent covered run carries this as its note; an ask never
+            // reaches this arm (runs do not ask).
+            : decision.runs && decision.readOnlyProfile
                 ? 'permitted read: enforced read-only execution'
-                : resolution.reason;
+                : decision.reason;
     final reason = outsideSandbox
         ? 'Run this exact command outside the OS sandbox? '
             '${control!.sandboxReason}\n'
@@ -550,7 +544,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
                 'Filesystem confinement is unchanged.'
             : baseReason;
     var remember = false;
-    if (resolution.route != AuthorizationRoute.allow) {
+    if (decision.needsJudgment) {
       final review = CommandApproval(
         reason: reason,
         authorization: authorization,
@@ -1026,4 +1020,24 @@ bool _isUnder(String child, String parent) {
   final c = trail(child == '' ? '/' : child);
   final par = trail(parent == '' ? '/' : parent);
   return c == par || c.startsWith(par);
+}
+
+/// The runner's scopes, as the decision pipeline sees them: the sandbox
+/// plan plus this runner's read grants decide what a path may do.
+final class _RunnerScopes implements ScopesView {
+  _RunnerScopes(this._runner);
+  final SandboxedProcessRunner _runner;
+
+  @override
+  bool canRead(String path) => _runner._canRead(path);
+
+  @override
+  bool canWrite(String path) =>
+      _runner.plan?.canWrite(path, linux: _runner._linux) == true;
+
+  @override
+  bool withinPlan(String path) =>
+      _runner._canRead(path) ||
+      _runner.plan?.canWrite(path, linux: _runner._linux) == true ||
+      _runner.plan?.canGrant(path, linux: _runner._linux) == true;
 }
