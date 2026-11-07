@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_io/tina_io.dart';
 import 'package:tina_session_controls/tina_session_controls.dart'
     show ModelCatalog, reasoningSetting;
 import 'session_terminal.dart';
@@ -159,9 +160,16 @@ void listSessions({
 LlmProvider providerForDescriptor(
     ProviderDescriptor? descriptor, String model) {
   if (descriptor == null) {
-    // No provider named: the Anthropic wire, whose provider reads
-    // TINA_LLM_ENDPOINT / TINA_LLM_TOKEN itself.
-    return AnthropicProvider(model: model);
+    // No provider named: the Anthropic wire, whose endpoint and token come
+    // from the environment. The engine reads neither directly any more, so
+    // this composition root supplies the native port implementations.
+    const environment = IoEnvironmentPort();
+    final base = environment.env('TINA_LLM_ENDPOINT') ??
+        'https://api.z.ai/api/anthropic';
+    return AnthropicProvider(
+        model: model,
+        endpoint: IoHttpEndpoint(endpoint: base),
+        environment: environment);
   }
   return configuredProvider(
       TinaConfig(

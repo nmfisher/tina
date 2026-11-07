@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_io/tina_io.dart';
 
 import 'backend.dart';
 

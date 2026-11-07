@@ -15,5 +15,7 @@ dependencies:
     path: ../../tina_engine_2
   tina_llm:
     path: ../../tina_llm
+  tina_io:
+    path: ../../libraries/tina_io
 dev_dependencies:
   test: ^1.25.0

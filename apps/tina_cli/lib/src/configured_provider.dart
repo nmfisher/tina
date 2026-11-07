@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_io/tina_io.dart';
 import 'assembly_config.dart';
 
 /// Persist the provider with a model even when the user supplies a bare ID.
@@ -32,8 +33,18 @@ LlmProvider configuredProvider(
       config.providerId == null &&
       settings == null &&
       environment == null) {
+    // The unnamed default: the Anthropic wire reading TINA_LLM_ENDPOINT /
+    // TINA_LLM_TOKEN itself. The engine provider no longer builds a client
+    // or reads the process environment, so the composition root supplies
+    // both from tina_io — the same chain the provider used internally.
+    const ioEnvironment = IoEnvironmentPort();
+    final base = ioEnvironment.env('TINA_LLM_ENDPOINT') ??
+        'https://api.z.ai/api/anthropic';
     return AnthropicProvider(
-        model: model, endpoint: endpoint, generation: generation);
+        model: model,
+        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
+        generation: generation,
+        environment: ioEnvironment);
   }
   if (descriptor == null) throw StateError('unknown configured provider');
   final prefix = providerEnvPrefix(id);
@@ -70,22 +81,21 @@ LlmProvider configuredProvider(
     ProviderWire.anthropic => AnthropicProvider(
         model: model,
         generation: generation,
-        endpoint: endpoint,
-        endpointUrl: base,
+        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
         tokenFrom: () => token,
         bearerToken: bearer),
     ProviderWire.openAiCompatible => OpenAiCompatibleProvider(
         model: model,
         generation: generation,
         baseUrl: base,
-        endpoint: endpoint,
+        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
         tokenFrom: () => token,
         structuredOutput: descriptor.structuredOutput),
     ProviderWire.gemini => GeminiProvider(
         model: model,
         generation: generation,
         baseUrl: base,
-        endpoint: endpoint,
+        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
         tokenFrom: () => token),
   };
 }

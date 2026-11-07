@@ -10,6 +10,9 @@ class _Capture implements HttpEndpoint {
   Map<String, String>? headers;
   Map<String, dynamic>? body;
   @override
+  void close() {}
+
+  @override
   Future<HttpResponse> post(String path,
       {required Map<String, String> headers, required List<int> body}) async {
     this.headers = headers;

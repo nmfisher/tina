@@ -52,6 +52,8 @@ dependencies:
     path: ../../packages/tina_host
   tina_llm:
     path: ../../packages/tina_llm
+  tina_io:
+    path: ../../packages/libraries/tina_io
   tina_mcp:
     path: ../../packages/plugins/tina_mcp
   tina_mcp_tui:

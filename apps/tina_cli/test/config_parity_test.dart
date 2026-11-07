@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' hide HttpResponse;
 import 'package:test/test.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_io/tina_io.dart';
 import 'package:tina/session.dart';
 
 final class CaptureEndpoint implements HttpEndpoint {
@@ -25,6 +26,9 @@ final class CaptureEndpoint implements HttpEndpoint {
     String path, {
     Map<String, String> headers = const {},
   }) => throw UnimplementedError();
+
+  @override
+  void close() {}
 }
 
 void main() {
