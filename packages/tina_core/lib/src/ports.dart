@@ -82,10 +82,141 @@ final class ProcessRunResult {
   final String stderr;
 }
 
+/// How one access-profile rule judges a command line. The vocabulary
+/// mirrors tina_mode's command-pattern rules; under wasm the HOST is the
+/// enforcement point (see wasm.dart's `tina:process` spec).
+enum ProcessVerdict { allow, deny, ask }
+
+/// One command-pattern rule: a conservative regular expression the
+/// evaluator anchors to the entire command line. First match decides.
+final class ProcessRule {
+  const ProcessRule(this.pattern, this.verdict);
+
+  final String pattern;
+  final ProcessVerdict verdict;
+}
+
+/// The policy table that travels with process spawns: the engine holds
+/// tina_mode's command rules and sends them per spawn; the side that can
+/// spawn (the host, under wasm) evaluates them before spawning.
+final class ProcessAccessProfile {
+  const ProcessAccessProfile(this.rules);
+
+  final List<ProcessRule> rules;
+}
+
+/// An `ask` verdict surfaced to the engine's approval flow: the command
+/// line and why policy deferred it.
+final class ProcessApprovalRequest {
+  const ProcessApprovalRequest({required this.command, required this.reason});
+
+  final String command;
+  final String reason;
+}
+
+/// The engine's answer to a [ProcessApprovalRequest]: whether the spawn
+/// may proceed. In production this is tina_mode's approval flow (policy
+/// table, then the human); a probe programs it.
+typedef ProcessApprover = Future<bool> Function(ProcessApprovalRequest request);
+
+/// The policy decision for one command line.
+final class ProcessPolicyDecision {
+  const ProcessPolicyDecision._(this.verdict, this.reason);
+
+  const ProcessPolicyDecision.allow()
+    : verdict = ProcessVerdict.allow,
+      reason = null;
+
+  const ProcessPolicyDecision.refused(String reason)
+    : verdict = ProcessVerdict.deny,
+      reason = reason;
+
+  const ProcessPolicyDecision.ask(String reason)
+    : verdict = ProcessVerdict.ask,
+      reason = reason;
+
+  final ProcessVerdict verdict;
+
+  /// Why, for deny and ask. The exact string the wasm host produces -
+  /// these strings are interface contract (see wasm.dart's
+  /// `tina:process` spec).
+  final String? reason;
+}
+
+/// Evaluates [profile] against a command line exactly the way the wasm
+/// host does: each pattern is anchored to the entire line, the first
+/// match decides, no match asks (toward the human, not silent refusal),
+/// and an invalid pattern fails closed. Shared by the native port so
+/// both sides of the boundary produce the same verdicts.
+ProcessPolicyDecision evaluateProcessPolicy(
+  ProcessAccessProfile profile,
+  String command,
+) {
+  for (var i = 0; i < profile.rules.length; i++) {
+    final rule = profile.rules[i];
+    // An invalid pattern fails closed, mirroring the host.
+    final anchored = _anchored(rule.pattern);
+    if (anchored == null) {
+      return ProcessPolicyDecision.refused(
+        'rule $i (${rule.pattern}) is not a valid pattern',
+      );
+    }
+    if (!anchored.hasMatch(command)) continue;
+    return switch (rule.verdict) {
+      ProcessVerdict.allow => const ProcessPolicyDecision.allow(),
+      ProcessVerdict.deny => ProcessPolicyDecision.refused(
+        'rule $i (${rule.pattern}) denies the command',
+      ),
+      ProcessVerdict.ask => ProcessPolicyDecision.ask(
+        'rule $i (${rule.pattern}) requires approval',
+      ),
+    };
+  }
+  return const ProcessPolicyDecision.ask('no rule matched the command');
+}
+
+/// `pattern` anchored to the entire line, or null when it does not
+/// compile (the conservative subset tina_mode's rules use always does).
+RegExp? _anchored(String pattern) {
+  try {
+    return RegExp('^(?:$pattern)\$');
+  } on FormatException {
+    return null;
+  }
+}
+
+/// A spawn refused by policy: the reason is for the engine to surface
+/// (the rule that denied, or the approval flow's refusal).
+final class ProcessRefusedException implements Exception {
+  const ProcessRefusedException(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'ProcessRefusedException: $reason';
+}
+
+/// A spawn the host could not carry out (missing binary, bad working
+/// directory): mirrors the shape of `dart:io`'s `ProcessException`,
+/// which wasm builds cannot construct.
+final class ProcessLaunchException implements Exception {
+  const ProcessLaunchException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'ProcessLaunchException: $message';
+}
+
 /// Run one program with literal arguments — no shell. No engine call site
 /// yet (`tina_tools` and `tina_mcp` own process spawn today and migrate in
 /// stage 3+); the contract is here so that migration does not invent a
 /// second one.
+///
+/// A configured access profile (native or wasm implementation) turns
+/// spawns into policy decisions: refusals throw [ProcessRefusedException]
+/// and `ask` verdicts go through the configured [ProcessApprover] before
+/// anything runs.
 abstract interface class ProcessPort {
   /// Run [executable] to completion, feeding [stdin] when given.
   Future<ProcessRunResult> run(
