@@ -1,6 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:tina_llm/tina_llm.dart';
+
+import 'app_io.dart';
 
 /// Read the legacy discovery cache offline. Compiled endpoint/auth definitions
 /// win; supported discovered providers fill gaps. No refresh or cache writes.
@@ -11,7 +12,8 @@ List<ProviderDescriptor> cachedProviderDescriptors(String path,
   final result = {for (final d in builtins) d.id: d};
   final Map<String, dynamic> raw;
   try {
-    raw = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+    raw = jsonDecode(defaultAppIo().readTextIfExists(path) ?? '')
+        as Map<String, dynamic>;
   } catch (_) {
     return List.unmodifiable(result.values);
   }

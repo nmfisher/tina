@@ -1,10 +1,11 @@
-import 'dart:io';
+import 'dart:collection';
 import 'dart:math' as math;
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_io/tina_io.dart';
+import 'app_io.dart';
 import 'assembly_config.dart';
+import 'provider_default.dart';
 
 /// Persist the provider with a model even when the user supplies a bare ID.
 String canonicalModelReference(TinaConfig config, String model) {
@@ -24,7 +25,9 @@ LlmProvider configuredProvider(
   HttpEndpoint? endpoint,
   String? providerId,
 }) {
-  final env = environment ?? Platform.environment;
+  // Environment lookups go through the AppIo seam: the same map the
+  // process sees natively, whatever the composition root holds.
+  final env = environment ?? _AppEnvLookup();
   final id = providerId ?? config.providerId ?? 'anthropic';
   final settings = config.providers[id];
   final descriptor = descriptorByIdFor(id, config.descriptors);
@@ -37,14 +40,14 @@ LlmProvider configuredProvider(
     // TINA_LLM_TOKEN itself. The engine provider no longer builds a client
     // or reads the process environment, so the composition root supplies
     // both from tina_io — the same chain the provider used internally.
-    const ioEnvironment = IoEnvironmentPort();
-    final base = ioEnvironment.env('TINA_LLM_ENDPOINT') ??
-        'https://api.z.ai/api/anthropic';
+    final io = defaultAppIo();
+    final base =
+        io.env('TINA_LLM_ENDPOINT') ?? 'https://api.z.ai/api/anthropic';
     return AnthropicProvider(
         model: model,
-        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
+        endpoint: endpoint ?? defaultHttpEndpoint(base),
         generation: generation,
-        environment: ioEnvironment);
+        environment: AppIoEnvironmentPort(io));
   }
   if (descriptor == null) throw StateError('unknown configured provider');
   final prefix = providerEnvPrefix(id);
@@ -81,21 +84,21 @@ LlmProvider configuredProvider(
     ProviderWire.anthropic => AnthropicProvider(
         model: model,
         generation: generation,
-        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
+        endpoint: endpoint ?? defaultHttpEndpoint(base),
         tokenFrom: () => token,
         bearerToken: bearer),
     ProviderWire.openAiCompatible => OpenAiCompatibleProvider(
         model: model,
         generation: generation,
         baseUrl: base,
-        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
+        endpoint: endpoint ?? defaultHttpEndpoint(base),
         tokenFrom: () => token,
         structuredOutput: descriptor.structuredOutput),
     ProviderWire.gemini => GeminiProvider(
         model: model,
         generation: generation,
         baseUrl: base,
-        endpoint: endpoint ?? IoHttpEndpoint(endpoint: base),
+        endpoint: endpoint ?? defaultHttpEndpoint(base),
         tokenFrom: () => token),
   };
 }
@@ -243,4 +246,29 @@ ProviderTarget _target(TinaConfig config, String member, String fallbackModel) {
       minInterval: Duration(milliseconds: interval),
       maxConcurrent: config.limits.maxConcurrent,
       create: () => configuredProvider(config, model, providerId: id));
+}
+
+
+/// The ambient environment as a read-only map over [AppIo], for call
+/// sites that read the environment a configured provider authenticates
+/// with.
+final class _AppEnvLookup extends MapBase<String, String> {
+  @override
+  String? operator [](Object? key) =>
+      key is String ? defaultAppIo().env(key) : null;
+
+  @override
+  Iterable<String> get keys => const <String>[];
+
+  @override
+  void operator []=(String key, String value) =>
+      throw UnsupportedError('the ambient environment is read-only');
+
+  @override
+  String? remove(Object? key) =>
+      throw UnsupportedError('the ambient environment is read-only');
+
+  @override
+  void clear() =>
+      throw UnsupportedError('the ambient environment is read-only');
 }

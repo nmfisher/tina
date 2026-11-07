@@ -26,7 +26,8 @@ library;
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:io';
+
+import 'pipes_stdio.dart';
 
 import 'package:tina_host/tina_host.dart';
 
@@ -42,7 +43,7 @@ Future<int> runSessionPipes(
   final pipes = _SessionPipes(
     assembly,
     input: input,
-    emit: emit ?? (line) => stdout.writeln(line),
+    emit: emit ?? defaultPipesEmit,
   );
   try {
     return await pipes.run();
@@ -70,27 +71,34 @@ final class _SessionPipes {
   bool _flushScheduled = false;
   bool _done = false;
   StreamSubscription<String>? _reader;
-  StreamSubscription<ProcessSignal>? _signals;
+  StreamSubscription<void>? _signals;
 
   Future<int> run() async {
     _emitNow(_readyEvent());
     unawaited(_observe());
     final stop = Completer<int>();
-    final interrupt = ProcessSignal.sigint.watch().listen((_) {
-      if (!_done) {
-        _queue({'type': 'bye', 'reason': 'interrupt'});
-        _finish(stop, 130);
-      }
-    });
+    final interrupt = canWatchInterrupt
+        ? interruptStream().listen((_) {
+            if (!_done) {
+              _queue({'type': 'bye', 'reason': 'interrupt'});
+              _finish(stop, 130);
+            }
+          })
+        : null;
     _signals = interrupt;
     connection.listen((status) {
       if (_done) return;
       _queue(_statusEvent(status));
       _queueReceipts();
     });
-    final lines = (input ?? stdin)
-        .transform(utf8.decoder)
-        .transform(const LineSplitter());
+    // A null default means this platform supplies no stdin: the session
+    // ends immediately, exactly as stdin EOF does.
+    final source = input ?? defaultPipesInput();
+    final lines = source == null
+        ? const Stream<String>.empty()
+        : source
+            .transform(utf8.decoder)
+            .transform(const LineSplitter());
     final subscription = lines.listen(
       (line) {
         _handleLine(line, stop);
@@ -114,7 +122,7 @@ final class _SessionPipes {
     if (_done) return;
     _done = true;
     unawaited(_reader?.cancel());
-    unawaited(_signals?.cancel());
+    if (_signals != null) unawaited(_signals!.cancel());
     stop.complete(code);
   }
 

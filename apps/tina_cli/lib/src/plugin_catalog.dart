@@ -14,6 +14,9 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_tools/tina_tools.dart';
+import 'session_context.dart';
+
+export 'session_context.dart';
 import 'package:tina_shell/tina_shell.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_persistence/tina_persistence.dart';
@@ -48,62 +51,6 @@ const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 String _classifierModel(SessionPluginContext c) {
   final value = (c.settings?.read(classifierModelSetting).value ?? '').trim();
   return value.isEmpty ? c.currentModel() : value;
-}
-
-/// Explicit dependencies available to factories in the application assembly.
-final class SessionPluginContext {
-  const SessionPluginContext({
-    required this.workingDirectory,
-    required this.terminal,
-    required this.tools,
-    required this.providerFactory,
-    required this.model,
-    required this.currentModel,
-    required this.switchModel,
-    required this.modelCatalog,
-    this.currentReasoning,
-    this.setReasoning,
-    this.reasoningChoices,
-    this.openStore,
-    this.sessionStorePath,
-    this.version = '0.0.0',
-    this.restart,
-    this.providerPolicy,
-    required this.configPath,
-    this.limits = const RequestLimits(),
-    this.settings,
-    this.readLimits,
-    this.contextLoaded,
-  });
-  final String workingDirectory;
-  final String configPath;
-  final String version;
-  final void Function(String)? restart;
-  final ProviderPolicyPlugin? providerPolicy;
-  final RequestLimits limits;
-  final ScopedSettings? settings;
-  final RequestLimits Function()? readLimits;
-  final bool Function()? contextLoaded;
-  RequestLimits get currentLimits => readLimits?.call() ?? limits;
-  final Terminal terminal;
-  final ToolsPlugin tools;
-  final ProviderFactory providerFactory;
-  final String model;
-  final String Function() currentModel;
-  final void Function(String) switchModel;
-  final ModelCatalog Function() modelCatalog;
-
-  /// The conversation's reasoning effort ('auto' = no override), or null when
-  /// the entry point has no settings stack. Null disables /reasoning.
-  final String? Function()? currentReasoning;
-
-  /// Persist the reasoning choice for this conversation. Null disables it.
-  final void Function(String)? setReasoning;
-
-  /// Effort words the current model accepts. Null means the canonical set.
-  final List<String> Function()? reasoningChoices;
-  final SessionStoreOpener? openStore;
-  final String? sessionStorePath;
 }
 
 /// Required host plugins also carry metadata, without becoming optional features.
@@ -302,7 +249,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         final workspace = Directory(c.workingDirectory).absolute.path;
         // Statements, not one cascade: a cascade after an arrow body binds
         // to that body's expression.
-        final policy = c.tools.modePolicy;
+        final policy = (c.tools as ToolsPlugin).modePolicy;
         policy.approvals = approvals;
         policy.terminal = c.terminal;
         policy.precedentStore = FilePrecedentStore(
@@ -317,12 +264,13 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
               c.settings?.read(classifierInstructionSetting).value ?? '',
           readPrecedents: policy.precedentEvidenceFor,
         );
+        final tools = c.tools as ToolsPlugin;
         policy.precedentScope = () => PrecedentScope(
           workspace: workspace,
-          readDirectories: c.tools.readDirectories.paths,
-          writeDirectories: c.tools.writeDirectories.paths,
+          readDirectories: tools.readDirectories.paths,
+          writeDirectories: tools.writeDirectories.paths,
         );
-        return c.tools;
+        return tools;
       },
       description:
           'Provides sandboxed file, search and shell tools with permission policy and approval routing.',
@@ -401,14 +349,14 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     PluginDefinition<SessionPluginContext>(
       'tina/persistence',
       (c) => PersistencePlugin(
-        openStore: c.openStore!,
+        openStore: c.openStore! as SessionStoreOpener,
         settings: c.settings,
         history: c.sessionStorePath == null
             ? null
             : SessionHistoryTools(
                 workspace: c.workingDirectory,
                 store: c.sessionStorePath!,
-                policy: c.tools.modePolicy,
+                policy: (c.tools as ToolsPlugin).modePolicy,
                 catalog: HistoryCatalog(
                   '${File(c.configPath).parent.path}/session-stores',
                 ),
@@ -478,7 +426,10 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         readBudgetTokens: () =>
             c.settings?.read(contextBudgetSetting).value ??
             defaultContextBudgetTokens,
-        onMirrorReady: (file) => c.tools.sandbox.grants.rememberExact(
+        onMirrorReady: (file) => (c.tools as ToolsPlugin)
+            .sandbox
+            .grants
+            .rememberExact(
           file.resolveSymbolicLinksSync(),
         ),
       ),
@@ -534,10 +485,13 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           currentModel: c.currentModel,
           childPlugins: () => [
             const SystemInstructionPlugin(),
-            if (c.openStore != null) PersistencePlugin(openStore: c.openStore!),
+            if (c.openStore != null)
+            PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
           ],
         ),
-        history: c.openStore != null ? _StoreHistory(c.openStore!) : null,
+        history: c.openStore != null
+            ? _StoreHistory(c.openStore! as SessionStoreOpener)
+            : null,
       ),
       description:
           'Lets the agent delegate work to child sessions with bounded depth and concurrency.',

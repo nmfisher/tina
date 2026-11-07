@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'app_io.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'assembly_config.dart';
@@ -38,13 +38,7 @@ final class PluginSettings<C> {
   late ConfigDocument _workspace;
 
   bool get _sameFile {
-    String canonical(String path) {
-      final file = File(path);
-      return file.existsSync()
-          ? file.resolveSymbolicLinksSync()
-          : file.absolute.path;
-    }
-
+    String canonical(String path) => defaultAppIo().canonical(path);
     return canonical(globalPath) == canonical(workspacePath);
   }
 
