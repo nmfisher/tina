@@ -9,7 +9,9 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_mcp/tina_mcp.dart';
 import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_plans/tina_plans.dart';
-import 'package:tina_self_update/tina_self_update.dart';
+// Only the status interface (clean of the FFI updater): this file must
+// compile where `dart:ffi` does not exist.
+import 'package:tina_self_update/src/update_status.dart' show UpdateStatusSource;
 import 'package:tina_session_controls/tina_session_controls.dart';
 import 'package:tina_rewind/tina_rewind.dart';
 import 'package:tina_tasks/tina_tasks.dart';

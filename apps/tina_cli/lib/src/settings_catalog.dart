@@ -4,7 +4,7 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'assembly_config.dart';
-import 'plugin_catalog.dart';
+import 'session_context.dart';
 
 SettingCatalog createSettingsCatalog(
     PluginRegistry<SessionPluginContext> registry, TinaConfig config) {

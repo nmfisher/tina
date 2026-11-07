@@ -20,7 +20,7 @@ import 'provider_default.dart';
 import 'session_context.dart';
 import 'plugin_settings.dart';
 import 'tools_factory.dart';
-import 'package:tina_persistence/tina_persistence.dart';
+import 'persistence_seam.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'settings_catalog.dart';
 import 'settings_stack.dart';
@@ -148,23 +148,7 @@ void listSessions({
   required AssemblyWriter writer,
   required String storePath,
 }) {
-  if (!defaultAppIo().exists(storePath)) {
-    throw SessionStoreException('no session store at $storePath');
-  }
-  final store = SessionStore.open(storePath);
-  try {
-    final sessions = store.list();
-    if (sessions.isEmpty) {
-      writer.writeln('no sessions in $storePath');
-      return;
-    }
-    for (final s in sessions) {
-      writer.writeln('${s.id}  ${s.entries} entries'
-          '${s.title == null ? '' : '  ${s.title}'}');
-    }
-  } finally {
-    store.close();
-  }
+  persistenceListSessions(writer, storePath);
 }
 
 /// Build the provider for [model] off [descriptor]: the wire picks the
@@ -382,10 +366,10 @@ final class SessionAssembly {
       throw ArgumentError('--store and --resume require tina/persistence');
     }
     final path = options.storePath ?? defaultSessionStorePath(workingDirectory);
-    SessionStore openStore() {
+    Object openStore() {
       diagnostics?.stage?.call('store-open-start');
       defaultAppIo().createDirectory(p.dirname(path), recursive: true);
-      final store = SessionStore.open(path);
+      final store = persistenceOpenStore(path);
       diagnostics?.stage?.call('store-open-end');
       return store;
     }
@@ -395,8 +379,8 @@ final class SessionAssembly {
       final stored = openStore();
       try {
         diagnostics?.stage?.call('settings-replay-start');
-        PersistencePlugin.restoreSettings(
-            settings, stored.readEntries(options.sessionId!));
+        restoreSessionSettings(
+            settings, stored, options.sessionId!);
         diagnostics?.stage?.call('settings-replay-end');
         resolved = ConfigDocument.validateValues(
             stack.effectiveDocument(),
@@ -409,13 +393,9 @@ final class SessionAssembly {
               id: enabled,
         });
         if (options.model == null)
-          model = stored
-                  .list()
-                  .singleWhere((s) => s.id == options.sessionId)
-                  .model ??
-              model;
+          model = storedSessionModel(stored, options.sessionId!) ?? model;
       } finally {
-        stored.close();
+        closeStore(stored);
       }
     }
     final context = SessionPluginContext(
@@ -434,11 +414,8 @@ final class SessionAssembly {
           ? null
           : (root) {
               final current = assembled!;
-              final saved = current.host.plugins
-                  .whereType<PersistencePlugin>()
-                  .any((plugin) => plugin.store
-                      .list()
-                      .any((row) => row.id == current.host.session.id));
+              final saved = sessionWasPersisted(
+                  current.host.plugins, current.host.session.id);
               options.onRestart!(root, saved ? current.host.session.id : null);
               current._quit = true;
             },
