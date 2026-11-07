@@ -17,6 +17,8 @@ void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
       unnamedExport26: _TestedModule(imports),
+      // The stage-3 probe does not use `tina:process`; the world grew the
+      // import in stage 4, so the record supplies it unopened.
       unnamedExport15: const _Run(),
     );
   });

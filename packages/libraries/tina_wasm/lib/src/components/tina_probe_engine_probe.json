@@ -231,7 +231,146 @@
       }
     },
     {
-      "import_name": "_import15",
+      "import_name": "stream136.new",
+      "definition": {
+        "StreamNew": {
+          "stream_type": 136
+        }
+      },
+      "lower_options": {
+        "uses_memory": false,
+        "uses_strings": false,
+        "uses_realloc": false,
+        "is_async": false,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "stream136.write",
+      "definition": {
+        "StreamWrite": {
+          "stream_type": 136
+        }
+      },
+      "lower_options": {
+        "uses_memory": true,
+        "uses_strings": false,
+        "uses_realloc": false,
+        "is_async": true,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "stream136.drop-readable",
+      "definition": {
+        "StreamDropReadable": {
+          "stream_type": 136
+        }
+      },
+      "lower_options": {
+        "uses_memory": false,
+        "uses_strings": false,
+        "uses_realloc": false,
+        "is_async": false,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "stream136.drop-writable",
+      "definition": {
+        "StreamDropWritable": {
+          "stream_type": 136
+        }
+      },
+      "lower_options": {
+        "uses_memory": false,
+        "uses_strings": false,
+        "uses_realloc": false,
+        "is_async": false,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "stream136.read",
+      "definition": {
+        "StreamRead": {
+          "stream_type": 136
+        }
+      },
+      "lower_options": {
+        "uses_memory": true,
+        "uses_strings": false,
+        "uses_realloc": false,
+        "is_async": true,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "_import20",
+      "definition": {
+        "Instance": {
+          "interface": 28,
+          "function_name": "spawn"
+        }
+      },
+      "lower_options": {
+        "uses_memory": true,
+        "uses_strings": true,
+        "uses_realloc": true,
+        "is_async": true,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "_import21",
+      "definition": {
+        "Instance": {
+          "interface": 28,
+          "function_name": "respond"
+        }
+      },
+      "lower_options": {
+        "uses_memory": true,
+        "uses_strings": true,
+        "uses_realloc": true,
+        "is_async": true,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "_import22",
+      "definition": {
+        "Instance": {
+          "interface": 28,
+          "function_name": "wait"
+        }
+      },
+      "lower_options": {
+        "uses_memory": true,
+        "uses_strings": true,
+        "uses_realloc": true,
+        "is_async": true,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "_import23",
+      "definition": {
+        "Instance": {
+          "interface": 28,
+          "function_name": "kill"
+        }
+      },
+      "lower_options": {
+        "uses_memory": true,
+        "uses_strings": true,
+        "uses_realloc": true,
+        "is_async": true,
+        "uses_callback": false
+      }
+    },
+    {
+      "import_name": "_import24",
       "definition": {
         "Instance": {
           "interface": 13,
@@ -247,7 +386,7 @@
       }
     },
     {
-      "import_name": "_import16",
+      "import_name": "_import25",
       "definition": {
         "Instance": {
           "interface": 13,
@@ -263,7 +402,7 @@
       }
     },
     {
-      "import_name": "_import17",
+      "import_name": "_import26",
       "definition": {
         "Instance": {
           "interface": 13,
@@ -279,7 +418,7 @@
       }
     },
     {
-      "import_name": "_import18",
+      "import_name": "_import27",
       "definition": {
         "Instance": {
           "interface": 14,
@@ -295,7 +434,7 @@
       }
     },
     {
-      "import_name": "_import19",
+      "import_name": "_import28",
       "definition": {
         "Instance": {
           "interface": 14,
@@ -461,7 +600,7 @@
       }
     },
     {
-      "import_name": "_import30",
+      "import_name": "_import39",
       "definition": {
         "Instance": {
           "interface": 17,
@@ -552,7 +691,7 @@
       }
     },
     {
-      "import_name": "_import36",
+      "import_name": "_import45",
       "definition": {
         "Instance": {
           "interface": 18,
@@ -643,7 +782,7 @@
       }
     },
     {
-      "import_name": "_import42",
+      "import_name": "_import51",
       "definition": {
         "Instance": {
           "interface": 19,
@@ -674,7 +813,7 @@
       }
     },
     {
-      "import_name": "_import43",
+      "import_name": "_import52",
       "definition": {
         "Instance": {
           "interface": 22,
@@ -705,7 +844,7 @@
       }
     },
     {
-      "import_name": "_import45",
+      "import_name": "_import54",
       "definition": {
         "Instance": {
           "interface": 23,
@@ -736,7 +875,7 @@
       }
     },
     {
-      "import_name": "_import47",
+      "import_name": "_import56",
       "definition": {
         "Instance": {
           "interface": 24,
@@ -752,7 +891,7 @@
       }
     },
     {
-      "import_name": "_import49",
+      "import_name": "_import58",
       "definition": {
         "Instance": {
           "interface": 3,
@@ -768,7 +907,7 @@
       }
     },
     {
-      "import_name": "_import50",
+      "import_name": "_import59",
       "definition": {
         "Instance": {
           "interface": 3,
@@ -784,7 +923,7 @@
       }
     },
     {
-      "import_name": "_import51",
+      "import_name": "_import60",
       "definition": {
         "Instance": {
           "interface": 3,
@@ -800,7 +939,7 @@
       }
     },
     {
-      "import_name": "_import52",
+      "import_name": "_import61",
       "definition": {
         "Instance": {
           "interface": 3,
@@ -816,7 +955,7 @@
       }
     },
     {
-      "import_name": "_import53",
+      "import_name": "_import62",
       "definition": {
         "Instance": {
           "interface": 4,
@@ -832,7 +971,7 @@
       }
     },
     {
-      "import_name": "_import54",
+      "import_name": "_import63",
       "definition": {
         "Instance": {
           "interface": 4,
@@ -1073,7 +1212,7 @@
       }
     },
     {
-      "import_name": "_import70",
+      "import_name": "_import79",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1089,7 +1228,7 @@
       }
     },
     {
-      "import_name": "_import71",
+      "import_name": "_import80",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1105,7 +1244,7 @@
       }
     },
     {
-      "import_name": "_import72",
+      "import_name": "_import81",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1121,7 +1260,7 @@
       }
     },
     {
-      "import_name": "_import73",
+      "import_name": "_import82",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1137,7 +1276,7 @@
       }
     },
     {
-      "import_name": "_import74",
+      "import_name": "_import83",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1153,7 +1292,7 @@
       }
     },
     {
-      "import_name": "_import75",
+      "import_name": "_import84",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1169,7 +1308,7 @@
       }
     },
     {
-      "import_name": "_import76",
+      "import_name": "_import85",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1185,7 +1324,7 @@
       }
     },
     {
-      "import_name": "_import77",
+      "import_name": "_import86",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1201,7 +1340,7 @@
       }
     },
     {
-      "import_name": "_import78",
+      "import_name": "_import87",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1217,7 +1356,7 @@
       }
     },
     {
-      "import_name": "_import79",
+      "import_name": "_import88",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1233,7 +1372,7 @@
       }
     },
     {
-      "import_name": "_import80",
+      "import_name": "_import89",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1249,7 +1388,7 @@
       }
     },
     {
-      "import_name": "_import81",
+      "import_name": "_import90",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1265,7 +1404,7 @@
       }
     },
     {
-      "import_name": "_import82",
+      "import_name": "_import91",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1281,7 +1420,7 @@
       }
     },
     {
-      "import_name": "_import83",
+      "import_name": "_import92",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1297,7 +1436,7 @@
       }
     },
     {
-      "import_name": "_import84",
+      "import_name": "_import93",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1313,7 +1452,7 @@
       }
     },
     {
-      "import_name": "_import85",
+      "import_name": "_import94",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1344,7 +1483,7 @@
       }
     },
     {
-      "import_name": "_import86",
+      "import_name": "_import95",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1360,7 +1499,7 @@
       }
     },
     {
-      "import_name": "_import88",
+      "import_name": "_import97",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1376,7 +1515,7 @@
       }
     },
     {
-      "import_name": "_import89",
+      "import_name": "_import98",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1392,7 +1531,7 @@
       }
     },
     {
-      "import_name": "_import90",
+      "import_name": "_import99",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1408,7 +1547,7 @@
       }
     },
     {
-      "import_name": "_import91",
+      "import_name": "_import100",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1424,7 +1563,7 @@
       }
     },
     {
-      "import_name": "_import92",
+      "import_name": "_import101",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1440,7 +1579,7 @@
       }
     },
     {
-      "import_name": "_import93",
+      "import_name": "_import102",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1456,7 +1595,7 @@
       }
     },
     {
-      "import_name": "_import94",
+      "import_name": "_import103",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1472,7 +1611,7 @@
       }
     },
     {
-      "import_name": "_import95",
+      "import_name": "_import104",
       "definition": {
         "Instance": {
           "interface": 6,
@@ -1503,7 +1642,7 @@
       }
     },
     {
-      "import_name": "_import96",
+      "import_name": "_import105",
       "definition": {
         "Instance": {
           "interface": 7,
@@ -1759,7 +1898,7 @@
       }
     },
     {
-      "import_name": "_import114",
+      "import_name": "_import123",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1775,7 +1914,7 @@
       }
     },
     {
-      "import_name": "_import115",
+      "import_name": "_import124",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1791,7 +1930,7 @@
       }
     },
     {
-      "import_name": "_import116",
+      "import_name": "_import125",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1807,7 +1946,7 @@
       }
     },
     {
-      "import_name": "_import117",
+      "import_name": "_import126",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1823,7 +1962,7 @@
       }
     },
     {
-      "import_name": "_import118",
+      "import_name": "_import127",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1839,7 +1978,7 @@
       }
     },
     {
-      "import_name": "_import119",
+      "import_name": "_import128",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1855,7 +1994,7 @@
       }
     },
     {
-      "import_name": "_import120",
+      "import_name": "_import129",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1871,7 +2010,7 @@
       }
     },
     {
-      "import_name": "_import121",
+      "import_name": "_import130",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1887,7 +2026,7 @@
       }
     },
     {
-      "import_name": "_import122",
+      "import_name": "_import131",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1903,7 +2042,7 @@
       }
     },
     {
-      "import_name": "_import123",
+      "import_name": "_import132",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1919,7 +2058,7 @@
       }
     },
     {
-      "import_name": "_import124",
+      "import_name": "_import133",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1935,7 +2074,7 @@
       }
     },
     {
-      "import_name": "_import125",
+      "import_name": "_import134",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1951,7 +2090,7 @@
       }
     },
     {
-      "import_name": "_import126",
+      "import_name": "_import135",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1967,7 +2106,7 @@
       }
     },
     {
-      "import_name": "_import127",
+      "import_name": "_import136",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1983,7 +2122,7 @@
       }
     },
     {
-      "import_name": "_import128",
+      "import_name": "_import137",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -1999,7 +2138,7 @@
       }
     },
     {
-      "import_name": "_import129",
+      "import_name": "_import138",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2015,7 +2154,7 @@
       }
     },
     {
-      "import_name": "_import130",
+      "import_name": "_import139",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2031,7 +2170,7 @@
       }
     },
     {
-      "import_name": "_import131",
+      "import_name": "_import140",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2047,7 +2186,7 @@
       }
     },
     {
-      "import_name": "_import132",
+      "import_name": "_import141",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2063,7 +2202,7 @@
       }
     },
     {
-      "import_name": "_import133",
+      "import_name": "_import142",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2079,7 +2218,7 @@
       }
     },
     {
-      "import_name": "_import134",
+      "import_name": "_import143",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2095,7 +2234,7 @@
       }
     },
     {
-      "import_name": "_import135",
+      "import_name": "_import144",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2111,7 +2250,7 @@
       }
     },
     {
-      "import_name": "_import136",
+      "import_name": "_import145",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2127,7 +2266,7 @@
       }
     },
     {
-      "import_name": "_import137",
+      "import_name": "_import146",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2143,7 +2282,7 @@
       }
     },
     {
-      "import_name": "_import138",
+      "import_name": "_import147",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2174,7 +2313,7 @@
       }
     },
     {
-      "import_name": "_import139",
+      "import_name": "_import148",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2190,7 +2329,7 @@
       }
     },
     {
-      "import_name": "_import141",
+      "import_name": "_import150",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2206,7 +2345,7 @@
       }
     },
     {
-      "import_name": "_import142",
+      "import_name": "_import151",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2222,7 +2361,7 @@
       }
     },
     {
-      "import_name": "_import143",
+      "import_name": "_import152",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2238,7 +2377,7 @@
       }
     },
     {
-      "import_name": "_import144",
+      "import_name": "_import153",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2254,7 +2393,7 @@
       }
     },
     {
-      "import_name": "_import145",
+      "import_name": "_import154",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2270,7 +2409,7 @@
       }
     },
     {
-      "import_name": "_import146",
+      "import_name": "_import155",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2286,7 +2425,7 @@
       }
     },
     {
-      "import_name": "_import147",
+      "import_name": "_import156",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2302,7 +2441,7 @@
       }
     },
     {
-      "import_name": "_import148",
+      "import_name": "_import157",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2318,7 +2457,7 @@
       }
     },
     {
-      "import_name": "_import149",
+      "import_name": "_import158",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2334,7 +2473,7 @@
       }
     },
     {
-      "import_name": "_import150",
+      "import_name": "_import159",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2350,7 +2489,7 @@
       }
     },
     {
-      "import_name": "_import151",
+      "import_name": "_import160",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2366,7 +2505,7 @@
       }
     },
     {
-      "import_name": "_import152",
+      "import_name": "_import161",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2382,7 +2521,7 @@
       }
     },
     {
-      "import_name": "_import153",
+      "import_name": "_import162",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2398,7 +2537,7 @@
       }
     },
     {
-      "import_name": "_import154",
+      "import_name": "_import163",
       "definition": {
         "Instance": {
           "interface": 8,
@@ -2414,7 +2553,7 @@
       }
     },
     {
-      "import_name": "_import155",
+      "import_name": "_import164",
       "definition": {
         "Instance": {
           "interface": 9,
@@ -2430,7 +2569,7 @@
       }
     },
     {
-      "import_name": "_import156",
+      "import_name": "_import165",
       "definition": {
         "Instance": {
           "interface": 10,
@@ -2446,7 +2585,7 @@
       }
     },
     {
-      "import_name": "_import157",
+      "import_name": "_import166",
       "definition": {
         "Instance": {
           "interface": 10,
@@ -2462,7 +2601,7 @@
       }
     },
     {
-      "import_name": "_import158",
+      "import_name": "_import167",
       "definition": {
         "Instance": {
           "interface": 11,
@@ -2478,7 +2617,7 @@
       }
     },
     {
-      "import_name": "_import159",
+      "import_name": "_import168",
       "definition": {
         "Instance": {
           "interface": 11,
@@ -2494,7 +2633,7 @@
       }
     },
     {
-      "import_name": "_import160",
+      "import_name": "_import169",
       "definition": {
         "Instance": {
           "interface": 12,
@@ -2953,6 +3092,26 @@
         }
       },
       {
+        "name": "tina-process-host",
+        "imports": {
+          "interface-27": {
+            "interface": {
+              "id": 27
+            }
+          },
+          "interface-28": {
+            "interface": {
+              "id": 28
+            }
+          }
+        },
+        "exports": {},
+        "package": 7,
+        "docs": {
+          "contents": "The host-side world used to generate the Rust bindings. Like\n`tina:http`'s, it holds only the custom import; WASI is linked\nseparately through `wasmtime_wasi::p3::add_to_linker`."
+        }
+      },
+      {
         "name": "engine-probe",
         "imports": {
           "interface-25": {
@@ -2968,6 +3127,16 @@
           "interface-1": {
             "interface": {
               "id": 1
+            }
+          },
+          "interface-27": {
+            "interface": {
+              "id": 27
+            }
+          },
+          "interface-28": {
+            "interface": {
+              "id": 28
             }
           },
           "interface-13": {
@@ -3088,7 +3257,7 @@
             }
           }
         },
-        "package": 7,
+        "package": 8,
         "docs": {
           "contents": "One engine-shaped probe: WASI (filesystem preopens, environment, stdout,\nclocks, random) plus the tina:http host import, run by the case runner's\nprotocol (result-collector in, tested-module out)."
         }
@@ -3121,14 +3290,14 @@
               "id": 2
             }
           },
-          "interface-27": {
-            "interface": {
-              "id": 27
-            }
-          },
           "interface-29": {
             "interface": {
               "id": 29
+            }
+          },
+          "interface-31": {
+            "interface": {
+              "id": 31
             }
           },
           "interface-3": {
@@ -3158,13 +3327,13 @@
           }
         },
         "exports": {
-          "interface-28": {
+          "interface-30": {
             "interface": {
-              "id": 28
+              "id": 30
             }
           }
         },
-        "package": 8,
+        "package": 9,
         "docs": {
           "contents": "The `wasi:http/service` world captures a broad category of HTTP services\nincluding web applications, API servers, and proxies. It may be `include`d\nin more specific worlds such as `wasi:http/middleware`."
         },
@@ -3182,14 +3351,14 @@
               "id": 2
             }
           },
-          "interface-27": {
+          "interface-29": {
             "interface": {
-              "id": 27
+              "id": 29
             }
           },
-          "interface-28": {
+          "interface-30": {
             "interface": {
-              "id": 28
+              "id": 30
             }
           },
           "interface-16": {
@@ -3212,9 +3381,9 @@
               "id": 17
             }
           },
-          "interface-29": {
+          "interface-31": {
             "interface": {
-              "id": 29
+              "id": 31
             }
           },
           "interface-3": {
@@ -3244,13 +3413,13 @@
           }
         },
         "exports": {
-          "interface-28": {
+          "interface-30": {
             "interface": {
-              "id": 28
+              "id": 30
             }
           }
         },
-        "package": 8,
+        "package": 9,
         "docs": {
           "contents": "The `wasi:http/middleware` world captures HTTP services that forward HTTP\nRequests to another handler.\n\nComponents may implement this world to allow them to participate in handler\n\"chains\" where a `request` flows through handlers on its way to some terminal\n`service` and corresponding `response` flows in the opposite direction."
         },
@@ -5033,33 +5202,121 @@
       {
         "name": "types",
         "types": {
-          "duration": 125,
-          "method": 126,
-          "scheme": 127,
-          "DNS-error-payload": 130,
-          "TLS-alert-received-payload": 132,
-          "field-size-payload": 134,
-          "error-code": 137,
-          "header-error": 138,
-          "request-options-error": 139,
-          "field-name": 140,
-          "field-value": 141,
-          "fields": 142,
-          "headers": 143,
-          "trailers": 144,
-          "request": 145,
-          "request-options": 146,
-          "status-code": 147,
-          "response": 148
+          "verdict": 125,
+          "rule": 126,
+          "access-profile": 128,
+          "spawn-request": 135,
+          "started": 137,
+          "approval-request": 138,
+          "outcome": 139,
+          "exit": 140,
+          "error": 141
+        },
+        "functions": {},
+        "package": 7
+      },
+      {
+        "name": "process",
+        "types": {
+          "spawn-request": 142,
+          "outcome": 143,
+          "exit": 144,
+          "error": 145
+        },
+        "functions": {
+          "spawn": {
+            "name": "spawn",
+            "kind": "async-freestanding",
+            "params": [
+              {
+                "name": "req",
+                "type": 142
+              }
+            ],
+            "result": 146,
+            "docs": {
+              "contents": "Ask the host to run `req`. The profile is evaluated first: allow\nstarts the child, deny refuses with the rule, ask (or no match)\nreturns an approval request the engine must answer."
+            }
+          },
+          "respond": {
+            "name": "respond",
+            "kind": "async-freestanding",
+            "params": [
+              {
+                "name": "approval",
+                "type": "u64"
+              },
+              {
+                "name": "allow",
+                "type": "bool"
+              }
+            ],
+            "result": 146,
+            "docs": {
+              "contents": "Answer an approval request. `allow` spawns now and reports\n`started`; anything else refuses the spawn."
+            }
+          },
+          "wait": {
+            "name": "wait",
+            "kind": "async-freestanding",
+            "params": [
+              {
+                "name": "id",
+                "type": "u64"
+              }
+            ],
+            "result": 147,
+            "docs": {
+              "contents": "Resolve when the process exits, and reap it. Every started\nprocess is eventually waited."
+            }
+          },
+          "kill": {
+            "name": "kill",
+            "kind": "async-freestanding",
+            "params": [
+              {
+                "name": "id",
+                "type": "u64"
+              }
+            ],
+            "result": 148,
+            "docs": {
+              "contents": "Terminate the process (SIGKILL on POSIX hosts). Idempotent."
+            }
+          }
+        },
+        "package": 7
+      },
+      {
+        "name": "types",
+        "types": {
+          "duration": 149,
+          "method": 150,
+          "scheme": 151,
+          "DNS-error-payload": 154,
+          "TLS-alert-received-payload": 156,
+          "field-size-payload": 158,
+          "error-code": 161,
+          "header-error": 162,
+          "request-options-error": 163,
+          "field-name": 164,
+          "field-value": 165,
+          "fields": 166,
+          "headers": 167,
+          "trailers": 168,
+          "request": 169,
+          "request-options": 170,
+          "status-code": 171,
+          "response": 172
         },
         "functions": {
           "[constructor]fields": {
             "name": "[constructor]fields",
             "kind": {
-              "constructor": 142
+              "constructor": 166
             },
             "params": [],
-            "result": 151,
+            "result": 175,
             "docs": {
               "contents": "Construct an empty HTTP Fields.\n\nThe resulting `fields` is mutable."
             }
@@ -5067,15 +5324,15 @@
           "[static]fields.from-list": {
             "name": "[static]fields.from-list",
             "kind": {
-              "static": 142
+              "static": 166
             },
             "params": [
               {
                 "name": "entries",
-                "type": 150
+                "type": 174
               }
             ],
-            "result": 152,
+            "result": 176,
             "docs": {
               "contents": "Construct an HTTP Fields.\n\nThe resulting `fields` is mutable.\n\nThe list represents each name-value pair in the Fields. Names\nwhich have multiple values are represented by multiple entries in this\nlist with the same name.\n\nThe tuple is a pair of the field name, represented as a string, and\nValue, represented as a list of bytes. In a valid Fields, all names\nand values are valid UTF-8 strings. However, values are not always\nwell-formed, so they are represented as a raw list of bytes.\n\nAn error result will be returned if any header or value was\nsyntactically invalid, if a header was forbidden, or if the\nentries would exceed an implementation size limit."
             }
@@ -5083,19 +5340,19 @@
           "[method]fields.get": {
             "name": "[method]fields.get",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               },
               {
                 "name": "name",
-                "type": 140
+                "type": 164
               }
             ],
-            "result": 154,
+            "result": 178,
             "docs": {
               "contents": "Get all of the values corresponding to a name. If the name is not present\nin this `fields`, an empty list is returned. However, if the name is\npresent but empty, this is represented by a list with one or more\nempty field-values present."
             }
@@ -5103,16 +5360,16 @@
           "[method]fields.has": {
             "name": "[method]fields.has",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               },
               {
                 "name": "name",
-                "type": 140
+                "type": 164
               }
             ],
             "result": "bool",
@@ -5123,23 +5380,23 @@
           "[method]fields.set": {
             "name": "[method]fields.set",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               },
               {
                 "name": "name",
-                "type": 140
+                "type": 164
               },
               {
                 "name": "value",
-                "type": 154
+                "type": 178
               }
             ],
-            "result": 155,
+            "result": 179,
             "docs": {
               "contents": "Set all of the values for a name. Clears any existing values for that\nname, if they have been set.\n\nFails with `header-error.immutable` if the `fields` are immutable.\n\nFails with `header-error.size-exceeded` if the name or values would\nexceed an implementation-defined size limit."
             }
@@ -5147,19 +5404,19 @@
           "[method]fields.delete": {
             "name": "[method]fields.delete",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               },
               {
                 "name": "name",
-                "type": 140
+                "type": 164
               }
             ],
-            "result": 155,
+            "result": 179,
             "docs": {
               "contents": "Delete all values for a name. Does nothing if no values for the name\nexist.\n\nFails with `header-error.immutable` if the `fields` are immutable."
             }
@@ -5167,19 +5424,19 @@
           "[method]fields.get-and-delete": {
             "name": "[method]fields.get-and-delete",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               },
               {
                 "name": "name",
-                "type": 140
+                "type": 164
               }
             ],
-            "result": 156,
+            "result": 180,
             "docs": {
               "contents": "Delete all values for a name. Does nothing if no values for the name\nexist.\n\nReturns all values previously corresponding to the name, if any.\n\nFails with `header-error.immutable` if the `fields` are immutable."
             }
@@ -5187,23 +5444,23 @@
           "[method]fields.append": {
             "name": "[method]fields.append",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               },
               {
                 "name": "name",
-                "type": 140
+                "type": 164
               },
               {
                 "name": "value",
-                "type": 141
+                "type": 165
               }
             ],
-            "result": 155,
+            "result": 179,
             "docs": {
               "contents": "Append a value for a name. Does not change or delete any existing\nvalues for that name.\n\nFails with `header-error.immutable` if the `fields` are immutable.\n\nFails with `header-error.size-exceeded` if the value would exceed\nan implementation-defined size limit."
             }
@@ -5211,15 +5468,15 @@
           "[method]fields.copy-all": {
             "name": "[method]fields.copy-all",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               }
             ],
-            "result": 150,
+            "result": 174,
             "docs": {
               "contents": "Retrieve the full set of names and values in the Fields. Like the\nconstructor, the list represents each name-value pair.\n\nThe outer list represents each name-value pair in the Fields. Names\nwhich have multiple values are represented by multiple entries in this\nlist with the same name.\n\nThe names and values are always returned in the original casing and in\nthe order in which they will be serialized for transport."
             }
@@ -5227,15 +5484,15 @@
           "[method]fields.clone": {
             "name": "[method]fields.clone",
             "kind": {
-              "method": 142
+              "method": 166
             },
             "params": [
               {
                 "name": "self",
-                "type": 153
+                "type": 177
               }
             ],
-            "result": 151,
+            "result": 175,
             "docs": {
               "contents": "Make a deep copy of the Fields. Equivalent in behavior to calling the\n`fields` constructor on the return value of `copy-all`. The resulting\n`fields` is mutable."
             }
@@ -5243,27 +5500,27 @@
           "[static]request.new": {
             "name": "[static]request.new",
             "kind": {
-              "static": 145
+              "static": 169
             },
             "params": [
               {
                 "name": "headers",
-                "type": 189
+                "type": 213
               },
               {
                 "name": "contents",
-                "type": 158
+                "type": 182
               },
               {
                 "name": "trailers",
-                "type": 162
+                "type": 186
               },
               {
                 "name": "options",
-                "type": 164
+                "type": 188
               }
             ],
-            "result": 168,
+            "result": 192,
             "docs": {
               "contents": "Construct a new `request` with a default `method` of `GET`, and\n`none` values for `path-with-query`, `scheme`, and `authority`.\n\n`headers` is the HTTP Headers for the Request.\n\n`contents` is the optional body content stream with `none`\nrepresenting a zero-length content stream.\nOnce it is closed, `trailers` future must resolve to a result.\nIf `trailers` resolves to an error, underlying connection\nwill be closed immediately.\n\n`options` is optional `request-options` resource to be used\nif the request is sent over a network connection.\n\nIt is possible to construct, or manipulate with the accessor functions\nbelow, a `request` with an invalid combination of `scheme`\nand `authority`, or `headers` which are not permitted to be sent.\nIt is the obligation of the `handler.handle` implementation\nto reject invalid constructions of `request`.\n\nThe returned future resolves to result of transmission of this request."
             }
@@ -5271,15 +5528,15 @@
           "[method]request.get-method": {
             "name": "[method]request.get-method",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               }
             ],
-            "result": 126,
+            "result": 150,
             "docs": {
               "contents": "Get the Method for the Request."
             }
@@ -5287,19 +5544,19 @@
           "[method]request.set-method": {
             "name": "[method]request.set-method",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               },
               {
                 "name": "method",
-                "type": 126
+                "type": 150
               }
             ],
-            "result": 170,
+            "result": 194,
             "docs": {
               "contents": "Set the Method for the Request. Fails if the string present in a\n`method.other` argument is not a syntactically valid method."
             }
@@ -5307,15 +5564,15 @@
           "[method]request.get-path-with-query": {
             "name": "[method]request.get-path-with-query",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               }
             ],
-            "result": 128,
+            "result": 152,
             "docs": {
               "contents": "Get the combination of the HTTP Path and Query for the Request.  When\n`none`, this represents an empty Path and empty Query."
             }
@@ -5323,19 +5580,19 @@
           "[method]request.set-path-with-query": {
             "name": "[method]request.set-path-with-query",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               },
               {
                 "name": "path-with-query",
-                "type": 128
+                "type": 152
               }
             ],
-            "result": 170,
+            "result": 194,
             "docs": {
               "contents": "Set the combination of the HTTP Path and Query for the Request.  When\n`none`, this represents an empty Path and empty Query. Fails is the\nstring given is not a syntactically valid path and query uri component."
             }
@@ -5343,15 +5600,15 @@
           "[method]request.get-scheme": {
             "name": "[method]request.get-scheme",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               }
             ],
-            "result": 171,
+            "result": 195,
             "docs": {
               "contents": "Get the HTTP Related Scheme for the Request. When `none`, the\nimplementation may choose an appropriate default scheme."
             }
@@ -5359,19 +5616,19 @@
           "[method]request.set-scheme": {
             "name": "[method]request.set-scheme",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               },
               {
                 "name": "scheme",
-                "type": 171
+                "type": 195
               }
             ],
-            "result": 170,
+            "result": 194,
             "docs": {
               "contents": "Set the HTTP Related Scheme for the Request. When `none`, the\nimplementation may choose an appropriate default scheme. Fails if the\nstring given is not a syntactically valid uri scheme."
             }
@@ -5379,15 +5636,15 @@
           "[method]request.get-authority": {
             "name": "[method]request.get-authority",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               }
             ],
-            "result": 128,
+            "result": 152,
             "docs": {
               "contents": "Get the authority of the Request's target URI. A value of `none` may be used\nwith Related Schemes which do not require an authority. The HTTP and\nHTTPS schemes always require an authority."
             }
@@ -5395,19 +5652,19 @@
           "[method]request.set-authority": {
             "name": "[method]request.set-authority",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               },
               {
                 "name": "authority",
-                "type": 128
+                "type": 152
               }
             ],
-            "result": 170,
+            "result": 194,
             "docs": {
               "contents": "Set the authority of the Request's target URI. A value of `none` may be used\nwith Related Schemes which do not require an authority. The HTTP and\nHTTPS schemes always require an authority. Fails if the string given is\nnot a syntactically valid URI authority."
             }
@@ -5415,15 +5672,15 @@
           "[method]request.get-options": {
             "name": "[method]request.get-options",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               }
             ],
-            "result": 164,
+            "result": 188,
             "docs": {
               "contents": "Get the `request-options` to be associated with this request\n\nThe returned `request-options` resource is immutable: `set-*` operations\nwill fail if invoked.\n\nThis `request-options` resource is a child: it must be dropped before\nthe parent `request` is dropped, or its ownership is transferred to\nanother component by e.g. `handler.handle`."
             }
@@ -5431,15 +5688,15 @@
           "[method]request.get-headers": {
             "name": "[method]request.get-headers",
             "kind": {
-              "method": 145
+              "method": 169
             },
             "params": [
               {
                 "name": "self",
-                "type": 169
+                "type": 193
               }
             ],
-            "result": 189,
+            "result": 213,
             "docs": {
               "contents": "Get the headers associated with the Request.\n\nThe returned `headers` resource is immutable: `set`, `append`, and\n`delete` operations will fail with `header-error.immutable`."
             }
@@ -5447,19 +5704,19 @@
           "[static]request.consume-body": {
             "name": "[static]request.consume-body",
             "kind": {
-              "static": 145
+              "static": 169
             },
             "params": [
               {
                 "name": "this",
-                "type": 167
+                "type": 191
               },
               {
                 "name": "res",
-                "type": 166
+                "type": 190
               }
             ],
-            "result": 172,
+            "result": 196,
             "docs": {
               "contents": "Get body of the Request.\n\nStream returned by this method represents the contents of the body.\nOnce the stream is reported as closed, callers should await the returned\nfuture to determine whether the body was received successfully.\nThe future will only resolve after the stream is reported as closed.\n\nThis function takes a `res` future as a parameter, which can be used to\ncommunicate an error in handling of the request.\n\nNote that function will move the `request`, but references to headers or\nrequest options acquired from it previously will remain valid."
             }
@@ -5467,10 +5724,10 @@
           "[constructor]request-options": {
             "name": "[constructor]request-options",
             "kind": {
-              "constructor": 146
+              "constructor": 170
             },
             "params": [],
-            "result": 163,
+            "result": 187,
             "docs": {
               "contents": "Construct a default `request-options` value."
             }
@@ -5478,15 +5735,15 @@
           "[method]request-options.get-connect-timeout": {
             "name": "[method]request-options.get-connect-timeout",
             "kind": {
-              "method": 146
+              "method": 170
             },
             "params": [
               {
                 "name": "self",
-                "type": 173
+                "type": 197
               }
             ],
-            "result": 174,
+            "result": 198,
             "docs": {
               "contents": "The timeout for the initial connect to the HTTP Server."
             }
@@ -5494,19 +5751,19 @@
           "[method]request-options.set-connect-timeout": {
             "name": "[method]request-options.set-connect-timeout",
             "kind": {
-              "method": 146
+              "method": 170
             },
             "params": [
               {
                 "name": "self",
-                "type": 173
+                "type": 197
               },
               {
                 "name": "duration",
-                "type": 174
+                "type": 198
               }
             ],
-            "result": 175,
+            "result": 199,
             "docs": {
               "contents": "Set the timeout for the initial connect to the HTTP Server. An error\nreturn value indicates that this timeout is not supported or that this\nhandle is immutable."
             }
@@ -5514,15 +5771,15 @@
           "[method]request-options.get-first-byte-timeout": {
             "name": "[method]request-options.get-first-byte-timeout",
             "kind": {
-              "method": 146
+              "method": 170
             },
             "params": [
               {
                 "name": "self",
-                "type": 173
+                "type": 197
               }
             ],
-            "result": 174,
+            "result": 198,
             "docs": {
               "contents": "The timeout for receiving the first byte of the Response body."
             }
@@ -5530,19 +5787,19 @@
           "[method]request-options.set-first-byte-timeout": {
             "name": "[method]request-options.set-first-byte-timeout",
             "kind": {
-              "method": 146
+              "method": 170
             },
             "params": [
               {
                 "name": "self",
-                "type": 173
+                "type": 197
               },
               {
                 "name": "duration",
-                "type": 174
+                "type": 198
               }
             ],
-            "result": 175,
+            "result": 199,
             "docs": {
               "contents": "Set the timeout for receiving the first byte of the Response body. An\nerror return value indicates that this timeout is not supported or that\nthis handle is immutable."
             }
@@ -5550,15 +5807,15 @@
           "[method]request-options.get-between-bytes-timeout": {
             "name": "[method]request-options.get-between-bytes-timeout",
             "kind": {
-              "method": 146
+              "method": 170
             },
             "params": [
               {
                 "name": "self",
-                "type": 173
+                "type": 197
               }
             ],
-            "result": 174,
+            "result": 198,
             "docs": {
               "contents": "The timeout for receiving subsequent chunks of bytes in the Response\nbody stream."
             }
@@ -5566,19 +5823,19 @@
           "[method]request-options.set-between-bytes-timeout": {
             "name": "[method]request-options.set-between-bytes-timeout",
             "kind": {
-              "method": 146
+              "method": 170
             },
             "params": [
               {
                 "name": "self",
-                "type": 173
+                "type": 197
               },
               {
                 "name": "duration",
-                "type": 174
+                "type": 198
               }
             ],
-            "result": 175,
+            "result": 199,
             "docs": {
               "contents": "Set the timeout for receiving subsequent chunks of bytes in the Response\nbody stream. An error return value indicates that this timeout is not\nsupported or that this handle is immutable."
             }
@@ -5586,15 +5843,15 @@
           "[method]request-options.clone": {
             "name": "[method]request-options.clone",
             "kind": {
-              "method": 146
+              "method": 170
             },
             "params": [
               {
                 "name": "self",
-                "type": 173
+                "type": 197
               }
             ],
-            "result": 163,
+            "result": 187,
             "docs": {
               "contents": "Make a deep copy of the `request-options`.\nThe resulting `request-options` is mutable."
             }
@@ -5602,23 +5859,23 @@
           "[static]response.new": {
             "name": "[static]response.new",
             "kind": {
-              "static": 148
+              "static": 172
             },
             "params": [
               {
                 "name": "headers",
-                "type": 189
+                "type": 213
               },
               {
                 "name": "contents",
-                "type": 158
+                "type": 182
               },
               {
                 "name": "trailers",
-                "type": 162
+                "type": 186
               }
             ],
-            "result": 177,
+            "result": 201,
             "docs": {
               "contents": "Construct a new `response`, with a default `status-code` of `200`.\nIf a different `status-code` is needed, it must be set via the\n`set-status-code` method.\n\n`headers` is the HTTP Headers for the Response.\n\n`contents` is the optional body content stream with `none`\nrepresenting a zero-length content stream.\nOnce it is closed, `trailers` future must resolve to a result.\nIf `trailers` resolves to an error, underlying connection\nwill be closed immediately.\n\nThe returned future resolves to result of transmission of this response."
             }
@@ -5626,15 +5883,15 @@
           "[method]response.get-status-code": {
             "name": "[method]response.get-status-code",
             "kind": {
-              "method": 148
+              "method": 172
             },
             "params": [
               {
                 "name": "self",
-                "type": 178
+                "type": 202
               }
             ],
-            "result": 147,
+            "result": 171,
             "docs": {
               "contents": "Get the HTTP Status Code for the Response."
             }
@@ -5642,19 +5899,19 @@
           "[method]response.set-status-code": {
             "name": "[method]response.set-status-code",
             "kind": {
-              "method": 148
+              "method": 172
             },
             "params": [
               {
                 "name": "self",
-                "type": 178
+                "type": 202
               },
               {
                 "name": "status-code",
-                "type": 147
+                "type": 171
               }
             ],
-            "result": 170,
+            "result": 194,
             "docs": {
               "contents": "Set the HTTP Status Code for the Response. Fails if the status-code\ngiven is not a valid http status code."
             }
@@ -5662,15 +5919,15 @@
           "[method]response.get-headers": {
             "name": "[method]response.get-headers",
             "kind": {
-              "method": 148
+              "method": 172
             },
             "params": [
               {
                 "name": "self",
-                "type": 178
+                "type": 202
               }
             ],
-            "result": 189,
+            "result": 213,
             "docs": {
               "contents": "Get the headers associated with the Response.\n\nThe returned `headers` resource is immutable: `set`, `append`, and\n`delete` operations will fail with `header-error.immutable`."
             }
@@ -5678,19 +5935,19 @@
           "[static]response.consume-body": {
             "name": "[static]response.consume-body",
             "kind": {
-              "static": 148
+              "static": 172
             },
             "params": [
               {
                 "name": "this",
-                "type": 176
+                "type": 200
               },
               {
                 "name": "res",
-                "type": 166
+                "type": 190
               }
             ],
-            "result": 172,
+            "result": 196,
             "docs": {
               "contents": "Get body of the Response.\n\nStream returned by this method represents the contents of the body.\nOnce the stream is reported as closed, callers should await the returned\nfuture to determine whether the body was received successfully.\nThe future will only resolve after the stream is reported as closed.\n\nThis function takes a `res` future as a parameter, which can be used to\ncommunicate an error in handling of the response.\n\nNote that function will move the `response`, but references to headers\nacquired from it previously will remain valid."
             }
@@ -5704,14 +5961,14 @@
             "since": "0.3.0"
           }
         },
-        "package": 8
+        "package": 9
       },
       {
         "name": "handler",
         "types": {
-          "request": 179,
-          "response": 180,
-          "error-code": 181
+          "request": 203,
+          "response": 204,
+          "error-code": 205
         },
         "functions": {
           "handle": {
@@ -5720,10 +5977,10 @@
             "params": [
               {
                 "name": "request",
-                "type": 190
+                "type": 214
               }
             ],
-            "result": 183,
+            "result": 207,
             "docs": {
               "contents": "This function may be called with either an incoming request read from the\nnetwork or a request synthesized or forwarded by another component."
             }
@@ -5737,14 +5994,14 @@
             "since": "0.3.0"
           }
         },
-        "package": 8
+        "package": 9
       },
       {
         "name": "client",
         "types": {
-          "request": 184,
-          "response": 185,
-          "error-code": 186
+          "request": 208,
+          "response": 209,
+          "error-code": 210
         },
         "functions": {
           "send": {
@@ -5753,10 +6010,10 @@
             "params": [
               {
                 "name": "request",
-                "type": 191
+                "type": 215
               }
             ],
-            "result": 188,
+            "result": 212,
             "docs": {
               "contents": "This function may be used to either send an outgoing request over the\nnetwork or to forward it to another component."
             }
@@ -5770,7 +6027,7 @@
             "since": "0.3.0"
           }
         },
-        "package": 8
+        "package": 9
       }
     ],
     "types": [
@@ -7495,12 +7752,363 @@
         }
       },
       {
+        "name": "verdict",
+        "kind": {
+          "enum": {
+            "cases": [
+              {
+                "name": "allow"
+              },
+              {
+                "name": "deny"
+              },
+              {
+                "name": "ask"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "How one command-pattern rule judges a command line."
+        }
+      },
+      {
+        "name": "rule",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "pattern",
+                "type": "string"
+              },
+              {
+                "name": "verdict",
+                "type": 125
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "One access-profile rule: a conservative regular expression the\nhost anchors to the entire command line. Ordered list; the first\nmatch decides; no match asks."
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": 126
+        },
+        "owner": null
+      },
+      {
+        "name": "access-profile",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "rules",
+                "type": 127
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "The policy table the engine sends with every spawn."
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": "string"
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": "string"
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "tuple": {
+            "types": [
+              "string",
+              "string"
+            ]
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": 131
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": "u8"
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": 133
+        },
+        "owner": null
+      },
+      {
+        "name": "spawn-request",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "argv",
+                "type": 129
+              },
+              {
+                "name": "cwd",
+                "type": 130
+              },
+              {
+                "name": "env",
+                "type": 132
+              },
+              {
+                "name": "stdin",
+                "type": 134
+              },
+              {
+                "name": "profile",
+                "type": 128
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "One spawn request. `argv` is literal (no shell); `cwd` is a guest\npath resolved against the runner's preopens; `env` merges over\nthe inherited environment; `stdin` is written then closed."
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "stream": "u8"
+        },
+        "owner": null
+      },
+      {
+        "name": "started",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "id",
+                "type": "u64"
+              },
+              {
+                "name": "stdout",
+                "type": 136
+              },
+              {
+                "name": "stderr",
+                "type": 136
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "A child the host started: the id `wait`/`kill` address, plus the\noutput streams, delivered the way `tina:http` delivers bodies."
+        }
+      },
+      {
+        "name": "approval-request",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "id",
+                "type": "u64"
+              },
+              {
+                "name": "command",
+                "type": "string"
+              },
+              {
+                "name": "reason",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "An `ask` verdict surfaced to the engine: nothing runs until the\nengine answers `respond`. `command` is the joined command line."
+        }
+      },
+      {
+        "name": "outcome",
+        "kind": {
+          "variant": {
+            "cases": [
+              {
+                "name": "started",
+                "type": 137
+              },
+              {
+                "name": "approval",
+                "type": 138
+              },
+              {
+                "name": "denied",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "The policy verdicts the engine sees. Refusal is an outcome with a\nreason to surface, not an error."
+        }
+      },
+      {
+        "name": "exit",
+        "kind": {
+          "variant": {
+            "cases": [
+              {
+                "name": "code",
+                "type": "u32"
+              },
+              {
+                "name": "signal",
+                "type": "u32"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "How the process ended: an exit code, or termination by `signal`."
+        }
+      },
+      {
+        "name": "error",
+        "kind": {
+          "variant": {
+            "cases": [
+              {
+                "name": "message",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 27
+        },
+        "docs": {
+          "contents": "Host-side failure (missing binary, bad cwd, ...): a message the\nengine can surface verbatim, never a raw OS error."
+        }
+      },
+      {
+        "name": "spawn-request",
+        "kind": {
+          "type": 135
+        },
+        "owner": {
+          "interface": 28
+        }
+      },
+      {
+        "name": "outcome",
+        "kind": {
+          "type": 139
+        },
+        "owner": {
+          "interface": 28
+        }
+      },
+      {
+        "name": "exit",
+        "kind": {
+          "type": 140
+        },
+        "owner": {
+          "interface": 28
+        }
+      },
+      {
+        "name": "error",
+        "kind": {
+          "type": 141
+        },
+        "owner": {
+          "interface": 28
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 143,
+            "err": 145
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 144,
+            "err": 145
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": null,
+            "err": 145
+          }
+        },
+        "owner": null
+      },
+      {
         "name": "duration",
         "kind": {
           "type": 15
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         }
       },
       {
@@ -7552,7 +8160,7 @@
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "This type corresponds to HTTP standard Methods."
@@ -7584,7 +8192,7 @@
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "This type corresponds to HTTP standard Related Schemes."
@@ -7626,17 +8234,17 @@
             "fields": [
               {
                 "name": "rcode",
-                "type": 128
+                "type": 152
               },
               {
                 "name": "info-code",
-                "type": 129
+                "type": 153
               }
             ]
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Defines the case payload type for `DNS-error` above:"
@@ -7666,17 +8274,17 @@
             "fields": [
               {
                 "name": "alert-id",
-                "type": 131
+                "type": 155
               },
               {
                 "name": "alert-message",
-                "type": 128
+                "type": 152
               }
             ]
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Defines the case payload type for `TLS-alert-received` above:"
@@ -7706,17 +8314,17 @@
             "fields": [
               {
                 "name": "field-name",
-                "type": 128
+                "type": 152
               },
               {
                 "name": "field-size",
-                "type": 133
+                "type": 157
               }
             ]
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Defines the case payload type for `HTTP-response-{header,trailer}-size` above:"
@@ -7742,7 +8350,7 @@
       {
         "name": null,
         "kind": {
-          "option": 134
+          "option": 158
         },
         "owner": null,
         "stability": {
@@ -7762,7 +8370,7 @@
               },
               {
                 "name": "DNS-error",
-                "type": 130
+                "type": 154
               },
               {
                 "name": "destination-not-found",
@@ -7814,7 +8422,7 @@
               },
               {
                 "name": "TLS-alert-received",
-                "type": 132
+                "type": 156
               },
               {
                 "name": "HTTP-request-denied",
@@ -7826,7 +8434,7 @@
               },
               {
                 "name": "HTTP-request-body-size",
-                "type": 135
+                "type": 159
               },
               {
                 "name": "HTTP-request-method-invalid",
@@ -7842,19 +8450,19 @@
               },
               {
                 "name": "HTTP-request-header-section-size",
-                "type": 133
+                "type": 157
               },
               {
                 "name": "HTTP-request-header-size",
-                "type": 136
+                "type": 160
               },
               {
                 "name": "HTTP-request-trailer-section-size",
-                "type": 133
+                "type": 157
               },
               {
                 "name": "HTTP-request-trailer-size",
-                "type": 134
+                "type": 158
               },
               {
                 "name": "HTTP-response-incomplete",
@@ -7862,31 +8470,31 @@
               },
               {
                 "name": "HTTP-response-header-section-size",
-                "type": 133
+                "type": 157
               },
               {
                 "name": "HTTP-response-header-size",
-                "type": 134
+                "type": 158
               },
               {
                 "name": "HTTP-response-body-size",
-                "type": 135
+                "type": 159
               },
               {
                 "name": "HTTP-response-trailer-section-size",
-                "type": 133
+                "type": 157
               },
               {
                 "name": "HTTP-response-trailer-size",
-                "type": 134
+                "type": 158
               },
               {
                 "name": "HTTP-response-transfer-coding",
-                "type": 128
+                "type": 152
               },
               {
                 "name": "HTTP-response-content-coding",
-                "type": 128
+                "type": 152
               },
               {
                 "name": "HTTP-response-timeout",
@@ -7910,7 +8518,7 @@
               },
               {
                 "name": "internal-error",
-                "type": 128,
+                "type": 152,
                 "docs": {
                   "contents": "This is a catch-all error for anything that doesn't fit cleanly into a\nmore specific case. It also includes an optional string for an\nunstructured description of the error. Users should not depend on the\nstring for diagnosing errors, as it's not required to be consistent\nbetween implementations."
                 }
@@ -7919,7 +8527,7 @@
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "These cases are inspired by the IANA HTTP Proxy Error Types:\n  <https://www.iana.org/assignments/http-proxy-status/http-proxy-status.xhtml#table-http-proxy-error-types>"
@@ -7965,7 +8573,7 @@
               },
               {
                 "name": "other",
-                "type": 128,
+                "type": 152,
                 "docs": {
                   "contents": "This is a catch-all error for anything that doesn't fit cleanly into a\nmore specific case. Implementations can use this to extend the error\ntype without breaking existing code. It also includes an optional\nstring for an unstructured description of the error. Users should not\ndepend on the string for diagnosing errors, as it's not required to be\nconsistent between implementations."
                 }
@@ -7974,7 +8582,7 @@
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "This type enumerates the different kinds of errors that may occur when\nsetting or appending to a `fields` resource."
@@ -8006,7 +8614,7 @@
               },
               {
                 "name": "other",
-                "type": 128,
+                "type": 152,
                 "docs": {
                   "contents": "This is a catch-all error for anything that doesn't fit cleanly into a\nmore specific case. Implementations can use this to extend the error\ntype without breaking existing code. It also includes an optional\nstring for an unstructured description of the error. Users should not\ndepend on the string for diagnosing errors, as it's not required to be\nconsistent between implementations."
                 }
@@ -8015,7 +8623,7 @@
           }
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "This type enumerates the different kinds of errors that may occur when\nsetting fields of a `request-options` resource."
@@ -8032,7 +8640,7 @@
           "type": "string"
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Field names are always strings.\n\nField names should always be treated as case insensitive by the `fields`\nresource for the purposes of equality checking."
@@ -8049,7 +8657,7 @@
           "list": "u8"
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Field values should always be ASCII strings. However, in\nreality, HTTP implementations often have to interpret malformed values,\nso they are provided as a list of bytes."
@@ -8064,7 +8672,7 @@
         "name": "fields",
         "kind": "resource",
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "This following block defines the `fields` resource which corresponds to\nHTTP standard Fields. Fields are a common representation used for both\nHeaders and Trailers.\n\nA `fields` may be mutable or immutable. A `fields` created using the\nconstructor, `from-list`, or `clone` will be mutable, but a `fields`\nresource given by other means (including, but not limited to,\n`request.headers`) might be be immutable. In an immutable fields, the\n`set`, `append`, and `delete` operations will fail with\n`header-error.immutable`.\n\nA `fields` resource should store `field-name`s and `field-value`s in their\noriginal casing used to construct or mutate the `fields` resource. The `fields`\nresource should use that original casing when serializing the fields for\ntransport or when returning them from a method.\n\nImplementations may impose limits on individual field values and on total\naggregate field section size. Operations that would exceed these limits\nfail with `header-error.size-exceeded`"
@@ -8078,10 +8686,10 @@
       {
         "name": "headers",
         "kind": {
-          "type": 142
+          "type": 166
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Headers is an alias for Fields."
@@ -8095,10 +8703,10 @@
       {
         "name": "trailers",
         "kind": {
-          "type": 142
+          "type": 166
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Trailers is an alias for Fields."
@@ -8113,7 +8721,7 @@
         "name": "request",
         "kind": "resource",
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Represents an HTTP Request."
@@ -8128,7 +8736,7 @@
         "name": "request-options",
         "kind": "resource",
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Parameters for making an HTTP Request. Each of these parameters is\ncurrently an optional timeout applicable to the transport layer of the\nHTTP protocol.\n\nThese timeouts are separate from any the user may use to bound an\nasynchronous call."
@@ -8145,7 +8753,7 @@
           "type": "u16"
         },
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "This type corresponds to the HTTP standard Status Code."
@@ -8160,7 +8768,7 @@
         "name": "response",
         "kind": "resource",
         "owner": {
-          "interface": 27
+          "interface": 29
         },
         "docs": {
           "contents": "Represents an HTTP Response."
@@ -8176,8 +8784,8 @@
         "kind": {
           "tuple": {
             "types": [
-              140,
-              141
+              164,
+              165
             ]
           }
         },
@@ -8191,7 +8799,7 @@
       {
         "name": null,
         "kind": {
-          "list": 149
+          "list": 173
         },
         "owner": null,
         "stability": {
@@ -8204,7 +8812,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 142
+            "own": 166
           }
         },
         "owner": null
@@ -8213,8 +8821,8 @@
         "name": null,
         "kind": {
           "result": {
-            "ok": 151,
-            "err": 138
+            "ok": 175,
+            "err": 162
           }
         },
         "owner": null,
@@ -8228,7 +8836,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "borrow": 142
+            "borrow": 166
           }
         },
         "owner": null,
@@ -8241,7 +8849,7 @@
       {
         "name": null,
         "kind": {
-          "list": 141
+          "list": 165
         },
         "owner": null,
         "stability": {
@@ -8255,7 +8863,7 @@
         "kind": {
           "result": {
             "ok": null,
-            "err": 138
+            "err": 162
           }
         },
         "owner": null,
@@ -8269,8 +8877,8 @@
         "name": null,
         "kind": {
           "result": {
-            "ok": 154,
-            "err": 138
+            "ok": 178,
+            "err": 162
           }
         },
         "owner": null,
@@ -8290,7 +8898,7 @@
       {
         "name": null,
         "kind": {
-          "option": 157
+          "option": 181
         },
         "owner": null
       },
@@ -8298,7 +8906,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 144
+            "own": 168
           }
         },
         "owner": null
@@ -8306,7 +8914,7 @@
       {
         "name": null,
         "kind": {
-          "option": 159
+          "option": 183
         },
         "owner": null,
         "stability": {
@@ -8319,8 +8927,8 @@
         "name": null,
         "kind": {
           "result": {
-            "ok": 160,
-            "err": 137
+            "ok": 184,
+            "err": 161
           }
         },
         "owner": null,
@@ -8333,7 +8941,7 @@
       {
         "name": null,
         "kind": {
-          "future": 161
+          "future": 185
         },
         "owner": null,
         "stability": {
@@ -8346,7 +8954,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 146
+            "own": 170
           }
         },
         "owner": null
@@ -8354,7 +8962,7 @@
       {
         "name": null,
         "kind": {
-          "option": 163
+          "option": 187
         },
         "owner": null,
         "stability": {
@@ -8368,7 +8976,7 @@
         "kind": {
           "result": {
             "ok": null,
-            "err": 137
+            "err": 161
           }
         },
         "owner": null,
@@ -8381,7 +8989,7 @@
       {
         "name": null,
         "kind": {
-          "future": 165
+          "future": 189
         },
         "owner": null,
         "stability": {
@@ -8394,7 +9002,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 145
+            "own": 169
           }
         },
         "owner": null
@@ -8404,8 +9012,8 @@
         "kind": {
           "tuple": {
             "types": [
-              167,
-              166
+              191,
+              190
             ]
           }
         },
@@ -8420,7 +9028,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "borrow": 145
+            "borrow": 169
           }
         },
         "owner": null,
@@ -8443,7 +9051,7 @@
       {
         "name": null,
         "kind": {
-          "option": 127
+          "option": 151
         },
         "owner": null,
         "stability": {
@@ -8457,8 +9065,8 @@
         "kind": {
           "tuple": {
             "types": [
-              157,
-              162
+              181,
+              186
             ]
           }
         },
@@ -8473,7 +9081,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "borrow": 146
+            "borrow": 170
           }
         },
         "owner": null,
@@ -8486,7 +9094,7 @@
       {
         "name": null,
         "kind": {
-          "option": 125
+          "option": 149
         },
         "owner": null
       },
@@ -8495,7 +9103,7 @@
         "kind": {
           "result": {
             "ok": null,
-            "err": 139
+            "err": 163
           }
         },
         "owner": null,
@@ -8509,7 +9117,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 148
+            "own": 172
           }
         },
         "owner": null
@@ -8519,8 +9127,8 @@
         "kind": {
           "tuple": {
             "types": [
-              176,
-              166
+              200,
+              190
             ]
           }
         },
@@ -8535,7 +9143,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "borrow": 148
+            "borrow": 172
           }
         },
         "owner": null,
@@ -8548,35 +9156,35 @@
       {
         "name": "request",
         "kind": {
-          "type": 145
+          "type": 169
         },
         "owner": {
-          "interface": 28
+          "interface": 30
         }
       },
       {
         "name": "response",
         "kind": {
-          "type": 148
+          "type": 172
         },
         "owner": {
-          "interface": 28
+          "interface": 30
         }
       },
       {
         "name": "error-code",
         "kind": {
-          "type": 137
+          "type": 161
         },
         "owner": {
-          "interface": 28
+          "interface": 30
         }
       },
       {
         "name": null,
         "kind": {
           "handle": {
-            "own": 180
+            "own": 204
           }
         },
         "owner": null
@@ -8585,8 +9193,8 @@
         "name": null,
         "kind": {
           "result": {
-            "ok": 182,
-            "err": 181
+            "ok": 206,
+            "err": 205
           }
         },
         "owner": null
@@ -8594,35 +9202,35 @@
       {
         "name": "request",
         "kind": {
-          "type": 145
+          "type": 169
         },
         "owner": {
-          "interface": 29
+          "interface": 31
         }
       },
       {
         "name": "response",
         "kind": {
-          "type": 148
+          "type": 172
         },
         "owner": {
-          "interface": 29
+          "interface": 31
         }
       },
       {
         "name": "error-code",
         "kind": {
-          "type": 137
+          "type": 161
         },
         "owner": {
-          "interface": 29
+          "interface": 31
         }
       },
       {
         "name": null,
         "kind": {
           "handle": {
-            "own": 185
+            "own": 209
           }
         },
         "owner": null
@@ -8631,8 +9239,8 @@
         "name": null,
         "kind": {
           "result": {
-            "ok": 187,
-            "err": 186
+            "ok": 211,
+            "err": 210
           }
         },
         "owner": null
@@ -8641,7 +9249,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 143
+            "own": 167
           }
         },
         "owner": null
@@ -8650,7 +9258,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 179
+            "own": 203
           }
         },
         "owner": null
@@ -8659,7 +9267,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 184
+            "own": 208
           }
         },
         "owner": null
@@ -8739,22 +9347,35 @@
         "worlds": {}
       },
       {
+        "name": "tina:process@1.0.0",
+        "docs": {
+          "contents": "The `tina:process` host interface: the engine's process port\n(`tina_core.ProcessPort`) served by the host, because WASI has no\nprocess spawn. Spec: docs/tina_process.md.\n\nThe access profile travels with every request; the host evaluates it\nbefore any process exists and is the only side that can spawn. An\n`ask` verdict returns to the engine as an approval request it answers\nwith `respond` - the host cannot call back into a blocked guest."
+        },
+        "interfaces": {
+          "types": 27,
+          "process": 28
+        },
+        "worlds": {
+          "tina-process-host": 2
+        }
+      },
+      {
         "name": "tina:probe@1.0.0",
         "interfaces": {},
         "worlds": {
-          "engine-probe": 2
+          "engine-probe": 3
         }
       },
       {
         "name": "wasi:http@0.3.0",
         "interfaces": {
-          "types": 27,
-          "handler": 28,
-          "client": 29
+          "types": 29,
+          "handler": 30,
+          "client": 31
         },
         "worlds": {
-          "service": 3,
-          "middleware": 4
+          "service": 4,
+          "middleware": 5
         }
       }
     ]
