@@ -7,3 +7,4 @@ library;
 export 'src/io_http_endpoint.dart';
 export 'src/io_file_system_port.dart';
 export 'src/io_environment_port.dart';
+export 'src/io_process_port.dart';
