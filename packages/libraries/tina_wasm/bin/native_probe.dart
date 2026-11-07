@@ -13,6 +13,9 @@ import 'package:tina_wasm/src/probe_body.dart';
 
 void main(List<String> arguments) async {
   final recorder = _PrintRecorder();
+  // The same start/end markers the wasm run's host posts, so the two
+  // outputs diff byte for byte.
+  print(json.encode({'type': 'start', 'test': 0}));
   await runProbe(
     files: const IoFileSystemPort(),
     endpoint: (base) => IoHttpEndpoint(endpoint: base),
@@ -21,6 +24,7 @@ void main(List<String> arguments) async {
     random: SystemRandom(),
     recorder: recorder,
   );
+  print(json.encode({'type': 'end', 'test': 0}));
   // Match the runner's trailing flush discipline: native exits when the
   // main future completes and pending prints have landed.
   await io.stdout.flush();
