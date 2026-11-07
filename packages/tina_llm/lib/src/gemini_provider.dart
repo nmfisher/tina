@@ -240,20 +240,19 @@ final class GeminiProvider extends LlmProvider
     HttpEndpoint? endpoint,
     this.stallTimeout = const Duration(seconds: 120),
     this.generation = const GenerationOptions(),
-  })  : _endpoint = endpoint ?? IoHttpEndpoint(endpoint: baseUrl),
+  })  : _endpoint = endpoint,
         _tokenFrom = tokenFrom,
         super(model);
 
   final String baseUrl;
-  final HttpEndpoint _endpoint;
+  final HttpEndpoint? _endpoint;
   final String Function() _tokenFrom;
   final Duration stallTimeout;
   final GenerationOptions generation;
 
   @override
   void close() {
-    final e = _endpoint;
-    if (e is IoHttpEndpoint) e.close();
+    _endpoint?.close();
   }
 
   @override
@@ -287,6 +286,14 @@ final class GeminiProvider extends LlmProvider
           '(see the provider list)');
       return;
     }
+    final endpoint = _endpoint;
+    if (endpoint == null) {
+      // Fail closed: the composition root must inject the HTTP port.
+      yield const StreamError(
+          'no HTTP endpoint: the composition root must inject one '
+          '(natively tina_io\'s IoHttpEndpoint)');
+      return;
+    }
     final HttpResponse response;
     try {
       final request = generation.gemini(geminiBody(
@@ -301,7 +308,7 @@ final class GeminiProvider extends LlmProvider
           'text': {'mimeType': 'application/json', 'schema': output.schema},
         };
       }
-      response = await _endpoint.post(
+      response = await endpoint.post(
         geminiStreamPath(baseUrl, model),
         headers: {
           'content-type': 'application/json',

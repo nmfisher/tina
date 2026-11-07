@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_io/tina_io.dart';
 
 import 'helpers.dart';
 
@@ -564,6 +565,7 @@ void main() {
         endpoint: ep,
         tokenFrom: () => '',
         cacheDir: dir.path,
+        fileSystem: const IoFileSystemPort(),
       );
       expect(catalogue, isNotNull);
       expect(ep.path, '/api.json');
@@ -601,7 +603,8 @@ void main() {
           },
         },
       }));
-      final catalogue = await ModelsDevCatalog.read(cacheDir: dir.path);
+      final catalogue = await ModelsDevCatalog.read(
+          cacheDir: dir.path, fileSystem: const IoFileSystemPort());
       expect(catalogue, isNotNull);
       final models = catalogue!.modelsFor(descriptorById('deepseek')!);
       expect(models.first.id, 'deepseek-chat');

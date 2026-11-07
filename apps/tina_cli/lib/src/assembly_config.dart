@@ -8,6 +8,7 @@ import 'package:tina_core/tina_core.dart' show validatePluginId;
 import 'package:toml/toml.dart';
 import 'package:tina_mcp/tina_mcp.dart' show McpServerConfig;
 import 'provider_config.dart';
+import 'legacy_provider_cache.dart';
 import 'package:tina_providers/tina_providers.dart';
 
 export 'provider_config.dart';

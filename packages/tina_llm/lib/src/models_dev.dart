@@ -5,13 +5,17 @@
 ///
 /// The network sits behind the same injectable seam as the wires:
 /// production passes an [HttpEndpoint] pointing at models.dev; tests
-/// replay bytes and pass a temp directory. A failed or stale fetch is
-/// never fatal — a turn falls back to the descriptor's own model list.
+/// replay bytes and pass a temp directory. The disk cache sits behind the
+/// [FileSystemPort] (natively `tina_io`'s implementation; a wasm host
+/// supplies its own or nothing — without one the cache is skipped). A
+/// failed or stale fetch is never fatal — a turn falls back to the
+/// descriptor's own model list.
 library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:tina_core/tina_core.dart';
 
 import 'descriptor.dart';
 import 'http.dart';
@@ -62,24 +66,35 @@ ModelInfo modelsDevModelInfo(String id, Map<String, dynamic> json,
 /// The catalogue as fetched and cached: provider id → model id → raw
 /// record. Parse lazily, merge with the descriptors at read time.
 class ModelsDevCatalog {
-  ModelsDevCatalog._(this._providers, this.cachePath);
+  ModelsDevCatalog._(this._providers, this.cachePath, this._fileSystem,
+      this._clock);
 
   final Map<String, Map<String, dynamic>> _providers;
 
   /// Where the copy on disk lives, for diagnostics.
   final String cachePath;
 
+  /// The cache's file port and clock, when the caller supplied them. The
+  /// catalogue is inert without a file system: [isStale] reports stale so
+  /// a refetch is attempted rather than a missing cache trusted.
+  final FileSystemPort? _fileSystem;
+  final ClockPort? _clock;
+
   /// Fetch from [endpoint] (a GET on the models.dev API path — the seam
   /// is POST-shaped for the wires, so the catalogue carries its own
-  /// fetch), cache to [cacheDir] (default tina's own), and return the
-  /// parsed catalogue. Any failure returns null and touches nothing:
-  /// absence of the catalogue is a fallback, not an error.
+  /// fetch), cache to [cacheDir] (default tina's own) through
+  /// [fileSystem], and return the parsed catalogue. Any failure returns
+  /// null and touches nothing: absence of the catalogue is a fallback,
+  /// not an error.
   static Future<ModelsDevCatalog?> fetch({
     required HttpEndpoint endpoint,
     required String Function() tokenFrom,
     String? cacheDir,
+    FileSystemPort? fileSystem,
+    EnvironmentPort? environment,
+    ClockPort? clock,
   }) async {
-    final dir = cacheDir ?? _defaultCacheDir();
+    final dir = cacheDir ?? _defaultCacheDir(environment);
     try {
       final response = await endpoint.get(
         '/api.json',
@@ -99,26 +114,34 @@ class ModelsDevCatalog {
         }
       });
       if (providers.isEmpty) return null;
-      final file = File('$dir/$modelsDevCacheFile');
-      await file.parent.create(recursive: true);
-      await file.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(providers),
-        flush: true,
-      );
-      return ModelsDevCatalog._(providers, file.path);
+      if (dir != null && fileSystem != null) {
+        await fileSystem.createDirectory(dir, recursive: true);
+        await fileSystem.writeText(
+          '$dir/$modelsDevCacheFile',
+          const JsonEncoder.withIndent('  ').convert(providers),
+        );
+      }
+      return ModelsDevCatalog._(
+          providers, dir == null ? '' : '$dir/$modelsDevCacheFile',
+          fileSystem, clock);
     } catch (_) {
       // No catalogue: descriptors carry the turn. Never fatal.
       return null;
     }
   }
 
-  /// Read the last fetched copy from [cacheDir] (default tina's own), or
-  /// null when it was never fetched. Staleness is the caller's call —
-  /// the merge tolerates whatever age this has.
-  static Future<ModelsDevCatalog?> read({String? cacheDir}) async {
-    final dir = cacheDir ?? _defaultCacheDir();
+  /// Read the last fetched copy from [cacheDir] (default tina's own)
+  /// through [fileSystem], or null when it was never fetched. Staleness
+  /// is the caller's call — the merge tolerates whatever age this has.
+  static Future<ModelsDevCatalog?> read({
+    String? cacheDir,
+    FileSystemPort? fileSystem,
+    EnvironmentPort? environment,
+  }) async {
+    final dir = cacheDir ?? _defaultCacheDir(environment);
+    if (dir == null || fileSystem == null) return null;
     try {
-      final text = await File('$dir/$modelsDevCacheFile').readAsString();
+      final text = await fileSystem.readText('$dir/$modelsDevCacheFile');
       final decoded = jsonDecode(text);
       if (decoded is! Map<String, dynamic>) return null;
       final providers = <String, Map<String, dynamic>>{};
@@ -126,7 +149,8 @@ class ModelsDevCatalog {
         if (value is Map<String, dynamic>) providers[id] = value;
       });
       if (providers.isEmpty) return null;
-      return ModelsDevCatalog._(providers, '$dir/$modelsDevCacheFile');
+      return ModelsDevCatalog._(providers, '$dir/$modelsDevCacheFile',
+          fileSystem, null);
     } catch (_) {
       return null;
     }
@@ -135,10 +159,12 @@ class ModelsDevCatalog {
   /// True when the cached copy is older than [maxAge]. A missing copy is
   /// stale by definition; an unreadable stamp is treated as stale so a
   /// refetch is attempted rather than trusted.
-  bool isStale(Duration maxAge) {
+  Future<bool> isStale(Duration maxAge) async {
+    final fileSystem = _fileSystem, clock = _clock;
+    if (fileSystem == null || clock == null) return true;
     try {
-      final stamp = File('$cachePath.stamp').lastModifiedSync();
-      return DateTime.now().difference(stamp) > maxAge;
+      final stamp = await fileSystem.lastModified('$cachePath.stamp');
+      return clock.now().difference(stamp) > maxAge;
     } catch (_) {
       return true;
     }
@@ -174,10 +200,13 @@ class ModelsDevCatalog {
 }
 
 /// `$HOME/.tina` (or `%USERPROFILE%`), falling back to the current
-/// directory — the same resolution tina uses everywhere else.
-String _defaultCacheDir() {
-  final home = Platform.environment['HOME'] ??
-      Platform.environment['USERPROFILE'] ??
-      Directory.current.path;
+/// directory — the same resolution tina uses everywhere else. Resolution
+/// goes through the injected environment port; with no port (a host that
+/// supplies none) there is no default cache location and null comes back.
+String? _defaultCacheDir(EnvironmentPort? environment) {
+  if (environment == null) return null;
+  final home = environment.env('HOME') ??
+      environment.env('USERPROFILE') ??
+      environment.currentDirectory;
   return '$home/.tina/$modelsDevCacheDir';
 }

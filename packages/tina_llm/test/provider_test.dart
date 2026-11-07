@@ -32,6 +32,9 @@ final class _ReplayEndpoint implements HttpEndpoint {
   Map<String, dynamic>? body;
 
   @override
+  void close() {}
+
+  @override
   Future<HttpResponse> post(
     String path, {
     required Map<String, String> headers,

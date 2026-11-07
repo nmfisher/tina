@@ -322,6 +322,26 @@ jobs:
         working-directory: packages/libraries/tina_settings
         run: dart test -j 4
 
+  tina_io:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_io')
+    name: tina_io (packages/libraries/tina_io)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_io)
+        working-directory: packages/libraries/tina_io
+        run: dart pub get
+      - name: analyze (tina_io)
+        working-directory: packages/libraries/tina_io
+        run: dart analyze
+      - name: test (tina_io)
+        working-directory: packages/libraries/tina_io
+        run: dart test -j 4
+
   fuzzy_ranker:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'fuzzy_ranker')

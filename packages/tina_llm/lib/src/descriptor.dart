@@ -134,30 +134,31 @@ class ProviderDescriptor {
 
   /// Construct the wire provider for [model]. The token closure is
   /// required — production passes one reading [keyEnvVar] from the
-  /// environment; tests pass a literal without touching any store.
+  /// environment; tests pass a literal without touching any store. The
+  /// endpoint is optional: without one the provider fails closed at send
+  /// time (the composition root injects `tina_io`'s native client).
   LlmProvider build({
     required String model,
     required String Function() tokenFrom,
     HttpEndpoint? endpoint,
   }) {
-    final endpoint0 = endpoint ?? IoHttpEndpoint(endpoint: baseUrl);
     return switch (wire) {
       ProviderWire.anthropic => AnthropicProvider(
           model: model,
-          endpoint: endpoint0,
+          endpoint: endpoint,
           tokenFrom: tokenFrom,
         ),
       ProviderWire.openAiCompatible => OpenAiCompatibleProvider(
           model: model,
           baseUrl: baseUrl,
-          endpoint: endpoint0,
+          endpoint: endpoint,
           tokenFrom: tokenFrom,
           structuredOutput: structuredOutput,
         ),
       ProviderWire.gemini => GeminiProvider(
           model: model,
           baseUrl: baseUrl,
-          endpoint: endpoint0,
+          endpoint: endpoint,
           tokenFrom: tokenFrom,
         ),
     };

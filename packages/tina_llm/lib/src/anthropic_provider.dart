@@ -1,11 +1,11 @@
 /// The one real provider: Anthropic's messages API over the wire the
 /// sandbox endpoint (`api.z.ai/api/anthropic`) speaks.
 ///
-/// - The HTTP client is injected ([endpoint]); the default is `dart:io`'s
-///   own. Tests replay recorded bytes; nothing here opens a socket in a
-///   test.
-/// - The token comes from the environment or an injected credential source.
-///   It is never written to a
+/// - The HTTP client is injected ([endpoint]); the composition root builds
+///   it from `tina_io` natively. Tests replay recorded bytes; nothing here
+///   opens a socket in a test, and nothing here imports `dart:io`.
+/// - The token comes from the injected [environment] port or an injected
+///   credential source. It is never written to a
 ///   file, a log, an error message, or a report. A missing token is a
 ///   stream error, not a crash.
 /// - A stream that stops sending becomes a stream error after [stallTimeout]
@@ -17,7 +17,6 @@ library;
 import 'generation_options.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:tina_core/tina_core.dart';
 
@@ -29,59 +28,45 @@ export 'http.dart';
 export 'request.dart';
 export 'sse.dart';
 
-/// Where the token and the endpoint come from. Overridable for tests;
-/// production never passes it, so nothing but the environment is read.
-String? _env(String name) {
-  try {
-    return Platform.environment[name];
-  } catch (_) {
-    return null;
-  }
-}
-
 /// The Anthropic-wire provider.
 final class AnthropicProvider extends LlmProvider
     implements StructuredOutputProvider {
   /// Build from the environment. [tokenFrom] exists so tests can inject a
-  /// fake token value without touching the process environment; the
-  /// default reads `TINA_LLM_TOKEN`, then `ANTHROPIC_AUTH_TOKEN` (both
-  /// bearer), then `ANTHROPIC_API_KEY` (x-api-key). Null means every call
-  /// fails closed with a clear stream error.
+  /// fake token value without touching any environment; the default reads
+  /// `TINA_LLM_TOKEN`, then `ANTHROPIC_AUTH_TOKEN` (both bearer), then
+  /// `ANTHROPIC_API_KEY` (x-api-key) through [environment]. Null means
+  /// every call fails closed with a clear stream error.
   AnthropicProvider({
     required String model,
     HttpEndpoint? endpoint,
     this.stallTimeout = const Duration(seconds: 120),
     this.generation = const GenerationOptions(),
     String? Function()? tokenFrom,
-    String? endpointUrl,
     this.bearerToken,
+    EnvironmentPort? environment,
   })  : _endpointOverride = endpoint,
-        _endpointUrl = endpointUrl,
-        _tokenFrom = tokenFrom ?? _defaultTokenFrom,
+        _tokenFrom = tokenFrom,
+        _environment = environment,
         super(model);
-
-  /// The default token source. A static tear-off so [_auth] can tell "the
-  /// environment is the source" from "a test injected this closure" — the
-  /// environment knows which header its token rides, an injected one
-  /// defaults to bearer.
-  static String? _defaultTokenFrom() => _envToken().$1;
 
   /// The messages path on the endpoint.
   static const messagesPath = '/v1/messages';
 
   final HttpEndpoint? _endpointOverride;
-  final String? _endpointUrl;
-  final String? Function() _tokenFrom;
+  final String? Function()? _tokenFrom;
+  final EnvironmentPort? _environment;
 
   /// Explicit header choice for configured credentials. Null preserves the
   /// environment's auth selection and the injected-token bearer default.
   final bool? bearerToken;
 
+  String? _env(String name) => _environment?.env(name);
+
   /// The default token source: name and value resolved together, so the
   /// header shape can never drift from the value. `TINA_LLM_TOKEN` and
   /// `ANTHROPIC_AUTH_TOKEN` are bearer tokens (z.ai's gateway issues
   /// these); `ANTHROPIC_API_KEY` rides `x-api-key`.
-  static (String?, bool) _envToken() {
+  (String?, bool) _envToken() {
     final t = _env('TINA_LLM_TOKEN');
     if (t != null && t.isNotEmpty) return (t, true);
     final b = _env('ANTHROPIC_AUTH_TOKEN');
@@ -94,39 +79,33 @@ final class AnthropicProvider extends LlmProvider
   /// The resolved credential for one send: the token (null means "none
   /// found — fail closed") and whether it rides `authorization` (bearer)
   /// or `x-api-key`. A test-injected token (via `tokenFrom`) rides
-  /// bearer — the shape every recorded fixture uses.
+  /// bearer — the shape every recorded fixture uses; without one, the
+  /// injected environment is the source and knows which header its token
+  /// rides.
   ({String? token, bool bearer}) _auth() {
-    if (identical(_tokenFrom, _defaultTokenFrom)) {
-      final (t, b) = _envToken();
-      return (token: t, bearer: bearerToken ?? b);
+    final injected = _tokenFrom;
+    if (injected != null) {
+      final t = injected();
+      return (token: t, bearer: bearerToken ?? (t != null && t.isNotEmpty));
     }
-    final t = _tokenFrom();
-    return (token: t, bearer: bearerToken ?? (t != null && t.isNotEmpty));
+    final (t, b) = _envToken();
+    return (token: t, bearer: bearerToken ?? b);
   }
 
   /// How long a silent stream is tolerated before it is declared stalled.
   final Duration stallTimeout;
   final GenerationOptions generation;
 
-  HttpEndpoint? _builtEndpoint;
+  /// The endpoint, injected by the composition root (natively `tina_io`'s
+  /// client; a fake in tests). Null means no send can happen — it fails
+  /// closed with a clear stream error, like a missing token.
+  HttpEndpoint? get endpoint => _endpointOverride;
 
-  /// The endpoint: injected, or built from the environment's
-  /// `TINA_LLM_ENDPOINT` (falling back to the sandbox's anthropic path).
-  /// Built lazily and once.
-  HttpEndpoint get endpoint {
-    if (_endpointOverride != null) return _endpointOverride;
-    return _builtEndpoint ??= IoHttpEndpoint(
-      endpoint: _endpointUrl ??
-          _env('TINA_LLM_ENDPOINT') ??
-          'https://api.z.ai/api/anthropic',
-    );
-  }
-
-  /// Close the underlying `dart:io` client, when this provider built one.
+  /// Close the injected endpoint, when there is one. Endpoints built by
+  /// the composition root are owned through the port.
   @override
   void close() {
-    final e = _builtEndpoint;
-    if (e is IoHttpEndpoint) e.close();
+    _endpointOverride?.close();
   }
 
   @override
@@ -158,6 +137,14 @@ final class AnthropicProvider extends LlmProvider
           'no API token: set TINA_LLM_TOKEN or ANTHROPIC_AUTH_TOKEN or '
           'ANTHROPIC_API_KEY in the environment',
           providerCode: 'no_token');
+      return;
+    }
+    final endpoint = this.endpoint;
+    if (endpoint == null) {
+      yield const StreamError(
+          'no HTTP endpoint: the composition root must inject one '
+          '(natively tina_io\'s IoHttpEndpoint)',
+          providerCode: 'no_endpoint');
       return;
     }
 
