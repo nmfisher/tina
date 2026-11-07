@@ -17,3 +17,5 @@ export 'src/terminal.dart';
 export 'src/session_details.dart';
 export 'src/plugin_session.dart';
 export 'src/plugin_id.dart';
+
+export 'src/ports.dart';

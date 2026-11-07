@@ -1,0 +1,34 @@
+== packages/tina_engine_2/lib/src/loop.dart
+   49: DateTime.now :: String _now() => DateTime.now().toUtc().toIso8601String();
+== packages/tina_engine_2/lib/src/session_observation.dart
+   182: DateTime.now :: final now = DateTime.now();
+== packages/tina_host/lib/src/cli_contribution.dart
+   57: Stdin :: this.readsStdin = false,
+   60: Stdin :: final bool readsStdin;
+   65: Stdin :: Future<String> Function() readStdin) prepare;
+== packages/tina_host/lib/src/host.dart
+   83: Random.secure :: (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
+   128: DateTime.now :: 'started_at': DateTime.now().toUtc().toIso8601String(),
+   343: DateTime.now :: sessionId ?? 's-${DateTime.now().microsecondsSinceEpoch}-child');
+   346: DateTime.now :: config, sessionId ?? 's-${DateTime.now().microsecondsSinceEpoch}', false);
+== packages/tina_host/lib/src/session_questions.dart
+   35: Random.secure :: (_) => Random.secure()
+   76: DateTime.now :: duration == null ? null : DateTime.now().toUtc().add(duration)),
+== packages/tina_llm/lib/src/anthropic_provider.dart
+   import 20: import 'dart:io';
+   36: Platform. :: return Platform.environment[name];
+== packages/tina_llm/lib/src/cached_providers.dart
+   import 2: import 'dart:io';
+   14: File( :: raw = jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+== packages/tina_llm/lib/src/http.dart
+   import 7: import 'dart:io';
+   62: HttpClient( :: HttpClient get _client => _io ??= HttpClient();
+== packages/tina_llm/lib/src/models_dev.dart
+   import 14: import 'dart:io';
+   102: File( :: final file = File('$dir/$modelsDevCacheFile');
+   121: File( :: final text = await File('$dir/$modelsDevCacheFile').readAsString();
+   140: File( :: final stamp = File('$cachePath.stamp').lastModifiedSync();
+   141: DateTime.now :: return DateTime.now().difference(stamp) > maxAge;
+   179: Platform. :: final home = Platform.environment['HOME'] ??
+   180: Platform. :: Platform.environment['USERPROFILE'] ??
+   181: Directory. :: Directory.current.path;
