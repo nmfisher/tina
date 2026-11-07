@@ -4,6 +4,7 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_tools/tina_tools.dart' show noSandboxOption;
 import 'cli_options.dart';
+import 'pipes.dart';
 import 'plugin_catalog.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart';
@@ -64,15 +65,32 @@ Future<int> runCli(
   final dryRun = parsed.contains(dryRunOption);
   final workingDirectory = parsed[cwdOption] ?? Directory.current.path;
   final command = selected?.command;
-  final headless = command != null;
+  final pipes = parsed.contains(pipesOption);
+  final headless = command != null || pipes;
   if (!Directory(workingDirectory).existsSync()) {
     stderr.writeln('tina: workspace does not exist: $workingDirectory');
     return 66;
   }
+  if (pipes) {
+    final conflicting = [
+      if (command != null) command.option.flag,
+      if (configure) '--configure',
+      if (legacySource != null) '--import-sessions',
+      if (listModels) '--models',
+      if (resume) '--resume',
+      if (continueLatest) '--continue',
+    ];
+    if (conflicting.isNotEmpty) {
+      stderr.writeln(
+        'tina: --pipes cannot be combined with ${conflicting.join(', ')}',
+      );
+      return 64;
+    }
+  }
   if (headless && (configure || legacySource != null || listModels)) {
     stderr.writeln(
-      'tina: ${command.option.flag} cannot be combined with '
-      '--configure, --import-sessions or --models',
+      'tina: ${command == null ? '--pipes' : command.option.flag} cannot be '
+      'combined with --configure, --import-sessions or --models',
     );
     return 64;
   }
@@ -258,7 +276,15 @@ Future<int> runCli(
       ),
     );
 
-    if (headless) {
+    if (pipes) {
+      try {
+        return await runSessionPipes(assembly);
+      } finally {
+        await assembly.shutdown();
+      }
+    }
+
+    if (command != null) {
       final connection = assembly.host.connect();
       try {
         final id = connection.requestWindow.id('cli');

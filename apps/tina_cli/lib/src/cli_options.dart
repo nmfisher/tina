@@ -86,6 +86,14 @@ const yoloOption = CliOption(
       'Use with --no-sandbox to also lift filesystem and network confinement.',
   value: CliValue.none,
 );
+const pipesOption = CliOption(
+  'pipes',
+  description:
+      'Run headless over stdio: line-delimited JSON requests on stdin, '
+      'line-delimited JSON events on stdout. Not combinable with session '
+      'commands, --configure, --import-sessions, --models, --resume or --continue.',
+  value: CliValue.none,
+);
 
 CliSchema applicationCliSchema({
   PluginRegistry<SessionPluginContext>? registry,
@@ -106,6 +114,7 @@ CliSchema applicationCliSchema({
       importSessionsOption,
       dryRunOption,
       yoloOption,
+      pipesOption,
     ],
     plugins: {
       for (final id in registry.ids)
