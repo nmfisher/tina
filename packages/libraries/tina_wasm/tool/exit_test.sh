@@ -9,6 +9,7 @@
 # (path overrides) for the compile.
 set -e
 cd "$(dirname "$0")/.."
+PKG="$PWD"
 WS="${1:-/tmp/probe-ws}"
 RUNNER="${RUNNER:-/workspace/target/debug/test_runner}"
 NATIVE_OUT=/tmp/exit_native.txt
@@ -18,7 +19,7 @@ rm -f "$WS/out/probe-write.txt"
 
 echo "=== native probe"
 (cd "$WS" && TINA_LLM_ENDPOINT=http://127.0.0.1:8730 TINA_LLM_TOKEN=probe-token \
-  dart run --enable-asserts bin/native_probe.dart) | tee "$NATIVE_OUT"
+  dart run --enable-asserts "$PKG/bin/native_probe.dart") | tee "$NATIVE_OUT"
 
 rm -f "$WS/out/probe-write.txt"
 
