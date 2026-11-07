@@ -1,10 +1,10 @@
 import 'dart:convert';
 
 import 'package:tina_core/tina_core.dart';
+import 'default_file_system.dart';
 import 'tool_descriptions.dart';
 
 import 'file_system.dart';
-import 'io_file_system.dart';
 import 'tool.dart';
 import 'tool_file_system.dart';
 
@@ -22,8 +22,8 @@ class ReadTool implements Tool {
   final ToolFileSystem _routes;
 
   ReadTool({FileSystem? fs, this.workspaceRoot})
-      : fs = fs ?? IoFileSystem(),
-        _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
+      : fs = fs ?? defaultFileSystem(),
+        _routes = ToolFileSystem.of(fs ?? defaultFileSystem(),
             workspaceRoot: workspaceRoot);
 
   static const int defaultLimit = 2000;

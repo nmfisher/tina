@@ -27,3 +27,23 @@ abstract class FileSystem {
   /// [rename]s it onto the final target.
   Future<String> createTempFile({required String near});
 }
+
+/// The filesystem failure every [FileSystem] implementation throws, so
+/// tools catch one type on every platform — including wasm builds, where
+/// `dart:io`'s exception does not exist. [IoFileSystem] rethrows
+/// `dart:io` failures as this type, message and path preserved.
+final class ToolFsException implements Exception {
+  const ToolFsException(this.message, [this.path, this.osError]);
+
+  final String message;
+  final String? path;
+  final Object? osError;
+
+  @override
+  String toString() {
+    final buffer = StringBuffer('FileSystemException: $message');
+    if (path != null) buffer.write(", path = '$path'");
+    if (osError != null) buffer.write(' (OS Error: $osError)');
+    return buffer.toString();
+  }
+}

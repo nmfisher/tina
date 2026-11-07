@@ -1,12 +1,11 @@
 import 'dart:convert';
-import 'dart:io' show FileSystemException;
 
 import 'package:tina_core/tina_core.dart';
+import 'default_file_system.dart';
 import 'tool_descriptions.dart';
 
 import 'atomic_write.dart';
 import 'file_system.dart';
-import 'io_file_system.dart';
 import 'tool.dart';
 import 'tool_file_system.dart';
 import 'tool_input.dart';
@@ -32,8 +31,8 @@ class EditTool implements Tool {
   final String? Function(String path)? scratchNoticeFor;
 
   EditTool({FileSystem? fs, this.workspaceRoot, this.scratchNoticeFor})
-      : fs = fs ?? IoFileSystem(),
-        _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
+      : fs = fs ?? defaultFileSystem(),
+        _routes = ToolFileSystem.of(fs ?? defaultFileSystem(),
             workspaceRoot: workspaceRoot);
 
   @override
@@ -89,7 +88,7 @@ class EditTool implements Tool {
       // instead of asking again.
       return await _routes.run(
           FileOp.write, request.path, () => _edit(request));
-    } on FileSystemException catch (e) {
+    } on ToolFsException catch (e) {
       return ToolResult.error('Unable to apply edit: $e');
     } on FormatException {
       return ToolResult.error('Edit target could not be decoded as text.');
