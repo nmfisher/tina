@@ -296,8 +296,14 @@
     "packages/classification/lib/src/shared/range_packer.dart",
     "packages/classification/lib/src/permissions/precedent.dart"
   ],
-  "noDirectIoFiles": [
-    "packages/classification/lib/src/input/classification_trace.dart",
+  "noDirectIoPackages": [
+    "tina_core",
+    "tina_engine_2",
+    "tina_host",
+    "tina_llm",
+    "tina_settings"
+  ],
+  "noDirectIoFiles": [    "packages/classification/lib/src/input/classification_trace.dart",
     "packages/classification/lib/src/input/category_catalog.dart",
     "packages/classification/lib/src/input/category_learner.dart",
     "packages/classification/lib/src/input/adaptive_classifier.dart",
@@ -479,7 +485,8 @@
     "tina_web_search": [
       "tina_core",
       "tina_engine_2",
-      "tina_llm"
+      "tina_llm",
+      "tina_io"
     ],
     "tina_settings": [],
     "tina_io": [
@@ -507,6 +514,7 @@
       "tina_goals",
       "tina_grok_guard",
       "tina_host",
+      "tina_io",
       "tina_llm",
       "tina_mcp",
       "tina_mcp_tui",

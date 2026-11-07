@@ -25,6 +25,7 @@ class ArchitecturePolicy {
   List<DependencyViolation> check(DependencyGraph graph) {
     final found = <DependencyViolation>[];
     final terminal = values('terminalPackages');
+    final noDirectIoPackages = values('noDirectIoPackages');
     bool isTerminal(String file) => terminal.contains(graph.owner(file)?.name);
     final runtime = graph.manifestDependencies();
     // Validate dev dependencies resolve too; they are not production graph edges.
@@ -91,6 +92,20 @@ class ArchitecturePolicy {
           graph.forbidden(file, 'pure-planning', (f) => f == 'dart:io'),
         );
       if (values('noDirectIoFiles').contains(path))
+        found.addAll(
+          graph.forbidden(
+            file,
+            'service-io',
+            (f) => f == 'dart:io',
+            transitive: false,
+          ),
+        );
+      // The wasm engine boundary: whole packages whose `lib/` trees must
+      // carry no direct `dart:io` import at all — they compile to a wasm
+      // module that has none. `test/` stays exempt: engine tests run on
+      // the VM and exercise native behavior through dart:io on purpose.
+      if (noDirectIoPackages.contains(owner.name) &&
+          under(path, p.join(packagePath(owner.name), 'lib')))
         found.addAll(
           graph.forbidden(
             file,
@@ -249,6 +264,11 @@ class ArchitecturePolicy {
 
   void validateWorkspace(String root) {
     final owned = values('ownedPackages'), vendor = values('vendoredPackages');
+    final unknownIoPackages = values('noDirectIoPackages').difference(owned);
+    if (unknownIoPackages.isNotEmpty)
+      throw StateError(
+          'noDirectIoPackages names unowned packages: '
+          '${unknownIoPackages.toList()..sort()}');
     if (sourceRoots.keys.toSet().difference(owned).isNotEmpty ||
         owned.difference(sourceRoots.keys.toSet()).isNotEmpty) {
       throw StateError('Every owned package must have source roots');
