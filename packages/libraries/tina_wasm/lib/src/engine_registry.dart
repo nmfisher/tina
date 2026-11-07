@@ -6,7 +6,7 @@
 library;
 
 import 'package:classification/permissions.dart' show PermissionClassifier;
-import 'package:tina_approvals/tina_approvals.dart';
+import 'package:tina_approvals/tina_approvals.dart' as tina_approvals;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_mode/tina_mode.dart';
@@ -25,8 +25,8 @@ const modelAccess = PluginCapability<ModelAccess>('tina/model-access');
 /// `tina/tools`, provided by the portable plugin.
 const toolProvider = PluginCapability<ModePolicySource>('tina/tools');
 
-/// The tools channel the headless assembly selects.
-const approvalChannel = PluginCapability<ApprovalChannel>('tina/approvals-stream');
+// The delivery-channel capability, exactly as the native catalog sees it.
+const approvalChannel = tina_approvals.approvalChannel;
 
 /// Builds the wasm registry: every first-party plugin whose dependency
 /// tree compiles without `dart:io`/`dart:ffi`, driven by the same
@@ -65,7 +65,7 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry() =>
         ),
         PluginDefinition<SessionPluginContext>(
           'tina/approvals-stream',
-          (_) => StreamApprovalChannel(),
+          (_) => tina_approvals.StreamApprovalChannel(),
           provides: [approvalChannel],
           description:
               'Delivers approval requests to the attached client over the pipes protocol.',

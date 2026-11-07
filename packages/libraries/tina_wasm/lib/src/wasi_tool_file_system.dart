@@ -42,7 +42,7 @@ final class WasiToolFileSystem implements tools.FileSystem {
       path: relative,
       openFlags: directory
           ? fs.TypesOpenFlags(0).withDirectory(true)
-          : fs.TypesOpenFlags(0),
+          : fs.TypesOpenFlags(0).withCreate(create).withTruncate(false),
       flags: fs.TypesDescriptorFlags(0).withRead(read).withWrite(write),
     );
     switch (opened) {
@@ -165,9 +165,8 @@ final class WasiToolFileSystem implements tools.FileSystem {
   @override
   Future<void> rename(String from, String to) async {
     // `rename-at` names the old entry from the directory that holds it.
-    final fromDir = from.contains('/')
-        ? from.substring(0, from.lastIndexOf('/'))
-        : '.';
+    final slash = from.lastIndexOf('/');
+    final fromDir = slash > 0 ? from.substring(0, slash) : '.';
     final parent = await _open(fromDir.isEmpty ? '.' : fromDir,
         read: true, directory: true);
     try {
@@ -184,8 +183,10 @@ final class WasiToolFileSystem implements tools.FileSystem {
     }
   }
 
-  String _lastOf(String path) =>
-      path.split('/').where((s) => s.isNotEmpty).toList().last;
+  String _lastOf(String path) {
+    final parts = path.split('/').where((s) => s.isNotEmpty).toList();
+    return parts.isEmpty ? '.' : parts.last;
+  }
 
   @override
   Future<void> delete(String path) async {
@@ -208,8 +209,9 @@ final class WasiToolFileSystem implements tools.FileSystem {
     // The preopened workspace is one real filesystem: a sibling name is
     // as atomic as the parent allows. Random suffix, capped attempts —
     // same contract as the native implementation.
-    final dir = near.substring(0, near.lastIndexOf('/'));
-    final base = near.substring(near.lastIndexOf('/') + 1);
+    final slash = near.lastIndexOf('/');
+    final dir = slash > 0 ? near.substring(0, slash) : '.';
+    final base = slash >= 0 ? near.substring(slash + 1) : near;
     for (var attempt = 0; attempt < 10; attempt++) {
       final name = '.tina-write-$base-$attempt-${DateTime.now().microsecondsSinceEpoch % 1000000}';
       final candidate = dir.isEmpty ? name : '$dir/$name';

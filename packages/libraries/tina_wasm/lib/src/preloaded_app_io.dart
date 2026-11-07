@@ -10,7 +10,10 @@ library;
 
 import 'dart:typed_data';
 
+import 'package:toml/toml.dart' as toml;
+
 import 'package:tina/src/app_io.dart';
+import 'package:tina/src/settings_stack.dart' show GlobalDocumentSource;
 import 'package:tina_settings/tina_settings.dart';
 import 'package:wasm_components/wasm_components.dart' as cm;
 
@@ -190,7 +193,8 @@ final class PreloadedAppIo implements AppIo {
 
 /// The preloaded settings backend: global and workspace documents from
 /// the snapshot, an in-memory session layer, and the shared merge.
-final class PreloadedSettingsBackend implements SettingsBackend {
+final class PreloadedSettingsBackend
+    implements SettingsBackend, GlobalDocumentSource {
   PreloadedSettingsBackend(this._io,
       {required this.globalPath, required this.workspacePath});
 
@@ -229,12 +233,15 @@ final class PreloadedSettingsBackend implements SettingsBackend {
 
   Map<String, Object?> _parse(String path) {
     final raw = _raw(path);
-    // A minimal TOML-free key=value view: the preloaded global config the
-    // exit test writes (`model = ...`, `[plugins]`) is consumed by the
-    // assembly's own TOML parser through ConfigDocument on the NATIVE
-    // side; under wasm the engine's provider selection comes from the
-    // environment and the model default, so the document view only needs
-    // to stay structurally valid (empty unless the snapshot parsed it).
-    return <String, Object?>{};
+    if (raw == null) return <String, Object?>{};
+    try {
+      return toml.TomlDocument.parse(raw).toMap();
+    } catch (_) {
+      return <String, Object?>{};
+    }
   }
+
+  @override
+  Map<String, dynamic> globalDocument() =>
+      Map<String, dynamic>.from(_parse(globalPath));
 }

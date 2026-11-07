@@ -26,21 +26,28 @@ SettingCatalog createSettingsCatalog(
       catalog.register(setting);
     }
   }
+  // The registry's delivery channels, in registration order.
+  final channels = [
+    for (final id in registry.ids)
+      if (registry
+          .definition(id)
+          .provides
+          .any((role) => role.name == approvalChannel.name))
+        registry.definition(id)
+  ];
   catalog.register(SettingDefinition<String>(
       id: 'tina/approvals/channel',
       label: 'Approval delivery',
       description:
           'Selects the plugin that presents approval requests. Exactly one delivery channel is selected.',
-      defaultValue: defaultApprovalChannel,
+      // A registry that does not carry the default channel (the wasm
+      // registry omits the TUI plugins) falls back to its first
+      // registered channel, so the setting stays constructible.
+      defaultValue: registry.ids.any((id) => id == defaultApprovalChannel)
+          ? defaultApprovalChannel
+          : channels.first.id,
       kind: SettingKind.choice,
-      choices: [
-        for (final id in registry.ids)
-          if (registry
-              .definition(id)
-              .provides
-              .any((role) => role.name == approvalChannel.name))
-            id
-      ],
+      choices: [for (final definition in channels) definition.id],
       scopes: {SettingScope.global, SettingScope.workspace},
       applyAt: ApplyAt.restart,
       scopeReason: 'Approval delivery is selected when a conversation opens.',

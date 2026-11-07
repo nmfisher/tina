@@ -5,3 +5,7 @@ import 'package:tina_settings/tina_settings.dart';
 /// supertypes so one assembly compiles on both platforms.
 typedef ToolsPlugin = AgentPlugin;
 typedef ConfigSettingsBackend = SettingsBackend;
+
+/// The store types under wasm (no sqlite): shape-only aliases.
+typedef SessionStore = Object;
+typedef SessionStoreOpener = Object Function();

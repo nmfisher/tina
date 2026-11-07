@@ -37,6 +37,9 @@ import 'package:tina_wasm/src/wasm_environment_port.dart';
 import 'package:tina_wasm/src/wasm_file_system_port.dart';
 import 'package:tina_wasm/src/wasm_http_endpoint.dart';
 
+/// The ordered stdout queue (see [_TestedModule._emit]).
+Future<void> _stdoutQueue = Future.value();
+
 void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
@@ -64,6 +67,17 @@ final class _TestedModule implements tests.TestedModule {
   @override
   Future<void> invokeTest({required int number}) async {
     assert(number == 0);
+    try {
+      await _boot();
+    } catch (error, stack) {
+      _emit('BOOT-ERROR: $error');
+      for (final line in '$stack'.split('\n').take(12)) {
+        _emit('BOOT-AT: $line');
+      }
+    }
+  }
+
+  Future<void> _boot() async {
     final environment = _environment();
 
     // 1. Preload the config tree and the workspace's `.tina` from the
@@ -138,6 +152,10 @@ final class _TestedModule implements tests.TestedModule {
         input: _stdin(),
         emit: _emit,
       );
+      // The ordered stdout queue must drain before the export returns:
+      // component streams created after the task's return are never
+      // driven by the host's event loop.
+      await _stdoutQueue;
     } finally {
       await assembly.shutdown();
     }
@@ -154,9 +172,11 @@ final class _TestedModule implements tests.TestedModule {
   }
 
   void _emit(String line) {
-    // One line, one stream write: the host's stdout tracking sees each.
-    _imports.cliStdout.writeViaStream(
-      data: Stream.value(Uint8List.fromList('$line\n'.codeUnits)),
-    );
+    // One line, one stream write, chained in order: concurrent streams
+    // have no guaranteed write order, and the pipes protocol's events
+    // must not interleave.
+    _stdoutQueue = _stdoutQueue.then((_) => _imports.cliStdout.writeViaStream(
+          data: Stream.value(Uint8List.fromList('$line\n'.codeUnits)),
+        ));
   }
 }

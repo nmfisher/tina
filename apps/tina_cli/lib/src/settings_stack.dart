@@ -8,6 +8,13 @@ import 'scoped_config.dart' show ConfigSettingsBackend;
 import 'settings_stack_unsupported.dart'
     if (dart.library.io) 'settings_stack_io.dart';
 
+/// What an injected settings backend offers beyond the interface: the
+/// parsed global config document, so the standard merge starts from the
+/// same shape the native backend's does.
+abstract interface class GlobalDocumentSource {
+  Map<String, dynamic> globalDocument();
+}
+
 /// The scoped-settings stack every entry point shares: registry → catalog →
 /// file backend → session-scoped facade. Assembly wires the rest of the TUI
 /// around it; `tina config` and first-run run it without a session.
@@ -73,8 +80,18 @@ final class ScopedSettingsStack {
         effectiveDocument: resolvedBackend is ConfigSettingsBackend
             ? (resolvedBackend as ConfigSettingsBackend).effectiveDocument
             : (effectiveDocument ??
-                (throw StateError(
-                    'an injected settings backend must supply its merge'))));
+                () => mergeSettingLayers(
+                      globalDocument:
+                          resolvedBackend is GlobalDocumentSource
+                              ? (resolvedBackend as GlobalDocumentSource)
+                                  .globalDocument()
+                              : const <String, dynamic>{},
+                      layers: {
+                        for (final scope in SettingScope.values)
+                          scope: resolvedBackend.read(scope),
+                      },
+                      definitions: catalog.definitions,
+                    )));
   }
 
   /// The plugin registry the catalog was built from.

@@ -148,6 +148,9 @@ void listSessions({
   required AssemblyWriter writer,
   required String storePath,
 }) {
+  if (!defaultAppIo().exists(storePath)) {
+    persistenceNoStore(storePath);
+  }
   persistenceListSessions(writer, storePath);
 }
 
@@ -366,10 +369,10 @@ final class SessionAssembly {
       throw ArgumentError('--store and --resume require tina/persistence');
     }
     final path = options.storePath ?? defaultSessionStorePath(workingDirectory);
-    Object openStore() {
+    SessionStore openStore() {
       diagnostics?.stage?.call('store-open-start');
       defaultAppIo().createDirectory(p.dirname(path), recursive: true);
-      final store = persistenceOpenStore(path);
+      final store = persistenceOpenStore(path) as SessionStore;
       diagnostics?.stage?.call('store-open-end');
       return store;
     }
@@ -476,7 +479,7 @@ final class SessionAssembly {
           for (final entry in descriptor.models.entries)
             '${descriptor.id}/${entry.key}': entry.value.name,
       }),
-      openStore: persists ? openStore : null,
+      openStore: persists ? openStore as SessionStoreOpener : null,
       contextLoaded: () =>
           assembled?.host.plugins
               .any((plugin) => plugin.id == 'tina/context') ??
@@ -563,7 +566,7 @@ final class SessionAssembly {
       validatePlugins: registry.validate,
       pluginSettings: pluginSettings,
       settings: settings,
-      settingsBackend: settingsBackend,
+      settingsBackend: settingsBackend as ConfigSettingsBackend,
       pluginManager:
           PluginManager(host: host, registry: registry, context: context),
       stopConfigurationUpdates: stopConfigurationUpdates,

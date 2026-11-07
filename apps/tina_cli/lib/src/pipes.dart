@@ -33,6 +33,23 @@ import 'package:tina_host/tina_host.dart';
 
 import 'assembly.dart';
 
+/// Line-decodes [source] without the stream-transformer chain: under
+/// dart2wasm the typed-transformer covariance check rejects
+/// `utf8.decoder` on a `Stream<Uint8List>`, and the protocol's needs are
+/// one decoder and one splitter anyway.
+Stream<String> _linesOf(Stream<List<int>> source) async* {
+  var carried = '';
+  await for (final chunk in source) {
+    carried = '$carried${utf8.decode(chunk)}';
+    int newline;
+    while ((newline = carried.indexOf('\n')) >= 0) {
+      yield carried.substring(0, newline);
+      carried = carried.substring(newline + 1);
+    }
+  }
+  if (carried.isNotEmpty) yield carried;
+}
+
 /// Drives [assembly] over pipes until `shutdown`, stdin EOF or SIGINT.
 /// Returns the process exit code. The caller owns assembly shutdown.
 Future<int> runSessionPipes(
@@ -96,9 +113,7 @@ final class _SessionPipes {
     final source = input ?? defaultPipesInput();
     final lines = source == null
         ? const Stream<String>.empty()
-        : source
-            .transform(utf8.decoder)
-            .transform(const LineSplitter());
+        : _linesOf(source);
     final subscription = lines.listen(
       (line) {
         _handleLine(line, stop);

@@ -66,3 +66,15 @@ The stage-4 process exit test (`tool/process_exit_test.sh`) follows the
 same shape with `bin/process_probe.dart` / `bin/native_process_probe.dart`
 in a throwaway git repository: process output, approval round-trips and
 denials must record identically under the host and natively.
+
+## The engine component (stage 5)
+
+`bin/engine.dart` is the real headless engine as a component: the same
+`SessionAssembly` + `--pipes` protocol the native CLI runs, over the
+wasm ports (HTTP via `tina:http`, files via preopens, the portable
+tools, config preloaded from the config preopen). Build with
+`dart run wasm_tools compile bin/engine.dart`; run with the wasm.dart
+`test_runner`, two preopens (`.` = workspace, `config` = config tree)
+and `--env` provider credentials. `tool/engine_exit_test.sh` drives one
+full agent turn (provider call, `write` tool call, file edit) against
+both engines and requires PASS on both.
