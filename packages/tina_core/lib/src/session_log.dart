@@ -261,8 +261,11 @@ sealed class SessionEntry {
           summary: j['summary'] as String,
           at: at,
         ).withSeq(stamped);
-      case RewoundEntry.kindName:
-        return RewoundEntry(
+      case CutEntry.kindName:
+      case CutEntry.legacyRewoundKind:
+        // 'rewound' is the pre-family wire type of the cut directive;
+        // persisted logs keep being honored as this class.
+        return CutEntry(
           toSeq: (j['to_seq'] as num).toInt(),
           at: at,
         ).withSeq(stamped);
@@ -609,8 +612,40 @@ final class ContextClearedEntry extends SessionEntry {
       {...super.toJson(), if (at.isNotEmpty) 'at': at};
 }
 
-final class CompactedEntry extends SessionEntry {
+/// A **derivation directive**: a log entry that changes how the active
+/// conversation is derived from the log, rather than being part of it.
+///
+/// Two kinds exist today. A **compact** directive ([CompactedEntry])
+/// represents a message range by its summary during the fold. A **cut**
+/// directive ([CutEntry]) removes an entry range from the active view
+/// (what a rewind writes). Both are non-destructive markers — the log
+/// stays append-only — and both are honored by every log reader even
+/// when the plugin that wrote them is not loaded, which is why they live
+/// here rather than in a plugin.
+///
+/// The family is an interface plus a kind discriminator rather than a
+/// shared payload-bearing base: the two payloads are unrelated (a
+/// replaced message range with its summary, versus an exclusive seq
+/// bound), so a base class would carry nothing but the discriminator.
+abstract interface class DerivationDirective {
+  /// Which kind of directive this is.
+  DerivationDirectiveKind get directiveKind;
+}
+
+/// The kinds of [DerivationDirective].
+enum DerivationDirectiveKind {
+  /// A message range is represented by its summary ([CompactedEntry]).
+  compact,
+
+  /// Entries after a seq bound leave the active view ([CutEntry]).
+  cut,
+}
+
+final class CompactedEntry extends SessionEntry implements DerivationDirective {
   static const kindName = 'compacted';
+
+  @override
+  DerivationDirectiveKind get directiveKind => DerivationDirectiveKind.compact;
 
   /// First replaced message index.
   final int replacedFrom;
@@ -668,28 +703,38 @@ final class CompactedEntry extends SessionEntry {
       'Compacted($replacedFrom..$replacedTo, ${summary.length} chars)';
 }
 
-/// The conversation was rewound: derivation continues from the state after
-/// entry seq `toSeq - 1` — every log entry between that position and this
-/// marker never happened, from the model's point of view. Nothing is
-/// deleted: the log stays append-only, the removed tail stays on disk and
-/// exportable, and this marker simply names the active position.
+/// A **cut** derivation directive: the active conversation continues from
+/// the state after entry seq `toSeq - 1` — every log entry between that
+/// position and this directive never happened, from the model's point of
+/// view. Nothing is deleted: the log stays append-only, the removed tail
+/// stays on disk and exportable, and this directive simply names the
+/// active position. The `/rewind` command in the `tina_rewind` plugin is
+/// the user-facing name for writing one.
 ///
-/// Rewinding is a between-turns operation, so the cut lands on a turn
-/// boundary (the seq of the [TurnStartedEntry] the rewind removes). A
+/// Cutting is a between-turns operation, so the bound lands on a turn
+/// boundary (the seq of the [TurnStartedEntry] the cut removes). A
 /// [CompactedEntry] after the cut is dead like any other entry — the raw
 /// prefix re-derives without it.
-final class RewoundEntry extends SessionEntry {
-  static const kindName = 'rewound';
+final class CutEntry extends SessionEntry implements DerivationDirective {
+  static const kindName = 'cut';
+
+  /// The wire type this directive was written as before the family
+  /// existed. Logs persisted by that code keep the old `type` string;
+  /// [SessionEntry.fromJson] reads it as an alias of this class.
+  static const legacyRewoundKind = 'rewound';
 
   /// The exclusive bound: entries with `seq < toSeq` stay live.
   final int toSeq;
 
   final String at;
 
-  const RewoundEntry({required this.toSeq, this.at = '', super.seq = 0});
+  const CutEntry({required this.toSeq, this.at = '', super.seq = 0});
 
   @override
-  RewoundEntry withSeq(int seq) => RewoundEntry(toSeq: toSeq, at: at, seq: seq);
+  DerivationDirectiveKind get directiveKind => DerivationDirectiveKind.cut;
+
+  @override
+  CutEntry withSeq(int seq) => CutEntry(toSeq: toSeq, at: at, seq: seq);
 
   @override
   String get kind => kindName;
@@ -703,13 +748,13 @@ final class RewoundEntry extends SessionEntry {
 
   @override
   bool operator ==(Object other) =>
-      other is RewoundEntry && toSeq == other.toSeq && at == other.at;
+      other is CutEntry && toSeq == other.toSeq && at == other.at;
 
   @override
   int get hashCode => Object.hash(kindName, toSeq, at);
 
   @override
-  String toString() => 'Rewound(to seq $toSeq)';
+  String toString() => 'Cut(to seq $toSeq)';
 }
 
 /// The per-session settings derive consults. Plain strings — the core
@@ -769,10 +814,19 @@ final class DerivedSession {
 /// rule, and the boundary rule still holds: compaction happens between
 /// turns, and a summary is never asked to stand in for a half turn.
 ///
-/// Rewind: [RewoundEntry] markers cut the log they sit in — see
-/// [activeLog]. Derivation folds only the active entries; the removed tail
-/// is never sent, summarized or tombstoned. It simply never happened, from
-/// the model's point of view.
+/// Derivation directives: each directive in the active log is applied in
+/// log order. A **compact** directive ([CompactedEntry]) is applied to the
+/// message list as it stands at that point — replace positions
+/// [replacedFrom, replacedTo] with the summary as one synthetic user
+/// message. A summary inherits "belongs to a completed turn" from the
+/// replaced range, so a summary over completed history survives the snap
+/// rule, and the boundary rule still holds: compaction happens between
+/// turns, and a summary is never asked to stand in for a half turn.
+///
+/// Cuts are applied before the fold, by [activeLog]: a **cut** directive
+/// ([CutEntry]) removes its entry range from the active log, so the
+/// removed tail is never sent, summarized or tombstoned. It simply never
+/// happened, from the model's point of view.
 DerivedSession deriveSession(
   List<SessionEntry> log,
   SessionSettings settings, {
@@ -782,22 +836,24 @@ DerivedSession deriveSession(
       includePendingTurn: includePendingTurn, logLength: log.length);
 }
 
-/// The live sub-log after applying every [RewoundEntry]: the marker with
-/// the highest position wins, cutting everything between its [RewoundEntry
-/// .toSeq] bound and itself; entries appended after the marker stay live.
-/// Markers inside the surviving prefix cut their own ranges in turn (each
-/// pass removes at least the marker itself, so this terminates). A log
-/// without markers is returned as is.
+/// The live sub-log after applying every **cut** directive ([CutEntry]):
+/// the directive with the highest position wins, cutting everything
+/// between its [CutEntry.toSeq] bound and itself; entries appended after
+/// the directive stay live. Directives inside the surviving prefix cut
+/// their own ranges in turn (each pass removes at least the directive
+/// itself, so this terminates). Compact directives are not cuts — they
+/// stay in the list and act during the fold. A log without cut directives
+/// is returned as is.
 List<SessionEntry> activeLog(List<SessionEntry> log) {
   var live = log;
   while (true) {
-    final markerIndex = live.lastIndexWhere((e) => e is RewoundEntry);
-    if (markerIndex < 0) return live;
-    final marker = live[markerIndex] as RewoundEntry;
+    final directiveIndex = live.lastIndexWhere((e) => e is CutEntry);
+    if (directiveIndex < 0) return live;
+    final directive = live[directiveIndex] as CutEntry;
     live = [
-      for (final e in live.take(markerIndex))
-        if (e.seq < marker.toSeq) e,
-      ...live.skip(markerIndex + 1),
+      for (final e in live.take(directiveIndex))
+        if (e.seq < directive.toSeq) e,
+      ...live.skip(directiveIndex + 1),
     ];
   }
 }
@@ -841,8 +897,9 @@ DerivedSession _deriveForward(
           :final summary
         ):
         _compact(slots, replacedFrom, replacedTo, summary);
-      case RewoundEntry():
-        // Unreachable: [activeLog] strips every marker before the fold.
+      case CutEntry():
+        // Unreachable: [activeLog] applies every cut directive before the
+        // fold.
         break;
       case PluginStateEntry():
         (states[e.pluginId] ??= {})[e.stateKey] = e;

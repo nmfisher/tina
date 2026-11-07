@@ -171,18 +171,20 @@ final class AgentLoop {
     _append(ContextClearedEntry(at: _now()));
   }
 
-  /// Rewind the conversation to the state after entry seq `toSeq - 1`:
-  /// append a [RewoundEntry] marking the active position. Between turns
-  /// only. Nothing is deleted — the log keeps every entry (the removed
-  /// tail stays persisted and exportable); [derive] and replays simply
-  /// stop seeing it. `toSeq` must address the log (`0 <= toSeq <=
-  /// _seq`); `toSeq == _seq` is a no-op marker.
-  void rewind(int toSeq) {
-    if (running) throw StateError('rewind between turns');
+  /// Cut the active conversation at entry seq [toSeq]: append a [CutEntry]
+  /// derivation directive marking the active position, so every later
+  /// derive and replay stops seeing entries in `[toSeq, this directive)`.
+  /// Between turns only. Nothing is deleted — the log keeps every entry
+  /// (the removed tail stays persisted and exportable). `toSeq` must
+  /// address the log (`0 <= toSeq <= _seq`); `toSeq == _seq` is a no-op
+  /// directive. Any user-facing surface for this call belongs to a
+  /// plugin; the loop only knows directives.
+  void cutFrom(int toSeq) {
+    if (running) throw StateError('cut between turns');
     if (toSeq < 0 || toSeq > _seq) {
-      throw RangeError.range(toSeq, 0, _seq, 'rewind position');
+      throw RangeError.range(toSeq, 0, _seq, 'cut position');
     }
-    _append(RewoundEntry(toSeq: toSeq, at: _now()));
+    _append(CutEntry(toSeq: toSeq, at: _now()));
   }
 
   /// Plugins in registration order. A duplicate id throws here.

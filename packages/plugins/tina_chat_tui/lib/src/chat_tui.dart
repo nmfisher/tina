@@ -345,7 +345,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   void entry(SessionEntry entry, LogEvent event) {
     final at =
         DateTime.tryParse(entry.toJson()['at'] as String? ?? '')?.toLocal();
-    if (entry is RewoundEntry) {
+    if (entry is CutEntry) {
       // Live: rebuild from the active prefix (replay filters the removed
       // tail, so a fresh subscription is the rewound transcript). Replayed
       // markers never arrive — replay skips them — so this cannot loop.

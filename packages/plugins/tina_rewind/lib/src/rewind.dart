@@ -2,7 +2,8 @@ import 'package:tina_core/tina_core.dart';
 
 /// One point `/rewind` may cut to, derived from the live log.
 ///
-/// [toSeq] is the exclusive bound the [RewoundEntry] will carry: entries
+/// [toSeq] is the exclusive bound the cut directive ([CutEntry]) will
+/// carry: entries
 /// with `seq < toSeq` stay live. For a user message that is the seq of the
 /// turn that contains it — the message and everything after it never
 /// happened. For a compaction boundary it is the [CompactedEntry]'s own

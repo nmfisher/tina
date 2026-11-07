@@ -1,8 +1,8 @@
 /// Rewind: take the conversation back to an earlier point, without
 /// touching the log's history. The command, the point enumeration and the
-/// rewind operation live here; the `RewoundEntry` marker and the
+/// rewind operation live here; the cut derivation directive and the
 /// active-log derivation are core language (`tina_core`) and the loop's
-/// `rewind` is `tina_engine_2` — this plugin is the user-facing shell
+/// `cutFrom` is `tina_engine_2` — this plugin is the user-facing shell
 /// over them, split out of `tina_session_controls` so rewind can be
 /// enabled or disabled on its own.
 library;
@@ -99,7 +99,10 @@ final class RewindPlugin extends AgentPlugin {
       throw StateError('Conversation moved; open the picker again.');
     }
     try {
-      loop.rewind(toSeq);
+      // The generic engine API: append a cut derivation directive. All
+      // rewind naming — the command, the notice, this plugin's id — stays
+      // here; the loop knows directives only.
+      loop.cutFrom(toSeq);
     } on RangeError catch (e) {
       throw StateError('Rewind point is no longer valid: ${e.message}');
     }

@@ -301,12 +301,13 @@ final class SessionObservationSource implements WatchObserver {
     final through = loop?.publishedSeq ?? -1;
     final tail = _compactPreview(_tail);
     final truncated = _previewTruncated;
-    // Rewound sessions replay only the active prefix: a RewoundEntry cuts
-    // the entries it removed, so a reopened session shows the rewound
-    // conversation, not the discarded tail. Computed once per replay; a
-    // marker-free log (the common case) keeps every seq live.
+    // A log with a cut derivation directive replays only the active
+    // prefix: the directive cuts the entries it removed, so a reopened
+    // session shows the cut conversation, not the discarded tail.
+    // Computed once per replay; a directive-free log (the common case)
+    // keeps every seq live.
     final full = loop?.log ?? const <SessionEntry>[];
-    final live = rewoundLog(full)
+    final live = hasCutDirective(full)
         ? {for (final entry in activeLog(full)) entry.seq}
         : null;
     subscription.pending.clear();
@@ -327,10 +328,10 @@ final class SessionObservationSource implements WatchObserver {
           'Earlier live preview omitted; the completed response will reconcile it.')));
   }
 
-  /// Whether [log] carries any rewind marker — the cheap gate that decides
-  /// whether a replay must compute the active prefix.
-  static bool rewoundLog(List<SessionEntry> log) =>
-      log.any((entry) => entry is RewoundEntry);
+  /// Whether [log] carries a cut derivation directive — the cheap gate
+  /// that decides whether a replay must compute the active prefix.
+  static bool hasCutDirective(List<SessionEntry> log) =>
+      log.any((entry) => entry is CutEntry);
 
   void _publish(SessionObservationEvent event) {
     for (final subscription in _listeners.values) {
