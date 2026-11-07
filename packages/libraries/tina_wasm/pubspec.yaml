@@ -1,0 +1,29 @@
+name: tina_wasm
+description: >-
+  Wasm implementations of the tina_core I/O ports: HTTP over the tina:http
+  host import, files over WASI preopens, environment over WASI. The wasm
+  composition root injects these where a native build injects tina_io. It
+  is deliberately not an engine package.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+  tina_llm:
+    path: ../../tina_llm
+  toml: ^0.16.0
+  wasm_components:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      ref: asb/wasm-stage3-ports
+  hooks: ^2.0.2
+dev_dependencies:
+  test: ^1.25.0
+  tina_io:
+    path: ../tina_io
+  wasm_tools:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      ref: asb/wasm-stage3-ports

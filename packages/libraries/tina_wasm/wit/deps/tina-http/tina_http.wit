@@ -1,0 +1,42 @@
+package tina:http@1.0.0;
+
+interface types {
+    // One outgoing request. `method` is `GET` or `POST` (upper-case, as
+    // `dart:io` sends it); `url` is absolute; `body` is the request body
+    // or none for GET.
+    record request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: option<list<u8>>,
+    }
+
+    // The response before its body: status code plus header pairs. Header
+    // names keep the case the server sent.
+    record response-head {
+        status: u16,
+        headers: list<tuple<string, string>>,
+    }
+
+    // Why a request failed before any body: a host-side message, never a
+    // raw OS error, so guests can surface it verbatim.
+    variant error {
+        message(string),
+    }
+}
+
+interface client {
+    use types.{request, response-head, error};
+
+    // Issue `req`. The call is async: it completes when the response
+    // head is available, and hands back
+    //
+    // - the head (status + headers),
+    // - the body as a byte stream, in order, chunked as the network
+    //   delivers it, and
+    // - a future that resolves with an error when the body transfer
+    //   failed, and successfully once every body byte was delivered.
+    //
+    // Dropping the stream cancels the transfer.
+    send: async func(req: request) -> result<tuple<response-head, stream<u8>, future<result<_, error>>>, error>;
+}

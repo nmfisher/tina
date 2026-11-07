@@ -1,0 +1,7 @@
+# Local development only: point the wasm.dart git dependencies at a local
+# checkout of the branch. Not committed.
+dependency_overrides:
+  wasm_components:
+    path: /workspace/pkg/wasm_components
+  wasm_tools:
+    path: /workspace/pkg/wasm_tools
