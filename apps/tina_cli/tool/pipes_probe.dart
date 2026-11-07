@@ -142,6 +142,12 @@ final class _Probe {
       return false;
     } finally {
       await _pump.cancel();
+      if (failures.isNotEmpty) {
+        stderr.writeln('\n[probe] FAILURES (${failures.length}):');
+        for (final failure in failures) {
+          stderr.writeln('[probe] - $failure');
+        }
+      }
     }
   }
 
@@ -352,14 +358,30 @@ final class _Probe {
       final expected = Map<String, dynamic>.of(wire);
       if (decoded.seq == 0) expected.remove('seq');
       final reencoded = decoded.toJson();
-      if (reencoded.length != expected.length ||
-          !reencoded.entries.every(
-            (entry) => expected[entry.key] == entry.value,
-          )) {
+      if (!_deepEqual(reencoded, expected)) {
         failures.add('entry did not round-trip: $wire -> $reencoded');
       }
     }
   }
+}
+
+/// Deep JSON equality (Dart maps compare by identity, not content).
+bool _deepEqual(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    return a.entries.every(
+      (e) => b.containsKey(e.key) && _deepEqual(e.value, b[e.key]),
+    );
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
 }
 
 Map<String, dynamic>? _toolUse(Map message) {

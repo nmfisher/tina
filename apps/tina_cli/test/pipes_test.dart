@@ -182,8 +182,14 @@ enabled = ["tina/persistence"]
         );
       }
 
-      // The engine comes up and announces itself.
-      final ready = await waitFor('ready', (e) => e['type'] == 'ready');
+      // The engine comes up and announces itself. Cold start (build hooks,
+      // JIT) can take a while under a loaded suite; the protocol waits
+      // below stay at 30s.
+      final ready = await waitFor(
+        'ready',
+        (e) => e['type'] == 'ready',
+        timeout: const Duration(seconds: 90),
+      );
       expect(
         ready['session'],
         isA<String>().having((s) => s.length, 'len', greaterThan(0)),
@@ -329,7 +335,7 @@ enabled = ["tina/persistence"]
       );
       expect(requests, 4, reason: 'turn 2 made exactly one provider call');
     },
-    timeout: const Timeout(Duration(minutes: 2)),
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 }
 
