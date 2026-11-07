@@ -41,6 +41,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  classification:
+    dependency: transitive
+    description:
+      path: "../../classification"
+      relative: true
+    source: path
+    version: "0.1.0"
   cli_config:
     dependency: transitive
     description:
@@ -161,6 +168,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.6.4"
+  http:
+    dependency: transitive
+    description:
+      name: http
+      sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.0"
   http_multi_server:
     dependency: transitive
     description:
@@ -385,10 +400,31 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.21"
+  tina_approvals:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_approvals"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_core:
     dependency: "direct main"
     description:
       path: "../../tina_core"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_engine_2:
+    dependency: transitive
+    description:
+      path: "../../tina_engine_2"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_host:
+    dependency: transitive
+    description:
+      path: "../../tina_host"
       relative: true
     source: path
     version: "0.1.0"
@@ -403,6 +439,20 @@ packages:
     dependency: "direct main"
     description:
       path: "../../tina_llm"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_mode:
+    dependency: "direct main"
+    description:
+      path: "../../plugins/tina_mode"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_settings:
+    dependency: transitive
+    description:
+      path: "../tina_settings"
       relative: true
     source: path
     version: "0.1.0"
