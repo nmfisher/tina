@@ -79,14 +79,44 @@ def smoke(launcher, endpoint, backend, columns, rows):
                 assert terminal.output.count(b'\x07') == alerts_before + expected_alerts, (
                     f'{backend}: approval/response alerts repeated or missing')
             # Restore long history before checking completion overlay damage.
+            history_requests = len(ModelStub.requests)
             line('line scroll example')
-            visible('LINE_SCROLL_ROW_119')
+            # The tail markers repeat on every scroll, so the PREVIOUS
+            # response's ROW_119 already satisfies a text match while the
+            # new rows stream in, and a contended runner stalls mid-turn
+            # for seconds at a time — long enough for expect_idle's
+            # byte-quiet gate to fire mid-stream. Gate on the turn
+            # finishing, then on the settled tail window itself.
+            terminal.wait_for(
+                lambda: len(ModelStub.requests) == history_requests + 1,
+                f'{backend}: line scroll response did not complete', timeout=30)
+
+            def tail_settled():
+                lines = grid().splitlines()[:-3]
+                chat = rows - 4
+                top = 120 - chat
+                return len(lines) > chat and all(
+                    f'LINE_SCROLL_ROW_{top + i}' in lines[1 + i]
+                    for i in range(chat))
+
+            terminal.wait_for(
+                tail_settled,
+                f'{backend} {columns}x{rows}: transcript tail did not settle',
+                timeout=30)
             terminal.expect_idle()
             before = grid().splitlines()[:-3]
             for query in ['/', '/sp']:
                 terminal.send(query)
                 visible('/clear' if query == '/' else '/spawn')
                 terminal.send('\x1b')
+                # Escape can sit in a starved runner's input queue past
+                # the idle gate. Poll for the transcript's return instead
+                # of trusting byte quietness, then keep the settled-state
+                # assertion verbatim.
+                terminal.wait_for(
+                    lambda: grid().splitlines()[:-3] == before,
+                    f'{backend} {columns}x{rows}: popup dismissal erased transcript',
+                    timeout=30)
                 terminal.expect_idle()
                 assert grid().splitlines()[:-3] == before, (
                     f'{backend} {columns}x{rows}: popup dismissal erased transcript\n{grid()}')
