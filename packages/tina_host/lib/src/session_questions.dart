@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:math';
-import 'package:tina_core/tina_core.dart' show ClientAccess;
+import 'package:tina_core/tina_core.dart'
+    show ClientAccess, ClockPort, RandomPort, SystemClock, SystemRandom;
 
 /// Ordinary text questions, separate from permission and approval requests.
 final class SessionQuestion {
@@ -23,16 +23,23 @@ final class QuestionResult {
 /// session is resumed or another service is constructed.
 final class SessionQuestions {
   SessionQuestions(
-      {this.interactive = true, this.timeout = const Duration(minutes: 5)}) {
+      {this.interactive = true,
+      this.timeout = const Duration(minutes: 5),
+      ClockPort? clock,
+      RandomPort? random})
+      : _clock = clock ?? const SystemClock(),
+        _random = random ?? SystemRandom() {
     if (timeout != null && timeout!.isNegative) {
       throw ArgumentError.value(timeout, 'timeout', 'must not be negative');
     }
   }
   final bool interactive;
   final Duration? timeout;
-  final String _epoch = List.generate(
+  final ClockPort _clock;
+  final RandomPort _random;
+  late final String _epoch = List.generate(
       4,
-      (_) => Random.secure()
+      (_) => _random
           .nextInt(1 << 32)
           .toRadixString(16)
           .padLeft(8, '0')).join();
@@ -73,7 +80,9 @@ final class SessionQuestions {
     final duration = timeout;
     final question = _PendingQuestion(
         SessionQuestion(id, prompt,
-            duration == null ? null : DateTime.now().toUtc().add(duration)),
+            duration == null
+                ? null
+                : _clock.now().toUtc().add(duration)),
         scope);
     _pending[id] = question;
     scope?._pending.add(id);

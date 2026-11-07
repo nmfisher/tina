@@ -37,7 +37,18 @@ final class HostConfig {
     this.snapshotFeatureFor,
     this.operationsFor,
     this.requestHistoryLimit = 256,
+    this.clock,
+    this.random,
   });
+
+  /// The session clock: started-at stamps, generated session ids and
+  /// question expiry all read it. Defaults to the system clock
+  /// (dart:core); a test pins it, a wasm host supplies its own.
+  final ClockPort? clock;
+
+  /// The random source for opaque epoch ids. Defaults to the system
+  /// secure random (dart:math).
+  final RandomPort? random;
 
   /// Builds the provider for **one** session. Called once per
   /// [Host.start]; two hosts from one config never share an instance.
