@@ -179,7 +179,7 @@ final class SessionObservationSource implements WatchObserver {
           input: _freezeMap(call.input),
           argumentsParseError: call.argumentsParseError);
       final copy = _freezeActivity(event, frozenCall);
-      final now = DateTime.now();
+      final now = _loop!.clock.now();
       if (event is ToolStarted) _started[call.id] = now;
       if (event is ToolFinished) {
         final started = _started.remove(call.id);
