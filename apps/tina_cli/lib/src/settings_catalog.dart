@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_providers/tina_providers.dart';
@@ -60,4 +61,51 @@ void refreshProviderDefinitions(SettingCatalog catalog, TinaConfig config) {
       catalog.replace(definition);
     }
   }
+}
+
+
+/// The effective-document merge, extracted from the filesystem backend
+/// so any settings backend (a preloaded snapshot under wasm) computes
+/// identically: the global document with every catalog definition
+/// rewritten to null, then overlaid by the first layer (session first)
+/// that carries the definition's value.
+Map<String, dynamic> mergeSettingLayers({
+  required Map<String, dynamic> globalDocument,
+  required Map<SettingScope, Map<String, Object?>> layers,
+  required Iterable<SettingDefinition<Object>> definitions,
+}) {
+  Map<String, dynamic> copy(Map<String, dynamic> values) =>
+      Map<String, dynamic>.from(jsonDecode(jsonEncode(values)) as Map);
+
+  void put(Map<String, dynamic> values, List<String> path, Object? value) {
+    var parent = values;
+    for (final part in path.take(path.length - 1)) {
+      if (value == null && !parent.containsKey(part)) return;
+      parent = parent.putIfAbsent(part, () => <String, dynamic>{})
+          as Map<String, dynamic>;
+    }
+    if (value == null) {
+      parent.remove(path.last);
+    } else {
+      parent[path.last] = value;
+    }
+  }
+
+  final result = copy(globalDocument);
+  (result['plugins'] as Map?)?.remove('enabled');
+  for (final definition in definitions) {
+    put(result, definition.configPath, null);
+    for (final scope in SettingScope.values) {
+      if (layers[scope]!.containsKey(definition.id)) {
+        final value = layers[scope]![definition.id];
+        if (definition.writeConfig != null) {
+          definition.writeConfig!(result, value);
+        } else {
+          put(result, definition.configPath, value);
+        }
+        break;
+      }
+    }
+  }
+  return result;
 }

@@ -1,6 +1,6 @@
 import 'dart:io' as io;
 
-import 'package:tina_tools/tina_tools.dart';
+import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 
 import 'tools_factory.dart';
 

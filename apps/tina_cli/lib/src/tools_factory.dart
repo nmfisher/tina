@@ -10,6 +10,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:tina_settings/tina_settings.dart';
 
+import 'native_kinds.dart';
 import 'tools_factory_unsupported.dart'
     if (dart.library.io) 'tools_factory_io.dart';
 
@@ -33,7 +34,7 @@ final class ToolsWiring {
 }
 
 /// Builds the tools plugin for [wiring].
-typedef ToolsPluginFactory = AgentPlugin Function(ToolsWiring wiring);
+typedef ToolsPluginFactory = ToolsPlugin Function(ToolsWiring wiring);
 
 ToolsPluginFactory? _injected;
 
@@ -43,5 +44,5 @@ set injectedToolsPluginFactory(ToolsPluginFactory factory) =>
 
 /// The tools plugin for [wiring]: the injected factory when a
 /// composition root set one, else the native full plugin.
-AgentPlugin buildToolsPlugin(ToolsWiring wiring) =>
+ToolsPlugin buildToolsPlugin(ToolsWiring wiring) =>
     (_injected ?? nativeToolsPluginFactory)(wiring);

@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
+import 'scoped_config.dart' show ConfigSettingsBackend;
 import 'assembly.dart';
 import 'config_settings_management.dart';
 import 'console_catalog.dart';
@@ -52,9 +54,9 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
                   sections: context.settings,
                   management: ConfigSettingsManagement(
                       access: connection.access,
-                      commandApprovals: assembly.tools.commandApprovals,
+                      commandApprovals: (assembly.tools as ToolsPlugin).commandApprovals,
                       scopedSettings: assembly.settings,
-                      backend: assembly.settingsBackend,
+                      backend: assembly.settingsBackend as ConfigSettingsBackend,
                       applyConfiguration: assembly.applySavedConfiguration,
                       listenConfiguration: assembly.listenSettings,
                       descriptors: assembly.descriptors,

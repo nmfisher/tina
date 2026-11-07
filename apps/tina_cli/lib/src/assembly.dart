@@ -1,24 +1,27 @@
 library;
 
-import 'dart:io' show Directory, File, stdout;
 import 'dart:async';
 import 'dart:convert';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
-import 'package:tina_io/tina_io.dart';
 import 'package:tina_session_controls/tina_session_controls.dart'
     show ModelCatalog, reasoningSetting;
 import 'session_terminal.dart';
-import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
-import 'package:tina_mode/tina_mode.dart' show PermissionMode;
+import 'package:tina_mode/mode.dart' show PermissionMode;
+import 'package:path/path.dart' as p;
+
+import 'app_io.dart';
+import 'native_kinds.dart';
+import 'app_stdout.dart';
 import 'assembly_config.dart';
 import 'configured_provider.dart';
-import 'plugin_catalog.dart';
+import 'provider_default.dart';
+import 'session_context.dart';
 import 'plugin_settings.dart';
+import 'tools_factory.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_settings/tina_settings.dart';
-import 'scoped_config.dart';
 import 'settings_catalog.dart';
 import 'settings_stack.dart';
 import 'config_document.dart';
@@ -62,7 +65,7 @@ final class StdoutAssemblyWriter implements AssemblyWriter {
 
   @override
   void writeln([String? line]) {
-    stdout.writeln(line ?? '');
+    appStdoutWriteln(line ?? '');
   }
 }
 
@@ -83,6 +86,8 @@ final class AssemblyOptions {
     this.osSandbox = true,
     this.yolo = false,
     this.interactive = true,
+    this.registry,
+    this.settingsBackend,
   });
 
   /// Explicit config file, else `~/.tina/config`.
@@ -119,6 +124,15 @@ final class AssemblyOptions {
 
   /// Ordinary questions may wait for attached clients only in interactive runs.
   final bool interactive;
+
+  /// The plugin registry the assembly builds from. Null is the platform
+  /// default (every first-party plugin natively); a wasm composition root
+  /// injects the portable subset.
+  final PluginRegistry<SessionPluginContext>? registry;
+
+  /// The settings backend. Null is the platform default (the filesystem
+  /// adapter); a wasm composition root injects a preloaded snapshot.
+  final SettingsBackend? settingsBackend;
 }
 
 /// Default store stays separate from legacy session files and is scoped to
@@ -134,7 +148,7 @@ void listSessions({
   required AssemblyWriter writer,
   required String storePath,
 }) {
-  if (!File(storePath).existsSync()) {
+  if (!defaultAppIo().exists(storePath)) {
     throw SessionStoreException('no session store at $storePath');
   }
   final store = SessionStore.open(storePath);
@@ -162,14 +176,15 @@ LlmProvider providerForDescriptor(
   if (descriptor == null) {
     // No provider named: the Anthropic wire, whose endpoint and token come
     // from the environment. The engine reads neither directly any more, so
-    // this composition root supplies the native port implementations.
-    const environment = IoEnvironmentPort();
-    final base = environment.env('TINA_LLM_ENDPOINT') ??
-        'https://api.z.ai/api/anthropic';
+    // this composition root supplies the I/O: the native ports, or a wasm
+    // composition root's endpoint over `tina:http`.
+    final io = defaultAppIo();
+    final base =
+        io.env('TINA_LLM_ENDPOINT') ?? 'https://api.z.ai/api/anthropic';
     return AnthropicProvider(
         model: model,
-        endpoint: IoHttpEndpoint(endpoint: base),
-        environment: environment);
+        endpoint: defaultHttpEndpoint(base),
+        environment: AppIoEnvironmentPort(io));
   }
   return configuredProvider(
       TinaConfig(
@@ -205,6 +220,9 @@ final class SessionAssembly {
   final PluginSettings<SessionPluginContext> pluginSettings;
   final PluginManager<SessionPluginContext> pluginManager;
   final ScopedSettings settings;
+  /// The settings backend: the native filesystem adapter, or a
+  /// composition root's injected backend (`native_kinds.dart` resolves
+  /// which).
   final ConfigSettingsBackend settingsBackend;
   final _settingsListeners = <Object, void Function()>{};
   void Function() listenSettings(void Function() listener) {
@@ -232,6 +250,8 @@ final class SessionAssembly {
   final void Function() _stopConfigurationUpdates;
 
   /// Tools expose mode/status to the frontend; approvals are loader-injected.
+  /// The full plugin natively; a portable plugin under wasm — the same
+  /// name resolves to either (see `native_kinds.dart`).
   final ToolsPlugin tools;
 
   /// Shared output supplied to the command plugins and the frontend.
@@ -303,11 +323,12 @@ final class SessionAssembly {
     if (providerFactory == null && options.model != null) {
       model = canonicalModelReference(resolved, model);
     }
-    final workingDirectory = options.workingDirectory ?? Directory.current.path;
+    final workingDirectory =
+        options.workingDirectory ?? defaultAppIo().currentDirectory;
     final output = terminal ??
         SessionTerminal(
             questions: SessionQuestions(interactive: options.interactive));
-    final registry = firstPartyPlugins();
+    final registry = options.registry ?? ScopedSettingsStack.defaultPluginRegistry();
     registerPlugins?.call(registry);
     final stack = ScopedSettingsStack.build(
         globalPath: options.configPath ?? defaultConfigPath(),
@@ -315,7 +336,8 @@ final class SessionAssembly {
         registry: registry,
         descriptors: descriptors,
         config: resolved,
-        onConfigurationChanged: configurationUpdates.changed);
+        onConfigurationChanged: configurationUpdates.changed,
+        backend: options.settingsBackend);
     final pluginSettings = PluginSettings<SessionPluginContext>(
       globalPath: options.configPath ?? defaultConfigPath(),
       workspacePath: '$workingDirectory/.tina/config',
@@ -328,7 +350,7 @@ final class SessionAssembly {
     final settingsBackend = stack.backend;
     final settings = stack.settings;
     resolved = ConfigDocument.validateValues(
-        settingsBackend.effectiveDocument(),
+        stack.effectiveDocument(),
         descriptors: descriptors);
     model = options.model ??
         (providerFactory == null
@@ -337,17 +359,18 @@ final class SessionAssembly {
     if (providerFactory == null && options.model != null) {
       model = canonicalModelReference(resolved, model);
     }
-    final tools = ToolsPlugin(
+    final tools = buildToolsPlugin(ToolsWiring(
       workspaceRoot: workingDirectory,
-      tinaDir: Directory('$workingDirectory/.tina'),
+      tinaDirPath: '$workingDirectory/.tina',
       protectedPaths: [
         options.configPath ?? defaultConfigPath(),
-        settingsBackend.permissionStore.file!.parent.path,
+        if (stack.protectedPermissionsPath case final String protected)
+          protected,
       ],
       osSandbox: options.osSandbox,
       settings: settings,
       mode: options.yolo ? PermissionMode.yolo : PermissionMode.ask,
-    );
+    ));
     diagnostics?.stage?.call('settings-and-tools-ready');
     final policy = configuredPolicy(resolved,
         override: providerFactory, currentConfig: () => resolved);
@@ -361,7 +384,7 @@ final class SessionAssembly {
     final path = options.storePath ?? defaultSessionStorePath(workingDirectory);
     SessionStore openStore() {
       diagnostics?.stage?.call('store-open-start');
-      File(path).parent.createSync(recursive: true);
+      defaultAppIo().createDirectory(p.dirname(path), recursive: true);
       final store = SessionStore.open(path);
       diagnostics?.stage?.call('store-open-end');
       return store;
@@ -376,7 +399,7 @@ final class SessionAssembly {
             settings, stored.readEntries(options.sessionId!));
         diagnostics?.stage?.call('settings-replay-end');
         resolved = ConfigDocument.validateValues(
-            settingsBackend.effectiveDocument(),
+            stack.effectiveDocument(),
             descriptors: descriptors);
         policy.updateLimits(resolved.limits);
         pluginSettings.restoreSessionOverrides({
@@ -444,7 +467,7 @@ final class SessionAssembly {
                 : {reasoningSetting.id: reasoningSetting.encode(word)},
             remove: word == 'auto' ? {reasoningSetting.id} : const {});
         resolved = ConfigDocument.validateValues(
-            settingsBackend.effectiveDocument(),
+            stack.effectiveDocument(),
             descriptors: descriptors);
         policy.updateLimits(resolved.limits);
       },
@@ -518,10 +541,10 @@ final class SessionAssembly {
         ? Host.start(hostConfig)
         : Host.resume(hostConfig, options.sessionId!);
     diagnostics?.stage?.call('host-open-end');
-    var previousConfiguration = jsonEncode(settingsBackend.effectiveDocument());
+    var previousConfiguration = jsonEncode(stack.effectiveDocument());
     final stopConfigurationUpdates = configurationUpdates.listen(() {
       try {
-        final values = settingsBackend.effectiveDocument();
+        final values = stack.effectiveDocument();
         final encoded = jsonEncode(values);
         settings.reload();
         // Persisted layers can change while session overrides keep the
