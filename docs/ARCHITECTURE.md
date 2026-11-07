@@ -69,7 +69,11 @@ packages/tina_console       terminal toolkit (renderers, editor, notcurses)
 packages/dart_notcurses     vendored native binding
 packages/tina_sqlite        sqlite wrapper (WAL, busy_timeout)
 packages/plugins/*          feature plugins, mounted by the assembly
-packages/libraries/*        domain-neutral helpers (tina_settings, …)
+packages/libraries/*        domain-neutral helpers (tina_settings, …);
+                            tina_io holds the native (dart:io)
+                            implementations of the engine I/O ports —
+                            injected by the app, excluded from the wasm
+                            engine (see docs/wasm_stage2_audit.md)
 classification, file_tree,  small pure support packages
 tina_index, attractor
 ```

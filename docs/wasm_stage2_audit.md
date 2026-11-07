@@ -101,17 +101,47 @@ These are mounted contributions; none is part of the stage-2 wasm build.
 
 ## Result of this stage
 
-- Ports: `HttpClientPort`, `FileSystemPort`, `ProcessPort`, `ClockPort`,
-  `RandomPort`, `EnvironmentPort` (the last added by the audit above) in
-  `tina_core/ports.dart`, with dart:core-only defaults (`SystemClock`,
-  `SystemRandom`).
-- Native implementations: `packages/libraries/tina_io` (`IoHttpEndpoint`
-  moved from `tina_llm`, `IoFileSystemPort`, `IoEnvironmentPort`). `tina_io`
-  is deliberately **not** an engine package; it is the native adapter the
-  composition root injects. A wasm build excludes it and supplies its own
-  port implementations.
+- Ports in `tina_core/lib/src/ports.dart` (exported as
+  `package:tina_core/tina_core.dart`): `HttpClientPort` (+ close),
+  `FileSystemPort`, `ProcessPort`, `ClockPort` (+ `SystemClock`),
+  `RandomPort` (+ `SystemRandom`), `EnvironmentPort` — the last added by
+  the audit above. `tina_llm` keeps `HttpEndpoint`/`HttpResponse` as
+  typedefs over the core port so call sites and fakes read unchanged.
+- Native implementations: `packages/libraries/tina_io` — `IoHttpEndpoint`
+  (moved verbatim from `tina_llm/http.dart`), `IoFileSystemPort`,
+  `IoEnvironmentPort`. `tina_io` is deliberately **not** an engine
+  package; it is the native adapter the composition root injects
+  (`configured_provider.dart`, `assembly.dart`). A wasm build excludes it
+  and supplies its own port implementations.
+- Call sites moved behind the ports:
+  - `tina_llm`: all four provider constructors take an injected endpoint
+    (fail closed at send without one); the Anthropic provider's token and
+    `TINA_LLM_ENDPOINT` reads go through `EnvironmentPort`;
+    `models_dev.dart` reads/writes its cache through `FileSystemPort` /
+    `EnvironmentPort` / `ClockPort`; `isStale` became async (its stamp
+    file is never written anywhere, so it always reported stale — the
+    port conversion preserves that exact behavior).
+  - `tina_engine_2`: every log-entry timestamp (`loop.dart`) and the
+    observation activity stamps (`session_observation.dart`) go through
+    `ClockPort`, injected into `AgentLoop`.
+  - `tina_host`: session/question epoch ids through `RandomPort`,
+    `started_at`, generated session ids and question expiry through
+    `ClockPort`, both on `HostConfig` (and optional on `Host.child`,
+    `SessionQuestions`), defaulting to the system implementations.
+- Files moved:
+  - `packages/tina_llm/lib/src/cached_providers.dart` →
+    `apps/tina_cli/lib/src/legacy_provider_cache.dart` (app-only startup
+    glue reading the process's own files; the app keeps `dart:io`).
+  - `IoHttpEndpoint` `tina_llm/lib/src/http.dart` →
+    `packages/libraries/tina_io/lib/src/io_http_endpoint.dart`.
 - `ProcessPort` is defined but has no engine call site yet — `tina_tools`
   and `tina_mcp` are its consumers and migrate in stage 3+.
-- Ratchet: `noDirectIoPackages` — see `tool/repository/policy.json` and
-  `check_architecture.dart`; a direct `dart:io` import in an engine `lib/`
-  tree is an analyze-time failure.
+- Ratchet: `noDirectIoPackages` in `tool/repository/policy.json` +
+  `policy.dart` — a direct `dart:io` import anywhere under an engine
+  package's `lib/` is an analyze-time `service-io` failure
+  (`tool/repository/test/no_direct_io_test.dart` pins the rule; the
+  repo-wide check runs in CI through `import_boundary_test`).
+- Test adjustments (mechanical, assertions untouched): endpoint fakes
+  implement the port's `close()` (`tina_llm` helpers/provider tests,
+  `tina_web_search`, app `config_parity_test`, `verify_local_config`);
+  the models.dev cache tests pass the injected `IoFileSystemPort`.
