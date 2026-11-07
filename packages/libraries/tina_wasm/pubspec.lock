@@ -17,6 +17,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "14.7.0"
+  archive:
+    dependency: transitive
+    description:
+      name: archive
+      sha256: de5ac590b8155e4e676088d714bd41ea620449a6adc0f7950c5073874b287ddb
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.6.0"
   args:
     dependency: transitive
     description:
@@ -41,8 +49,16 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
-  classification:
+  characters:
     dependency: transitive
+    description:
+      name: characters
+      sha256: faf38497bda5ead2a8c7615f4f7939df04333478bf32e4173fcb06d428b5716b
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.4.1"
+  classification:
+    dependency: "direct main"
     description:
       path: "../../classification"
       relative: true
@@ -68,10 +84,10 @@ packages:
     dependency: transitive
     description:
       name: code_assets
-      sha256: "1ef22a0be3af9370bd9481ac76db114db92bfe75d5ca2b2d7bc911764478a4d9"
+      sha256: bf394f466ba9205f1812a0433b392d6af280f155f56651eda7c18cc32ed493b8
       url: "https://pub.dev"
     source: hosted
-    version: "2.2.0"
+    version: "1.2.1"
   collection:
     dependency: transitive
     description:
@@ -104,6 +120,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.8"
+  dart_notcurses:
+    dependency: transitive
+    description:
+      path: "../../dart_notcurses"
+      relative: true
+    source: path
+    version: "0.0.1"
   dart_style:
     dependency: transitive
     description:
@@ -136,6 +159,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.2.0"
+  fuzzy_ranker:
+    dependency: transitive
+    description:
+      path: "../fuzzy_ranker"
+      relative: true
+    source: path
+    version: "0.1.0"
   glob:
     dependency: transitive
     description:
@@ -164,10 +194,10 @@ packages:
     dependency: transitive
     description:
       name: hooks_runner
-      sha256: f9b924b204fd325d6945d5f92821ab3ac626e425c4aff1c6ffda48ba5e22c896
+      sha256: e5af5628be2fbe3bbb195ded03e6c6f739b0c92db43d1e2a95620678fd844458
       url: "https://pub.dev"
     source: hosted
-    version: "1.6.4"
+    version: "1.6.1"
   http:
     dependency: transitive
     description:
@@ -192,6 +222,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  image:
+    dependency: transitive
+    description:
+      name: image
+      sha256: "89ed75b2f8231fe676808c5564f9590d728024ded7ac782a7ed8474f1c95b72a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.12.0"
   io:
     dependency: transitive
     description:
@@ -208,6 +246,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.0"
+  markdown:
+    dependency: transitive
+    description:
+      name: markdown
+      sha256: ee85086ad7698b42522c6ad42fe195f1b9898e4d974a1af4576c1a3a176cada9
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.3.1"
   matcher:
     dependency: transitive
     description:
@@ -232,6 +278,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
+  native_toolchain_c:
+    dependency: transitive
+    description:
+      name: native_toolchain_c
+      sha256: "6ba77bb18063eebe9de401f5e6437e95e1438af0a87a3a39084fbd37c90df572"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.17.6"
   node_preamble:
     dependency: transitive
     description:
@@ -272,6 +326,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.5.3"
+  posix:
+    dependency: transitive
+    description:
+      name: posix
+      sha256: "613646d076944f3acc125830af935b48d4b8a57a388691547bbfd25b434f4d63"
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.5.4"
   pub_semver:
     dependency: transitive
     description:
@@ -344,6 +406,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
+  sqlite3:
+    dependency: transitive
+    description:
+      name: sqlite3
+      sha256: b1ec21d306ddbec59a88ae3682ad81728561f7105db78fea0fdd67f06911a519
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.9.0"
   stack_trace:
     dependency: transitive
     description:
@@ -400,10 +470,87 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.21"
-  tina_approvals:
+  tina:
+    dependency: "direct main"
+    description:
+      path: "../../../apps/tina_cli"
+      relative: true
+    source: path
+    version: "0.9.106"
+  tina_activity:
     dependency: transitive
     description:
+      path: "../../plugins/tina_activity"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_activity_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_activity_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_approvals:
+    dependency: "direct main"
+    description:
       path: "../../plugins/tina_approvals"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_approvals_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_approvals_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_chat:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_chat"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_chat_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_chat_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_classification_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_classification_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_compaction:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_compaction"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_console:
+    dependency: transitive
+    description:
+      path: "../../tina_console"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_context:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_context"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_context_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_context_tui"
       relative: true
     source: path
     version: "0.1.0"
@@ -414,10 +561,38 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_cwd_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_cwd_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_engine_2:
     dependency: transitive
     description:
       path: "../../tina_engine_2"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_file_resources:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_file_resources"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_goals:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_goals"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_grok_guard:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_grok_guard"
       relative: true
     source: path
     version: "0.1.0"
@@ -442,6 +617,20 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_mcp:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_mcp"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_mcp_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_mcp_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_mode:
     dependency: "direct main"
     description:
@@ -449,10 +638,136 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_settings:
+  tina_persistence:
     dependency: transitive
     description:
+      path: "../../plugins/tina_persistence"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_plans:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_plans"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_plans_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_plans_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_providers:
+    dependency: "direct main"
+    description:
+      path: "../../plugins/tina_providers"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_rewind:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_rewind"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_self_update:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_self_update"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_session_controls:
+    dependency: "direct main"
+    description:
+      path: "../../plugins/tina_session_controls"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_settings:
+    dependency: "direct main"
+    description:
       path: "../tina_settings"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_shell:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_shell"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_sqlite:
+    dependency: transitive
+    description:
+      path: "../../tina_sqlite"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_step_limit:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_step_limit"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_subagents:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_subagents"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_system_instruction:
+    dependency: "direct main"
+    description:
+      path: "../../plugins/tina_system_instruction"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_tasks:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_tasks"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_tasks_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_tasks_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_token_rate_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_token_rate_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_tools:
+    dependency: "direct main"
+    description:
+      path: "../../plugins/tina_tools"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_tui:
+    dependency: transitive
+    description:
+      path: "../../tina_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_web_search:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_web_search"
       relative: true
     source: path
     version: "0.1.0"

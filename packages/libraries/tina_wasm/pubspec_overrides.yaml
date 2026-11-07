@@ -5,3 +5,4 @@ dependency_overrides:
     path: /workspace/pkg/wasm_components
   wasm_tools:
     path: /workspace/pkg/wasm_tools
+  hooks: ^2.0.2

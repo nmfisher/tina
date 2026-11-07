@@ -35,11 +35,13 @@ final class WasmPreopens {
   List<(cm.Owned<fs.TypesDescriptor>, String)> get directories =>
       List.unmodifiable(_directories);
 
-  /// Resolves [path] against the preopens and returns the descriptor plus
-  /// the remaining path under it, or null when [path] belongs to no
+  /// Resolves [path] against the preopens and returns the descriptor
+  /// plus the remaining path under it, or null when [path] belongs to no
   /// preopen. Both 'config/settings.toml' and './config/settings.toml'
   /// resolve; absolute paths resolve when a preopen's guest path matches
   /// their prefix. Paths containing a `..` segment never resolve.
+  (cm.Owned<fs.TypesDescriptor>, String)? resolve(String path) => _resolve(path);
+
   (cm.Owned<fs.TypesDescriptor>, String)? _resolve(String path) {
     var candidate = path;
     if (candidate.startsWith('/')) {
