@@ -21,6 +21,8 @@ dependencies:
     path: ../../tina_llm
   tina_mode:
     path: ../../../packages/plugins/tina_mode
+  tina_persistence:
+    path: ../../../packages/plugins/tina_persistence
   tina_providers:
     path: ../../../packages/plugins/tina_providers
   tina_session_controls:

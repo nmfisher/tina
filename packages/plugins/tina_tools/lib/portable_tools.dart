@@ -11,6 +11,16 @@ library;
 
 export 'src/file_system.dart';
 export 'src/default_file_system.dart';
+export 'src/permissions.dart'
+    show
+        Approval,
+        Approver,
+        FileOperation,
+        FileOp,
+        FileGrants,
+        ToolVerdict,
+        decideOperation,
+        operationReason;
 export 'src/tool.dart';
 export 'src/tool_input.dart';
 export 'src/tool_descriptions.dart';

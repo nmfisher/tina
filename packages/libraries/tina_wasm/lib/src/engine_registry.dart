@@ -17,6 +17,8 @@ import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina/src/session_context.dart';
 
 import 'portable_tools_plugin.dart';
+import 'wasm_persistence_plugin.dart';
+import 'wasi_session_store.dart';
 
 /// `tina/mode-policy`, as the native catalog's tools plugin provides it.
 const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
@@ -33,13 +35,33 @@ const approvalChannel = tina_approvals.approvalChannel;
 // The approval requester the tools plugin routes asks through.
 const approvalRequester = tina_approvals.approvalRequester;
 
-/// Builds the wasm registry: every first-party plugin whose dependency
-/// tree compiles without `dart:io`/`dart:ffi`, driven by the same
-/// definitions the native catalog uses.
-PluginRegistry<SessionPluginContext> wasmEngineRegistry() =>
+/// The wasm registry: every first-party plugin whose dependency tree
+/// compiles without `dart:io`/`dart:ffi`, driven by the same definitions
+/// the native catalog uses. [persistenceStore], when the composition
+/// root loaded one, registers `tina/persistence` over the WASI store —
+/// the config's enabled list still decides whether a session uses it,
+/// and [onPersistence] receives the created plugin (the root flushes it
+/// at shutdown).
+PluginRegistry<SessionPluginContext> wasmEngineRegistry({
+  WasiSessionStore? persistenceStore,
+  void Function(WasmPersistencePlugin plugin)? onPersistence,
+}) =>
     PluginRegistry<SessionPluginContext>(
       requiredCapabilities: [modelAccess],
       definitions: [
+        if (persistenceStore != null)
+          PluginDefinition<SessionPluginContext>(
+            'tina/persistence',
+            (c) {
+              final plugin = WasmPersistencePlugin(
+                  store: persistenceStore, settings: c.settings);
+              onPersistence?.call(plugin);
+              return plugin;
+            },
+            live: false,
+            description:
+                'Saves conversations in the preopened store, resumes sessions.',
+          ),
         PluginDefinition<SessionPluginContext>(
           'tina/system-instruction',
           (_) => const SystemInstructionPlugin(),

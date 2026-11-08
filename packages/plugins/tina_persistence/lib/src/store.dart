@@ -28,96 +28,17 @@
 /// entries.
 library;
 
+import '../session_store_api.dart';
+export '../session_store_api.dart';
 import 'state_compatibility.dart';
 import 'dart:convert';
 import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_sqlite/tina_sqlite.dart';
 
-/// The store link failed — at open, at write, or mid-read. The host does
-/// not swallow this: a store that cannot persist must stop the session
-/// loudly, because a session that lies about durability is worse than
-/// none.
-final class SessionStoreException implements Exception {
-  const SessionStoreException(this.message, [this.cause]);
-
-  final String message;
-
-  /// The underlying error, when there was one.
-  final Object? cause;
-
-  @override
-  String toString() =>
-      'SessionStoreException: $message${cause == null ? '' : ' ($cause)'}';
-}
-
-/// One session the store knows about.
-final class StoredSession {
-  const StoredSession({
-    required this.id,
-    required this.registryKey,
-    required this.entries,
-    int? lastActivityKey,
-    this.title,
-    this.model,
-    this.details,
-    this.lastSavedAt,
-    this.summary,
-  }) : lastActivityKey = lastActivityKey ?? registryKey;
-
-  /// The session id the host started it with.
-  final String id;
-
-  /// The registry row where the session's slice begins.
-  final int registryKey;
-
-  /// Most recent registry, metadata or entry row for this session. Row order
-  /// reflects local activity, including appends to a resumed conversation.
-  final int lastActivityKey;
-
-  /// How many log rows follow the registry row (a lower bound while the
-  /// session is still running in another process: this reader sees the
-  /// rows committed when it read).
-  final int entries;
-
-  /// The title given at creation, when there was one.
-  final String? title;
-  final String? model;
-
-  /// Timestamp of the latest committed registry, metadata or entry row.
-  /// Derived from the existing SQLite log, so older stores need no migration.
-  final DateTime? lastSavedAt;
-
-  /// A short preview of the first user input, independent of generated output.
-  final String? summary;
-
-  /// The session's counters (depth, children in flight, tokens spent)
-  /// as the registry row carries them, or null when the row predates
-  /// details.
-  final SessionDetails? details;
-
-  @override
-  String toString() => 'StoredSession($id, $entries entries'
-      '${title == null ? '' : ', $title'})';
-}
-
-/// A run of rowids that is not consecutive inside one session's slice.
-final class StoreGap {
-  const StoreGap(this.afterId, this.beforeId);
-
-  /// The rowid before the hole.
-  final int afterId;
-
-  /// The rowid after the hole.
-  final int beforeId;
-
-  @override
-  String toString() => 'gap: no rows between $afterId and $beforeId';
-}
-
 /// The link. Each persistence plugin owns its connection; [open] and
 /// [close] bracket it. Parent and child connections can share a file.
-final class SessionStore {
+final class SessionStore implements SessionStoreApi {
   SessionStore._(this.file, this._db, this._log);
 
   /// The store file's path.

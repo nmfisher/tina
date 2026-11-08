@@ -63,6 +63,19 @@ final class AskingBoundary implements FileSystem, ToolBoundary {
   /// The workspace root relative paths resolve against.
   String _workspaceRoot;
 
+  /// The workspace root the boundary resolves against (read-only view;
+  /// re-rooting is a native-only operation).
+  String get workspaceRoot => _workspaceRoot;
+
+  /// The containment answer for a resolved path: does it belong to the
+  /// workspace? Callers wiring approval routing use this to shape the
+  /// authorization request the mode policy re-resolves.
+  bool isWithinWorkspacePath(String path) => _insideWorkspace(_resolve(path));
+
+  /// The grant table that covers [op] (read grants are separate from
+  /// write grants, exactly as in the native boundary).
+  FileGrants grantsOf(FileOp op) => op == FileOp.read ? _readGrants : grants;
+
   /// The current permission mode; the owner keeps this in sync with the
   /// mode plugin (`modePolicy.listen`).
   PermissionMode mode;
@@ -168,10 +181,13 @@ final class AskingBoundary implements FileSystem, ToolBoundary {
     return false;
   }
 
-  /// The one decision point, per call: protected-path refusal, then the
-  /// operation × mode table with the current [mode]. An ask goes to the
-  /// [approver]; no approver, or a refusal, throws [SandboxViolation]
-  /// whose message is the reason the model will read.
+  /// The one decision point, per call: protected-path refusal, then —
+  /// with an approver wired — the same deference the native boundary
+  /// shows a mounted policy: every operation is handed to the approver
+  /// (the mode policy owns the table, precedents and the human ask),
+  /// and a refusal throws [SandboxViolation] whose message is the reason
+  /// the model will read. Without an approver the table decides here:
+  /// an ask is refused ("no approver wired"), exactly as natively.
   Future<void> _authorize(FileOp op, String target) async {
     final staged = _temporaryTargets[target] ?? target;
     if (_scopeAllows(op, target) || staged != target && _scopeAllows(op, staged)) {
@@ -180,6 +196,20 @@ final class AskingBoundary implements FileSystem, ToolBoundary {
     if (op == FileOp.write && _isProtected(staged)) {
       throw SandboxViolation(
           'write to a protected path is denied (${p.basename(staged)})');
+    }
+    final approver = this.approver;
+    if (approver != null) {
+      // The native boundary's `authorization` path: the reason is the
+      // access line the mode policy re-derives its own ask wording from.
+      final reason = 'Access to $staged';
+      final approval = await approver((op: op, path: staged), reason);
+      if (approval == Approval.no) {
+        throw SandboxViolation('$reason — denied by the user');
+      }
+      if (approval == Approval.always) {
+        (op == FileOp.read ? _readGrants : grants).rememberExact(staged);
+      }
+      return;
     }
     final resolution = resolveAuthorization(
       AuthorizationRequest(requirements: [
@@ -207,18 +237,8 @@ final class AskingBoundary implements FileSystem, ToolBoundary {
         final reason = op == FileOp.read
             ? 'allow read outside the sandbox (${p.basename(staged)})?'
             : operationReason((op: op, path: staged), mode);
-        final approver = this.approver;
-        if (approver == null) {
-          throw SandboxViolation(
-              '$reason — denied: no approver is wired to approve it');
-        }
-        final approval = await approver((op: op, path: staged), reason);
-        if (approval == Approval.no) {
-          throw SandboxViolation('$reason — denied by the user');
-        }
-        if (approval == Approval.always) {
-          (op == FileOp.read ? _readGrants : grants).rememberExact(staged);
-        }
+        throw SandboxViolation(
+            '$reason — denied: no approver is wired to approve it');
     }
   }
 
@@ -267,6 +287,7 @@ final class AskingBoundary implements FileSystem, ToolBoundary {
     try {
       return await _inner.delete(path);
     } finally {
+      _temporaryTargets.remove(_resolve(path));
       _temporaryTargets.remove(path);
     }
   }
@@ -276,11 +297,12 @@ final class AskingBoundary implements FileSystem, ToolBoundary {
     // The temp lives in the same directory as `near`: authorize `near` as
     // a write (refusing staging outside every granted tree), then map the
     // temp path to that authorization so writing and renaming it does not
-    // ask again.
+    // ask again. The mapping keys the resolved form — callers hand back
+    // whatever string the inner filesystem returned.
     final approved = _resolve(near);
     await _authorize(FileOp.write, approved);
     final tmp = await _inner.createTempFile(near: near);
-    _temporaryTargets[tmp] = approved;
+    _temporaryTargets[_resolve(tmp)] = approved;
     return tmp;
   }
 

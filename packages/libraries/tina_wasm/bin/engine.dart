@@ -21,10 +21,12 @@ import 'package:wasm_components/wasm_components.dart' as cm;
 import 'package:tina/src/app_io.dart';
 import 'package:tina/src/app_stdout.dart';
 import 'package:tina/src/assembly.dart';
+import 'package:tina/src/persistence_seam.dart';
 import 'package:tina/src/pipes.dart';
 import 'package:tina/src/tools_factory.dart';
 import 'package:tina_settings/tina_settings.dart';
 
+import 'package:tina_persistence/session_store_api.dart';
 import 'package:tina_wasm/src/components/tina_probe_engine_probe.dart' as root;
 import 'package:tina_wasm/src/components/wasi_cli.dart' as wasi_cli;
 import 'package:tina_wasm/src/components/wasi_filesystem.dart' as fs;
@@ -32,6 +34,8 @@ import 'package:tina_wasm/src/components/wasmdart_tests.dart' as tests;
 import 'package:tina_wasm/src/engine_registry.dart';
 import 'package:tina_wasm/src/preloaded_app_io.dart';
 import 'package:tina_wasm/src/portable_tools_plugin.dart';
+import 'package:tina_wasm/src/wasm_persistence_plugin.dart';
+import 'package:tina_wasm/src/wasi_session_store.dart';
 import 'package:tina_wasm/src/wasi_tool_file_system.dart';
 import 'package:tina_wasm/src/wasm_environment_port.dart';
 import 'package:tina_wasm/src/wasm_file_system_port.dart';
@@ -123,24 +127,60 @@ final class _TestedModule implements tests.TestedModule {
     }
 
     // 4. The assembly: same code path as `tina --pipes`, with the wasm
-    //    registry, the preloaded backend, and the pipes protocol. Yolo
-    //    is the host's call (TINA_ENGINE_YOLO=0 boots in ask mode so
-    //    approval asks reach the client); no credentials either way.
+    // registry, the preloaded backend, and the pipes protocol. Yolo is
+    // the host's call (TINA_ENGINE_YOLO=0 boots in ask mode so approval
+    // asks reach the client); persistence is too (TINA_ENGINE_STORE +
+    // a config enabling tina/persistence; TINA_ENGINE_RESUME seeds a
+    // stored session). No credentials either way.
     final backend = PreloadedSettingsBackend(
       appIo,
       globalPath: 'config/config',
       workspacePath: '.tina/config',
     );
+
+    // The persistence store, when the host asks for one: load the JSONL
+    // file from the preopens before the synchronous boot, and wire the
+    // seam so the assembly's open/resume calls reach it instead of the
+    // platform default (none under wasm).
+    final storeSpec = environment['TINA_ENGINE_STORE'];
+    final resumeId = environment['TINA_ENGINE_RESUME'];
+    WasiSessionStore? store;
+    if (storeSpec != null) {
+      store = await WasiSessionStore.open(
+          storeSpec, preopens, _imports.filesystemTypes);
+    }
+    WasmPersistencePlugin? persistencePlugin;
+    if (store != null) {
+      injectedPersistenceWiring = PersistenceWiring(
+        openStore: (_) => store!,
+        restoreSessionSettings: (settings, opened, sessionId) =>
+            restoreSessionSettingsFromLog(
+                settings as ScopedSettings,
+                (opened as WasiSessionStore).readEntries(sessionId)),
+        storedSessionModel: (opened, sessionId) => (opened as WasiSessionStore)
+            .list()
+            .firstWhere((row) => row.id == sessionId,
+                orElse: () => throw SessionStoreException(
+                    'no session $sessionId in ${opened.file}'))
+            .model,
+      );
+    }
+
     final assembly = SessionAssembly.start(
       providerFactory: provider,
       options: AssemblyOptions(
         configPath: 'config/config',
         workingDirectory: '.',
+        storePath: storeSpec,
+        sessionId: resumeId,
         yolo: environment['TINA_ENGINE_YOLO'] != '0',
         interactive: false,
         osSandbox: false,
         approvalChannel: 'tina/approvals-stream',
-        registry: wasmEngineRegistry(),
+        registry: wasmEngineRegistry(
+          persistenceStore: store,
+          onPersistence: (plugin) => persistencePlugin = plugin,
+        ),
         settingsBackend: backend,
         plugins: const [
           'tina/system-instruction',
@@ -149,6 +189,8 @@ final class _TestedModule implements tests.TestedModule {
           'tina/tools',
           'tina/approvals-stream',
           'tina/session-controls',
+          // Selected only when the registry carries it (TINA_ENGINE_STORE).
+          'tina/persistence',
         ],
       ),
     );
@@ -165,6 +207,11 @@ final class _TestedModule implements tests.TestedModule {
       await _stdoutQueue;
     } finally {
       await assembly.shutdown();
+      // The session store's writes are buffered memory until this flush:
+      // the component's export has not returned yet, so the host's event
+      // loop still drives the WASI streams.
+      await persistencePlugin?.flush();
+      injectedPersistenceWiring = null;
     }
   }
 

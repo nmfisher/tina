@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_settings/tina_settings.dart';
 
+import '../session_store_api.dart';
 import 'store.dart';
 import 'history_tools.dart';
 
-typedef SessionStoreOpener = SessionStore Function();
 
 /// Owns the session store and its log subscription. The application assembly
 /// supplies an opener for the chosen location, including :memory: in tests.
@@ -25,21 +25,8 @@ final class PersistencePlugin extends AgentPlugin {
 
   /// Interpret this plugin's own opaque snapshot before factories are built.
   static void restoreSettings(
-      ScopedSettings settings, Iterable<SessionEntry> log) {
-    PluginStateEntry? snapshot;
-    for (final entry in log) {
-      if (entry is PluginStateEntry &&
-          entry.pluginId == 'tina/persistence' &&
-          entry.stateKey == 'settings') snapshot = entry;
-    }
-    if (snapshot == null) return;
-    if (snapshot.schemaVersion != 1)
-      throw const FormatException('Unsupported session settings version');
-    final values = snapshot.value?['overrides'] as Map? ?? {};
-    settings.backend
-        .write(SettingScope.session, Map<String, Object?>.from(values));
-    settings.reload();
-  }
+          ScopedSettings settings, Iterable<SessionEntry> log) =>
+      restoreSessionSettingsFromLog(settings, log);
 
   @override
   String get id => 'tina/persistence';
@@ -48,8 +35,8 @@ final class PersistencePlugin extends AgentPlugin {
   int get order => -1000;
 
   final SessionStoreOpener openStore;
-  SessionStore? _store;
-  SessionStore get store =>
+  SessionStoreApi? _store;
+  SessionStoreApi get store =>
       _store ?? (throw StateError('persistence is closed'));
   int? registryKey;
   PluginSession? _session;
