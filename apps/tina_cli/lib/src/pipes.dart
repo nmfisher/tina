@@ -12,12 +12,16 @@
 ///   returns the same receipt.
 /// * `{"op":"cancel","work":"work-2","reason":"..."}` — cancel one active
 ///   work ID (a stale ID is reported, never applied to a successor).
+/// * `{"op":"approve","id":"...","decision":"allow"}` — answer a pending
+///   approval request (`allow`, `always` or `deny`); the reply's
+///   `accepted` is false when no such request is pending.
 /// * `{"op":"status"}` — emit the current status immediately.
 /// * `{"op":"shutdown"}` — stop cleanly; the process exits 0.
 ///
 /// Events: `ready`, `status`, `receipt`, `entry` (one per committed log
 /// entry, JSON exactly as the session log serializes it), `cancel`,
-/// `error`, `bye`. Stdin EOF behaves like `shutdown`.
+/// `approval` (a request awaiting an answer), `approval-result` (the
+/// answer's outcome), `error`, `bye`. Stdin EOF behaves like `shutdown`.
 ///
 /// This file lives in the application package, outside the engine
 /// packages: `dart:io` belongs here and nowhere near the engine.
@@ -29,6 +33,8 @@ import 'dart:convert';
 
 import 'pipes_stdio.dart';
 
+import 'package:tina_approvals/tina_approvals.dart'
+    show ApprovalDecision, ApprovalRequest, StreamApprovalChannel;
 import 'package:tina_host/tina_host.dart';
 
 import 'assembly.dart';
@@ -93,6 +99,7 @@ final class _SessionPipes {
   Future<int> run() async {
     _emitNow(_readyEvent());
     unawaited(_observe());
+    _observeApprovals();
     final stop = Completer<int>();
     final interrupt = canWatchInterrupt
         ? interruptStream().listen((_) {
@@ -137,6 +144,7 @@ final class _SessionPipes {
     if (_done) return;
     _done = true;
     unawaited(_reader?.cancel());
+    unawaited(_approvalRequests?.cancel());
     if (_signals != null) unawaited(_signals!.cancel());
     stop.complete(code);
   }
@@ -220,6 +228,70 @@ final class _SessionPipes {
     }
   }
 
+  // ---- approvals ----------------------------------------------------------
+
+  /// The stream approval channel the assembly selected, when the plugin
+  /// set carries one: every request it delivers is emitted as an
+  /// `approval` event a pipes client answers with the `approve` op. A
+  /// channel with no listener denies every delivery, so this subscription
+  /// is what makes asks answerable at all on a headless engine.
+  StreamApprovalChannel? _approvalChannel() {
+    for (final plugin in assembly.host.plugins) {
+      if (plugin is StreamApprovalChannel) return plugin;
+    }
+    return null;
+  }
+
+  void _observeApprovals() {
+    final channel = _approvalChannel();
+    if (channel == null) return;
+    _approvals = channel;
+    _approvalRequests = channel.requests.listen(
+      (request) {
+        _queue({
+          'type': 'approval',
+          'id': request.id,
+          'operation': request.operation,
+          'target': request.target,
+          'reason': request.reason,
+          'kind': request.kind.name,
+        });
+      },
+      onError: (Object error) {
+        _queue({'type': 'error', 'error': 'approval channel: $error'});
+      },
+    );
+  }
+
+  void _approve(Map<String, dynamic> request) {
+    final channel = _approvals;
+    if (channel == null) {
+      throw StateError('no approval channel is attached');
+    }
+    final id = request['id'];
+    final decisionName = request['decision'];
+    if (id is! String || id.isEmpty) {
+      throw ArgumentError('approve requires id');
+    }
+    final decision = switch (decisionName) {
+      'allow' => ApprovalDecision.allow,
+      'always' => ApprovalDecision.allowAlways,
+      'deny' => ApprovalDecision.deny,
+      _ => throw ArgumentError(
+          'approve decision must be allow, always or deny'),
+    };
+    final accepted = channel.respond(id, decision);
+    _emitNow({
+      'type': 'approval-result',
+      'id': id,
+      'decision': decisionName,
+      'accepted': accepted,
+    });
+  }
+
+  StreamApprovalChannel? _approvals;
+  StreamSubscription<ApprovalRequest>? _approvalRequests;
+
   // ---- wire encoding -----------------------------------------------------
 
   Map<String, Object?> _readyEvent() {
@@ -288,6 +360,8 @@ final class _SessionPipes {
           _submit(decoded);
         case 'cancel':
           _cancel(decoded);
+        case 'approve':
+          _approve(decoded);
         case 'status':
           _emitNow(_statusEvent(connection.status));
           _queueReceipts();

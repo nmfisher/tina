@@ -16,6 +16,8 @@ import 'package:tina_system_instruction/tina_system_instruction.dart';
 
 import 'package:tina/src/session_context.dart';
 
+import 'portable_tools_plugin.dart';
+
 /// `tina/mode-policy`, as the native catalog's tools plugin provides it.
 const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
 
@@ -27,6 +29,9 @@ const toolProvider = PluginCapability<ModePolicySource>('tina/tools');
 
 // The delivery-channel capability, exactly as the native catalog sees it.
 const approvalChannel = tina_approvals.approvalChannel;
+
+// The approval requester the tools plugin routes asks through.
+const approvalRequester = tina_approvals.approvalRequester;
 
 /// Builds the wasm registry: every first-party plugin whose dependency
 /// tree compiles without `dart:io`/`dart:ffi`, driven by the same
@@ -56,13 +61,20 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry() =>
           description:
               'Adds mode controls for the tools permission policy.',
         ),
-        PluginDefinition<SessionPluginContext>(
+        PluginDefinition.dependingOn<SessionPluginContext,
+            tina_approvals.ApprovalRequester>(
           'tina/tools',
-          (c) => c.tools as AgentPlugin,
+          dependency: approvalRequester,
+          create: (c, approvals) {
+            final plugin = c.tools as PortableToolsPlugin;
+            plugin.attachApprovals(approvals);
+            return plugin;
+          },
           provides: [toolProvider, modePolicySource],
           description:
               'File tools (read, write, edit) over the preopened workspace with permission policy.',
         ),
+        tina_approvals.approvalsDefinition<SessionPluginContext>(),
         PluginDefinition<SessionPluginContext>(
           'tina/approvals-stream',
           (_) => tina_approvals.StreamApprovalChannel(),

@@ -93,7 +93,10 @@ final class _TestedModule implements tests.TestedModule {
     );
     injectedAppIo = appIo;
 
-    // 2. The portable tools plugin over the WASI filesystem.
+    // 2. The portable tools plugin over the WASI filesystem, with the
+    //    asking boundary: preopen attribution answers containment, the
+    //    config preopen and the workspace `.tina` are protected, and the
+    //    mode comes from the host (yolo unless TINA_ENGINE_YOLO=0).
     injectedToolsPluginFactory = (wiring) => PortableToolsPlugin(
           fileSystem: WasiToolFileSystem(
             preopens,
@@ -101,6 +104,8 @@ final class _TestedModule implements tests.TestedModule {
           ),
           workspaceRoot: wiring.workspaceRoot,
           mode: wiring.mode,
+          protectedPaths: wiring.protectedPaths,
+          isWithinWorkspace: (path) => preopens.guestRootOf(path) == '.',
         );
 
     // 3. The provider over `tina:http`, credentials from the host-set
@@ -118,7 +123,9 @@ final class _TestedModule implements tests.TestedModule {
     }
 
     // 4. The assembly: same code path as `tina --pipes`, with the wasm
-    //    registry, the preloaded backend, and the pipes protocol.
+    //    registry, the preloaded backend, and the pipes protocol. Yolo
+    //    is the host's call (TINA_ENGINE_YOLO=0 boots in ask mode so
+    //    approval asks reach the client); no credentials either way.
     final backend = PreloadedSettingsBackend(
       appIo,
       globalPath: 'config/config',
@@ -129,7 +136,7 @@ final class _TestedModule implements tests.TestedModule {
       options: AssemblyOptions(
         configPath: 'config/config',
         workingDirectory: '.',
-        yolo: true,
+        yolo: environment['TINA_ENGINE_YOLO'] != '0',
         interactive: false,
         osSandbox: false,
         approvalChannel: 'tina/approvals-stream',

@@ -42,6 +42,33 @@ final class WasmPreopens {
   /// their prefix. Paths containing a `..` segment never resolve.
   (cm.Owned<fs.TypesDescriptor>, String)? resolve(String path) => _resolve(path);
 
+  /// The guest path of the preopen [path] belongs to (the workspace is
+  /// '.'), or null when no preopen owns it — the containment answer for
+  /// permission boundaries: a path inside the workspace preopen is a
+  /// workspace path, everything else is outside.
+  String? guestRootOf(String path) {
+    var candidate = path;
+    if (candidate.startsWith('/')) {
+      for (final (_, guestPath) in _directories) {
+        if (candidate == guestPath) return guestPath;
+        final root = guestPath.endsWith('/') ? guestPath : '$guestPath/';
+        if (candidate.startsWith(root)) return guestPath;
+      }
+      return null;
+    }
+    while (candidate.startsWith('./')) {
+      candidate = candidate.substring(2);
+    }
+    if (_hasDotDot(candidate)) return null;
+    for (final (_, guestPath) in _directories) {
+      if (guestPath == '.' || guestPath.isEmpty) return guestPath;
+      if (candidate == guestPath) return guestPath;
+      final root = guestPath.endsWith('/') ? guestPath : '$guestPath/';
+      if (candidate.startsWith(root)) return guestPath;
+    }
+    return null;
+  }
+
   (cm.Owned<fs.TypesDescriptor>, String)? _resolve(String path) {
     var candidate = path;
     if (candidate.startsWith('/')) {
