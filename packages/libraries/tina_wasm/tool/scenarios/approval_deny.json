@@ -1,0 +1,53 @@
+{
+ "name": "approval_deny",
+ "moves": [
+  {
+   "send": {
+    "op": "submit",
+    "id": "t1",
+    "line": "Write notes.txt with hello"
+   }
+  },
+  {
+   "wait": {
+    "type": "approval",
+    "operation": "write"
+   },
+   "timeout": 300
+  },
+  {
+   "send": {
+    "op": "approve",
+    "id": "$approval",
+    "decision": "deny"
+   }
+  },
+  {
+   "wait": {
+    "type": "receipt",
+    "id": "t1",
+    "state": "completed"
+   },
+   "timeout": 300
+  },
+  {
+   "expect": {
+    "file-absent": "notes.txt"
+   }
+  },
+  {
+   "expect": {
+    "event": {
+     "type": "entry",
+     "entry.message.content": [
+      {
+       "type": "tool_result",
+       "content": "~approval denied or cancelled",
+       "is_error": true
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

@@ -417,7 +417,7 @@ final class OpenAiCompatibleProvider extends LlmProvider
     this.stallTimeout = const Duration(seconds: 120),
     this.generation = const GenerationOptions(),
     OpenAiStructuredOutput? structuredOutput,
-  })  : _endpoint = endpoint ?? IoHttpEndpoint(endpoint: baseUrl),
+  })  : _endpoint = endpoint,
         structuredOutput =
             structuredOutput ?? openAiStructuredOutputFor(baseUrl),
         _tokenFrom = tokenFrom,
@@ -427,7 +427,7 @@ final class OpenAiCompatibleProvider extends LlmProvider
   /// chat-completions path is resolved against it per send.
   final String baseUrl;
 
-  final HttpEndpoint _endpoint;
+  final HttpEndpoint? _endpoint;
   final String Function() _tokenFrom;
   final Duration stallTimeout;
   final GenerationOptions generation;
@@ -438,8 +438,7 @@ final class OpenAiCompatibleProvider extends LlmProvider
 
   @override
   void close() {
-    final e = _endpoint;
-    if (e is IoHttpEndpoint) e.close();
+    _endpoint?.close();
   }
 
   @override
@@ -473,6 +472,14 @@ final class OpenAiCompatibleProvider extends LlmProvider
           '(see the provider list)');
       return;
     }
+    final endpoint = _endpoint;
+    if (endpoint == null) {
+      // Fail closed: the composition root must inject the HTTP port.
+      yield const StreamError(
+          'no HTTP endpoint: the composition root must inject one '
+          '(natively tina_io\'s IoHttpEndpoint)');
+      return;
+    }
     final HttpResponse response;
     try {
       final request = generation.openAi(chatCompletionsBody(
@@ -497,7 +504,7 @@ final class OpenAiCompatibleProvider extends LlmProvider
           OpenAiStructuredOutput.jsonObject => {'type': 'json_object'},
         };
       }
-      response = await _endpoint.post(
+      response = await endpoint.post(
         chatCompletionsPath(baseUrl),
         headers: {
           'content-type': 'application/json',

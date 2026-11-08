@@ -1,0 +1,49 @@
+name: tina_wasm
+description: >-
+  Wasm implementations of the tina_core I/O ports: HTTP over the tina:http
+  host import, files over WASI preopens, environment over WASI. The wasm
+  composition root injects these where a native build injects tina_io. It
+  is deliberately not an engine package.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.0
+dependencies:
+  classification:
+    path: ../../../packages/classification
+  tina:
+    path: ../../../apps/tina_cli
+  tina_approvals:
+    path: ../../../packages/plugins/tina_approvals
+  tina_core:
+    path: ../../tina_core
+  tina_llm:
+    path: ../../tina_llm
+  tina_mode:
+    path: ../../../packages/plugins/tina_mode
+  tina_persistence:
+    path: ../../../packages/plugins/tina_persistence
+  tina_providers:
+    path: ../../../packages/plugins/tina_providers
+  tina_session_controls:
+    path: ../../../packages/plugins/tina_session_controls
+  tina_settings:
+    path: ../../../packages/libraries/tina_settings
+  tina_system_instruction:
+    path: ../../../packages/plugins/tina_system_instruction
+  tina_tools:
+    path: ../../../packages/plugins/tina_tools
+  toml: ^0.16.0
+  wasm_components:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      ref: asb/wasm-stage6-dogfood
+  hooks: ">=1.0.0 <3.0.0"
+dev_dependencies:
+  test: ^1.25.0
+  tina_io:
+    path: ../tina_io
+  wasm_tools:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      ref: asb/wasm-stage6-dogfood

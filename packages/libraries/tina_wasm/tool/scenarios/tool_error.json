@@ -1,0 +1,40 @@
+{
+ "name": "tool_error_recovery",
+ "moves": [
+  {
+   "send": {
+    "op": "submit",
+    "id": "t1",
+    "line": "Fix the notes file"
+   }
+  },
+  {
+   "wait": {
+    "type": "receipt",
+    "id": "t1",
+    "state": "completed"
+   },
+   "timeout": 300
+  },
+  {
+   "expect": {
+    "event": {
+     "type": "entry",
+     "entry.message.content": [
+      {
+       "type": "tool_result",
+       "content": "~File not found",
+       "is_error": true
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "file": "notes.txt",
+    "contains": "recovered after error"
+   }
+  }
+ ]
+}

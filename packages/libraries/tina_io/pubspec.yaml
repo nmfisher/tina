@@ -1,0 +1,15 @@
+name: tina_io
+description: >-
+  Native (dart:io) implementations of the tina_core I/O ports. This is the
+  adapter package the composition root injects on the VM; a wasm build
+  excludes it and supplies its own port implementations instead. It is
+  deliberately not an engine package.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dependencies:
+  tina_core:
+    path: ../../tina_core
+dev_dependencies:
+  test: ^1.25.0

@@ -6,6 +6,7 @@ import 'package:tina_tools/tina_tools.dart';
 import 'package:path/path.dart' as path;
 import 'assembly_config.dart';
 import 'config_document.dart';
+import 'settings_catalog.dart';
 
 Map<String, dynamic> _copy(Map<String, dynamic> values) =>
     Map<String, dynamic>.from(jsonDecode(jsonEncode(values)) as Map);
@@ -257,19 +258,11 @@ final class ConfigSettingsBackend implements SettingsBackend {
   Map<String, dynamic> effectiveDocument(
       {Map<SettingScope, Map<String, Object?>>? layers}) {
     layers ??= {for (final scope in SettingScope.values) scope: read(scope)};
-    final result = _copy(document(SettingScope.global));
-    // Convert legacy replacement lists to independent settings before overlay.
-    (result['plugins'] as Map?)?.remove('enabled');
-    for (final definition in catalog.definitions) {
-      _writeValue(result, definition, null);
-      for (final scope in SettingScope.values) {
-        if (layers[scope]!.containsKey(definition.id)) {
-          _writeValue(result, definition, layers[scope]![definition.id]);
-          break;
-        }
-      }
-    }
-    return result;
+    return mergeSettingLayers(
+      globalDocument: document(SettingScope.global),
+      layers: layers,
+      definitions: catalog.definitions,
+    );
   }
 
   @override

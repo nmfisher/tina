@@ -5,6 +5,16 @@ import 'package:path/path.dart' as p;
 
 import 'file_system.dart';
 
+/// Runs [run], rethrowing `dart:io` filesystem failures as
+/// [ToolFsException] so every implementation throws the same type.
+Future<T> _io<T>(Future<T> Function() run) async {
+  try {
+    return await run();
+  } on FileSystemException catch (e) {
+    throw ToolFsException(e.message, e.path, e.osError?.message);
+  }
+}
+
 /// [FileSystem] over real `dart:io` — thin wrappers, no added behavior.
 class IoFileSystem implements FileSystem {
   const IoFileSystem();
@@ -16,24 +26,24 @@ class IoFileSystem implements FileSystem {
   Future<bool> directoryExists(String path) => Directory(path).exists();
 
   @override
-  Future<List<int>> readFileBytes(String path) async =>
-      await File(path).readAsBytes();
+  Future<List<int>> readFileBytes(String path) =>
+      _io(() => File(path).readAsBytes());
 
   @override
-  Future<String> readFileString(String path) => File(path).readAsString();
+  Future<String> readFileString(String path) =>
+      _io(() => File(path).readAsString());
 
   @override
   Future<void> writeFile(String path, String content) =>
-      File(path).writeAsString(content);
+      _io(() => File(path).writeAsString(content));
 
   @override
   Future<void> createDirectory(String path, {bool recursive = false}) =>
-      Directory(path).create(recursive: recursive);
+      _io(() => Directory(path).create(recursive: recursive));
 
   @override
-  Future<void> rename(String from, String to) async {
-    await File(from).rename(to);
-  }
+  Future<void> rename(String from, String to) =>
+      _io(() => File(from).rename(to));
 
   @override
   Future<void> delete(String path) async {

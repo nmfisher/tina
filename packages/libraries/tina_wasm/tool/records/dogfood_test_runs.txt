@@ -1,0 +1,8 @@
+phase A host test run (before the engine's fix):
+00:00 +1 -1: test/math_utils_test.dart: gcd of 12 and 8 [E]
+  Expected: <5>
+    Actual: <4>
+Some tests failed.
+
+final host test run (after the engine's fix):
+00:00 +2: All tests passed!

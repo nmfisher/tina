@@ -1,10 +1,10 @@
 import 'package:path/path.dart' as p;
 import 'package:tina_core/tina_core.dart';
+import 'default_file_system.dart';
 import 'tool_descriptions.dart';
 
 import 'atomic_write.dart';
 import 'file_system.dart';
-import 'io_file_system.dart';
 import 'tool.dart';
 import 'tool_file_system.dart';
 
@@ -25,8 +25,8 @@ class WriteTool implements Tool {
   final String? Function(String path)? scratchNoticeFor;
 
   WriteTool({FileSystem? fs, this.workspaceRoot, this.scratchNoticeFor})
-      : fs = fs ?? IoFileSystem(),
-        _routes = ToolFileSystem.of(fs ?? IoFileSystem(),
+      : fs = fs ?? defaultFileSystem(),
+        _routes = ToolFileSystem.of(fs ?? defaultFileSystem(),
             workspaceRoot: workspaceRoot);
 
   @override

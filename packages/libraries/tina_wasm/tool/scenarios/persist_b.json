@@ -1,0 +1,8 @@
+{
+  "name": "resume_stored_session",
+  "moves": [
+    {"send": {"op": "submit", "id": "t1", "line": "What did you write earlier?"}},
+    {"wait": {"type": "receipt", "id": "t1", "state": "completed"}, "timeout": 300},
+    {"expect": {"event": {"type": "entry", "entry.message.role": "assistant", "entry.message.content": [{"type": "text", "text": "This session earlier wrote notes2.txt."}]}}}
+  ]
+}

@@ -12,3 +12,5 @@ dependencies:
     path: ../tina_core
 dev_dependencies:
   test: ^1.25.0
+  tina_io:
+    path: ../libraries/tina_io

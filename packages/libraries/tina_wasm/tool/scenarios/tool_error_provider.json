@@ -1,0 +1,61 @@
+{
+ "steps": [
+  {
+   "match": {
+    "last_user_contains": "Fix the notes",
+    "tool_result": false
+   },
+   "text": "Editing the notes file.",
+   "tool_use": [
+    {
+     "id": "toolu_edit",
+     "name": "edit",
+     "input": {
+      "filePath": "notes.txt",
+      "oldString": "old",
+      "newString": "new"
+     }
+    }
+   ],
+   "stop": "tool_use",
+   "usage": {
+    "input": 21,
+    "output": 18
+   }
+  },
+  {
+   "match": {
+    "last_user_contains": "Fix the notes",
+    "tool_result_contains": "File not found"
+   },
+   "text": "The edit failed; creating the file instead.",
+   "tool_use": [
+    {
+     "id": "toolu_recover",
+     "name": "write",
+     "input": {
+      "filePath": "notes.txt",
+      "content": "recovered after error\n"
+     }
+    }
+   ],
+   "stop": "tool_use",
+   "usage": {
+    "input": 44,
+    "output": 20
+   }
+  },
+  {
+   "match": {
+    "last_user_contains": "Fix the notes",
+    "tool_result_contains": "created notes.txt"
+   },
+   "text": "Recovered after the tool error.",
+   "stop": "end_turn",
+   "usage": {
+    "input": 62,
+    "output": 8
+   }
+  }
+ ]
+}

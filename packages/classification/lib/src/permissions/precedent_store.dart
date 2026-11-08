@@ -6,7 +6,9 @@
 library;
 
 import 'dart:convert';
-import 'dart:io';
+
+import 'precedent_file_unsupported.dart'
+    if (dart.library.io) 'precedent_file_io.dart';
 
 import 'precedent.dart';
 
@@ -94,6 +96,9 @@ final class MemoryPrecedentStore implements PrecedentStore {
 /// Writes are atomic (temp file + rename) and the whole file is rewritten on
 /// each decision: the record set is small and bounded, and a partial rewrite
 /// can never be observed.
+/// The sync file primitives the store needs, behind a seam so this file
+/// compiles where `dart:io` does not exist (the wasm engine keeps the
+/// interface; its composition root injects an in-memory store).
 final class FilePrecedentStore implements PrecedentStore {
   FilePrecedentStore(this.path, {this.cap = 512});
 
@@ -102,11 +107,9 @@ final class FilePrecedentStore implements PrecedentStore {
 
   @override
   List<ApprovalPrecedent> read() {
-    final file = File(path);
-    if (!file.existsSync()) return const [];
     final entries = <String, ApprovalPrecedent>{};
     try {
-      for (final line in file.readAsLinesSync()) {
+      for (final line in precedentReadLines(path)) {
         if (line.trim().isEmpty) continue;
         final precedent = ApprovalPrecedent.fromJson(jsonDecode(line));
         if (precedent != null) entries[precedent.key] = precedent;
@@ -149,24 +152,17 @@ final class FilePrecedentStore implements PrecedentStore {
   }
 
   @override
-  void clear() {
-    final file = File(path);
-    if (file.existsSync()) file.deleteSync();
-  }
+  void clear() => precedentDelete(path);
 
   void _write(Iterable<ApprovalPrecedent> values) {
     final ordered = values.toList()
       ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
     final kept = ordered.take(cap).toList()
       ..sort((a, b) => a.lastSeen.compareTo(b.lastSeen));
-    final file = File(path);
-    file.parent.createSync(recursive: true);
-    final temporary = File('$path.tmp');
-    temporary.writeAsStringSync(
+    precedentWriteAtomic(
+      path,
       kept.map((entry) => jsonEncode(entry.toJson())).join('\n') +
           (kept.isEmpty ? '' : '\n'),
-      flush: true,
     );
-    temporary.renameSync(path);
   }
 }

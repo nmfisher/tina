@@ -1,0 +1,10 @@
+{
+  "name": "approval_grant",
+  "moves": [
+    {"send": {"op": "submit", "id": "t1", "line": "Write notes.txt with hello"}},
+    {"wait": {"type": "approval", "operation": "write"}, "timeout": 300},
+    {"send": {"op": "approve", "id": "$approval", "decision": "allow"}},
+    {"wait": {"type": "receipt", "id": "t1", "state": "completed"}, "timeout": 300},
+    {"expect": {"file": "notes.txt", "contains": "hello"}}
+  ]
+}

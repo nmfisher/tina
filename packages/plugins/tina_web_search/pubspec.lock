@@ -343,6 +343,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_io:
+    dependency: "direct main"
+    description:
+      path: "../../libraries/tina_io"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_llm:
     dependency: "direct main"
     description:

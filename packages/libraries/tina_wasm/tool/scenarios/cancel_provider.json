@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {"match": {"tool_result": false},
+     "delay_seconds": 25,
+     "text": "Slow answer arrives too late.",
+     "stop": "end_turn", "usage": {"input": 21, "output": 6}}
+  ]
+}

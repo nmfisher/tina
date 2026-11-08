@@ -1,4 +1,6 @@
-import 'dart:io';
+import 'package:path/path.dart' as p;
+
+import 'app_io.dart';
 import 'dart:convert';
 import 'package:toml/toml.dart';
 import 'package:tina_llm/tina_llm.dart';
@@ -25,8 +27,7 @@ final class ConfigDocument {
   factory ConfigDocument.empty(String path) => ConfigDocument._(path, {}, null);
 
   factory ConfigDocument.open(String path, {bool workspace = false}) {
-    final file = File(path);
-    final text = file.existsSync() ? file.readAsStringSync() : null;
+    final text = defaultAppIo().readTextIfExists(path);
     final Map<String, dynamic> values;
     try {
       values = text == null
@@ -216,7 +217,7 @@ final class ConfigDocument {
         final original = originals[document];
         document._checkUnchanged();
         if (original == null) {
-          File(document.path).deleteSync();
+          defaultAppIo().deleteFile(document.path);
           document._original = null;
         } else {
           document._write(encodedOverride: original);
@@ -240,9 +241,7 @@ final class ConfigDocument {
   }
 
   void _checkUnchanged() {
-    final requested = File(path);
-    final current =
-        requested.existsSync() ? requested.readAsStringSync() : null;
+    final current = defaultAppIo().readTextIfExists(path);
     if (current != _original)
       throw StateError('Config changed on disk; close settings and reopen it.');
   }
@@ -254,26 +253,28 @@ final class ConfigDocument {
       _original = encoded;
       return;
     }
-    final requested = File(path);
-    final file = File(
-        requested.existsSync() ? requested.resolveSymbolicLinksSync() : path);
+    final io = defaultAppIo();
+    final file = io.exists(path) ? io.canonical(path) : path;
     _checkUnchanged();
-    file.parent.createSync(recursive: true);
-    final staging = file.parent.createTempSync('.tina-config-');
-    final pending = File('${staging.path}/config');
-    try {
-      pending.createSync();
-      if (!Platform.isWindows) {
-        final result = Process.runSync('chmod', ['600', pending.path]);
-        if (result.exitCode != 0)
-          throw FileSystemException('Cannot secure config permissions', path);
+    final parent = p.dirname(file);
+    io.createDirectory(parent, recursive: true);
+    if (io.canSecureFilePermissions) {
+      // The atomic native write: stage, secure, verify, rename.
+      final staging = io.createTempDirectory(parent, '.tina-config-');
+      final pending = p.join(staging, 'config');
+      try {
+        io.writeText(pending, encoded);
+        io.secureFilePermissions(pending);
+        _checkUnchanged();
+        io.rename(pending, file);
+        _original = encoded;
+      } finally {
+        io.deleteTree(staging);
       }
-      pending.writeAsStringSync(encoded, flush: true);
-      _checkUnchanged();
-      pending.renameSync(file.path);
+    } else {
+      // No staging/permissions support (wasm preloads): a plain write.
+      io.writeText(file, encoded);
       _original = encoded;
-    } finally {
-      staging.deleteSync(recursive: true);
     }
   }
 }

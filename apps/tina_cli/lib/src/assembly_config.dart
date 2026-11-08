@@ -2,12 +2,13 @@
 /// the legacy TOML shape; no legacy application code is imported here.
 library;
 
-import 'dart:io' show File, Platform;
+import 'app_io.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_core/tina_core.dart' show validatePluginId;
 import 'package:toml/toml.dart';
 import 'package:tina_mcp/tina_mcp.dart' show McpServerConfig;
 import 'provider_config.dart';
+import 'legacy_provider_cache.dart';
 import 'package:tina_providers/tina_providers.dart';
 
 export 'provider_config.dart';
@@ -167,31 +168,33 @@ TinaConfigResult loadTinaConfig({
   List<ProviderDescriptor>? descriptors,
   Map<String, String> environment = const {},
 }) {
-  final file = File(path ?? defaultConfigPath(environment));
-  if (!file.existsSync()) {
-    return const TinaConfigOk(TinaConfig(model: kTinaDefaultModel));
-  }
-  final String text;
+  final io = defaultAppIo();
+  final configPath = path ?? defaultConfigPath(environment);
+  final String? read;
   try {
-    text = file.readAsStringSync();
+    read = io.readTextIfExists(configPath);
   } catch (e) {
     return TinaConfigProblem(
-      'cannot read $file: $e',
+      'cannot read $configPath: $e',
       const TinaConfig(model: kTinaDefaultModel),
     );
   }
+  if (read == null) {
+    return const TinaConfigOk(TinaConfig(model: kTinaDefaultModel));
+  }
+  final String text = read;
   final Map<String, dynamic> parsed;
   try {
     parsed = TomlDocument.parse(text).toMap();
   } catch (_) {
     return TinaConfigProblem(
-      '$file is not valid config syntax',
+      '$configPath is not valid config syntax',
       const TinaConfig(model: kTinaDefaultModel),
     );
   }
   return parseTinaConfig(
     parsed,
-    path: file.path,
+    path: configPath,
     descriptors: descriptors ?? configuredDescriptors(environment),
   );
 }
@@ -200,9 +203,10 @@ TinaConfigResult loadTinaConfig({
 List<ProviderDescriptor> configuredDescriptors([
   Map<String, String> environment = const {},
 ]) {
-  final env = environment.isEmpty ? Platform.environment : environment;
-  if (env['COCOON_MODELS_DEV'] == '0') return builtinDescriptors;
-  final home = env['HOME'] ?? Platform.environment['HOME'];
+  String? ambient(String name) =>
+      environment.isNotEmpty ? environment[name] : defaultAppIo().env(name);
+  if (ambient('COCOON_MODELS_DEV') == '0') return builtinDescriptors;
+  final home = ambient('HOME');
   return home == null
       ? builtinDescriptors
       : cachedProviderDescriptors(
@@ -481,15 +485,7 @@ ProviderDescriptor? descriptorByIdFor(
 }
 
 String defaultConfigPath([Map<String, String> environment = const {}]) {
-  final home =
-      environment['HOME'] ??
-      (() {
-        try {
-          return Platform.environment['HOME'];
-        } catch (_) {
-          return null;
-        }
-      })();
+  final home = environment['HOME'] ?? defaultAppIo().env('HOME');
   if (home == null || home.isEmpty) return kTinaConfigPath;
   return '$home/$kTinaConfigPath';
 }

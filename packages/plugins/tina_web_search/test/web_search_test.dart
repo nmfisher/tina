@@ -70,6 +70,9 @@ final class RecordingEndpoint implements HttpEndpoint {
   Future<HttpResponse> post(String path,
           {required Map<String, String> headers, required List<int> body}) =>
       throw UnimplementedError();
+
+  @override
+  void close() {}
 }
 
 void main() {

@@ -18,3 +18,6 @@ build/
 # Python smoke-test caches
 __pycache__/
 *.pyc
+
+# wasm build artifacts
+packages/libraries/tina_wasm/bin/*.wasm

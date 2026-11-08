@@ -2,6 +2,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'config_settings_management.dart';
 import 'plugin_catalog.dart';
+import 'scoped_config.dart' show ConfigSettingsBackend;
 import 'settings_stack.dart';
 import 'tui_session.dart';
 
@@ -87,7 +88,7 @@ Future<bool> runConfigEditor(
   );
   final management = ConfigSettingsManagement(
     scopedSettings: stack.settings,
-    backend: stack.backend,
+    backend: stack.backend as ConfigSettingsBackend,
     descriptors: descriptors,
     pluginDescriptions: pluginDescriptions(stack.registry),
     validatePlugins: stack.registry.validate,

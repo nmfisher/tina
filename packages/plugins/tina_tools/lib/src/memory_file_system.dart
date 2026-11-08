@@ -1,11 +1,10 @@
 import 'dart:convert';
-import 'dart:io' show FileSystemException;
 
 import 'file_system.dart';
 
 /// An in-memory [FileSystem] for tests. Files are stored as strings in a map;
 /// directories are tracked as a set. Reads of a missing file throw
-/// [FileSystemException] (matching [IoFileSystem]), so tools that pre-check
+/// [ToolFsException] (matching [IoFileSystem]), so tools that pre-check
 /// `fileExists` behave identically against either implementation.
 ///
 /// Exposed fields ([files], [directories]) let tests seed state and assert on
@@ -71,7 +70,7 @@ class MemoryFileSystem implements FileSystem {
   @override
   Future<void> rename(String from, String to) async {
     if (!fileExistsSync(from)) {
-      throw FileSystemException('File does not exist', from);
+      throw ToolFsException('File does not exist', from);
     }
     final bytes = filesBytes.remove(from);
     if (bytes != null) {
@@ -103,7 +102,7 @@ class MemoryFileSystem implements FileSystem {
 
   void _requireFile(String path) {
     if (!files.containsKey(path) && !filesBytes.containsKey(path)) {
-      throw FileSystemException('File does not exist', path);
+      throw ToolFsException('File does not exist', path);
     }
   }
 

@@ -1,0 +1,52 @@
+{
+ "steps": [
+  {
+   "match": {
+    "last_user_contains": "Write notes.txt",
+    "tool_result": false
+   },
+   "text": "Writing the note.",
+   "tool_use": [
+    {
+     "id": "toolu_notes",
+     "name": "write",
+     "input": {
+      "filePath": "notes.txt",
+      "content": "hello approvals\n"
+     }
+    }
+   ],
+   "stop": "tool_use",
+   "usage": {
+    "input": 21,
+    "output": 18
+   }
+  },
+  {
+   "match": {
+    "last_user_contains": "Write notes.txt",
+    "tool_result_contains": "created notes.txt",
+    "tool_result": true
+   },
+   "text": "The note is written.",
+   "stop": "end_turn",
+   "usage": {
+    "input": 34,
+    "output": 9
+   }
+  },
+  {
+   "match": {
+    "last_user_contains": "Write notes.txt",
+    "tool_result_contains": "denied",
+    "tool_result": true
+   },
+   "text": "The write was refused, so nothing landed.",
+   "stop": "end_turn",
+   "usage": {
+    "input": 34,
+    "output": 9
+   }
+  }
+ ]
+}

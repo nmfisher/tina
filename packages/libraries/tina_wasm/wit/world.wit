@@ -1,0 +1,12 @@
+package tina:probe@1.0.0;
+
+/// One engine-shaped probe: WASI (filesystem preopens, environment, stdout,
+/// clocks, random) plus the tina:http host import, run by the case runner's
+/// protocol (result-collector in, tested-module out).
+world engine-probe {
+  include wasi:cli/command@0.3.0;
+  import wasmdart:tests/result-collector;
+  import tina:http/client@1.0.0;
+  import tina:process/process@1.0.0;
+  export wasmdart:tests/tested-module;
+}

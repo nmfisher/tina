@@ -46,8 +46,6 @@ import 'tool_execution.dart';
 /// subscribes and receives the log that already exists.
 enum LogEvent { appended, replay }
 
-String _now() => DateTime.now().toUtc().toIso8601String();
-
 TurnStopReason _turnReason(StopReason r) =>
     TurnStopReason.values.byName(r.name);
 
@@ -89,7 +87,9 @@ final class AgentLoop {
     required List<AgentPlugin> plugins,
     SessionSettings settings = const SessionSettings(),
     List<SessionEntry> seedLog = const [],
+    ClockPort? clock,
   })  : _provider = provider,
+        _clock = clock ?? const SystemClock(),
         _settings = settings {
     _log.addAll(seedLog.map((entry) => entry is PluginStateEntry
         ? SessionEntry.fromJson(entry.toJson())
@@ -103,6 +103,16 @@ final class AgentLoop {
 
   LlmProvider _provider;
   LlmProvider? _pendingProvider;
+
+  /// The session clock. Every log entry timestamp and observation stamp
+  /// goes through it, so tests can pin time and a wasm host can supply
+  /// its own; the default reads the system clock (dart:core, wasm-safe).
+  final ClockPort _clock;
+
+  /// The session clock, for observers that stamp activity metadata.
+  ClockPort get clock => _clock;
+
+  String _now() => _clock.now().toUtc().toIso8601String();
 
   /// The session's provider, read-only. Compaction needs it: the summary
   /// is one extra request on the provider the turn already uses — the

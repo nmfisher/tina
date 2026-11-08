@@ -22,6 +22,9 @@ part 'session_notices.dart';
 final class Host {
   Host._(this.config, this.session, this.context, this.commands, this._plugins,
       this.questions) {
+    _epoch = List.generate(16,
+            (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'))
+        .join();
     notices._mount(this);
     _releaseQuestions = questions.listen(_changed);
     _statusSubscription = session.loop.subscribe((entry, event) {
@@ -79,9 +82,12 @@ final class Host {
   final _pendingWork = <Completer<void>>{};
   final _connections = <SessionConnection>{};
   bool _notificationQueued = false;
-  final _epoch = List.generate(16,
-          (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'))
-      .join();
+  late final String _epoch;
+
+  /// The host's clock and random source, from the config with system
+  /// defaults — native behavior is identical, tests can pin both.
+  ClockPort get _clock => config.clock ?? const SystemClock();
+  RandomPort get _random => config.random ?? SystemRandom();
   int _snapshotRevision = 0;
   SessionSnapshot? _lastSnapshot;
   final _features = <String, _FeatureObservation>{};
@@ -125,7 +131,7 @@ final class Host {
                 'input': freezeSnapshotValue(event.call.input),
                 'output': '',
                 'output_truncated': false,
-                'started_at': DateTime.now().toUtc().toIso8601String(),
+                'started_at': _clock.now().toUtc().toIso8601String(),
                 'progress_history': <String>[],
               });
       if (event is ToolProgress) {
@@ -330,6 +336,7 @@ final class Host {
     required ProviderFactory providerFactory,
     String model = 'scripted',
     String? sessionId,
+    ClockPort? clock,
   }) =>
       start(
           HostConfig(
@@ -338,12 +345,19 @@ final class Host {
             workingDirectory: workingDirectory,
             plugins: plugins,
             details: SessionDetails(depth: depth),
+            clock: clock,
           ),
-          sessionId:
-              sessionId ?? 's-${DateTime.now().microsecondsSinceEpoch}-child');
+          sessionId: sessionId ??
+              's-${(clock ?? const SystemClock())
+                  .now()
+                  .microsecondsSinceEpoch}-child');
+
 
   static Host start(HostConfig config, {String? sessionId}) => _open(
-      config, sessionId ?? 's-${DateTime.now().microsecondsSinceEpoch}', false);
+      config,
+      sessionId ??
+          's-${(config.clock ?? const SystemClock()).now().microsecondsSinceEpoch}',
+      false);
 
   static Host resume(HostConfig config, String sessionId) =>
       _open(config, sessionId, true);
@@ -387,7 +401,8 @@ final class Host {
       deliverNotice: (text) => host._deliverNotice(text),
     );
     final opened = <AgentPlugin>[];
-    final questions = config.questions ?? SessionQuestions();
+    final questions = config.questions ??
+        SessionQuestions(clock: config.clock, random: config.random);
     LlmProvider? provider;
     try {
       SessionSeed? seed;
@@ -413,6 +428,7 @@ final class Host {
         plugins: plugins,
         settings: SessionSettings(systemPrompt: config.systemPrompt),
         seedLog: seed?.log ?? const [],
+        clock: config.clock,
       );
       for (final plugin in plugins) {
         loop.mountPlugin(plugin);
