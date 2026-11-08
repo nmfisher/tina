@@ -141,9 +141,11 @@ final class _FrontEndClient {
     }
     stdout.write(_renderSink.toString());
     final ok = _failures.isEmpty;
-    _say('[front] RESULT: ${ok ? 'PASS' : 'FAIL'}');
+    // The verdict always reaches stdout, rendered or not — a scenario's
+    // exit status is byte-for-byte less useful than its reason.
+    stdout.writeln('[front] RESULT: ${ok ? 'PASS' : 'FAIL'}');
     for (final failure in _failures) {
-      _say('[front] failure: $failure');
+      stdout.writeln('[front] failure: $failure');
     }
     return ok;
   }
@@ -395,7 +397,9 @@ final class _Wait {
 }
 
 /// Subset match: every pattern key must be present with an equal value
-/// (nested maps recurse; dotted keys reach into nested maps).
+/// (nested maps recurse; dotted keys reach into nested maps). A string
+/// value starting with `~` matches by substring instead — engine paths
+/// differ in shape (absolute natively, preopen-relative under wasm).
 bool matchesPattern(Map<String, dynamic> event, Map<String, dynamic> pattern) {
   for (final entry in pattern.entries) {
     final want = entry.value;
@@ -413,9 +417,18 @@ bool matchesPattern(Map<String, dynamic> event, Map<String, dynamic> pattern) {
           if (h is! Map<String, dynamic> || !matchesPattern(h, w)) {
             return false;
           }
+        } else if (w is String && w.startsWith('~')) {
+          if ('$h' != w.substring(1) && !('$h'.contains(w.substring(1)))) {
+            return false;
+          }
         } else if (w != h) {
           return false;
         }
+      }
+    } else if (want is String && want.startsWith('~')) {
+      if ('$have' != want.substring(1) &&
+          !('$have'.contains(want.substring(1)))) {
+        return false;
       }
     } else if ('$have' != '$want') {
       return false;

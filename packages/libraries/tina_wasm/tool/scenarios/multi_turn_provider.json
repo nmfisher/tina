@@ -1,0 +1,75 @@
+{
+ "steps": [
+  {
+   "match": {
+    "last_user_contains": "Write first.txt",
+    "tool_result": false,
+    "min_request_index": 0
+   },
+   "text": "Writing the first file.",
+   "tool_use": [
+    {
+     "id": "toolu_one",
+     "name": "write",
+     "input": {
+      "filePath": "first.txt",
+      "content": "alpha content\n"
+     }
+    }
+   ],
+   "stop": "tool_use",
+   "usage": {
+    "input": 21,
+    "output": 18
+   }
+  },
+  {
+   "match": {
+    "last_user_contains": "Write first.txt",
+    "tool_result": true,
+    "min_request_index": 1
+   },
+   "text": "First file saved.",
+   "stop": "end_turn",
+   "usage": {
+    "input": 34,
+    "output": 6
+   }
+  },
+  {
+   "match": {
+    "last_user_contains": "Now the second",
+    "min_request_index": 3
+   },
+   "text": "Second file saved, carrying the first turn's context.",
+   "stop": "end_turn",
+   "usage": {
+    "input": 64,
+    "output": 10
+   }
+  },
+  {
+   "match": {
+    "last_user_contains": "Now the second",
+    "min_request_index": 2,
+    "history_contains": "First file saved."
+   },
+   "text": "The first file said alpha, so the second records it.",
+   "tool_use": [
+    {
+     "id": "toolu_two",
+     "name": "write",
+     "input": {
+      "filePath": "second.txt",
+      "content": "second saw alpha\n"
+     }
+    }
+   ],
+   "stop": "tool_use",
+   "usage": {
+    "input": 51,
+    "output": 20
+   }
+  }
+ ]
+}

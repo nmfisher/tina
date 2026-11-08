@@ -1,0 +1,12 @@
+{
+  "name": "multi_turn",
+  "moves": [
+    {"send": {"op": "submit", "id": "t1", "line": "Write first.txt with alpha content"}},
+    {"wait": {"type": "receipt", "id": "t1", "state": "completed"}, "timeout": 300},
+    {"expect": {"file": "first.txt", "contains": "alpha"}},
+    {"send": {"op": "submit", "id": "t2", "line": "Now the second file"}},
+    {"wait": {"type": "receipt", "id": "t2", "state": "completed"}, "timeout": 300},
+    {"expect": {"file": "second.txt", "contains": "alpha"}},
+    {"expect": {"event": {"type": "entry", "entry.message.role": "assistant", "entry.message.content": [{"type": "text", "text": "Second file saved, carrying the first turn's context."}]}}}
+  ]
+}

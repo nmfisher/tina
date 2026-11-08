@@ -1,0 +1,10 @@
+{
+  "name": "cancel_mid_turn",
+  "moves": [
+    {"send": {"op": "submit", "id": "t1", "line": "Take your time answering"}},
+    {"wait": {"type": "receipt", "id": "t1", "state": "running"}, "timeout": 300},
+    {"send": {"op": "cancel", "work": "work-1", "reason": "client changed its mind"}},
+    {"wait": {"type": "receipt", "id": "t1", "state": "cancelled"}, "timeout": 120},
+    {"expect": {"event": {"type": "entry", "entry.type": "turn_ended", "entry.reason": "cancelled"}}}
+  ]
+}

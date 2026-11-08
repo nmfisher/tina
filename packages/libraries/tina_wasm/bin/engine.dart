@@ -12,6 +12,7 @@
 /// native engine.
 library;
 
+import 'dart:convert' show utf8;
 import 'dart:typed_data';
 
 import 'package:tina_llm/tina_llm.dart';
@@ -182,15 +183,18 @@ final class _TestedModule implements tests.TestedModule {
           onPersistence: (plugin) => persistencePlugin = plugin,
         ),
         settingsBackend: backend,
-        plugins: const [
+        plugins: [
+          // The portable baseline; persistence joins only when the
+          // composition root loaded a store for it (the baseline is
+          // validated against the registry, so it cannot name what the
+          // registry does not carry).
           'tina/system-instruction',
           'tina/providers',
           'tina/mode',
           'tina/tools',
           'tina/approvals-stream',
           'tina/session-controls',
-          // Selected only when the registry carries it (TINA_ENGINE_STORE).
-          'tina/persistence',
+          if (store != null) 'tina/persistence',
         ],
       ),
     );
@@ -228,9 +232,12 @@ final class _TestedModule implements tests.TestedModule {
   void _emit(String line) {
     // One line, one stream write, chained in order: concurrent streams
     // have no guaranteed write order, and the pipes protocol's events
-    // must not interleave.
+    // must not interleave. UTF-8, never code units — a protocol line can
+    // carry non-ASCII (an approval reason's em-dash) and codeUnits would
+    // emit garbage bytes the client's decoder rejects.
     _stdoutQueue = _stdoutQueue.then((_) => _imports.cliStdout.writeViaStream(
-          data: Stream.value(Uint8List.fromList('$line\n'.codeUnits)),
+          data: Stream.value(
+              Uint8List.fromList(utf8.encode('$line\n'))),
         ));
   }
 }

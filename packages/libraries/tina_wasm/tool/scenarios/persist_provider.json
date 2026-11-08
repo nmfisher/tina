@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {"match": {"last_user_contains": "Write notes2.txt", "tool_result": false},
+     "text": "Saving.",
+     "tool_use": [{"id": "toolu_p1", "name": "write", "input": {"filePath": "notes2.txt", "content": "persisted note\n"}}],
+     "stop": "tool_use", "usage": {"input": 21, "output": 18}},
+    {"match": {"last_user_contains": "Write notes2.txt", "tool_result": true},
+     "text": "Saved the note.",
+     "stop": "end_turn", "usage": {"input": 34, "output": 9}},
+    {"match": {"last_user_contains": "What did you write", "history_contains": "persisted note"},
+     "text": "This session earlier wrote notes2.txt.",
+     "stop": "end_turn", "usage": {"input": 40, "output": 11}}
+  ]
+}
