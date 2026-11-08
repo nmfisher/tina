@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 
 import 'file_system.dart';
 import 'permissions.dart';
+import 'sandbox_violation.dart';
+import 'tool_boundary.dart';
 import 'write_directories.dart';
 
 /// Thrown by [SandboxedFileSystem] when an operation is refused. Tools catch
@@ -14,13 +16,7 @@ import 'write_directories.dart';
 /// This is the refusal that reaches the model: [message] is the reason,
 /// safe to show the user — it never includes the resolved real path of a
 /// sensitive tree, only the path the tool passed in.
-class SandboxViolation implements Exception {
-  final String message;
-  const SandboxViolation(this.message);
-
-  @override
-  String toString() => message;
-}
+export 'sandbox_violation.dart';
 
 /// A [FileSystem] decorator — the **enforcement boundary**.
 ///
@@ -49,7 +45,7 @@ class SandboxViolation implements Exception {
 /// Tools whose walk cannot go through the seam (ls's listing, glob's
 /// enumerate, stat) additionally assert their runtime `path` param via
 /// [validatePath] in their own `execute()`.
-class SandboxedFileSystem implements FileSystem {
+class SandboxedFileSystem implements FileSystem, ToolBoundary {
   FileSystem _inner;
   String _projectRoot;
   String _tinaDir;

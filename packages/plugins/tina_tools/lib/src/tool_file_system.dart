@@ -3,7 +3,8 @@ import 'package:tina_core/tina_core.dart';
 import 'file_system.dart';
 import 'io_file_system.dart';
 import 'permissions.dart';
-import 'sandboxed_file_system.dart';
+import 'sandbox_violation.dart';
+import 'tool_boundary.dart';
 import 'tool_input.dart';
 
 export 'permissions.dart' show FileOp;
@@ -36,19 +37,20 @@ class ToolFileSystem {
   /// standalone cwd-relative behavior.
   final String? workspaceRoot;
 
-  /// The sandbox boundary to consult for every operation. Null — the
+  /// The enforcement boundary to consult for every operation. Null — the
   /// common test configuration ([MemoryFileSystem], bare [IoFileSystem]) —
   /// skips the guard entirely, as the tools' own `is` checks did.
-  final SandboxedFileSystem? sandbox;
+  final ToolBoundary? sandbox;
 
   const ToolFileSystem(this.fs, {this.workspaceRoot, this.sandbox});
 
-  /// Wraps an existing tool filesystem: guards when [fs] *is* a
-  /// [SandboxedFileSystem], matching the tools' old inline `is` check.
+  /// Wraps an existing tool filesystem: guards when [fs] *is* an
+  /// enforcement boundary (the native sandbox or a portable asking
+  /// boundary), matching the tools' old inline `is` check.
   factory ToolFileSystem.of(FileSystem fs, {String? workspaceRoot}) =>
       ToolFileSystem(fs,
           workspaceRoot: workspaceRoot,
-          sandbox: fs is SandboxedFileSystem ? fs : null);
+          sandbox: fs is ToolBoundary ? fs as ToolBoundary : null);
 
   /// Resolve a raw model-supplied path the way every tool did.
   String resolve(String rawPath) => resolveToolPath(rawPath, workspaceRoot);
