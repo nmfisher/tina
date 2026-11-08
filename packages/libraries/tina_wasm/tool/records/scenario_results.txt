@@ -1,0 +1,7 @@
+multi_turn: native=PASS wasm=PASS comparison=IDENTICAL
+tool_error: native=PASS wasm=PASS comparison=IDENTICAL
+approval_grant: native=PASS wasm=PASS comparison=IDENTICAL
+approval_deny: native=PASS wasm=PASS comparison=IDENTICAL
+cancel: native=PASS wasm=PASS comparison=IDENTICAL
+persist_a: native=PASS wasm=PASS comparison=IDENTICAL
+persist_b: native=PASS wasm=PASS comparison=IDENTICAL

@@ -269,6 +269,12 @@ final class WasiSessionStore implements SessionStoreApi {
       }));
     }
     final store = WasiToolFile(_preopens, _fs);
+    final slash = file.lastIndexOf('/');
+    if (slash > 0) {
+      // The parent may not exist yet (a first run's `.tina`); WASI open
+      // does not create directories, so make it before the write.
+      await store.createDirectory(file.substring(0, slash), recursive: true);
+    }
     await store.writeFile(file, utf8.encode(buffer.toString()));
   }
 }
@@ -346,6 +352,34 @@ final class WasiToolFile {
       await done;
     } finally {
       handle.drop();
+    }
+  }
+
+  /// Creates [path] and its missing parents (WASI open creates files,
+  /// never directories).
+  Future<void> createDirectory(String path, {bool recursive = false}) async {
+    final resolved = _preopens.resolve(path);
+    if (resolved == null) {
+      throw SessionStoreException(
+          'path outside the preopened directories: $path');
+    }
+    final (root, relative) = resolved;
+    final segments = relative.split('/').where((s) => s.isNotEmpty).toList();
+    var walked = '';
+    for (final segment in (recursive ? segments : segments.take(1))) {
+      walked = walked.isEmpty ? segment : '$walked/$segment';
+      final made = await _fs.methodDescriptorCreateDirectoryAt(
+        self: root.borrow(),
+        path: walked,
+      );
+      switch (made) {
+        case cm.OkResult():
+          break;
+        case cm.ErrorResult(:final value):
+          // An existing directory is success for a recursive walk.
+          if (value.toString().toLowerCase().contains('exist')) continue;
+          throw SessionStoreException('mkdir $path failed', value.toString());
+      }
     }
   }
 }
