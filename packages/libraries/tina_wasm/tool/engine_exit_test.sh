@@ -10,6 +10,9 @@
 set -e
 cd "$(dirname "$0")/.."
 PKG="$PWD"
+# The driver runs inside this package (wasm_tools hooks need the pinned
+# SDK); the native engine it spawns runs on the box's stable SDK.
+DART="${DART_SDK:-$HOME/tools/dart-sdk-src/sdk/out/ReleaseX64/dart-sdk/bin/dart}"
 RUNNER="${RUNNER:-/workspace/target/debug/test_runner}"
 DRIVER="$PKG/tool/pipes_drive.dart"
 SERVER="$PKG/tool/fake_anthropic_turn_server.py"
@@ -18,7 +21,7 @@ WASM_OUT=/tmp/stage5_wasm.txt
 
 if [ ! -f bin/engine.wasm ]; then
   echo "=== building the engine component"
-  dart run wasm_tools compile bin/engine.dart
+  "$DART" run wasm_tools compile bin/engine.dart
 fi
 
 echo "=== starting the scripted provider"
@@ -51,14 +54,14 @@ EOF
 
 echo "=== native engine (dart run bin/tina.dart --pipes)"
 TINA_LLM_ENDPOINT=http://127.0.0.1:8731 TINA_LLM_TOKEN=stage5-token \
-  dart run --enable-asserts "$DRIVER" --workspace "$WS_NATIVE" -- \
+  "$DART" run --enable-asserts "$DRIVER" --workspace "$WS_NATIVE" -- \
   dart run --enable-asserts "$PKG/../../../apps/tina_cli/bin/tina.dart" \
   --config "$CFG/config" --cwd . --no-sandbox --yolo --pipes \
   | tee "$NATIVE_OUT"
 
 echo "=== wasm engine under wasmtime"
 TINA_LLM_ENDPOINT=http://127.0.0.1:8731 TINA_LLM_TOKEN=stage5-token \
-  dart run --enable-asserts "$DRIVER" --workspace "$WS_WASM" -- \
+  "$DART" run --enable-asserts "$DRIVER" --workspace "$WS_WASM" -- \
   "$RUNNER" "$PKG/bin/engine.wasm" \
   --preopen=.="$WS_WASM" --preopen=config="$CFG" \
   --env=TINA_LLM_ENDPOINT=http://127.0.0.1:8731 \
