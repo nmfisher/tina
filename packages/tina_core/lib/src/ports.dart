@@ -121,7 +121,6 @@ typedef ProcessApprover = Future<bool> Function(ProcessApprovalRequest request);
 
 /// The policy decision for one command line.
 final class ProcessPolicyDecision {
-  const ProcessPolicyDecision._(this.verdict, this.reason);
 
   const ProcessPolicyDecision.allow()
     : verdict = ProcessVerdict.allow,

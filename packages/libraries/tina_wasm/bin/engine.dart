@@ -20,7 +20,6 @@ import 'package:tina_core/tina_core.dart';
 import 'package:wasm_components/wasm_components.dart' as cm;
 
 import 'package:tina/src/app_io.dart';
-import 'package:tina/src/app_stdout.dart';
 import 'package:tina/src/assembly.dart';
 import 'package:tina/src/persistence_seam.dart';
 import 'package:tina/src/pipes.dart';
@@ -30,7 +29,6 @@ import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_persistence/session_store_api.dart';
 import 'package:tina_wasm/src/components/tina_probe_engine_probe.dart' as root;
 import 'package:tina_wasm/src/components/wasi_cli.dart' as wasi_cli;
-import 'package:tina_wasm/src/components/wasi_filesystem.dart' as fs;
 import 'package:tina_wasm/src/components/wasmdart_tests.dart' as tests;
 import 'package:tina_wasm/src/engine_registry.dart';
 import 'package:tina_wasm/src/preloaded_app_io.dart';

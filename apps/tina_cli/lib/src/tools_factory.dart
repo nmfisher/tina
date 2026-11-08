@@ -6,7 +6,6 @@
 /// platform-neutral on purpose — what the assembly knows, nothing more.
 library;
 
-import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:tina_settings/tina_settings.dart';
 

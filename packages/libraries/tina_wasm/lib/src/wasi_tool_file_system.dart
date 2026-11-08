@@ -77,7 +77,6 @@ final class WasiToolFileSystem implements tools.FileSystem {
 
   @override
   Future<List<int>> readFileBytes(String path) async {
-    final (root, relative) = _resolve(path);
     // Read via the same open + stream + drain the file port uses.
     final file = await _open(path, read: true);
     try {
@@ -135,9 +134,9 @@ final class WasiToolFileSystem implements tools.FileSystem {
 
   @override
   Future<void> createDirectory(String path, {bool recursive = false}) async {
+    final (root, relative) = _resolve(path);
     if (!recursive) {
-      final (root, relative) = _resolve(path);
-      final made = await _fs.methodDescriptorCreateDirectoryAt(
+        final made = await _fs.methodDescriptorCreateDirectoryAt(
         self: root.borrow(),
         path: relative,
       );
@@ -145,7 +144,6 @@ final class WasiToolFileSystem implements tools.FileSystem {
       return;
     }
     // Walk the segments like the file port does.
-    final (root, relative) = _resolve(path);
     var built = '';
     for (final segment in relative.split('/').where((s) => s.isNotEmpty)) {
       built = built.isEmpty ? segment : '$built/$segment';

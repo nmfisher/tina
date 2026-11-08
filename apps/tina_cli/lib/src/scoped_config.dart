@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:tina_settings/tina_settings.dart';
+import 'settings_surface.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:path/path.dart' as path;
@@ -34,7 +35,7 @@ void _put(Map<String, dynamic> values, List<String> path, Object? value) {
 }
 
 /// Filesystem adapter. Inheritance and validation remain in tina_settings.
-final class ConfigSettingsBackend implements SettingsBackend {
+final class ConfigSettingsBackend implements ConfigSettingsSurface {
   ConfigSettingsBackend(
       {required this.catalog,
       required this.globalPath,

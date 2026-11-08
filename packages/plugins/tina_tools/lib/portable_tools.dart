@@ -26,6 +26,15 @@ export 'src/tool_input.dart';
 export 'src/tool_descriptions.dart';
 export 'src/tool_file_system.dart';
 export 'src/tool_boundary.dart';
+export 'src/tools_plugin_surface.dart';
+export 'src/process_runner.dart'
+    show
+        ProcessCommandApprover,
+        ProcessControl,
+        ProcessDirectoryAccess,
+        ProcessPermission,
+        ProcessRequest,
+        RunOutcome;
 export 'src/asking_boundary.dart';
 export 'src/sandbox_violation.dart';
 export 'src/atomic_write.dart';

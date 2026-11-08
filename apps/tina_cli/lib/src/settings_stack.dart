@@ -4,7 +4,7 @@ import 'package:tina_settings/tina_settings.dart';
 import 'assembly_config.dart';
 import 'session_context.dart';
 import 'settings_catalog.dart';
-import 'scoped_config.dart' show ConfigSettingsBackend;
+import 'native_kinds.dart' show ConfigSettingsBackend;
 import 'settings_stack_unsupported.dart'
     if (dart.library.io) 'settings_stack_io.dart';
 
@@ -71,27 +71,18 @@ final class ScopedSettingsStack {
           },
           onChanged: onConfigurationChanged,
         );
-    final settings = ScopedSettings(catalog: catalog, backend: resolvedBackend);
+    // The backend is the config surface by construction: the seam's own
+    // backend, or an injected one (the wasm engine's preloaded backend,
+    // which implements the same surface).
+    final configBackend = resolvedBackend as ConfigSettingsBackend;
+    final settings = ScopedSettings(catalog: catalog, backend: configBackend);
     return ScopedSettingsStack._(
         registry: resolvedRegistry,
         catalog: catalog,
-        backend: resolvedBackend,
+        backend: configBackend,
         settings: settings,
-        effectiveDocument: resolvedBackend is ConfigSettingsBackend
-            ? (resolvedBackend as ConfigSettingsBackend).effectiveDocument
-            : (effectiveDocument ??
-                () => mergeSettingLayers(
-                      globalDocument:
-                          resolvedBackend is GlobalDocumentSource
-                              ? (resolvedBackend as GlobalDocumentSource)
-                                  .globalDocument()
-                              : const <String, dynamic>{},
-                      layers: {
-                        for (final scope in SettingScope.values)
-                          scope: resolvedBackend.read(scope),
-                      },
-                      definitions: catalog.definitions,
-                    )));
+        effectiveDocument:
+            effectiveDocument ?? configBackend.effectiveDocument);
   }
 
   /// The plugin registry the catalog was built from.
@@ -103,8 +94,9 @@ final class ScopedSettingsStack {
   final SettingCatalog catalog;
 
   /// The settings backend: the native filesystem adapter, or whatever a
-  /// composition root injected (a preloaded snapshot under wasm).
-  final SettingsBackend backend;
+  /// composition root injected (a preloaded snapshot under wasm) — always
+  /// the config surface, whichever side provides it.
+  final ConfigSettingsBackend backend;
 
   /// The merged effective document, however the backend computes it:
   /// the native backend's own merge, or the injected function a

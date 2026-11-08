@@ -7,6 +7,7 @@ import 'file_system.dart';
 import 'permissions.dart';
 import 'sandbox_violation.dart';
 import 'tool_boundary.dart';
+import 'tools_plugin_surface.dart';
 import 'write_directories.dart';
 
 /// Thrown by [SandboxedFileSystem] when an operation is refused. Tools catch
@@ -45,7 +46,7 @@ export 'sandbox_violation.dart';
 /// Tools whose walk cannot go through the seam (ls's listing, glob's
 /// enumerate, stat) additionally assert their runtime `path` param via
 /// [validatePath] in their own `execute()`.
-class SandboxedFileSystem implements FileSystem, ToolBoundary {
+class SandboxedFileSystem implements FileSystem, ToolBoundary, ToolSandboxView {
   FileSystem _inner;
   String _projectRoot;
   String _tinaDir;

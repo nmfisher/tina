@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'process_tree.dart';
 import 'captured_process.dart';
+import 'package:tina_mode/tina_mode.dart' show AuthorizationRequest;
+import 'permissions.dart' show Approval;
 import 'process_directory_access.dart';
 export 'process_directory_access.dart';
 
@@ -104,6 +106,36 @@ final class SandboxAccessRequest {
 /// Runs a command and returns its outcome. This is the seam; wrap it with
 /// [SandboxedProcessRunner] for enforcement, or use [IoProcessRunner] raw
 /// when a host decides permissions itself.
+/// One review of the entire action, including permissions already granted.
+/// The answer authorizes only [missingPermissions]; Always stores those for
+/// this structured command in this session.
+final class CommandApproval {
+  CommandApproval({
+    required this.reason,
+    required Set<ProcessPermission> requiredPermissions,
+    required Set<ProcessPermission> missingPermissions,
+    this.networkReason,
+    this.sandboxReason,
+    this.authorization,
+    this.readDirectory,
+    this.directoryAccess = const ProcessDirectoryAccess.empty(),
+    bool Function()? isActive,
+  })  : isActive = isActive ?? _alwaysActive,
+        requiredPermissions = Set.unmodifiable(requiredPermissions),
+        missingPermissions = Set.unmodifiable(missingPermissions);
+
+  final String reason;
+  final Set<ProcessPermission> requiredPermissions;
+  final Set<ProcessPermission> missingPermissions;
+  final AuthorizationRequest? authorization;
+  final String? networkReason;
+  final String? sandboxReason;
+  final String? readDirectory;
+  final ProcessDirectoryAccess directoryAccess;
+  final bool Function() isActive;
+  static bool _alwaysActive() => true;
+}
+
 abstract class ProcessRunner {
   Future<RunOutcome> run(ProcessRequest request, {ProcessControl? control});
 }
@@ -352,3 +384,9 @@ final class _CapturedOutput {
   String get text =>
       '${_truncated ? '[earlier output truncated]\n' : ''}$_text';
 }
+
+/// Who answers a command approval ask; see
+/// [SandboxedProcessRunner.commandApprover]. A typedef so the portable
+/// tools surface can name the type without the io-bound runner file.
+typedef ProcessCommandApprover = Future<Approval> Function(
+    ProcessRequest request, CommandApproval approval);

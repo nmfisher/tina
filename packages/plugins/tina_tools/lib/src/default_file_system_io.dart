@@ -1,5 +1,3 @@
-import 'dart:io' as io;
-
 import 'file_system.dart';
 import 'io_file_system.dart';
 

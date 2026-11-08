@@ -7,7 +7,7 @@ import 'assembly_config.dart';
 import 'config_document.dart';
 import 'configured_provider.dart';
 import 'plugin_settings.dart';
-import 'scoped_config.dart';
+import 'native_kinds.dart' show ConfigSettingsBackend;
 import 'settings_catalog.dart';
 import 'package:tina_tui/tina_tui.dart';
 

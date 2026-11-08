@@ -32,7 +32,7 @@ abstract interface class ToolSessionSource implements ModePolicySource {
 }
 
 final class ToolsPlugin extends AgentPlugin
-    implements ModeControl, ToolSessionSource {
+    implements ModeControl, ToolSessionSource, ToolsPluginSurface {
   /// Whether OS confinement was requested. The wrapper decides whether a
   /// backend exists ([OsSandboxRunner.backend]); false deliberately bypasses
   /// the jail while preserving environment filtering and permission checks.

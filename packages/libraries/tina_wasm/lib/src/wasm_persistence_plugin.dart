@@ -9,7 +9,6 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:tina_core/tina_core.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_persistence/session_store_api.dart';
 import 'package:tina_settings/tina_settings.dart';

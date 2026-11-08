@@ -1,3 +1,4 @@
+import 'tools_plugin_surface.dart' show ToolDirectoryGrants;
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -31,7 +32,7 @@ final readOnlyDirectoriesSetting = SettingDefinition<List<String>>(
 
 /// Live read access, shared by the approval gate and OS sandbox layout.
 /// This list never contributes writable mounts or write approvals.
-final class ReadOnlyDirectories {
+final class ReadOnlyDirectories implements ToolDirectoryGrants {
   List<String> _paths = const [];
   List<String> get paths => _paths;
   List<String> get existingPaths => _paths.where((value) {

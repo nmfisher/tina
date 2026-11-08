@@ -26,7 +26,7 @@ import 'package:tina_tools/portable_tools.dart' as tt;
 
 /// `tina/tools` over the portable file tools and the asking boundary.
 final class PortableToolsPlugin extends AgentPlugin
-    implements ModePolicySource {
+    implements ModePolicySource, tt.ToolsPluginSurface {
   PortableToolsPlugin({
     required tt.FileSystem fileSystem,
     required String workspaceRoot,
@@ -49,6 +49,45 @@ final class PortableToolsPlugin extends AgentPlugin
 
   /// The enforcement boundary: mode table, asks, session grants.
   final tt.AskingBoundary _boundary;
+
+  /// The surface the app layer's `ToolsPlugin` alias names under wasm:
+  /// the registered tools, the boundary as the sandbox view, and empty
+  /// process/directory grant views (the process tools are a native-only
+  /// slice; the members exist so every view of the plugin resolves the
+  /// same members the CI-named tests drive).
+  @override
+  List<tt.Tool> get toolList {
+    _build();
+    return List.unmodifiable(_toolList);
+  }
+
+  @override
+  tt.ToolSandboxView get sandbox => _boundary;
+
+  @override
+  tt.ToolDirectoryGrants get readDirectories => const _NoDirectoryGrants();
+
+  @override
+  tt.ToolDirectoryGrants get writeDirectories => const _NoDirectoryGrants();
+
+  @override
+  tt.ToolProcessRunnerView get processRunner => const _NoProcessRunner();
+
+  @override
+  tt.ToolCommandApprovals get commandApprovals => const _NoCommandApprovals();
+
+  @override
+  bool get osSandbox => false;
+
+  /// The workspace root paths resolve against (the wiring's root).
+  @override
+  String get workingDirectory => _boundary.workspaceRoot;
+
+  @override
+  PermissionMode get mode => modePolicy.mode;
+
+  @override
+  set mode(PermissionMode value) => modePolicy.mode = value;
 
   @override
   final ModePlugin modePolicy;
@@ -123,4 +162,85 @@ final class PortableToolsPlugin extends AgentPlugin
       });
     }
   }
+}
+
+/// No remembered read-only directories: the portable slice keeps no
+/// directory grants.
+final class _NoDirectoryGrants implements tt.ToolDirectoryGrants {
+  const _NoDirectoryGrants();
+
+  @override
+  List<String> get paths => const [];
+
+  @override
+  bool allows(String target) => false;
+}
+
+/// No process tools under wasm: no runner, no remembered approvals.
+final class _NoProcessRunner implements tt.ToolProcessRunnerView {
+  const _NoProcessRunner();
+
+  @override
+  Future<tt.RunOutcome> run(tt.ProcessRequest request,
+      {tt.ProcessControl? control}) async {
+    throw UnsupportedError(
+        'the process tools are a native-only slice; no runner exists under wasm');
+  }
+
+  @override
+  tt.ProcessCommandApprover? get commandApprover => null;
+
+  @override
+  set commandApprover(tt.ProcessCommandApprover? value) {}
+
+  @override
+  tt.ToolCommandGrants get grants => const _NoCommandGrants();
+
+  @override
+  PermissionMode get mode => PermissionMode.yolo;
+
+  @override
+  set mode(PermissionMode value) {}
+}
+
+final class _NoCommandGrants implements tt.ToolCommandGrants {
+  const _NoCommandGrants();
+
+  @override
+  bool get isEmpty => true;
+
+  @override
+  int get length => 0;
+
+  @override
+  bool coversRequest(tt.ProcessRequest request,
+          {tt.ProcessPermission permission = tt.ProcessPermission.execution,
+          tt.ProcessDirectoryAccess directoryAccess =
+              const tt.ProcessDirectoryAccess.empty()}) =>
+      false;
+
+  @override
+  void rememberRequest(tt.ProcessRequest request,
+      {Set<tt.ProcessPermission> permissions = const {}}) {}
+}
+
+/// No remembered command approvals: the process tools are a native-only
+/// slice, so nothing is ever approved or remembered under wasm.
+final class _NoCommandApprovals implements tt.ToolCommandApprovals {
+  const _NoCommandApprovals();
+
+  @override
+  List<Map<String, Object?>> get entries => const [];
+
+  @override
+  bool coversAccess(String capability, String target) => false;
+
+  @override
+  void revoke(String id, {String? directory}) {}
+
+  @override
+  Map<String, Object?> settings(tt.CommandApprovalScope scope) => const {};
+
+  @override
+  String? get filePath => null;
 }

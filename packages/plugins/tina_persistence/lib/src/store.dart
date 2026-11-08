@@ -30,7 +30,6 @@ library;
 
 import '../session_store_api.dart';
 export '../session_store_api.dart';
-import 'state_compatibility.dart';
 import 'dart:convert';
 import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:tina_core/tina_core.dart';

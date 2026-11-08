@@ -1,6 +1,7 @@
 import 'package:tina_host/tina_host.dart' show PluginRegistry;
 import 'package:tina_settings/tina_settings.dart';
 
+import 'native_kinds.dart' show ConfigSettingsBackend;
 import 'session_context.dart';
 
 /// The no-`dart:io` settings machinery: a wasm composition root injects
@@ -9,7 +10,7 @@ PluginRegistry<SessionPluginContext> nativePluginRegistry() =>
     throw UnsupportedError(
         'no native plugin registry on this platform: inject one');
 
-SettingsBackend nativeSettingsBackend({
+ConfigSettingsBackend nativeSettingsBackend({
   required SettingCatalog catalog,
   required String globalPath,
   required String workspacePath,

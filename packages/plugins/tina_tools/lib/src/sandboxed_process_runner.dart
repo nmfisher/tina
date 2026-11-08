@@ -11,6 +11,7 @@ import 'dart:convert' show jsonEncode;
 
 import 'glob.dart' show fileGlobMatch;
 import 'permissions.dart';
+import 'tools_plugin_surface.dart';
 import 'process_runner.dart';
 import 'read_only_commands.dart';
 import 'read_directories.dart';
@@ -96,7 +97,7 @@ String commandReason(CommandRule rule, ProcessRequest request) =>
 ///
 /// Sessions are in-memory by design: grants die with the object, so nothing
 /// outlives the run that approved it.
-final class CommandGrants {
+final class CommandGrants implements ToolCommandGrants {
   final List<String> _patterns = [];
   final Set<String> _exactLines = {};
   final Map<
@@ -213,43 +214,14 @@ final class CommandGrants {
 bool fileGlobMatchCommand(String pattern, String commandLine) =>
     fileGlobMatch(pattern, commandLine);
 
-/// One review of the entire action, including permissions already granted.
-/// The answer authorizes only [missingPermissions]; Always stores those for
-/// this structured command in this session.
-final class CommandApproval {
-  CommandApproval({
-    required this.reason,
-    required Set<ProcessPermission> requiredPermissions,
-    required Set<ProcessPermission> missingPermissions,
-    this.networkReason,
-    this.sandboxReason,
-    this.authorization,
-    this.readDirectory,
-    this.directoryAccess = const ProcessDirectoryAccess.empty(),
-    bool Function()? isActive,
-  })  : isActive = isActive ?? _alwaysActive,
-        requiredPermissions = Set.unmodifiable(requiredPermissions),
-        missingPermissions = Set.unmodifiable(missingPermissions);
-
-  final String reason;
-  final Set<ProcessPermission> requiredPermissions;
-  final Set<ProcessPermission> missingPermissions;
-  final AuthorizationRequest? authorization;
-  final String? networkReason;
-  final String? sandboxReason;
-  final String? readDirectory;
-  final ProcessDirectoryAccess directoryAccess;
-  final bool Function() isActive;
-  static bool _alwaysActive() => true;
-}
-
 /// A [ProcessRunner] that enforces the command × mode table before any
 /// process exists.
 ///
 /// The wrapped [inner] runner only ever sees requests the boundary allowed —
 /// read-only execution additionally requires a [ConfinedProcessRunner].
 /// Policy is resolved here; the inner backend enforces filesystem confinement.
-final class SandboxedProcessRunner implements ProcessRunner {
+final class SandboxedProcessRunner
+    implements ProcessRunner, ToolProcessRunnerView {
   /// The runner that actually starts processes. Only allowed requests
   /// reach it.
   final ProcessRunner inner;
@@ -271,7 +243,7 @@ final class SandboxedProcessRunner implements ProcessRunner {
   Approver? approver;
 
   /// Reviews the whole command once for all missing permissions.
-  Future<Approval> Function(ProcessRequest, CommandApproval)? commandApprover;
+  ProcessCommandApprover? commandApprover;
 
   /// Session grants remembered from "always" answers.
   final CommandGrants grants;

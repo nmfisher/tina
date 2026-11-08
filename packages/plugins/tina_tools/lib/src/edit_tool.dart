@@ -5,7 +5,6 @@ import 'default_file_system.dart';
 import 'tool_descriptions.dart';
 
 import 'atomic_write.dart';
-import 'file_system.dart';
 import 'tool.dart';
 import 'tool_file_system.dart';
 import 'tool_input.dart';

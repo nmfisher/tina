@@ -5,12 +5,9 @@
 /// `tina/tools` provided by the portable file-tools plugin.
 library;
 
-import 'package:classification/permissions.dart' show PermissionClassifier;
 import 'package:tina_approvals/tina_approvals.dart' as tina_approvals;
-import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_mode/tina_mode.dart';
-import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
 

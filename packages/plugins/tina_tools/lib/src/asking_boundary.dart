@@ -36,13 +36,14 @@ import 'file_system.dart';
 import 'permissions.dart';
 import 'sandbox_violation.dart';
 import 'tool_boundary.dart';
+import 'tools_plugin_surface.dart' show ToolSandboxView;
 
 /// A [FileSystem] decorator for platforms without `dart:io`: every tool
 /// operation passes [guard] / [authorizeOperation], the mode table
 /// allows or refuses, and an ask goes to the [Approver] exactly once per
 /// operation — interior re-guards (atomic-write staging paths, missing
 /// parent directories) are absorbed by the enclosing authorization.
-final class AskingBoundary implements FileSystem, ToolBoundary {
+final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView {
   AskingBoundary(
     this._inner, {
     required String workspaceRoot,
@@ -83,6 +84,12 @@ final class AskingBoundary implements FileSystem, ToolBoundary {
   /// Who answers an ask. No approver means asks are refused (the same
   /// refusal the native boundary produces).
   Approver? approver;
+
+  /// The readable-path predicate the surface exposes; the portable
+  /// slice keeps no OS plan, so this stays null (every read consults
+  /// the mode table instead).
+  @override
+  bool Function(String path)? readablePath;
 
   /// Session write grants ("always" answers). Read grants are separate,
   /// exactly as in the native boundary.

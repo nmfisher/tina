@@ -808,7 +808,7 @@ packages:
       path: "/workspace/pkg/wasm_tools"
       relative: false
     source: path
-    version: "0.1.1-preview.0"
+    version: "0.1.1-preview.1"
   watcher:
     dependency: transitive
     description:

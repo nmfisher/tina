@@ -1,3 +1,4 @@
+import 'tools_plugin_surface.dart' show ToolDirectoryGrants;
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -30,7 +31,7 @@ final writeDirectoriesSetting = SettingDefinition<List<String>>(
 );
 
 /// Persistent directory grants, separate from exact session file approvals.
-final class WriteDirectories {
+final class WriteDirectories implements ToolDirectoryGrants {
   List<String> _paths = const [];
   List<String> get paths => _paths;
 

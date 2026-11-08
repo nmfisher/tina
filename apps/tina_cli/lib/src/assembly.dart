@@ -479,7 +479,7 @@ final class SessionAssembly {
           for (final entry in descriptor.models.entries)
             '${descriptor.id}/${entry.key}': entry.value.name,
       }),
-      openStore: persists ? openStore as SessionStoreOpener : null,
+      openStore: persists ? openStore : null,
       contextLoaded: () =>
           assembled?.host.plugins
               .any((plugin) => plugin.id == 'tina/context') ??
@@ -566,7 +566,7 @@ final class SessionAssembly {
       validatePlugins: registry.validate,
       pluginSettings: pluginSettings,
       settings: settings,
-      settingsBackend: settingsBackend as ConfigSettingsBackend,
+      settingsBackend: settingsBackend,
       pluginManager:
           PluginManager(host: host, registry: registry, context: context),
       stopConfigurationUpdates: stopConfigurationUpdates,

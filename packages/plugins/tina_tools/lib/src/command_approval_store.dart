@@ -3,6 +3,12 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'tools_plugin_surface.dart'
+    show CommandApprovalScope, ToolCommandApprovals;
+
+// The scope enum lives in the portable surface; re-exported here so the
+// historical import path keeps resolving.
+export 'tools_plugin_surface.dart' show CommandApprovalScope;
 import 'package:path/path.dart' as p;
 import 'package:tina_approvals/tina_approvals.dart' show CommandApprovalPattern;
 
@@ -11,7 +17,6 @@ import 'sandbox_home.dart';
 import 'command_workflow.dart';
 import 'read_only_commands.dart';
 
-enum CommandApprovalScope { session, workspace, global }
 
 bool _shellString(ProcessRequest request) =>
     {'sh', 'bash', 'zsh', 'dash', 'ksh'}
@@ -65,10 +70,13 @@ String resolveHostExecutable(ProcessRequest request,
 ///
 /// Human decisions only. Never loaded from a repository's settings. Every
 /// lookup rereads disk, so revocation takes effect in other running sessions.
-final class CommandApprovalStore {
+final class CommandApprovalStore implements ToolCommandApprovals {
   CommandApprovalStore({required this.workspace, this.file, this.searchPath});
   final String workspace;
   final File? file;
+
+  /// The store file's path, as the portable surface sees it.
+  String? get filePath => file?.path;
   final String? searchPath;
   final List<Map<String, Object?>> _session = [];
 
