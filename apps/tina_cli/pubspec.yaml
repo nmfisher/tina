@@ -101,3 +101,12 @@ dev_dependencies:
   dart_notcurses:
     path: ../../packages/dart_notcurses
   test: ^1.25.0
+
+# Compile SQLite from the vendored amalgamation (see
+# packages/tina_sqlite/native/sqlite3.c) instead of downloading a prebuilt
+# library at test time — keeps `dart test` offline and CI deterministic.
+hooks:
+  user_defines:
+    sqlite3:
+      source: source
+      path: ../../packages/tina_sqlite/native/sqlite3.c

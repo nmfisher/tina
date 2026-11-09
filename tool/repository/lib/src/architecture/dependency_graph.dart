@@ -263,13 +263,20 @@ class DependencyGraph {
       throwIfDiagnostics: false,
     );
     if (parsed.errors.isNotEmpty) {
-      problem(
-        'malformed-source',
-        file,
-        label(file),
-        parsed.lineInfo.getLocation(parsed.errors.first.offset).lineNumber,
-        parsed.errors.first.message,
-      );
+      // Third-party sources outside the repository (pub-cache and git
+      // dependencies) may use language experiments this tool's analyzer
+      // cannot parse — the architecture check governs this repository's
+      // own sources only. The partially recovered unit below still yields
+      // its directives, so traversal through the dependency continues.
+      if (p.isWithin(root, file)) {
+        problem(
+          'malformed-source',
+          file,
+          label(file),
+          parsed.lineInfo.getLocation(parsed.errors.first.offset).lineNumber,
+          parsed.errors.first.message,
+        );
+      }
     }
     for (final directive in parsed.unit.directives) {
       final line = parsed.lineInfo.getLocation(directive.offset).lineNumber;

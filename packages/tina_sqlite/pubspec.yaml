@@ -12,5 +12,18 @@ environment:
 dependencies:
   sqlite3: ^3.5.2
 
+# The sqlite3 package's build hook downloads a prebuilt libsqlite3 from
+# GitHub releases by default. That CDN fetch failed intermittently both in
+# CI and locally, so this repository compiles SQLite from the vendored
+# amalgamation instead (native/sqlite3.c, upstream 3.53.4 — the same version
+# the prebuilt release assets ship). The hook only reads user-defines from
+# the resolution root's pubspec, so every package whose tests run the hook
+# carries this same block pointing at the one vendored source.
+hooks:
+  user_defines:
+    sqlite3:
+      source: source
+      path: native/sqlite3.c
+
 dev_dependencies:
   test: ^1.25.0

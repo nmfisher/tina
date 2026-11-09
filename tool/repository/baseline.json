@@ -1,1 +1,167 @@
-[]
+[
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/assembly.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/persistence_seam.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/pipes.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/tools_factory.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/lib/src/engine_registry.dart|apps/tina_cli/lib/src/session_context.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/config_document.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_catalog.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_stack.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_surface.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/native_resume_probe.dart|packages/libraries/tina_wasm/bin/native_resume_probe.dart|apps/tina_cli/lib/src/assembly.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/native_resume_probe.dart|packages/libraries/tina_wasm/bin/native_resume_probe.dart|apps/tina_cli/lib/src/pipes.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/engine_registry.dart|packages/libraries/tina_wasm/lib/src/engine_registry.dart|apps/tina_cli/lib/src/session_context.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/config_document.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_catalog.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_stack.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_surface.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/pubspec.yaml|packages/libraries/tina_wasm/pubspec.yaml|tina",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/assembly.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/persistence_seam.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/pipes.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/engine.dart|packages/libraries/tina_wasm/bin/engine.dart|apps/tina_cli/lib/src/tools_factory.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/native_resume_probe.dart|packages/libraries/tina_wasm/bin/native_resume_probe.dart|apps/tina_cli/lib/src/assembly.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/native_resume_probe.dart|packages/libraries/tina_wasm/bin/native_resume_probe.dart|apps/tina_cli/lib/src/pipes.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/engine_registry.dart|packages/libraries/tina_wasm/lib/src/engine_registry.dart|apps/tina_cli/lib/src/session_context.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/config_document.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_catalog.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_stack.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_surface.dart",
+    "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
+    "owner": "A09"
+  }
+]

@@ -37,6 +37,7 @@ dependencies:
   wasm_components:
     git:
       url: https://github.com/nmfisher/wasm.dart.git
+      path: pkg/wasm_components
       ref: c3c8f3230605033df01d637f2bfd635dad106125
   hooks: ">=1.0.0 <3.0.0"
 dev_dependencies:
@@ -46,4 +47,25 @@ dev_dependencies:
   wasm_tools:
     git:
       url: https://github.com/nmfisher/wasm.dart.git
-      ref: c3c8f3230605033df01d637f2bfd635dad106125
+      path: pkg/wasm_tools
+      # The stage6 tip's wasm_tools needs a 3.14 dev SDK; this upstream
+      # commit is the newest one that resolves on stable and still exposes
+      # the WasmComponentAsset link-hook API. Local engine builds override
+      # both wasm.dart pins via an uncommitted pubspec_overrides.yaml.
+      ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
+dependency_overrides:
+  # One resolution hosts both toolchains: the console stack's build hook
+  # (dart_notcurses) asks for hooks ^1.0.0 while the wasm toolchain needs
+  # hooks ^2.x. 2.2.0 satisfies both (code_assets stays on 1.x). This
+  # override is scoped to tina_wasm's own resolution and never leaks into
+  # other packages' lockfiles.
+  hooks: ^2.0.2
+
+# Compile SQLite from the vendored amalgamation (see
+# packages/tina_sqlite/native/sqlite3.c) instead of downloading a prebuilt
+# library at test time — keeps `dart test` offline and CI deterministic.
+hooks:
+  user_defines:
+    sqlite3:
+      source: source
+      path: ../../../packages/tina_sqlite/native/sqlite3.c

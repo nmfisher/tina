@@ -342,6 +342,36 @@ jobs:
         working-directory: packages/libraries/tina_io
         run: dart test -j 4
 
+  # tina_wasm is terminal-free like tina_io, but it resolves the whole app
+  # assembly (path deps through tina → tina_console → the dart_notcurses
+  # submodule), so it needs the submodule checkout; and its wasm.dart
+  # toolchain comes from public git pins (see the pubspec: wasm_components
+  # at the stage6 tip, wasm_tools at the newest stable-SDK-compatible
+  # commit, plus a hooks override reconciling the console build hook with
+  # the wasm toolchain) — the job exercises exactly the resolution CI's
+  # repository job uses when it pub-gets every owned package. No test step:
+  # the package ships probes and the engine composition root, no test/
+  # suite; the scenario and dogfood transcripts under tool/records are
+  # driven by its own scripts.
+  tina_wasm:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_wasm')
+    name: tina_wasm (packages/libraries/tina_wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_wasm)
+        working-directory: packages/libraries/tina_wasm
+        run: dart pub get
+      - name: analyze (tina_wasm)
+        working-directory: packages/libraries/tina_wasm
+        run: dart analyze
+
   fuzzy_ranker:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'fuzzy_ranker')

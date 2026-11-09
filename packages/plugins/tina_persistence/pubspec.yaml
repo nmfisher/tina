@@ -24,3 +24,12 @@ dev_dependencies:
   test: ^1.25.0
   tina_host:
     path: ../../tina_host
+
+# Compile SQLite from the vendored amalgamation (see
+# packages/tina_sqlite/native/sqlite3.c) instead of downloading a prebuilt
+# library at test time — keeps `dart test` offline and CI deterministic.
+hooks:
+  user_defines:
+    sqlite3:
+      source: source
+      path: ../../tina_sqlite/native/sqlite3.c

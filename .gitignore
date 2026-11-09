@@ -21,3 +21,4 @@ __pycache__/
 
 # wasm build artifacts
 packages/libraries/tina_wasm/bin/*.wasm
+pubspec_overrides.yaml
