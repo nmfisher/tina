@@ -21,7 +21,8 @@
 /// Events: `ready`, `status`, `receipt`, `entry` (one per committed log
 /// entry, JSON exactly as the session log serializes it), `cancel`,
 /// `approval` (a request awaiting an answer), `approval-result` (the
-/// answer's outcome), `error`, `bye`. Stdin EOF behaves like `shutdown`.
+/// answer's outcome), `overflow` (queued events dropped under load, with
+/// the count), `error`, `bye`. Stdin EOF behaves like `shutdown`.
 ///
 /// This file lives in the application package, outside the engine
 /// packages: `dart:io` belongs here and nowhere near the engine.
@@ -42,31 +43,43 @@ import 'assembly.dart';
 /// Line-decodes [source] without the stream-transformer chain: under
 /// dart2wasm the typed-transformer covariance check rejects
 /// `utf8.decoder` on a `Stream<Uint8List>`, and the protocol's needs are
-/// one decoder and one splitter anyway.
+/// one decoder and one splitter anyway. The split runs on raw bytes: a
+/// line feed cannot occur inside a multi-byte sequence, so decoding only
+/// whole lines never splits a character at a chunk boundary. (The old
+/// per-chunk `utf8.decode` threw — killing the session — whenever the
+/// writer's chunk edge fell inside a character.)
 Stream<String> _linesOf(Stream<List<int>> source) async* {
-  var carried = '';
+  var carry = <int>[];
   await for (final chunk in source) {
-    carried = '$carried${utf8.decode(chunk)}';
-    int newline;
-    while ((newline = carried.indexOf('\n')) >= 0) {
-      yield carried.substring(0, newline);
-      carried = carried.substring(newline + 1);
+    carry.addAll(chunk);
+    var start = 0;
+    for (var i = 0; i < carry.length; i++) {
+      if (carry[i] != 0x0a) continue;
+      yield utf8.decode(carry.sublist(start, i));
+      start = i + 1;
     }
+    if (start > 0) carry = carry.sublist(start);
   }
-  if (carried.isNotEmpty) yield carried;
+  if (carry.isNotEmpty) yield utf8.decode(carry);
 }
 
 /// Drives [assembly] over pipes until `shutdown`, stdin EOF or SIGINT.
 /// Returns the process exit code. The caller owns assembly shutdown.
+/// [maxQueuedEvents]/[maxQueuedCharacters] bound the outbound queue; the
+/// defaults are the production bounds.
 Future<int> runSessionPipes(
   SessionAssembly assembly, {
   Stream<List<int>>? input,
   void Function(String line)? emit,
+  int maxQueuedEvents = _SessionPipes.defaultMaxQueuedEvents,
+  int maxQueuedCharacters = _SessionPipes.defaultMaxQueuedCharacters,
 }) async {
   final pipes = _SessionPipes(
     assembly,
     input: input,
     emit: emit ?? defaultPipesEmit,
+    maxQueuedEvents: maxQueuedEvents,
+    maxQueuedCharacters: maxQueuedCharacters,
   );
   try {
     return await pipes.run();
@@ -76,21 +89,35 @@ Future<int> runSessionPipes(
 }
 
 final class _SessionPipes {
+  static const defaultMaxQueuedEvents = 1024;
+  static const defaultMaxQueuedCharacters = 8 << 20;
+
   _SessionPipes(
     this.assembly, {
     required this.input,
     required void Function(String line) emit,
+    this.maxQueuedEvents = defaultMaxQueuedEvents,
+    this.maxQueuedCharacters = defaultMaxQueuedCharacters,
   }) : _emit = emit;
 
   final SessionAssembly assembly;
   final Stream<List<int>>? input;
   final void Function(String line) _emit;
 
+  /// Outbound bounds. A consumer that stops reading must not grow the
+  /// queue without end: the oldest queued events are dropped, and one
+  /// `overflow` event carrying the dropped count is written once the
+  /// queue drains. Entries and notices are recoverable through the
+  /// `history`/`notices` ops; receipts and status are re-derived from
+  /// the session, and the immediate-write path never queues at all.
+  final int maxQueuedEvents, maxQueuedCharacters;
   late final SessionConnection connection = assembly.host.connect();
   late final SessionAttachment attachment = connection.attach();
   final _requests = <String, SessionRequest>{};
   final _receiptStates = <String, SessionRequestState>{};
   final _outbound = Queue<String>();
+  var _outboundCharacters = 0;
+  var _dropped = 0;
   bool _flushScheduled = false;
   bool _done = false;
   StreamSubscription<String>? _reader;
@@ -158,8 +185,18 @@ final class _SessionPipes {
 
   /// Events are queued and written from the event loop, never from inside a
   /// host listener callback: a slow pipe consumer cannot poison the loop.
+  /// The queue is bounded ([maxQueuedEvents], [maxQueuedCharacters]); when
+  /// full, the oldest queued events drop and the drop is reported.
   void _queue(Object event) {
-    _outbound.add(jsonEncode(event));
+    final encoded = jsonEncode(event);
+    while (_outbound.isNotEmpty &&
+        (_outbound.length >= maxQueuedEvents ||
+            _outboundCharacters + encoded.length > maxQueuedCharacters)) {
+      _outboundCharacters -= _outbound.removeFirst().length;
+      _dropped++;
+    }
+    _outbound.add(encoded);
+    _outboundCharacters += encoded.length;
     _scheduleFlush();
   }
 
@@ -179,6 +216,13 @@ final class _SessionPipes {
   Future<void> _flush() async {
     while (_outbound.isNotEmpty) {
       _emit(_outbound.removeFirst());
+    }
+    if (_dropped > 0) {
+      final dropped = _dropped;
+      _dropped = 0;
+      // Written directly, after the queue has drained: the marker sits
+      // behind every event that survived, never interleaved with them.
+      _emit(jsonEncode({'type': 'overflow', 'dropped': dropped}));
     }
   }
 
