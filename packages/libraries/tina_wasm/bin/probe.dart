@@ -16,10 +16,10 @@ import 'package:wasm_components/wasm_components.dart' as cm;
 void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
-      unnamedExport26: _TestedModule(imports),
+      unnamedExport27: _TestedModule(imports),
       // The stage-3 probe does not use `tina:process`; the world grew the
       // import in stage 4, so the record supplies it unopened.
-      unnamedExport15: const _Run(),
+      unnamedExport16: const _Run(),
     );
   });
 }
@@ -46,10 +46,8 @@ final class _TestedModule implements tests.TestedModule {
     final preopens = WasmPreopens(_imports.filesystemPreopens.getDirectories());
     await runProbe(
       files: WasmFileSystemPort(preopens, _imports.filesystemTypes),
-      endpoint: (base) => WasmHttpEndpoint(
-        endpoint: base,
-        client: _imports.httpClient,
-      ),
+      endpoint: (base) =>
+          WasmHttpEndpoint(endpoint: base, client: _imports.httpClient),
       environment: WasmEnvironmentPort(_imports.cliEnvironment),
       clock: const SystemClock(),
       random: SystemRandom(),

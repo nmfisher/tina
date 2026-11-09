@@ -16,8 +16,8 @@ import 'package:tina_wasm/src/wasm_process_port.dart';
 void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
-      unnamedExport26: _TestedModule(imports),
-      unnamedExport15: const _Run(),
+      unnamedExport27: _TestedModule(imports),
+      unnamedExport16: const _Run(),
     );
   });
 }

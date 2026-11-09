@@ -78,3 +78,22 @@ tools, config preloaded from the config preopen). Build with
 and `--env` provider credentials. `tool/engine_exit_test.sh` drives one
 full agent turn (provider call, `write` tool call, file edit) against
 both engines and requires PASS on both.
+
+## Opt-in Wasm prompt plugin
+
+The engine can mount `tina/wasm-prompt`, a live `AgentPlugin` adapter for one host-selected component. Add these flags to the normal engine runner arguments:
+
+```text
+--plugin-component=/absolute/path/to/plugin.component.wasm
+--plugin-grant=session.read-context
+```
+
+The artifact path selects the component. The separate grant allows it to read only the current session ID and model. The runner enables the adapter through the engine environment. Without an artifact, the default plugin set stays unchanged. The sample context-reading plugin fails its prompt hook without this grant, before a provider request or tool execution.
+
+The versioned engine import is `tina:plugin-host/session@0.1.0`. `open` issues a lease. Async `on-prompt` sends a session/model snapshot to the host. The host runs the plugin in its own Store, and the plugin can read that immutable frame through `session.read-context`. The adapter appends the returned section to Tina's actual `TurnContext.promptSections`. The host never calls back into the suspended engine Store. `closeSession` revokes the lease and retires that Store. Reload creates a new adapter, lease and Store.
+
+A newly built engine component requires the updated wasm.dart runner, including when no plugin is configured. The runner keeps the existing Stage 0–6 imports and tested-module protocol. Apply the paired repository changes together.
+
+`bin/plugin_lifecycle_probe.dart` runs inside Wasm with the production adapter, `Host`, `PluginManager`, and `ScriptedProvider`. It checks completed turns, unload with the same session and transcript continuing, stale lease refusal, fresh reload, and repeated close of an old adapter. Its checks throw in product builds. Build it through the same hook as `bin/engine.dart`, then run with `--no-stdin` and the two plugin flags above. It needs no provider server or filesystem preopens.
+
+The engine's owner API supports live plugin selection. New pipes/TUI plugin-management controls and compile-on-load are not part of this slice. Epoch interruption, memory budgets and cancellation of active guest execution remain open. The current async import offloads synchronous plugin execution to Tokio's blocking pool; synchronous open/close can still wait for that execution.

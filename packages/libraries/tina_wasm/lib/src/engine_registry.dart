@@ -14,6 +14,7 @@ import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina/src/session_context.dart';
 
 import 'portable_tools_plugin.dart';
+import 'remote_prompt_plugin.dart';
 import 'wasm_persistence_plugin.dart';
 import 'wasi_session_store.dart';
 
@@ -42,74 +43,81 @@ const approvalRequester = tina_approvals.approvalRequester;
 PluginRegistry<SessionPluginContext> wasmEngineRegistry({
   WasiSessionStore? persistenceStore,
   void Function(WasmPersistencePlugin plugin)? onPersistence,
-}) =>
-    PluginRegistry<SessionPluginContext>(
-      requiredCapabilities: [modelAccess],
-      definitions: [
-        if (persistenceStore != null)
-          PluginDefinition<SessionPluginContext>(
-            'tina/persistence',
-            (c) {
-              final plugin = WasmPersistencePlugin(
-                  store: persistenceStore, settings: c.settings);
-              onPersistence?.call(plugin);
-              return plugin;
-            },
-            live: false,
-            description:
-                'Saves conversations in the preopened store, resumes sessions.',
-          ),
-        PluginDefinition<SessionPluginContext>(
-          'tina/system-instruction',
-          (_) => const SystemInstructionPlugin(),
-          description:
-              'Supplies the agent identity and base instructions for conversations.',
-        ),
-        PluginDefinition<SessionPluginContext>(
-          'tina/providers',
-          (c) => c.providerPolicy!,
-          provides: [modelAccess],
-          description:
-              'Connects configured models and providers and enforces request and token limits.',
-        ),
-        PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
-          'tina/mode',
-          dependency: modePolicySource,
-          create: (c, source) => ModeControlsPlugin(source.modePolicy),
-          live: true,
-          description:
-              'Adds mode controls for the tools permission policy.',
-        ),
-        PluginDefinition.dependingOn<SessionPluginContext,
-            tina_approvals.ApprovalRequester>(
-          'tina/tools',
-          dependency: approvalRequester,
-          create: (c, approvals) {
-            final plugin = c.tools as PortableToolsPlugin;
-            plugin.attachApprovals(approvals);
-            return plugin;
-          },
-          provides: [toolProvider, modePolicySource],
-          description:
-              'File tools (read, write, edit) over the preopened workspace with permission policy.',
-        ),
-        tina_approvals.approvalsDefinition<SessionPluginContext>(),
-        PluginDefinition<SessionPluginContext>(
-          'tina/approvals-stream',
-          (_) => tina_approvals.StreamApprovalChannel(),
-          provides: [approvalChannel],
-          description:
-              'Delivers approval requests to the attached client over the pipes protocol.',
-        ),
-        PluginDefinition<SessionPluginContext>(
-          'tina/session-controls',
-          (c) => SessionControlsPlugin(
-            terminal: c.terminal,
-            modelCatalog: c.modelCatalog,
-            currentModel: c.currentModel,
-            switchModel: c.switchModel,
-          ),
-          description: 'Conversation controls (model, reasoning, stop).',
-        ),
-      ],
-    );
+  bool includeRemotePromptPlugin = false,
+  required PromptPluginHostBridge remotePromptHost,
+}) => PluginRegistry<SessionPluginContext>(
+  requiredCapabilities: [modelAccess],
+  definitions: [
+    if (persistenceStore != null)
+      PluginDefinition<SessionPluginContext>(
+        'tina/persistence',
+        (c) {
+          final plugin = WasmPersistencePlugin(
+            store: persistenceStore,
+            settings: c.settings,
+          );
+          onPersistence?.call(plugin);
+          return plugin;
+        },
+        live: false,
+        description:
+            'Saves conversations in the preopened store, resumes sessions.',
+      ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/system-instruction',
+      (_) => const SystemInstructionPlugin(),
+      description: 'Supplies the agent identity and base instructions for conversations.',
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/providers',
+      (c) => c.providerPolicy!,
+      provides: [modelAccess],
+      description: 'Connects configured models and providers and enforces request and token limits.',
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
+      'tina/mode',
+      dependency: modePolicySource,
+      create: (c, source) => ModeControlsPlugin(source.modePolicy),
+      live: true,
+      description: 'Adds mode controls for the tools permission policy.',
+    ),
+    PluginDefinition.dependingOn<
+      SessionPluginContext,
+      tina_approvals.ApprovalRequester
+    >(
+      'tina/tools',
+      dependency: approvalRequester,
+      create: (c, approvals) {
+        final plugin = c.tools as PortableToolsPlugin;
+        plugin.attachApprovals(approvals);
+        return plugin;
+      },
+      provides: [toolProvider, modePolicySource],
+      description: 'File tools (read, write, edit) over the preopened workspace with permission policy.',
+    ),
+    tina_approvals.approvalsDefinition<SessionPluginContext>(),
+    PluginDefinition<SessionPluginContext>(
+      'tina/approvals-stream',
+      (_) => tina_approvals.StreamApprovalChannel(),
+      provides: [approvalChannel],
+      description: 'Delivers approval requests to the attached client over the pipes protocol.',
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/session-controls',
+      (c) => SessionControlsPlugin(
+        terminal: c.terminal,
+        modelCatalog: c.modelCatalog,
+        currentModel: c.currentModel,
+        switchModel: c.switchModel,
+      ),
+      description: 'Conversation controls (model, reasoning, stop).',
+    ),
+    if (includeRemotePromptPlugin)
+      PluginDefinition<SessionPluginContext>(
+        RemotePromptPlugin.pluginId,
+        (_) => RemotePromptPlugin(remotePromptHost),
+        live: true,
+        description: 'Adds one host-mediated prompt section per turn.',
+      ),
+  ],
+);

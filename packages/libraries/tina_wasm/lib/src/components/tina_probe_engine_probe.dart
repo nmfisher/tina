@@ -10,14 +10,15 @@ import r'tina_http.dart' as i3;
 
 import r'dart:typed_data' as i4;
 
-import r'tina_process.dart' as i5;
-import r'wasi_cli.dart' as i6;
-import r'wasi_clocks.dart' as i7;
-import r'wasi_filesystem.dart' as i8;
-import r'wasi_sockets.dart' as i9;
-import r'wasi_random.dart' as i10;
+import r'tina_plugin_host.dart' as i5;
+import r'tina_process.dart' as i6;
+import r'wasi_cli.dart' as i7;
+import r'wasi_clocks.dart' as i8;
+import r'wasi_filesystem.dart' as i9;
+import r'wasi_sockets.dart' as i10;
+import r'wasi_random.dart' as i11;
 
-import r'package:meta/meta.dart' as i11;
+import r'package:meta/meta.dart' as i12;
 
 @pragma("wasm:import", r"component._import0")
 external i2.WasmVoid _import0(i2.WasmI32 p0, i2.WasmI32 p1);
@@ -28,8 +29,8 @@ external i2.WasmVoid _import2(i2.WasmI64 p0);
 @pragma("wasm:import", r"component._import3")
 external i2.WasmVoid _import3(i2.WasmI32 p0);
 
-final class _Imported$25 implements i1.ResultCollector {
-  const _Imported$25();
+final class _Imported$26 implements i1.ResultCollector {
+  const _Imported$26();
   @override
   void recordString({required String e}) {
     final tmp0 = i0.AllocatedString.allocateUtf16(e);
@@ -499,31 +500,178 @@ final class _Imported$1 implements i3.Client {
   }
 }
 
-final class _Imported$27 implements i5.Types {
-  const _Imported$27();
+@pragma("wasm:import", r"component._import15")
+external i2.WasmVoid _import15(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import16")
+external i2.WasmI32 _import16(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import17")
+external i2.WasmVoid _import17(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+
+final class _Imported$2 implements i5.Session {
+  const _Imported$2();
+  @override
+  i0.Result<String, i5.SessionError> open() {
+    var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(12));
+    _import15(tmp0);
+    final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
+    final i0.Result<String, i5.SessionError> tmp6;
+    if (tmp1.toBool()) {
+      final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
+      final i5.SessionError tmp5;
+      switch (tmp4.toIntUnsigned()) {
+        case 0:
+          tmp5 = i5.SessionErrorDenied();
+        case 1:
+          tmp5 = i5.SessionErrorUnavailable();
+        case 2:
+          tmp5 = i5.SessionErrorFailed();
+
+        default:
+          throw ArgumentError('Invalid discrimant value for variant');
+      }
+
+      tmp6 = .error(tmp5);
+    } else {
+      final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
+      final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 8);
+
+      tmp6 = .ok(i0.AllocatedString.read(tmp2, tmp3));
+    }
+
+    i0.dartFree(tmp0, const i2.WasmI32(12), const i2.WasmI32(4));
+    return tmp6;
+  }
+
+  @override
+  Future<i0.Result<String, i5.SessionError>> onPrompt({
+    required String lease,
+    required String sessionId,
+    required String model,
+  }) async {
+    final tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(24));
+    final tmp1 = i0.AllocatedString.allocateUtf16(lease);
+    i0.memory.storeInt32(
+      (tmp0 + const i2.WasmI32(0)).toIntUnsigned(),
+      tmp1.packedLength,
+      offset: 4,
+    );
+    i0.memory.storeInt32(
+      (tmp0 + const i2.WasmI32(0)).toIntUnsigned(),
+      tmp1.ptr,
+      offset: 0,
+    );
+    final tmp2 = i0.AllocatedString.allocateUtf16(sessionId);
+    i0.memory.storeInt32(
+      (tmp0 + const i2.WasmI32(8)).toIntUnsigned(),
+      tmp2.packedLength,
+      offset: 4,
+    );
+    i0.memory.storeInt32(
+      (tmp0 + const i2.WasmI32(8)).toIntUnsigned(),
+      tmp2.ptr,
+      offset: 0,
+    );
+    final tmp3 = i0.AllocatedString.allocateUtf16(model);
+    i0.memory.storeInt32(
+      (tmp0 + const i2.WasmI32(16)).toIntUnsigned(),
+      tmp3.packedLength,
+      offset: 4,
+    );
+    i0.memory.storeInt32(
+      (tmp0 + const i2.WasmI32(16)).toIntUnsigned(),
+      tmp3.ptr,
+      offset: 0,
+    );
+    var tmp4 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(12));
+    await i0.createSubtask(_import16(tmp0, tmp4)).completion;
+    final tmp5 = i0.memory.loadUint8(tmp4.toIntUnsigned(), offset: 0);
+    final i0.Result<String, i5.SessionError> tmp10;
+    if (tmp5.toBool()) {
+      final tmp8 = i0.memory.loadUint8(tmp4.toIntUnsigned(), offset: 4);
+      final i5.SessionError tmp9;
+      switch (tmp8.toIntUnsigned()) {
+        case 0:
+          tmp9 = i5.SessionErrorDenied();
+        case 1:
+          tmp9 = i5.SessionErrorUnavailable();
+        case 2:
+          tmp9 = i5.SessionErrorFailed();
+
+        default:
+          throw ArgumentError('Invalid discrimant value for variant');
+      }
+
+      tmp10 = .error(tmp9);
+    } else {
+      final tmp6 = i0.memory.loadInt32(tmp4.toIntUnsigned(), offset: 4);
+      final tmp7 = i0.memory.loadInt32(tmp4.toIntUnsigned(), offset: 8);
+
+      tmp10 = .ok(i0.AllocatedString.read(tmp6, tmp7));
+    }
+
+    i0.dartFree(tmp0, const i2.WasmI32(24), const i2.WasmI32(4));
+    i0.dartFree(tmp4, const i2.WasmI32(12), const i2.WasmI32(4));
+    return tmp10;
+  }
+
+  @override
+  i0.Result<void, i5.SessionError> close({required String lease}) {
+    final tmp0 = i0.AllocatedString.allocateUtf16(lease);
+    var tmp1 = i0.mallocAligned(const i2.WasmI32(1), const i2.WasmI32(2));
+    _import17(tmp0.ptr, tmp0.packedLength, tmp1);
+    final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
+    final i0.Result<void, i5.SessionError> tmp5;
+    if (tmp2.toBool()) {
+      final tmp3 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 1);
+      final i5.SessionError tmp4;
+      switch (tmp3.toIntUnsigned()) {
+        case 0:
+          tmp4 = i5.SessionErrorDenied();
+        case 1:
+          tmp4 = i5.SessionErrorUnavailable();
+        case 2:
+          tmp4 = i5.SessionErrorFailed();
+
+        default:
+          throw ArgumentError('Invalid discrimant value for variant');
+      }
+
+      tmp5 = .error(tmp4);
+    } else {
+      tmp5 = .ok(null);
+    }
+
+    tmp0.free();
+    i0.dartFree(tmp1, const i2.WasmI32(2), const i2.WasmI32(1));
+    return tmp5;
+  }
 }
 
-@pragma('wasm:import', 'component.stream136.new')
-external i2.WasmI64 _streamNew136();
-@pragma('wasm:import', 'component.stream136.read')
-external i2.WasmI32 _streamRead136(
-  i2.WasmI32 stream,
-  i2.WasmI32 ptr,
-  i2.WasmI32 n,
-);
-@pragma('wasm:import', 'component.stream136.write')
-external i2.WasmI32 _streamWrite136(
-  i2.WasmI32 stream,
-  i2.WasmI32 ptr,
-  i2.WasmI32 n,
-);
-@pragma('wasm:import', 'component.stream136.drop-readable')
-external i2.WasmVoid _streamDropReadable136(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream136.drop-writable')
-external i2.WasmVoid _streamDropWritable136(i2.WasmI32 stream);
+final class _Imported$28 implements i6.Types {
+  const _Imported$28();
+}
 
-final class _Vtable136 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable136();
+@pragma('wasm:import', 'component.stream139.new')
+external i2.WasmI64 _streamNew139();
+@pragma('wasm:import', 'component.stream139.read')
+external i2.WasmI32 _streamRead139(
+  i2.WasmI32 stream,
+  i2.WasmI32 ptr,
+  i2.WasmI32 n,
+);
+@pragma('wasm:import', 'component.stream139.write')
+external i2.WasmI32 _streamWrite139(
+  i2.WasmI32 stream,
+  i2.WasmI32 ptr,
+  i2.WasmI32 n,
+);
+@pragma('wasm:import', 'component.stream139.drop-readable')
+external i2.WasmVoid _streamDropReadable139(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream139.drop-writable')
+external i2.WasmVoid _streamDropWritable139(i2.WasmI32 stream);
+
+final class _Vtable139 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable139();
 
   @override
   int get elementSize => 1;
@@ -569,20 +717,20 @@ final class _Vtable136 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew136().toInt();
+  int newStream() => _streamNew139().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable136(i2.WasmI32.fromInt(stream));
+    _streamDropReadable139(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable136(i2.WasmI32.fromInt(stream));
+    _streamDropWritable139(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead136(
+    return _streamRead139(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -591,7 +739,7 @@ final class _Vtable136 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite136(
+    return _streamWrite139(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -599,25 +747,25 @@ final class _Vtable136 implements i0.StreamVtable<i4.Uint8List> {
   }
 }
 
-@pragma("wasm:import", r"component._import20")
-external i2.WasmI32 _import20(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import21")
-external i2.WasmI32 _import21(i2.WasmI64 p0, i2.WasmI32 p1, i2.WasmI32 p2);
-@pragma("wasm:import", r"component._import22")
-external i2.WasmI32 _import22(i2.WasmI64 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import23")
-external i2.WasmI32 _import23(i2.WasmI64 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import23(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import24")
+external i2.WasmI32 _import24(i2.WasmI64 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+@pragma("wasm:import", r"component._import25")
+external i2.WasmI32 _import25(i2.WasmI64 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import26")
+external i2.WasmI32 _import26(i2.WasmI64 p0, i2.WasmI32 p1);
 
-final class _Imported$28 implements i5.Process {
-  const _Imported$28();
+final class _Imported$29 implements i6.Process {
+  const _Imported$29();
   @override
-  Future<i0.Result<i5.TypesOutcome, i5.TypesError>> spawn({
+  Future<i0.Result<i6.TypesOutcome, i6.TypesError>> spawn({
     required ({
       List<String> argv,
       i0.Option<String> cwd,
       List<(String, String)> env,
       i0.Option<List<int>> stdin,
-      ({List<({String pattern, i5.TypesVerdict verdict})> rules}) profile,
+      ({List<({String pattern, i6.TypesVerdict verdict})> rules}) profile,
     })
     req,
   }) async {
@@ -782,18 +930,18 @@ final class _Imported$28 implements i5.Process {
       offset: 40,
     );
     var tmp20 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(40));
-    await i0.createSubtask(_import20(tmp0, tmp20)).completion;
+    await i0.createSubtask(_import23(tmp0, tmp20)).completion;
     final tmp21 = i0.memory.loadUint8(tmp20.toIntUnsigned(), offset: 0);
-    final i0.Result<i5.TypesOutcome, i5.TypesError> tmp42;
+    final i0.Result<i6.TypesOutcome, i6.TypesError> tmp42;
     if (tmp21.toBool()) {
       final tmp38 = i0.memory.loadUint8(tmp20.toIntUnsigned(), offset: 8);
-      final i5.TypesError tmp41;
+      final i6.TypesError tmp41;
       switch (tmp38.toIntUnsigned()) {
         case 0:
           final tmp39 = i0.memory.loadInt32(tmp20.toIntUnsigned(), offset: 12);
           final tmp40 = i0.memory.loadInt32(tmp20.toIntUnsigned(), offset: 16);
 
-          tmp41 = i5.TypesErrorMessage(i0.AllocatedString.read(tmp39, tmp40));
+          tmp41 = i6.TypesErrorMessage(i0.AllocatedString.read(tmp39, tmp40));
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -802,23 +950,23 @@ final class _Imported$28 implements i5.Process {
       tmp42 = .error(tmp41);
     } else {
       final tmp22 = i0.memory.loadUint8(tmp20.toIntUnsigned(), offset: 8);
-      final i5.TypesOutcome tmp37;
+      final i6.TypesOutcome tmp37;
       switch (tmp22.toIntUnsigned()) {
         case 0:
           final tmp23 = i0.memory.loadInt64(tmp20.toIntUnsigned(), offset: 16);
           final tmp24 = i0.memory.loadInt32(tmp20.toIntUnsigned(), offset: 24);
           final tmp25 = i0.ReadableStream(
             tmp24.toIntUnsigned(),
-            const _Vtable136(),
+            const _Vtable139(),
           );
           final tmp26 = i0.memory.loadInt32(tmp20.toIntUnsigned(), offset: 28);
           final tmp27 = i0.ReadableStream(
             tmp26.toIntUnsigned(),
-            const _Vtable136(),
+            const _Vtable139(),
           );
           final tmp28 = (id: tmp23.toInt(), stdout: tmp25, stderr: tmp27);
 
-          tmp37 = i5.TypesOutcomeStarted(tmp28);
+          tmp37 = i6.TypesOutcomeStarted(tmp28);
         case 1:
           final tmp29 = i0.memory.loadInt64(tmp20.toIntUnsigned(), offset: 16);
           final tmp30 = i0.memory.loadInt32(tmp20.toIntUnsigned(), offset: 24);
@@ -831,12 +979,12 @@ final class _Imported$28 implements i5.Process {
             reason: i0.AllocatedString.read(tmp32, tmp33),
           );
 
-          tmp37 = i5.TypesOutcomeApproval(tmp34);
+          tmp37 = i6.TypesOutcomeApproval(tmp34);
         case 2:
           final tmp35 = i0.memory.loadInt32(tmp20.toIntUnsigned(), offset: 16);
           final tmp36 = i0.memory.loadInt32(tmp20.toIntUnsigned(), offset: 20);
 
-          tmp37 = i5.TypesOutcomeDenied(i0.AllocatedString.read(tmp35, tmp36));
+          tmp37 = i6.TypesOutcomeDenied(i0.AllocatedString.read(tmp35, tmp36));
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -851,14 +999,14 @@ final class _Imported$28 implements i5.Process {
   }
 
   @override
-  Future<i0.Result<i5.TypesOutcome, i5.TypesError>> respond({
+  Future<i0.Result<i6.TypesOutcome, i6.TypesError>> respond({
     required int approval,
     required bool allow,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(40));
     await i0
         .createSubtask(
-          _import21(
+          _import24(
             i2.WasmI64.fromInt(approval),
             i2.WasmI32.fromBool(allow),
             tmp0,
@@ -866,16 +1014,16 @@ final class _Imported$28 implements i5.Process {
         )
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i5.TypesOutcome, i5.TypesError> tmp22;
+    final i0.Result<i6.TypesOutcome, i6.TypesError> tmp22;
     if (tmp1.toBool()) {
       final tmp18 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i5.TypesError tmp21;
+      final i6.TypesError tmp21;
       switch (tmp18.toIntUnsigned()) {
         case 0:
           final tmp19 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
           final tmp20 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 16);
 
-          tmp21 = i5.TypesErrorMessage(i0.AllocatedString.read(tmp19, tmp20));
+          tmp21 = i6.TypesErrorMessage(i0.AllocatedString.read(tmp19, tmp20));
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -884,23 +1032,23 @@ final class _Imported$28 implements i5.Process {
       tmp22 = .error(tmp21);
     } else {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i5.TypesOutcome tmp17;
+      final i6.TypesOutcome tmp17;
       switch (tmp2.toIntUnsigned()) {
         case 0:
           final tmp3 = i0.memory.loadInt64(tmp0.toIntUnsigned(), offset: 16);
           final tmp4 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 24);
           final tmp5 = i0.ReadableStream(
             tmp4.toIntUnsigned(),
-            const _Vtable136(),
+            const _Vtable139(),
           );
           final tmp6 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 28);
           final tmp7 = i0.ReadableStream(
             tmp6.toIntUnsigned(),
-            const _Vtable136(),
+            const _Vtable139(),
           );
           final tmp8 = (id: tmp3.toInt(), stdout: tmp5, stderr: tmp7);
 
-          tmp17 = i5.TypesOutcomeStarted(tmp8);
+          tmp17 = i6.TypesOutcomeStarted(tmp8);
         case 1:
           final tmp9 = i0.memory.loadInt64(tmp0.toIntUnsigned(), offset: 16);
           final tmp10 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 24);
@@ -913,12 +1061,12 @@ final class _Imported$28 implements i5.Process {
             reason: i0.AllocatedString.read(tmp12, tmp13),
           );
 
-          tmp17 = i5.TypesOutcomeApproval(tmp14);
+          tmp17 = i6.TypesOutcomeApproval(tmp14);
         case 2:
           final tmp15 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 16);
           final tmp16 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 20);
 
-          tmp17 = i5.TypesOutcomeDenied(i0.AllocatedString.read(tmp15, tmp16));
+          tmp17 = i6.TypesOutcomeDenied(i0.AllocatedString.read(tmp15, tmp16));
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -932,20 +1080,20 @@ final class _Imported$28 implements i5.Process {
   }
 
   @override
-  Future<i0.Result<i5.TypesExit, i5.TypesError>> wait({required int id}) async {
+  Future<i0.Result<i6.TypesExit, i6.TypesError>> wait({required int id}) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(16));
-    await i0.createSubtask(_import22(i2.WasmI64.fromInt(id), tmp0)).completion;
+    await i0.createSubtask(_import25(i2.WasmI64.fromInt(id), tmp0)).completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i5.TypesExit, i5.TypesError> tmp10;
+    final i0.Result<i6.TypesExit, i6.TypesError> tmp10;
     if (tmp1.toBool()) {
       final tmp6 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i5.TypesError tmp9;
+      final i6.TypesError tmp9;
       switch (tmp6.toIntUnsigned()) {
         case 0:
           final tmp7 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 8);
           final tmp8 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
 
-          tmp9 = i5.TypesErrorMessage(i0.AllocatedString.read(tmp7, tmp8));
+          tmp9 = i6.TypesErrorMessage(i0.AllocatedString.read(tmp7, tmp8));
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -954,16 +1102,16 @@ final class _Imported$28 implements i5.Process {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i5.TypesExit tmp5;
+      final i6.TypesExit tmp5;
       switch (tmp2.toIntUnsigned()) {
         case 0:
           final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 8);
 
-          tmp5 = i5.TypesExitCode(tmp3.toIntUnsigned());
+          tmp5 = i6.TypesExitCode(tmp3.toIntUnsigned());
         case 1:
           final tmp4 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 8);
 
-          tmp5 = i5.TypesExitSignal(tmp4.toIntUnsigned());
+          tmp5 = i6.TypesExitSignal(tmp4.toIntUnsigned());
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -977,20 +1125,20 @@ final class _Imported$28 implements i5.Process {
   }
 
   @override
-  Future<i0.Result<void, i5.TypesError>> kill({required int id}) async {
+  Future<i0.Result<void, i6.TypesError>> kill({required int id}) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(16));
-    await i0.createSubtask(_import23(i2.WasmI64.fromInt(id), tmp0)).completion;
+    await i0.createSubtask(_import26(i2.WasmI64.fromInt(id), tmp0)).completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i5.TypesError> tmp6;
+    final i0.Result<void, i6.TypesError> tmp6;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i5.TypesError tmp5;
+      final i6.TypesError tmp5;
       switch (tmp2.toIntUnsigned()) {
         case 0:
           final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 8);
           final tmp4 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
 
-          tmp5 = i5.TypesErrorMessage(i0.AllocatedString.read(tmp3, tmp4));
+          tmp5 = i6.TypesErrorMessage(i0.AllocatedString.read(tmp3, tmp4));
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -1006,19 +1154,19 @@ final class _Imported$28 implements i5.Process {
   }
 }
 
-@pragma("wasm:import", r"component._import24")
-external i2.WasmVoid _import24(i2.WasmI32 p0);
-@pragma("wasm:import", r"component._import25")
-external i2.WasmVoid _import25(i2.WasmI32 p0);
-@pragma("wasm:import", r"component._import26")
-external i2.WasmVoid _import26(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import27")
+external i2.WasmVoid _import27(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import28")
+external i2.WasmVoid _import28(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import29")
+external i2.WasmVoid _import29(i2.WasmI32 p0);
 
-final class _Imported$13 implements i6.Environment {
-  const _Imported$13();
+final class _Imported$14 implements i7.Environment {
+  const _Imported$14();
   @override
   List<(String, String)> getEnvironment() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import24(tmp0);
+    _import27(tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
     final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
 
@@ -1044,7 +1192,7 @@ final class _Imported$13 implements i6.Environment {
   @override
   List<String> getArguments() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import25(tmp0);
+    _import28(tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
     final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
 
@@ -1064,7 +1212,7 @@ final class _Imported$13 implements i6.Environment {
   @override
   i0.Option<String> getInitialCwd() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(12));
-    _import26(tmp0);
+    _import29(tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
     final i0.Option<String> tmp4;
     if (tmp1.toBool()) {
@@ -1081,13 +1229,13 @@ final class _Imported$13 implements i6.Environment {
   }
 }
 
-@pragma("wasm:import", r"component._import27")
-external i2.WasmVoid _import27(i2.WasmI32 p0);
-@pragma("wasm:import", r"component._import28")
-external i2.WasmVoid _import28(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import30")
+external i2.WasmVoid _import30(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import31")
+external i2.WasmVoid _import31(i2.WasmI32 p0);
 
-final class _Imported$14 implements i6.Exit {
-  const _Imported$14();
+final class _Imported$15 implements i7.Exit {
+  const _Imported$15();
   @override
   void exit({required i0.Result<void, void> status}) {
     i2.WasmI32 tmp0;
@@ -1098,40 +1246,40 @@ final class _Imported$14 implements i6.Exit {
       case i0.ErrorResult(:final value):
         tmp0 = const i2.WasmI32(1);
     }
-    _import27(tmp0);
+    _import30(tmp0);
   }
 
   @override
   void exitWithCode({required int statusCode}) {
-    _import28(i2.WasmI32.uint8FromInt(statusCode));
+    _import31(i2.WasmI32.uint8FromInt(statusCode));
   }
 }
 
-final class _Imported$16 implements i6.Types {
-  const _Imported$16();
+final class _Imported$17 implements i7.Types {
+  const _Imported$17();
 }
 
-@pragma('wasm:import', 'component.stream104.new')
-external i2.WasmI64 _streamNew104();
-@pragma('wasm:import', 'component.stream104.read')
-external i2.WasmI32 _streamRead104(
+@pragma('wasm:import', 'component.stream107.new')
+external i2.WasmI64 _streamNew107();
+@pragma('wasm:import', 'component.stream107.read')
+external i2.WasmI32 _streamRead107(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream104.write')
-external i2.WasmI32 _streamWrite104(
+@pragma('wasm:import', 'component.stream107.write')
+external i2.WasmI32 _streamWrite107(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream104.drop-readable')
-external i2.WasmVoid _streamDropReadable104(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream104.drop-writable')
-external i2.WasmVoid _streamDropWritable104(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream107.drop-readable')
+external i2.WasmVoid _streamDropReadable107(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream107.drop-writable')
+external i2.WasmVoid _streamDropWritable107(i2.WasmI32 stream);
 
-final class _Vtable104 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable104();
+final class _Vtable107 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable107();
 
   @override
   int get elementSize => 1;
@@ -1177,20 +1325,20 @@ final class _Vtable104 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew104().toInt();
+  int newStream() => _streamNew107().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable104(i2.WasmI32.fromInt(stream));
+    _streamDropReadable107(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable104(i2.WasmI32.fromInt(stream));
+    _streamDropWritable107(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead104(
+    return _streamRead107(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1199,7 +1347,7 @@ final class _Vtable104 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite104(
+    return _streamWrite107(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1207,27 +1355,27 @@ final class _Vtable104 implements i0.StreamVtable<i4.Uint8List> {
   }
 }
 
-@pragma('wasm:import', 'component.future106.new')
-external i2.WasmI64 _futureNew106();
-@pragma('wasm:import', 'component.future106.write')
-external i2.WasmI32 _futureWrite106(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future106.read')
-external i2.WasmI32 _futureRead106(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future106.drop-readable')
-external i2.WasmVoid _futureDropReadable106(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future106.drop-writable')
-external i2.WasmVoid _futureDropWritable106(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future109.new')
+external i2.WasmI64 _futureNew109();
+@pragma('wasm:import', 'component.future109.write')
+external i2.WasmI32 _futureWrite109(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future109.read')
+external i2.WasmI32 _futureRead109(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future109.drop-readable')
+external i2.WasmVoid _futureDropReadable109(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future109.drop-writable')
+external i2.WasmVoid _futureDropWritable109(i2.WasmI32 future);
 
-final class _Vtable106
-    implements i0.FutureVtable<i0.Result<void, i6.TypesErrorCode>> {
-  const _Vtable106();
+final class _Vtable109
+    implements i0.FutureVtable<i0.Result<void, i7.TypesErrorCode>> {
+  const _Vtable109();
 
   @override
-  int newFuture() => _futureNew106().toInt();
+  int newFuture() => _futureNew109().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead106(
+    return _futureRead109(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -1235,7 +1383,7 @@ final class _Vtable106
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite106(
+    return _futureWrite109(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -1243,12 +1391,12 @@ final class _Vtable106
 
   @override
   void dropRead(int future) {
-    _futureDropReadable106(i2.WasmI32.fromInt(future));
+    _futureDropReadable109(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable106(i2.WasmI32.fromInt(future));
+    _futureDropWritable109(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -1264,7 +1412,7 @@ final class _Vtable106
   }
 
   @override
-  void store(int address, i0.Result<void, i6.TypesErrorCode> value) {
+  void store(int address, i0.Result<void, i7.TypesErrorCode> value) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     switch (value) {
@@ -1290,15 +1438,15 @@ final class _Vtable106
   }
 
   @override
-  i0.Result<void, i6.TypesErrorCode> load(int address) {
+  i0.Result<void, i7.TypesErrorCode> load(int address) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     final tmp0 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i6.TypesErrorCode> tmp2;
+    final i0.Result<void, i7.TypesErrorCode> tmp2;
     if (tmp0.toBool()) {
       final tmp1 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 1);
 
-      tmp2 = .error(i6.TypesErrorCode.values[tmp1.toIntUnsigned()]);
+      tmp2 = .error(i7.TypesErrorCode.values[tmp1.toIntUnsigned()]);
     } else {
       tmp2 = .ok(null);
     }
@@ -1307,139 +1455,23 @@ final class _Vtable106
   }
 }
 
-@pragma("wasm:import", r"component._import39")
-external i2.WasmVoid _import39(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import42")
+external i2.WasmVoid _import42(i2.WasmI32 p0);
 
-final class _Imported$17 implements i6.Stdin {
-  const _Imported$17();
+final class _Imported$18 implements i7.Stdin {
+  const _Imported$18();
   @override
-  (Stream<i4.Uint8List>, Future<i0.Result<void, i6.TypesErrorCode>>)
+  (Stream<i4.Uint8List>, Future<i0.Result<void, i7.TypesErrorCode>>)
   readViaStream() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import39(tmp0);
+    _import42(tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable104());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable107());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable106(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable109(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
-  }
-}
-
-@pragma('wasm:import', 'component.future110.new')
-external i2.WasmI64 _futureNew110();
-@pragma('wasm:import', 'component.future110.write')
-external i2.WasmI32 _futureWrite110(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future110.read')
-external i2.WasmI32 _futureRead110(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future110.drop-readable')
-external i2.WasmVoid _futureDropReadable110(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future110.drop-writable')
-external i2.WasmVoid _futureDropWritable110(i2.WasmI32 future);
-
-final class _Vtable110
-    implements i0.FutureVtable<i0.Result<void, i6.TypesErrorCode>> {
-  const _Vtable110();
-
-  @override
-  int newFuture() => _futureNew110().toInt();
-
-  @override
-  int read(int future, int buffer) {
-    return _futureRead110(
-      i2.WasmI32.fromInt(future),
-      i2.WasmI32.fromInt(buffer),
-    ).toIntUnsigned();
-  }
-
-  @override
-  int write(int future, int buffer) {
-    return _futureWrite110(
-      i2.WasmI32.fromInt(future),
-      i2.WasmI32.fromInt(buffer),
-    ).toIntUnsigned();
-  }
-
-  @override
-  void dropRead(int future) {
-    _futureDropReadable110(i2.WasmI32.fromInt(future));
-  }
-
-  @override
-  void dropWrite(int future) {
-    _futureDropWritable110(i2.WasmI32.fromInt(future));
-  }
-
-  @override
-  int allocateBuffer() {
-    return i0
-        .mallocAligned(const i2.WasmI32(1), const i2.WasmI32(2))
-        .toIntUnsigned();
-  }
-
-  @override
-  void freeBuffer(int address, {required bool containsValue}) {
-    i0.dartFree(address.toWasmI32(), const i2.WasmI32(2), const i2.WasmI32(1));
-  }
-
-  @override
-  void store(int address, i0.Result<void, i6.TypesErrorCode> value) {
-    final wasmAddress = i2.WasmI32.fromInt(address);
-
-    switch (value) {
-      case i0.OkResult(:final value):
-        i0.memory.storeInt8(
-          wasmAddress.toIntUnsigned(),
-          const i2.WasmI32(0),
-          offset: 0,
-        );
-
-      case i0.ErrorResult(:final value):
-        i0.memory.storeInt8(
-          wasmAddress.toIntUnsigned(),
-          const i2.WasmI32(1),
-          offset: 0,
-        );
-        i0.memory.storeInt8(
-          wasmAddress.toIntUnsigned(),
-          value.index.toWasmI32(),
-          offset: 1,
-        );
-    }
-  }
-
-  @override
-  i0.Result<void, i6.TypesErrorCode> load(int address) {
-    final wasmAddress = i2.WasmI32.fromInt(address);
-
-    final tmp0 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i6.TypesErrorCode> tmp2;
-    if (tmp0.toBool()) {
-      final tmp1 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 1);
-
-      tmp2 = .error(i6.TypesErrorCode.values[tmp1.toIntUnsigned()]);
-    } else {
-      tmp2 = .ok(null);
-    }
-
-    return tmp2;
-  }
-}
-
-@pragma("wasm:import", r"component._import45")
-external i2.WasmI32 _import45(i2.WasmI32 p0);
-
-final class _Imported$18 implements i6.Stdout {
-  const _Imported$18();
-  @override
-  Future<i0.Result<void, i6.TypesErrorCode>> writeViaStream({
-    required Stream<i4.Uint8List> data,
-  }) {
-    final tmp0 = i0.newReadableStream(const _Vtable104(), data).toWasmI32();
-    final tmp1 = _import45(tmp0);
-    final tmp2 = i0.readFuture(const _Vtable110(), tmp1.toIntUnsigned());
-    return tmp2;
   }
 }
 
@@ -1455,7 +1487,7 @@ external i2.WasmVoid _futureDropReadable113(i2.WasmI32 future);
 external i2.WasmVoid _futureDropWritable113(i2.WasmI32 future);
 
 final class _Vtable113
-    implements i0.FutureVtable<i0.Result<void, i6.TypesErrorCode>> {
+    implements i0.FutureVtable<i0.Result<void, i7.TypesErrorCode>> {
   const _Vtable113();
 
   @override
@@ -1500,7 +1532,7 @@ final class _Vtable113
   }
 
   @override
-  void store(int address, i0.Result<void, i6.TypesErrorCode> value) {
+  void store(int address, i0.Result<void, i7.TypesErrorCode> value) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     switch (value) {
@@ -1526,15 +1558,15 @@ final class _Vtable113
   }
 
   @override
-  i0.Result<void, i6.TypesErrorCode> load(int address) {
+  i0.Result<void, i7.TypesErrorCode> load(int address) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     final tmp0 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i6.TypesErrorCode> tmp2;
+    final i0.Result<void, i7.TypesErrorCode> tmp2;
     if (tmp0.toBool()) {
       final tmp1 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 1);
 
-      tmp2 = .error(i6.TypesErrorCode.values[tmp1.toIntUnsigned()]);
+      tmp2 = .error(i7.TypesErrorCode.values[tmp1.toIntUnsigned()]);
     } else {
       tmp2 = .ok(null);
     }
@@ -1543,62 +1575,144 @@ final class _Vtable113
   }
 }
 
-@pragma("wasm:import", r"component._import51")
-external i2.WasmI32 _import51(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import48")
+external i2.WasmI32 _import48(i2.WasmI32 p0);
 
-final class _Imported$19 implements i6.Stderr {
+final class _Imported$19 implements i7.Stdout {
   const _Imported$19();
   @override
-  Future<i0.Result<void, i6.TypesErrorCode>> writeViaStream({
+  Future<i0.Result<void, i7.TypesErrorCode>> writeViaStream({
     required Stream<i4.Uint8List> data,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable104(), data).toWasmI32();
-    final tmp1 = _import51(tmp0);
+    final tmp0 = i0.newReadableStream(const _Vtable107(), data).toWasmI32();
+    final tmp1 = _import48(tmp0);
     final tmp2 = i0.readFuture(const _Vtable113(), tmp1.toIntUnsigned());
     return tmp2;
   }
 }
 
-final class _Imported$20 implements i6.TerminalInput {
-  const _Imported$20();
+@pragma('wasm:import', 'component.future116.new')
+external i2.WasmI64 _futureNew116();
+@pragma('wasm:import', 'component.future116.write')
+external i2.WasmI32 _futureWrite116(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future116.read')
+external i2.WasmI32 _futureRead116(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future116.drop-readable')
+external i2.WasmVoid _futureDropReadable116(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future116.drop-writable')
+external i2.WasmVoid _futureDropWritable116(i2.WasmI32 future);
+
+final class _Vtable116
+    implements i0.FutureVtable<i0.Result<void, i7.TypesErrorCode>> {
+  const _Vtable116();
+
+  @override
+  int newFuture() => _futureNew116().toInt();
+
+  @override
+  int read(int future, int buffer) {
+    return _futureRead116(
+      i2.WasmI32.fromInt(future),
+      i2.WasmI32.fromInt(buffer),
+    ).toIntUnsigned();
+  }
+
+  @override
+  int write(int future, int buffer) {
+    return _futureWrite116(
+      i2.WasmI32.fromInt(future),
+      i2.WasmI32.fromInt(buffer),
+    ).toIntUnsigned();
+  }
+
+  @override
+  void dropRead(int future) {
+    _futureDropReadable116(i2.WasmI32.fromInt(future));
+  }
+
+  @override
+  void dropWrite(int future) {
+    _futureDropWritable116(i2.WasmI32.fromInt(future));
+  }
+
+  @override
+  int allocateBuffer() {
+    return i0
+        .mallocAligned(const i2.WasmI32(1), const i2.WasmI32(2))
+        .toIntUnsigned();
+  }
+
+  @override
+  void freeBuffer(int address, {required bool containsValue}) {
+    i0.dartFree(address.toWasmI32(), const i2.WasmI32(2), const i2.WasmI32(1));
+  }
+
+  @override
+  void store(int address, i0.Result<void, i7.TypesErrorCode> value) {
+    final wasmAddress = i2.WasmI32.fromInt(address);
+
+    switch (value) {
+      case i0.OkResult(:final value):
+        i0.memory.storeInt8(
+          wasmAddress.toIntUnsigned(),
+          const i2.WasmI32(0),
+          offset: 0,
+        );
+
+      case i0.ErrorResult(:final value):
+        i0.memory.storeInt8(
+          wasmAddress.toIntUnsigned(),
+          const i2.WasmI32(1),
+          offset: 0,
+        );
+        i0.memory.storeInt8(
+          wasmAddress.toIntUnsigned(),
+          value.index.toWasmI32(),
+          offset: 1,
+        );
+    }
+  }
+
+  @override
+  i0.Result<void, i7.TypesErrorCode> load(int address) {
+    final wasmAddress = i2.WasmI32.fromInt(address);
+
+    final tmp0 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 0);
+    final i0.Result<void, i7.TypesErrorCode> tmp2;
+    if (tmp0.toBool()) {
+      final tmp1 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 1);
+
+      tmp2 = .error(i7.TypesErrorCode.values[tmp1.toIntUnsigned()]);
+    } else {
+      tmp2 = .ok(null);
+    }
+
+    return tmp2;
+  }
 }
 
-final class _Imported$21 implements i6.TerminalOutput {
+@pragma("wasm:import", r"component._import54")
+external i2.WasmI32 _import54(i2.WasmI32 p0);
+
+final class _Imported$20 implements i7.Stderr {
+  const _Imported$20();
+  @override
+  Future<i0.Result<void, i7.TypesErrorCode>> writeViaStream({
+    required Stream<i4.Uint8List> data,
+  }) {
+    final tmp0 = i0.newReadableStream(const _Vtable107(), data).toWasmI32();
+    final tmp1 = _import54(tmp0);
+    final tmp2 = i0.readFuture(const _Vtable116(), tmp1.toIntUnsigned());
+    return tmp2;
+  }
+}
+
+final class _Imported$21 implements i7.TerminalInput {
   const _Imported$21();
 }
 
-@pragma('wasm:import', r'component._drop$116')
-external i2.WasmVoid _drop$116Raw(i2.WasmI32 handle);
-
-void _drop$116(int handle) {
-  _drop$116Raw(i2.WasmI32.fromInt(handle));
-}
-
-@pragma("wasm:import", r"component._import52")
-external i2.WasmVoid _import52(i2.WasmI32 p0);
-
-final class _Imported$22 implements i6.TerminalStdin {
+final class _Imported$22 implements i7.TerminalOutput {
   const _Imported$22();
-  @override
-  i0.Option<i0.Owned<i6.TerminalInputTerminalInput>> getTerminalStdin() {
-    var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import52(tmp0);
-    final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Option<i0.Owned<i6.TerminalInputTerminalInput>> tmp4;
-    if (tmp1.toBool()) {
-      final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.Owned<i6.TerminalInputTerminalInput>(
-        tmp2.toIntUnsigned(),
-        _drop$116,
-      );
-      tmp4 = .some(tmp3);
-    } else {
-      tmp4 = .none;
-    }
-
-    i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
-    return tmp4;
-  }
 }
 
 @pragma('wasm:import', r'component._drop$119')
@@ -1608,20 +1722,20 @@ void _drop$119(int handle) {
   _drop$119Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma("wasm:import", r"component._import54")
-external i2.WasmVoid _import54(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import55")
+external i2.WasmVoid _import55(i2.WasmI32 p0);
 
-final class _Imported$23 implements i6.TerminalStdout {
+final class _Imported$23 implements i7.TerminalStdin {
   const _Imported$23();
   @override
-  i0.Option<i0.Owned<i6.TerminalOutputTerminalOutput>> getTerminalStdout() {
+  i0.Option<i0.Owned<i7.TerminalInputTerminalInput>> getTerminalStdin() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import54(tmp0);
+    _import55(tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Option<i0.Owned<i6.TerminalOutputTerminalOutput>> tmp4;
+    final i0.Option<i0.Owned<i7.TerminalInputTerminalInput>> tmp4;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.Owned<i6.TerminalOutputTerminalOutput>(
+      final tmp3 = i0.Owned<i7.TerminalInputTerminalInput>(
         tmp2.toIntUnsigned(),
         _drop$119,
       );
@@ -1642,20 +1756,20 @@ void _drop$122(int handle) {
   _drop$122Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma("wasm:import", r"component._import56")
-external i2.WasmVoid _import56(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import57")
+external i2.WasmVoid _import57(i2.WasmI32 p0);
 
-final class _Imported$24 implements i6.TerminalStderr {
+final class _Imported$24 implements i7.TerminalStdout {
   const _Imported$24();
   @override
-  i0.Option<i0.Owned<i6.TerminalOutputTerminalOutput>> getTerminalStderr() {
+  i0.Option<i0.Owned<i7.TerminalOutputTerminalOutput>> getTerminalStdout() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import56(tmp0);
+    _import57(tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Option<i0.Owned<i6.TerminalOutputTerminalOutput>> tmp4;
+    final i0.Option<i0.Owned<i7.TerminalOutputTerminalOutput>> tmp4;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.Owned<i6.TerminalOutputTerminalOutput>(
+      final tmp3 = i0.Owned<i7.TerminalOutputTerminalOutput>(
         tmp2.toIntUnsigned(),
         _drop$122,
       );
@@ -1669,55 +1783,89 @@ final class _Imported$24 implements i6.TerminalStderr {
   }
 }
 
-final class _Imported$2 implements i7.Types {
-  const _Imported$2();
+@pragma('wasm:import', r'component._drop$125')
+external i2.WasmVoid _drop$125Raw(i2.WasmI32 handle);
+
+void _drop$125(int handle) {
+  _drop$125Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma("wasm:import", r"component._import58")
-external i2.WasmI64 _import58();
 @pragma("wasm:import", r"component._import59")
-external i2.WasmI64 _import59();
-@pragma("wasm:import", r"component._import60")
-external i2.WasmI32 _import60(i2.WasmI64 p0);
-@pragma("wasm:import", r"component._import61")
-external i2.WasmI32 _import61(i2.WasmI64 p0);
+external i2.WasmVoid _import59(i2.WasmI32 p0);
 
-final class _Imported$3 implements i7.MonotonicClock {
+final class _Imported$25 implements i7.TerminalStderr {
+  const _Imported$25();
+  @override
+  i0.Option<i0.Owned<i7.TerminalOutputTerminalOutput>> getTerminalStderr() {
+    var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
+    _import59(tmp0);
+    final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
+    final i0.Option<i0.Owned<i7.TerminalOutputTerminalOutput>> tmp4;
+    if (tmp1.toBool()) {
+      final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
+      final tmp3 = i0.Owned<i7.TerminalOutputTerminalOutput>(
+        tmp2.toIntUnsigned(),
+        _drop$125,
+      );
+      tmp4 = .some(tmp3);
+    } else {
+      tmp4 = .none;
+    }
+
+    i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
+    return tmp4;
+  }
+}
+
+final class _Imported$3 implements i8.Types {
   const _Imported$3();
+}
+
+@pragma("wasm:import", r"component._import61")
+external i2.WasmI64 _import61();
+@pragma("wasm:import", r"component._import62")
+external i2.WasmI64 _import62();
+@pragma("wasm:import", r"component._import63")
+external i2.WasmI32 _import63(i2.WasmI64 p0);
+@pragma("wasm:import", r"component._import64")
+external i2.WasmI32 _import64(i2.WasmI64 p0);
+
+final class _Imported$4 implements i8.MonotonicClock {
+  const _Imported$4();
   @override
   int now() {
-    final tmp0 = _import58();
+    final tmp0 = _import61();
     return tmp0.toInt();
   }
 
   @override
   int getResolution() {
-    final tmp0 = _import59();
+    final tmp0 = _import62();
     return tmp0.toInt();
   }
 
   @override
   Future<void> waitUntil({required int when}) async {
-    await i0.createSubtask(_import60(i2.WasmI64.fromInt(when))).completion;
+    await i0.createSubtask(_import63(i2.WasmI64.fromInt(when))).completion;
   }
 
   @override
   Future<void> waitFor({required int howLong}) async {
-    await i0.createSubtask(_import61(i2.WasmI64.fromInt(howLong))).completion;
+    await i0.createSubtask(_import64(i2.WasmI64.fromInt(howLong))).completion;
   }
 }
 
-@pragma("wasm:import", r"component._import62")
-external i2.WasmVoid _import62(i2.WasmI32 p0);
-@pragma("wasm:import", r"component._import63")
-external i2.WasmI64 _import63();
+@pragma("wasm:import", r"component._import65")
+external i2.WasmVoid _import65(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import66")
+external i2.WasmI64 _import66();
 
-final class _Imported$4 implements i7.SystemClock {
-  const _Imported$4();
+final class _Imported$5 implements i8.SystemClock {
+  const _Imported$5();
   @override
   ({int seconds, int nanoseconds}) now() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(16));
-    _import62(tmp0);
+    _import65(tmp0);
     final tmp1 = i0.memory.loadInt64(tmp0.toIntUnsigned(), offset: 0);
     final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 8);
     final tmp3 = (seconds: tmp1.toInt(), nanoseconds: tmp2.toIntUnsigned());
@@ -1727,32 +1875,32 @@ final class _Imported$4 implements i7.SystemClock {
 
   @override
   int getResolution() {
-    final tmp0 = _import63();
+    final tmp0 = _import66();
     return tmp0.toInt();
   }
 }
 
-@pragma('wasm:import', 'component.stream40.new')
-external i2.WasmI64 _streamNew40();
-@pragma('wasm:import', 'component.stream40.read')
-external i2.WasmI32 _streamRead40(
+@pragma('wasm:import', 'component.stream43.new')
+external i2.WasmI64 _streamNew43();
+@pragma('wasm:import', 'component.stream43.read')
+external i2.WasmI32 _streamRead43(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream40.write')
-external i2.WasmI32 _streamWrite40(
+@pragma('wasm:import', 'component.stream43.write')
+external i2.WasmI32 _streamWrite43(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream40.drop-readable')
-external i2.WasmVoid _streamDropReadable40(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream40.drop-writable')
-external i2.WasmVoid _streamDropWritable40(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream43.drop-readable')
+external i2.WasmVoid _streamDropReadable43(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream43.drop-writable')
+external i2.WasmVoid _streamDropWritable43(i2.WasmI32 stream);
 
-final class _Vtable40 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable40();
+final class _Vtable43 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable43();
 
   @override
   int get elementSize => 1;
@@ -1798,20 +1946,20 @@ final class _Vtable40 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew40().toInt();
+  int newStream() => _streamNew43().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable40(i2.WasmI32.fromInt(stream));
+    _streamDropReadable43(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable40(i2.WasmI32.fromInt(stream));
+    _streamDropWritable43(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead40(
+    return _streamRead43(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1820,7 +1968,7 @@ final class _Vtable40 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite40(
+    return _streamWrite43(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1828,27 +1976,27 @@ final class _Vtable40 implements i0.StreamVtable<i4.Uint8List> {
   }
 }
 
-@pragma('wasm:import', 'component.future42.new')
-external i2.WasmI64 _futureNew42();
-@pragma('wasm:import', 'component.future42.write')
-external i2.WasmI32 _futureWrite42(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future42.read')
-external i2.WasmI32 _futureRead42(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future42.drop-readable')
-external i2.WasmVoid _futureDropReadable42(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future42.drop-writable')
-external i2.WasmVoid _futureDropWritable42(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future45.new')
+external i2.WasmI64 _futureNew45();
+@pragma('wasm:import', 'component.future45.write')
+external i2.WasmI32 _futureWrite45(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future45.read')
+external i2.WasmI32 _futureRead45(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future45.drop-readable')
+external i2.WasmVoid _futureDropReadable45(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future45.drop-writable')
+external i2.WasmVoid _futureDropWritable45(i2.WasmI32 future);
 
-final class _Vtable42
-    implements i0.FutureVtable<i0.Result<void, i8.TypesErrorCode>> {
-  const _Vtable42();
+final class _Vtable45
+    implements i0.FutureVtable<i0.Result<void, i9.TypesErrorCode>> {
+  const _Vtable45();
 
   @override
-  int newFuture() => _futureNew42().toInt();
+  int newFuture() => _futureNew45().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead42(
+    return _futureRead45(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -1856,7 +2004,7 @@ final class _Vtable42
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite42(
+    return _futureWrite45(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -1864,12 +2012,12 @@ final class _Vtable42
 
   @override
   void dropRead(int future) {
-    _futureDropReadable42(i2.WasmI32.fromInt(future));
+    _futureDropReadable45(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable42(i2.WasmI32.fromInt(future));
+    _futureDropWritable45(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -1988,7 +2136,7 @@ final class _Vtable42
   }
 
   @override
-  void store(int address, i0.Result<void, i8.TypesErrorCode> value) {
+  void store(int address, i0.Result<void, i9.TypesErrorCode> value) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     switch (value) {
@@ -2006,259 +2154,259 @@ final class _Vtable42
           offset: 0,
         );
         switch (value) {
-          case i8.TypesErrorCodeAccess():
+          case i9.TypesErrorCodeAccess():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(0),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeAlready():
+          case i9.TypesErrorCodeAlready():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(1),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeBadDescriptor():
+          case i9.TypesErrorCodeBadDescriptor():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(2),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeBusy():
+          case i9.TypesErrorCodeBusy():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(3),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeDeadlock():
+          case i9.TypesErrorCodeDeadlock():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(4),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeQuota():
+          case i9.TypesErrorCodeQuota():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(5),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeExist():
+          case i9.TypesErrorCodeExist():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(6),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeFileTooLarge():
+          case i9.TypesErrorCodeFileTooLarge():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(7),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeIllegalByteSequence():
+          case i9.TypesErrorCodeIllegalByteSequence():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(8),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeInProgress():
+          case i9.TypesErrorCodeInProgress():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(9),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeInterrupted():
+          case i9.TypesErrorCodeInterrupted():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(10),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeInvalid():
+          case i9.TypesErrorCodeInvalid():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(11),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeIo():
+          case i9.TypesErrorCodeIo():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(12),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeIsDirectory():
+          case i9.TypesErrorCodeIsDirectory():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(13),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeLoop():
+          case i9.TypesErrorCodeLoop():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(14),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeTooManyLinks():
+          case i9.TypesErrorCodeTooManyLinks():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(15),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeMessageSize():
+          case i9.TypesErrorCodeMessageSize():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(16),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNameTooLong():
+          case i9.TypesErrorCodeNameTooLong():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(17),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNoDevice():
+          case i9.TypesErrorCodeNoDevice():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(18),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNoEntry():
+          case i9.TypesErrorCodeNoEntry():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(19),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNoLock():
+          case i9.TypesErrorCodeNoLock():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(20),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeInsufficientMemory():
+          case i9.TypesErrorCodeInsufficientMemory():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(21),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeInsufficientSpace():
+          case i9.TypesErrorCodeInsufficientSpace():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(22),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNotDirectory():
+          case i9.TypesErrorCodeNotDirectory():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(23),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNotEmpty():
+          case i9.TypesErrorCodeNotEmpty():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(24),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNotRecoverable():
+          case i9.TypesErrorCodeNotRecoverable():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(25),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeUnsupported():
+          case i9.TypesErrorCodeUnsupported():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(26),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNoTty():
+          case i9.TypesErrorCodeNoTty():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(27),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNoSuchDevice():
+          case i9.TypesErrorCodeNoSuchDevice():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(28),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeOverflow():
+          case i9.TypesErrorCodeOverflow():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(29),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeNotPermitted():
+          case i9.TypesErrorCodeNotPermitted():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(30),
               offset: 4,
             );
 
-          case i8.TypesErrorCodePipe():
+          case i9.TypesErrorCodePipe():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(31),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeReadOnly():
+          case i9.TypesErrorCodeReadOnly():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(32),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeInvalidSeek():
+          case i9.TypesErrorCodeInvalidSeek():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(33),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeTextFileBusy():
+          case i9.TypesErrorCodeTextFileBusy():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(34),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeCrossDevice():
+          case i9.TypesErrorCodeCrossDevice():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(35),
               offset: 4,
             );
 
-          case i8.TypesErrorCodeOther(payload: final value):
+          case i9.TypesErrorCodeOther(payload: final value):
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(36),
@@ -2295,87 +2443,87 @@ final class _Vtable42
   }
 
   @override
-  i0.Result<void, i8.TypesErrorCode> load(int address) {
+  i0.Result<void, i9.TypesErrorCode> load(int address) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     final tmp0 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp7;
+    final i0.Result<void, i9.TypesErrorCode> tmp7;
     if (tmp0.toBool()) {
       final tmp1 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp6;
+      final i9.TypesErrorCode tmp6;
       switch (tmp1.toIntUnsigned()) {
         case 0:
-          tmp6 = i8.TypesErrorCodeAccess();
+          tmp6 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp6 = i8.TypesErrorCodeAlready();
+          tmp6 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp6 = i8.TypesErrorCodeBadDescriptor();
+          tmp6 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp6 = i8.TypesErrorCodeBusy();
+          tmp6 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp6 = i8.TypesErrorCodeDeadlock();
+          tmp6 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp6 = i8.TypesErrorCodeQuota();
+          tmp6 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp6 = i8.TypesErrorCodeExist();
+          tmp6 = i9.TypesErrorCodeExist();
         case 7:
-          tmp6 = i8.TypesErrorCodeFileTooLarge();
+          tmp6 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp6 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp6 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp6 = i8.TypesErrorCodeInProgress();
+          tmp6 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp6 = i8.TypesErrorCodeInterrupted();
+          tmp6 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp6 = i8.TypesErrorCodeInvalid();
+          tmp6 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp6 = i8.TypesErrorCodeIo();
+          tmp6 = i9.TypesErrorCodeIo();
         case 13:
-          tmp6 = i8.TypesErrorCodeIsDirectory();
+          tmp6 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp6 = i8.TypesErrorCodeLoop();
+          tmp6 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp6 = i8.TypesErrorCodeTooManyLinks();
+          tmp6 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp6 = i8.TypesErrorCodeMessageSize();
+          tmp6 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp6 = i8.TypesErrorCodeNameTooLong();
+          tmp6 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp6 = i8.TypesErrorCodeNoDevice();
+          tmp6 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp6 = i8.TypesErrorCodeNoEntry();
+          tmp6 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp6 = i8.TypesErrorCodeNoLock();
+          tmp6 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp6 = i8.TypesErrorCodeInsufficientMemory();
+          tmp6 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp6 = i8.TypesErrorCodeInsufficientSpace();
+          tmp6 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp6 = i8.TypesErrorCodeNotDirectory();
+          tmp6 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp6 = i8.TypesErrorCodeNotEmpty();
+          tmp6 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp6 = i8.TypesErrorCodeNotRecoverable();
+          tmp6 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp6 = i8.TypesErrorCodeUnsupported();
+          tmp6 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp6 = i8.TypesErrorCodeNoTty();
+          tmp6 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp6 = i8.TypesErrorCodeNoSuchDevice();
+          tmp6 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp6 = i8.TypesErrorCodeOverflow();
+          tmp6 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp6 = i8.TypesErrorCodeNotPermitted();
+          tmp6 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp6 = i8.TypesErrorCodePipe();
+          tmp6 = i9.TypesErrorCodePipe();
         case 32:
-          tmp6 = i8.TypesErrorCodeReadOnly();
+          tmp6 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp6 = i8.TypesErrorCodeInvalidSeek();
+          tmp6 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp6 = i8.TypesErrorCodeTextFileBusy();
+          tmp6 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp6 = i8.TypesErrorCodeCrossDevice();
+          tmp6 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp2 = i0.memory.loadUint8(
             wasmAddress.toIntUnsigned(),
@@ -2397,7 +2545,7 @@ final class _Vtable42
             tmp5 = .none;
           }
 
-          tmp6 = i8.TypesErrorCodeOther(tmp5);
+          tmp6 = i9.TypesErrorCodeOther(tmp5);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -2412,29 +2560,29 @@ final class _Vtable42
   }
 }
 
-@pragma('wasm:import', 'component.stream46.new')
-external i2.WasmI64 _streamNew46();
-@pragma('wasm:import', 'component.stream46.read')
-external i2.WasmI32 _streamRead46(
+@pragma('wasm:import', 'component.stream49.new')
+external i2.WasmI64 _streamNew49();
+@pragma('wasm:import', 'component.stream49.read')
+external i2.WasmI32 _streamRead49(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream46.write')
-external i2.WasmI32 _streamWrite46(
+@pragma('wasm:import', 'component.stream49.write')
+external i2.WasmI32 _streamWrite49(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream46.drop-readable')
-external i2.WasmVoid _streamDropReadable46(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream46.drop-writable')
-external i2.WasmVoid _streamDropWritable46(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream49.drop-readable')
+external i2.WasmVoid _streamDropReadable49(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream49.drop-writable')
+external i2.WasmVoid _streamDropWritable49(i2.WasmI32 stream);
 
-final class _Vtable46
+final class _Vtable49
     implements
-        i0.StreamVtable<List<({i8.TypesDescriptorType type, String name})>> {
-  const _Vtable46();
+        i0.StreamVtable<List<({i9.TypesDescriptorType type, String name})>> {
+  const _Vtable49();
 
   @override
   int get elementSize => 24;
@@ -2493,62 +2641,62 @@ final class _Vtable46
   @override
   void writeToBuffer(
     int address,
-    List<({i8.TypesDescriptorType type, String name})> elements,
+    List<({i9.TypesDescriptorType type, String name})> elements,
   ) {
     for (final (i, element) in elements.indexed) {
       final wasmAddress = i2.WasmI32.fromInt(address + i);
 
       switch (element.type) {
-        case i8.TypesDescriptorTypeBlockDevice():
+        case i9.TypesDescriptorTypeBlockDevice():
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(0),
             offset: 0,
           );
 
-        case i8.TypesDescriptorTypeCharacterDevice():
+        case i9.TypesDescriptorTypeCharacterDevice():
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(1),
             offset: 0,
           );
 
-        case i8.TypesDescriptorTypeDirectory():
+        case i9.TypesDescriptorTypeDirectory():
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(2),
             offset: 0,
           );
 
-        case i8.TypesDescriptorTypeFifo():
+        case i9.TypesDescriptorTypeFifo():
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(3),
             offset: 0,
           );
 
-        case i8.TypesDescriptorTypeSymbolicLink():
+        case i9.TypesDescriptorTypeSymbolicLink():
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(4),
             offset: 0,
           );
 
-        case i8.TypesDescriptorTypeRegularFile():
+        case i9.TypesDescriptorTypeRegularFile():
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(5),
             offset: 0,
           );
 
-        case i8.TypesDescriptorTypeSocket():
+        case i9.TypesDescriptorTypeSocket():
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(6),
             offset: 0,
           );
 
-        case i8.TypesDescriptorTypeOther(payload: final value):
+        case i9.TypesDescriptorTypeOther(payload: final value):
           i0.memory.storeInt8(
             wasmAddress.toIntUnsigned(),
             const i2.WasmI32(7),
@@ -2592,29 +2740,29 @@ final class _Vtable46
   }
 
   @override
-  List<({i8.TypesDescriptorType type, String name})> readFromBuffer(
+  List<({i9.TypesDescriptorType type, String name})> readFromBuffer(
     int address,
     int count,
   ) {
     return List.generate(count, (i) {
       final ptr = i2.WasmI32.fromInt(address + i * 24);
       final tmp0 = i0.memory.loadUint8(ptr.toIntUnsigned(), offset: 0);
-      final i8.TypesDescriptorType tmp5;
+      final i9.TypesDescriptorType tmp5;
       switch (tmp0.toIntUnsigned()) {
         case 0:
-          tmp5 = i8.TypesDescriptorTypeBlockDevice();
+          tmp5 = i9.TypesDescriptorTypeBlockDevice();
         case 1:
-          tmp5 = i8.TypesDescriptorTypeCharacterDevice();
+          tmp5 = i9.TypesDescriptorTypeCharacterDevice();
         case 2:
-          tmp5 = i8.TypesDescriptorTypeDirectory();
+          tmp5 = i9.TypesDescriptorTypeDirectory();
         case 3:
-          tmp5 = i8.TypesDescriptorTypeFifo();
+          tmp5 = i9.TypesDescriptorTypeFifo();
         case 4:
-          tmp5 = i8.TypesDescriptorTypeSymbolicLink();
+          tmp5 = i9.TypesDescriptorTypeSymbolicLink();
         case 5:
-          tmp5 = i8.TypesDescriptorTypeRegularFile();
+          tmp5 = i9.TypesDescriptorTypeRegularFile();
         case 6:
-          tmp5 = i8.TypesDescriptorTypeSocket();
+          tmp5 = i9.TypesDescriptorTypeSocket();
         case 7:
           final tmp1 = i0.memory.loadUint8(ptr.toIntUnsigned(), offset: 4);
           final i0.Option<String> tmp4;
@@ -2627,7 +2775,7 @@ final class _Vtable46
             tmp4 = .none;
           }
 
-          tmp5 = i8.TypesDescriptorTypeOther(tmp4);
+          tmp5 = i9.TypesDescriptorTypeOther(tmp4);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -2641,20 +2789,20 @@ final class _Vtable46
   }
 
   @override
-  int newStream() => _streamNew46().toInt();
+  int newStream() => _streamNew49().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable46(i2.WasmI32.fromInt(stream));
+    _streamDropReadable49(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable46(i2.WasmI32.fromInt(stream));
+    _streamDropWritable49(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead46(
+    return _streamRead49(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -2663,7 +2811,7 @@ final class _Vtable46
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite46(
+    return _streamWrite49(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -2671,83 +2819,72 @@ final class _Vtable46
   }
 }
 
-@pragma("wasm:import", r"component._import79")
-external i2.WasmVoid _import79(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
-@pragma("wasm:import", r"component._import80")
-external i2.WasmI32 _import80(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI64 p2);
-@pragma("wasm:import", r"component._import81")
-external i2.WasmI32 _import81(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import82")
-external i2.WasmI32 _import82(
+external i2.WasmVoid _import82(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+@pragma("wasm:import", r"component._import83")
+external i2.WasmI32 _import83(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI64 p2);
+@pragma("wasm:import", r"component._import84")
+external i2.WasmI32 _import84(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import85")
+external i2.WasmI32 _import85(
   i2.WasmI32 p0,
   i2.WasmI64 p1,
   i2.WasmI64 p2,
   i2.WasmI32 p3,
   i2.WasmI32 p4,
 );
-@pragma("wasm:import", r"component._import83")
-external i2.WasmI32 _import83(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import84")
-external i2.WasmI32 _import84(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import85")
-external i2.WasmI32 _import85(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import86")
-external i2.WasmI32 _import86(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmI32 _import86(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import87")
 external i2.WasmI32 _import87(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import88")
-external i2.WasmVoid _import88(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import88(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import89")
-external i2.WasmI32 _import89(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import89(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import90")
-external i2.WasmI32 _import90(
+external i2.WasmI32 _import90(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import91")
+external i2.WasmVoid _import91(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import92")
+external i2.WasmI32 _import92(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import93")
+external i2.WasmI32 _import93(
   i2.WasmI32 p0,
   i2.WasmI32 p1,
   i2.WasmI32 p2,
   i2.WasmI32 p3,
 );
-@pragma("wasm:import", r"component._import91")
-external i2.WasmI32 _import91(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import92")
-external i2.WasmI32 _import92(
+@pragma("wasm:import", r"component._import94")
+external i2.WasmI32 _import94(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import95")
+external i2.WasmI32 _import95(
   i2.WasmI32 p0,
   i2.WasmI32 p1,
   i2.WasmI32 p2,
   i2.WasmI32 p3,
   i2.WasmI32 p4,
 );
-@pragma("wasm:import", r"component._import93")
-external i2.WasmI32 _import93(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import94")
-external i2.WasmI32 _import94(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import96")
+external i2.WasmI32 _import96(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import97")
+external i2.WasmI32 _import97(i2.WasmI32 p0, i2.WasmI32 p1);
 
-@pragma('wasm:import', r'component._drop$38')
-external i2.WasmVoid _drop$38Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$41')
+external i2.WasmVoid _drop$41Raw(i2.WasmI32 handle);
 
-void _drop$38(int handle) {
-  _drop$38Raw(i2.WasmI32.fromInt(handle));
+void _drop$41(int handle) {
+  _drop$41Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma("wasm:import", r"component._import95")
-external i2.WasmI32 _import95(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import97")
-external i2.WasmI32 _import97(
-  i2.WasmI32 p0,
-  i2.WasmI32 p1,
-  i2.WasmI32 p2,
-  i2.WasmI32 p3,
-);
 @pragma("wasm:import", r"component._import98")
-external i2.WasmI32 _import98(
+external i2.WasmI32 _import98(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import100")
+external i2.WasmI32 _import100(
   i2.WasmI32 p0,
   i2.WasmI32 p1,
   i2.WasmI32 p2,
   i2.WasmI32 p3,
 );
-@pragma("wasm:import", r"component._import99")
-external i2.WasmI32 _import99(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import100")
-external i2.WasmI32 _import100(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import101")
 external i2.WasmI32 _import101(
   i2.WasmI32 p0,
@@ -2756,7 +2893,7 @@ external i2.WasmI32 _import101(
   i2.WasmI32 p3,
 );
 @pragma("wasm:import", r"component._import102")
-external i2.WasmI32 _import102(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+external i2.WasmI32 _import102(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import103")
 external i2.WasmI32 _import103(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import104")
@@ -2765,70 +2902,81 @@ external i2.WasmI32 _import104(
   i2.WasmI32 p1,
   i2.WasmI32 p2,
   i2.WasmI32 p3,
+);
+@pragma("wasm:import", r"component._import105")
+external i2.WasmI32 _import105(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+@pragma("wasm:import", r"component._import106")
+external i2.WasmI32 _import106(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import107")
+external i2.WasmI32 _import107(
+  i2.WasmI32 p0,
+  i2.WasmI32 p1,
+  i2.WasmI32 p2,
+  i2.WasmI32 p3,
   i2.WasmI32 p4,
 );
 
-final class _Imported$6 implements i8.Types {
-  const _Imported$6();
+final class _Imported$7 implements i9.Types {
+  const _Imported$7();
   @override
-  (Stream<i4.Uint8List>, Future<i0.Result<void, i8.TypesErrorCode>>)
+  (Stream<i4.Uint8List>, Future<i0.Result<void, i9.TypesErrorCode>>)
   methodDescriptorReadViaStream({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required int offset,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import79(
+    _import82(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(offset),
       tmp0,
     );
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable40());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable43());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable42(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable45(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorWriteViaStream({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorWriteViaStream({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required Stream<i4.Uint8List> data,
     required int offset,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable40(), data).toWasmI32();
-    final tmp1 = _import80(
+    final tmp0 = i0.newReadableStream(const _Vtable43(), data).toWasmI32();
+    final tmp1 = _import83(
       i2.WasmI32.fromInt(self.handle),
       tmp0,
       i2.WasmI64.fromInt(offset),
     );
-    final tmp2 = i0.readFuture(const _Vtable42(), tmp1.toIntUnsigned());
+    final tmp2 = i0.readFuture(const _Vtable45(), tmp1.toIntUnsigned());
     return tmp2;
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorAppendViaStream({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorAppendViaStream({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required Stream<i4.Uint8List> data,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable40(), data).toWasmI32();
-    final tmp1 = _import81(i2.WasmI32.fromInt(self.handle), tmp0);
-    final tmp2 = i0.readFuture(const _Vtable42(), tmp1.toIntUnsigned());
+    final tmp0 = i0.newReadableStream(const _Vtable43(), data).toWasmI32();
+    final tmp1 = _import84(i2.WasmI32.fromInt(self.handle), tmp0);
+    final tmp2 = i0.readFuture(const _Vtable45(), tmp1.toIntUnsigned());
     return tmp2;
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorAdvise({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorAdvise({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required int offset,
     required int length,
-    required i8.TypesAdvice advice,
+    required i9.TypesAdvice advice,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
         .createSubtask(
-          _import82(
+          _import85(
             i2.WasmI32.fromInt(self.handle),
             i2.WasmI64.fromInt(offset),
             i2.WasmI64.fromInt(length),
@@ -2838,83 +2986,83 @@ final class _Imported$6 implements i8.Types {
         )
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp8;
+    final i0.Result<void, i9.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp7;
+      final i9.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i8.TypesErrorCodeAccess();
+          tmp7 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp7 = i8.TypesErrorCodeAlready();
+          tmp7 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp7 = i8.TypesErrorCodeBadDescriptor();
+          tmp7 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp7 = i8.TypesErrorCodeBusy();
+          tmp7 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp7 = i8.TypesErrorCodeDeadlock();
+          tmp7 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp7 = i8.TypesErrorCodeQuota();
+          tmp7 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp7 = i8.TypesErrorCodeExist();
+          tmp7 = i9.TypesErrorCodeExist();
         case 7:
-          tmp7 = i8.TypesErrorCodeFileTooLarge();
+          tmp7 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp7 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp7 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp7 = i8.TypesErrorCodeInProgress();
+          tmp7 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp7 = i8.TypesErrorCodeInterrupted();
+          tmp7 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp7 = i8.TypesErrorCodeInvalid();
+          tmp7 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp7 = i8.TypesErrorCodeIo();
+          tmp7 = i9.TypesErrorCodeIo();
         case 13:
-          tmp7 = i8.TypesErrorCodeIsDirectory();
+          tmp7 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp7 = i8.TypesErrorCodeLoop();
+          tmp7 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp7 = i8.TypesErrorCodeTooManyLinks();
+          tmp7 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp7 = i8.TypesErrorCodeMessageSize();
+          tmp7 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp7 = i8.TypesErrorCodeNameTooLong();
+          tmp7 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp7 = i8.TypesErrorCodeNoDevice();
+          tmp7 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp7 = i8.TypesErrorCodeNoEntry();
+          tmp7 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp7 = i8.TypesErrorCodeNoLock();
+          tmp7 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp7 = i8.TypesErrorCodeInsufficientMemory();
+          tmp7 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp7 = i8.TypesErrorCodeInsufficientSpace();
+          tmp7 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp7 = i8.TypesErrorCodeNotDirectory();
+          tmp7 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp7 = i8.TypesErrorCodeNotEmpty();
+          tmp7 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp7 = i8.TypesErrorCodeNotRecoverable();
+          tmp7 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp7 = i8.TypesErrorCodeUnsupported();
+          tmp7 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp7 = i8.TypesErrorCodeNoTty();
+          tmp7 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp7 = i8.TypesErrorCodeNoSuchDevice();
+          tmp7 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp7 = i8.TypesErrorCodeOverflow();
+          tmp7 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp7 = i8.TypesErrorCodeNotPermitted();
+          tmp7 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp7 = i8.TypesErrorCodePipe();
+          tmp7 = i9.TypesErrorCodePipe();
         case 32:
-          tmp7 = i8.TypesErrorCodeReadOnly();
+          tmp7 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp7 = i8.TypesErrorCodeInvalidSeek();
+          tmp7 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp7 = i8.TypesErrorCodeTextFileBusy();
+          tmp7 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp7 = i8.TypesErrorCodeCrossDevice();
+          tmp7 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -2927,7 +3075,7 @@ final class _Imported$6 implements i8.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i8.TypesErrorCodeOther(tmp6);
+          tmp7 = i9.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -2943,91 +3091,91 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorSyncData({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorSyncData({
+    required i0.Borrowed<i9.TypesDescriptor> self,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
-        .createSubtask(_import83(i2.WasmI32.fromInt(self.handle), tmp0))
+        .createSubtask(_import86(i2.WasmI32.fromInt(self.handle), tmp0))
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp8;
+    final i0.Result<void, i9.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp7;
+      final i9.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i8.TypesErrorCodeAccess();
+          tmp7 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp7 = i8.TypesErrorCodeAlready();
+          tmp7 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp7 = i8.TypesErrorCodeBadDescriptor();
+          tmp7 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp7 = i8.TypesErrorCodeBusy();
+          tmp7 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp7 = i8.TypesErrorCodeDeadlock();
+          tmp7 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp7 = i8.TypesErrorCodeQuota();
+          tmp7 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp7 = i8.TypesErrorCodeExist();
+          tmp7 = i9.TypesErrorCodeExist();
         case 7:
-          tmp7 = i8.TypesErrorCodeFileTooLarge();
+          tmp7 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp7 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp7 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp7 = i8.TypesErrorCodeInProgress();
+          tmp7 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp7 = i8.TypesErrorCodeInterrupted();
+          tmp7 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp7 = i8.TypesErrorCodeInvalid();
+          tmp7 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp7 = i8.TypesErrorCodeIo();
+          tmp7 = i9.TypesErrorCodeIo();
         case 13:
-          tmp7 = i8.TypesErrorCodeIsDirectory();
+          tmp7 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp7 = i8.TypesErrorCodeLoop();
+          tmp7 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp7 = i8.TypesErrorCodeTooManyLinks();
+          tmp7 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp7 = i8.TypesErrorCodeMessageSize();
+          tmp7 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp7 = i8.TypesErrorCodeNameTooLong();
+          tmp7 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp7 = i8.TypesErrorCodeNoDevice();
+          tmp7 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp7 = i8.TypesErrorCodeNoEntry();
+          tmp7 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp7 = i8.TypesErrorCodeNoLock();
+          tmp7 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp7 = i8.TypesErrorCodeInsufficientMemory();
+          tmp7 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp7 = i8.TypesErrorCodeInsufficientSpace();
+          tmp7 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp7 = i8.TypesErrorCodeNotDirectory();
+          tmp7 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp7 = i8.TypesErrorCodeNotEmpty();
+          tmp7 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp7 = i8.TypesErrorCodeNotRecoverable();
+          tmp7 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp7 = i8.TypesErrorCodeUnsupported();
+          tmp7 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp7 = i8.TypesErrorCodeNoTty();
+          tmp7 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp7 = i8.TypesErrorCodeNoSuchDevice();
+          tmp7 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp7 = i8.TypesErrorCodeOverflow();
+          tmp7 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp7 = i8.TypesErrorCodeNotPermitted();
+          tmp7 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp7 = i8.TypesErrorCodePipe();
+          tmp7 = i9.TypesErrorCodePipe();
         case 32:
-          tmp7 = i8.TypesErrorCodeReadOnly();
+          tmp7 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp7 = i8.TypesErrorCodeInvalidSeek();
+          tmp7 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp7 = i8.TypesErrorCodeTextFileBusy();
+          tmp7 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp7 = i8.TypesErrorCodeCrossDevice();
+          tmp7 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -3040,7 +3188,7 @@ final class _Imported$6 implements i8.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i8.TypesErrorCodeOther(tmp6);
+          tmp7 = i9.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3056,92 +3204,92 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<i8.TypesDescriptorFlags, i8.TypesErrorCode>>
+  Future<i0.Result<i9.TypesDescriptorFlags, i9.TypesErrorCode>>
   methodDescriptorGetFlags({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+    required i0.Borrowed<i9.TypesDescriptor> self,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
-        .createSubtask(_import84(i2.WasmI32.fromInt(self.handle), tmp0))
+        .createSubtask(_import87(i2.WasmI32.fromInt(self.handle), tmp0))
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i8.TypesDescriptorFlags, i8.TypesErrorCode> tmp10;
+    final i0.Result<i9.TypesDescriptorFlags, i9.TypesErrorCode> tmp10;
     if (tmp1.toBool()) {
       final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp9;
+      final i9.TypesErrorCode tmp9;
       switch (tmp4.toIntUnsigned()) {
         case 0:
-          tmp9 = i8.TypesErrorCodeAccess();
+          tmp9 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp9 = i8.TypesErrorCodeAlready();
+          tmp9 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp9 = i8.TypesErrorCodeBadDescriptor();
+          tmp9 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp9 = i8.TypesErrorCodeBusy();
+          tmp9 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp9 = i8.TypesErrorCodeDeadlock();
+          tmp9 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp9 = i8.TypesErrorCodeQuota();
+          tmp9 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp9 = i8.TypesErrorCodeExist();
+          tmp9 = i9.TypesErrorCodeExist();
         case 7:
-          tmp9 = i8.TypesErrorCodeFileTooLarge();
+          tmp9 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp9 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp9 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp9 = i8.TypesErrorCodeInProgress();
+          tmp9 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp9 = i8.TypesErrorCodeInterrupted();
+          tmp9 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp9 = i8.TypesErrorCodeInvalid();
+          tmp9 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp9 = i8.TypesErrorCodeIo();
+          tmp9 = i9.TypesErrorCodeIo();
         case 13:
-          tmp9 = i8.TypesErrorCodeIsDirectory();
+          tmp9 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp9 = i8.TypesErrorCodeLoop();
+          tmp9 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp9 = i8.TypesErrorCodeTooManyLinks();
+          tmp9 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp9 = i8.TypesErrorCodeMessageSize();
+          tmp9 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp9 = i8.TypesErrorCodeNameTooLong();
+          tmp9 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp9 = i8.TypesErrorCodeNoDevice();
+          tmp9 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp9 = i8.TypesErrorCodeNoEntry();
+          tmp9 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp9 = i8.TypesErrorCodeNoLock();
+          tmp9 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp9 = i8.TypesErrorCodeInsufficientMemory();
+          tmp9 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp9 = i8.TypesErrorCodeInsufficientSpace();
+          tmp9 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp9 = i8.TypesErrorCodeNotDirectory();
+          tmp9 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp9 = i8.TypesErrorCodeNotEmpty();
+          tmp9 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp9 = i8.TypesErrorCodeNotRecoverable();
+          tmp9 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp9 = i8.TypesErrorCodeUnsupported();
+          tmp9 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp9 = i8.TypesErrorCodeNoTty();
+          tmp9 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp9 = i8.TypesErrorCodeNoSuchDevice();
+          tmp9 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp9 = i8.TypesErrorCodeOverflow();
+          tmp9 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp9 = i8.TypesErrorCodeNotPermitted();
+          tmp9 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp9 = i8.TypesErrorCodePipe();
+          tmp9 = i9.TypesErrorCodePipe();
         case 32:
-          tmp9 = i8.TypesErrorCodeReadOnly();
+          tmp9 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp9 = i8.TypesErrorCodeInvalidSeek();
+          tmp9 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp9 = i8.TypesErrorCodeTextFileBusy();
+          tmp9 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp9 = i8.TypesErrorCodeCrossDevice();
+          tmp9 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp8;
@@ -3154,7 +3302,7 @@ final class _Imported$6 implements i8.Types {
             tmp8 = .none;
           }
 
-          tmp9 = i8.TypesErrorCodeOther(tmp8);
+          tmp9 = i9.TypesErrorCodeOther(tmp8);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3163,7 +3311,7 @@ final class _Imported$6 implements i8.Types {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i8.TypesDescriptorFlags(tmp2.toIntUnsigned());
+      final tmp3 = i9.TypesDescriptorFlags(tmp2.toIntUnsigned());
 
       tmp10 = .ok(tmp3);
     }
@@ -3173,92 +3321,92 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<i8.TypesDescriptorType, i8.TypesErrorCode>>
+  Future<i0.Result<i9.TypesDescriptorType, i9.TypesErrorCode>>
   methodDescriptorGetType({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+    required i0.Borrowed<i9.TypesDescriptor> self,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
-        .createSubtask(_import85(i2.WasmI32.fromInt(self.handle), tmp0))
+        .createSubtask(_import88(i2.WasmI32.fromInt(self.handle), tmp0))
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i8.TypesDescriptorType, i8.TypesErrorCode> tmp14;
+    final i0.Result<i9.TypesDescriptorType, i9.TypesErrorCode> tmp14;
     if (tmp1.toBool()) {
       final tmp8 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp13;
+      final i9.TypesErrorCode tmp13;
       switch (tmp8.toIntUnsigned()) {
         case 0:
-          tmp13 = i8.TypesErrorCodeAccess();
+          tmp13 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp13 = i8.TypesErrorCodeAlready();
+          tmp13 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp13 = i8.TypesErrorCodeBadDescriptor();
+          tmp13 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp13 = i8.TypesErrorCodeBusy();
+          tmp13 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp13 = i8.TypesErrorCodeDeadlock();
+          tmp13 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp13 = i8.TypesErrorCodeQuota();
+          tmp13 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp13 = i8.TypesErrorCodeExist();
+          tmp13 = i9.TypesErrorCodeExist();
         case 7:
-          tmp13 = i8.TypesErrorCodeFileTooLarge();
+          tmp13 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp13 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp13 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp13 = i8.TypesErrorCodeInProgress();
+          tmp13 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp13 = i8.TypesErrorCodeInterrupted();
+          tmp13 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp13 = i8.TypesErrorCodeInvalid();
+          tmp13 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp13 = i8.TypesErrorCodeIo();
+          tmp13 = i9.TypesErrorCodeIo();
         case 13:
-          tmp13 = i8.TypesErrorCodeIsDirectory();
+          tmp13 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp13 = i8.TypesErrorCodeLoop();
+          tmp13 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp13 = i8.TypesErrorCodeTooManyLinks();
+          tmp13 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp13 = i8.TypesErrorCodeMessageSize();
+          tmp13 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp13 = i8.TypesErrorCodeNameTooLong();
+          tmp13 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp13 = i8.TypesErrorCodeNoDevice();
+          tmp13 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp13 = i8.TypesErrorCodeNoEntry();
+          tmp13 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp13 = i8.TypesErrorCodeNoLock();
+          tmp13 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp13 = i8.TypesErrorCodeInsufficientMemory();
+          tmp13 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp13 = i8.TypesErrorCodeInsufficientSpace();
+          tmp13 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp13 = i8.TypesErrorCodeNotDirectory();
+          tmp13 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp13 = i8.TypesErrorCodeNotEmpty();
+          tmp13 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp13 = i8.TypesErrorCodeNotRecoverable();
+          tmp13 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp13 = i8.TypesErrorCodeUnsupported();
+          tmp13 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp13 = i8.TypesErrorCodeNoTty();
+          tmp13 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp13 = i8.TypesErrorCodeNoSuchDevice();
+          tmp13 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp13 = i8.TypesErrorCodeOverflow();
+          tmp13 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp13 = i8.TypesErrorCodeNotPermitted();
+          tmp13 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp13 = i8.TypesErrorCodePipe();
+          tmp13 = i9.TypesErrorCodePipe();
         case 32:
-          tmp13 = i8.TypesErrorCodeReadOnly();
+          tmp13 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp13 = i8.TypesErrorCodeInvalidSeek();
+          tmp13 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp13 = i8.TypesErrorCodeTextFileBusy();
+          tmp13 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp13 = i8.TypesErrorCodeCrossDevice();
+          tmp13 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp9 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp12;
@@ -3271,7 +3419,7 @@ final class _Imported$6 implements i8.Types {
             tmp12 = .none;
           }
 
-          tmp13 = i8.TypesErrorCodeOther(tmp12);
+          tmp13 = i9.TypesErrorCodeOther(tmp12);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3280,22 +3428,22 @@ final class _Imported$6 implements i8.Types {
       tmp14 = .error(tmp13);
     } else {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i8.TypesDescriptorType tmp7;
+      final i9.TypesDescriptorType tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i8.TypesDescriptorTypeBlockDevice();
+          tmp7 = i9.TypesDescriptorTypeBlockDevice();
         case 1:
-          tmp7 = i8.TypesDescriptorTypeCharacterDevice();
+          tmp7 = i9.TypesDescriptorTypeCharacterDevice();
         case 2:
-          tmp7 = i8.TypesDescriptorTypeDirectory();
+          tmp7 = i9.TypesDescriptorTypeDirectory();
         case 3:
-          tmp7 = i8.TypesDescriptorTypeFifo();
+          tmp7 = i9.TypesDescriptorTypeFifo();
         case 4:
-          tmp7 = i8.TypesDescriptorTypeSymbolicLink();
+          tmp7 = i9.TypesDescriptorTypeSymbolicLink();
         case 5:
-          tmp7 = i8.TypesDescriptorTypeRegularFile();
+          tmp7 = i9.TypesDescriptorTypeRegularFile();
         case 6:
-          tmp7 = i8.TypesDescriptorTypeSocket();
+          tmp7 = i9.TypesDescriptorTypeSocket();
         case 7:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -3308,7 +3456,7 @@ final class _Imported$6 implements i8.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i8.TypesDescriptorTypeOther(tmp6);
+          tmp7 = i9.TypesDescriptorTypeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3322,14 +3470,14 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorSetSize({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorSetSize({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required int size,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
         .createSubtask(
-          _import86(
+          _import89(
             i2.WasmI32.fromInt(self.handle),
             i2.WasmI64.fromInt(size),
             tmp0,
@@ -3337,83 +3485,83 @@ final class _Imported$6 implements i8.Types {
         )
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp8;
+    final i0.Result<void, i9.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp7;
+      final i9.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i8.TypesErrorCodeAccess();
+          tmp7 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp7 = i8.TypesErrorCodeAlready();
+          tmp7 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp7 = i8.TypesErrorCodeBadDescriptor();
+          tmp7 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp7 = i8.TypesErrorCodeBusy();
+          tmp7 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp7 = i8.TypesErrorCodeDeadlock();
+          tmp7 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp7 = i8.TypesErrorCodeQuota();
+          tmp7 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp7 = i8.TypesErrorCodeExist();
+          tmp7 = i9.TypesErrorCodeExist();
         case 7:
-          tmp7 = i8.TypesErrorCodeFileTooLarge();
+          tmp7 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp7 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp7 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp7 = i8.TypesErrorCodeInProgress();
+          tmp7 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp7 = i8.TypesErrorCodeInterrupted();
+          tmp7 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp7 = i8.TypesErrorCodeInvalid();
+          tmp7 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp7 = i8.TypesErrorCodeIo();
+          tmp7 = i9.TypesErrorCodeIo();
         case 13:
-          tmp7 = i8.TypesErrorCodeIsDirectory();
+          tmp7 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp7 = i8.TypesErrorCodeLoop();
+          tmp7 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp7 = i8.TypesErrorCodeTooManyLinks();
+          tmp7 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp7 = i8.TypesErrorCodeMessageSize();
+          tmp7 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp7 = i8.TypesErrorCodeNameTooLong();
+          tmp7 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp7 = i8.TypesErrorCodeNoDevice();
+          tmp7 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp7 = i8.TypesErrorCodeNoEntry();
+          tmp7 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp7 = i8.TypesErrorCodeNoLock();
+          tmp7 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp7 = i8.TypesErrorCodeInsufficientMemory();
+          tmp7 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp7 = i8.TypesErrorCodeInsufficientSpace();
+          tmp7 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp7 = i8.TypesErrorCodeNotDirectory();
+          tmp7 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp7 = i8.TypesErrorCodeNotEmpty();
+          tmp7 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp7 = i8.TypesErrorCodeNotRecoverable();
+          tmp7 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp7 = i8.TypesErrorCodeUnsupported();
+          tmp7 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp7 = i8.TypesErrorCodeNoTty();
+          tmp7 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp7 = i8.TypesErrorCodeNoSuchDevice();
+          tmp7 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp7 = i8.TypesErrorCodeOverflow();
+          tmp7 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp7 = i8.TypesErrorCodeNotPermitted();
+          tmp7 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp7 = i8.TypesErrorCodePipe();
+          tmp7 = i9.TypesErrorCodePipe();
         case 32:
-          tmp7 = i8.TypesErrorCodeReadOnly();
+          tmp7 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp7 = i8.TypesErrorCodeInvalidSeek();
+          tmp7 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp7 = i8.TypesErrorCodeTextFileBusy();
+          tmp7 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp7 = i8.TypesErrorCodeCrossDevice();
+          tmp7 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -3426,7 +3574,7 @@ final class _Imported$6 implements i8.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i8.TypesErrorCodeOther(tmp6);
+          tmp7 = i9.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3442,10 +3590,10 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorSetTimes({
-    required i0.Borrowed<i8.TypesDescriptor> self,
-    required i8.TypesNewTimestamp dataAccessTimestamp,
-    required i8.TypesNewTimestamp dataModificationTimestamp,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorSetTimes({
+    required i0.Borrowed<i9.TypesDescriptor> self,
+    required i9.TypesNewTimestamp dataAccessTimestamp,
+    required i9.TypesNewTimestamp dataModificationTimestamp,
   }) async {
     final tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(56));
     i0.memory.storeInt32(
@@ -3454,21 +3602,21 @@ final class _Imported$6 implements i8.Types {
       offset: 0,
     );
     switch (dataAccessTimestamp) {
-      case i8.TypesNewTimestampNoChange():
+      case i9.TypesNewTimestampNoChange():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(8)).toIntUnsigned(),
           const i2.WasmI32(0),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampNow():
+      case i9.TypesNewTimestampNow():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(8)).toIntUnsigned(),
           const i2.WasmI32(1),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampTimestamp(payload: final value):
+      case i9.TypesNewTimestampTimestamp(payload: final value):
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(8)).toIntUnsigned(),
           const i2.WasmI32(2),
@@ -3486,21 +3634,21 @@ final class _Imported$6 implements i8.Types {
         );
     }
     switch (dataModificationTimestamp) {
-      case i8.TypesNewTimestampNoChange():
+      case i9.TypesNewTimestampNoChange():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(32)).toIntUnsigned(),
           const i2.WasmI32(0),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampNow():
+      case i9.TypesNewTimestampNow():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(32)).toIntUnsigned(),
           const i2.WasmI32(1),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampTimestamp(payload: final value):
+      case i9.TypesNewTimestampTimestamp(payload: final value):
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(32)).toIntUnsigned(),
           const i2.WasmI32(2),
@@ -3518,85 +3666,85 @@ final class _Imported$6 implements i8.Types {
         );
     }
     var tmp1 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import87(tmp0, tmp1)).completion;
+    await i0.createSubtask(_import90(tmp0, tmp1)).completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp9;
+    final i0.Result<void, i9.TypesErrorCode> tmp9;
     if (tmp2.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp8;
+      final i9.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i8.TypesErrorCodeAccess();
+          tmp8 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp8 = i8.TypesErrorCodeAlready();
+          tmp8 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp8 = i8.TypesErrorCodeBadDescriptor();
+          tmp8 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp8 = i8.TypesErrorCodeBusy();
+          tmp8 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp8 = i8.TypesErrorCodeDeadlock();
+          tmp8 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp8 = i8.TypesErrorCodeQuota();
+          tmp8 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp8 = i8.TypesErrorCodeExist();
+          tmp8 = i9.TypesErrorCodeExist();
         case 7:
-          tmp8 = i8.TypesErrorCodeFileTooLarge();
+          tmp8 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp8 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp8 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp8 = i8.TypesErrorCodeInProgress();
+          tmp8 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp8 = i8.TypesErrorCodeInterrupted();
+          tmp8 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp8 = i8.TypesErrorCodeInvalid();
+          tmp8 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp8 = i8.TypesErrorCodeIo();
+          tmp8 = i9.TypesErrorCodeIo();
         case 13:
-          tmp8 = i8.TypesErrorCodeIsDirectory();
+          tmp8 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp8 = i8.TypesErrorCodeLoop();
+          tmp8 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp8 = i8.TypesErrorCodeTooManyLinks();
+          tmp8 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp8 = i8.TypesErrorCodeMessageSize();
+          tmp8 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp8 = i8.TypesErrorCodeNameTooLong();
+          tmp8 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp8 = i8.TypesErrorCodeNoDevice();
+          tmp8 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp8 = i8.TypesErrorCodeNoEntry();
+          tmp8 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp8 = i8.TypesErrorCodeNoLock();
+          tmp8 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp8 = i8.TypesErrorCodeInsufficientMemory();
+          tmp8 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp8 = i8.TypesErrorCodeInsufficientSpace();
+          tmp8 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp8 = i8.TypesErrorCodeNotDirectory();
+          tmp8 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp8 = i8.TypesErrorCodeNotEmpty();
+          tmp8 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp8 = i8.TypesErrorCodeNotRecoverable();
+          tmp8 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp8 = i8.TypesErrorCodeUnsupported();
+          tmp8 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp8 = i8.TypesErrorCodeNoTty();
+          tmp8 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp8 = i8.TypesErrorCodeNoSuchDevice();
+          tmp8 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp8 = i8.TypesErrorCodeOverflow();
+          tmp8 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp8 = i8.TypesErrorCodeNotPermitted();
+          tmp8 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp8 = i8.TypesErrorCodePipe();
+          tmp8 = i9.TypesErrorCodePipe();
         case 32:
-          tmp8 = i8.TypesErrorCodeReadOnly();
+          tmp8 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp8 = i8.TypesErrorCodeInvalidSeek();
+          tmp8 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp8 = i8.TypesErrorCodeTextFileBusy();
+          tmp8 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp8 = i8.TypesErrorCodeCrossDevice();
+          tmp8 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp4 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -3609,7 +3757,7 @@ final class _Imported$6 implements i8.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i8.TypesErrorCodeOther(tmp7);
+          tmp8 = i9.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3627,109 +3775,109 @@ final class _Imported$6 implements i8.Types {
 
   @override
   (
-    Stream<List<({i8.TypesDescriptorType type, String name})>>,
-    Future<i0.Result<void, i8.TypesErrorCode>>,
+    Stream<List<({i9.TypesDescriptorType type, String name})>>,
+    Future<i0.Result<void, i9.TypesErrorCode>>,
   )
   methodDescriptorReadDirectory({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+    required i0.Borrowed<i9.TypesDescriptor> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import88(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import91(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable46());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable49());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable42(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable45(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorSync({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorSync({
+    required i0.Borrowed<i9.TypesDescriptor> self,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
-        .createSubtask(_import89(i2.WasmI32.fromInt(self.handle), tmp0))
+        .createSubtask(_import92(i2.WasmI32.fromInt(self.handle), tmp0))
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp8;
+    final i0.Result<void, i9.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp7;
+      final i9.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i8.TypesErrorCodeAccess();
+          tmp7 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp7 = i8.TypesErrorCodeAlready();
+          tmp7 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp7 = i8.TypesErrorCodeBadDescriptor();
+          tmp7 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp7 = i8.TypesErrorCodeBusy();
+          tmp7 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp7 = i8.TypesErrorCodeDeadlock();
+          tmp7 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp7 = i8.TypesErrorCodeQuota();
+          tmp7 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp7 = i8.TypesErrorCodeExist();
+          tmp7 = i9.TypesErrorCodeExist();
         case 7:
-          tmp7 = i8.TypesErrorCodeFileTooLarge();
+          tmp7 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp7 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp7 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp7 = i8.TypesErrorCodeInProgress();
+          tmp7 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp7 = i8.TypesErrorCodeInterrupted();
+          tmp7 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp7 = i8.TypesErrorCodeInvalid();
+          tmp7 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp7 = i8.TypesErrorCodeIo();
+          tmp7 = i9.TypesErrorCodeIo();
         case 13:
-          tmp7 = i8.TypesErrorCodeIsDirectory();
+          tmp7 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp7 = i8.TypesErrorCodeLoop();
+          tmp7 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp7 = i8.TypesErrorCodeTooManyLinks();
+          tmp7 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp7 = i8.TypesErrorCodeMessageSize();
+          tmp7 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp7 = i8.TypesErrorCodeNameTooLong();
+          tmp7 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp7 = i8.TypesErrorCodeNoDevice();
+          tmp7 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp7 = i8.TypesErrorCodeNoEntry();
+          tmp7 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp7 = i8.TypesErrorCodeNoLock();
+          tmp7 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp7 = i8.TypesErrorCodeInsufficientMemory();
+          tmp7 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp7 = i8.TypesErrorCodeInsufficientSpace();
+          tmp7 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp7 = i8.TypesErrorCodeNotDirectory();
+          tmp7 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp7 = i8.TypesErrorCodeNotEmpty();
+          tmp7 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp7 = i8.TypesErrorCodeNotRecoverable();
+          tmp7 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp7 = i8.TypesErrorCodeUnsupported();
+          tmp7 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp7 = i8.TypesErrorCodeNoTty();
+          tmp7 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp7 = i8.TypesErrorCodeNoSuchDevice();
+          tmp7 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp7 = i8.TypesErrorCodeOverflow();
+          tmp7 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp7 = i8.TypesErrorCodeNotPermitted();
+          tmp7 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp7 = i8.TypesErrorCodePipe();
+          tmp7 = i9.TypesErrorCodePipe();
         case 32:
-          tmp7 = i8.TypesErrorCodeReadOnly();
+          tmp7 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp7 = i8.TypesErrorCodeInvalidSeek();
+          tmp7 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp7 = i8.TypesErrorCodeTextFileBusy();
+          tmp7 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp7 = i8.TypesErrorCodeCrossDevice();
+          tmp7 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -3742,7 +3890,7 @@ final class _Imported$6 implements i8.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i8.TypesErrorCodeOther(tmp6);
+          tmp7 = i9.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3758,15 +3906,15 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorCreateDirectoryAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorCreateDirectoryAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required String path,
   }) async {
     final tmp0 = i0.AllocatedString.allocateUtf16(path);
     var tmp1 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
         .createSubtask(
-          _import90(
+          _import93(
             i2.WasmI32.fromInt(self.handle),
             tmp0.ptr,
             tmp0.packedLength,
@@ -3775,83 +3923,83 @@ final class _Imported$6 implements i8.Types {
         )
         .completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp9;
+    final i0.Result<void, i9.TypesErrorCode> tmp9;
     if (tmp2.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp8;
+      final i9.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i8.TypesErrorCodeAccess();
+          tmp8 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp8 = i8.TypesErrorCodeAlready();
+          tmp8 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp8 = i8.TypesErrorCodeBadDescriptor();
+          tmp8 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp8 = i8.TypesErrorCodeBusy();
+          tmp8 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp8 = i8.TypesErrorCodeDeadlock();
+          tmp8 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp8 = i8.TypesErrorCodeQuota();
+          tmp8 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp8 = i8.TypesErrorCodeExist();
+          tmp8 = i9.TypesErrorCodeExist();
         case 7:
-          tmp8 = i8.TypesErrorCodeFileTooLarge();
+          tmp8 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp8 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp8 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp8 = i8.TypesErrorCodeInProgress();
+          tmp8 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp8 = i8.TypesErrorCodeInterrupted();
+          tmp8 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp8 = i8.TypesErrorCodeInvalid();
+          tmp8 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp8 = i8.TypesErrorCodeIo();
+          tmp8 = i9.TypesErrorCodeIo();
         case 13:
-          tmp8 = i8.TypesErrorCodeIsDirectory();
+          tmp8 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp8 = i8.TypesErrorCodeLoop();
+          tmp8 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp8 = i8.TypesErrorCodeTooManyLinks();
+          tmp8 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp8 = i8.TypesErrorCodeMessageSize();
+          tmp8 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp8 = i8.TypesErrorCodeNameTooLong();
+          tmp8 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp8 = i8.TypesErrorCodeNoDevice();
+          tmp8 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp8 = i8.TypesErrorCodeNoEntry();
+          tmp8 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp8 = i8.TypesErrorCodeNoLock();
+          tmp8 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp8 = i8.TypesErrorCodeInsufficientMemory();
+          tmp8 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp8 = i8.TypesErrorCodeInsufficientSpace();
+          tmp8 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp8 = i8.TypesErrorCodeNotDirectory();
+          tmp8 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp8 = i8.TypesErrorCodeNotEmpty();
+          tmp8 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp8 = i8.TypesErrorCodeNotRecoverable();
+          tmp8 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp8 = i8.TypesErrorCodeUnsupported();
+          tmp8 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp8 = i8.TypesErrorCodeNoTty();
+          tmp8 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp8 = i8.TypesErrorCodeNoSuchDevice();
+          tmp8 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp8 = i8.TypesErrorCodeOverflow();
+          tmp8 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp8 = i8.TypesErrorCodeNotPermitted();
+          tmp8 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp8 = i8.TypesErrorCodePipe();
+          tmp8 = i9.TypesErrorCodePipe();
         case 32:
-          tmp8 = i8.TypesErrorCodeReadOnly();
+          tmp8 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp8 = i8.TypesErrorCodeInvalidSeek();
+          tmp8 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp8 = i8.TypesErrorCodeTextFileBusy();
+          tmp8 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp8 = i8.TypesErrorCodeCrossDevice();
+          tmp8 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp4 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -3864,7 +4012,7 @@ final class _Imported$6 implements i8.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i8.TypesErrorCodeOther(tmp7);
+          tmp8 = i9.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -3883,110 +4031,110 @@ final class _Imported$6 implements i8.Types {
   Future<
     i0.Result<
       ({
-        i8.TypesDescriptorType type,
+        i9.TypesDescriptorType type,
         int linkCount,
         int size,
         i0.Option<({int seconds, int nanoseconds})> dataAccessTimestamp,
         i0.Option<({int seconds, int nanoseconds})> dataModificationTimestamp,
         i0.Option<({int seconds, int nanoseconds})> statusChangeTimestamp,
       }),
-      i8.TypesErrorCode
+      i9.TypesErrorCode
     >
   >
-  methodDescriptorStat({required i0.Borrowed<i8.TypesDescriptor> self}) async {
+  methodDescriptorStat({required i0.Borrowed<i9.TypesDescriptor> self}) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(112));
     await i0
-        .createSubtask(_import91(i2.WasmI32.fromInt(self.handle), tmp0))
+        .createSubtask(_import94(i2.WasmI32.fromInt(self.handle), tmp0))
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
     final i0.Result<
       ({
-        i8.TypesDescriptorType type,
+        i9.TypesDescriptorType type,
         int linkCount,
         int size,
         i0.Option<({int seconds, int nanoseconds})> dataAccessTimestamp,
         i0.Option<({int seconds, int nanoseconds})> dataModificationTimestamp,
         i0.Option<({int seconds, int nanoseconds})> statusChangeTimestamp,
       }),
-      i8.TypesErrorCode
+      i9.TypesErrorCode
     >
     tmp32;
     if (tmp1.toBool()) {
       final tmp26 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i8.TypesErrorCode tmp31;
+      final i9.TypesErrorCode tmp31;
       switch (tmp26.toIntUnsigned()) {
         case 0:
-          tmp31 = i8.TypesErrorCodeAccess();
+          tmp31 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp31 = i8.TypesErrorCodeAlready();
+          tmp31 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp31 = i8.TypesErrorCodeBadDescriptor();
+          tmp31 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp31 = i8.TypesErrorCodeBusy();
+          tmp31 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp31 = i8.TypesErrorCodeDeadlock();
+          tmp31 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp31 = i8.TypesErrorCodeQuota();
+          tmp31 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp31 = i8.TypesErrorCodeExist();
+          tmp31 = i9.TypesErrorCodeExist();
         case 7:
-          tmp31 = i8.TypesErrorCodeFileTooLarge();
+          tmp31 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp31 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp31 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp31 = i8.TypesErrorCodeInProgress();
+          tmp31 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp31 = i8.TypesErrorCodeInterrupted();
+          tmp31 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp31 = i8.TypesErrorCodeInvalid();
+          tmp31 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp31 = i8.TypesErrorCodeIo();
+          tmp31 = i9.TypesErrorCodeIo();
         case 13:
-          tmp31 = i8.TypesErrorCodeIsDirectory();
+          tmp31 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp31 = i8.TypesErrorCodeLoop();
+          tmp31 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp31 = i8.TypesErrorCodeTooManyLinks();
+          tmp31 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp31 = i8.TypesErrorCodeMessageSize();
+          tmp31 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp31 = i8.TypesErrorCodeNameTooLong();
+          tmp31 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp31 = i8.TypesErrorCodeNoDevice();
+          tmp31 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp31 = i8.TypesErrorCodeNoEntry();
+          tmp31 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp31 = i8.TypesErrorCodeNoLock();
+          tmp31 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp31 = i8.TypesErrorCodeInsufficientMemory();
+          tmp31 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp31 = i8.TypesErrorCodeInsufficientSpace();
+          tmp31 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp31 = i8.TypesErrorCodeNotDirectory();
+          tmp31 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp31 = i8.TypesErrorCodeNotEmpty();
+          tmp31 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp31 = i8.TypesErrorCodeNotRecoverable();
+          tmp31 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp31 = i8.TypesErrorCodeUnsupported();
+          tmp31 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp31 = i8.TypesErrorCodeNoTty();
+          tmp31 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp31 = i8.TypesErrorCodeNoSuchDevice();
+          tmp31 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp31 = i8.TypesErrorCodeOverflow();
+          tmp31 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp31 = i8.TypesErrorCodeNotPermitted();
+          tmp31 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp31 = i8.TypesErrorCodePipe();
+          tmp31 = i9.TypesErrorCodePipe();
         case 32:
-          tmp31 = i8.TypesErrorCodeReadOnly();
+          tmp31 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp31 = i8.TypesErrorCodeInvalidSeek();
+          tmp31 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp31 = i8.TypesErrorCodeTextFileBusy();
+          tmp31 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp31 = i8.TypesErrorCodeCrossDevice();
+          tmp31 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp27 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp30;
@@ -3999,7 +4147,7 @@ final class _Imported$6 implements i8.Types {
             tmp30 = .none;
           }
 
-          tmp31 = i8.TypesErrorCodeOther(tmp30);
+          tmp31 = i9.TypesErrorCodeOther(tmp30);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4008,22 +4156,22 @@ final class _Imported$6 implements i8.Types {
       tmp32 = .error(tmp31);
     } else {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i8.TypesDescriptorType tmp7;
+      final i9.TypesDescriptorType tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i8.TypesDescriptorTypeBlockDevice();
+          tmp7 = i9.TypesDescriptorTypeBlockDevice();
         case 1:
-          tmp7 = i8.TypesDescriptorTypeCharacterDevice();
+          tmp7 = i9.TypesDescriptorTypeCharacterDevice();
         case 2:
-          tmp7 = i8.TypesDescriptorTypeDirectory();
+          tmp7 = i9.TypesDescriptorTypeDirectory();
         case 3:
-          tmp7 = i8.TypesDescriptorTypeFifo();
+          tmp7 = i9.TypesDescriptorTypeFifo();
         case 4:
-          tmp7 = i8.TypesDescriptorTypeSymbolicLink();
+          tmp7 = i9.TypesDescriptorTypeSymbolicLink();
         case 5:
-          tmp7 = i8.TypesDescriptorTypeRegularFile();
+          tmp7 = i9.TypesDescriptorTypeRegularFile();
         case 6:
-          tmp7 = i8.TypesDescriptorTypeSocket();
+          tmp7 = i9.TypesDescriptorTypeSocket();
         case 7:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp6;
@@ -4036,7 +4184,7 @@ final class _Imported$6 implements i8.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i8.TypesDescriptorTypeOther(tmp6);
+          tmp7 = i9.TypesDescriptorTypeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4108,26 +4256,26 @@ final class _Imported$6 implements i8.Types {
   Future<
     i0.Result<
       ({
-        i8.TypesDescriptorType type,
+        i9.TypesDescriptorType type,
         int linkCount,
         int size,
         i0.Option<({int seconds, int nanoseconds})> dataAccessTimestamp,
         i0.Option<({int seconds, int nanoseconds})> dataModificationTimestamp,
         i0.Option<({int seconds, int nanoseconds})> statusChangeTimestamp,
       }),
-      i8.TypesErrorCode
+      i9.TypesErrorCode
     >
   >
   methodDescriptorStatAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
-    required i8.TypesPathFlags pathFlags,
+    required i0.Borrowed<i9.TypesDescriptor> self,
+    required i9.TypesPathFlags pathFlags,
     required String path,
   }) async {
     final tmp0 = i0.AllocatedString.allocateUtf16(path);
     var tmp1 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(112));
     await i0
         .createSubtask(
-          _import92(
+          _import95(
             i2.WasmI32.fromInt(self.handle),
             pathFlags.toWasmI32(),
             tmp0.ptr,
@@ -4139,92 +4287,92 @@ final class _Imported$6 implements i8.Types {
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
     final i0.Result<
       ({
-        i8.TypesDescriptorType type,
+        i9.TypesDescriptorType type,
         int linkCount,
         int size,
         i0.Option<({int seconds, int nanoseconds})> dataAccessTimestamp,
         i0.Option<({int seconds, int nanoseconds})> dataModificationTimestamp,
         i0.Option<({int seconds, int nanoseconds})> statusChangeTimestamp,
       }),
-      i8.TypesErrorCode
+      i9.TypesErrorCode
     >
     tmp33;
     if (tmp2.toBool()) {
       final tmp27 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
-      final i8.TypesErrorCode tmp32;
+      final i9.TypesErrorCode tmp32;
       switch (tmp27.toIntUnsigned()) {
         case 0:
-          tmp32 = i8.TypesErrorCodeAccess();
+          tmp32 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp32 = i8.TypesErrorCodeAlready();
+          tmp32 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp32 = i8.TypesErrorCodeBadDescriptor();
+          tmp32 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp32 = i8.TypesErrorCodeBusy();
+          tmp32 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp32 = i8.TypesErrorCodeDeadlock();
+          tmp32 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp32 = i8.TypesErrorCodeQuota();
+          tmp32 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp32 = i8.TypesErrorCodeExist();
+          tmp32 = i9.TypesErrorCodeExist();
         case 7:
-          tmp32 = i8.TypesErrorCodeFileTooLarge();
+          tmp32 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp32 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp32 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp32 = i8.TypesErrorCodeInProgress();
+          tmp32 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp32 = i8.TypesErrorCodeInterrupted();
+          tmp32 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp32 = i8.TypesErrorCodeInvalid();
+          tmp32 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp32 = i8.TypesErrorCodeIo();
+          tmp32 = i9.TypesErrorCodeIo();
         case 13:
-          tmp32 = i8.TypesErrorCodeIsDirectory();
+          tmp32 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp32 = i8.TypesErrorCodeLoop();
+          tmp32 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp32 = i8.TypesErrorCodeTooManyLinks();
+          tmp32 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp32 = i8.TypesErrorCodeMessageSize();
+          tmp32 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp32 = i8.TypesErrorCodeNameTooLong();
+          tmp32 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp32 = i8.TypesErrorCodeNoDevice();
+          tmp32 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp32 = i8.TypesErrorCodeNoEntry();
+          tmp32 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp32 = i8.TypesErrorCodeNoLock();
+          tmp32 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp32 = i8.TypesErrorCodeInsufficientMemory();
+          tmp32 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp32 = i8.TypesErrorCodeInsufficientSpace();
+          tmp32 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp32 = i8.TypesErrorCodeNotDirectory();
+          tmp32 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp32 = i8.TypesErrorCodeNotEmpty();
+          tmp32 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp32 = i8.TypesErrorCodeNotRecoverable();
+          tmp32 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp32 = i8.TypesErrorCodeUnsupported();
+          tmp32 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp32 = i8.TypesErrorCodeNoTty();
+          tmp32 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp32 = i8.TypesErrorCodeNoSuchDevice();
+          tmp32 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp32 = i8.TypesErrorCodeOverflow();
+          tmp32 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp32 = i8.TypesErrorCodeNotPermitted();
+          tmp32 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp32 = i8.TypesErrorCodePipe();
+          tmp32 = i9.TypesErrorCodePipe();
         case 32:
-          tmp32 = i8.TypesErrorCodeReadOnly();
+          tmp32 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp32 = i8.TypesErrorCodeInvalidSeek();
+          tmp32 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp32 = i8.TypesErrorCodeTextFileBusy();
+          tmp32 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp32 = i8.TypesErrorCodeCrossDevice();
+          tmp32 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp28 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp31;
@@ -4237,7 +4385,7 @@ final class _Imported$6 implements i8.Types {
             tmp31 = .none;
           }
 
-          tmp32 = i8.TypesErrorCodeOther(tmp31);
+          tmp32 = i9.TypesErrorCodeOther(tmp31);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4246,22 +4394,22 @@ final class _Imported$6 implements i8.Types {
       tmp33 = .error(tmp32);
     } else {
       final tmp3 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
-      final i8.TypesDescriptorType tmp8;
+      final i9.TypesDescriptorType tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i8.TypesDescriptorTypeBlockDevice();
+          tmp8 = i9.TypesDescriptorTypeBlockDevice();
         case 1:
-          tmp8 = i8.TypesDescriptorTypeCharacterDevice();
+          tmp8 = i9.TypesDescriptorTypeCharacterDevice();
         case 2:
-          tmp8 = i8.TypesDescriptorTypeDirectory();
+          tmp8 = i9.TypesDescriptorTypeDirectory();
         case 3:
-          tmp8 = i8.TypesDescriptorTypeFifo();
+          tmp8 = i9.TypesDescriptorTypeFifo();
         case 4:
-          tmp8 = i8.TypesDescriptorTypeSymbolicLink();
+          tmp8 = i9.TypesDescriptorTypeSymbolicLink();
         case 5:
-          tmp8 = i8.TypesDescriptorTypeRegularFile();
+          tmp8 = i9.TypesDescriptorTypeRegularFile();
         case 6:
-          tmp8 = i8.TypesDescriptorTypeSocket();
+          tmp8 = i9.TypesDescriptorTypeSocket();
         case 7:
           final tmp4 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp7;
@@ -4274,7 +4422,7 @@ final class _Imported$6 implements i8.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i8.TypesDescriptorTypeOther(tmp7);
+          tmp8 = i9.TypesDescriptorTypeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4343,12 +4491,12 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorSetTimesAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
-    required i8.TypesPathFlags pathFlags,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorSetTimesAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
+    required i9.TypesPathFlags pathFlags,
     required String path,
-    required i8.TypesNewTimestamp dataAccessTimestamp,
-    required i8.TypesNewTimestamp dataModificationTimestamp,
+    required i9.TypesNewTimestamp dataAccessTimestamp,
+    required i9.TypesNewTimestamp dataModificationTimestamp,
   }) async {
     final tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(64));
     i0.memory.storeInt32(
@@ -4373,21 +4521,21 @@ final class _Imported$6 implements i8.Types {
       offset: 0,
     );
     switch (dataAccessTimestamp) {
-      case i8.TypesNewTimestampNoChange():
+      case i9.TypesNewTimestampNoChange():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(16)).toIntUnsigned(),
           const i2.WasmI32(0),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampNow():
+      case i9.TypesNewTimestampNow():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(16)).toIntUnsigned(),
           const i2.WasmI32(1),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampTimestamp(payload: final value):
+      case i9.TypesNewTimestampTimestamp(payload: final value):
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(16)).toIntUnsigned(),
           const i2.WasmI32(2),
@@ -4405,21 +4553,21 @@ final class _Imported$6 implements i8.Types {
         );
     }
     switch (dataModificationTimestamp) {
-      case i8.TypesNewTimestampNoChange():
+      case i9.TypesNewTimestampNoChange():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(40)).toIntUnsigned(),
           const i2.WasmI32(0),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampNow():
+      case i9.TypesNewTimestampNow():
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(40)).toIntUnsigned(),
           const i2.WasmI32(1),
           offset: 0,
         );
 
-      case i8.TypesNewTimestampTimestamp(payload: final value):
+      case i9.TypesNewTimestampTimestamp(payload: final value):
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(40)).toIntUnsigned(),
           const i2.WasmI32(2),
@@ -4437,85 +4585,85 @@ final class _Imported$6 implements i8.Types {
         );
     }
     var tmp2 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import93(tmp0, tmp2)).completion;
+    await i0.createSubtask(_import96(tmp0, tmp2)).completion;
     final tmp3 = i0.memory.loadUint8(tmp2.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp10;
+    final i0.Result<void, i9.TypesErrorCode> tmp10;
     if (tmp3.toBool()) {
       final tmp4 = i0.memory.loadUint8(tmp2.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp9;
+      final i9.TypesErrorCode tmp9;
       switch (tmp4.toIntUnsigned()) {
         case 0:
-          tmp9 = i8.TypesErrorCodeAccess();
+          tmp9 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp9 = i8.TypesErrorCodeAlready();
+          tmp9 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp9 = i8.TypesErrorCodeBadDescriptor();
+          tmp9 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp9 = i8.TypesErrorCodeBusy();
+          tmp9 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp9 = i8.TypesErrorCodeDeadlock();
+          tmp9 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp9 = i8.TypesErrorCodeQuota();
+          tmp9 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp9 = i8.TypesErrorCodeExist();
+          tmp9 = i9.TypesErrorCodeExist();
         case 7:
-          tmp9 = i8.TypesErrorCodeFileTooLarge();
+          tmp9 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp9 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp9 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp9 = i8.TypesErrorCodeInProgress();
+          tmp9 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp9 = i8.TypesErrorCodeInterrupted();
+          tmp9 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp9 = i8.TypesErrorCodeInvalid();
+          tmp9 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp9 = i8.TypesErrorCodeIo();
+          tmp9 = i9.TypesErrorCodeIo();
         case 13:
-          tmp9 = i8.TypesErrorCodeIsDirectory();
+          tmp9 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp9 = i8.TypesErrorCodeLoop();
+          tmp9 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp9 = i8.TypesErrorCodeTooManyLinks();
+          tmp9 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp9 = i8.TypesErrorCodeMessageSize();
+          tmp9 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp9 = i8.TypesErrorCodeNameTooLong();
+          tmp9 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp9 = i8.TypesErrorCodeNoDevice();
+          tmp9 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp9 = i8.TypesErrorCodeNoEntry();
+          tmp9 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp9 = i8.TypesErrorCodeNoLock();
+          tmp9 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp9 = i8.TypesErrorCodeInsufficientMemory();
+          tmp9 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp9 = i8.TypesErrorCodeInsufficientSpace();
+          tmp9 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp9 = i8.TypesErrorCodeNotDirectory();
+          tmp9 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp9 = i8.TypesErrorCodeNotEmpty();
+          tmp9 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp9 = i8.TypesErrorCodeNotRecoverable();
+          tmp9 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp9 = i8.TypesErrorCodeUnsupported();
+          tmp9 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp9 = i8.TypesErrorCodeNoTty();
+          tmp9 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp9 = i8.TypesErrorCodeNoSuchDevice();
+          tmp9 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp9 = i8.TypesErrorCodeOverflow();
+          tmp9 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp9 = i8.TypesErrorCodeNotPermitted();
+          tmp9 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp9 = i8.TypesErrorCodePipe();
+          tmp9 = i9.TypesErrorCodePipe();
         case 32:
-          tmp9 = i8.TypesErrorCodeReadOnly();
+          tmp9 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp9 = i8.TypesErrorCodeInvalidSeek();
+          tmp9 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp9 = i8.TypesErrorCodeTextFileBusy();
+          tmp9 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp9 = i8.TypesErrorCodeCrossDevice();
+          tmp9 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp5 = i0.memory.loadUint8(tmp2.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp8;
@@ -4528,7 +4676,7 @@ final class _Imported$6 implements i8.Types {
             tmp8 = .none;
           }
 
-          tmp9 = i8.TypesErrorCodeOther(tmp8);
+          tmp9 = i9.TypesErrorCodeOther(tmp8);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4545,11 +4693,11 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorLinkAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
-    required i8.TypesPathFlags oldPathFlags,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorLinkAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
+    required i9.TypesPathFlags oldPathFlags,
     required String oldPath,
-    required i0.Borrowed<i8.TypesDescriptor> newDescriptor,
+    required i0.Borrowed<i9.TypesDescriptor> newDescriptor,
     required String newPath,
   }) async {
     final tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(28));
@@ -4591,85 +4739,85 @@ final class _Imported$6 implements i8.Types {
       offset: 0,
     );
     var tmp3 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import94(tmp0, tmp3)).completion;
+    await i0.createSubtask(_import97(tmp0, tmp3)).completion;
     final tmp4 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp11;
+    final i0.Result<void, i9.TypesErrorCode> tmp11;
     if (tmp4.toBool()) {
       final tmp5 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp10;
+      final i9.TypesErrorCode tmp10;
       switch (tmp5.toIntUnsigned()) {
         case 0:
-          tmp10 = i8.TypesErrorCodeAccess();
+          tmp10 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp10 = i8.TypesErrorCodeAlready();
+          tmp10 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp10 = i8.TypesErrorCodeBadDescriptor();
+          tmp10 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp10 = i8.TypesErrorCodeBusy();
+          tmp10 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp10 = i8.TypesErrorCodeDeadlock();
+          tmp10 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp10 = i8.TypesErrorCodeQuota();
+          tmp10 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp10 = i8.TypesErrorCodeExist();
+          tmp10 = i9.TypesErrorCodeExist();
         case 7:
-          tmp10 = i8.TypesErrorCodeFileTooLarge();
+          tmp10 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp10 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp10 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp10 = i8.TypesErrorCodeInProgress();
+          tmp10 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp10 = i8.TypesErrorCodeInterrupted();
+          tmp10 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp10 = i8.TypesErrorCodeInvalid();
+          tmp10 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp10 = i8.TypesErrorCodeIo();
+          tmp10 = i9.TypesErrorCodeIo();
         case 13:
-          tmp10 = i8.TypesErrorCodeIsDirectory();
+          tmp10 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp10 = i8.TypesErrorCodeLoop();
+          tmp10 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp10 = i8.TypesErrorCodeTooManyLinks();
+          tmp10 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp10 = i8.TypesErrorCodeMessageSize();
+          tmp10 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp10 = i8.TypesErrorCodeNameTooLong();
+          tmp10 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp10 = i8.TypesErrorCodeNoDevice();
+          tmp10 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp10 = i8.TypesErrorCodeNoEntry();
+          tmp10 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp10 = i8.TypesErrorCodeNoLock();
+          tmp10 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp10 = i8.TypesErrorCodeInsufficientMemory();
+          tmp10 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp10 = i8.TypesErrorCodeInsufficientSpace();
+          tmp10 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp10 = i8.TypesErrorCodeNotDirectory();
+          tmp10 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp10 = i8.TypesErrorCodeNotEmpty();
+          tmp10 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp10 = i8.TypesErrorCodeNotRecoverable();
+          tmp10 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp10 = i8.TypesErrorCodeUnsupported();
+          tmp10 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp10 = i8.TypesErrorCodeNoTty();
+          tmp10 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp10 = i8.TypesErrorCodeNoSuchDevice();
+          tmp10 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp10 = i8.TypesErrorCodeOverflow();
+          tmp10 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp10 = i8.TypesErrorCodeNotPermitted();
+          tmp10 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp10 = i8.TypesErrorCodePipe();
+          tmp10 = i9.TypesErrorCodePipe();
         case 32:
-          tmp10 = i8.TypesErrorCodeReadOnly();
+          tmp10 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp10 = i8.TypesErrorCodeInvalidSeek();
+          tmp10 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp10 = i8.TypesErrorCodeTextFileBusy();
+          tmp10 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp10 = i8.TypesErrorCodeCrossDevice();
+          tmp10 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp6 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp9;
@@ -4682,7 +4830,7 @@ final class _Imported$6 implements i8.Types {
             tmp9 = .none;
           }
 
-          tmp10 = i8.TypesErrorCodeOther(tmp9);
+          tmp10 = i9.TypesErrorCodeOther(tmp9);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4699,13 +4847,13 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<i0.Owned<i8.TypesDescriptor>, i8.TypesErrorCode>>
+  Future<i0.Result<i0.Owned<i9.TypesDescriptor>, i9.TypesErrorCode>>
   methodDescriptorOpenAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
-    required i8.TypesPathFlags pathFlags,
+    required i0.Borrowed<i9.TypesDescriptor> self,
+    required i9.TypesPathFlags pathFlags,
     required String path,
-    required i8.TypesOpenFlags openFlags,
-    required i8.TypesDescriptorFlags flags,
+    required i9.TypesOpenFlags openFlags,
+    required i9.TypesDescriptorFlags flags,
   }) async {
     final tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     i0.memory.storeInt32(
@@ -4740,85 +4888,85 @@ final class _Imported$6 implements i8.Types {
       offset: 0,
     );
     var tmp2 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import95(tmp0, tmp2)).completion;
+    await i0.createSubtask(_import98(tmp0, tmp2)).completion;
     final tmp3 = i0.memory.loadUint8(tmp2.toIntUnsigned(), offset: 0);
-    final i0.Result<i0.Owned<i8.TypesDescriptor>, i8.TypesErrorCode> tmp12;
+    final i0.Result<i0.Owned<i9.TypesDescriptor>, i9.TypesErrorCode> tmp12;
     if (tmp3.toBool()) {
       final tmp6 = i0.memory.loadUint8(tmp2.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp11;
+      final i9.TypesErrorCode tmp11;
       switch (tmp6.toIntUnsigned()) {
         case 0:
-          tmp11 = i8.TypesErrorCodeAccess();
+          tmp11 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp11 = i8.TypesErrorCodeAlready();
+          tmp11 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp11 = i8.TypesErrorCodeBadDescriptor();
+          tmp11 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp11 = i8.TypesErrorCodeBusy();
+          tmp11 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp11 = i8.TypesErrorCodeDeadlock();
+          tmp11 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp11 = i8.TypesErrorCodeQuota();
+          tmp11 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp11 = i8.TypesErrorCodeExist();
+          tmp11 = i9.TypesErrorCodeExist();
         case 7:
-          tmp11 = i8.TypesErrorCodeFileTooLarge();
+          tmp11 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp11 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp11 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp11 = i8.TypesErrorCodeInProgress();
+          tmp11 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp11 = i8.TypesErrorCodeInterrupted();
+          tmp11 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp11 = i8.TypesErrorCodeInvalid();
+          tmp11 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp11 = i8.TypesErrorCodeIo();
+          tmp11 = i9.TypesErrorCodeIo();
         case 13:
-          tmp11 = i8.TypesErrorCodeIsDirectory();
+          tmp11 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp11 = i8.TypesErrorCodeLoop();
+          tmp11 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp11 = i8.TypesErrorCodeTooManyLinks();
+          tmp11 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp11 = i8.TypesErrorCodeMessageSize();
+          tmp11 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp11 = i8.TypesErrorCodeNameTooLong();
+          tmp11 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp11 = i8.TypesErrorCodeNoDevice();
+          tmp11 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp11 = i8.TypesErrorCodeNoEntry();
+          tmp11 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp11 = i8.TypesErrorCodeNoLock();
+          tmp11 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp11 = i8.TypesErrorCodeInsufficientMemory();
+          tmp11 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp11 = i8.TypesErrorCodeInsufficientSpace();
+          tmp11 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp11 = i8.TypesErrorCodeNotDirectory();
+          tmp11 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp11 = i8.TypesErrorCodeNotEmpty();
+          tmp11 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp11 = i8.TypesErrorCodeNotRecoverable();
+          tmp11 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp11 = i8.TypesErrorCodeUnsupported();
+          tmp11 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp11 = i8.TypesErrorCodeNoTty();
+          tmp11 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp11 = i8.TypesErrorCodeNoSuchDevice();
+          tmp11 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp11 = i8.TypesErrorCodeOverflow();
+          tmp11 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp11 = i8.TypesErrorCodeNotPermitted();
+          tmp11 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp11 = i8.TypesErrorCodePipe();
+          tmp11 = i9.TypesErrorCodePipe();
         case 32:
-          tmp11 = i8.TypesErrorCodeReadOnly();
+          tmp11 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp11 = i8.TypesErrorCodeInvalidSeek();
+          tmp11 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp11 = i8.TypesErrorCodeTextFileBusy();
+          tmp11 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp11 = i8.TypesErrorCodeCrossDevice();
+          tmp11 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp7 = i0.memory.loadUint8(tmp2.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp10;
@@ -4831,7 +4979,7 @@ final class _Imported$6 implements i8.Types {
             tmp10 = .none;
           }
 
-          tmp11 = i8.TypesErrorCodeOther(tmp10);
+          tmp11 = i9.TypesErrorCodeOther(tmp10);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4840,7 +4988,7 @@ final class _Imported$6 implements i8.Types {
       tmp12 = .error(tmp11);
     } else {
       final tmp4 = i0.memory.loadInt32(tmp2.toIntUnsigned(), offset: 4);
-      final tmp5 = i0.Owned<i8.TypesDescriptor>(tmp4.toIntUnsigned(), _drop$38);
+      final tmp5 = i0.Owned<i9.TypesDescriptor>(tmp4.toIntUnsigned(), _drop$41);
       tmp12 = .ok(tmp5);
     }
 
@@ -4850,15 +4998,15 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<String, i8.TypesErrorCode>> methodDescriptorReadlinkAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<String, i9.TypesErrorCode>> methodDescriptorReadlinkAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required String path,
   }) async {
     final tmp0 = i0.AllocatedString.allocateUtf16(path);
     var tmp1 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
         .createSubtask(
-          _import97(
+          _import100(
             i2.WasmI32.fromInt(self.handle),
             tmp0.ptr,
             tmp0.packedLength,
@@ -4867,83 +5015,83 @@ final class _Imported$6 implements i8.Types {
         )
         .completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<String, i8.TypesErrorCode> tmp11;
+    final i0.Result<String, i9.TypesErrorCode> tmp11;
     if (tmp2.toBool()) {
       final tmp5 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp10;
+      final i9.TypesErrorCode tmp10;
       switch (tmp5.toIntUnsigned()) {
         case 0:
-          tmp10 = i8.TypesErrorCodeAccess();
+          tmp10 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp10 = i8.TypesErrorCodeAlready();
+          tmp10 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp10 = i8.TypesErrorCodeBadDescriptor();
+          tmp10 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp10 = i8.TypesErrorCodeBusy();
+          tmp10 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp10 = i8.TypesErrorCodeDeadlock();
+          tmp10 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp10 = i8.TypesErrorCodeQuota();
+          tmp10 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp10 = i8.TypesErrorCodeExist();
+          tmp10 = i9.TypesErrorCodeExist();
         case 7:
-          tmp10 = i8.TypesErrorCodeFileTooLarge();
+          tmp10 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp10 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp10 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp10 = i8.TypesErrorCodeInProgress();
+          tmp10 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp10 = i8.TypesErrorCodeInterrupted();
+          tmp10 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp10 = i8.TypesErrorCodeInvalid();
+          tmp10 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp10 = i8.TypesErrorCodeIo();
+          tmp10 = i9.TypesErrorCodeIo();
         case 13:
-          tmp10 = i8.TypesErrorCodeIsDirectory();
+          tmp10 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp10 = i8.TypesErrorCodeLoop();
+          tmp10 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp10 = i8.TypesErrorCodeTooManyLinks();
+          tmp10 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp10 = i8.TypesErrorCodeMessageSize();
+          tmp10 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp10 = i8.TypesErrorCodeNameTooLong();
+          tmp10 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp10 = i8.TypesErrorCodeNoDevice();
+          tmp10 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp10 = i8.TypesErrorCodeNoEntry();
+          tmp10 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp10 = i8.TypesErrorCodeNoLock();
+          tmp10 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp10 = i8.TypesErrorCodeInsufficientMemory();
+          tmp10 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp10 = i8.TypesErrorCodeInsufficientSpace();
+          tmp10 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp10 = i8.TypesErrorCodeNotDirectory();
+          tmp10 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp10 = i8.TypesErrorCodeNotEmpty();
+          tmp10 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp10 = i8.TypesErrorCodeNotRecoverable();
+          tmp10 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp10 = i8.TypesErrorCodeUnsupported();
+          tmp10 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp10 = i8.TypesErrorCodeNoTty();
+          tmp10 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp10 = i8.TypesErrorCodeNoSuchDevice();
+          tmp10 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp10 = i8.TypesErrorCodeOverflow();
+          tmp10 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp10 = i8.TypesErrorCodeNotPermitted();
+          tmp10 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp10 = i8.TypesErrorCodePipe();
+          tmp10 = i9.TypesErrorCodePipe();
         case 32:
-          tmp10 = i8.TypesErrorCodeReadOnly();
+          tmp10 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp10 = i8.TypesErrorCodeInvalidSeek();
+          tmp10 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp10 = i8.TypesErrorCodeTextFileBusy();
+          tmp10 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp10 = i8.TypesErrorCodeCrossDevice();
+          tmp10 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp6 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp9;
@@ -4956,7 +5104,7 @@ final class _Imported$6 implements i8.Types {
             tmp9 = .none;
           }
 
-          tmp10 = i8.TypesErrorCodeOther(tmp9);
+          tmp10 = i9.TypesErrorCodeOther(tmp9);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -4975,15 +5123,15 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorRemoveDirectoryAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorRemoveDirectoryAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required String path,
   }) async {
     final tmp0 = i0.AllocatedString.allocateUtf16(path);
     var tmp1 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
         .createSubtask(
-          _import98(
+          _import101(
             i2.WasmI32.fromInt(self.handle),
             tmp0.ptr,
             tmp0.packedLength,
@@ -4992,83 +5140,83 @@ final class _Imported$6 implements i8.Types {
         )
         .completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp9;
+    final i0.Result<void, i9.TypesErrorCode> tmp9;
     if (tmp2.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp8;
+      final i9.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i8.TypesErrorCodeAccess();
+          tmp8 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp8 = i8.TypesErrorCodeAlready();
+          tmp8 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp8 = i8.TypesErrorCodeBadDescriptor();
+          tmp8 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp8 = i8.TypesErrorCodeBusy();
+          tmp8 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp8 = i8.TypesErrorCodeDeadlock();
+          tmp8 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp8 = i8.TypesErrorCodeQuota();
+          tmp8 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp8 = i8.TypesErrorCodeExist();
+          tmp8 = i9.TypesErrorCodeExist();
         case 7:
-          tmp8 = i8.TypesErrorCodeFileTooLarge();
+          tmp8 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp8 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp8 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp8 = i8.TypesErrorCodeInProgress();
+          tmp8 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp8 = i8.TypesErrorCodeInterrupted();
+          tmp8 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp8 = i8.TypesErrorCodeInvalid();
+          tmp8 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp8 = i8.TypesErrorCodeIo();
+          tmp8 = i9.TypesErrorCodeIo();
         case 13:
-          tmp8 = i8.TypesErrorCodeIsDirectory();
+          tmp8 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp8 = i8.TypesErrorCodeLoop();
+          tmp8 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp8 = i8.TypesErrorCodeTooManyLinks();
+          tmp8 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp8 = i8.TypesErrorCodeMessageSize();
+          tmp8 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp8 = i8.TypesErrorCodeNameTooLong();
+          tmp8 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp8 = i8.TypesErrorCodeNoDevice();
+          tmp8 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp8 = i8.TypesErrorCodeNoEntry();
+          tmp8 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp8 = i8.TypesErrorCodeNoLock();
+          tmp8 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp8 = i8.TypesErrorCodeInsufficientMemory();
+          tmp8 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp8 = i8.TypesErrorCodeInsufficientSpace();
+          tmp8 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp8 = i8.TypesErrorCodeNotDirectory();
+          tmp8 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp8 = i8.TypesErrorCodeNotEmpty();
+          tmp8 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp8 = i8.TypesErrorCodeNotRecoverable();
+          tmp8 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp8 = i8.TypesErrorCodeUnsupported();
+          tmp8 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp8 = i8.TypesErrorCodeNoTty();
+          tmp8 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp8 = i8.TypesErrorCodeNoSuchDevice();
+          tmp8 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp8 = i8.TypesErrorCodeOverflow();
+          tmp8 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp8 = i8.TypesErrorCodeNotPermitted();
+          tmp8 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp8 = i8.TypesErrorCodePipe();
+          tmp8 = i9.TypesErrorCodePipe();
         case 32:
-          tmp8 = i8.TypesErrorCodeReadOnly();
+          tmp8 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp8 = i8.TypesErrorCodeInvalidSeek();
+          tmp8 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp8 = i8.TypesErrorCodeTextFileBusy();
+          tmp8 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp8 = i8.TypesErrorCodeCrossDevice();
+          tmp8 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp4 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -5081,7 +5229,7 @@ final class _Imported$6 implements i8.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i8.TypesErrorCodeOther(tmp7);
+          tmp8 = i9.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -5097,10 +5245,10 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorRenameAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorRenameAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required String oldPath,
-    required i0.Borrowed<i8.TypesDescriptor> newDescriptor,
+    required i0.Borrowed<i9.TypesDescriptor> newDescriptor,
     required String newPath,
   }) async {
     final tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(24));
@@ -5137,85 +5285,85 @@ final class _Imported$6 implements i8.Types {
       offset: 0,
     );
     var tmp3 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import99(tmp0, tmp3)).completion;
+    await i0.createSubtask(_import102(tmp0, tmp3)).completion;
     final tmp4 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp11;
+    final i0.Result<void, i9.TypesErrorCode> tmp11;
     if (tmp4.toBool()) {
       final tmp5 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp10;
+      final i9.TypesErrorCode tmp10;
       switch (tmp5.toIntUnsigned()) {
         case 0:
-          tmp10 = i8.TypesErrorCodeAccess();
+          tmp10 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp10 = i8.TypesErrorCodeAlready();
+          tmp10 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp10 = i8.TypesErrorCodeBadDescriptor();
+          tmp10 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp10 = i8.TypesErrorCodeBusy();
+          tmp10 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp10 = i8.TypesErrorCodeDeadlock();
+          tmp10 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp10 = i8.TypesErrorCodeQuota();
+          tmp10 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp10 = i8.TypesErrorCodeExist();
+          tmp10 = i9.TypesErrorCodeExist();
         case 7:
-          tmp10 = i8.TypesErrorCodeFileTooLarge();
+          tmp10 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp10 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp10 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp10 = i8.TypesErrorCodeInProgress();
+          tmp10 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp10 = i8.TypesErrorCodeInterrupted();
+          tmp10 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp10 = i8.TypesErrorCodeInvalid();
+          tmp10 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp10 = i8.TypesErrorCodeIo();
+          tmp10 = i9.TypesErrorCodeIo();
         case 13:
-          tmp10 = i8.TypesErrorCodeIsDirectory();
+          tmp10 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp10 = i8.TypesErrorCodeLoop();
+          tmp10 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp10 = i8.TypesErrorCodeTooManyLinks();
+          tmp10 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp10 = i8.TypesErrorCodeMessageSize();
+          tmp10 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp10 = i8.TypesErrorCodeNameTooLong();
+          tmp10 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp10 = i8.TypesErrorCodeNoDevice();
+          tmp10 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp10 = i8.TypesErrorCodeNoEntry();
+          tmp10 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp10 = i8.TypesErrorCodeNoLock();
+          tmp10 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp10 = i8.TypesErrorCodeInsufficientMemory();
+          tmp10 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp10 = i8.TypesErrorCodeInsufficientSpace();
+          tmp10 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp10 = i8.TypesErrorCodeNotDirectory();
+          tmp10 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp10 = i8.TypesErrorCodeNotEmpty();
+          tmp10 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp10 = i8.TypesErrorCodeNotRecoverable();
+          tmp10 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp10 = i8.TypesErrorCodeUnsupported();
+          tmp10 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp10 = i8.TypesErrorCodeNoTty();
+          tmp10 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp10 = i8.TypesErrorCodeNoSuchDevice();
+          tmp10 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp10 = i8.TypesErrorCodeOverflow();
+          tmp10 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp10 = i8.TypesErrorCodeNotPermitted();
+          tmp10 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp10 = i8.TypesErrorCodePipe();
+          tmp10 = i9.TypesErrorCodePipe();
         case 32:
-          tmp10 = i8.TypesErrorCodeReadOnly();
+          tmp10 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp10 = i8.TypesErrorCodeInvalidSeek();
+          tmp10 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp10 = i8.TypesErrorCodeTextFileBusy();
+          tmp10 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp10 = i8.TypesErrorCodeCrossDevice();
+          tmp10 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp6 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp9;
@@ -5228,7 +5376,7 @@ final class _Imported$6 implements i8.Types {
             tmp9 = .none;
           }
 
-          tmp10 = i8.TypesErrorCodeOther(tmp9);
+          tmp10 = i9.TypesErrorCodeOther(tmp9);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -5245,8 +5393,8 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorSymlinkAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorSymlinkAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required String oldPath,
     required String newPath,
   }) async {
@@ -5279,85 +5427,85 @@ final class _Imported$6 implements i8.Types {
       offset: 0,
     );
     var tmp3 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import100(tmp0, tmp3)).completion;
+    await i0.createSubtask(_import103(tmp0, tmp3)).completion;
     final tmp4 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp11;
+    final i0.Result<void, i9.TypesErrorCode> tmp11;
     if (tmp4.toBool()) {
       final tmp5 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp10;
+      final i9.TypesErrorCode tmp10;
       switch (tmp5.toIntUnsigned()) {
         case 0:
-          tmp10 = i8.TypesErrorCodeAccess();
+          tmp10 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp10 = i8.TypesErrorCodeAlready();
+          tmp10 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp10 = i8.TypesErrorCodeBadDescriptor();
+          tmp10 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp10 = i8.TypesErrorCodeBusy();
+          tmp10 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp10 = i8.TypesErrorCodeDeadlock();
+          tmp10 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp10 = i8.TypesErrorCodeQuota();
+          tmp10 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp10 = i8.TypesErrorCodeExist();
+          tmp10 = i9.TypesErrorCodeExist();
         case 7:
-          tmp10 = i8.TypesErrorCodeFileTooLarge();
+          tmp10 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp10 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp10 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp10 = i8.TypesErrorCodeInProgress();
+          tmp10 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp10 = i8.TypesErrorCodeInterrupted();
+          tmp10 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp10 = i8.TypesErrorCodeInvalid();
+          tmp10 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp10 = i8.TypesErrorCodeIo();
+          tmp10 = i9.TypesErrorCodeIo();
         case 13:
-          tmp10 = i8.TypesErrorCodeIsDirectory();
+          tmp10 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp10 = i8.TypesErrorCodeLoop();
+          tmp10 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp10 = i8.TypesErrorCodeTooManyLinks();
+          tmp10 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp10 = i8.TypesErrorCodeMessageSize();
+          tmp10 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp10 = i8.TypesErrorCodeNameTooLong();
+          tmp10 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp10 = i8.TypesErrorCodeNoDevice();
+          tmp10 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp10 = i8.TypesErrorCodeNoEntry();
+          tmp10 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp10 = i8.TypesErrorCodeNoLock();
+          tmp10 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp10 = i8.TypesErrorCodeInsufficientMemory();
+          tmp10 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp10 = i8.TypesErrorCodeInsufficientSpace();
+          tmp10 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp10 = i8.TypesErrorCodeNotDirectory();
+          tmp10 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp10 = i8.TypesErrorCodeNotEmpty();
+          tmp10 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp10 = i8.TypesErrorCodeNotRecoverable();
+          tmp10 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp10 = i8.TypesErrorCodeUnsupported();
+          tmp10 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp10 = i8.TypesErrorCodeNoTty();
+          tmp10 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp10 = i8.TypesErrorCodeNoSuchDevice();
+          tmp10 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp10 = i8.TypesErrorCodeOverflow();
+          tmp10 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp10 = i8.TypesErrorCodeNotPermitted();
+          tmp10 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp10 = i8.TypesErrorCodePipe();
+          tmp10 = i9.TypesErrorCodePipe();
         case 32:
-          tmp10 = i8.TypesErrorCodeReadOnly();
+          tmp10 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp10 = i8.TypesErrorCodeInvalidSeek();
+          tmp10 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp10 = i8.TypesErrorCodeTextFileBusy();
+          tmp10 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp10 = i8.TypesErrorCodeCrossDevice();
+          tmp10 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp6 = i0.memory.loadUint8(tmp3.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp9;
@@ -5370,7 +5518,7 @@ final class _Imported$6 implements i8.Types {
             tmp9 = .none;
           }
 
-          tmp10 = i8.TypesErrorCodeOther(tmp9);
+          tmp10 = i9.TypesErrorCodeOther(tmp9);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -5387,15 +5535,15 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<void, i8.TypesErrorCode>> methodDescriptorUnlinkFileAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+  Future<i0.Result<void, i9.TypesErrorCode>> methodDescriptorUnlinkFileAt({
+    required i0.Borrowed<i9.TypesDescriptor> self,
     required String path,
   }) async {
     final tmp0 = i0.AllocatedString.allocateUtf16(path);
     var tmp1 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
         .createSubtask(
-          _import101(
+          _import104(
             i2.WasmI32.fromInt(self.handle),
             tmp0.ptr,
             tmp0.packedLength,
@@ -5404,83 +5552,83 @@ final class _Imported$6 implements i8.Types {
         )
         .completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i8.TypesErrorCode> tmp9;
+    final i0.Result<void, i9.TypesErrorCode> tmp9;
     if (tmp2.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 4);
-      final i8.TypesErrorCode tmp8;
+      final i9.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i8.TypesErrorCodeAccess();
+          tmp8 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp8 = i8.TypesErrorCodeAlready();
+          tmp8 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp8 = i8.TypesErrorCodeBadDescriptor();
+          tmp8 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp8 = i8.TypesErrorCodeBusy();
+          tmp8 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp8 = i8.TypesErrorCodeDeadlock();
+          tmp8 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp8 = i8.TypesErrorCodeQuota();
+          tmp8 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp8 = i8.TypesErrorCodeExist();
+          tmp8 = i9.TypesErrorCodeExist();
         case 7:
-          tmp8 = i8.TypesErrorCodeFileTooLarge();
+          tmp8 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp8 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp8 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp8 = i8.TypesErrorCodeInProgress();
+          tmp8 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp8 = i8.TypesErrorCodeInterrupted();
+          tmp8 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp8 = i8.TypesErrorCodeInvalid();
+          tmp8 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp8 = i8.TypesErrorCodeIo();
+          tmp8 = i9.TypesErrorCodeIo();
         case 13:
-          tmp8 = i8.TypesErrorCodeIsDirectory();
+          tmp8 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp8 = i8.TypesErrorCodeLoop();
+          tmp8 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp8 = i8.TypesErrorCodeTooManyLinks();
+          tmp8 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp8 = i8.TypesErrorCodeMessageSize();
+          tmp8 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp8 = i8.TypesErrorCodeNameTooLong();
+          tmp8 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp8 = i8.TypesErrorCodeNoDevice();
+          tmp8 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp8 = i8.TypesErrorCodeNoEntry();
+          tmp8 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp8 = i8.TypesErrorCodeNoLock();
+          tmp8 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp8 = i8.TypesErrorCodeInsufficientMemory();
+          tmp8 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp8 = i8.TypesErrorCodeInsufficientSpace();
+          tmp8 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp8 = i8.TypesErrorCodeNotDirectory();
+          tmp8 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp8 = i8.TypesErrorCodeNotEmpty();
+          tmp8 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp8 = i8.TypesErrorCodeNotRecoverable();
+          tmp8 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp8 = i8.TypesErrorCodeUnsupported();
+          tmp8 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp8 = i8.TypesErrorCodeNoTty();
+          tmp8 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp8 = i8.TypesErrorCodeNoSuchDevice();
+          tmp8 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp8 = i8.TypesErrorCodeOverflow();
+          tmp8 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp8 = i8.TypesErrorCodeNotPermitted();
+          tmp8 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp8 = i8.TypesErrorCodePipe();
+          tmp8 = i9.TypesErrorCodePipe();
         case 32:
-          tmp8 = i8.TypesErrorCodeReadOnly();
+          tmp8 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp8 = i8.TypesErrorCodeInvalidSeek();
+          tmp8 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp8 = i8.TypesErrorCodeTextFileBusy();
+          tmp8 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp8 = i8.TypesErrorCodeCrossDevice();
+          tmp8 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp4 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -5493,7 +5641,7 @@ final class _Imported$6 implements i8.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i8.TypesErrorCodeOther(tmp7);
+          tmp8 = i9.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -5510,13 +5658,13 @@ final class _Imported$6 implements i8.Types {
 
   @override
   Future<bool> methodDescriptorIsSameObject({
-    required i0.Borrowed<i8.TypesDescriptor> self,
-    required i0.Borrowed<i8.TypesDescriptor> other,
+    required i0.Borrowed<i9.TypesDescriptor> self,
+    required i0.Borrowed<i9.TypesDescriptor> other,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(1), const i2.WasmI32(1));
     await i0
         .createSubtask(
-          _import102(
+          _import105(
             i2.WasmI32.fromInt(self.handle),
             i2.WasmI32.fromInt(other.handle),
             tmp0,
@@ -5529,92 +5677,92 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<({int lower, int upper}), i8.TypesErrorCode>>
+  Future<i0.Result<({int lower, int upper}), i9.TypesErrorCode>>
   methodDescriptorMetadataHash({
-    required i0.Borrowed<i8.TypesDescriptor> self,
+    required i0.Borrowed<i9.TypesDescriptor> self,
   }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
     await i0
-        .createSubtask(_import103(i2.WasmI32.fromInt(self.handle), tmp0))
+        .createSubtask(_import106(i2.WasmI32.fromInt(self.handle), tmp0))
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<({int lower, int upper}), i8.TypesErrorCode> tmp11;
+    final i0.Result<({int lower, int upper}), i9.TypesErrorCode> tmp11;
     if (tmp1.toBool()) {
       final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i8.TypesErrorCode tmp10;
+      final i9.TypesErrorCode tmp10;
       switch (tmp5.toIntUnsigned()) {
         case 0:
-          tmp10 = i8.TypesErrorCodeAccess();
+          tmp10 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp10 = i8.TypesErrorCodeAlready();
+          tmp10 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp10 = i8.TypesErrorCodeBadDescriptor();
+          tmp10 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp10 = i8.TypesErrorCodeBusy();
+          tmp10 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp10 = i8.TypesErrorCodeDeadlock();
+          tmp10 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp10 = i8.TypesErrorCodeQuota();
+          tmp10 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp10 = i8.TypesErrorCodeExist();
+          tmp10 = i9.TypesErrorCodeExist();
         case 7:
-          tmp10 = i8.TypesErrorCodeFileTooLarge();
+          tmp10 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp10 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp10 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp10 = i8.TypesErrorCodeInProgress();
+          tmp10 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp10 = i8.TypesErrorCodeInterrupted();
+          tmp10 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp10 = i8.TypesErrorCodeInvalid();
+          tmp10 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp10 = i8.TypesErrorCodeIo();
+          tmp10 = i9.TypesErrorCodeIo();
         case 13:
-          tmp10 = i8.TypesErrorCodeIsDirectory();
+          tmp10 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp10 = i8.TypesErrorCodeLoop();
+          tmp10 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp10 = i8.TypesErrorCodeTooManyLinks();
+          tmp10 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp10 = i8.TypesErrorCodeMessageSize();
+          tmp10 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp10 = i8.TypesErrorCodeNameTooLong();
+          tmp10 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp10 = i8.TypesErrorCodeNoDevice();
+          tmp10 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp10 = i8.TypesErrorCodeNoEntry();
+          tmp10 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp10 = i8.TypesErrorCodeNoLock();
+          tmp10 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp10 = i8.TypesErrorCodeInsufficientMemory();
+          tmp10 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp10 = i8.TypesErrorCodeInsufficientSpace();
+          tmp10 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp10 = i8.TypesErrorCodeNotDirectory();
+          tmp10 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp10 = i8.TypesErrorCodeNotEmpty();
+          tmp10 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp10 = i8.TypesErrorCodeNotRecoverable();
+          tmp10 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp10 = i8.TypesErrorCodeUnsupported();
+          tmp10 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp10 = i8.TypesErrorCodeNoTty();
+          tmp10 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp10 = i8.TypesErrorCodeNoSuchDevice();
+          tmp10 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp10 = i8.TypesErrorCodeOverflow();
+          tmp10 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp10 = i8.TypesErrorCodeNotPermitted();
+          tmp10 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp10 = i8.TypesErrorCodePipe();
+          tmp10 = i9.TypesErrorCodePipe();
         case 32:
-          tmp10 = i8.TypesErrorCodeReadOnly();
+          tmp10 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp10 = i8.TypesErrorCodeInvalidSeek();
+          tmp10 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp10 = i8.TypesErrorCodeTextFileBusy();
+          tmp10 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp10 = i8.TypesErrorCodeCrossDevice();
+          tmp10 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp6 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp9;
@@ -5627,7 +5775,7 @@ final class _Imported$6 implements i8.Types {
             tmp9 = .none;
           }
 
-          tmp10 = i8.TypesErrorCodeOther(tmp9);
+          tmp10 = i9.TypesErrorCodeOther(tmp9);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -5647,17 +5795,17 @@ final class _Imported$6 implements i8.Types {
   }
 
   @override
-  Future<i0.Result<({int lower, int upper}), i8.TypesErrorCode>>
+  Future<i0.Result<({int lower, int upper}), i9.TypesErrorCode>>
   methodDescriptorMetadataHashAt({
-    required i0.Borrowed<i8.TypesDescriptor> self,
-    required i8.TypesPathFlags pathFlags,
+    required i0.Borrowed<i9.TypesDescriptor> self,
+    required i9.TypesPathFlags pathFlags,
     required String path,
   }) async {
     final tmp0 = i0.AllocatedString.allocateUtf16(path);
     var tmp1 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
     await i0
         .createSubtask(
-          _import104(
+          _import107(
             i2.WasmI32.fromInt(self.handle),
             pathFlags.toWasmI32(),
             tmp0.ptr,
@@ -5667,83 +5815,83 @@ final class _Imported$6 implements i8.Types {
         )
         .completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<({int lower, int upper}), i8.TypesErrorCode> tmp12;
+    final i0.Result<({int lower, int upper}), i9.TypesErrorCode> tmp12;
     if (tmp2.toBool()) {
       final tmp6 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
-      final i8.TypesErrorCode tmp11;
+      final i9.TypesErrorCode tmp11;
       switch (tmp6.toIntUnsigned()) {
         case 0:
-          tmp11 = i8.TypesErrorCodeAccess();
+          tmp11 = i9.TypesErrorCodeAccess();
         case 1:
-          tmp11 = i8.TypesErrorCodeAlready();
+          tmp11 = i9.TypesErrorCodeAlready();
         case 2:
-          tmp11 = i8.TypesErrorCodeBadDescriptor();
+          tmp11 = i9.TypesErrorCodeBadDescriptor();
         case 3:
-          tmp11 = i8.TypesErrorCodeBusy();
+          tmp11 = i9.TypesErrorCodeBusy();
         case 4:
-          tmp11 = i8.TypesErrorCodeDeadlock();
+          tmp11 = i9.TypesErrorCodeDeadlock();
         case 5:
-          tmp11 = i8.TypesErrorCodeQuota();
+          tmp11 = i9.TypesErrorCodeQuota();
         case 6:
-          tmp11 = i8.TypesErrorCodeExist();
+          tmp11 = i9.TypesErrorCodeExist();
         case 7:
-          tmp11 = i8.TypesErrorCodeFileTooLarge();
+          tmp11 = i9.TypesErrorCodeFileTooLarge();
         case 8:
-          tmp11 = i8.TypesErrorCodeIllegalByteSequence();
+          tmp11 = i9.TypesErrorCodeIllegalByteSequence();
         case 9:
-          tmp11 = i8.TypesErrorCodeInProgress();
+          tmp11 = i9.TypesErrorCodeInProgress();
         case 10:
-          tmp11 = i8.TypesErrorCodeInterrupted();
+          tmp11 = i9.TypesErrorCodeInterrupted();
         case 11:
-          tmp11 = i8.TypesErrorCodeInvalid();
+          tmp11 = i9.TypesErrorCodeInvalid();
         case 12:
-          tmp11 = i8.TypesErrorCodeIo();
+          tmp11 = i9.TypesErrorCodeIo();
         case 13:
-          tmp11 = i8.TypesErrorCodeIsDirectory();
+          tmp11 = i9.TypesErrorCodeIsDirectory();
         case 14:
-          tmp11 = i8.TypesErrorCodeLoop();
+          tmp11 = i9.TypesErrorCodeLoop();
         case 15:
-          tmp11 = i8.TypesErrorCodeTooManyLinks();
+          tmp11 = i9.TypesErrorCodeTooManyLinks();
         case 16:
-          tmp11 = i8.TypesErrorCodeMessageSize();
+          tmp11 = i9.TypesErrorCodeMessageSize();
         case 17:
-          tmp11 = i8.TypesErrorCodeNameTooLong();
+          tmp11 = i9.TypesErrorCodeNameTooLong();
         case 18:
-          tmp11 = i8.TypesErrorCodeNoDevice();
+          tmp11 = i9.TypesErrorCodeNoDevice();
         case 19:
-          tmp11 = i8.TypesErrorCodeNoEntry();
+          tmp11 = i9.TypesErrorCodeNoEntry();
         case 20:
-          tmp11 = i8.TypesErrorCodeNoLock();
+          tmp11 = i9.TypesErrorCodeNoLock();
         case 21:
-          tmp11 = i8.TypesErrorCodeInsufficientMemory();
+          tmp11 = i9.TypesErrorCodeInsufficientMemory();
         case 22:
-          tmp11 = i8.TypesErrorCodeInsufficientSpace();
+          tmp11 = i9.TypesErrorCodeInsufficientSpace();
         case 23:
-          tmp11 = i8.TypesErrorCodeNotDirectory();
+          tmp11 = i9.TypesErrorCodeNotDirectory();
         case 24:
-          tmp11 = i8.TypesErrorCodeNotEmpty();
+          tmp11 = i9.TypesErrorCodeNotEmpty();
         case 25:
-          tmp11 = i8.TypesErrorCodeNotRecoverable();
+          tmp11 = i9.TypesErrorCodeNotRecoverable();
         case 26:
-          tmp11 = i8.TypesErrorCodeUnsupported();
+          tmp11 = i9.TypesErrorCodeUnsupported();
         case 27:
-          tmp11 = i8.TypesErrorCodeNoTty();
+          tmp11 = i9.TypesErrorCodeNoTty();
         case 28:
-          tmp11 = i8.TypesErrorCodeNoSuchDevice();
+          tmp11 = i9.TypesErrorCodeNoSuchDevice();
         case 29:
-          tmp11 = i8.TypesErrorCodeOverflow();
+          tmp11 = i9.TypesErrorCodeOverflow();
         case 30:
-          tmp11 = i8.TypesErrorCodeNotPermitted();
+          tmp11 = i9.TypesErrorCodeNotPermitted();
         case 31:
-          tmp11 = i8.TypesErrorCodePipe();
+          tmp11 = i9.TypesErrorCodePipe();
         case 32:
-          tmp11 = i8.TypesErrorCodeReadOnly();
+          tmp11 = i9.TypesErrorCodeReadOnly();
         case 33:
-          tmp11 = i8.TypesErrorCodeInvalidSeek();
+          tmp11 = i9.TypesErrorCodeInvalidSeek();
         case 34:
-          tmp11 = i8.TypesErrorCodeTextFileBusy();
+          tmp11 = i9.TypesErrorCodeTextFileBusy();
         case 35:
-          tmp11 = i8.TypesErrorCodeCrossDevice();
+          tmp11 = i9.TypesErrorCodeCrossDevice();
         case 36:
           final tmp7 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp10;
@@ -5756,7 +5904,7 @@ final class _Imported$6 implements i8.Types {
             tmp10 = .none;
           }
 
-          tmp11 = i8.TypesErrorCodeOther(tmp10);
+          tmp11 = i9.TypesErrorCodeOther(tmp10);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -5776,22 +5924,22 @@ final class _Imported$6 implements i8.Types {
   }
 }
 
-@pragma('wasm:import', r'component._drop$53')
-external i2.WasmVoid _drop$53Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$56')
+external i2.WasmVoid _drop$56Raw(i2.WasmI32 handle);
 
-void _drop$53(int handle) {
-  _drop$53Raw(i2.WasmI32.fromInt(handle));
+void _drop$56(int handle) {
+  _drop$56Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma("wasm:import", r"component._import105")
-external i2.WasmVoid _import105(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import108")
+external i2.WasmVoid _import108(i2.WasmI32 p0);
 
-final class _Imported$7 implements i8.Preopens {
-  const _Imported$7();
+final class _Imported$8 implements i9.Preopens {
+  const _Imported$8();
   @override
-  List<(i0.Owned<i8.TypesDescriptor>, String)> getDirectories() {
+  List<(i0.Owned<i9.TypesDescriptor>, String)> getDirectories() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import105(tmp0);
+    _import108(tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
     final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
 
@@ -5799,7 +5947,7 @@ final class _Imported$7 implements i8.Preopens {
     final tmp8 = List.generate(tmp2.toIntUnsigned(), growable: false, (i) {
       final elementPtr = i2.WasmI32.fromInt(tmp9 + i * 12);
       final tmp3 = i0.memory.loadInt32(elementPtr.toIntUnsigned(), offset: 0);
-      final tmp4 = i0.Owned<i8.TypesDescriptor>(tmp3.toIntUnsigned(), _drop$53);
+      final tmp4 = i0.Owned<i9.TypesDescriptor>(tmp3.toIntUnsigned(), _drop$56);
       final tmp5 = i0.memory.loadInt32(elementPtr.toIntUnsigned(), offset: 4);
       final tmp6 = i0.memory.loadInt32(elementPtr.toIntUnsigned(), offset: 8);
       final tmp7 = (tmp4, i0.AllocatedString.read(tmp5, tmp6));
@@ -5812,35 +5960,35 @@ final class _Imported$7 implements i8.Preopens {
   }
 }
 
-@pragma('wasm:import', r'component._drop$67')
-external i2.WasmVoid _drop$67Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$70')
+external i2.WasmVoid _drop$70Raw(i2.WasmI32 handle);
 
-void _drop$67(int handle) {
-  _drop$67Raw(i2.WasmI32.fromInt(handle));
+void _drop$70(int handle) {
+  _drop$70Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma('wasm:import', 'component.stream73.new')
-external i2.WasmI64 _streamNew73();
-@pragma('wasm:import', 'component.stream73.read')
-external i2.WasmI32 _streamRead73(
+@pragma('wasm:import', 'component.stream76.new')
+external i2.WasmI64 _streamNew76();
+@pragma('wasm:import', 'component.stream76.read')
+external i2.WasmI32 _streamRead76(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream73.write')
-external i2.WasmI32 _streamWrite73(
+@pragma('wasm:import', 'component.stream76.write')
+external i2.WasmI32 _streamWrite76(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream73.drop-readable')
-external i2.WasmVoid _streamDropReadable73(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream73.drop-writable')
-external i2.WasmVoid _streamDropWritable73(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream76.drop-readable')
+external i2.WasmVoid _streamDropReadable76(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream76.drop-writable')
+external i2.WasmVoid _streamDropWritable76(i2.WasmI32 stream);
 
-final class _Vtable73
-    implements i0.StreamVtable<List<i0.Owned<i9.TypesTcpSocket>>> {
-  const _Vtable73();
+final class _Vtable76
+    implements i0.StreamVtable<List<i0.Owned<i10.TypesTcpSocket>>> {
+  const _Vtable76();
 
   @override
   int get elementSize => 4;
@@ -5856,7 +6004,7 @@ final class _Vtable73
     for (var i = start; i < end; i++) {
       final ptr = i2.WasmI32.fromInt(address + i * 4);
       final tmp0 = i0.memory.loadInt32(ptr.toIntUnsigned(), offset: 0);
-      final tmp1 = i0.Owned<i9.TypesTcpSocket>(tmp0.toIntUnsigned(), _drop$67);
+      final tmp1 = i0.Owned<i10.TypesTcpSocket>(tmp0.toIntUnsigned(), _drop$70);
       tmp1.drop();
     }
 
@@ -5868,7 +6016,7 @@ final class _Vtable73
   }
 
   @override
-  void writeToBuffer(int address, List<i0.Owned<i9.TypesTcpSocket>> elements) {
+  void writeToBuffer(int address, List<i0.Owned<i10.TypesTcpSocket>> elements) {
     for (final (i, element) in elements.indexed) {
       final wasmAddress = i2.WasmI32.fromInt(address + i);
 
@@ -5881,30 +6029,30 @@ final class _Vtable73
   }
 
   @override
-  List<i0.Owned<i9.TypesTcpSocket>> readFromBuffer(int address, int count) {
+  List<i0.Owned<i10.TypesTcpSocket>> readFromBuffer(int address, int count) {
     return List.generate(count, (i) {
       final ptr = i2.WasmI32.fromInt(address + i * 4);
       final tmp0 = i0.memory.loadInt32(ptr.toIntUnsigned(), offset: 0);
-      final tmp1 = i0.Owned<i9.TypesTcpSocket>(tmp0.toIntUnsigned(), _drop$67);
+      final tmp1 = i0.Owned<i10.TypesTcpSocket>(tmp0.toIntUnsigned(), _drop$70);
       return tmp1;
     });
   }
 
   @override
-  int newStream() => _streamNew73().toInt();
+  int newStream() => _streamNew76().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable73(i2.WasmI32.fromInt(stream));
+    _streamDropReadable76(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable73(i2.WasmI32.fromInt(stream));
+    _streamDropWritable76(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead73(
+    return _streamRead76(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -5913,7 +6061,7 @@ final class _Vtable73
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite73(
+    return _streamWrite76(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -5921,27 +6069,27 @@ final class _Vtable73
   }
 }
 
-@pragma('wasm:import', 'component.stream75.new')
-external i2.WasmI64 _streamNew75();
-@pragma('wasm:import', 'component.stream75.read')
-external i2.WasmI32 _streamRead75(
+@pragma('wasm:import', 'component.stream78.new')
+external i2.WasmI64 _streamNew78();
+@pragma('wasm:import', 'component.stream78.read')
+external i2.WasmI32 _streamRead78(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream75.write')
-external i2.WasmI32 _streamWrite75(
+@pragma('wasm:import', 'component.stream78.write')
+external i2.WasmI32 _streamWrite78(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream75.drop-readable')
-external i2.WasmVoid _streamDropReadable75(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream75.drop-writable')
-external i2.WasmVoid _streamDropWritable75(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream78.drop-readable')
+external i2.WasmVoid _streamDropReadable78(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream78.drop-writable')
+external i2.WasmVoid _streamDropWritable78(i2.WasmI32 stream);
 
-final class _Vtable75 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable75();
+final class _Vtable78 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable78();
 
   @override
   int get elementSize => 1;
@@ -5987,20 +6135,20 @@ final class _Vtable75 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew75().toInt();
+  int newStream() => _streamNew78().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable75(i2.WasmI32.fromInt(stream));
+    _streamDropReadable78(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable75(i2.WasmI32.fromInt(stream));
+    _streamDropWritable78(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead75(
+    return _streamRead78(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -6009,7 +6157,7 @@ final class _Vtable75 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite75(
+    return _streamWrite78(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -6017,27 +6165,27 @@ final class _Vtable75 implements i0.StreamVtable<i4.Uint8List> {
   }
 }
 
-@pragma('wasm:import', 'component.future76.new')
-external i2.WasmI64 _futureNew76();
-@pragma('wasm:import', 'component.future76.write')
-external i2.WasmI32 _futureWrite76(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future76.read')
-external i2.WasmI32 _futureRead76(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future76.drop-readable')
-external i2.WasmVoid _futureDropReadable76(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future76.drop-writable')
-external i2.WasmVoid _futureDropWritable76(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future79.new')
+external i2.WasmI64 _futureNew79();
+@pragma('wasm:import', 'component.future79.write')
+external i2.WasmI32 _futureWrite79(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future79.read')
+external i2.WasmI32 _futureRead79(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future79.drop-readable')
+external i2.WasmVoid _futureDropReadable79(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future79.drop-writable')
+external i2.WasmVoid _futureDropWritable79(i2.WasmI32 future);
 
-final class _Vtable76
-    implements i0.FutureVtable<i0.Result<void, i9.TypesErrorCode>> {
-  const _Vtable76();
+final class _Vtable79
+    implements i0.FutureVtable<i0.Result<void, i10.TypesErrorCode>> {
+  const _Vtable79();
 
   @override
-  int newFuture() => _futureNew76().toInt();
+  int newFuture() => _futureNew79().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead76(
+    return _futureRead79(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -6045,7 +6193,7 @@ final class _Vtable76
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite76(
+    return _futureWrite79(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -6053,12 +6201,12 @@ final class _Vtable76
 
   @override
   void dropRead(int future) {
-    _futureDropReadable76(i2.WasmI32.fromInt(future));
+    _futureDropReadable79(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable76(i2.WasmI32.fromInt(future));
+    _futureDropWritable79(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -6133,7 +6281,7 @@ final class _Vtable76
   }
 
   @override
-  void store(int address, i0.Result<void, i9.TypesErrorCode> value) {
+  void store(int address, i0.Result<void, i10.TypesErrorCode> value) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     switch (value) {
@@ -6151,105 +6299,105 @@ final class _Vtable76
           offset: 0,
         );
         switch (value) {
-          case i9.TypesErrorCodeAccessDenied():
+          case i10.TypesErrorCodeAccessDenied():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(0),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeNotSupported():
+          case i10.TypesErrorCodeNotSupported():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(1),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeInvalidArgument():
+          case i10.TypesErrorCodeInvalidArgument():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(2),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeOutOfMemory():
+          case i10.TypesErrorCodeOutOfMemory():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(3),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeTimeout():
+          case i10.TypesErrorCodeTimeout():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(4),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeInvalidState():
+          case i10.TypesErrorCodeInvalidState():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(5),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeAddressNotBindable():
+          case i10.TypesErrorCodeAddressNotBindable():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(6),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeAddressInUse():
+          case i10.TypesErrorCodeAddressInUse():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(7),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeRemoteUnreachable():
+          case i10.TypesErrorCodeRemoteUnreachable():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(8),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeConnectionRefused():
+          case i10.TypesErrorCodeConnectionRefused():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(9),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeConnectionBroken():
+          case i10.TypesErrorCodeConnectionBroken():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(10),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeConnectionReset():
+          case i10.TypesErrorCodeConnectionReset():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(11),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeConnectionAborted():
+          case i10.TypesErrorCodeConnectionAborted():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(12),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeDatagramTooLarge():
+          case i10.TypesErrorCodeDatagramTooLarge():
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(13),
               offset: 4,
             );
 
-          case i9.TypesErrorCodeOther(payload: final value):
+          case i10.TypesErrorCodeOther(payload: final value):
             i0.memory.storeInt8(
               wasmAddress.toIntUnsigned(),
               const i2.WasmI32(14),
@@ -6286,43 +6434,43 @@ final class _Vtable76
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> load(int address) {
+  i0.Result<void, i10.TypesErrorCode> load(int address) {
     final wasmAddress = i2.WasmI32.fromInt(address);
 
     final tmp0 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp7;
+    final i0.Result<void, i10.TypesErrorCode> tmp7;
     if (tmp0.toBool()) {
       final tmp1 = i0.memory.loadUint8(wasmAddress.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp6;
+      final i10.TypesErrorCode tmp6;
       switch (tmp1.toIntUnsigned()) {
         case 0:
-          tmp6 = i9.TypesErrorCodeAccessDenied();
+          tmp6 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp6 = i9.TypesErrorCodeNotSupported();
+          tmp6 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp6 = i9.TypesErrorCodeInvalidArgument();
+          tmp6 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp6 = i9.TypesErrorCodeOutOfMemory();
+          tmp6 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp6 = i9.TypesErrorCodeTimeout();
+          tmp6 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp6 = i9.TypesErrorCodeInvalidState();
+          tmp6 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp6 = i9.TypesErrorCodeAddressNotBindable();
+          tmp6 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp6 = i9.TypesErrorCodeAddressInUse();
+          tmp6 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp6 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp6 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp6 = i9.TypesErrorCodeConnectionRefused();
+          tmp6 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp6 = i9.TypesErrorCodeConnectionBroken();
+          tmp6 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp6 = i9.TypesErrorCodeConnectionReset();
+          tmp6 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp6 = i9.TypesErrorCodeConnectionAborted();
+          tmp6 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp6 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp6 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp2 = i0.memory.loadUint8(
             wasmAddress.toIntUnsigned(),
@@ -6344,7 +6492,7 @@ final class _Vtable76
             tmp5 = .none;
           }
 
-          tmp6 = i9.TypesErrorCodeOther(tmp5);
+          tmp6 = i10.TypesErrorCodeOther(tmp5);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -6359,100 +6507,83 @@ final class _Vtable76
   }
 }
 
-@pragma("wasm:import", r"component._import123")
-external i2.WasmVoid _import123(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import124")
-external i2.WasmVoid _import124(
-  i2.WasmI32 p0,
-  i2.WasmI32 p1,
-  i2.WasmI32 p2,
-  i2.WasmI32 p3,
-  i2.WasmI32 p4,
-  i2.WasmI32 p5,
-  i2.WasmI32 p6,
-  i2.WasmI32 p7,
-  i2.WasmI32 p8,
-  i2.WasmI32 p9,
-  i2.WasmI32 p10,
-  i2.WasmI32 p11,
-  i2.WasmI32 p12,
-  i2.WasmI32 p13,
-);
-@pragma("wasm:import", r"component._import125")
-external i2.WasmI32 _import125(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import126")
 external i2.WasmVoid _import126(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import127")
-external i2.WasmI32 _import127(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import127(
+  i2.WasmI32 p0,
+  i2.WasmI32 p1,
+  i2.WasmI32 p2,
+  i2.WasmI32 p3,
+  i2.WasmI32 p4,
+  i2.WasmI32 p5,
+  i2.WasmI32 p6,
+  i2.WasmI32 p7,
+  i2.WasmI32 p8,
+  i2.WasmI32 p9,
+  i2.WasmI32 p10,
+  i2.WasmI32 p11,
+  i2.WasmI32 p12,
+  i2.WasmI32 p13,
+);
 @pragma("wasm:import", r"component._import128")
-external i2.WasmVoid _import128(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import128(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import129")
 external i2.WasmVoid _import129(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import130")
-external i2.WasmVoid _import130(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import130(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import131")
-external i2.WasmI32 _import131(i2.WasmI32 p0);
+external i2.WasmVoid _import131(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import132")
-external i2.WasmI32 _import132(i2.WasmI32 p0);
+external i2.WasmVoid _import132(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import133")
-external i2.WasmVoid _import133(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import133(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import134")
-external i2.WasmVoid _import134(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import134(i2.WasmI32 p0);
 @pragma("wasm:import", r"component._import135")
-external i2.WasmVoid _import135(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+external i2.WasmI32 _import135(i2.WasmI32 p0);
 @pragma("wasm:import", r"component._import136")
-external i2.WasmVoid _import136(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import136(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import137")
-external i2.WasmVoid _import137(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import137(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import138")
-external i2.WasmVoid _import138(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import138(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import139")
-external i2.WasmVoid _import139(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import139(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import140")
-external i2.WasmVoid _import140(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import140(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import141")
-external i2.WasmVoid _import141(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import141(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import142")
-external i2.WasmVoid _import142(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import142(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import143")
-external i2.WasmVoid _import143(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import143(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import144")
-external i2.WasmVoid _import144(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import144(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import145")
-external i2.WasmVoid _import145(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import145(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import146")
-external i2.WasmVoid _import146(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import146(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import147")
-external i2.WasmVoid _import147(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import147(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import148")
+external i2.WasmVoid _import148(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+@pragma("wasm:import", r"component._import149")
+external i2.WasmVoid _import149(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import150")
+external i2.WasmVoid _import150(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 
-@pragma('wasm:import', r'component._drop$68')
-external i2.WasmVoid _drop$68Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$71')
+external i2.WasmVoid _drop$71Raw(i2.WasmI32 handle);
 
-void _drop$68(int handle) {
-  _drop$68Raw(i2.WasmI32.fromInt(handle));
+void _drop$71(int handle) {
+  _drop$71Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma("wasm:import", r"component._import148")
-external i2.WasmVoid _import148(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import150")
-external i2.WasmVoid _import150(
-  i2.WasmI32 p0,
-  i2.WasmI32 p1,
-  i2.WasmI32 p2,
-  i2.WasmI32 p3,
-  i2.WasmI32 p4,
-  i2.WasmI32 p5,
-  i2.WasmI32 p6,
-  i2.WasmI32 p7,
-  i2.WasmI32 p8,
-  i2.WasmI32 p9,
-  i2.WasmI32 p10,
-  i2.WasmI32 p11,
-  i2.WasmI32 p12,
-  i2.WasmI32 p13,
-);
 @pragma("wasm:import", r"component._import151")
-external i2.WasmVoid _import151(
+external i2.WasmVoid _import151(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import153")
+external i2.WasmVoid _import153(
   i2.WasmI32 p0,
   i2.WasmI32 p1,
   i2.WasmI32 p2,
@@ -6468,72 +6599,89 @@ external i2.WasmVoid _import151(
   i2.WasmI32 p12,
   i2.WasmI32 p13,
 );
-@pragma("wasm:import", r"component._import152")
-external i2.WasmVoid _import152(i2.WasmI32 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import153")
-external i2.WasmI32 _import153(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import154")
-external i2.WasmI32 _import154(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import154(
+  i2.WasmI32 p0,
+  i2.WasmI32 p1,
+  i2.WasmI32 p2,
+  i2.WasmI32 p3,
+  i2.WasmI32 p4,
+  i2.WasmI32 p5,
+  i2.WasmI32 p6,
+  i2.WasmI32 p7,
+  i2.WasmI32 p8,
+  i2.WasmI32 p9,
+  i2.WasmI32 p10,
+  i2.WasmI32 p11,
+  i2.WasmI32 p12,
+  i2.WasmI32 p13,
+);
 @pragma("wasm:import", r"component._import155")
 external i2.WasmVoid _import155(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import156")
-external i2.WasmVoid _import156(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import156(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import157")
-external i2.WasmI32 _import157(i2.WasmI32 p0);
+external i2.WasmI32 _import157(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import158")
 external i2.WasmVoid _import158(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import159")
-external i2.WasmVoid _import159(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import159(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import160")
-external i2.WasmVoid _import160(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmI32 _import160(i2.WasmI32 p0);
 @pragma("wasm:import", r"component._import161")
-external i2.WasmVoid _import161(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import161(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import162")
-external i2.WasmVoid _import162(i2.WasmI32 p0, i2.WasmI32 p1);
+external i2.WasmVoid _import162(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
 @pragma("wasm:import", r"component._import163")
-external i2.WasmVoid _import163(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+external i2.WasmVoid _import163(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import164")
+external i2.WasmVoid _import164(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
+@pragma("wasm:import", r"component._import165")
+external i2.WasmVoid _import165(i2.WasmI32 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import166")
+external i2.WasmVoid _import166(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 
-final class _Imported$8 implements i9.Types {
-  const _Imported$8();
+final class _Imported$9 implements i10.Types {
+  const _Imported$9();
   @override
-  i0.Result<i0.Owned<i9.TypesTcpSocket>, i9.TypesErrorCode>
-  staticTcpSocketCreate({required i9.TypesIpAddressFamily addressFamily}) {
+  i0.Result<i0.Owned<i10.TypesTcpSocket>, i10.TypesErrorCode>
+  staticTcpSocketCreate({required i10.TypesIpAddressFamily addressFamily}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import123(addressFamily.index.toWasmI32(), tmp0);
+    _import126(addressFamily.index.toWasmI32(), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i0.Owned<i9.TypesTcpSocket>, i9.TypesErrorCode> tmp10;
+    final i0.Result<i0.Owned<i10.TypesTcpSocket>, i10.TypesErrorCode> tmp10;
     if (tmp1.toBool()) {
       final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp9;
+      final i10.TypesErrorCode tmp9;
       switch (tmp4.toIntUnsigned()) {
         case 0:
-          tmp9 = i9.TypesErrorCodeAccessDenied();
+          tmp9 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp9 = i9.TypesErrorCodeNotSupported();
+          tmp9 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp9 = i9.TypesErrorCodeInvalidArgument();
+          tmp9 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp9 = i9.TypesErrorCodeOutOfMemory();
+          tmp9 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp9 = i9.TypesErrorCodeTimeout();
+          tmp9 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp9 = i9.TypesErrorCodeInvalidState();
+          tmp9 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp9 = i9.TypesErrorCodeAddressNotBindable();
+          tmp9 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp9 = i9.TypesErrorCodeAddressInUse();
+          tmp9 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp9 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp9 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp9 = i9.TypesErrorCodeConnectionRefused();
+          tmp9 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp9 = i9.TypesErrorCodeConnectionBroken();
+          tmp9 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp9 = i9.TypesErrorCodeConnectionReset();
+          tmp9 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp9 = i9.TypesErrorCodeConnectionAborted();
+          tmp9 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp9 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp9 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp8;
@@ -6546,7 +6694,7 @@ final class _Imported$8 implements i9.Types {
             tmp8 = .none;
           }
 
-          tmp9 = i9.TypesErrorCodeOther(tmp8);
+          tmp9 = i10.TypesErrorCodeOther(tmp8);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -6555,7 +6703,7 @@ final class _Imported$8 implements i9.Types {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.Owned<i9.TypesTcpSocket>(tmp2.toIntUnsigned(), _drop$67);
+      final tmp3 = i0.Owned<i10.TypesTcpSocket>(tmp2.toIntUnsigned(), _drop$70);
       tmp10 = .ok(tmp3);
     }
 
@@ -6564,9 +6712,9 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketBind({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
-    required i9.TypesIpSocketAddress localAddress,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketBind({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
+    required i10.TypesIpSocketAddress localAddress,
   }) {
     i2.WasmI32 tmp0;
     i2.WasmI32 tmp1;
@@ -6581,7 +6729,7 @@ final class _Imported$8 implements i9.Types {
     i2.WasmI32 tmp10;
     i2.WasmI32 tmp11;
     switch (localAddress) {
-      case i9.TypesIpSocketAddressIpv4(payload: final value):
+      case i10.TypesIpSocketAddressIpv4(payload: final value):
         tmp0 = const i2.WasmI32(0);
         tmp1 = i2.WasmI32.uint16FromInt(value.port);
         tmp2 = i2.WasmI32.uint8FromInt(value.address.$1);
@@ -6595,7 +6743,7 @@ final class _Imported$8 implements i9.Types {
         tmp10 = const i2.WasmI32(0);
         tmp11 = const i2.WasmI32(0);
 
-      case i9.TypesIpSocketAddressIpv6(payload: final value):
+      case i10.TypesIpSocketAddressIpv6(payload: final value):
         tmp0 = const i2.WasmI32(1);
         tmp1 = i2.WasmI32.uint16FromInt(value.port);
         tmp2 = i2.WasmI32.fromInt(value.flowInfo);
@@ -6610,7 +6758,7 @@ final class _Imported$8 implements i9.Types {
         tmp11 = i2.WasmI32.fromInt(value.scopeId);
     }
     var tmp12 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import124(
+    _import127(
       i2.WasmI32.fromInt(self.handle),
       tmp0,
       tmp1,
@@ -6627,39 +6775,39 @@ final class _Imported$8 implements i9.Types {
       tmp12,
     );
     final tmp13 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp20;
+    final i0.Result<void, i10.TypesErrorCode> tmp20;
     if (tmp13.toBool()) {
       final tmp14 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp19;
+      final i10.TypesErrorCode tmp19;
       switch (tmp14.toIntUnsigned()) {
         case 0:
-          tmp19 = i9.TypesErrorCodeAccessDenied();
+          tmp19 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp19 = i9.TypesErrorCodeNotSupported();
+          tmp19 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp19 = i9.TypesErrorCodeInvalidArgument();
+          tmp19 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp19 = i9.TypesErrorCodeOutOfMemory();
+          tmp19 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp19 = i9.TypesErrorCodeTimeout();
+          tmp19 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp19 = i9.TypesErrorCodeInvalidState();
+          tmp19 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp19 = i9.TypesErrorCodeAddressNotBindable();
+          tmp19 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp19 = i9.TypesErrorCodeAddressInUse();
+          tmp19 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp19 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp19 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp19 = i9.TypesErrorCodeConnectionRefused();
+          tmp19 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp19 = i9.TypesErrorCodeConnectionBroken();
+          tmp19 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp19 = i9.TypesErrorCodeConnectionReset();
+          tmp19 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp19 = i9.TypesErrorCodeConnectionAborted();
+          tmp19 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp19 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp19 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp15 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp18;
@@ -6678,7 +6826,7 @@ final class _Imported$8 implements i9.Types {
             tmp18 = .none;
           }
 
-          tmp19 = i9.TypesErrorCodeOther(tmp18);
+          tmp19 = i10.TypesErrorCodeOther(tmp18);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -6694,9 +6842,9 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  Future<i0.Result<void, i9.TypesErrorCode>> methodTcpSocketConnect({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
-    required i9.TypesIpSocketAddress remoteAddress,
+  Future<i0.Result<void, i10.TypesErrorCode>> methodTcpSocketConnect({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
+    required i10.TypesIpSocketAddress remoteAddress,
   }) async {
     final tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(36));
     i0.memory.storeInt32(
@@ -6705,7 +6853,7 @@ final class _Imported$8 implements i9.Types {
       offset: 0,
     );
     switch (remoteAddress) {
-      case i9.TypesIpSocketAddressIpv4(payload: final value):
+      case i10.TypesIpSocketAddressIpv4(payload: final value):
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(4)).toIntUnsigned(),
           const i2.WasmI32(0),
@@ -6737,7 +6885,7 @@ final class _Imported$8 implements i9.Types {
           offset: 9,
         );
 
-      case i9.TypesIpSocketAddressIpv6(payload: final value):
+      case i10.TypesIpSocketAddressIpv6(payload: final value):
         i0.memory.storeInt8(
           (tmp0 + const i2.WasmI32(4)).toIntUnsigned(),
           const i2.WasmI32(1),
@@ -6800,41 +6948,41 @@ final class _Imported$8 implements i9.Types {
         );
     }
     var tmp1 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import125(tmp0, tmp1)).completion;
+    await i0.createSubtask(_import128(tmp0, tmp1)).completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp9;
+    final i0.Result<void, i10.TypesErrorCode> tmp9;
     if (tmp2.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -6847,7 +6995,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -6864,48 +7012,48 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<Stream<List<i0.Owned<i9.TypesTcpSocket>>>, i9.TypesErrorCode>
-  methodTcpSocketListen({required i0.Borrowed<i9.TypesTcpSocket> self}) {
+  i0.Result<Stream<List<i0.Owned<i10.TypesTcpSocket>>>, i10.TypesErrorCode>
+  methodTcpSocketListen({required i0.Borrowed<i10.TypesTcpSocket> self}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import126(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import129(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
     final i0.Result<
-      Stream<List<i0.Owned<i9.TypesTcpSocket>>>,
-      i9.TypesErrorCode
+      Stream<List<i0.Owned<i10.TypesTcpSocket>>>,
+      i10.TypesErrorCode
     >
     tmp10;
     if (tmp1.toBool()) {
       final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp9;
+      final i10.TypesErrorCode tmp9;
       switch (tmp4.toIntUnsigned()) {
         case 0:
-          tmp9 = i9.TypesErrorCodeAccessDenied();
+          tmp9 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp9 = i9.TypesErrorCodeNotSupported();
+          tmp9 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp9 = i9.TypesErrorCodeInvalidArgument();
+          tmp9 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp9 = i9.TypesErrorCodeOutOfMemory();
+          tmp9 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp9 = i9.TypesErrorCodeTimeout();
+          tmp9 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp9 = i9.TypesErrorCodeInvalidState();
+          tmp9 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp9 = i9.TypesErrorCodeAddressNotBindable();
+          tmp9 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp9 = i9.TypesErrorCodeAddressInUse();
+          tmp9 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp9 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp9 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp9 = i9.TypesErrorCodeConnectionRefused();
+          tmp9 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp9 = i9.TypesErrorCodeConnectionBroken();
+          tmp9 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp9 = i9.TypesErrorCodeConnectionReset();
+          tmp9 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp9 = i9.TypesErrorCodeConnectionAborted();
+          tmp9 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp9 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp9 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp8;
@@ -6918,7 +7066,7 @@ final class _Imported$8 implements i9.Types {
             tmp8 = .none;
           }
 
-          tmp9 = i9.TypesErrorCodeOther(tmp8);
+          tmp9 = i10.TypesErrorCodeOther(tmp8);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -6927,7 +7075,7 @@ final class _Imported$8 implements i9.Types {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.ReadableStream(tmp2.toIntUnsigned(), const _Vtable73());
+      final tmp3 = i0.ReadableStream(tmp2.toIntUnsigned(), const _Vtable76());
 
       tmp10 = .ok(tmp3);
     }
@@ -6937,71 +7085,71 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  Future<i0.Result<void, i9.TypesErrorCode>> methodTcpSocketSend({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  Future<i0.Result<void, i10.TypesErrorCode>> methodTcpSocketSend({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required Stream<i4.Uint8List> data,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable75(), data).toWasmI32();
-    final tmp1 = _import127(i2.WasmI32.fromInt(self.handle), tmp0);
-    final tmp2 = i0.readFuture(const _Vtable76(), tmp1.toIntUnsigned());
+    final tmp0 = i0.newReadableStream(const _Vtable78(), data).toWasmI32();
+    final tmp1 = _import130(i2.WasmI32.fromInt(self.handle), tmp0);
+    final tmp2 = i0.readFuture(const _Vtable79(), tmp1.toIntUnsigned());
     return tmp2;
   }
 
   @override
-  (Stream<i4.Uint8List>, Future<i0.Result<void, i9.TypesErrorCode>>)
-  methodTcpSocketReceive({required i0.Borrowed<i9.TypesTcpSocket> self}) {
+  (Stream<i4.Uint8List>, Future<i0.Result<void, i10.TypesErrorCode>>)
+  methodTcpSocketReceive({required i0.Borrowed<i10.TypesTcpSocket> self}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import128(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import131(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable75());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable78());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable76(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable79(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
   }
 
   @override
-  i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode>
+  i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode>
   methodTcpSocketGetLocalAddress({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(36));
-    _import129(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import132(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode> tmp30;
+    final i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode> tmp30;
     if (tmp1.toBool()) {
       final tmp24 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp29;
+      final i10.TypesErrorCode tmp29;
       switch (tmp24.toIntUnsigned()) {
         case 0:
-          tmp29 = i9.TypesErrorCodeAccessDenied();
+          tmp29 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp29 = i9.TypesErrorCodeNotSupported();
+          tmp29 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp29 = i9.TypesErrorCodeInvalidArgument();
+          tmp29 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp29 = i9.TypesErrorCodeOutOfMemory();
+          tmp29 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp29 = i9.TypesErrorCodeTimeout();
+          tmp29 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp29 = i9.TypesErrorCodeInvalidState();
+          tmp29 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp29 = i9.TypesErrorCodeAddressNotBindable();
+          tmp29 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp29 = i9.TypesErrorCodeAddressInUse();
+          tmp29 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp29 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp29 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp29 = i9.TypesErrorCodeConnectionRefused();
+          tmp29 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp29 = i9.TypesErrorCodeConnectionBroken();
+          tmp29 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp29 = i9.TypesErrorCodeConnectionReset();
+          tmp29 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp29 = i9.TypesErrorCodeConnectionAborted();
+          tmp29 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp29 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp29 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp25 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp28;
@@ -7014,7 +7162,7 @@ final class _Imported$8 implements i9.Types {
             tmp28 = .none;
           }
 
-          tmp29 = i9.TypesErrorCodeOther(tmp28);
+          tmp29 = i10.TypesErrorCodeOther(tmp28);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7023,7 +7171,7 @@ final class _Imported$8 implements i9.Types {
       tmp30 = .error(tmp29);
     } else {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesIpSocketAddress tmp23;
+      final i10.TypesIpSocketAddress tmp23;
       switch (tmp2.toIntUnsigned()) {
         case 0:
           final tmp3 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
@@ -7039,7 +7187,7 @@ final class _Imported$8 implements i9.Types {
           );
           final tmp9 = (port: tmp3.toIntUnsigned(), address: tmp8);
 
-          tmp23 = i9.TypesIpSocketAddressIpv4(tmp9);
+          tmp23 = i10.TypesIpSocketAddressIpv4(tmp9);
         case 1:
           final tmp10 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
           final tmp11 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
@@ -7069,7 +7217,7 @@ final class _Imported$8 implements i9.Types {
             scopeId: tmp21.toIntUnsigned(),
           );
 
-          tmp23 = i9.TypesIpSocketAddressIpv6(tmp22);
+          tmp23 = i10.TypesIpSocketAddressIpv6(tmp22);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7083,46 +7231,46 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode>
+  i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode>
   methodTcpSocketGetRemoteAddress({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(36));
-    _import130(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import133(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode> tmp30;
+    final i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode> tmp30;
     if (tmp1.toBool()) {
       final tmp24 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp29;
+      final i10.TypesErrorCode tmp29;
       switch (tmp24.toIntUnsigned()) {
         case 0:
-          tmp29 = i9.TypesErrorCodeAccessDenied();
+          tmp29 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp29 = i9.TypesErrorCodeNotSupported();
+          tmp29 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp29 = i9.TypesErrorCodeInvalidArgument();
+          tmp29 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp29 = i9.TypesErrorCodeOutOfMemory();
+          tmp29 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp29 = i9.TypesErrorCodeTimeout();
+          tmp29 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp29 = i9.TypesErrorCodeInvalidState();
+          tmp29 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp29 = i9.TypesErrorCodeAddressNotBindable();
+          tmp29 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp29 = i9.TypesErrorCodeAddressInUse();
+          tmp29 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp29 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp29 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp29 = i9.TypesErrorCodeConnectionRefused();
+          tmp29 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp29 = i9.TypesErrorCodeConnectionBroken();
+          tmp29 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp29 = i9.TypesErrorCodeConnectionReset();
+          tmp29 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp29 = i9.TypesErrorCodeConnectionAborted();
+          tmp29 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp29 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp29 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp25 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp28;
@@ -7135,7 +7283,7 @@ final class _Imported$8 implements i9.Types {
             tmp28 = .none;
           }
 
-          tmp29 = i9.TypesErrorCodeOther(tmp28);
+          tmp29 = i10.TypesErrorCodeOther(tmp28);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7144,7 +7292,7 @@ final class _Imported$8 implements i9.Types {
       tmp30 = .error(tmp29);
     } else {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesIpSocketAddress tmp23;
+      final i10.TypesIpSocketAddress tmp23;
       switch (tmp2.toIntUnsigned()) {
         case 0:
           final tmp3 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
@@ -7160,7 +7308,7 @@ final class _Imported$8 implements i9.Types {
           );
           final tmp9 = (port: tmp3.toIntUnsigned(), address: tmp8);
 
-          tmp23 = i9.TypesIpSocketAddressIpv4(tmp9);
+          tmp23 = i10.TypesIpSocketAddressIpv4(tmp9);
         case 1:
           final tmp10 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
           final tmp11 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
@@ -7190,7 +7338,7 @@ final class _Imported$8 implements i9.Types {
             scopeId: tmp21.toIntUnsigned(),
           );
 
-          tmp23 = i9.TypesIpSocketAddressIpv6(tmp22);
+          tmp23 = i10.TypesIpSocketAddressIpv6(tmp22);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7205,65 +7353,65 @@ final class _Imported$8 implements i9.Types {
 
   @override
   bool methodTcpSocketGetIsListening({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
-    final tmp0 = _import131(i2.WasmI32.fromInt(self.handle));
+    final tmp0 = _import134(i2.WasmI32.fromInt(self.handle));
     return tmp0.toBool();
   }
 
   @override
-  i9.TypesIpAddressFamily methodTcpSocketGetAddressFamily({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i10.TypesIpAddressFamily methodTcpSocketGetAddressFamily({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
-    final tmp0 = _import132(i2.WasmI32.fromInt(self.handle));
-    return i9.TypesIpAddressFamily.values[tmp0.toIntUnsigned()];
+    final tmp0 = _import135(i2.WasmI32.fromInt(self.handle));
+    return i10.TypesIpAddressFamily.values[tmp0.toIntUnsigned()];
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetListenBacklogSize({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetListenBacklogSize({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import133(
+    _import136(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -7276,7 +7424,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7292,45 +7440,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<bool, i9.TypesErrorCode> methodTcpSocketGetKeepAliveEnabled({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<bool, i10.TypesErrorCode> methodTcpSocketGetKeepAliveEnabled({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import134(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import137(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<bool, i9.TypesErrorCode> tmp9;
+    final i0.Result<bool, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -7343,7 +7491,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7361,50 +7509,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetKeepAliveEnabled({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetKeepAliveEnabled({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required bool value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import135(
+    _import138(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI32.fromBool(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -7417,7 +7565,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7433,45 +7581,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodTcpSocketGetKeepAliveIdleTime({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodTcpSocketGetKeepAliveIdleTime({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
-    _import136(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import139(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp7;
@@ -7484,7 +7632,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7502,50 +7650,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetKeepAliveIdleTime({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetKeepAliveIdleTime({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import137(
+    _import140(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -7558,7 +7706,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7574,45 +7722,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodTcpSocketGetKeepAliveInterval({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodTcpSocketGetKeepAliveInterval({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
-    _import138(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import141(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp7;
@@ -7625,7 +7773,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7643,50 +7791,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetKeepAliveInterval({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetKeepAliveInterval({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import139(
+    _import142(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -7699,7 +7847,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7715,45 +7863,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodTcpSocketGetKeepAliveCount({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodTcpSocketGetKeepAliveCount({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import140(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import143(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -7766,7 +7914,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7784,50 +7932,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetKeepAliveCount({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetKeepAliveCount({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import141(
+    _import144(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI32.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -7840,7 +7988,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7856,45 +8004,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodTcpSocketGetHopLimit({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodTcpSocketGetHopLimit({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import142(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import145(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -7907,7 +8055,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7925,50 +8073,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetHopLimit({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetHopLimit({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import143(
+    _import146(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI32.uint8FromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -7981,7 +8129,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -7997,45 +8145,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodTcpSocketGetReceiveBufferSize({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodTcpSocketGetReceiveBufferSize({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
-    _import144(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import147(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp7;
@@ -8048,7 +8196,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8066,50 +8214,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetReceiveBufferSize({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetReceiveBufferSize({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import145(
+    _import148(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -8122,7 +8270,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8138,45 +8286,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodTcpSocketGetSendBufferSize({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodTcpSocketGetSendBufferSize({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
-    _import146(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import149(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp7;
@@ -8189,7 +8337,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8207,50 +8355,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodTcpSocketSetSendBufferSize({
-    required i0.Borrowed<i9.TypesTcpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodTcpSocketSetSendBufferSize({
+    required i0.Borrowed<i10.TypesTcpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import147(
+    _import150(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -8263,7 +8411,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8279,44 +8427,44 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<i0.Owned<i9.TypesUdpSocket>, i9.TypesErrorCode>
-  staticUdpSocketCreate({required i9.TypesIpAddressFamily addressFamily}) {
+  i0.Result<i0.Owned<i10.TypesUdpSocket>, i10.TypesErrorCode>
+  staticUdpSocketCreate({required i10.TypesIpAddressFamily addressFamily}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import148(addressFamily.index.toWasmI32(), tmp0);
+    _import151(addressFamily.index.toWasmI32(), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i0.Owned<i9.TypesUdpSocket>, i9.TypesErrorCode> tmp10;
+    final i0.Result<i0.Owned<i10.TypesUdpSocket>, i10.TypesErrorCode> tmp10;
     if (tmp1.toBool()) {
       final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp9;
+      final i10.TypesErrorCode tmp9;
       switch (tmp4.toIntUnsigned()) {
         case 0:
-          tmp9 = i9.TypesErrorCodeAccessDenied();
+          tmp9 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp9 = i9.TypesErrorCodeNotSupported();
+          tmp9 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp9 = i9.TypesErrorCodeInvalidArgument();
+          tmp9 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp9 = i9.TypesErrorCodeOutOfMemory();
+          tmp9 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp9 = i9.TypesErrorCodeTimeout();
+          tmp9 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp9 = i9.TypesErrorCodeInvalidState();
+          tmp9 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp9 = i9.TypesErrorCodeAddressNotBindable();
+          tmp9 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp9 = i9.TypesErrorCodeAddressInUse();
+          tmp9 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp9 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp9 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp9 = i9.TypesErrorCodeConnectionRefused();
+          tmp9 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp9 = i9.TypesErrorCodeConnectionBroken();
+          tmp9 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp9 = i9.TypesErrorCodeConnectionReset();
+          tmp9 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp9 = i9.TypesErrorCodeConnectionAborted();
+          tmp9 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp9 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp9 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp8;
@@ -8329,7 +8477,7 @@ final class _Imported$8 implements i9.Types {
             tmp8 = .none;
           }
 
-          tmp9 = i9.TypesErrorCodeOther(tmp8);
+          tmp9 = i10.TypesErrorCodeOther(tmp8);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8338,7 +8486,7 @@ final class _Imported$8 implements i9.Types {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.Owned<i9.TypesUdpSocket>(tmp2.toIntUnsigned(), _drop$68);
+      final tmp3 = i0.Owned<i10.TypesUdpSocket>(tmp2.toIntUnsigned(), _drop$71);
       tmp10 = .ok(tmp3);
     }
 
@@ -8347,9 +8495,9 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodUdpSocketBind({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
-    required i9.TypesIpSocketAddress localAddress,
+  i0.Result<void, i10.TypesErrorCode> methodUdpSocketBind({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
+    required i10.TypesIpSocketAddress localAddress,
   }) {
     i2.WasmI32 tmp0;
     i2.WasmI32 tmp1;
@@ -8364,7 +8512,7 @@ final class _Imported$8 implements i9.Types {
     i2.WasmI32 tmp10;
     i2.WasmI32 tmp11;
     switch (localAddress) {
-      case i9.TypesIpSocketAddressIpv4(payload: final value):
+      case i10.TypesIpSocketAddressIpv4(payload: final value):
         tmp0 = const i2.WasmI32(0);
         tmp1 = i2.WasmI32.uint16FromInt(value.port);
         tmp2 = i2.WasmI32.uint8FromInt(value.address.$1);
@@ -8378,7 +8526,7 @@ final class _Imported$8 implements i9.Types {
         tmp10 = const i2.WasmI32(0);
         tmp11 = const i2.WasmI32(0);
 
-      case i9.TypesIpSocketAddressIpv6(payload: final value):
+      case i10.TypesIpSocketAddressIpv6(payload: final value):
         tmp0 = const i2.WasmI32(1);
         tmp1 = i2.WasmI32.uint16FromInt(value.port);
         tmp2 = i2.WasmI32.fromInt(value.flowInfo);
@@ -8393,7 +8541,7 @@ final class _Imported$8 implements i9.Types {
         tmp11 = i2.WasmI32.fromInt(value.scopeId);
     }
     var tmp12 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import150(
+    _import153(
       i2.WasmI32.fromInt(self.handle),
       tmp0,
       tmp1,
@@ -8410,39 +8558,39 @@ final class _Imported$8 implements i9.Types {
       tmp12,
     );
     final tmp13 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp20;
+    final i0.Result<void, i10.TypesErrorCode> tmp20;
     if (tmp13.toBool()) {
       final tmp14 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp19;
+      final i10.TypesErrorCode tmp19;
       switch (tmp14.toIntUnsigned()) {
         case 0:
-          tmp19 = i9.TypesErrorCodeAccessDenied();
+          tmp19 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp19 = i9.TypesErrorCodeNotSupported();
+          tmp19 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp19 = i9.TypesErrorCodeInvalidArgument();
+          tmp19 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp19 = i9.TypesErrorCodeOutOfMemory();
+          tmp19 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp19 = i9.TypesErrorCodeTimeout();
+          tmp19 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp19 = i9.TypesErrorCodeInvalidState();
+          tmp19 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp19 = i9.TypesErrorCodeAddressNotBindable();
+          tmp19 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp19 = i9.TypesErrorCodeAddressInUse();
+          tmp19 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp19 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp19 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp19 = i9.TypesErrorCodeConnectionRefused();
+          tmp19 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp19 = i9.TypesErrorCodeConnectionBroken();
+          tmp19 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp19 = i9.TypesErrorCodeConnectionReset();
+          tmp19 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp19 = i9.TypesErrorCodeConnectionAborted();
+          tmp19 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp19 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp19 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp15 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp18;
@@ -8461,7 +8609,7 @@ final class _Imported$8 implements i9.Types {
             tmp18 = .none;
           }
 
-          tmp19 = i9.TypesErrorCodeOther(tmp18);
+          tmp19 = i10.TypesErrorCodeOther(tmp18);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8477,9 +8625,9 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodUdpSocketConnect({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
-    required i9.TypesIpSocketAddress remoteAddress,
+  i0.Result<void, i10.TypesErrorCode> methodUdpSocketConnect({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
+    required i10.TypesIpSocketAddress remoteAddress,
   }) {
     i2.WasmI32 tmp0;
     i2.WasmI32 tmp1;
@@ -8494,7 +8642,7 @@ final class _Imported$8 implements i9.Types {
     i2.WasmI32 tmp10;
     i2.WasmI32 tmp11;
     switch (remoteAddress) {
-      case i9.TypesIpSocketAddressIpv4(payload: final value):
+      case i10.TypesIpSocketAddressIpv4(payload: final value):
         tmp0 = const i2.WasmI32(0);
         tmp1 = i2.WasmI32.uint16FromInt(value.port);
         tmp2 = i2.WasmI32.uint8FromInt(value.address.$1);
@@ -8508,7 +8656,7 @@ final class _Imported$8 implements i9.Types {
         tmp10 = const i2.WasmI32(0);
         tmp11 = const i2.WasmI32(0);
 
-      case i9.TypesIpSocketAddressIpv6(payload: final value):
+      case i10.TypesIpSocketAddressIpv6(payload: final value):
         tmp0 = const i2.WasmI32(1);
         tmp1 = i2.WasmI32.uint16FromInt(value.port);
         tmp2 = i2.WasmI32.fromInt(value.flowInfo);
@@ -8523,7 +8671,7 @@ final class _Imported$8 implements i9.Types {
         tmp11 = i2.WasmI32.fromInt(value.scopeId);
     }
     var tmp12 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import151(
+    _import154(
       i2.WasmI32.fromInt(self.handle),
       tmp0,
       tmp1,
@@ -8540,39 +8688,39 @@ final class _Imported$8 implements i9.Types {
       tmp12,
     );
     final tmp13 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp20;
+    final i0.Result<void, i10.TypesErrorCode> tmp20;
     if (tmp13.toBool()) {
       final tmp14 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp19;
+      final i10.TypesErrorCode tmp19;
       switch (tmp14.toIntUnsigned()) {
         case 0:
-          tmp19 = i9.TypesErrorCodeAccessDenied();
+          tmp19 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp19 = i9.TypesErrorCodeNotSupported();
+          tmp19 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp19 = i9.TypesErrorCodeInvalidArgument();
+          tmp19 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp19 = i9.TypesErrorCodeOutOfMemory();
+          tmp19 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp19 = i9.TypesErrorCodeTimeout();
+          tmp19 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp19 = i9.TypesErrorCodeInvalidState();
+          tmp19 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp19 = i9.TypesErrorCodeAddressNotBindable();
+          tmp19 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp19 = i9.TypesErrorCodeAddressInUse();
+          tmp19 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp19 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp19 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp19 = i9.TypesErrorCodeConnectionRefused();
+          tmp19 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp19 = i9.TypesErrorCodeConnectionBroken();
+          tmp19 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp19 = i9.TypesErrorCodeConnectionReset();
+          tmp19 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp19 = i9.TypesErrorCodeConnectionAborted();
+          tmp19 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp19 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp19 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp15 = i0.memory.loadUint8(tmp12.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp18;
@@ -8591,7 +8739,7 @@ final class _Imported$8 implements i9.Types {
             tmp18 = .none;
           }
 
-          tmp19 = i9.TypesErrorCodeOther(tmp18);
+          tmp19 = i10.TypesErrorCodeOther(tmp18);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8607,45 +8755,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodUdpSocketDisconnect({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodUdpSocketDisconnect({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import152(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import155(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -8658,7 +8806,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8674,10 +8822,10 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  Future<i0.Result<void, i9.TypesErrorCode>> methodUdpSocketSend({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+  Future<i0.Result<void, i10.TypesErrorCode>> methodUdpSocketSend({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
     required List<int> data,
-    required i0.Option<i9.TypesIpSocketAddress> remoteAddress,
+    required i0.Option<i10.TypesIpSocketAddress> remoteAddress,
   }) async {
     final tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(48));
     i0.memory.storeInt32(
@@ -8719,7 +8867,7 @@ final class _Imported$8 implements i9.Types {
         offset: 0,
       );
       switch (value) {
-        case i9.TypesIpSocketAddressIpv4(payload: final value):
+        case i10.TypesIpSocketAddressIpv4(payload: final value):
           i0.memory.storeInt8(
             (tmp0 + const i2.WasmI32(12)).toIntUnsigned(),
             const i2.WasmI32(0),
@@ -8751,7 +8899,7 @@ final class _Imported$8 implements i9.Types {
             offset: 13,
           );
 
-        case i9.TypesIpSocketAddressIpv6(payload: final value):
+        case i10.TypesIpSocketAddressIpv6(payload: final value):
           i0.memory.storeInt8(
             (tmp0 + const i2.WasmI32(12)).toIntUnsigned(),
             const i2.WasmI32(1),
@@ -8821,41 +8969,41 @@ final class _Imported$8 implements i9.Types {
       );
     }
     var tmp5 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    await i0.createSubtask(_import153(tmp0, tmp5)).completion;
+    await i0.createSubtask(_import156(tmp0, tmp5)).completion;
     final tmp6 = i0.memory.loadUint8(tmp5.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp13;
+    final i0.Result<void, i10.TypesErrorCode> tmp13;
     if (tmp6.toBool()) {
       final tmp7 = i0.memory.loadUint8(tmp5.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp12;
+      final i10.TypesErrorCode tmp12;
       switch (tmp7.toIntUnsigned()) {
         case 0:
-          tmp12 = i9.TypesErrorCodeAccessDenied();
+          tmp12 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp12 = i9.TypesErrorCodeNotSupported();
+          tmp12 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp12 = i9.TypesErrorCodeInvalidArgument();
+          tmp12 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp12 = i9.TypesErrorCodeOutOfMemory();
+          tmp12 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp12 = i9.TypesErrorCodeTimeout();
+          tmp12 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp12 = i9.TypesErrorCodeInvalidState();
+          tmp12 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp12 = i9.TypesErrorCodeAddressNotBindable();
+          tmp12 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp12 = i9.TypesErrorCodeAddressInUse();
+          tmp12 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp12 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp12 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp12 = i9.TypesErrorCodeConnectionRefused();
+          tmp12 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp12 = i9.TypesErrorCodeConnectionBroken();
+          tmp12 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp12 = i9.TypesErrorCodeConnectionReset();
+          tmp12 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp12 = i9.TypesErrorCodeConnectionAborted();
+          tmp12 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp12 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp12 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp8 = i0.memory.loadUint8(tmp5.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp11;
@@ -8868,7 +9016,7 @@ final class _Imported$8 implements i9.Types {
             tmp11 = .none;
           }
 
-          tmp12 = i9.TypesErrorCodeOther(tmp11);
+          tmp12 = i10.TypesErrorCodeOther(tmp11);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8885,47 +9033,49 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  Future<i0.Result<(List<int>, i9.TypesIpSocketAddress), i9.TypesErrorCode>>
-  methodUdpSocketReceive({required i0.Borrowed<i9.TypesUdpSocket> self}) async {
+  Future<i0.Result<(List<int>, i10.TypesIpSocketAddress), i10.TypesErrorCode>>
+  methodUdpSocketReceive({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
+  }) async {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(44));
     await i0
-        .createSubtask(_import154(i2.WasmI32.fromInt(self.handle), tmp0))
+        .createSubtask(_import157(i2.WasmI32.fromInt(self.handle), tmp0))
         .completion;
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<(List<int>, i9.TypesIpSocketAddress), i9.TypesErrorCode>
+    final i0.Result<(List<int>, i10.TypesIpSocketAddress), i10.TypesErrorCode>
     tmp36;
     if (tmp1.toBool()) {
       final tmp30 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp35;
+      final i10.TypesErrorCode tmp35;
       switch (tmp30.toIntUnsigned()) {
         case 0:
-          tmp35 = i9.TypesErrorCodeAccessDenied();
+          tmp35 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp35 = i9.TypesErrorCodeNotSupported();
+          tmp35 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp35 = i9.TypesErrorCodeInvalidArgument();
+          tmp35 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp35 = i9.TypesErrorCodeOutOfMemory();
+          tmp35 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp35 = i9.TypesErrorCodeTimeout();
+          tmp35 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp35 = i9.TypesErrorCodeInvalidState();
+          tmp35 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp35 = i9.TypesErrorCodeAddressNotBindable();
+          tmp35 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp35 = i9.TypesErrorCodeAddressInUse();
+          tmp35 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp35 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp35 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp35 = i9.TypesErrorCodeConnectionRefused();
+          tmp35 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp35 = i9.TypesErrorCodeConnectionBroken();
+          tmp35 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp35 = i9.TypesErrorCodeConnectionReset();
+          tmp35 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp35 = i9.TypesErrorCodeConnectionAborted();
+          tmp35 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp35 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp35 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp31 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp34;
@@ -8938,7 +9088,7 @@ final class _Imported$8 implements i9.Types {
             tmp34 = .none;
           }
 
-          tmp35 = i9.TypesErrorCodeOther(tmp34);
+          tmp35 = i10.TypesErrorCodeOther(tmp34);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -8958,7 +9108,7 @@ final class _Imported$8 implements i9.Types {
       });
 
       final tmp7 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
-      final i9.TypesIpSocketAddress tmp28;
+      final i10.TypesIpSocketAddress tmp28;
       switch (tmp7.toIntUnsigned()) {
         case 0:
           final tmp8 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 16);
@@ -8974,7 +9124,7 @@ final class _Imported$8 implements i9.Types {
           );
           final tmp14 = (port: tmp8.toIntUnsigned(), address: tmp13);
 
-          tmp28 = i9.TypesIpSocketAddressIpv4(tmp14);
+          tmp28 = i10.TypesIpSocketAddressIpv4(tmp14);
         case 1:
           final tmp15 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 16);
           final tmp16 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 20);
@@ -9004,7 +9154,7 @@ final class _Imported$8 implements i9.Types {
             scopeId: tmp26.toIntUnsigned(),
           );
 
-          tmp28 = i9.TypesIpSocketAddressIpv6(tmp27);
+          tmp28 = i10.TypesIpSocketAddressIpv6(tmp27);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9019,295 +9169,295 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode>
+  i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode>
   methodUdpSocketGetLocalAddress({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+    required i0.Borrowed<i10.TypesUdpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(36));
-    _import155(i2.WasmI32.fromInt(self.handle), tmp0);
-    final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode> tmp30;
-    if (tmp1.toBool()) {
-      final tmp24 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp29;
-      switch (tmp24.toIntUnsigned()) {
-        case 0:
-          tmp29 = i9.TypesErrorCodeAccessDenied();
-        case 1:
-          tmp29 = i9.TypesErrorCodeNotSupported();
-        case 2:
-          tmp29 = i9.TypesErrorCodeInvalidArgument();
-        case 3:
-          tmp29 = i9.TypesErrorCodeOutOfMemory();
-        case 4:
-          tmp29 = i9.TypesErrorCodeTimeout();
-        case 5:
-          tmp29 = i9.TypesErrorCodeInvalidState();
-        case 6:
-          tmp29 = i9.TypesErrorCodeAddressNotBindable();
-        case 7:
-          tmp29 = i9.TypesErrorCodeAddressInUse();
-        case 8:
-          tmp29 = i9.TypesErrorCodeRemoteUnreachable();
-        case 9:
-          tmp29 = i9.TypesErrorCodeConnectionRefused();
-        case 10:
-          tmp29 = i9.TypesErrorCodeConnectionBroken();
-        case 11:
-          tmp29 = i9.TypesErrorCodeConnectionReset();
-        case 12:
-          tmp29 = i9.TypesErrorCodeConnectionAborted();
-        case 13:
-          tmp29 = i9.TypesErrorCodeDatagramTooLarge();
-        case 14:
-          final tmp25 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-          final i0.Option<String> tmp28;
-          if (tmp25.toBool()) {
-            final tmp26 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
-            final tmp27 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 16);
-
-            tmp28 = .some(i0.AllocatedString.read(tmp26, tmp27));
-          } else {
-            tmp28 = .none;
-          }
-
-          tmp29 = i9.TypesErrorCodeOther(tmp28);
-
-        default:
-          throw ArgumentError('Invalid discrimant value for variant');
-      }
-
-      tmp30 = .error(tmp29);
-    } else {
-      final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesIpSocketAddress tmp23;
-      switch (tmp2.toIntUnsigned()) {
-        case 0:
-          final tmp3 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
-          final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 10);
-          final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 11);
-          final tmp6 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
-          final tmp7 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 13);
-          final tmp8 = (
-            tmp4.toIntUnsigned(),
-            tmp5.toIntUnsigned(),
-            tmp6.toIntUnsigned(),
-            tmp7.toIntUnsigned(),
-          );
-          final tmp9 = (port: tmp3.toIntUnsigned(), address: tmp8);
-
-          tmp23 = i9.TypesIpSocketAddressIpv4(tmp9);
-        case 1:
-          final tmp10 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
-          final tmp11 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
-          final tmp12 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 16);
-          final tmp13 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 18);
-          final tmp14 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 20);
-          final tmp15 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 22);
-          final tmp16 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 24);
-          final tmp17 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 26);
-          final tmp18 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 28);
-          final tmp19 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 30);
-          final tmp20 = (
-            tmp12.toIntUnsigned(),
-            tmp13.toIntUnsigned(),
-            tmp14.toIntUnsigned(),
-            tmp15.toIntUnsigned(),
-            tmp16.toIntUnsigned(),
-            tmp17.toIntUnsigned(),
-            tmp18.toIntUnsigned(),
-            tmp19.toIntUnsigned(),
-          );
-          final tmp21 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 32);
-          final tmp22 = (
-            port: tmp10.toIntUnsigned(),
-            flowInfo: tmp11.toIntUnsigned(),
-            address: tmp20,
-            scopeId: tmp21.toIntUnsigned(),
-          );
-
-          tmp23 = i9.TypesIpSocketAddressIpv6(tmp22);
-
-        default:
-          throw ArgumentError('Invalid discrimant value for variant');
-      }
-
-      tmp30 = .ok(tmp23);
-    }
-
-    i0.dartFree(tmp0, const i2.WasmI32(36), const i2.WasmI32(4));
-    return tmp30;
-  }
-
-  @override
-  i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode>
-  methodUdpSocketGetRemoteAddress({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
-  }) {
-    var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(36));
-    _import156(i2.WasmI32.fromInt(self.handle), tmp0);
-    final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<i9.TypesIpSocketAddress, i9.TypesErrorCode> tmp30;
-    if (tmp1.toBool()) {
-      final tmp24 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp29;
-      switch (tmp24.toIntUnsigned()) {
-        case 0:
-          tmp29 = i9.TypesErrorCodeAccessDenied();
-        case 1:
-          tmp29 = i9.TypesErrorCodeNotSupported();
-        case 2:
-          tmp29 = i9.TypesErrorCodeInvalidArgument();
-        case 3:
-          tmp29 = i9.TypesErrorCodeOutOfMemory();
-        case 4:
-          tmp29 = i9.TypesErrorCodeTimeout();
-        case 5:
-          tmp29 = i9.TypesErrorCodeInvalidState();
-        case 6:
-          tmp29 = i9.TypesErrorCodeAddressNotBindable();
-        case 7:
-          tmp29 = i9.TypesErrorCodeAddressInUse();
-        case 8:
-          tmp29 = i9.TypesErrorCodeRemoteUnreachable();
-        case 9:
-          tmp29 = i9.TypesErrorCodeConnectionRefused();
-        case 10:
-          tmp29 = i9.TypesErrorCodeConnectionBroken();
-        case 11:
-          tmp29 = i9.TypesErrorCodeConnectionReset();
-        case 12:
-          tmp29 = i9.TypesErrorCodeConnectionAborted();
-        case 13:
-          tmp29 = i9.TypesErrorCodeDatagramTooLarge();
-        case 14:
-          final tmp25 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-          final i0.Option<String> tmp28;
-          if (tmp25.toBool()) {
-            final tmp26 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
-            final tmp27 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 16);
-
-            tmp28 = .some(i0.AllocatedString.read(tmp26, tmp27));
-          } else {
-            tmp28 = .none;
-          }
-
-          tmp29 = i9.TypesErrorCodeOther(tmp28);
-
-        default:
-          throw ArgumentError('Invalid discrimant value for variant');
-      }
-
-      tmp30 = .error(tmp29);
-    } else {
-      final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesIpSocketAddress tmp23;
-      switch (tmp2.toIntUnsigned()) {
-        case 0:
-          final tmp3 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
-          final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 10);
-          final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 11);
-          final tmp6 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
-          final tmp7 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 13);
-          final tmp8 = (
-            tmp4.toIntUnsigned(),
-            tmp5.toIntUnsigned(),
-            tmp6.toIntUnsigned(),
-            tmp7.toIntUnsigned(),
-          );
-          final tmp9 = (port: tmp3.toIntUnsigned(), address: tmp8);
-
-          tmp23 = i9.TypesIpSocketAddressIpv4(tmp9);
-        case 1:
-          final tmp10 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
-          final tmp11 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
-          final tmp12 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 16);
-          final tmp13 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 18);
-          final tmp14 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 20);
-          final tmp15 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 22);
-          final tmp16 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 24);
-          final tmp17 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 26);
-          final tmp18 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 28);
-          final tmp19 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 30);
-          final tmp20 = (
-            tmp12.toIntUnsigned(),
-            tmp13.toIntUnsigned(),
-            tmp14.toIntUnsigned(),
-            tmp15.toIntUnsigned(),
-            tmp16.toIntUnsigned(),
-            tmp17.toIntUnsigned(),
-            tmp18.toIntUnsigned(),
-            tmp19.toIntUnsigned(),
-          );
-          final tmp21 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 32);
-          final tmp22 = (
-            port: tmp10.toIntUnsigned(),
-            flowInfo: tmp11.toIntUnsigned(),
-            address: tmp20,
-            scopeId: tmp21.toIntUnsigned(),
-          );
-
-          tmp23 = i9.TypesIpSocketAddressIpv6(tmp22);
-
-        default:
-          throw ArgumentError('Invalid discrimant value for variant');
-      }
-
-      tmp30 = .ok(tmp23);
-    }
-
-    i0.dartFree(tmp0, const i2.WasmI32(36), const i2.WasmI32(4));
-    return tmp30;
-  }
-
-  @override
-  i9.TypesIpAddressFamily methodUdpSocketGetAddressFamily({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
-  }) {
-    final tmp0 = _import157(i2.WasmI32.fromInt(self.handle));
-    return i9.TypesIpAddressFamily.values[tmp0.toIntUnsigned()];
-  }
-
-  @override
-  i0.Result<int, i9.TypesErrorCode> methodUdpSocketGetUnicastHopLimit({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
-  }) {
-    var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     _import158(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode> tmp30;
+    if (tmp1.toBool()) {
+      final tmp24 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
+      final i10.TypesErrorCode tmp29;
+      switch (tmp24.toIntUnsigned()) {
+        case 0:
+          tmp29 = i10.TypesErrorCodeAccessDenied();
+        case 1:
+          tmp29 = i10.TypesErrorCodeNotSupported();
+        case 2:
+          tmp29 = i10.TypesErrorCodeInvalidArgument();
+        case 3:
+          tmp29 = i10.TypesErrorCodeOutOfMemory();
+        case 4:
+          tmp29 = i10.TypesErrorCodeTimeout();
+        case 5:
+          tmp29 = i10.TypesErrorCodeInvalidState();
+        case 6:
+          tmp29 = i10.TypesErrorCodeAddressNotBindable();
+        case 7:
+          tmp29 = i10.TypesErrorCodeAddressInUse();
+        case 8:
+          tmp29 = i10.TypesErrorCodeRemoteUnreachable();
+        case 9:
+          tmp29 = i10.TypesErrorCodeConnectionRefused();
+        case 10:
+          tmp29 = i10.TypesErrorCodeConnectionBroken();
+        case 11:
+          tmp29 = i10.TypesErrorCodeConnectionReset();
+        case 12:
+          tmp29 = i10.TypesErrorCodeConnectionAborted();
+        case 13:
+          tmp29 = i10.TypesErrorCodeDatagramTooLarge();
+        case 14:
+          final tmp25 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
+          final i0.Option<String> tmp28;
+          if (tmp25.toBool()) {
+            final tmp26 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
+            final tmp27 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 16);
+
+            tmp28 = .some(i0.AllocatedString.read(tmp26, tmp27));
+          } else {
+            tmp28 = .none;
+          }
+
+          tmp29 = i10.TypesErrorCodeOther(tmp28);
+
+        default:
+          throw ArgumentError('Invalid discrimant value for variant');
+      }
+
+      tmp30 = .error(tmp29);
+    } else {
+      final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
+      final i10.TypesIpSocketAddress tmp23;
+      switch (tmp2.toIntUnsigned()) {
+        case 0:
+          final tmp3 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
+          final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 10);
+          final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 11);
+          final tmp6 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
+          final tmp7 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 13);
+          final tmp8 = (
+            tmp4.toIntUnsigned(),
+            tmp5.toIntUnsigned(),
+            tmp6.toIntUnsigned(),
+            tmp7.toIntUnsigned(),
+          );
+          final tmp9 = (port: tmp3.toIntUnsigned(), address: tmp8);
+
+          tmp23 = i10.TypesIpSocketAddressIpv4(tmp9);
+        case 1:
+          final tmp10 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
+          final tmp11 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
+          final tmp12 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 16);
+          final tmp13 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 18);
+          final tmp14 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 20);
+          final tmp15 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 22);
+          final tmp16 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 24);
+          final tmp17 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 26);
+          final tmp18 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 28);
+          final tmp19 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 30);
+          final tmp20 = (
+            tmp12.toIntUnsigned(),
+            tmp13.toIntUnsigned(),
+            tmp14.toIntUnsigned(),
+            tmp15.toIntUnsigned(),
+            tmp16.toIntUnsigned(),
+            tmp17.toIntUnsigned(),
+            tmp18.toIntUnsigned(),
+            tmp19.toIntUnsigned(),
+          );
+          final tmp21 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 32);
+          final tmp22 = (
+            port: tmp10.toIntUnsigned(),
+            flowInfo: tmp11.toIntUnsigned(),
+            address: tmp20,
+            scopeId: tmp21.toIntUnsigned(),
+          );
+
+          tmp23 = i10.TypesIpSocketAddressIpv6(tmp22);
+
+        default:
+          throw ArgumentError('Invalid discrimant value for variant');
+      }
+
+      tmp30 = .ok(tmp23);
+    }
+
+    i0.dartFree(tmp0, const i2.WasmI32(36), const i2.WasmI32(4));
+    return tmp30;
+  }
+
+  @override
+  i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode>
+  methodUdpSocketGetRemoteAddress({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
+  }) {
+    var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(36));
+    _import159(i2.WasmI32.fromInt(self.handle), tmp0);
+    final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
+    final i0.Result<i10.TypesIpSocketAddress, i10.TypesErrorCode> tmp30;
+    if (tmp1.toBool()) {
+      final tmp24 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
+      final i10.TypesErrorCode tmp29;
+      switch (tmp24.toIntUnsigned()) {
+        case 0:
+          tmp29 = i10.TypesErrorCodeAccessDenied();
+        case 1:
+          tmp29 = i10.TypesErrorCodeNotSupported();
+        case 2:
+          tmp29 = i10.TypesErrorCodeInvalidArgument();
+        case 3:
+          tmp29 = i10.TypesErrorCodeOutOfMemory();
+        case 4:
+          tmp29 = i10.TypesErrorCodeTimeout();
+        case 5:
+          tmp29 = i10.TypesErrorCodeInvalidState();
+        case 6:
+          tmp29 = i10.TypesErrorCodeAddressNotBindable();
+        case 7:
+          tmp29 = i10.TypesErrorCodeAddressInUse();
+        case 8:
+          tmp29 = i10.TypesErrorCodeRemoteUnreachable();
+        case 9:
+          tmp29 = i10.TypesErrorCodeConnectionRefused();
+        case 10:
+          tmp29 = i10.TypesErrorCodeConnectionBroken();
+        case 11:
+          tmp29 = i10.TypesErrorCodeConnectionReset();
+        case 12:
+          tmp29 = i10.TypesErrorCodeConnectionAborted();
+        case 13:
+          tmp29 = i10.TypesErrorCodeDatagramTooLarge();
+        case 14:
+          final tmp25 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
+          final i0.Option<String> tmp28;
+          if (tmp25.toBool()) {
+            final tmp26 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
+            final tmp27 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 16);
+
+            tmp28 = .some(i0.AllocatedString.read(tmp26, tmp27));
+          } else {
+            tmp28 = .none;
+          }
+
+          tmp29 = i10.TypesErrorCodeOther(tmp28);
+
+        default:
+          throw ArgumentError('Invalid discrimant value for variant');
+      }
+
+      tmp30 = .error(tmp29);
+    } else {
+      final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
+      final i10.TypesIpSocketAddress tmp23;
+      switch (tmp2.toIntUnsigned()) {
+        case 0:
+          final tmp3 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
+          final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 10);
+          final tmp5 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 11);
+          final tmp6 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
+          final tmp7 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 13);
+          final tmp8 = (
+            tmp4.toIntUnsigned(),
+            tmp5.toIntUnsigned(),
+            tmp6.toIntUnsigned(),
+            tmp7.toIntUnsigned(),
+          );
+          final tmp9 = (port: tmp3.toIntUnsigned(), address: tmp8);
+
+          tmp23 = i10.TypesIpSocketAddressIpv4(tmp9);
+        case 1:
+          final tmp10 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 8);
+          final tmp11 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 12);
+          final tmp12 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 16);
+          final tmp13 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 18);
+          final tmp14 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 20);
+          final tmp15 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 22);
+          final tmp16 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 24);
+          final tmp17 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 26);
+          final tmp18 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 28);
+          final tmp19 = i0.memory.loadUint16(tmp0.toIntUnsigned(), offset: 30);
+          final tmp20 = (
+            tmp12.toIntUnsigned(),
+            tmp13.toIntUnsigned(),
+            tmp14.toIntUnsigned(),
+            tmp15.toIntUnsigned(),
+            tmp16.toIntUnsigned(),
+            tmp17.toIntUnsigned(),
+            tmp18.toIntUnsigned(),
+            tmp19.toIntUnsigned(),
+          );
+          final tmp21 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 32);
+          final tmp22 = (
+            port: tmp10.toIntUnsigned(),
+            flowInfo: tmp11.toIntUnsigned(),
+            address: tmp20,
+            scopeId: tmp21.toIntUnsigned(),
+          );
+
+          tmp23 = i10.TypesIpSocketAddressIpv6(tmp22);
+
+        default:
+          throw ArgumentError('Invalid discrimant value for variant');
+      }
+
+      tmp30 = .ok(tmp23);
+    }
+
+    i0.dartFree(tmp0, const i2.WasmI32(36), const i2.WasmI32(4));
+    return tmp30;
+  }
+
+  @override
+  i10.TypesIpAddressFamily methodUdpSocketGetAddressFamily({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
+  }) {
+    final tmp0 = _import160(i2.WasmI32.fromInt(self.handle));
+    return i10.TypesIpAddressFamily.values[tmp0.toIntUnsigned()];
+  }
+
+  @override
+  i0.Result<int, i10.TypesErrorCode> methodUdpSocketGetUnicastHopLimit({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
+  }) {
+    var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
+    _import161(i2.WasmI32.fromInt(self.handle), tmp0);
+    final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp7;
@@ -9320,7 +9470,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9338,50 +9488,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodUdpSocketSetUnicastHopLimit({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodUdpSocketSetUnicastHopLimit({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import159(
+    _import162(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI32.uint8FromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -9394,7 +9544,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9410,45 +9560,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodUdpSocketGetReceiveBufferSize({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodUdpSocketGetReceiveBufferSize({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
-    _import160(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import163(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp7;
@@ -9461,7 +9611,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9479,50 +9629,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodUdpSocketSetReceiveBufferSize({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodUdpSocketSetReceiveBufferSize({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import161(
+    _import164(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -9535,7 +9685,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9551,45 +9701,45 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<int, i9.TypesErrorCode> methodUdpSocketGetSendBufferSize({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+  i0.Result<int, i10.TypesErrorCode> methodUdpSocketGetSendBufferSize({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(24));
-    _import162(i2.WasmI32.fromInt(self.handle), tmp0);
+    _import165(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<int, i9.TypesErrorCode> tmp9;
+    final i0.Result<int, i10.TypesErrorCode> tmp9;
     if (tmp1.toBool()) {
       final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
-      final i9.TypesErrorCode tmp8;
+      final i10.TypesErrorCode tmp8;
       switch (tmp3.toIntUnsigned()) {
         case 0:
-          tmp8 = i9.TypesErrorCodeAccessDenied();
+          tmp8 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp8 = i9.TypesErrorCodeNotSupported();
+          tmp8 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp8 = i9.TypesErrorCodeInvalidArgument();
+          tmp8 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp8 = i9.TypesErrorCodeOutOfMemory();
+          tmp8 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp8 = i9.TypesErrorCodeTimeout();
+          tmp8 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp8 = i9.TypesErrorCodeInvalidState();
+          tmp8 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp8 = i9.TypesErrorCodeAddressNotBindable();
+          tmp8 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp8 = i9.TypesErrorCodeAddressInUse();
+          tmp8 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp8 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp8 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp8 = i9.TypesErrorCodeConnectionRefused();
+          tmp8 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp8 = i9.TypesErrorCodeConnectionBroken();
+          tmp8 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp8 = i9.TypesErrorCodeConnectionReset();
+          tmp8 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp8 = i9.TypesErrorCodeConnectionAborted();
+          tmp8 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp8 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp8 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp4 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 12);
           final i0.Option<String> tmp7;
@@ -9602,7 +9752,7 @@ final class _Imported$8 implements i9.Types {
             tmp7 = .none;
           }
 
-          tmp8 = i9.TypesErrorCodeOther(tmp7);
+          tmp8 = i10.TypesErrorCodeOther(tmp7);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9620,50 +9770,50 @@ final class _Imported$8 implements i9.Types {
   }
 
   @override
-  i0.Result<void, i9.TypesErrorCode> methodUdpSocketSetSendBufferSize({
-    required i0.Borrowed<i9.TypesUdpSocket> self,
+  i0.Result<void, i10.TypesErrorCode> methodUdpSocketSetSendBufferSize({
+    required i0.Borrowed<i10.TypesUdpSocket> self,
     required int value,
   }) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
-    _import163(
+    _import166(
       i2.WasmI32.fromInt(self.handle),
       i2.WasmI64.fromInt(value),
       tmp0,
     );
     final tmp1 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 0);
-    final i0.Result<void, i9.TypesErrorCode> tmp8;
+    final i0.Result<void, i10.TypesErrorCode> tmp8;
     if (tmp1.toBool()) {
       final tmp2 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 4);
-      final i9.TypesErrorCode tmp7;
+      final i10.TypesErrorCode tmp7;
       switch (tmp2.toIntUnsigned()) {
         case 0:
-          tmp7 = i9.TypesErrorCodeAccessDenied();
+          tmp7 = i10.TypesErrorCodeAccessDenied();
         case 1:
-          tmp7 = i9.TypesErrorCodeNotSupported();
+          tmp7 = i10.TypesErrorCodeNotSupported();
         case 2:
-          tmp7 = i9.TypesErrorCodeInvalidArgument();
+          tmp7 = i10.TypesErrorCodeInvalidArgument();
         case 3:
-          tmp7 = i9.TypesErrorCodeOutOfMemory();
+          tmp7 = i10.TypesErrorCodeOutOfMemory();
         case 4:
-          tmp7 = i9.TypesErrorCodeTimeout();
+          tmp7 = i10.TypesErrorCodeTimeout();
         case 5:
-          tmp7 = i9.TypesErrorCodeInvalidState();
+          tmp7 = i10.TypesErrorCodeInvalidState();
         case 6:
-          tmp7 = i9.TypesErrorCodeAddressNotBindable();
+          tmp7 = i10.TypesErrorCodeAddressNotBindable();
         case 7:
-          tmp7 = i9.TypesErrorCodeAddressInUse();
+          tmp7 = i10.TypesErrorCodeAddressInUse();
         case 8:
-          tmp7 = i9.TypesErrorCodeRemoteUnreachable();
+          tmp7 = i10.TypesErrorCodeRemoteUnreachable();
         case 9:
-          tmp7 = i9.TypesErrorCodeConnectionRefused();
+          tmp7 = i10.TypesErrorCodeConnectionRefused();
         case 10:
-          tmp7 = i9.TypesErrorCodeConnectionBroken();
+          tmp7 = i10.TypesErrorCodeConnectionBroken();
         case 11:
-          tmp7 = i9.TypesErrorCodeConnectionReset();
+          tmp7 = i10.TypesErrorCodeConnectionReset();
         case 12:
-          tmp7 = i9.TypesErrorCodeConnectionAborted();
+          tmp7 = i10.TypesErrorCodeConnectionAborted();
         case 13:
-          tmp7 = i9.TypesErrorCodeDatagramTooLarge();
+          tmp7 = i10.TypesErrorCodeDatagramTooLarge();
         case 14:
           final tmp3 = i0.memory.loadUint8(tmp0.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp6;
@@ -9676,7 +9826,7 @@ final class _Imported$8 implements i9.Types {
             tmp6 = .none;
           }
 
-          tmp7 = i9.TypesErrorCodeOther(tmp6);
+          tmp7 = i10.TypesErrorCodeOther(tmp6);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9692,35 +9842,35 @@ final class _Imported$8 implements i9.Types {
   }
 }
 
-@pragma("wasm:import", r"component._import164")
-external i2.WasmI32 _import164(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
+@pragma("wasm:import", r"component._import167")
+external i2.WasmI32 _import167(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
 
-final class _Imported$9 implements i9.IpNameLookup {
-  const _Imported$9();
+final class _Imported$10 implements i10.IpNameLookup {
+  const _Imported$10();
   @override
-  Future<i0.Result<List<i9.TypesIpAddress>, i9.IpNameLookupErrorCode>>
+  Future<i0.Result<List<i10.TypesIpAddress>, i10.IpNameLookupErrorCode>>
   resolveAddresses({required String name}) async {
     final tmp0 = i0.AllocatedString.allocateUtf16(name);
     var tmp1 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(20));
     await i0
-        .createSubtask(_import164(tmp0.ptr, tmp0.packedLength, tmp1))
+        .createSubtask(_import167(tmp0.ptr, tmp0.packedLength, tmp1))
         .completion;
     final tmp2 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 0);
-    final i0.Result<List<i9.TypesIpAddress>, i9.IpNameLookupErrorCode> tmp29;
+    final i0.Result<List<i10.TypesIpAddress>, i10.IpNameLookupErrorCode> tmp29;
     if (tmp2.toBool()) {
       final tmp23 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 4);
-      final i9.IpNameLookupErrorCode tmp28;
+      final i10.IpNameLookupErrorCode tmp28;
       switch (tmp23.toIntUnsigned()) {
         case 0:
-          tmp28 = i9.IpNameLookupErrorCodeAccessDenied();
+          tmp28 = i10.IpNameLookupErrorCodeAccessDenied();
         case 1:
-          tmp28 = i9.IpNameLookupErrorCodeInvalidArgument();
+          tmp28 = i10.IpNameLookupErrorCodeInvalidArgument();
         case 2:
-          tmp28 = i9.IpNameLookupErrorCodeNameUnresolvable();
+          tmp28 = i10.IpNameLookupErrorCodeNameUnresolvable();
         case 3:
-          tmp28 = i9.IpNameLookupErrorCodeTemporaryResolverFailure();
+          tmp28 = i10.IpNameLookupErrorCodeTemporaryResolverFailure();
         case 4:
-          tmp28 = i9.IpNameLookupErrorCodePermanentResolverFailure();
+          tmp28 = i10.IpNameLookupErrorCodePermanentResolverFailure();
         case 5:
           final tmp24 = i0.memory.loadUint8(tmp1.toIntUnsigned(), offset: 8);
           final i0.Option<String> tmp27;
@@ -9733,7 +9883,7 @@ final class _Imported$9 implements i9.IpNameLookup {
             tmp27 = .none;
           }
 
-          tmp28 = i9.IpNameLookupErrorCodeOther(tmp27);
+          tmp28 = i10.IpNameLookupErrorCodeOther(tmp27);
 
         default:
           throw ArgumentError('Invalid discrimant value for variant');
@@ -9748,7 +9898,7 @@ final class _Imported$9 implements i9.IpNameLookup {
       final tmp21 = List.generate(tmp4.toIntUnsigned(), growable: false, (i) {
         final elementPtr = i2.WasmI32.fromInt(tmp22 + i * 18);
         final tmp5 = i0.memory.loadUint8(elementPtr.toIntUnsigned(), offset: 0);
-        final i9.TypesIpAddress tmp20;
+        final i10.TypesIpAddress tmp20;
         switch (tmp5.toIntUnsigned()) {
           case 0:
             final tmp6 = i0.memory.loadUint8(
@@ -9774,7 +9924,7 @@ final class _Imported$9 implements i9.IpNameLookup {
               tmp9.toIntUnsigned(),
             );
 
-            tmp20 = i9.TypesIpAddressIpv4(tmp10);
+            tmp20 = i10.TypesIpAddressIpv4(tmp10);
           case 1:
             final tmp11 = i0.memory.loadUint16(
               elementPtr.toIntUnsigned(),
@@ -9819,7 +9969,7 @@ final class _Imported$9 implements i9.IpNameLookup {
               tmp18.toIntUnsigned(),
             );
 
-            tmp20 = i9.TypesIpAddressIpv6(tmp19);
+            tmp20 = i10.TypesIpAddressIpv6(tmp19);
 
           default:
             throw ArgumentError('Invalid discrimant value for variant');
@@ -9836,17 +9986,17 @@ final class _Imported$9 implements i9.IpNameLookup {
   }
 }
 
-@pragma("wasm:import", r"component._import165")
-external i2.WasmVoid _import165(i2.WasmI64 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import166")
-external i2.WasmI64 _import166();
+@pragma("wasm:import", r"component._import168")
+external i2.WasmVoid _import168(i2.WasmI64 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import169")
+external i2.WasmI64 _import169();
 
-final class _Imported$10 implements i10.Random {
-  const _Imported$10();
+final class _Imported$11 implements i11.Random {
+  const _Imported$11();
   @override
   List<int> getRandomBytes({required int maxLen}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import165(i2.WasmI64.fromInt(maxLen), tmp0);
+    _import168(i2.WasmI64.fromInt(maxLen), tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
     final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
 
@@ -9864,22 +10014,22 @@ final class _Imported$10 implements i10.Random {
 
   @override
   int getRandomU64() {
-    final tmp0 = _import166();
+    final tmp0 = _import169();
     return tmp0.toInt();
   }
 }
 
-@pragma("wasm:import", r"component._import167")
-external i2.WasmVoid _import167(i2.WasmI64 p0, i2.WasmI32 p1);
-@pragma("wasm:import", r"component._import168")
-external i2.WasmI64 _import168();
+@pragma("wasm:import", r"component._import170")
+external i2.WasmVoid _import170(i2.WasmI64 p0, i2.WasmI32 p1);
+@pragma("wasm:import", r"component._import171")
+external i2.WasmI64 _import171();
 
-final class _Imported$11 implements i10.Insecure {
-  const _Imported$11();
+final class _Imported$12 implements i11.Insecure {
+  const _Imported$12();
   @override
   List<int> getInsecureRandomBytes({required int maxLen}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
-    _import167(i2.WasmI64.fromInt(maxLen), tmp0);
+    _import170(i2.WasmI64.fromInt(maxLen), tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
     final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
 
@@ -9897,20 +10047,20 @@ final class _Imported$11 implements i10.Insecure {
 
   @override
   int getInsecureRandomU64() {
-    final tmp0 = _import168();
+    final tmp0 = _import171();
     return tmp0.toInt();
   }
 }
 
-@pragma("wasm:import", r"component._import169")
-external i2.WasmVoid _import169(i2.WasmI32 p0);
+@pragma("wasm:import", r"component._import172")
+external i2.WasmVoid _import172(i2.WasmI32 p0);
 
-final class _Imported$12 implements i10.InsecureSeed {
-  const _Imported$12();
+final class _Imported$13 implements i11.InsecureSeed {
+  const _Imported$13();
   @override
   (int, int) getInsecureSeed() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(16));
-    _import169(tmp0);
+    _import172(tmp0);
     final tmp1 = i0.memory.loadInt64(tmp0.toIntUnsigned(), offset: 0);
     final tmp2 = i0.memory.loadInt64(tmp0.toIntUnsigned(), offset: 8);
     final tmp3 = (tmp1.toInt(), tmp2.toInt());
@@ -9919,49 +10069,50 @@ final class _Imported$12 implements i10.InsecureSeed {
   }
 }
 
-late i1.TestedModule _unnamedExport26;
-late i6.Run _unnamedExport15;
+late i1.TestedModule _unnamedExport27;
+late i7.Run _unnamedExport16;
 
 final class EngineProbeImports {
   const EngineProbeImports._();
 
-  i1.ResultCollector get testsResultCollector => const _Imported$25();
+  i1.ResultCollector get testsResultCollector => const _Imported$26();
   i3.Client get httpClient => const _Imported$1();
-  i5.Process get processProcess => const _Imported$28();
-  i6.Environment get cliEnvironment => const _Imported$13();
-  i6.Exit get cliExit => const _Imported$14();
-  i6.Stdin get cliStdin => const _Imported$17();
-  i6.Stdout get cliStdout => const _Imported$18();
-  i6.Stderr get cliStderr => const _Imported$19();
-  i6.TerminalStdin get cliTerminalStdin => const _Imported$22();
-  i6.TerminalStdout get cliTerminalStdout => const _Imported$23();
-  i6.TerminalStderr get cliTerminalStderr => const _Imported$24();
-  i7.MonotonicClock get clocksMonotonicClock => const _Imported$3();
-  i7.SystemClock get clocksSystemClock => const _Imported$4();
-  i8.Types get filesystemTypes => const _Imported$6();
-  i8.Preopens get filesystemPreopens => const _Imported$7();
-  i9.Types get socketsTypes => const _Imported$8();
-  i9.IpNameLookup get socketsIpNameLookup => const _Imported$9();
-  i10.Random get randomRandom => const _Imported$10();
-  i10.Insecure get randomInsecure => const _Imported$11();
-  i10.InsecureSeed get randomInsecureSeed => const _Imported$12();
+  i5.Session get pluginHostSession => const _Imported$2();
+  i6.Process get processProcess => const _Imported$29();
+  i7.Environment get cliEnvironment => const _Imported$14();
+  i7.Exit get cliExit => const _Imported$15();
+  i7.Stdin get cliStdin => const _Imported$18();
+  i7.Stdout get cliStdout => const _Imported$19();
+  i7.Stderr get cliStderr => const _Imported$20();
+  i7.TerminalStdin get cliTerminalStdin => const _Imported$23();
+  i7.TerminalStdout get cliTerminalStdout => const _Imported$24();
+  i7.TerminalStderr get cliTerminalStderr => const _Imported$25();
+  i8.MonotonicClock get clocksMonotonicClock => const _Imported$4();
+  i8.SystemClock get clocksSystemClock => const _Imported$5();
+  i9.Types get filesystemTypes => const _Imported$7();
+  i9.Preopens get filesystemPreopens => const _Imported$8();
+  i10.Types get socketsTypes => const _Imported$9();
+  i10.IpNameLookup get socketsIpNameLookup => const _Imported$10();
+  i11.Random get randomRandom => const _Imported$11();
+  i11.Insecure get randomInsecure => const _Imported$12();
+  i11.InsecureSeed get randomInsecureSeed => const _Imported$13();
 }
 
-@i11.RecordUse()
+@i12.RecordUse()
 void engineProbeComponent(
-  ({i1.TestedModule unnamedExport26, i6.Run unnamedExport15}) Function(
+  ({i1.TestedModule unnamedExport27, i7.Run unnamedExport16}) Function(
     EngineProbeImports,
   )
   defineComponent,
 ) {
   final res = defineComponent(const EngineProbeImports._());
-  _unnamedExport26 = res.unnamedExport26;
-  _unnamedExport15 = res.unnamedExport15;
+  _unnamedExport27 = res.unnamedExport27;
+  _unnamedExport16 = res.unnamedExport16;
 }
 
 @pragma('wasm:export', r'component_0')
 i2.WasmI32 _component_0() {
-  final tmp0 = _unnamedExport26.countTests();
+  final tmp0 = _unnamedExport27.countTests();
   return i2.WasmI32.fromInt(tmp0);
 }
 
@@ -9969,7 +10120,7 @@ i2.WasmI32 _component_0() {
 i2.WasmI32 _component_1(i2.WasmI32 p0) {
   final asyncExitCode = i0.spawnTask(
     run: () async {
-      await _unnamedExport26.invokeTest(number: p0.toIntUnsigned());
+      await _unnamedExport27.invokeTest(number: p0.toIntUnsigned());
       _component_1taskReturn();
     },
     debugName: 'invoke-test',
@@ -9983,7 +10134,7 @@ external i2.WasmVoid _component_1taskReturn();
 i2.WasmI32 _component_2() {
   final asyncExitCode = i0.spawnTask(
     run: () async {
-      final tmp0 = await _unnamedExport15.run();
+      final tmp0 = await _unnamedExport16.run();
       i2.WasmI32 tmp1;
       switch (tmp0) {
         case i0.OkResult(:final value):

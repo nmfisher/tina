@@ -1,0 +1,24 @@
+package tina:plugin-host@0.1.0;
+
+/// Host-mediated lifecycle for one configured guest AgentPlugin. The lease is
+/// issued by the host on open and is scoped to that plugin Store instance.
+interface session {
+  variant error {
+    denied,
+    unavailable,
+    failed,
+  }
+
+  open: func() -> result<string, error>;
+
+  /// Invoke the configured plugin against immutable session context. The host
+  /// must not re-enter the suspended Tina engine Store while handling this call.
+  on-prompt: async func(
+    lease: string,
+    session-id: string,
+    model: string,
+  ) -> result<string, error>;
+
+  /// Revoke the lease and retire only its plugin Store.
+  close: func(lease: string) -> result<_, error>;
+}

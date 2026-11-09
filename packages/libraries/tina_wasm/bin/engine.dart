@@ -33,6 +33,8 @@ import 'package:tina_wasm/src/components/wasmdart_tests.dart' as tests;
 import 'package:tina_wasm/src/engine_registry.dart';
 import 'package:tina_wasm/src/preloaded_app_io.dart';
 import 'package:tina_wasm/src/portable_tools_plugin.dart';
+import 'package:tina_wasm/src/remote_prompt_plugin.dart';
+import 'package:tina_wasm/src/wasm_prompt_bridge.dart';
 import 'package:tina_wasm/src/wasm_persistence_plugin.dart';
 import 'package:tina_wasm/src/wasi_session_store.dart';
 import 'package:tina_wasm/src/wasi_tool_file_system.dart';
@@ -46,8 +48,8 @@ Future<void> _stdoutQueue = Future.value();
 void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
-      unnamedExport26: _TestedModule(imports),
-      unnamedExport15: const _Run(),
+      unnamedExport27: _TestedModule(imports),
+      unnamedExport16: const _Run(),
     );
   });
 }
@@ -85,8 +87,7 @@ final class _TestedModule implements tests.TestedModule {
 
     // 1. Preload the config tree and the workspace's `.tina` from the
     //    preopens: everything the synchronous assembly boot reads.
-    final preopens =
-        WasmPreopens(_imports.filesystemPreopens.getDirectories());
+    final preopens = WasmPreopens(_imports.filesystemPreopens.getDirectories());
     final appIo = await PreloadedAppIo.load(
       preopens,
       _imports.filesystemTypes,
@@ -101,23 +102,20 @@ final class _TestedModule implements tests.TestedModule {
     //    config preopen and the workspace `.tina` are protected, and the
     //    mode comes from the host (yolo unless TINA_ENGINE_YOLO=0).
     injectedToolsPluginFactory = (wiring) => PortableToolsPlugin(
-          fileSystem: WasiToolFileSystem(
-            preopens,
-            _imports.filesystemTypes,
-          ),
-          workspaceRoot: wiring.workspaceRoot,
-          mode: wiring.mode,
-          protectedPaths: wiring.protectedPaths,
-          isWithinWorkspace: (path) => preopens.guestRootOf(path) == '.',
-        );
+      fileSystem: WasiToolFileSystem(preopens, _imports.filesystemTypes),
+      workspaceRoot: wiring.workspaceRoot,
+      mode: wiring.mode,
+      protectedPaths: wiring.protectedPaths,
+      isWithinWorkspace: (path) => preopens.guestRootOf(path) == '.',
+    );
 
     // 3. The provider over `tina:http`, credentials from the host-set
     //    environment, never from the module.
     final http = _imports.httpClient;
     final envPort = WasmEnvironmentPort(_imports.cliEnvironment);
     LlmProvider provider(String model) {
-      final base = environment['TINA_LLM_ENDPOINT'] ??
-          'https://api.z.ai/api/anthropic';
+      final base =
+          environment['TINA_LLM_ENDPOINT'] ?? 'https://api.z.ai/api/anthropic';
       return AnthropicProvider(
         model: model,
         endpoint: WasmHttpEndpoint(endpoint: base, client: http),
@@ -143,10 +141,17 @@ final class _TestedModule implements tests.TestedModule {
     // platform default (none under wasm).
     final storeSpec = environment['TINA_ENGINE_STORE'];
     final resumeId = environment['TINA_ENGINE_RESUME'];
+    // The extension is opt-in and its artifact is selected by the host.
+    // The guest receives no path or authority beyond this registered adapter.
+    final includeRemotePromptPlugin =
+        environment['TINA_WASM_PLUGIN_ID'] == RemotePromptPlugin.pluginId;
     WasiSessionStore? store;
     if (storeSpec != null) {
       store = await WasiSessionStore.open(
-          storeSpec, preopens, _imports.filesystemTypes);
+        storeSpec,
+        preopens,
+        _imports.filesystemTypes,
+      );
     }
     WasmPersistencePlugin? persistencePlugin;
     if (store != null) {
@@ -154,13 +159,17 @@ final class _TestedModule implements tests.TestedModule {
         openStore: (_) => store!,
         restoreSessionSettings: (settings, opened, sessionId) =>
             restoreSessionSettingsFromLog(
-                settings as ScopedSettings,
-                (opened as WasiSessionStore).readEntries(sessionId)),
+              settings as ScopedSettings,
+              (opened as WasiSessionStore).readEntries(sessionId),
+            ),
         storedSessionModel: (opened, sessionId) => (opened as WasiSessionStore)
             .list()
-            .firstWhere((row) => row.id == sessionId,
-                orElse: () => throw SessionStoreException(
-                    'no session $sessionId in ${opened.file}'))
+            .firstWhere(
+              (row) => row.id == sessionId,
+              orElse: () => throw SessionStoreException(
+                'no session $sessionId in ${opened.file}',
+              ),
+            )
             .model,
       );
     }
@@ -179,6 +188,10 @@ final class _TestedModule implements tests.TestedModule {
         registry: wasmEngineRegistry(
           persistenceStore: store,
           onPersistence: (plugin) => persistencePlugin = plugin,
+          includeRemotePromptPlugin: includeRemotePromptPlugin,
+          remotePromptHost: WasmPromptPluginHostBridge(
+            _imports.pluginHostSession,
+          ),
         ),
         settingsBackend: backend,
         plugins: [
@@ -193,16 +206,13 @@ final class _TestedModule implements tests.TestedModule {
           'tina/approvals-stream',
           'tina/session-controls',
           if (store != null) 'tina/persistence',
+          if (includeRemotePromptPlugin) RemotePromptPlugin.pluginId,
         ],
       ),
     );
     try {
       // 5. The session: wasi stdin in, wasi stdout out, until shutdown.
-      await runSessionPipes(
-        assembly,
-        input: _stdin(),
-        emit: _emit,
-      );
+      await runSessionPipes(assembly, input: _stdin(), emit: _emit);
       // The ordered stdout queue must drain before the export returns:
       // component streams created after the task's return are never
       // driven by the host's event loop.
@@ -218,9 +228,9 @@ final class _TestedModule implements tests.TestedModule {
   }
 
   Map<String, String> _environment() => {
-        for (final (name, value) in _imports.cliEnvironment.getEnvironment())
-          name: value,
-      };
+    for (final (name, value) in _imports.cliEnvironment.getEnvironment())
+      name: value,
+  };
 
   Stream<Uint8List>? _stdin() {
     final (stream, _) = _imports.cliStdin.readViaStream();
@@ -233,9 +243,10 @@ final class _TestedModule implements tests.TestedModule {
     // must not interleave. UTF-8, never code units — a protocol line can
     // carry non-ASCII (an approval reason's em-dash) and codeUnits would
     // emit garbage bytes the client's decoder rejects.
-    _stdoutQueue = _stdoutQueue.then((_) => _imports.cliStdout.writeViaStream(
-          data: Stream.value(
-              Uint8List.fromList(utf8.encode('$line\n'))),
-        ));
+    _stdoutQueue = _stdoutQueue.then(
+      (_) => _imports.cliStdout.writeViaStream(
+        data: Stream.value(Uint8List.fromList(utf8.encode('$line\n'))),
+      ),
+    );
   }
 }
