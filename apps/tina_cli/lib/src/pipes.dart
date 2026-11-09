@@ -16,13 +16,35 @@
 ///   approval request (`allow`, `always` or `deny`); the reply's
 ///   `accepted` is false when no such request is pending.
 /// * `{"op":"status"}` — emit the current status immediately.
+/// * `{"op":"commands"}` — re-emit the command vocabulary (also carried in
+///   `ready`): `[{name,description,allowWhileRunning,inputPrefix}]`.
+/// * `{"op":"settings"}` — emit the settings catalog the engine serves:
+///   public definitions (id, label, kind, scopes, choices, default) plus
+///   each setting's resolved value and scope, secrets masked.
+/// * `{"op":"history","afterSeq":N,"limit":M}` — page committed log
+///   entries through the live snapshot, as a front end would.
+/// * `{"op":"notices","afterSeq":N,"limit":M}` — page notices explicitly.
+/// * `{"op":"complete","name":"/mode","prefix":"a"}` — command completion.
+/// * `{"op":"operation","plugin":"tina/mode","operation":"set",
+///    "arguments":{...},"id":"mode-1"}` — invoke a plugin operation under
+///   a caller-chosen request ID; receipts report its lifecycle like a
+///   submitted turn's.
+/// * `{"op":"answer","id":"q1","text":"..."}` — answer a pending question
+///   (`accepted` is false when none is pending).
+/// * `{"op":"dismiss","id":"q1"}` — dismiss a pending question.
 /// * `{"op":"shutdown"}` — stop cleanly; the process exits 0.
 ///
-/// Events: `ready`, `status`, `receipt`, `entry` (one per committed log
-/// entry, JSON exactly as the session log serializes it), `cancel`,
+/// Events: `ready` (carries `commands`), `snapshot` (one per update: the
+/// feature projections the TUI consumes — live chat previews, plugin
+/// state — plus active tools, pending questions, the plugin list and the
+/// notice watermark), `status`, `receipt`, `entry` (one per committed log
+/// entry, JSON exactly as the session log serializes it), `notice` (and a
+/// `notices-expired` marker when records have aged out), `cancel`,
 /// `approval` (a request awaiting an answer), `approval-result` (the
-/// answer's outcome), `overflow` (queued events dropped under load, with
-/// the count), `error`, `bye`. Stdin EOF behaves like `shutdown`.
+/// answer's outcome), `question-result`, `history-page`, `notice-page`,
+/// `suggestions`, `settings`, `overflow` (queued events dropped under
+/// load, with the count), `error`, `bye`. Stdin EOF behaves like
+/// `shutdown`.
 ///
 /// This file lives in the application package, outside the engine
 /// packages: `dart:io` belongs here and nowhere near the engine.
@@ -37,6 +59,7 @@ import 'pipes_stdio.dart';
 import 'package:tina_approvals/tina_approvals.dart'
     show ApprovalDecision, ApprovalRequest, StreamApprovalChannel;
 import 'package:tina_host/tina_host.dart';
+import 'package:tina_settings/tina_settings.dart' show SettingDefinition;
 
 import 'assembly.dart';
 
@@ -230,12 +253,16 @@ final class _SessionPipes {
 
   /// Push committed log entries as they publish, through the same
   /// snapshot + history-page contract a front end uses. The cursor carries
-  /// across snapshots, so each entry is emitted exactly once.
+  /// across snapshots, so each entry is emitted exactly once. The same
+  /// snapshots carry what a front end reads beyond the log: feature
+  /// projections, active tools, pending questions, the plugin list and
+  /// the notice watermark (`snapshot`), and notices themselves (`notice`).
   Future<void> _observe() async {
     var snapshot = attachment.initial;
     var lastSeq = -1;
     try {
       while (!_done) {
+        _live = snapshot;
         if (snapshot.historyPublicationFailed) {
           _queue(const {
             'type': 'error',
@@ -254,6 +281,8 @@ final class _SessionPipes {
             _queue({'type': 'entry', 'seq': lastSeq, 'entry': entry});
           }
         }
+        _queueNotices(snapshot);
+        _queue(_snapshotEvent(snapshot));
         final update = await attachment.next();
         if (update == null) return;
         snapshot = update.snapshot;
@@ -262,6 +291,51 @@ final class _SessionPipes {
       _queue({'type': 'error', 'error': 'observation stopped: $error'});
     }
   }
+
+  /// Pages the notices a snapshot makes visible and queues them with their
+  /// own sequence numbers; a detected expiry gap is reported once, with
+  /// the history position the omission belongs to. The cursors persist
+  /// across updates on the instance, so each notice is emitted once.
+  void _queueNotices(SessionSnapshot snapshot) {
+    var guard = 0;
+    while (_lastNoticeSeq < snapshot.throughNoticeSeq && guard++ < 64) {
+      final page = attachment.notices(
+        snapshot: snapshot,
+        afterSeq: _lastNoticeSeq,
+        limit: 64,
+      );
+      if (page.entries.isEmpty) break;
+      for (final notice in page.entries) {
+        _queue({
+          'type': 'notice',
+          'seq': notice.seq,
+          'afterHistorySeq': notice.afterHistorySeq,
+          'text': notice.text,
+          if (notice.truncated) 'truncated': true,
+        });
+        _lastNoticeSeq = notice.seq;
+      }
+      final gap = page.omittedThroughSeq;
+      if (gap != null && gap > _expiredNoticeThrough) {
+        _expiredNoticeThrough = gap;
+        _queue({
+          'type': 'notices-expired',
+          'omittedThroughSeq': gap,
+          if (page.omittedAfterHistorySeq case final afterHistory?)
+            'omittedAfterHistorySeq': afterHistory,
+        });
+      }
+    }
+  }
+
+  var _lastNoticeSeq = -1;
+
+  /// The most recent snapshot the observation loop saw; the paging ops
+  /// read through it so a page reflects the session now, not the attach
+  /// time. Null before the loop's first pass.
+  SessionSnapshot? _live;
+  SessionSnapshot get _liveSnapshot => _live ?? attachment.initial;
+  var _expiredNoticeThrough = -1;
 
   void _queueReceipts() {
     for (final entry in _requests.entries.toList()) {
@@ -345,6 +419,86 @@ final class _SessionPipes {
       'session': status.id,
       'model': status.model,
       'epoch': connection.requestWindow.epoch,
+      'commands': [for (final c in connection.commands) _commandJson(c)],
+    };
+  }
+
+  Map<String, Object?> _commandJson(SessionCommand c) => {
+    'name': c.name,
+    'description': c.description,
+    'allowWhileRunning': c.allowWhileRunning,
+    if (c.inputPrefix case final prefix?) 'inputPrefix': prefix,
+  };
+
+  /// The non-history snapshot surface a front end consumes: feature
+  /// projections (live chat previews, plugin state), active tool progress,
+  /// pending questions, the plugin list and the notice watermark. Values
+  /// are the host's detached public data.
+  Map<String, Object?> _snapshotEvent(SessionSnapshot snapshot) => {
+    'type': 'snapshot',
+    'revision': snapshot.cursor.revision,
+    'epoch': snapshot.cursor.epoch,
+    'features': snapshot.features,
+    'unavailableFeatures': snapshot.unavailableFeatures,
+    'activeTools': snapshot.activeTools,
+    'questions': [
+      for (final q in snapshot.questions)
+        {
+          'id': q.id,
+          'prompt': q.prompt,
+          if (q.expiresAt case final expires?) 'expiresAt': expires.toIso8601String(),
+        },
+    ],
+    'plugins': snapshot.plugins,
+    'pendingInputs': snapshot.pendingInputs.length,
+    'throughNoticeSeq': snapshot.throughNoticeSeq,
+  };
+
+  /// The settings catalog the engine serves: public definitions plus each
+  /// setting's resolved value and scope. Secrets never carry values.
+  Map<String, Object?> _settingsEvent() {
+    final catalog = assembly.settings.catalog;
+    return {
+      'type': 'settings',
+      'model': connection.status.model,
+      'plugins': [for (final p in assembly.host.plugins) p.id],
+      'settings': [
+        for (final definition in catalog.definitions) _settingJson(definition),
+      ],
+    };
+  }
+
+  Map<String, Object?> _settingJson(SettingDefinition<Object> definition) {
+    Object? value;
+    String? source;
+    var error = false;
+    try {
+      final resolved = assembly.settings.read<Object>(definition);
+      value = resolved.value;
+      source = resolved.source?.name;
+    } catch (_) {
+      error = true;
+    }
+    return {
+      'id': definition.id,
+      'owner': definition.owner,
+      'label': definition.label,
+      'description': definition.description,
+      'kind': definition.kind.name,
+      'scopes': [for (final s in definition.scopes) s.name],
+      'applyAt': definition.applyAt.name,
+      if (definition.secret) 'secret': true,
+      if (definition.minimum case final min?) 'minimum': min,
+      if (definition.maximum case final max?) 'maximum': max,
+      if (definition.choices.isNotEmpty) 'choices': definition.choices,
+      'default': definition.secret
+          ? null
+          : definition.encodeObject(definition.defaultValue),
+      if (error) 'unreadable': true,
+      if (!error && !definition.secret && value != null) ...{
+        'value': definition.encodeObject(value),
+        if (source case final source?) 'source': source,
+      },
     };
   }
 
@@ -409,6 +563,25 @@ final class _SessionPipes {
         case 'status':
           _emitNow(_statusEvent(connection.status));
           _queueReceipts();
+        case 'commands':
+          _emitNow({
+            'type': 'commands',
+            'commands': [for (final c in connection.commands) _commandJson(c)],
+          });
+        case 'settings':
+          _queue(_settingsEvent());
+        case 'history':
+          _history(decoded);
+        case 'notices':
+          _noticePage(decoded);
+        case 'complete':
+          _complete(decoded);
+        case 'operation':
+          _operation(decoded);
+        case 'answer':
+          _answer(decoded);
+        case 'dismiss':
+          _dismiss(decoded);
         case 'shutdown':
           _queue(const {'type': 'bye'});
           _finish(stop, 0);
@@ -451,4 +624,127 @@ final class _SessionPipes {
     ], reason: reason is String && reason.isNotEmpty ? reason : 'client');
     _emitNow({'type': 'cancel', 'work': work, 'accepted': accepted});
   }
+
+  // ---- discovery and paging ops -------------------------------------------
+
+  /// Pages committed entries through the live snapshot, exactly what the
+  /// observation loop pushes — so a client that received an overflow
+  /// marker (or joined late) can catch up from any sequence position.
+  void _history(Map<String, dynamic> request) {
+    final snapshot = _liveSnapshot;
+    final afterSeq = _pageArg(request['afterSeq'], -1);
+    final limit = _pageArg(request['limit'], 128);
+    final page = connection.history(
+        snapshot: snapshot, afterSeq: afterSeq, limit: limit);
+    _queue({
+      'type': 'history-page',
+      'afterSeq': afterSeq,
+      'nextAfterSeq': page.nextAfterSeq,
+      'hasMore': page.hasMore,
+      'entries': [
+        for (final entry in page.entries)
+          freezeSnapshotValue(entry) as Map<String, Object?>,
+      ],
+    });
+  }
+
+  /// Pages notices explicitly; the same records the observation loop
+  /// pushes as `notice` events.
+  void _noticePage(Map<String, dynamic> request) {
+    final snapshot = _liveSnapshot;
+    final afterSeq = _pageArg(request['afterSeq'], -1);
+    final limit = _pageArg(request['limit'], 128);
+    final page = connection.notices(
+        snapshot: snapshot, afterSeq: afterSeq, limit: limit);
+    _queue({
+      'type': 'notice-page',
+      'afterSeq': afterSeq,
+      'nextAfterSeq': page.nextAfterSeq,
+      'hasMore': page.hasMore,
+      'entries': [
+        for (final n in page.entries)
+          {
+            'seq': n.seq,
+            'afterHistorySeq': n.afterHistorySeq,
+            'text': n.text,
+            if (n.truncated) 'truncated': true,
+          },
+      ],
+    });
+  }
+
+  void _complete(Map<String, dynamic> request) {
+    final name = request['name'];
+    if (name is! String || name.isEmpty) {
+      throw ArgumentError('complete requires name');
+    }
+    final prefix = request['prefix'];
+    unawaited(connection
+        .completeCommand(name, prefix is String ? prefix : '')
+        .then((suggestions) {
+      if (_done) return;
+      _emitNow({
+        'type': 'suggestions',
+        'name': name,
+        'suggestions': suggestions,
+      });
+    }, onError: (Object error) {
+      if (_done) return;
+      _emitNow({'type': 'error', 'error': 'complete: $error', 'op': 'complete'});
+    }));
+  }
+
+  /// A plugin operation under a caller-chosen request ID; its lifecycle
+  /// rides the same receipts a submitted turn's does.
+  void _operation(Map<String, dynamic> request) {
+    final plugin = request['plugin'];
+    final operation = request['operation'];
+    final id = request['id'];
+    final arguments = request['arguments'];
+    if (plugin is! String ||
+        plugin.isEmpty ||
+        operation is! String ||
+        operation.isEmpty) {
+      throw ArgumentError('operation requires plugin and operation');
+    }
+    if (id is! String || id.isEmpty || id.length > 128) {
+      throw ArgumentError('operation requires id (1-128 chars)');
+    }
+    if (arguments != null && arguments is! Map<String, dynamic>) {
+      throw ArgumentError('operation arguments must be an object');
+    }
+    final requestId = connection.requestWindow.id(id);
+    final record = connection.submitOperation(
+      plugin,
+      operation,
+      arguments: arguments is Map<String, dynamic> ? arguments : const {},
+      id: requestId,
+    );
+    _requests[id] = record;
+    _receiptStates[id] = record.snapshot.state;
+    _emitNow(_receiptEvent(id, record.snapshot));
+  }
+
+  void _answer(Map<String, dynamic> request) {
+    final id = request['id'];
+    final text = request['text'];
+    if (id is! String || id.isEmpty) {
+      throw ArgumentError('answer requires id');
+    }
+    final accepted =
+        connection.questions.answer(id, text is String ? text : '');
+    _emitNow({'type': 'question-result', 'id': id, 'accepted': accepted});
+  }
+
+  void _dismiss(Map<String, dynamic> request) {
+    final id = request['id'];
+    if (id is! String || id.isEmpty) {
+      throw ArgumentError('dismiss requires id');
+    }
+    final accepted = connection.questions.dismiss(id);
+    _emitNow({'type': 'question-result', 'id': id, 'accepted': accepted});
+  }
+
+  int _pageArg(Object? raw, int fallback) =>
+      raw is num ? raw.toInt() : fallback;
 }

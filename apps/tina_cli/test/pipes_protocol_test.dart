@@ -248,4 +248,215 @@ void main() {
     input.add(utf8.encode('${jsonEncode({'op': 'shutdown'})}\n'));
     expect(await exitCode.timeout(const Duration(seconds: 30)), 0);
   });
+
+  test('discovery: commands ride ready, settings catalog, completion', () async {
+    final (:assembly, :provider, :input, :events, :exitCode) =
+        _piped([scriptedReply('done')]);
+    addTearDown(() async {
+      input.close();
+      await exitCode;
+      await assembly.shutdown();
+    });
+
+    final ready = await waitForEvent(events, 'ready', (e) => e['type'] == 'ready');
+    final commands = ready['commands'] as List;
+    final mode = commands.firstWhere((c) => c['name'] == 'mode') as Map;
+    expect(mode['description'], isA<String>());
+    expect(mode['allowWhileRunning'], isA<bool>());
+
+    input.add(utf8.encode('${jsonEncode({'op': 'commands'})}\n'));
+    final echoed = await waitForEvent(
+      events,
+      'the commands event',
+      (e) => e['type'] == 'commands',
+    );
+    expect(
+      (echoed['commands'] as List).map((c) => c['name']),
+      contains('mode'),
+    );
+
+    input.add(utf8.encode('${jsonEncode({'op': 'settings'})}\n'));
+    final settings = await waitForEvent(
+      events,
+      'the settings event',
+      (e) => e['type'] == 'settings',
+    );
+    expect(settings['model'], ready['model']);
+    final catalog = settings['settings'] as List;
+    expect(catalog, isNotEmpty, reason: 'the installed plugins define settings');
+    for (final entry in catalog.cast<Map>()) {
+      expect(entry['id'], isA<String>());
+      expect(entry['label'], isA<String>());
+      expect(entry['kind'], isA<String>());
+      expect((entry['scopes'] as List), isNotEmpty);
+    }
+
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'complete', 'name': 'mode', 'prefix': ''})}\n'));
+    final suggestions = await waitForEvent(
+      events,
+      'the suggestions event',
+      (e) => e['type'] == 'suggestions',
+    );
+    expect(suggestions['name'], 'mode');
+    expect(suggestions['suggestions'], isA<List>());
+
+    input.add(utf8.encode('${jsonEncode({'op': 'shutdown'})}\n'));
+    expect(await exitCode.timeout(const Duration(seconds: 30)), 0);
+  });
+
+  test('snapshot stream carries the front-end surface per update', () async {
+    final (:assembly, :provider, :input, :events, :exitCode) =
+        _piped([scriptedReply('done')]);
+    addTearDown(() async {
+      input.close();
+      await exitCode;
+      await assembly.shutdown();
+    });
+
+    final ready = await waitForEvent(events, 'ready', (e) => e['type'] == 'ready');
+    final first = await waitForEvent(
+      events,
+      'the first snapshot',
+      (e) => e['type'] == 'snapshot',
+    );
+    expect(first['epoch'], ready['epoch']);
+    expect(first['revision'], isA<int>());
+    expect(first['features'], isA<Map>());
+    expect(first['activeTools'], isA<Map>());
+    expect(first['questions'], isA<List>());
+    expect(first['plugins'], isA<List>());
+    expect(first['pendingInputs'], isA<int>());
+    expect(first['throughNoticeSeq'], isA<int>());
+
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'submit', 'id': 's1', 'line': 'go'})}\n'));
+    await waitForEvent(
+      events,
+      's1 completed',
+      (e) =>
+          e['type'] == 'receipt' && e['id'] == 's1' && e['state'] == 'completed',
+    );
+    final last = events.lastWhere((e) => e['type'] == 'snapshot');
+    expect(
+      (last['revision'] as num).toInt(),
+      greaterThan(first['revision'] as int),
+      reason: 'the turn moved the snapshot revision',
+    );
+
+    input.add(utf8.encode('${jsonEncode({'op': 'shutdown'})}\n'));
+    expect(await exitCode.timeout(const Duration(seconds: 30)), 0);
+  });
+
+  test('history and notices pages catch a client up', () async {
+    final (:assembly, :provider, :input, :events, :exitCode) =
+        _piped([scriptedReply('done')]);
+    addTearDown(() async {
+      input.close();
+      await exitCode;
+      await assembly.shutdown();
+    });
+
+    await waitForEvent(events, 'ready', (e) => e['type'] == 'ready');
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'submit', 'id': 'h1', 'line': 'go'})}\n'));
+    await waitForEvent(
+      events,
+      'h1 completed',
+      (e) =>
+          e['type'] == 'receipt' && e['id'] == 'h1' && e['state'] == 'completed',
+    );
+
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'history', 'afterSeq': -1, 'limit': 128})}\n'));
+    final page = await waitForEvent(
+      events,
+      'the history page',
+      (e) => e['type'] == 'history-page',
+    );
+    final entries = page['entries'] as List;
+    expect(entries, isNotEmpty);
+    expect(
+      entries.map((e) => e['type']),
+      containsAll(['turn_started', 'message_appended', 'turn_ended']),
+    );
+    for (final wire in entries.cast<Map>()) {
+      final decoded = SessionEntry.fromJson(Map<String, dynamic>.from(wire));
+      expect(decoded.seq, wire['seq'], reason: 'seq must survive the page');
+    }
+
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'history', 'afterSeq': -1, 'limit': 2})}\n'));
+    final bounded = await waitForEvent(
+      events,
+      'the bounded history page',
+      (e) =>
+          e['type'] == 'history-page' && (e['entries'] as List).length == 2,
+    );
+    expect(bounded['hasMore'], isTrue);
+
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'notices', 'afterSeq': -1, 'limit': 128})}\n'));
+    final notices = await waitForEvent(
+      events,
+      'the notices page',
+      (e) => e['type'] == 'notice-page',
+    );
+    expect(notices['entries'], isEmpty);
+    expect(notices['hasMore'], isFalse,
+        reason: 'a headless session wrote no notices');
+
+    input.add(utf8.encode('${jsonEncode({'op': 'shutdown'})}\n'));
+    expect(await exitCode.timeout(const Duration(seconds: 30)), 0);
+  });
+
+  test('operations and questions ride the receipt protocol', () async {
+    final (:assembly, :provider, :input, :events, :exitCode) =
+        _piped([scriptedReply('done')]);
+    addTearDown(() async {
+      input.close();
+      await exitCode;
+      await assembly.shutdown();
+    });
+
+    await waitForEvent(events, 'ready', (e) => e['type'] == 'ready');
+
+    input.add(utf8.encode('${jsonEncode({
+      'op': 'operation',
+      'plugin': 'tina/mode',
+      'operation': 'set',
+      'arguments': {'mode': 'allowEdits', 'expected_mode': 'ask'},
+      'id': 'mode-1',
+    })}\n'));
+    await waitForEvent(
+      events,
+      'mode-1 completed',
+      (e) =>
+          e['type'] == 'receipt' &&
+          e['id'] == 'mode-1' &&
+          e['state'] == 'completed',
+    );
+
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'answer', 'id': 'no-such-question', 'text': 'x'})}\n'));
+    final answered = await waitForEvent(
+      events,
+      'the answer result',
+      (e) => e['type'] == 'question-result',
+    );
+    expect(answered['id'], 'no-such-question');
+    expect(answered['accepted'], isFalse,
+        reason: 'no question is pending in this session');
+
+    input.add(utf8.encode(
+        '${jsonEncode({'op': 'dismiss', 'id': 'no-such-question'})}\n'));
+    final dismissed = events.lastWhere(
+      (e) => e['type'] == 'question-result',
+      orElse: () => throw StateError('dismiss result missing'),
+    );
+    expect(dismissed['accepted'], isFalse);
+
+    input.add(utf8.encode('${jsonEncode({'op': 'shutdown'})}\n'));
+    expect(await exitCode.timeout(const Duration(seconds: 30)), 0);
+  });
 }
