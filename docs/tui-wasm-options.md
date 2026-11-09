@@ -234,3 +234,86 @@ regression of this program.
 - Tool paths in scripted scenarios differ per engine: the native engine
   resolves host paths, the wasm guest sees only preopens, so absolute
   host paths outside a preopen are not writable by the wasm engine.
+
+## Outcome (Phases A and B, 2026-11-09)
+
+Option 1 is landed end to end on `codex/issue85-plugin-management`:
+Phase A made the pipes wire carry what the TUI consumes
+(`16c0b60`..`c64539a`: byte-exact line decoding, bounded outbound
+queue, front-end surface on the wire, `SessionConnection` as an
+interface), and Phase B routes the terminal app through a spawned
+engine (`7bdc78f`: `EngineProcess` launcher, `--engine
+native|wasm|<path>`, remote TUI session and approval dialog, the wasm
+registry's `tina/chat-tui` live-preview projection). The full
+interactive scenario — streamed turn, approval grant, mid-stream
+cancel, `/plugins` reload, clean quit — passes through the TUI on both
+engines; the packaged host (`89498ac0…`) and engine component
+(`dd2b2cf…`) are unchanged since Phase B.
+
+## Phase C report — dogfood over the wasm engine (2026-11-09)
+
+A human-shaped dogfood pass: the terminal app driven by hand in a real
+pty (tmux, ANSI backend) over `tina --engine wasm` with the packaged
+host, against a scripted Anthropic-wire provider, in a scratch
+workspace. Two sessions, both ending with the engine exiting 0.
+
+### What was exercised
+
+- **Session 1** — a plain turn that asks for a note file: the streamed
+  preview and tool receipt render through the wire; the ask-mode write
+  raises the approval dialog (`y` allow once); the file lands on disk
+  with the requested content; the final reply streams in. A second
+  slow turn cancelled mid-stream with Escape (`cancelled: escape`,
+  strip back to idle, no stray provider writes).
+- **Reload with a rebuilt artifact** — the prompt-plugin fixture was
+  rebuilt twice from source through the pinned-SDK fixture pipeline
+  (v1: unmodified source, `b60a5ab7…`; v2: same plugin with a
+  `dogfood=v2` marker appended to its prompt-section output,
+  `7d7590e0…`). The session started attached to v1 (`/plugins` shows
+  `open`, lease `tina-plugin-lease-1-2`, `reloads=0`); the artifact
+  file was then replaced with v2 and `/plugins reload` attached a
+  fresh store (lease `…-1-3`, `reloads=1`). The proof that the *new*
+  artifact was adopted lives on the provider wire: the plugin's
+  prompt section reached the model request with the v1 store's run
+  counter (`run=1`, then `run=2`, `run=3` across the session's turns)
+  and, after the reload, with `run=1;dogfood=v2` — fresh plugin state
+  and the rebuilt component in one observable.
+- **Session 2** — a fresh process over the same workspace: the
+  rebuilt artifact attaches cold, a turn streams, quit exits 0.
+- **Startup cost** — 19 s from `dart run bin/tina.dart --engine wasm`
+  to an interactive prompt (dart run build hooks, engine spawn,
+  component instantiation, plugin compile-on-load, TUI init). The
+  packaged host is a release binary; most of the wait is the CLI's
+  own `dart run` tax, which a compiled binary removes.
+
+### Rough edges found (all cosmetic or parsing, none blocking)
+
+1. `--engine-arg` rejects a space-separated value that starts with
+   `--` ("incomplete argument: --engine-arg requires ARGS") — which is
+   exactly the form the option's own help text suggests. The
+   `--engine-arg='--plugin-component=…'` form parses. A parser fix
+   (accept the next token as the value) is queued under next steps.
+2. Each launch prints the Dart build-hook line (`Running build
+   hooks...`) to stderr twice before the TUI starts. Noise, not a
+   fault; also disappears with a compiled binary.
+3. The approval dialog names the tool and path only (decision-only
+   surface, as designed — see the limitations above). Reading the
+   full diff before deciding is a next-steps item, not a Phase C gap.
+
+Everything else behaved as designed: the status strip identity
+(session id, model, token spend), the chat preview, the receipt
+states (`running` → `ok`), the cancellation message, the lease book
+and reload counters, and clean engine shutdown on quit.
+
+### Known next steps
+
+- Fix the `--engine-arg` value parsing; align its help example.
+- Ship a compiled CLI binary as the recommended dogfood path and
+  re-measure startup without the `dart run` tax.
+- Child sessions over one engine process (the protocol carries one
+  session today), a settings surface beyond discovery, theme and
+  `@`-completion sources over the wire, richer approval payloads
+  (command pattern, directory grant, diff preview), and `--model`
+  for remote engines.
+- Option 2 (TUI inside the sandbox, ANSI) stays a timeboxed spike on
+  a separate branch, awaiting the go.
