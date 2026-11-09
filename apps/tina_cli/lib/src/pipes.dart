@@ -438,6 +438,7 @@ final class _SessionPipes {
     'type': 'snapshot',
     'revision': snapshot.cursor.revision,
     'epoch': snapshot.cursor.epoch,
+    'throughSeq': snapshot.throughSeq,
     'features': snapshot.features,
     'unavailableFeatures': snapshot.unavailableFeatures,
     'activeTools': snapshot.activeTools,
@@ -450,7 +451,10 @@ final class _SessionPipes {
         },
     ],
     'plugins': snapshot.plugins,
-    'pendingInputs': snapshot.pendingInputs.length,
+    'pendingInputs': [
+      for (final input in snapshot.pendingInputs)
+        {'line': input.text, 'id': input.id},
+    ],
     'throughNoticeSeq': snapshot.throughNoticeSeq,
   };
 
@@ -566,10 +570,15 @@ final class _SessionPipes {
         case 'commands':
           _emitNow({
             'type': 'commands',
+            if (decoded['id'] case final id?) 'for': id,
             'commands': [for (final c in connection.commands) _commandJson(c)],
           });
         case 'settings':
-          _queue(_settingsEvent());
+          _queue({
+            'type': 'settings',
+            if (decoded['id'] case final id?) 'for': id,
+            ..._settingsEvent(),
+          });
         case 'history':
           _history(decoded);
         case 'notices':
@@ -638,6 +647,7 @@ final class _SessionPipes {
         snapshot: snapshot, afterSeq: afterSeq, limit: limit);
     _queue({
       'type': 'history-page',
+      if (request['id'] case final id?) 'for': id,
       'afterSeq': afterSeq,
       'nextAfterSeq': page.nextAfterSeq,
       'hasMore': page.hasMore,
@@ -658,6 +668,7 @@ final class _SessionPipes {
         snapshot: snapshot, afterSeq: afterSeq, limit: limit);
     _queue({
       'type': 'notice-page',
+      if (request['id'] case final id?) 'for': id,
       'afterSeq': afterSeq,
       'nextAfterSeq': page.nextAfterSeq,
       'hasMore': page.hasMore,
@@ -679,6 +690,7 @@ final class _SessionPipes {
       throw ArgumentError('complete requires name');
     }
     final prefix = request['prefix'];
+    final opId = request['id'];
     unawaited(connection
         .completeCommand(name, prefix is String ? prefix : '')
         .then((suggestions) {
@@ -686,6 +698,7 @@ final class _SessionPipes {
       _emitNow({
         'type': 'suggestions',
         'name': name,
+        if (opId case final id?) 'for': id,
         'suggestions': suggestions,
       });
     }, onError: (Object error) {

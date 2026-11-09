@@ -326,7 +326,11 @@ void main() {
     expect(first['activeTools'], isA<Map>());
     expect(first['questions'], isA<List>());
     expect(first['plugins'], isA<List>());
-    expect(first['pendingInputs'], isA<int>());
+    expect(first['pendingInputs'], isA<List>());
+    for (final input in (first['pendingInputs'] as List)) {
+      expect((input as Map)['line'], isA<String>());
+      expect(input['id'], isA<String>());
+    }
     expect(first['throughNoticeSeq'], isA<int>());
 
     input.add(utf8.encode(

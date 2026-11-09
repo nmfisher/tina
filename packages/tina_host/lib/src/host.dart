@@ -80,7 +80,7 @@ final class Host {
   final _commandWork = <String, Command>{};
   final _commandQuestions = <String, QuestionScope>{};
   final _pendingWork = <Completer<void>>{};
-  final _connections = <SessionConnection>{};
+  final _connections = <InProcessSessionConnection>{};
   bool _notificationQueued = false;
   late final String _epoch;
 
@@ -89,7 +89,7 @@ final class Host {
   ClockPort get _clock => config.clock ?? const SystemClock();
   RandomPort get _random => config.random ?? SystemRandom();
   int _snapshotRevision = 0;
-  SessionSnapshot? _lastSnapshot;
+  InProcessSessionSnapshot? _lastSnapshot;
   final _features = <String, _FeatureObservation>{};
   final _featureFailures = <String>{};
   final _activeTools = <String, Object?>{};
@@ -183,7 +183,7 @@ final class Host {
   /// do not append a log entry. No client callbacks run in this call.
   void refreshSnapshot() => _changed();
 
-  SessionSnapshot _captureSnapshot() {
+  InProcessSessionSnapshot _captureSnapshot() {
     if (_capturing || session.loop.publishing) {
       throw StateError(
           'Cannot attach or capture during synchronous publication');
@@ -200,7 +200,7 @@ final class Host {
           unavailable.add(entry.key);
         }
       }
-      return _lastSnapshot = SessionSnapshot._(
+      return _lastSnapshot = InProcessSessionSnapshot._(
           SessionCursor(_epoch, ++_snapshotRevision),
           _status(),
           session.loop.publishedSeq,
@@ -232,9 +232,9 @@ final class Host {
   }
 
   /// A disposable client capability; its lifetime never owns this host.
-  SessionConnection connect({SessionRole role = SessionRole.controller}) {
+  InProcessSessionConnection connect({SessionRole role = SessionRole.controller}) {
     _checkOpen();
-    final connection = SessionConnection._(this, role);
+    final connection = InProcessSessionConnection._(this, role);
     _connections.add(connection);
     return connection;
   }

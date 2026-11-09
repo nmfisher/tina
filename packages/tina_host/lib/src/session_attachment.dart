@@ -10,8 +10,37 @@ final class SessionCursor {
 /// Complete current attachment state. History is paged separately through
 /// [throughSeq], never copied into each progress update. Feature values are
 /// detached public data supplied by their owners, not a second durable store.
-final class SessionSnapshot {
-  SessionSnapshot._(
+/// Complete current attachment state. History is paged separately through
+/// [SessionSnapshot.throughSeq], never copied into each progress update.
+/// Feature values are detached public data supplied by their owners, not a
+/// second durable store. In-process the host materializes this; over pipes
+/// the front end accumulates it from `snapshot` events — the same surface
+/// either way.
+abstract interface class SessionSnapshot {
+  SessionCursor get cursor;
+  SessionStatus get status;
+
+  /// Last contiguous entry successfully published to synchronous
+  /// subscribers. With persistence installed, its writes finish before this
+  /// watermark moves.
+  int get throughSeq;
+  bool get historyPublicationFailed;
+  int get throughNoticeSeq;
+  List<Input> get pendingInputs;
+
+  /// Bounded request receipts; use the original ID to query or retry.
+  /// Missing receipts are not evidence that an operation was never executed.
+  List<SessionRequestSnapshot> get requests;
+  List<SessionWork> get activeWork;
+  List<SessionQuestion> get questions;
+  List<String> get plugins;
+  List<String> get unavailableFeatures;
+  Map<String, Object?> get features;
+  Map<String, Object?> get activeTools;
+}
+
+final class InProcessSessionSnapshot implements SessionSnapshot {
+  InProcessSessionSnapshot._(
       this.cursor,
       this.status,
       this.throughSeq,
@@ -56,6 +85,16 @@ final class SessionHistoryPage {
   SessionHistoryPage._(this.epoch, this.throughSeq, this.nextAfterSeq,
       this.hasMore, Iterable<Map<String, Object?>> entries)
       : entries = List.unmodifiable(entries);
+
+  /// A page assembled from received data rather than the host's log —
+  /// the pipes front end pages its own cache of pushed entries.
+  SessionHistoryPage.of(
+      {required this.epoch,
+      required this.throughSeq,
+      required this.nextAfterSeq,
+      required this.hasMore,
+      required Iterable<Map<String, Object?>> entries})
+      : entries = List.unmodifiable(entries);
   final String epoch;
   final int throughSeq, nextAfterSeq;
   final bool hasMore;
@@ -75,11 +114,28 @@ final class SessionUpdate {
 /// attachment retains at most one unread replacement. Paused consumers cannot
 /// accumulate a StreamController queue. Closing settles an outstanding read
 /// without cancelling session work or resolving interactions.
-final class SessionAttachment {
-  SessionAttachment._(this._connection, this.initial)
+abstract interface class SessionAttachment {
+  SessionSnapshot get initial;
+
+  Future<SessionUpdate?> next();
+
+  SessionHistoryPage history(
+      {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128});
+
+  SessionNoticePage notices(
+      {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128});
+
+  int get bufferedUpdates;
+
+  void close();
+}
+
+/// The in-process attachment: the host materializes the same contract.
+final class InProcessSessionAttachment implements SessionAttachment {
+  InProcessSessionAttachment._(this._connection, this.initial)
       : _lastOffered = initial.cursor.revision;
-  final SessionConnection _connection;
-  final SessionSnapshot initial;
+  final InProcessSessionConnection _connection;
+  final InProcessSessionSnapshot initial;
   SessionUpdate? _pending;
   Completer<SessionUpdate?>? _waiting;
   bool _closed = false;
@@ -98,7 +154,7 @@ final class SessionAttachment {
     return (_waiting = Completer<SessionUpdate?>()).future;
   }
 
-  void _offer(SessionSnapshot snapshot) {
+  void _offer(InProcessSessionSnapshot snapshot) {
     if (_closed || snapshot.cursor.revision <= _lastOffered) return;
     _lastOffered = snapshot.cursor.revision;
     final waiter = _waiting;

@@ -75,8 +75,17 @@ final class SessionRequestSnapshot {
 /// Acceptance is synchronous and in memory. Completion is separate, read-only,
 /// and survives connection close. Failed execution is a terminal snapshot, not
 /// an unhandled future error when the submitting client has disconnected.
-final class SessionRequest {
-  SessionRequest._(this._record);
+/// One client's handle on an admitted request: its live receipt snapshot
+/// and its terminal future. In-process this wraps the host's request
+/// record; over pipes the front end derives the same surface from
+/// `receipt` events.
+abstract interface class SessionRequest {
+  SessionRequestSnapshot get snapshot;
+  Future<SessionRequestSnapshot> get completed;
+}
+
+final class InProcessSessionRequest implements SessionRequest {
+  InProcessSessionRequest._(this._record);
   final _RequestRecord _record;
   SessionRequestSnapshot get snapshot => _record.snapshot;
   Future<SessionRequestSnapshot> get completed => _record.done.future;
@@ -89,7 +98,7 @@ final class _RequestRecord {
   final SessionRequestId id;
   final String text;
   final String kind;
-  late final client = SessionRequest._(this);
+  late final client = InProcessSessionRequest._(this);
   final done = Completer<SessionRequestSnapshot>();
   SessionRequestSnapshot snapshot;
   bool cancellationRequested = false;

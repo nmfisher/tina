@@ -64,10 +64,46 @@ final class SessionResult {
       detail.isNotEmpty && stopReason != StopReason.complete ? detail : null;
 }
 
+/// The client side of one running session: controllers drive it (submit,
+/// cancel, operations, answers), observers read the same state without
+/// driving. In-process the concrete implementation wraps the host
+/// directly; over pipes, the application layer's `PipesConnection` serves
+/// the same contract across the protocol, so a front end's engine calls
+/// never require an in-process object.
+abstract interface class SessionConnection {
+  SessionRole get role;
+  ClientAccess get access;
+  bool get canControl;
+  QuestionClient get questions;
+  SessionAttachment attach();
+  SessionHistoryPage history(
+      {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128});
+  SessionNoticePage notices(
+      {required SessionSnapshot snapshot, int afterSeq = -1, int limit = 128});
+  SessionStatus get status;
+  List<String> get inputHistory;
+  List<SessionCommand> get commands;
+  SessionCommandCall? commandFor(String line);
+  Future<List<String>> completeCommand(String name, String prefix);
+  Future<SessionResult> submit(String line);
+  SessionRequestWindow get requestWindow;
+  SessionRequest? request(SessionRequestId id);
+  SessionRequest submitOperation(String plugin, String operation,
+      {Map<String, Object?> arguments = const {},
+      required SessionRequestId id});
+  SessionOutputPage output(SessionRequestId id, {int afterSeq = -1});
+  SessionRequest submitRequest(String line, {required SessionRequestId id});
+  bool offerInput(String line);
+  Future<SessionResult>? offerCommand(String line);
+  bool cancel(Iterable<String> workIds, {String reason = 'client'});
+  void Function() listen(void Function(SessionStatus) listener);
+  void close();
+}
+
 /// Concrete in-process client connection. Closing it removes only its own
 /// observers. It cannot close the host, mutate a registry or obtain a plugin.
-final class SessionConnection {
-  SessionConnection._(this._host, this.role);
+final class InProcessSessionConnection implements SessionConnection {
+  InProcessSessionConnection._(this._host, this.role);
   final Host _host;
   final SessionRole role;
   late final ClientAccess access = ClientAccess(
@@ -78,22 +114,22 @@ final class SessionConnection {
       });
   bool get canControl => access.canControl;
   bool _closed = false;
-  QuestionClient? _questions;
-  QuestionClient get questions {
+  InProcessQuestionClient? _questions;
+  InProcessQuestionClient get questions {
     _checkOpen();
     return _questions ??= _host.questions.connect(access: access);
   }
 
   final _listeners = <Object, void Function(SessionStatus)>{};
-  final _attachments = <SessionAttachment>{};
+  final _attachments = <InProcessSessionAttachment>{};
 
   /// Capture current state and register delivery synchronously, without an
   /// await or a user callback between them. Updates replace the initial state.
-  SessionAttachment attach() {
+  InProcessSessionAttachment attach() {
     _checkOpen();
     _host._checkOpen();
     final snapshot = _host._captureSnapshot();
-    final attachment = SessionAttachment._(this, snapshot);
+    final attachment = InProcessSessionAttachment._(this, snapshot);
     _attachments.add(attachment);
     return attachment;
   }
@@ -267,14 +303,14 @@ final class SessionConnection {
 
   /// Observe a retained receipt without executing it. Null means unknown in a
   /// current window; an unknown retired ID explicitly throws expiry instead.
-  SessionRequest? request(SessionRequestId id) {
+  InProcessSessionRequest? request(SessionRequestId id) {
     _checkOpen();
     return _host._requests.find(id)?.client;
   }
 
   /// Invoke a plugin operation through the owner, using only serializable data.
   /// Retries retain the same receipt; detach never stops accepted work.
-  SessionRequest submitOperation(String plugin, String operation,
+  InProcessSessionRequest submitOperation(String plugin, String operation,
       {Map<String, Object?> arguments = const {},
       required SessionRequestId id}) {
     _checkOpen();
@@ -324,7 +360,7 @@ final class SessionConnection {
   /// Unlike [submit], completion describes this individual input, not the whole
   /// drain of subsequent steered inputs. Existing one-shot methods retain their
   /// embedded-client behavior and do not promise retry safety.
-  SessionRequest submitRequest(String line, {required SessionRequestId id}) {
+  InProcessSessionRequest submitRequest(String line, {required SessionRequestId id}) {
     _checkOpen();
     _host._checkOpen();
     access.requireControl();
