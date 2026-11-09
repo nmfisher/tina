@@ -1,4 +1,3 @@
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -38,13 +37,19 @@ class UpdateError implements Exception {
 
 /// The release asset target slug for the running platform, matching
 /// tool/build_bundle.sh's matrix — or null where tina doesn't ship bundles.
+///
+/// `Platform.version` embeds the host ABI the running SDK was built for
+/// (e.g. `3.9.0 (...) on "linux_x64"`) — the same answer dart:ffi's `Abi`
+/// gave, without importing a library that does not exist under wasm (where
+/// the self-update flow cannot run anyway; unknown shapes answer null).
 String? targetForCurrentPlatform() {
-  switch (Abi.current()) {
-    case Abi.macosArm64:
+  final host = RegExp(r'on "(\w+)"').firstMatch(Platform.version)?.group(1);
+  switch (host) {
+    case 'macos_arm64':
       return 'macos-arm64';
-    case Abi.linuxX64:
+    case 'linux_x64':
       return 'linux-x64';
-    case Abi.linuxArm64:
+    case 'linux_arm64':
       return 'linux-arm64';
     default:
       return null;
