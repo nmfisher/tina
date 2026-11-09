@@ -6,6 +6,8 @@
 library;
 
 import 'package:tina_approvals/tina_approvals.dart' as tina_approvals;
+import 'package:tina_chat/tina_chat.dart'
+    show ChatPlugin, terminalAlertsSetting;
 import 'package:tina_host/tina_host.dart' hide PluginManager;
 import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
@@ -119,6 +121,30 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
         switchModel: c.switchModel,
       ),
       description: 'Conversation controls (model, reasoning, stop).',
+    ),
+    // The live chat projection: token streaming reaches the attached front
+    // end as `tina/chat-tui` feature previews in snapshot events. The same
+    // definition the native catalog serves (snapshot_catalog maps it).
+    PluginDefinition<SessionPluginContext>(
+      'tina/chat-tui',
+      (c) => ChatPlugin(
+        model: c.model,
+        tokenCap: c.limits.sessionTokens,
+        currentTokenCap: () => c.currentLimits.sessionTokens,
+        showSessionId: c.openStore != null,
+        terminalAlertsEnabled: () =>
+            c.settings?.read(terminalAlertsSetting).value ?? true,
+        sessionTokens: c.providerPolicy == null
+            ? null
+            : () => c.providerPolicy!.sessionTokens,
+        sessionEstimatedTokens: c.providerPolicy == null
+            ? null
+            : () => c.providerPolicy!.sessionEstimatedTokens,
+      ),
+      description:
+          'Projects the live conversation preview (streaming tokens, model, '
+          'token spend) to the attached front end.',
+      live: true,
     ),
     if (includeRemotePromptPlugin) ...[
       PluginDefinition<SessionPluginContext>(

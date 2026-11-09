@@ -15,6 +15,8 @@ dependencies:
     path: ../../../apps/tina_cli
   tina_approvals:
     path: ../../../packages/plugins/tina_approvals
+  tina_chat:
+    path: ../../../packages/plugins/tina_chat
   tina_core:
     path: ../../tina_core
   tina_llm:

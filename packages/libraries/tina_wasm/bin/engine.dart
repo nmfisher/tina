@@ -199,13 +199,16 @@ final class _TestedModule implements tests.TestedModule {
           // The portable baseline; persistence joins only when the
           // composition root loaded a store for it (the baseline is
           // validated against the registry, so it cannot name what the
-          // registry does not carry).
+          // registry does not carry). The chat projection rides the same
+          // snapshotFeatureFor mapping the native assembly serves, so an
+          // attached front end streams tokens over the pipes protocol.
           'tina/system-instruction',
           'tina/providers',
           'tina/mode',
           'tina/tools',
           'tina/approvals-stream',
           'tina/session-controls',
+          'tina/chat-tui',
           if (store != null) 'tina/persistence',
           if (includeRemotePromptPlugin) ...[
             RemotePromptPlugin.pluginId,

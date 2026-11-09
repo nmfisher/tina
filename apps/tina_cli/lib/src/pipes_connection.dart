@@ -34,10 +34,16 @@
 ///   watermark is exactly the recovery path.
 /// - `cancel` reports whether the work appeared cancellable locally; the
 ///   engine's own accept/reply arrives as `cancel` events.
+/// - Approvals surface through [approvals]: `approval` events become
+///   pending [ApprovalRequest]s, `respond` sends the `approve` op, and
+///   `approval-result` retires the ask. The wire carries the decision
+///   only — command patterns and directory grants stay engine-side.
 library;
 
 import 'dart:async';
 
+import 'package:tina_approvals/tina_approvals.dart'
+    show ApprovalDecision, ApprovalKind, ApprovalRequest;
 import 'package:tina_engine_2/tina_engine_2.dart' show Input, StopReason;
 import 'package:tina_host/tina_host.dart';
 
@@ -70,14 +76,17 @@ final class PipesConnection implements SessionConnection {
   bool _closed = false;
   String _epoch = '';
   String _model = '';
+  String _sessionId = '';
   final _requests = <String, PipesRequest>{};
   final _statusListeners = <Object, void Function(SessionStatus)>{};
   final _questionListeners = <Object, void Function(List<SessionQuestion>)>{};
+  final _approvalListeners = <Object, void Function(List<ApprovalRequest>)>{};
   final _attachments = <_PipesAttachment>{};
   final _queries = <_QueryWaiter>{};
   final _entries = <Map<String, Object?>>[];
   final _notices = <SessionNotice>[];
   final _commands = <SessionCommand>[];
+  final _pendingApprovals = <String, ApprovalRequest>{};
   int _throughSeq = -1;
   int _throughNoticeSeq = -1;
   SessionStatus _status = SessionStatus(
@@ -97,7 +106,10 @@ final class PipesConnection implements SessionConnection {
     switch (event['type']) {
       case 'ready':
         _epoch = event['epoch'] as String? ?? '';
-        _model = event['model'] as String? ?? '';
+        _sessionId = event['session'] as String? ?? _sessionId;
+        _model = event['model'] as String? ?? _model;
+        _status = _statusFromEvent(const {});
+        _notifyStatus();
         _commands
           ..clear()
           ..addAll([
@@ -139,9 +151,28 @@ final class PipesConnection implements SessionConnection {
         if (seq != null && seq > _throughNoticeSeq) _throughNoticeSeq = seq;
       case 'receipt':
         _requests[event['id'] as String]?._applyReceipt(event);
+      case 'approval':
+        final id = event['id'] as String?;
+        if (id == null || id.isEmpty) break;
+        final kind = switch (event['kind']) {
+          'confirmation' => ApprovalKind.confirmation,
+          _ => ApprovalKind.permission,
+        };
+        _pendingApprovals[id] = ApprovalRequest(
+            id: id,
+            operation: event['operation'] as String? ?? '',
+            target: event['target'] as String? ?? '',
+            reason: event['reason'] as String? ?? '',
+            kind: kind);
+        _notifyApprovals();
+      case 'approval-result':
+        final id = event['id'] as String?;
+        if (id != null && _pendingApprovals.remove(id) != null) {
+          _notifyApprovals();
+        }
+        _settleQueries(event);
       case 'cancel':
       case 'question-result':
-      case 'approval-result':
       case 'commands':
       case 'settings':
       case 'history-page':
@@ -152,7 +183,7 @@ final class PipesConnection implements SessionConnection {
   }
 
   SessionStatus _statusFromEvent(Map<String, dynamic> event) => SessionStatus(
-      id: _status.id,
+      id: _sessionId,
       model: _model,
       workingDirectory: '',
       running: event['running'] as bool? ?? false,
@@ -188,6 +219,24 @@ final class PipesConnection implements SessionConnection {
       }
     }
   }
+
+  void _notifyApprovals() {
+    final pending = approvals.pending;
+    for (final entry in _approvalListeners.entries.toList()) {
+      if (!_approvalListeners.containsKey(entry.key)) continue;
+      try {
+        entry.value(pending);
+      } catch (_) {
+        _approvalListeners.remove(entry.key);
+      }
+    }
+  }
+
+  /// Approval asks delivered by the engine (`approval` events), answered
+  /// with the `approve` op. The wire carries the decision only — command
+  /// patterns and directory grants stay engine-side.
+  PipesApprovals get approvals => _approvals;
+  late final PipesApprovals _approvals = PipesApprovals._(this);
 
   /// Sends one op and completes with the first event of [responseType]
   /// whose `for` echoes the op's correlation id (or that simply matches
@@ -316,7 +365,34 @@ final class PipesConnection implements SessionConnection {
   }
 
   @override
-  SessionStatus get status => _status;
+  SessionStatus get status => _composedStatus();
+
+  /// The latest status, composed with the work this client's own live
+  /// receipts prove: a receipt is written immediately, its carrying status
+  /// event is queued, so between the two the wire's status alone is stale
+  /// and a front end's escape would cancel nothing. Work a running receipt
+  /// names is cancellable until that receipt reports a terminal state.
+  SessionStatus _composedStatus() {
+    final extra = <SessionWork>[
+      for (final request in _requests.values)
+        if (!request.snapshot.terminal && request.snapshot.workId != null)
+          if (!_status.cancellableWork
+              .any((work) => work.id == request.snapshot.workId))
+            SessionWork(request.snapshot.workId!, 'turn'),
+    ];
+    if (extra.isEmpty) return _status;
+    return SessionStatus(
+        id: _status.id,
+        model: _status.model,
+        workingDirectory: _status.workingDirectory,
+        running: _status.running || extra.isNotEmpty,
+        busy: _status.busy || extra.isNotEmpty,
+        acceptsInput: _status.acceptsInput,
+        pendingInputCount: _status.pendingInputCount,
+        stopping: _status.stopping,
+        closed: _status.closed,
+        cancellableWork: [..._status.cancellableWork, ...extra]);
+  }
 
   @override
   List<String> get inputHistory {
@@ -463,6 +539,7 @@ final class PipesConnection implements SessionConnection {
     _closed = true;
     _statusListeners.clear();
     _questionListeners.clear();
+    _approvalListeners.clear();
     for (final attachment in _attachments.toList()) {
       attachment.close();
     }
@@ -533,6 +610,47 @@ final class PipesRequest implements SessionRequest {
         result: const SessionResult(
             stopReason: StopReason.error, detail: 'Connection lost.'));
     _done.complete(_snapshot);
+  }
+}
+
+/// The client side of the engine's approval asks: pending requests plus the
+/// decision that answers one. Listeners fire on every pending-set change.
+final class PipesApprovals {
+  PipesApprovals._(this._owner);
+  final PipesConnection _owner;
+
+  List<ApprovalRequest> get pending =>
+      List.unmodifiable(_owner._pendingApprovals.values);
+
+  void Function() listen(void Function(List<ApprovalRequest>) listener) {
+    final key = Object();
+    _owner._approvalListeners[key] = listener;
+    try {
+      listener(pending);
+    } catch (_) {
+      _owner._approvalListeners.remove(key);
+      rethrow;
+    }
+    return () => _owner._approvalListeners.remove(key);
+  }
+
+  /// Answers one pending ask; false when the id is unknown or the engine
+  /// reports the request was no longer pending.
+  bool respond(String id, ApprovalDecision decision) {
+    if (_owner._closed) return false;
+    final pending = _owner._pendingApprovals.containsKey(id);
+    if (!pending) return false;
+    final name = switch (decision) {
+      ApprovalDecision.allow => 'allow',
+      ApprovalDecision.allowAlways => 'always',
+      ApprovalDecision.deny => 'deny',
+      _ => throw ArgumentError(
+          'decision $decision has no pipes representation; '
+          'remembered scopes cross only as allow/always/deny'),
+    };    _owner._pendingApprovals.remove(id);
+    _owner._notifyApprovals();
+    _owner._send({'op': 'approve', 'id': id, 'decision': name});
+    return true;
   }
 }
 

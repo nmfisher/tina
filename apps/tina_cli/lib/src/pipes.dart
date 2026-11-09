@@ -71,7 +71,9 @@ import 'assembly.dart';
 /// whole lines never splits a character at a chunk boundary. (The old
 /// per-chunk `utf8.decode` threw — killing the session — whenever the
 /// writer's chunk edge fell inside a character.)
-Stream<String> _linesOf(Stream<List<int>> source) async* {
+///
+/// The launcher reuses this for a spawned engine process's stdout.
+Stream<String> decodePipesLines(Stream<List<int>> source) async* {
   var carry = <int>[];
   await for (final chunk in source) {
     carry.addAll(chunk);
@@ -170,7 +172,7 @@ final class _SessionPipes {
     final source = input ?? defaultPipesInput();
     final lines = source == null
         ? const Stream<String>.empty()
-        : _linesOf(source);
+        : decodePipesLines(source);
     final subscription = lines.listen(
       (line) {
         _handleLine(line, stop);

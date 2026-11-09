@@ -506,7 +506,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_chat:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../plugins/tina_chat"
       relative: true
