@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_core/tina_core.dart' show PluginSession;
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_wasm/src/remote_prompt_plugin.dart';
 

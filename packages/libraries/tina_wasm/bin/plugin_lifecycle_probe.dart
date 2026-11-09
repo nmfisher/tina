@@ -221,7 +221,7 @@ final class _LifecycleProbe implements tests.TestedModule {
         'Completed turns were not retained',
       );
       record('old-close-keeps-successor', {'calls': 5, 'turns': 5, 'run': 2});
-    } catch (error, stack) {
+    } catch (error) {
       rethrow;
     } finally {
       manager.select(const []);
