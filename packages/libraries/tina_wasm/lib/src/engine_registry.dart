@@ -6,7 +6,7 @@
 library;
 
 import 'package:tina_approvals/tina_approvals.dart' as tina_approvals;
-import 'package:tina_host/tina_host.dart';
+import 'package:tina_host/tina_host.dart' hide PluginManager;
 import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_session_controls/tina_session_controls.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
@@ -14,6 +14,8 @@ import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina/src/session_context.dart';
 
 import 'portable_tools_plugin.dart';
+import 'plugin_admin.dart';
+import 'plugin_manager.dart';
 import 'remote_prompt_plugin.dart';
 import 'wasm_persistence_plugin.dart';
 import 'wasi_session_store.dart';
@@ -45,7 +47,13 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
   void Function(WasmPersistencePlugin plugin)? onPersistence,
   bool includeRemotePromptPlugin = false,
   required PromptPluginHostBridge remotePromptHost,
-}) => PluginRegistry<SessionPluginContext>(
+}) {
+  // One lease book shared by the prompt adapter and the /plugins command:
+  // the manager is the single writer, the adapter derives its lease from
+  // it, so a reload from the command is adopted by the next prompt.
+  final promptManager =
+      includeRemotePromptPlugin ? PluginManager(bridge: remotePromptHost) : null;
+  return PluginRegistry<SessionPluginContext>(
   requiredCapabilities: [modelAccess],
   definitions: [
     if (persistenceStore != null)
@@ -112,12 +120,22 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
       ),
       description: 'Conversation controls (model, reasoning, stop).',
     ),
-    if (includeRemotePromptPlugin)
+    if (includeRemotePromptPlugin) ...[
       PluginDefinition<SessionPluginContext>(
         RemotePromptPlugin.pluginId,
-        (_) => RemotePromptPlugin(remotePromptHost),
+        (_) => RemotePromptPlugin(remotePromptHost, manager: promptManager),
         live: true,
         description: 'Adds one host-mediated prompt section per turn.',
       ),
+      PluginDefinition<SessionPluginContext>(
+        WasmPluginAdminPlugin.pluginId,
+        (c) => WasmPluginAdminPlugin(
+          manager: promptManager!,
+          terminal: c.terminal,
+        ),
+        description: 'Wasm plugin status and reload (/plugins).',
+      ),
+    ],
   ],
 );
+}

@@ -33,6 +33,7 @@ import 'package:tina_wasm/src/components/wasmdart_tests.dart' as tests;
 import 'package:tina_wasm/src/engine_registry.dart';
 import 'package:tina_wasm/src/preloaded_app_io.dart';
 import 'package:tina_wasm/src/portable_tools_plugin.dart';
+import 'package:tina_wasm/src/plugin_admin.dart';
 import 'package:tina_wasm/src/remote_prompt_plugin.dart';
 import 'package:tina_wasm/src/wasm_prompt_bridge.dart';
 import 'package:tina_wasm/src/wasm_persistence_plugin.dart';
@@ -206,7 +207,10 @@ final class _TestedModule implements tests.TestedModule {
           'tina/approvals-stream',
           'tina/session-controls',
           if (store != null) 'tina/persistence',
-          if (includeRemotePromptPlugin) RemotePromptPlugin.pluginId,
+          if (includeRemotePromptPlugin) ...[
+            RemotePromptPlugin.pluginId,
+            WasmPluginAdminPlugin.pluginId,
+          ],
         ],
       ),
     );

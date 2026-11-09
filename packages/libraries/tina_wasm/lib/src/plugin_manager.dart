@@ -15,16 +15,17 @@
 /// so a retry can still retire it.
 library;
 
-import 'remote_prompt_plugin.dart'
+import 'prompt_bridge_types.dart'
     show
         PromptBridgeError,
         PromptBridgeFailure,
         PromptBridgeOk,
         PromptBridgeResult,
         PromptPluginHostBridge,
-        RemotePromptPlugin;
+        wasmPromptPluginId;
 
 /// Immutable observation of one [PluginManager]'s lease book.
+/// (`pluginId` defaults to [wasmPromptPluginId].)
 final class PluginManagerStatus {
   const PluginManagerStatus({
     required this.pluginId,
@@ -69,7 +70,7 @@ final class PluginManagerStatus {
 final class PluginManager {
   PluginManager({required PromptPluginHostBridge bridge, String? pluginId})
     : _bridge = bridge,
-      pluginId = pluginId ?? RemotePromptPlugin.pluginId;
+      pluginId = pluginId ?? wasmPromptPluginId;
 
   final PromptPluginHostBridge _bridge;
   final String pluginId;
@@ -80,6 +81,14 @@ final class PluginManager {
   var _closes = 0;
   var _reloads = 0;
   PromptBridgeFailure? _lastFailure;
+
+  /// Whether a lease is currently tracked. The single book: the prompt
+  /// adapter derives its lease from here, so a reload through [reload] is
+  /// picked up by the next prompt without any extra wiring.
+  bool get isOpen => _lease != null;
+
+  /// The tracked lease, if any.
+  String? get lease => _lease;
 
   PluginManagerStatus status() => PluginManagerStatus(
     pluginId: pluginId,

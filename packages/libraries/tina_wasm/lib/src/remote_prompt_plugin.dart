@@ -5,59 +5,35 @@ import 'package:tina_core/tina_core.dart' show PluginSession;
 import 'package:tina_engine_2/tina_engine_2.dart'
     show AgentPlugin, SessionSeed, TurnContext;
 
-/// Safe error classes returned by the imported host bridge.
-enum PromptBridgeFailure { denied, unavailable, failed }
+import 'plugin_manager.dart';
+import 'prompt_bridge_types.dart';
 
-sealed class PromptBridgeResult<T> {
-  const PromptBridgeResult();
-  const factory PromptBridgeResult.ok(T value) = PromptBridgeOk<T>;
-  const factory PromptBridgeResult.error(PromptBridgeFailure failure) =
-      PromptBridgeError<T>;
-}
-
-final class PromptBridgeOk<T> extends PromptBridgeResult<T> {
-  const PromptBridgeOk(this.value);
-  final T value;
-}
-
-final class PromptBridgeError<T> extends PromptBridgeResult<T> {
-  const PromptBridgeError(this.failure);
-  final PromptBridgeFailure failure;
-}
-
-/// Pure Dart boundary used by the Tina engine. Native lifecycle tests can
-/// supply a fake; the WASM composition root adapts generated WIT bindings.
-abstract interface class PromptPluginHostBridge {
-  PromptBridgeResult<String> open();
-  Future<PromptBridgeResult<String>> onPrompt({
-    required String lease,
-    required String sessionId,
-    required String model,
-  });
-  PromptBridgeResult<void> close({required String lease});
-}
+export 'prompt_bridge_types.dart';
 
 final class RemotePromptPlugin extends AgentPlugin {
-  RemotePromptPlugin(this._host);
+  /// Pass an explicit [manager] to share the lease book with a
+  /// [WasmPluginAdminPlugin]; the manager is the single writer, this plugin
+  /// derives its lease from it.
+  RemotePromptPlugin(this._host, {PluginManager? manager})
+    : _manager = manager ?? PluginManager(bridge: _host);
 
-  static const pluginId = 'tina/wasm-prompt';
+  static const pluginId = wasmPromptPluginId;
 
   final PromptPluginHostBridge _host;
+  final PluginManager _manager;
   PluginSession? _session;
-  String? _lease;
-  var _lifecycle = 0;
 
   @override
   String get id => pluginId;
 
   @override
   SessionSeed? openSession(PluginSession session) {
-    if (_lease != null) throw StateError('Wasm prompt plugin is already open');
-    switch (_host.open()) {
-      case PromptBridgeOk(value: final lease):
+    if (_manager.isOpen) {
+      throw StateError('Wasm prompt plugin is already open');
+    }
+    switch (_manager.open()) {
+      case PromptBridgeOk():
         _session = session;
-        _lease = lease;
-        _lifecycle++;
         return null;
       case PromptBridgeError():
         throw StateError('Wasm prompt plugin open failed');
@@ -67,18 +43,19 @@ final class RemotePromptPlugin extends AgentPlugin {
   @override
   Future<void> onPrompt(TurnContext context) async {
     final session = _session;
-    final lease = _lease;
+    final lease = _manager.lease;
     if (session == null || lease == null) {
       throw StateError('Wasm prompt plugin is not open');
     }
-    final lifecycle = _lifecycle;
+    final lifecycle = _manager.status().lifecycle;
     final result = await _host.onPrompt(
       lease: lease,
       sessionId: session.id,
       model: session.model ?? '',
     );
     if (context.cancelled) return;
-    if (_lease != lease || _lifecycle != lifecycle) {
+    if (_manager.lease != lease ||
+        _manager.status().lifecycle != lifecycle) {
       throw StateError('Wasm prompt plugin retired during onPrompt');
     }
     switch (result) {
@@ -91,12 +68,9 @@ final class RemotePromptPlugin extends AgentPlugin {
 
   @override
   void closeSession() {
-    final lease = _lease;
-    _lease = null;
     _session = null;
-    _lifecycle++;
-    if (lease == null) return;
-    switch (_host.close(lease: lease)) {
+    if (_manager.lease == null) return;
+    switch (_manager.close()) {
       case PromptBridgeOk():
         return;
       case PromptBridgeError():
