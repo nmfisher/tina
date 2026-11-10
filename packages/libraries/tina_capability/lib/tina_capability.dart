@@ -4,3 +4,4 @@ library;
 
 export 'capability_compiler.dart';
 export 'capability_document.dart';
+export 'capability_eval.dart';
