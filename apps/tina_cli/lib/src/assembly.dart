@@ -12,6 +12,9 @@ import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
 
 import 'app_io.dart';
+import 'engine_launcher.dart' show readCapabilityInputs;
+import 'package:tina_capability/tina_capability.dart'
+    show compileCapabilities;
 import 'native_kinds.dart';
 import 'app_stdout.dart';
 import 'assembly_config.dart';
@@ -357,6 +360,12 @@ final class SessionAssembly {
       osSandbox: options.osSandbox,
       settings: settings,
       mode: options.yolo ? PermissionMode.yolo : PermissionMode.ask,
+      capabilities: compileCapabilities(readCapabilityInputs(
+        workspace: workingDirectory,
+        configDir:
+            p.dirname(options.configPath ?? defaultConfigPath()),
+        yolo: options.yolo,
+      )),
     ));
     diagnostics?.stage?.call('settings-and-tools-ready');
     final policy = configuredPolicy(resolved,

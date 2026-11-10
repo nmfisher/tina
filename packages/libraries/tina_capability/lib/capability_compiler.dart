@@ -27,6 +27,8 @@
 /// host too, matching "blocked before remembered grants".
 library;
 
+import 'dart:convert';
+
 import 'capability_document.dart';
 
 /// Where a compiled entry came from, spelled into `origin` values the
@@ -181,7 +183,7 @@ CapabilityDocument compileCapabilities(CapabilityInputs inputs) {
       ),
   ];
 
-  return CapabilityDocument(
+  final document = CapabilityDocument(
     mode: inputs.mode,
     workspace: inputs.workspace,
     readDirectories: reads,
@@ -195,4 +197,9 @@ CapabilityDocument compileCapabilities(CapabilityInputs inputs) {
     pluginGrants: inputs.pluginGrants,
     protectedPaths: inputs.protectedPaths,
   );
+  // Validate through the same fail-closed decoder the host mirrors, so a
+  // bad input (a grant inside a protected path, a malformed domain) fails
+  // at compile time instead of at the host.
+  return CapabilityDocument.fromJson(
+      jsonDecode(document.encode()) as Map<String, Object?>);
 }
