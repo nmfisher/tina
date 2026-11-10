@@ -260,10 +260,12 @@ CapabilityInputs readCapabilityInputs({
     homeCaches: settingList('tina/tools/home_caches'),
     rules: rules,
     domains: domains,
+    // Protected leaves, never the config dir itself: the config tree is
+    // a structural write grant (the engine persists settings through it)
+    // and its approvals subtree stays a protected leaf beneath that
+    // grant - the native model (masking), not a host-wall refusal.
     protectedPaths: [
-      configDir,
-      if (Platform.environment['HOME'] != null)
-        p.join(Platform.environment['HOME']!, '.tina', 'approvals'),
+      p.join(configDir, 'approvals'),
     ].map(_canonical).toSet().toList(),
   );
 }
