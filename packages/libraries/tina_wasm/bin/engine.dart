@@ -49,8 +49,8 @@ Future<void> _stdoutQueue = Future.value();
 void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
-      unnamedExport27: _TestedModule(imports),
-      unnamedExport16: const _Run(),
+      unnamedExport29: _TestedModule(imports),
+      unnamedExport18: const _Run(),
     );
   });
 }

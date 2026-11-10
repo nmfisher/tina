@@ -3,8 +3,10 @@
 /// the interface the Rust host in wasm.dart implements.
 ///
 /// WASI has no process spawn, so the HOST runs real processes on the
-/// engine's behalf - and enforces: every spawn carries the access
-/// profile, which the host evaluates before any process exists. The
+/// engine's behalf - and enforces the capability document it was launched
+/// with (docs/engine2-capability-merger.md): the command rules are
+/// host-held. The engine may still assert a backstop profile per spawn
+/// (deny beats ask beats allow), but it is never the authority. The
 /// outcomes cross the boundary as data: `denied` surfaces to the engine
 /// as [ProcessRefusedException], and `ask` comes back as an approval
 /// request this port routes through the configured [ProcessApprover]
@@ -29,14 +31,14 @@ import 'package:tina_wasm/src/components/tina_process.dart' as tina_process;
 final class WasmProcessPort implements ProcessPort {
   WasmProcessPort({
     required tina_process.Process process,
-    required ProcessAccessProfile profile,
     required ProcessApprover approver,
+    ProcessAccessProfile? backstopProfile,
   }) : _process = process,
-       _profile = profile,
+       _backstopProfile = backstopProfile,
        _approver = approver;
 
   final tina_process.Process _process;
-  final ProcessAccessProfile _profile;
+  final ProcessAccessProfile? _backstopProfile;
   final ProcessApprover _approver;
 
   @override
@@ -91,12 +93,16 @@ final class WasmProcessPort implements ProcessPort {
         stdin: stdin == null
             ? cm.Option.none
             : cm.Option<List<int>>.some(utf8.encode(stdin)),
-        profile: (
-          rules: [
-            for (final rule in _profile.rules)
-              (pattern: rule.pattern, verdict: _verdict(rule.verdict)),
-          ],
-        ),
+        profile: _backstopProfile == null
+            ? cm.Option.none
+            : cm.Option.some(
+                (
+                  rules: [
+                    for (final rule in _backstopProfile.rules)
+                      (pattern: rule.pattern, verdict: _verdict(rule.verdict)),
+                  ],
+                ),
+              ),
       ),
     );
 
