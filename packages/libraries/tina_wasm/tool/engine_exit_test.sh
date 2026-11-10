@@ -11,11 +11,15 @@
 # — without it the committed pins resolve a wasm_tools too old for the
 # edge dart2wasm and the build hooks die. It also clears
 # CARGO_TARGET_DIR, which would hide the hook's cargo artifacts, and
-# builds the wasm_tools runtime_helpers asset when absent. RUNNER
-# defaults to the packaged binary (embedded engine) and falls back to
-# the debug build; a dev build without an embedded engine is detected
-# and given --engine automatically. The tracked pubspec.lock, rewritten
-# by the override resolution's pub get, is restored on exit.
+# builds the wasm_tools runtime_helpers asset when absent. The runner
+# is EMBEDDED-ONLY since the capability merger: there is no --engine
+# flag and no positional engine path, so the script builds its own
+# tina-wasm-host with the engine compiled in (TINA_WASM_HOST_ENGINE),
+# rebuilding whenever the engine component is newer than the binary or
+# FORCE_RUNNER_BUILD=1. The default target is this test's own scratch
+# directory - the packaged binary elsewhere is never rebuilt. The
+# tracked pubspec.lock, rewritten by the override resolution's pub get,
+# is restored on exit.
 #
 # Usage: engine_exit_test.sh
 # Tunables (env): RUNNER, ENGINE_WASM, FORCE_ENGINE_BUILD=1, WASM_DART,
@@ -32,7 +36,10 @@ DART="${DART:-$HOME/tools/dart-sdk-src/sdk/out/ReleaseX64/dart-sdk/bin/dart}"
 STABLE_DART="${STABLE_DART:-$(command -v dart || true)}"
 STABLE_DART="${STABLE_DART:-/opt/dart-sdk/bin/dart}"
 WASM_DART="${WASM_DART:-/tmp/codex85-loader-integration-20261108/wasm.dart}"
-RUNNER_TARGET="${RUNNER_TARGET:-/tmp/sigprobe/target}"
+# This test's own cargo target for the embedded runner. Deliberately NOT
+# the packaged binary's target: the rebuild below must never clobber a
+# packaged tina-wasm-host.
+RUNNER_TARGET="${RUNNER_TARGET:-${TMPDIR:-/tmp}/stage5-runner-target}"
 # The wasm_tools build hook expects its cargo artifacts in its own
 # workspace root's target/; a global CARGO_TARGET_DIR (the shared target
 # the host binary is built in) hides them from the hook and kills the
@@ -105,32 +112,9 @@ if [ ! -f "$PKG/../../.."//apps/tina_cli/.dart_tool/package_config.json ]; then
 fi
 
 # --- runner resolution -------------------------------------------------------
-RUNNER="${RUNNER:-}"
-if [ -z "$RUNNER" ]; then
-  for candidate in "$RUNNER_TARGET/release/tina-wasm-host" \
-                   "$RUNNER_TARGET/debug/tina-wasm-host"; do
-    if [ -x "$candidate" ]; then RUNNER="$candidate"; break; fi
-  done
-fi
-if [ -z "$RUNNER" ] || [ ! -x "$RUNNER" ]; then
-  echo "no tina-wasm-host binary found; set RUNNER= or build one:" >&2
-  echo "  cargo build --release -p tina-wasm-host   # in the wasm.dart checkout" >&2
-  exit 1
-fi
-echo "=== runner: $RUNNER"
+# The runner is resolved after the engine component is built (it gets
+# embedded into the binary below).
 
-# Does this build carry the engine inside (packaged) or need one on disk
-# (dev build without TINA_WASM_HOST_ENGINE)? Ground truth: run it bare
-# with stdin closed — a dev build fails fast asking for --engine, a
-# packaged build boots to ready and exits cleanly on EOF.
-PROBE_OUT=/tmp/stage5_runner_probe.txt
-timeout 180 "$RUNNER" </dev/null >"$PROBE_OUT" 2>&1 || true
-if grep -q "no engine component embedded" "$PROBE_OUT"; then
-  EMBEDDED=0
-else
-  EMBEDDED=1
-fi
-echo "=== embedded engine: $([ "$EMBEDDED" = 1 ] && echo yes || echo no)"
 
 # The runtime_helpers.wasm asset is a nightly-cargo build product, not
 # tracked in git and not produced by the pub hooks; the first engine
@@ -151,6 +135,28 @@ if [ ! -f "$ENGINE_WASM" ] || [ -n "$FORCE_ENGINE_BUILD" ]; then
   echo "=== building the engine component"
   ( cd "$PKG" && "$DART" run wasm_tools compile bin/engine.dart )
 fi
+
+# The host is embedded-only: rebuild it with this engine component
+# whenever the component is newer than the binary (or on force). The
+# explicit RUNNER override skips the build (an operator's own binary).
+if [ -z "$RUNNER" ]; then
+  if [ ! -x "$RUNNER_TARGET/debug/tina-wasm-host" ] \
+      || [ "$ENGINE_WASM" -nt "$RUNNER_TARGET/debug/tina-wasm-host" ] \
+      || [ -n "$FORCE_RUNNER_BUILD" ]; then
+    echo "=== building the embedded runner (engine newer than the binary, or forced)"
+    ( cd "$WASM_DART/pkg/tina_wasm_host" && \
+      CARGO_TARGET_DIR="$RUNNER_TARGET" TINA_WASM_HOST_ENGINE="$ENGINE_WASM" \
+      cargo build -p tina-wasm-host )
+  fi
+  RUNNER="$RUNNER_TARGET/debug/tina-wasm-host"
+fi
+if [ ! -x "$RUNNER" ]; then
+  echo "no tina-wasm-host binary found; set RUNNER= or build one:" >&2
+  echo "  TINA_WASM_HOST_ENGINE=<engine.wasm> cargo build -p tina-wasm-host  # in the wasm.dart checkout" >&2
+  exit 1
+fi
+
+echo "=== runner: $RUNNER (embedded engine)"
 
 echo "=== starting the scripted provider"
 python3 "$PKG/tool/fake_anthropic_turn_server.py" &
@@ -191,12 +197,10 @@ TINA_LLM_ENDPOINT=http://127.0.0.1:8731 TINA_LLM_TOKEN=stage5-token \
 
 echo "=== wasm engine under wasmtime"
 WASM_OUT=/tmp/stage5_wasm.txt
-ENGINE_ARG=""
-[ "$EMBEDDED" = 1 ] || ENGINE_ARG="--engine=$ENGINE_WASM"
 TINA_LLM_ENDPOINT=http://127.0.0.1:8731 TINA_LLM_TOKEN=stage5-token \
   "$DART" run --enable-asserts "$PKG/tool/pipes_drive.dart" \
   --workspace "$WS_WASM" -- \
-  "$RUNNER" $ENGINE_ARG \
+  "$RUNNER" \
   --preopen=.="$WS_WASM" --preopen=config="$CFG" \
   --env=TINA_LLM_ENDPOINT=http://127.0.0.1:8731 \
   --env=TINA_LLM_TOKEN=stage5-token \
