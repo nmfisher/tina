@@ -134,6 +134,31 @@ void main() {
         throwsFormatException);
   });
 
+  test('dialog regexes translate to globs, richer ones do not', () {
+    expect(globFromDialogPattern(r'curl .*'), 'curl *');
+    expect(globFromDialogPattern(r'dart test .*'), 'dart test *');
+    expect(globFromDialogPattern(r'prefix.*middle.*suffix'),
+        'prefix*middle*suffix');
+    expect(globFromDialogPattern('.*'), '*');
+    expect(globFromDialogPattern(r'git status --porcelain'),
+        'git status --porcelain');
+    // Escapes the dialog's default (RegExp.escape) produces are unescaped.
+    expect(globFromDialogPattern(r'echo a\.b'), 'echo a.b');
+    for (final tooRich in [
+      r'curl (foo|bar)', // alternation
+      'curl [abc]', // character class
+      r'cu.l x', // bare any-char dot
+      'curl ^x', // anchors
+      'curl x{2}', // repetition
+      '', // empty
+    ]) {
+      expect(globFromDialogPattern(tooRich), isNull, reason: tooRich);
+    }
+    // The translated glob matches the command the dialog validated.
+    expect(boxPatternMatch(globFromDialogPattern(r'curl .*')!, 'curl -sI x'),
+        isTrue);
+  });
+
   test('the default file locations are documented paths', () {
     expect(boxAllowlistProjectPath('/work/proj'), '/work/proj/.tina/box_allowlist');
     expect(boxAllowlistGlobalPath('/home/dev'), '/home/dev/.tina/box_allowlist');

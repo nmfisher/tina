@@ -241,6 +241,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         writeDirectoriesSetting,
         homeCachesSetting,
         allowReadsOutsideWorkspaceSetting,
+        permissionBoxesSetting,
       ],
       first: approvalRequester,
       second: modelAccess,

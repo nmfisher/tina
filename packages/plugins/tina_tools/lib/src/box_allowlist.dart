@@ -49,6 +49,40 @@ bool boxPatternMatch(String pattern, String line) {
   return RegExp(buffer.toString(), dotAll: true).hasMatch(line);
 }
 
+/// Translate the approval dialog's command pattern — a user-edited REGEX
+/// (`CommandApprovalPattern` validates it against the command line) — into
+/// the allowlist's glob dialect, or null when the regex is richer than a
+/// glob can say (character classes, alternation, bare `.` for any
+/// character, anchors). `prefix.*suffix` becomes `prefix*suffix`;
+/// everything else must be literal (regex escapes are unescaped). Richer
+/// answers keep the existing scopes-store semantics instead of landing in
+/// the one list as something it is not.
+String? globFromDialogPattern(String pattern) {
+  if (pattern.isEmpty || pattern.length > 4096) return null;
+  final buffer = StringBuffer();
+  var index = 0;
+  while (index < pattern.length) {
+    final character = pattern[index];
+    if (character == r'\') {
+      if (index + 1 >= pattern.length) return null;
+      final escaped = pattern[index + 1];
+      if (!r'.^$*+?()[]{}|\-/,'.contains(escaped)) return null;
+      buffer.write(escaped);
+      index += 2;
+      continue;
+    }
+    if (character == '.' && pattern.startsWith('.*', index)) {
+      buffer.write('*');
+      index += 2;
+      continue;
+    }
+    if (r'*+?()[]{}|^$'.contains(character) || character == '.') return null;
+    buffer.write(character);
+    index++;
+  }
+  return buffer.toString();
+}
+
 /// One stored rule.
 final class BoxRule {
   const BoxRule(

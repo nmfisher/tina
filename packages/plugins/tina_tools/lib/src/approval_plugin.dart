@@ -496,14 +496,19 @@ void attachModePolicy(ToolsPlugin plugin) {
       }
       // The box model keeps one list: under the opt-in, a remembered
       // pattern lands in the box allowlist, naming the box/profile future
-      // matches run in — not in the scopes store.
+      // matches run in — not in the scopes store. The dialog speaks regex;
+      // the allowlist speaks glob. Patterns a glob cannot say exactly stay
+      // with the existing store instead of masquerading as globs.
       if (commandPattern != null && plugin.boxes.isActive) {
-        plugin.boxes.rememberPattern(commandPattern!,
-            global: decision == ApprovalDecision.allowGlobal,
-            network: network,
-            readOnly: !review.requiredPermissions
-                .contains(ProcessPermission.workspaceWrite));
-        return Approval.yes;
+        final glob = globFromDialogPattern(commandPattern!);
+        if (glob != null) {
+          plugin.boxes.rememberPattern(glob,
+              global: decision == ApprovalDecision.allowGlobal,
+              network: network,
+              readOnly: !review.requiredPermissions
+                  .contains(ProcessPermission.workspaceWrite));
+          return Approval.yes;
+        }
       }
       plugin.commandApprovals.remember(
           request,
