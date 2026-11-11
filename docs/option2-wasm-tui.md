@@ -198,10 +198,48 @@ Verified wasm-clean already (grep evidence, merged tree):
 
 1. **This report** — design + seam inventory + branch topology, for
    orchestrator review.
-2. Implementation: seams (1-5), failure channel (6), guest package +
-   component (7), host rewire; tests green per commit; identities recorded
-   per commit batch.
+2. Implementation: seams (1-5), failure channel (6), the TUI component,
+   host rewire; tests green per commit; identities recorded per commit
+   batch. **Landed** (commits 1a42d2b, b93ba45, f2df093 on tina;
+   18a37f2 on wasm.dart) — see `Landed structure` below.
 3. tmux validation + parity + suites; final report + ledger.
+
+## Landed structure (deviations from the draft above, all reviewed-safe)
+
+- **The TUI composition root lives in tina_wasm (`bin/tui.dart`), not a
+  separate `tina_tui_guest` package.** The guest bindings are generated
+  per world and Dart types are nominal across packages: the composition
+  root shares the engine's plumbing (PreloadedAppIo, the portable tools
+  plugin, the registry) and must therefore share the package to share the
+  generated types. The spike's separate package worked only because the
+  demo had no shared plumbing. Same closure family, one package, two
+  worlds (`tina:probe/engine-probe`, `tina:probe/tui-app`).
+- **The `@`-completion drop needed company**: the only fatal wasm leak
+  turned out to be `history_reader/store`'s sqlite (`dart:ffi` is the
+  hard error under dart2wasm; plain `dart:io` files compile fine — the
+  engine's own closure carries them in dead paths). Those two files sit
+  behind the conditional seam with shape-compatible stubs (tina_persistence
+  1a42d2b follow-up in b93ba45).
+- **`tina:term` on the host side links with plain `func_wrap`** (flat
+  functions, the result-collector pattern): wasmtime bindgen hit the same
+  own-package-import constraint witgen did (spike finding 7), and hook
+  processes run with a filtered environment (ABI selection by env knob
+  was tried and verified stripped — the hook picks the ABI from the
+  compiler's recorded uses instead, which also gives each entry point its
+  own hooks-runner cache slot).
+- **runApp driven directly**: the native `runTui` wrapper's import set
+  drags the CLI plugin catalog (sqlite, dart:io plugin layers) into the
+  closure; its body is the ~40-line runApp wrapper, mirrored in the guest
+  composition root.
+- **Component**: `bin/tui.wasm` 4,876,970 bytes; engine regression
+  byte-identical to the ace8ca4 artifact (8d549885…818c3).
+- **Smoke** (tmux, embedded release host): the full TUI boots inside the
+  sandbox — alt-screen, status strip, config resolved through the
+  snapshot preopen (qwen/qwen4-max-preview), keys echoed into the guest
+  editor. The crash channel worked on its first live outing: the first
+  smoke's boot exception surfaced as a host-visible failure with the
+  recorded message (fixed: WASI stdio construction defers out of
+  instantiation, exactly like the spike and the pipes engine).
 
 ## Open questions for the orchestrator (round-1 defaults chosen; overrides welcome)
 
