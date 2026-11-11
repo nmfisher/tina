@@ -159,6 +159,7 @@ jobs:
           sdk: '3.12'
       - name: Install native link dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev bubblewrap
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
@@ -224,6 +225,7 @@ jobs:
       # header's LINKER deps note; the first live run failed on the latter.
       - name: Install native notcurses + link deps (console job)
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
 
@@ -523,6 +525,7 @@ jobs:
       # Ordinary read-only command tests need confinement too.
       - name: Install Linux sandbox backend
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update -q
           sudo apt-get install -y bubblewrap
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
@@ -707,6 +710,7 @@ jobs:
           sdk: stable
       - name: Install native notcurses + link deps (tina_tui job)
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_tui)
@@ -733,6 +737,7 @@ jobs:
           sdk: stable
       - name: Install native notcurses + link deps (tina_cli job)
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev bubblewrap
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
@@ -837,6 +842,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_context_tui)
@@ -863,6 +869,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_cwd_tui)
@@ -909,6 +916,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_plans_tui)
@@ -935,6 +943,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_classification_tui)
@@ -961,6 +970,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_mcp_tui)
@@ -1027,6 +1037,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_tasks_tui)
@@ -1053,6 +1064,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_token_rate_tui)
@@ -1119,6 +1131,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_approvals_tui)
@@ -1185,6 +1198,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_activity_tui)
@@ -1228,6 +1242,7 @@ jobs:
           sdk: stable
       - name: Install native console dependencies
         run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update
           sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_chat_tui)
