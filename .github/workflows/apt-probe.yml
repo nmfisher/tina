@@ -1,0 +1,19 @@
+name: apt-probe
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Inspect and test package index refresh
+        run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
+          sudo apt-get update -q
+          dpkg --print-architecture
+          apt-config shell ARCH APT::Architecture CACHE Dir::Cache::pkgcache LISTS Dir::State::lists
+          apt-cache policy
+          apt-cache policy minisign bubblewrap libnotcurses-dev
+          ls -lh /var/lib/apt/lists
+          sudo apt-get -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= install -y minisign bubblewrap
