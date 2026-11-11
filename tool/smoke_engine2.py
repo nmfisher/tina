@@ -752,8 +752,11 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
-            terminal.expect('[a] Remember…', start)
-            start = terminal.send('a\r')
+            terminal.expect('❯ [y] allow once', start)
+            # System runtime reads are built-in; this command has no extra
+            # file access to remember. Network approval remains invocation-only.
+            assert b'[a] Remember' not in terminal.output[start:]
+            start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
