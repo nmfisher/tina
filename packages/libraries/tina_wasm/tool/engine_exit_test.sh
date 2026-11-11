@@ -207,11 +207,16 @@ TINA_LLM_ENDPOINT=http://127.0.0.1:8731 TINA_LLM_TOKEN=stage5-token \
   | tee "$NATIVE_OUT"
 
 echo "=== wasm engine under wasmtime"
+# The wasm-tui round switched the host dispatch: bare invocation now boots the
+# TUI leg (default), so the pipes leg must pass --headless explicitly
+# (main.rs mode switch takes the first argument). Superseded assertion
+# updated with note: the engine leg is unchanged; only its selector is new.
 WASM_OUT=/tmp/stage5_wasm.txt
 TINA_LLM_ENDPOINT=http://127.0.0.1:8731 TINA_LLM_TOKEN=stage5-token \
   "$DART" run --enable-asserts "$PKG/tool/pipes_drive.dart" \
   --workspace "$WS_WASM" -- \
   "$RUNNER" \
+  --headless \
   --preopen=.="$WS_WASM" --preopen=config="$CFG" \
   --env=TINA_LLM_ENDPOINT=http://127.0.0.1:8731 \
   --env=TINA_LLM_TOKEN=stage5-token \
