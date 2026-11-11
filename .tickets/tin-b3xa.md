@@ -1,6 +1,6 @@
 ---
 id: tin-b3xa
-status: open
+status: closed
 deps: []
 links: [tin-3i3l]
 created: 2026-11-11T03:48:48Z
@@ -78,3 +78,23 @@ the classifier/modes stack and its tests stay untouched and green.
 - Container has no bwrap and user namespaces are blocked: the live-run
   transcript will show real passThrough behavior plus a confined-runner
   harness for the silent path.
+- DONE (commits 76120058, b8bbcbe0 on `asb/perm-boxes`): box_model.dart
+  (boxes, 4 profile specs, profile→bwrap mapping, setting),
+  box_sorter.dart (pure sorter, heredoc support, destructive/allowlist/
+  visible-world rules), box_allowlist.dart (v1 plain files, project +
+  global, glob dialect + dialog-regex translation), box_gate.dart (silent
+  box 1/2 execution, end-of-turn report batch), runner hook + ToolsPlugin
+  wiring + approval_plugin pattern redirect, CLI setting registration,
+  docs/sandbox_boxes.md.
+- Verification: analyze clean on tina_tools/tina_mode/tina_core/tina_cli/
+  tool/repository; 59 new box tests green; tina_tools/tina_mode/tina_core/
+  tool/repository suites match the pre-change baseline exactly (22-29
+  failures identical on HEAD~1 and HEAD — all environmental: this
+  container has no confinement backend and no notcurses TTY; diffed
+  twice); CLI deterministic subset identical to baseline.
+- Live transcript captured (live-boxes tag): sorter verdicts correct for
+  python script (2/scripts), dart test (2/build), curl (3); all three
+  correctly declined the silent path without a backend and asked through
+  the existing dialog; fail-closed held (nothing ran, no outside write).
+  Allowlist ask→pattern→file→rule round-trip verified end-to-end
+  (box_allowlist_flow_test). Closed 2026-11-11.
