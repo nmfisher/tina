@@ -3408,9 +3408,175 @@
             }
           }
         },
-        "package": 10,
+        "package": 11,
         "docs": {
           "contents": "One engine-shaped probe: WASI (filesystem preopens, environment, stdout,\nclocks, random) plus the tina:http host import, run by the case runner's\nprotocol (result-collector in, tested-module out)."
+        }
+      },
+      {
+        "name": "tui-app",
+        "imports": {
+          "interface-32": {
+            "interface": {
+              "id": 32
+            }
+          },
+          "interface-33": {
+            "interface": {
+              "id": 33
+            }
+          },
+          "interface-0": {
+            "interface": {
+              "id": 0
+            }
+          },
+          "interface-1": {
+            "interface": {
+              "id": 1
+            }
+          },
+          "interface-2": {
+            "interface": {
+              "id": 2
+            }
+          },
+          "interface-3": {
+            "interface": {
+              "id": 3
+            }
+          },
+          "interface-4": {
+            "interface": {
+              "id": 4
+            }
+          },
+          "interface-30": {
+            "interface": {
+              "id": 30
+            }
+          },
+          "interface-31": {
+            "interface": {
+              "id": 31
+            }
+          },
+          "interface-16": {
+            "interface": {
+              "id": 16
+            }
+          },
+          "interface-17": {
+            "interface": {
+              "id": 17
+            }
+          },
+          "interface-19": {
+            "interface": {
+              "id": 19
+            }
+          },
+          "interface-20": {
+            "interface": {
+              "id": 20
+            }
+          },
+          "interface-21": {
+            "interface": {
+              "id": 21
+            }
+          },
+          "interface-22": {
+            "interface": {
+              "id": 22
+            }
+          },
+          "interface-23": {
+            "interface": {
+              "id": 23
+            }
+          },
+          "interface-24": {
+            "interface": {
+              "id": 24
+            }
+          },
+          "interface-25": {
+            "interface": {
+              "id": 25
+            }
+          },
+          "interface-26": {
+            "interface": {
+              "id": 26
+            }
+          },
+          "interface-27": {
+            "interface": {
+              "id": 27
+            }
+          },
+          "interface-5": {
+            "interface": {
+              "id": 5
+            }
+          },
+          "interface-6": {
+            "interface": {
+              "id": 6
+            }
+          },
+          "interface-7": {
+            "interface": {
+              "id": 7
+            }
+          },
+          "interface-9": {
+            "interface": {
+              "id": 9
+            }
+          },
+          "interface-10": {
+            "interface": {
+              "id": 10
+            }
+          },
+          "interface-11": {
+            "interface": {
+              "id": 11
+            }
+          },
+          "interface-12": {
+            "interface": {
+              "id": 12
+            }
+          },
+          "interface-13": {
+            "interface": {
+              "id": 13
+            }
+          },
+          "interface-14": {
+            "interface": {
+              "id": 14
+            }
+          },
+          "interface-15": {
+            "interface": {
+              "id": 15
+            }
+          }
+        },
+        "exports": {
+          "interface-18": {
+            "interface": {
+              "id": 18
+            }
+          }
+        },
+        "package": 11,
+        "docs": {
+          "contents": "The full tina TUI as one component (Option 2): the engine's host-import\nset (http, plugin-host, policy, process) plus the host-owned tty\nauthority and the crash channel, over the standard run export the\npackaged host drives by default. Same toolchain package as the engine\nworld (witgen takes one root package per tree); the identity that\nmatters is the component's imports/exports, not this local name."
         }
       },
       {
@@ -3441,14 +3607,14 @@
               "id": 5
             }
           },
-          "interface-32": {
-            "interface": {
-              "id": 32
-            }
-          },
           "interface-34": {
             "interface": {
               "id": 34
+            }
+          },
+          "interface-36": {
+            "interface": {
+              "id": 36
             }
           },
           "interface-6": {
@@ -3478,13 +3644,13 @@
           }
         },
         "exports": {
-          "interface-33": {
+          "interface-35": {
             "interface": {
-              "id": 33
+              "id": 35
             }
           }
         },
-        "package": 11,
+        "package": 12,
         "docs": {
           "contents": "The `wasi:http/service` world captures a broad category of HTTP services\nincluding web applications, API servers, and proxies. It may be `include`d\nin more specific worlds such as `wasi:http/middleware`."
         },
@@ -3502,14 +3668,14 @@
               "id": 5
             }
           },
-          "interface-32": {
+          "interface-34": {
             "interface": {
-              "id": 32
+              "id": 34
             }
           },
-          "interface-33": {
+          "interface-35": {
             "interface": {
-              "id": 33
+              "id": 35
             }
           },
           "interface-19": {
@@ -3532,9 +3698,9 @@
               "id": 20
             }
           },
-          "interface-34": {
+          "interface-36": {
             "interface": {
-              "id": 34
+              "id": 36
             }
           },
           "interface-6": {
@@ -3564,13 +3730,13 @@
           }
         },
         "exports": {
-          "interface-33": {
+          "interface-35": {
             "interface": {
-              "id": 33
+              "id": 35
             }
           }
         },
-        "package": 11,
+        "package": 12,
         "docs": {
           "contents": "The `wasi:http/middleware` world captures HTTP services that forward HTTP\nRequests to another handler.\n\nComponents may implement this world to allow them to participate in handler\n\"chains\" where a `request` flows through handlers on its way to some terminal\n`service` and corresponding `response` flows in the opposite direction."
         },
@@ -5564,35 +5730,71 @@
         "package": 9
       },
       {
+        "name": "tty",
+        "types": {},
+        "functions": {
+          "get-size": {
+            "name": "get-size",
+            "kind": "freestanding",
+            "params": [],
+            "result": 170
+          }
+        },
+        "docs": {
+          "contents": "The host's tty authority: it owns the real terminal, so window size is a\nlive answer (re-supplied on resize), not an env snapshot."
+        },
+        "package": 10
+      },
+      {
+        "name": "crash",
+        "types": {},
+        "functions": {
+          "fail": {
+            "name": "fail",
+            "kind": "freestanding",
+            "params": [
+              {
+                "name": "message",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "docs": {
+          "contents": "The guest-to-host failure channel (spike finding 4): a guest Dart\nexception that would otherwise kill the guest task and park the host's\n`run` call forever calls `fail` first (from the top-level zone guard),\nthen invokes the WASI `exit` import as the structural backstop. The host\nrecords the message, stops waiting, restores the terminal and reports\n`guest crashed: <message>` with a non-zero exit."
+        },
+        "package": 10
+      },
+      {
         "name": "types",
         "types": {
-          "duration": 170,
-          "method": 171,
-          "scheme": 172,
-          "DNS-error-payload": 175,
-          "TLS-alert-received-payload": 177,
-          "field-size-payload": 179,
-          "error-code": 182,
-          "header-error": 183,
-          "request-options-error": 184,
-          "field-name": 185,
-          "field-value": 186,
-          "fields": 187,
-          "headers": 188,
-          "trailers": 189,
-          "request": 190,
-          "request-options": 191,
-          "status-code": 192,
-          "response": 193
+          "duration": 171,
+          "method": 172,
+          "scheme": 173,
+          "DNS-error-payload": 176,
+          "TLS-alert-received-payload": 178,
+          "field-size-payload": 180,
+          "error-code": 183,
+          "header-error": 184,
+          "request-options-error": 185,
+          "field-name": 186,
+          "field-value": 187,
+          "fields": 188,
+          "headers": 189,
+          "trailers": 190,
+          "request": 191,
+          "request-options": 192,
+          "status-code": 193,
+          "response": 194
         },
         "functions": {
           "[constructor]fields": {
             "name": "[constructor]fields",
             "kind": {
-              "constructor": 187
+              "constructor": 188
             },
             "params": [],
-            "result": 196,
+            "result": 197,
             "docs": {
               "contents": "Construct an empty HTTP Fields.\n\nThe resulting `fields` is mutable."
             }
@@ -5600,15 +5802,15 @@
           "[static]fields.from-list": {
             "name": "[static]fields.from-list",
             "kind": {
-              "static": 187
+              "static": 188
             },
             "params": [
               {
                 "name": "entries",
-                "type": 195
+                "type": 196
               }
             ],
-            "result": 197,
+            "result": 198,
             "docs": {
               "contents": "Construct an HTTP Fields.\n\nThe resulting `fields` is mutable.\n\nThe list represents each name-value pair in the Fields. Names\nwhich have multiple values are represented by multiple entries in this\nlist with the same name.\n\nThe tuple is a pair of the field name, represented as a string, and\nValue, represented as a list of bytes. In a valid Fields, all names\nand values are valid UTF-8 strings. However, values are not always\nwell-formed, so they are represented as a raw list of bytes.\n\nAn error result will be returned if any header or value was\nsyntactically invalid, if a header was forbidden, or if the\nentries would exceed an implementation size limit."
             }
@@ -5616,19 +5818,19 @@
           "[method]fields.get": {
             "name": "[method]fields.get",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               },
               {
                 "name": "name",
-                "type": 185
+                "type": 186
               }
             ],
-            "result": 199,
+            "result": 200,
             "docs": {
               "contents": "Get all of the values corresponding to a name. If the name is not present\nin this `fields`, an empty list is returned. However, if the name is\npresent but empty, this is represented by a list with one or more\nempty field-values present."
             }
@@ -5636,16 +5838,16 @@
           "[method]fields.has": {
             "name": "[method]fields.has",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               },
               {
                 "name": "name",
-                "type": 185
+                "type": 186
               }
             ],
             "result": "bool",
@@ -5656,23 +5858,23 @@
           "[method]fields.set": {
             "name": "[method]fields.set",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               },
               {
                 "name": "name",
-                "type": 185
+                "type": 186
               },
               {
                 "name": "value",
-                "type": 199
+                "type": 200
               }
             ],
-            "result": 200,
+            "result": 201,
             "docs": {
               "contents": "Set all of the values for a name. Clears any existing values for that\nname, if they have been set.\n\nFails with `header-error.immutable` if the `fields` are immutable.\n\nFails with `header-error.size-exceeded` if the name or values would\nexceed an implementation-defined size limit."
             }
@@ -5680,19 +5882,19 @@
           "[method]fields.delete": {
             "name": "[method]fields.delete",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               },
               {
                 "name": "name",
-                "type": 185
+                "type": 186
               }
             ],
-            "result": 200,
+            "result": 201,
             "docs": {
               "contents": "Delete all values for a name. Does nothing if no values for the name\nexist.\n\nFails with `header-error.immutable` if the `fields` are immutable."
             }
@@ -5700,19 +5902,19 @@
           "[method]fields.get-and-delete": {
             "name": "[method]fields.get-and-delete",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               },
               {
                 "name": "name",
-                "type": 185
+                "type": 186
               }
             ],
-            "result": 201,
+            "result": 202,
             "docs": {
               "contents": "Delete all values for a name. Does nothing if no values for the name\nexist.\n\nReturns all values previously corresponding to the name, if any.\n\nFails with `header-error.immutable` if the `fields` are immutable."
             }
@@ -5720,23 +5922,23 @@
           "[method]fields.append": {
             "name": "[method]fields.append",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               },
               {
                 "name": "name",
-                "type": 185
+                "type": 186
               },
               {
                 "name": "value",
-                "type": 186
+                "type": 187
               }
             ],
-            "result": 200,
+            "result": 201,
             "docs": {
               "contents": "Append a value for a name. Does not change or delete any existing\nvalues for that name.\n\nFails with `header-error.immutable` if the `fields` are immutable.\n\nFails with `header-error.size-exceeded` if the value would exceed\nan implementation-defined size limit."
             }
@@ -5744,15 +5946,15 @@
           "[method]fields.copy-all": {
             "name": "[method]fields.copy-all",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               }
             ],
-            "result": 195,
+            "result": 196,
             "docs": {
               "contents": "Retrieve the full set of names and values in the Fields. Like the\nconstructor, the list represents each name-value pair.\n\nThe outer list represents each name-value pair in the Fields. Names\nwhich have multiple values are represented by multiple entries in this\nlist with the same name.\n\nThe names and values are always returned in the original casing and in\nthe order in which they will be serialized for transport."
             }
@@ -5760,15 +5962,15 @@
           "[method]fields.clone": {
             "name": "[method]fields.clone",
             "kind": {
-              "method": 187
+              "method": 188
             },
             "params": [
               {
                 "name": "self",
-                "type": 198
+                "type": 199
               }
             ],
-            "result": 196,
+            "result": 197,
             "docs": {
               "contents": "Make a deep copy of the Fields. Equivalent in behavior to calling the\n`fields` constructor on the return value of `copy-all`. The resulting\n`fields` is mutable."
             }
@@ -5776,27 +5978,27 @@
           "[static]request.new": {
             "name": "[static]request.new",
             "kind": {
-              "static": 190
+              "static": 191
             },
             "params": [
               {
                 "name": "headers",
-                "type": 234
+                "type": 235
               },
               {
                 "name": "contents",
-                "type": 203
+                "type": 204
               },
               {
                 "name": "trailers",
-                "type": 207
+                "type": 208
               },
               {
                 "name": "options",
-                "type": 209
+                "type": 210
               }
             ],
-            "result": 213,
+            "result": 214,
             "docs": {
               "contents": "Construct a new `request` with a default `method` of `GET`, and\n`none` values for `path-with-query`, `scheme`, and `authority`.\n\n`headers` is the HTTP Headers for the Request.\n\n`contents` is the optional body content stream with `none`\nrepresenting a zero-length content stream.\nOnce it is closed, `trailers` future must resolve to a result.\nIf `trailers` resolves to an error, underlying connection\nwill be closed immediately.\n\n`options` is optional `request-options` resource to be used\nif the request is sent over a network connection.\n\nIt is possible to construct, or manipulate with the accessor functions\nbelow, a `request` with an invalid combination of `scheme`\nand `authority`, or `headers` which are not permitted to be sent.\nIt is the obligation of the `handler.handle` implementation\nto reject invalid constructions of `request`.\n\nThe returned future resolves to result of transmission of this request."
             }
@@ -5804,15 +6006,15 @@
           "[method]request.get-method": {
             "name": "[method]request.get-method",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               }
             ],
-            "result": 171,
+            "result": 172,
             "docs": {
               "contents": "Get the Method for the Request."
             }
@@ -5820,19 +6022,19 @@
           "[method]request.set-method": {
             "name": "[method]request.set-method",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               },
               {
                 "name": "method",
-                "type": 171
+                "type": 172
               }
             ],
-            "result": 215,
+            "result": 216,
             "docs": {
               "contents": "Set the Method for the Request. Fails if the string present in a\n`method.other` argument is not a syntactically valid method."
             }
@@ -5840,15 +6042,15 @@
           "[method]request.get-path-with-query": {
             "name": "[method]request.get-path-with-query",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               }
             ],
-            "result": 173,
+            "result": 174,
             "docs": {
               "contents": "Get the combination of the HTTP Path and Query for the Request.  When\n`none`, this represents an empty Path and empty Query."
             }
@@ -5856,19 +6058,19 @@
           "[method]request.set-path-with-query": {
             "name": "[method]request.set-path-with-query",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               },
               {
                 "name": "path-with-query",
-                "type": 173
+                "type": 174
               }
             ],
-            "result": 215,
+            "result": 216,
             "docs": {
               "contents": "Set the combination of the HTTP Path and Query for the Request.  When\n`none`, this represents an empty Path and empty Query. Fails is the\nstring given is not a syntactically valid path and query uri component."
             }
@@ -5876,15 +6078,15 @@
           "[method]request.get-scheme": {
             "name": "[method]request.get-scheme",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               }
             ],
-            "result": 216,
+            "result": 217,
             "docs": {
               "contents": "Get the HTTP Related Scheme for the Request. When `none`, the\nimplementation may choose an appropriate default scheme."
             }
@@ -5892,19 +6094,19 @@
           "[method]request.set-scheme": {
             "name": "[method]request.set-scheme",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               },
               {
                 "name": "scheme",
-                "type": 216
+                "type": 217
               }
             ],
-            "result": 215,
+            "result": 216,
             "docs": {
               "contents": "Set the HTTP Related Scheme for the Request. When `none`, the\nimplementation may choose an appropriate default scheme. Fails if the\nstring given is not a syntactically valid uri scheme."
             }
@@ -5912,15 +6114,15 @@
           "[method]request.get-authority": {
             "name": "[method]request.get-authority",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               }
             ],
-            "result": 173,
+            "result": 174,
             "docs": {
               "contents": "Get the authority of the Request's target URI. A value of `none` may be used\nwith Related Schemes which do not require an authority. The HTTP and\nHTTPS schemes always require an authority."
             }
@@ -5928,19 +6130,19 @@
           "[method]request.set-authority": {
             "name": "[method]request.set-authority",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               },
               {
                 "name": "authority",
-                "type": 173
+                "type": 174
               }
             ],
-            "result": 215,
+            "result": 216,
             "docs": {
               "contents": "Set the authority of the Request's target URI. A value of `none` may be used\nwith Related Schemes which do not require an authority. The HTTP and\nHTTPS schemes always require an authority. Fails if the string given is\nnot a syntactically valid URI authority."
             }
@@ -5948,15 +6150,15 @@
           "[method]request.get-options": {
             "name": "[method]request.get-options",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               }
             ],
-            "result": 209,
+            "result": 210,
             "docs": {
               "contents": "Get the `request-options` to be associated with this request\n\nThe returned `request-options` resource is immutable: `set-*` operations\nwill fail if invoked.\n\nThis `request-options` resource is a child: it must be dropped before\nthe parent `request` is dropped, or its ownership is transferred to\nanother component by e.g. `handler.handle`."
             }
@@ -5964,15 +6166,15 @@
           "[method]request.get-headers": {
             "name": "[method]request.get-headers",
             "kind": {
-              "method": 190
+              "method": 191
             },
             "params": [
               {
                 "name": "self",
-                "type": 214
+                "type": 215
               }
             ],
-            "result": 234,
+            "result": 235,
             "docs": {
               "contents": "Get the headers associated with the Request.\n\nThe returned `headers` resource is immutable: `set`, `append`, and\n`delete` operations will fail with `header-error.immutable`."
             }
@@ -5980,19 +6182,19 @@
           "[static]request.consume-body": {
             "name": "[static]request.consume-body",
             "kind": {
-              "static": 190
+              "static": 191
             },
             "params": [
               {
                 "name": "this",
-                "type": 212
+                "type": 213
               },
               {
                 "name": "res",
-                "type": 211
+                "type": 212
               }
             ],
-            "result": 217,
+            "result": 218,
             "docs": {
               "contents": "Get body of the Request.\n\nStream returned by this method represents the contents of the body.\nOnce the stream is reported as closed, callers should await the returned\nfuture to determine whether the body was received successfully.\nThe future will only resolve after the stream is reported as closed.\n\nThis function takes a `res` future as a parameter, which can be used to\ncommunicate an error in handling of the request.\n\nNote that function will move the `request`, but references to headers or\nrequest options acquired from it previously will remain valid."
             }
@@ -6000,10 +6202,10 @@
           "[constructor]request-options": {
             "name": "[constructor]request-options",
             "kind": {
-              "constructor": 191
+              "constructor": 192
             },
             "params": [],
-            "result": 208,
+            "result": 209,
             "docs": {
               "contents": "Construct a default `request-options` value."
             }
@@ -6011,15 +6213,15 @@
           "[method]request-options.get-connect-timeout": {
             "name": "[method]request-options.get-connect-timeout",
             "kind": {
-              "method": 191
+              "method": 192
             },
             "params": [
               {
                 "name": "self",
-                "type": 218
+                "type": 219
               }
             ],
-            "result": 219,
+            "result": 220,
             "docs": {
               "contents": "The timeout for the initial connect to the HTTP Server."
             }
@@ -6027,19 +6229,19 @@
           "[method]request-options.set-connect-timeout": {
             "name": "[method]request-options.set-connect-timeout",
             "kind": {
-              "method": 191
+              "method": 192
             },
             "params": [
               {
                 "name": "self",
-                "type": 218
+                "type": 219
               },
               {
                 "name": "duration",
-                "type": 219
+                "type": 220
               }
             ],
-            "result": 220,
+            "result": 221,
             "docs": {
               "contents": "Set the timeout for the initial connect to the HTTP Server. An error\nreturn value indicates that this timeout is not supported or that this\nhandle is immutable."
             }
@@ -6047,15 +6249,15 @@
           "[method]request-options.get-first-byte-timeout": {
             "name": "[method]request-options.get-first-byte-timeout",
             "kind": {
-              "method": 191
+              "method": 192
             },
             "params": [
               {
                 "name": "self",
-                "type": 218
+                "type": 219
               }
             ],
-            "result": 219,
+            "result": 220,
             "docs": {
               "contents": "The timeout for receiving the first byte of the Response body."
             }
@@ -6063,19 +6265,19 @@
           "[method]request-options.set-first-byte-timeout": {
             "name": "[method]request-options.set-first-byte-timeout",
             "kind": {
-              "method": 191
+              "method": 192
             },
             "params": [
               {
                 "name": "self",
-                "type": 218
+                "type": 219
               },
               {
                 "name": "duration",
-                "type": 219
+                "type": 220
               }
             ],
-            "result": 220,
+            "result": 221,
             "docs": {
               "contents": "Set the timeout for receiving the first byte of the Response body. An\nerror return value indicates that this timeout is not supported or that\nthis handle is immutable."
             }
@@ -6083,15 +6285,15 @@
           "[method]request-options.get-between-bytes-timeout": {
             "name": "[method]request-options.get-between-bytes-timeout",
             "kind": {
-              "method": 191
+              "method": 192
             },
             "params": [
               {
                 "name": "self",
-                "type": 218
+                "type": 219
               }
             ],
-            "result": 219,
+            "result": 220,
             "docs": {
               "contents": "The timeout for receiving subsequent chunks of bytes in the Response\nbody stream."
             }
@@ -6099,19 +6301,19 @@
           "[method]request-options.set-between-bytes-timeout": {
             "name": "[method]request-options.set-between-bytes-timeout",
             "kind": {
-              "method": 191
+              "method": 192
             },
             "params": [
               {
                 "name": "self",
-                "type": 218
+                "type": 219
               },
               {
                 "name": "duration",
-                "type": 219
+                "type": 220
               }
             ],
-            "result": 220,
+            "result": 221,
             "docs": {
               "contents": "Set the timeout for receiving subsequent chunks of bytes in the Response\nbody stream. An error return value indicates that this timeout is not\nsupported or that this handle is immutable."
             }
@@ -6119,15 +6321,15 @@
           "[method]request-options.clone": {
             "name": "[method]request-options.clone",
             "kind": {
-              "method": 191
+              "method": 192
             },
             "params": [
               {
                 "name": "self",
-                "type": 218
+                "type": 219
               }
             ],
-            "result": 208,
+            "result": 209,
             "docs": {
               "contents": "Make a deep copy of the `request-options`.\nThe resulting `request-options` is mutable."
             }
@@ -6135,23 +6337,23 @@
           "[static]response.new": {
             "name": "[static]response.new",
             "kind": {
-              "static": 193
+              "static": 194
             },
             "params": [
               {
                 "name": "headers",
-                "type": 234
+                "type": 235
               },
               {
                 "name": "contents",
-                "type": 203
+                "type": 204
               },
               {
                 "name": "trailers",
-                "type": 207
+                "type": 208
               }
             ],
-            "result": 222,
+            "result": 223,
             "docs": {
               "contents": "Construct a new `response`, with a default `status-code` of `200`.\nIf a different `status-code` is needed, it must be set via the\n`set-status-code` method.\n\n`headers` is the HTTP Headers for the Response.\n\n`contents` is the optional body content stream with `none`\nrepresenting a zero-length content stream.\nOnce it is closed, `trailers` future must resolve to a result.\nIf `trailers` resolves to an error, underlying connection\nwill be closed immediately.\n\nThe returned future resolves to result of transmission of this response."
             }
@@ -6159,15 +6361,15 @@
           "[method]response.get-status-code": {
             "name": "[method]response.get-status-code",
             "kind": {
-              "method": 193
+              "method": 194
             },
             "params": [
               {
                 "name": "self",
-                "type": 223
+                "type": 224
               }
             ],
-            "result": 192,
+            "result": 193,
             "docs": {
               "contents": "Get the HTTP Status Code for the Response."
             }
@@ -6175,19 +6377,19 @@
           "[method]response.set-status-code": {
             "name": "[method]response.set-status-code",
             "kind": {
-              "method": 193
+              "method": 194
             },
             "params": [
               {
                 "name": "self",
-                "type": 223
+                "type": 224
               },
               {
                 "name": "status-code",
-                "type": 192
+                "type": 193
               }
             ],
-            "result": 215,
+            "result": 216,
             "docs": {
               "contents": "Set the HTTP Status Code for the Response. Fails if the status-code\ngiven is not a valid http status code."
             }
@@ -6195,15 +6397,15 @@
           "[method]response.get-headers": {
             "name": "[method]response.get-headers",
             "kind": {
-              "method": 193
+              "method": 194
             },
             "params": [
               {
                 "name": "self",
-                "type": 223
+                "type": 224
               }
             ],
-            "result": 234,
+            "result": 235,
             "docs": {
               "contents": "Get the headers associated with the Response.\n\nThe returned `headers` resource is immutable: `set`, `append`, and\n`delete` operations will fail with `header-error.immutable`."
             }
@@ -6211,19 +6413,19 @@
           "[static]response.consume-body": {
             "name": "[static]response.consume-body",
             "kind": {
-              "static": 193
+              "static": 194
             },
             "params": [
               {
                 "name": "this",
-                "type": 221
+                "type": 222
               },
               {
                 "name": "res",
-                "type": 211
+                "type": 212
               }
             ],
-            "result": 217,
+            "result": 218,
             "docs": {
               "contents": "Get body of the Response.\n\nStream returned by this method represents the contents of the body.\nOnce the stream is reported as closed, callers should await the returned\nfuture to determine whether the body was received successfully.\nThe future will only resolve after the stream is reported as closed.\n\nThis function takes a `res` future as a parameter, which can be used to\ncommunicate an error in handling of the response.\n\nNote that function will move the `response`, but references to headers\nacquired from it previously will remain valid."
             }
@@ -6237,14 +6439,14 @@
             "since": "0.3.0"
           }
         },
-        "package": 11
+        "package": 12
       },
       {
         "name": "handler",
         "types": {
-          "request": 224,
-          "response": 225,
-          "error-code": 226
+          "request": 225,
+          "response": 226,
+          "error-code": 227
         },
         "functions": {
           "handle": {
@@ -6253,10 +6455,10 @@
             "params": [
               {
                 "name": "request",
-                "type": 235
+                "type": 236
               }
             ],
-            "result": 228,
+            "result": 229,
             "docs": {
               "contents": "This function may be called with either an incoming request read from the\nnetwork or a request synthesized or forwarded by another component."
             }
@@ -6270,14 +6472,14 @@
             "since": "0.3.0"
           }
         },
-        "package": 11
+        "package": 12
       },
       {
         "name": "client",
         "types": {
-          "request": 229,
-          "response": 230,
-          "error-code": 231
+          "request": 230,
+          "response": 231,
+          "error-code": 232
         },
         "functions": {
           "send": {
@@ -6286,10 +6488,10 @@
             "params": [
               {
                 "name": "request",
-                "type": 236
+                "type": 237
               }
             ],
-            "result": 233,
+            "result": 234,
             "docs": {
               "contents": "This function may be used to either send an outgoing request over the\nnetwork or to forward it to another component."
             }
@@ -6303,7 +6505,7 @@
             "since": "0.3.0"
           }
         },
-        "package": 11
+        "package": 12
       }
     ],
     "types": [
@@ -8769,12 +8971,24 @@
         "owner": null
       },
       {
+        "name": null,
+        "kind": {
+          "tuple": {
+            "types": [
+              "u32",
+              "u32"
+            ]
+          }
+        },
+        "owner": null
+      },
+      {
         "name": "duration",
         "kind": {
           "type": 35
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         }
       },
       {
@@ -8826,7 +9040,7 @@
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "This type corresponds to HTTP standard Methods."
@@ -8858,7 +9072,7 @@
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "This type corresponds to HTTP standard Related Schemes."
@@ -8900,17 +9114,17 @@
             "fields": [
               {
                 "name": "rcode",
-                "type": 173
+                "type": 174
               },
               {
                 "name": "info-code",
-                "type": 174
+                "type": 175
               }
             ]
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Defines the case payload type for `DNS-error` above:"
@@ -8940,17 +9154,17 @@
             "fields": [
               {
                 "name": "alert-id",
-                "type": 176
+                "type": 177
               },
               {
                 "name": "alert-message",
-                "type": 173
+                "type": 174
               }
             ]
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Defines the case payload type for `TLS-alert-received` above:"
@@ -8980,17 +9194,17 @@
             "fields": [
               {
                 "name": "field-name",
-                "type": 173
+                "type": 174
               },
               {
                 "name": "field-size",
-                "type": 178
+                "type": 179
               }
             ]
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Defines the case payload type for `HTTP-response-{header,trailer}-size` above:"
@@ -9016,7 +9230,7 @@
       {
         "name": null,
         "kind": {
-          "option": 179
+          "option": 180
         },
         "owner": null,
         "stability": {
@@ -9036,7 +9250,7 @@
               },
               {
                 "name": "DNS-error",
-                "type": 175
+                "type": 176
               },
               {
                 "name": "destination-not-found",
@@ -9088,7 +9302,7 @@
               },
               {
                 "name": "TLS-alert-received",
-                "type": 177
+                "type": 178
               },
               {
                 "name": "HTTP-request-denied",
@@ -9100,7 +9314,7 @@
               },
               {
                 "name": "HTTP-request-body-size",
-                "type": 180
+                "type": 181
               },
               {
                 "name": "HTTP-request-method-invalid",
@@ -9116,19 +9330,19 @@
               },
               {
                 "name": "HTTP-request-header-section-size",
-                "type": 178
+                "type": 179
               },
               {
                 "name": "HTTP-request-header-size",
-                "type": 181
+                "type": 182
               },
               {
                 "name": "HTTP-request-trailer-section-size",
-                "type": 178
+                "type": 179
               },
               {
                 "name": "HTTP-request-trailer-size",
-                "type": 179
+                "type": 180
               },
               {
                 "name": "HTTP-response-incomplete",
@@ -9136,31 +9350,31 @@
               },
               {
                 "name": "HTTP-response-header-section-size",
-                "type": 178
+                "type": 179
               },
               {
                 "name": "HTTP-response-header-size",
-                "type": 179
-              },
-              {
-                "name": "HTTP-response-body-size",
                 "type": 180
               },
               {
-                "name": "HTTP-response-trailer-section-size",
-                "type": 178
+                "name": "HTTP-response-body-size",
+                "type": 181
               },
               {
-                "name": "HTTP-response-trailer-size",
+                "name": "HTTP-response-trailer-section-size",
                 "type": 179
               },
               {
+                "name": "HTTP-response-trailer-size",
+                "type": 180
+              },
+              {
                 "name": "HTTP-response-transfer-coding",
-                "type": 173
+                "type": 174
               },
               {
                 "name": "HTTP-response-content-coding",
-                "type": 173
+                "type": 174
               },
               {
                 "name": "HTTP-response-timeout",
@@ -9184,7 +9398,7 @@
               },
               {
                 "name": "internal-error",
-                "type": 173,
+                "type": 174,
                 "docs": {
                   "contents": "This is a catch-all error for anything that doesn't fit cleanly into a\nmore specific case. It also includes an optional string for an\nunstructured description of the error. Users should not depend on the\nstring for diagnosing errors, as it's not required to be consistent\nbetween implementations."
                 }
@@ -9193,7 +9407,7 @@
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "These cases are inspired by the IANA HTTP Proxy Error Types:\n  <https://www.iana.org/assignments/http-proxy-status/http-proxy-status.xhtml#table-http-proxy-error-types>"
@@ -9239,7 +9453,7 @@
               },
               {
                 "name": "other",
-                "type": 173,
+                "type": 174,
                 "docs": {
                   "contents": "This is a catch-all error for anything that doesn't fit cleanly into a\nmore specific case. Implementations can use this to extend the error\ntype without breaking existing code. It also includes an optional\nstring for an unstructured description of the error. Users should not\ndepend on the string for diagnosing errors, as it's not required to be\nconsistent between implementations."
                 }
@@ -9248,7 +9462,7 @@
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "This type enumerates the different kinds of errors that may occur when\nsetting or appending to a `fields` resource."
@@ -9280,7 +9494,7 @@
               },
               {
                 "name": "other",
-                "type": 173,
+                "type": 174,
                 "docs": {
                   "contents": "This is a catch-all error for anything that doesn't fit cleanly into a\nmore specific case. Implementations can use this to extend the error\ntype without breaking existing code. It also includes an optional\nstring for an unstructured description of the error. Users should not\ndepend on the string for diagnosing errors, as it's not required to be\nconsistent between implementations."
                 }
@@ -9289,7 +9503,7 @@
           }
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "This type enumerates the different kinds of errors that may occur when\nsetting fields of a `request-options` resource."
@@ -9306,7 +9520,7 @@
           "type": "string"
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Field names are always strings.\n\nField names should always be treated as case insensitive by the `fields`\nresource for the purposes of equality checking."
@@ -9323,7 +9537,7 @@
           "list": "u8"
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Field values should always be ASCII strings. However, in\nreality, HTTP implementations often have to interpret malformed values,\nso they are provided as a list of bytes."
@@ -9338,7 +9552,7 @@
         "name": "fields",
         "kind": "resource",
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "This following block defines the `fields` resource which corresponds to\nHTTP standard Fields. Fields are a common representation used for both\nHeaders and Trailers.\n\nA `fields` may be mutable or immutable. A `fields` created using the\nconstructor, `from-list`, or `clone` will be mutable, but a `fields`\nresource given by other means (including, but not limited to,\n`request.headers`) might be be immutable. In an immutable fields, the\n`set`, `append`, and `delete` operations will fail with\n`header-error.immutable`.\n\nA `fields` resource should store `field-name`s and `field-value`s in their\noriginal casing used to construct or mutate the `fields` resource. The `fields`\nresource should use that original casing when serializing the fields for\ntransport or when returning them from a method.\n\nImplementations may impose limits on individual field values and on total\naggregate field section size. Operations that would exceed these limits\nfail with `header-error.size-exceeded`"
@@ -9352,10 +9566,10 @@
       {
         "name": "headers",
         "kind": {
-          "type": 187
+          "type": 188
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Headers is an alias for Fields."
@@ -9369,10 +9583,10 @@
       {
         "name": "trailers",
         "kind": {
-          "type": 187
+          "type": 188
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Trailers is an alias for Fields."
@@ -9387,7 +9601,7 @@
         "name": "request",
         "kind": "resource",
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Represents an HTTP Request."
@@ -9402,7 +9616,7 @@
         "name": "request-options",
         "kind": "resource",
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Parameters for making an HTTP Request. Each of these parameters is\ncurrently an optional timeout applicable to the transport layer of the\nHTTP protocol.\n\nThese timeouts are separate from any the user may use to bound an\nasynchronous call."
@@ -9419,7 +9633,7 @@
           "type": "u16"
         },
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "This type corresponds to the HTTP standard Status Code."
@@ -9434,7 +9648,7 @@
         "name": "response",
         "kind": "resource",
         "owner": {
-          "interface": 32
+          "interface": 34
         },
         "docs": {
           "contents": "Represents an HTTP Response."
@@ -9450,8 +9664,8 @@
         "kind": {
           "tuple": {
             "types": [
-              185,
-              186
+              186,
+              187
             ]
           }
         },
@@ -9465,7 +9679,7 @@
       {
         "name": null,
         "kind": {
-          "list": 194
+          "list": 195
         },
         "owner": null,
         "stability": {
@@ -9478,7 +9692,7 @@
         "name": null,
         "kind": {
           "handle": {
-            "own": 187
+            "own": 188
           }
         },
         "owner": null
@@ -9487,7 +9701,113 @@
         "name": null,
         "kind": {
           "result": {
-            "ok": 196,
+            "ok": 197,
+            "err": 184
+          }
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "handle": {
+            "borrow": 188
+          }
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": 187
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": null,
+            "err": 184
+          }
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 200,
+            "err": 184
+          }
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "stream": "u8"
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": 203
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "handle": {
+            "own": 190
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": 205
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 206,
             "err": 183
           }
         },
@@ -9501,9 +9821,7 @@
       {
         "name": null,
         "kind": {
-          "handle": {
-            "borrow": 187
-          }
+          "future": 207
         },
         "owner": null,
         "stability": {
@@ -9515,7 +9833,16 @@
       {
         "name": null,
         "kind": {
-          "list": 186
+          "handle": {
+            "own": 192
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": 209
         },
         "owner": null,
         "stability": {
@@ -9542,72 +9869,7 @@
       {
         "name": null,
         "kind": {
-          "result": {
-            "ok": 199,
-            "err": 183
-          }
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "stream": "u8"
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "option": 202
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "handle": {
-            "own": 189
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "option": 204
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "result": {
-            "ok": 205,
-            "err": 182
-          }
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "future": 206
+          "future": 211
         },
         "owner": null,
         "stability": {
@@ -9628,111 +9890,10 @@
       {
         "name": null,
         "kind": {
-          "option": 208
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "result": {
-            "ok": null,
-            "err": 182
-          }
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "future": 210
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "handle": {
-            "own": 190
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
           "tuple": {
             "types": [
-              212,
-              211
-            ]
-          }
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "handle": {
-            "borrow": 190
-          }
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "result": {
-            "ok": null,
-            "err": null
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "option": 172
-        },
-        "owner": null,
-        "stability": {
-          "stable": {
-            "since": "0.3.0"
-          }
-        }
-      },
-      {
-        "name": null,
-        "kind": {
-          "tuple": {
-            "types": [
-              202,
-              207
+              213,
+              212
             ]
           }
         },
@@ -9760,17 +9921,17 @@
       {
         "name": null,
         "kind": {
-          "option": 170
+          "result": {
+            "ok": null,
+            "err": null
+          }
         },
         "owner": null
       },
       {
         "name": null,
         "kind": {
-          "result": {
-            "ok": null,
-            "err": 184
-          }
+          "option": 173
         },
         "owner": null,
         "stability": {
@@ -9782,19 +9943,10 @@
       {
         "name": null,
         "kind": {
-          "handle": {
-            "own": 193
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
           "tuple": {
             "types": [
-              221,
-              211
+              203,
+              208
             ]
           }
         },
@@ -9809,7 +9961,69 @@
         "name": null,
         "kind": {
           "handle": {
-            "borrow": 193
+            "borrow": 192
+          }
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": 171
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": null,
+            "err": 185
+          }
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "handle": {
+            "own": 194
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "tuple": {
+            "types": [
+              222,
+              212
+            ]
+          }
+        },
+        "owner": null,
+        "stability": {
+          "stable": {
+            "since": "0.3.0"
+          }
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "handle": {
+            "borrow": 194
           }
         },
         "owner": null,
@@ -9822,29 +10036,103 @@
       {
         "name": "request",
         "kind": {
-          "type": 190
+          "type": 191
         },
         "owner": {
-          "interface": 33
+          "interface": 35
         }
       },
       {
         "name": "response",
         "kind": {
-          "type": 193
+          "type": 194
         },
         "owner": {
-          "interface": 33
+          "interface": 35
         }
       },
       {
         "name": "error-code",
         "kind": {
-          "type": 182
+          "type": 183
         },
         "owner": {
-          "interface": 33
+          "interface": 35
         }
+      },
+      {
+        "name": null,
+        "kind": {
+          "handle": {
+            "own": 226
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 228,
+            "err": 227
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": "request",
+        "kind": {
+          "type": 191
+        },
+        "owner": {
+          "interface": 36
+        }
+      },
+      {
+        "name": "response",
+        "kind": {
+          "type": 194
+        },
+        "owner": {
+          "interface": 36
+        }
+      },
+      {
+        "name": "error-code",
+        "kind": {
+          "type": 183
+        },
+        "owner": {
+          "interface": 36
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "handle": {
+            "own": 231
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 233,
+            "err": 232
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "handle": {
+            "own": 189
+          }
+        },
+        "owner": null
       },
       {
         "name": null,
@@ -9858,82 +10146,8 @@
       {
         "name": null,
         "kind": {
-          "result": {
-            "ok": 227,
-            "err": 226
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": "request",
-        "kind": {
-          "type": 190
-        },
-        "owner": {
-          "interface": 34
-        }
-      },
-      {
-        "name": "response",
-        "kind": {
-          "type": 193
-        },
-        "owner": {
-          "interface": 34
-        }
-      },
-      {
-        "name": "error-code",
-        "kind": {
-          "type": 182
-        },
-        "owner": {
-          "interface": 34
-        }
-      },
-      {
-        "name": null,
-        "kind": {
           "handle": {
             "own": 230
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "result": {
-            "ok": 232,
-            "err": 231
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "handle": {
-            "own": 188
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "handle": {
-            "own": 224
-          }
-        },
-        "owner": null
-      },
-      {
-        "name": null,
-        "kind": {
-          "handle": {
-            "own": 229
           }
         },
         "owner": null
@@ -10051,22 +10265,31 @@
         }
       },
       {
+        "name": "tina:term@0.1.0",
+        "interfaces": {
+          "tty": 32,
+          "crash": 33
+        },
+        "worlds": {}
+      },
+      {
         "name": "tina:probe@1.0.0",
         "interfaces": {},
         "worlds": {
-          "engine-probe": 5
+          "engine-probe": 5,
+          "tui-app": 6
         }
       },
       {
         "name": "wasi:http@0.3.0",
         "interfaces": {
-          "types": 32,
-          "handler": 33,
-          "client": 34
+          "types": 34,
+          "handler": 35,
+          "client": 36
         },
         "worlds": {
-          "service": 6,
-          "middleware": 7
+          "service": 7,
+          "middleware": 8
         }
       }
     ]

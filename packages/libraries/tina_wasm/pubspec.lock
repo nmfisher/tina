@@ -541,7 +541,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_console:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../tina_console"
       relative: true
@@ -604,7 +604,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_host:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../tina_host"
       relative: true
@@ -765,7 +765,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_tui:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../tina_tui"
       relative: true

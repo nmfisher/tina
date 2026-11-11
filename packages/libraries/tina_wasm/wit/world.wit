@@ -12,3 +12,20 @@ world engine-probe {
   import tina:process/process@1.1.0;
   export wasmdart:tests/tested-module;
 }
+
+/// The full tina TUI as one component (Option 2): the engine's host-import
+/// set (http, plugin-host, policy, process) plus the host-owned tty
+/// authority and the crash channel, over the standard run export the
+/// packaged host drives by default. Same toolchain package as the engine
+/// world (witgen takes one root package per tree); the identity that
+/// matters is the component's imports/exports, not this local name.
+world tui-app {
+  include wasi:cli/command@0.3.0;
+  import tina:term/tty@0.1.0;
+  import tina:term/crash@0.1.0;
+  import tina:http/client@1.1.0;
+  import tina:plugin-host/session@0.1.0;
+  import tina:policy/policy@1.0.0;
+  import tina:process/process@1.1.0;
+  export wasi:cli/run@0.3.0;
+}
