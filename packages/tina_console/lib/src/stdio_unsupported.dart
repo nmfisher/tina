@@ -20,7 +20,13 @@ abstract class Stdio {
   Stream<List<int>> get stdin;
   void write(String s);
   int get terminalColumns;
+  int get terminalLines;
   bool get hasTerminal;
+  bool get stdinHasTerminal;
+  bool get echoMode;
+  bool get lineMode;
+  void setEchoMode(bool value);
+  void setLineMode(bool value);
 
   /// Watch a process signal. Empty under wasm: signals are host-owned.
   Stream<ProcessSignal> watchSignal(ProcessSignal s);
@@ -45,8 +51,32 @@ class LiveStdio implements Stdio {
       throw UnsupportedError('no dart:io terminal on this platform');
 
   @override
+  int get terminalLines =>
+      throw UnsupportedError('no dart:io terminal on this platform');
+
+  @override
   bool get hasTerminal =>
       throw UnsupportedError('no dart:io terminal on this platform');
+
+  @override
+  bool get stdinHasTerminal =>
+      throw UnsupportedError('no dart:io terminal on this platform');
+
+  @override
+  bool get echoMode =>
+      throw UnsupportedError('no dart:io terminal on this platform');
+
+  @override
+  bool get lineMode =>
+      throw UnsupportedError('no dart:io terminal on this platform');
+
+  @override
+  void setEchoMode(bool value) => throw UnsupportedError(
+      'no dart:io terminal on this platform');
+
+  @override
+  void setLineMode(bool value) => throw UnsupportedError(
+      'no dart:io terminal on this platform');
 
   @override
   Stream<ProcessSignal> watchSignal(ProcessSignal s) =>

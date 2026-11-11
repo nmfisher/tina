@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
 
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_console/tina_console_native.dart';
 import 'package:tina_console/src/backend/ansi_backend.dart';
 
 import 'stdio_fake.dart';

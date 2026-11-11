@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:test/test.dart';
 import 'package:tina_console/src/terminal_bg.dart';
+import 'package:tina_console/src/terminal_bg_io.dart';
 
 Future<TerminalBg> probeOnce(String reply) async {
   final controller = StreamController<List<int>>(sync: true);

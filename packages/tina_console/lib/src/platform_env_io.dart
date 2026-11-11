@@ -29,3 +29,8 @@ void platformAppendFile(String path, String contents) {
     flush: true,
   );
 }
+
+/// Write a debug diagnostic to the process's stderr.
+void platformWriteStderr(String message) {
+  io.stderr.write(message);
+}

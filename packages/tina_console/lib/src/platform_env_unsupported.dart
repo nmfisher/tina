@@ -17,3 +17,7 @@ bool platformStdoutSupportsAnsi() => true;
 /// Append [contents] to the file at [path]. Not part of the wasm guest
 /// contract: the host owns the filesystem, so debug traces drop.
 void platformAppendFile(String path, String contents) {}
+
+/// Write a debug diagnostic to stderr. Not part of the wasm guest
+/// contract: debug traces drop (the host owns the terminal bytes).
+void platformWriteStderr(String message) {}

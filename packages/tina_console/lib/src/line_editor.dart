@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 import 'package:logging/logging.dart';
 
 import 'backend/ansi_input_backend.dart';
@@ -11,6 +10,7 @@ import 'focus_manager.dart';
 import 'input_event.dart';
 import 'input_session.dart';
 import 'input_latency.dart';
+import 'platform_env.dart';
 import 'input_log.dart';
 import 'paste_audit.dart';
 import 'text_line_input.dart';
@@ -758,13 +758,12 @@ class LineEditor {
   void reportInputLatency() {
     if (InputLatency.enabled) {
       final s = InputLatency.snapshot();
-      stderr.writeln(
+      platformWriteStderr(
         '[input-latency] count=${s.count} '
         'p50=${s.p50Millis.toStringAsFixed(3)}ms '
         'p95=${s.p95Millis.toStringAsFixed(3)}ms '
         'p99=${s.p99Millis.toStringAsFixed(3)}ms '
-        'max=${s.maxMillis.toStringAsFixed(3)}ms',
-      );
+        'max=${s.maxMillis.toStringAsFixed(3)}ms');
     }
   }
 

@@ -16,7 +16,23 @@ abstract class Stdio {
   Stream<List<int>> get stdin;
   void write(String s);
   int get terminalColumns;
+
+  /// Terminal rows (the height half of the window size).
+  int get terminalLines;
   bool get hasTerminal;
+
+  /// Whether stdin is a terminal (Stdin.hasTerminal natively; under wasm the
+  /// terminal instance answers honestly).
+  bool get stdinHasTerminal;
+
+  /// stdin's current echo mode (read before the app disables it so it can be
+  /// restored on teardown).
+  bool get echoMode;
+
+  /// stdin's current line mode.
+  bool get lineMode;
+  void setEchoMode(bool value);
+  void setLineMode(bool value);
 
   /// Watch a process signal (e.g. SIGWINCH). Returns an empty stream on
   /// platforms that don't support the signal.
@@ -58,7 +74,25 @@ class LiveStdio implements Stdio {
   int get terminalColumns => io.stdout.terminalColumns;
 
   @override
+  int get terminalLines => io.stdout.terminalLines;
+
+  @override
   bool get hasTerminal => io.stdout.hasTerminal;
+
+  @override
+  bool get stdinHasTerminal => io.stdin.hasTerminal;
+
+  @override
+  bool get echoMode => io.stdin.echoMode;
+
+  @override
+  bool get lineMode => io.stdin.lineMode;
+
+  @override
+  void setEchoMode(bool value) => io.stdin.echoMode = value;
+
+  @override
+  void setLineMode(bool value) => io.stdin.lineMode = value;
 
   @override
   Stream<io.ProcessSignal> watchSignal(io.ProcessSignal s) {
