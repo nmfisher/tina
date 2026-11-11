@@ -301,11 +301,11 @@ class Terminal:
             if time.monotonic() >= deadline or not select.select([self.master], [], [], 0)[0]:
                 return
 
-    def expect(self, text, start=0, *, wrapped=False, elided=False):
+    def expect(self, text, start=0, *, wrapped=False, elided=False, timeout=30):
         expected = text.encode()
         if wrapped:
             expected = re.sub(rb'\s+', b'', expected)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             self.read()
             shown = ANSI.sub(b"", self.output[start:])

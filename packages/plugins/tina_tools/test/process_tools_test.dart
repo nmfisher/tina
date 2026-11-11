@@ -64,7 +64,7 @@ void main() {
       final tool = BashTool(runner: inner, workingDirectory: '/tmp/ws');
       final res = await tool.execute({'command': 'echo hi | wc -c'});
       expect(res.isError, isFalse);
-      expect(inner.command, File('/bin/sh').resolveSymbolicLinksSync());
+      expect(inner.command, '/bin/sh');
       expect(inner.arguments, ['-c', 'echo hi | wc -c']);
       expect(inner.workingDirectory, '/tmp/ws');
     });
