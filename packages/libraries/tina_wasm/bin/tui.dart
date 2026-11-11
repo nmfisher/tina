@@ -82,9 +82,12 @@ void _crash(Object error) {
 
 void main(List<String> arguments) {
   runZonedGuarded(() {
+    // Wiring only: host imports may not be TOUCHED during instantiation
+    // (the concurrent component model traps on host calls outside the
+    // run scope - the WASI stdin read in the Stdio constructor defers
+    // into _TuiRun.run, exactly like the pipes engine's composition).
     root.tuiAppComponent((imports) {
       _imports = imports;
-      _stdio = WasiStdio(imports);
       return _TuiRun();
     });
   }, (error, stack) {
@@ -98,6 +101,7 @@ final class _TuiRun implements wasi_cli.Run {
   @override
   Future<cm.Result<void, void>> run() async {
     try {
+      _stdio = WasiStdio(_imports!);
       await _boot();
       await _stdio?.drain();
       return const cm.OkResult(null);
