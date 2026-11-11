@@ -258,6 +258,85 @@ void main() {
     expect(inner.controls.every((c) => c!.readOnly), isTrue);
   });
 
+  test('system runtime reads have narrow read-only defaults', () {
+    for (final target in plugin.osPlan.runtimeReadPaths) {
+      if (FileSystemEntity.typeSync(target) == FileSystemEntityType.notFound)
+        continue;
+      expect(plugin.osPlan.canRead(target), isTrue, reason: target);
+      expect(plugin.osPlan.canWrite(target), isFalse, reason: target);
+    }
+    for (final target in [
+      '/usr',
+      '/etc',
+      '/etc/shadow',
+      '/usr/local/private-data',
+      '${home.path}/.ssh/id_rsa',
+      external.path
+    ]) {
+      expect(plugin.osPlan.canRead(target), isFalse, reason: target);
+    }
+    final protected =
+        SandboxPlan(workspaceRoot: workspace.path, protectedPaths: ['/bin']);
+    expect(protected.canRead('/bin/sh'), isFalse);
+    expect(plugin.pathGrants.grants, isEmpty);
+  });
+
+  test('shell approval does not offer system runtime directories to remember',
+      () async {
+    final inner = Recorder();
+    expect(await runner(inner).run(command('/bin/sh', ['-c', 'echo hello'])),
+        isA<CommandCompleted>());
+    expect(asks, hasLength(1));
+    expect(asks.single.details['directory_accesses'], isEmpty);
+    expect(asks.single.details['accesses'], isEmpty);
+    final requirements =
+        (asks.single.details['access_requirements'] as List).cast<Map>();
+    expect(requirements.any((r) => r['capability'] == 'read'), isFalse);
+    expect(requirements.any((r) => r['capability'] == 'execute'), isTrue);
+    expect(plugin.pathGrants.grants, isEmpty);
+    expect(inner.controls.single!.readOnly, isTrue);
+    expect(inner.controls.single!.networkAllowed, isFalse);
+  });
+
+  test('file tools share the public runtime read baseline', () async {
+    final hosts = File('/etc/hosts');
+    if (!hosts.existsSync()) return;
+    expect(await plugin.sandbox.readFileString(hosts.path),
+        hosts.readAsStringSync());
+    expect(asks, isEmpty);
+    expect(plugin.pathGrants.grants, isEmpty);
+  });
+
+  test('Remember marks only offers covered by the saved access and scope',
+      () async {
+    final file = File('${external.path}/one')..writeAsStringSync('1');
+    plugin.pathGrants.remember(file.path, write: false, recursive: false);
+    final value = runner(Recorder());
+    await value.run(command('/bin/cat', [file.path]));
+    List<Map> offers() =>
+        (asks.last.details['directory_accesses'] as List).cast<Map>();
+    expect(
+        offers().singleWhere((offer) => offer['path'] == file.path)['granted'],
+        isTrue);
+    expect(
+        offers()
+            .singleWhere((offer) => offer['path'] == external.path)['granted'],
+        isFalse);
+
+    await plugin.sandbox.writeFile(file.path, '2');
+    expect(offers().every((offer) => offer['granted'] == false), isTrue,
+        reason: 'Saved reads must not check write offers');
+
+    plugin.pathGrants.remember(external.path, write: true, recursive: true);
+    await value.run(command('/bin/cat', [file.path]));
+    for (final target in [file.path, external.path]) {
+      expect(
+          offers().singleWhere((offer) => offer['path'] == target)['granted'],
+          isTrue,
+          reason: 'A saved directory write also covers reads of its children');
+    }
+  });
+
   test('file and command writes share the session workspace grant', () async {
     final inner = Recorder();
     final value = runner(inner);
@@ -368,12 +447,6 @@ void main() {
 
   test('saved external writes work without granting workspace writes',
       () async {
-    for (final runtime in plugin.osPlan.runtimeReadPaths) {
-      if (FileSystemEntity.typeSync(runtime) != FileSystemEntityType.notFound) {
-        plugin.pathGrants.remember(canonicalSandboxPath(runtime),
-            write: false, recursive: Directory(runtime).existsSync());
-      }
-    }
     plugin.pathGrants.remember(external.path, write: true, recursive: true);
     final script = File('${workspace.path}/tool')..writeAsStringSync('tool');
     final inner = Recorder();

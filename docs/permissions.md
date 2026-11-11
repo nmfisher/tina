@@ -8,6 +8,7 @@ without granting writes. The explicit launch-only `--yolo` override is retained.
 | Requested access | approve | auto |
 | --- | --- | --- |
 | Workspace read | Allow | Allow |
+| System runtime read (binaries, libraries, selected public configuration) | Allow | Allow |
 | First workspace write | Human approval for the entire workspace | Human approval for the entire workspace |
 | Later workspace writes in this session | Allow | Allow |
 | External read/write covered by a saved path grant | Allow | Allow |
@@ -65,8 +66,12 @@ even after writes have been approved. Network authorization is separate.
 Use `access: "workspace-write"` when exec/bash needs workspace mutations. External
 paths can be requested through `read_directories` and `write_directories`. An
 external executable such as `/usr/bin/python3` is reviewed per invocation; a saved
-read grant does not authorize execution. The runtime's read-only allowances are
-included in command review and can be saved. Private session HOME/TMPDIR are
+read grant does not authorize execution. System runtime reads use the sandbox's
+built-in read-only baseline: `/bin`, `/usr/bin`, library/include/share directories,
+selected public configuration files, and platform runtime paths. These do not
+need saved grants or appear as directory choices in Remember. The baseline does
+not grant writes, network access, or access to all of `/usr`, `/etc`, or the host
+home. Protected paths still take precedence. Private session HOME/TMPDIR are
 scratch, not durable outputs; shared host caches require grants.
 
 Approval happens before an operation or command starts. There is no syscall

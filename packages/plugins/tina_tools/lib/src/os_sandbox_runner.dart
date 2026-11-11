@@ -254,11 +254,30 @@ class SandboxPlan {
     if (isProtected(value)) return false;
     final target = canonicalSandboxPath(value);
     return sandboxPathUnder(target, canonicalSandboxPath(workspaceRoot)) ||
+        allowsRuntimeRead(target) ||
         pathGrants?.allows(target) == true ||
         readDirectories?.allows(target) == true ||
         writeDirectories?.allows(target) == true ||
         writablePaths.any(
             (root) => sandboxPathUnder(target, canonicalSandboxPath(root)));
+  }
+
+  /// Read-only system runtime access already provided by the OS sandbox.
+  /// Files match exactly; directory entries include their descendants.
+  /// Canonical paths keep a symlink inside a runtime directory from granting
+  /// access to an unrelated target. Protected paths always take precedence.
+  bool allowsRuntimeRead(String value) {
+    if (isProtected(value)) return false;
+    final target = canonicalSandboxPath(value);
+    for (final runtime in runtimeReadPaths) {
+      final type = FileSystemEntity.typeSync(runtime);
+      if (type == FileSystemEntityType.notFound) continue;
+      final root = canonicalSandboxPath(runtime);
+      if (target == root ||
+          type == FileSystemEntityType.directory &&
+              sandboxPathUnder(target, root)) return true;
+    }
+    return false;
   }
 
   List<String> get readAllowPaths => [

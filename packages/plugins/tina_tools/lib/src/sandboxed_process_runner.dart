@@ -2,13 +2,7 @@
 /// enforces the selected filesystem profile for one invocation.
 library;
 
-import 'dart:io'
-    show
-        Platform,
-        FileSystemException,
-        Directory,
-        FileSystemEntity,
-        FileSystemEntityType;
+import 'dart:io' show Platform, FileSystemException, Directory;
 import 'capability_envelope.dart';
 import 'command_approval_store.dart';
 import 'package:path/path.dart' as path;
@@ -376,14 +370,6 @@ final class SandboxedProcessRunner
       if (network) AccessRequirement(AccessCapability.network, executable),
       if (outsideSandbox || !confined)
         AccessRequirement(AccessCapability.host, executable),
-      for (final target in {
-        for (final runtime in plan?.runtimeReadPaths ?? const <String>[])
-          if (FileSystemEntity.typeSync(runtime) !=
-              FileSystemEntityType.notFound)
-            canonicalSandboxPath(runtime),
-      })
-        AccessRequirement(AccessCapability.read, target,
-            granted: _canRead(target)),
       for (final target in access.read)
         AccessRequirement(AccessCapability.read, target,
             workspace: inside(target), granted: _canRead(target)),

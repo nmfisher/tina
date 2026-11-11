@@ -20,7 +20,8 @@ paths. A read-only invocation fails closed without an OS sandbox.
 External execution requires approval per invocation, including ordinary system
 executables. Recognized commands contribute access facts; recognition never
 waives review. Scripts and interpreters use the same rules. Runtime read paths
-are included in command review and can be saved as read grants. Workspace and
+are built-in read-only allowances shared by the permission gate and OS sandbox;
+they do not require approval or saved grants. Workspace and
 external writability are independent: an external writable grant does not grant
 workspace writes.
 

@@ -129,7 +129,8 @@ class ApprovalDialog {
     String path,
     DirectoryAccess access,
     String source,
-    bool recursive
+    bool recursive,
+    bool granted
   })>[];
   List<DirectoryGrantScope> _directoryScopes = const [
     DirectoryGrantScope.session
@@ -195,7 +196,8 @@ class ApprovalDialog {
             path: offer['path'] as String,
             access: DirectoryAccess.values.byName(offer['access'] as String),
             source: offer['source'] == 'inferred' ? 'inferred' : 'verified',
-            recursive: offer['recursive'] != false
+            recursive: offer['recursive'] != false,
+            granted: _resourcePermissions && offer['granted'] == true
           ));
         }
       }
@@ -240,11 +242,14 @@ class ApprovalDialog {
           }.contains(decision)
               ? List.unmodifiable([
                   for (final index in _selectedDirectories)
-                    DirectoryAccessGrant(
-                        _directoryOffers[index].path,
-                        _directoryOffers[index].access,
-                        _directoryScopeFor(decision),
-                        recursive: _directoryOffers[index].recursive)
+                    // Covered offers are shown checked, but must not create
+                    // redundant grants that outlive revocation of their parent.
+                    if (!_directoryOffers[index].granted)
+                      DirectoryAccessGrant(
+                          _directoryOffers[index].path,
+                          _directoryOffers[index].access,
+                          _directoryScopeFor(decision),
+                          recursive: _directoryOffers[index].recursive)
                 ])
               : const []);
 
@@ -276,6 +281,9 @@ class ApprovalDialog {
     _directoryScopeExplicit = _resourcePermissions;
     if (_resourcePermissions && _directoryOffers.isNotEmpty)
       _selectedDirectories.add(0);
+    for (var i = 0; i < _directoryOffers.length; i++) {
+      if (_directoryOffers[i].granted) _selectedDirectories.add(i);
+    }
     // Remember the requested directories, never extra model-inferred folders.
     final invocation = ask?.details['invocation_directory_access'];
     if (invocation is Map || ask?.details['directory_grant_required'] == true) {

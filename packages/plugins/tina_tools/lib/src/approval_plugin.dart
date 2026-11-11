@@ -51,8 +51,12 @@ void attachModePolicy(ToolsPlugin plugin) {
       () => plugin.modePolicy.ensureWorkspaceWrite(root);
 
   Map<String, Object?> reviewPaths(List<PermissionAccess> accesses) {
+    final reviewed = accesses.where((access) =>
+        access.operation != PermissionAccessOperation.read ||
+        !plugin.osPlan.allowsRuntimeRead(access.path));
     final offers = <Map<String, Object?>>[];
     final seen = <String>{};
+    final saved = plugin.pathGrants.grants;
     void offer(String target, String access, bool recursive) {
       if (!plugin.osPlan.canGrant(target, write: access == 'write')) return;
       if (target == path.separator || target == plugin.osPlan.hostHome) return;
@@ -61,12 +65,15 @@ void attachModePolicy(ToolsPlugin plugin) {
           'path': target,
           'access': access,
           'recursive': recursive,
+          'granted': saved.any((grant) =>
+              (!recursive || grant.recursive) &&
+              grant.covers(target, write: access == 'write')),
           'source': 'verified'
         });
       }
     }
 
-    for (final access in accesses) {
+    for (final access in reviewed) {
       if (inside(access.path) ||
           access.operation == PermissionAccessOperation.delete) continue;
       final directory = Directory(access.path).existsSync();
@@ -80,7 +87,7 @@ void attachModePolicy(ToolsPlugin plugin) {
     return {
       'resource_permissions': true,
       'accesses': [
-        for (final a in accesses) {...a.toJson(), 'source': 'verified'}
+        for (final a in reviewed) {...a.toJson(), 'source': 'verified'}
       ],
       'directory_accesses': offers,
       'directory_grant_scopes': ['workspace'],
@@ -116,6 +123,8 @@ void attachModePolicy(ToolsPlugin plugin) {
   plugin.sandbox.approver = (request, reason) async {
     final workspace = inside(request.path);
     if (workspace && request.op == FileOp.read) return Approval.yes;
+    if (request.op == FileOp.read &&
+        plugin.osPlan.allowsRuntimeRead(request.path)) return Approval.yes;
     if (workspace) {
       return await plugin.modePolicy.ensureWorkspaceWrite(root)
           ? Approval.yes
@@ -172,14 +181,6 @@ void attachModePolicy(ToolsPlugin plugin) {
         searchPath: plugin.processRunner.executableSearchPath);
     final accesses = <PermissionAccess>[
       ...envelope.verifiedAccesses,
-      for (final target in plugin.osPlan.runtimeReadPaths)
-        if (FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound)
-          PermissionAccess(
-              PermissionAccessOperation.read,
-              canonicalSandboxPath(target),
-              Directory(target).existsSync()
-                  ? PermissionTargetKind.directory
-                  : PermissionTargetKind.file),
       for (final target in review.directoryAccess.read)
         PermissionAccess(PermissionAccessOperation.read, target,
             PermissionTargetKind.directory),
