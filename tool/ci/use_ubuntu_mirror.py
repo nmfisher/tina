@@ -17,6 +17,11 @@ def configure(apt_root: Path, architecture: str) -> int:
         'arm64': 'https://mirrors.mit.edu/ubuntu-ports',
     }
     mirror = mirrors[architecture]
+    # Hosted images can retain a binary package cache that does not reflect
+    # a changed source URI. Read the freshly fetched lists for installation.
+    config = apt_root / 'apt.conf.d' / '99-tina-package-cache'
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text('Dir::Cache::pkgcache "";\nDir::Cache::srcpkgcache "";\n')
     archive = re.compile(
         r'(?:https?://(?:[\w.-]+\.)?archive\.ubuntu\.com/ubuntu'
         r'|https?://security\.ubuntu\.com/ubuntu'

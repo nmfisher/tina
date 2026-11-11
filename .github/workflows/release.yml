@@ -9,7 +9,8 @@
 #
 # Triggers:
 #   - push tag v*            → published release on that tag (make_latest)
-#   - workflow_dispatch      → draft release (tag = input or 0.0.0-dev.<run>)
+#   - workflow_dispatch      → draft by default; publish=true publishes it
+#     build_run_id can reuse successful builds from the exact pushed tag.
 #
 # Each target runs on a native runner (no QEMU): linux-arm64 on the free
 # public arm64 Ubuntu runner.
@@ -25,9 +26,16 @@ on:
       tag:
         description: 'Release tag (defaults to 0.0.0-dev.<run_number>)'
         required: false
+      build_run_id:
+        description: 'Recover publishing using successful builds from this release run'
+        required: false
+      publish:
+        description: 'Publish a dispatched release instead of creating a draft'
+        type: boolean
+        default: false
 
 # TAG resolves the same way for every job: explicit dispatch input → the pushed
-# tag → a dev fallback. tag-push => published; dispatch => draft.
+# tag → a dev fallback. Dispatches default to drafts unless publish is selected.
 #
 # MACOS_SIGNING_P12 mirrors the secret purely so step `if:` conditions can
 # test whether signing is configured (the secrets context isn't allowed in
@@ -51,6 +59,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ !inputs.build_run_id }}
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -232,16 +241,28 @@ jobs:
   release:
     name: publish release
     needs: build
+    if: ${{ always() && (needs.build.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.build_run_id != '')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Checkout release tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Validate recovered builds against release tag
+        if: inputs.build_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          python3 tool/ci/validate_release_recovery.py "$GITHUB_REPOSITORY" "$BUILD_RUN_ID" "$TAG"
+
       - name: Download all build artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
+          run-id: ${{ inputs.build_run_id || github.run_id }}
+          github-token: ${{ github.token }}
           pattern: tina-${{ env.TAG }}-*
           merge-multiple: false
           path: artifacts
@@ -308,8 +329,8 @@ jobs:
           tag_name: ${{ env.TAG }}
           name: ${{ env.TAG }}
           body_path: body.md
-          draft: ${{ github.event_name == 'workflow_dispatch' }}
-          make_latest: ${{ github.event_name != 'workflow_dispatch' }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
+          make_latest: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
           files: ${{ steps.assets.outputs.files }}
           fail_on_unmatched_files: true
 
@@ -321,7 +342,7 @@ jobs:
       # private bundle layout and its launcher symlink. Native libraries stay
       # beside the real binary in the private bundle, outside the PATH directory.
       - name: Verify installer against the published release
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.publish
         run: |
           sudo python3 tool/ci/use_ubuntu_mirror.py
           sudo apt-get update -q && sudo apt-get install -y -q minisign
