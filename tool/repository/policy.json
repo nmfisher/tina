@@ -247,6 +247,7 @@
     "tina_wasm": [
       "lib",
       "bin",
+      "test",
       "tool",
       "hook"
     ],

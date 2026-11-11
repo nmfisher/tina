@@ -62,20 +62,17 @@ def smoke(launcher, endpoint, backend, columns, rows):
                 requests_before = len(ModelStub.requests)
                 alerts_before = terminal.output.count(b'\x07')
                 start = line('failed command approval example')
-                if not repeat:
-                    visible('[y] allow once')
-                    # Open Remember, then confirm the session scope.
-                    terminal.send('\x1b[B\x1b[B\r\r')
+                # Host execution is approved separately on every invocation.
+                visible('[y] allow once')
+                terminal.send('y')
                 terminal.wait_for(
                     lambda: len(ModelStub.requests) == requests_before + 2,
-                    f'{backend}: failed command approval was not remembered', timeout=15)
+                    f'{backend}: approved failed command did not finish', timeout=15)
                 terminal.expect_idle()
                 result = [block for message in ModelStub.requests[-1]['messages']
                           for block in message['content'] if block['type'] == 'tool_result'][-1]
                 assert 'exit code: 1' in str(result), result
-                if repeat:
-                    assert b'awaiting approval' not in terminal.output[start:]
-                expected_alerts = 1 if repeat else 2
+                expected_alerts = 2
                 assert terminal.output.count(b'\x07') == alerts_before + expected_alerts, (
                     f'{backend}: approval/response alerts repeated or missing')
             # Restore long history before checking completion overlay damage.

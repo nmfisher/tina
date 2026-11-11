@@ -193,6 +193,23 @@ void attachModePolicy(ToolsPlugin plugin) {
               PermissionTargetKind.unknown),
     ];
     final details = reviewPaths(accesses);
+    final commandDescription = describeCommandRequest(request);
+    final unconfined =
+        review.requiredPermissions.contains(ProcessPermission.unconfined);
+    final network =
+        review.requiredPermissions.contains(ProcessPermission.network);
+    final description = ToolDescription(
+      title:
+          '${commandDescription.title}${unconfined ? ' outside sandbox' : network ? ' with network access' : ''}',
+      target: commandDescription.target,
+      fields: {
+        ...commandDescription.fields,
+        if (unconfined)
+          'Access': 'Host filesystem and network for this invocation',
+        if (network && !unconfined)
+          'Network': review.networkReason ?? 'Requested for this invocation',
+      },
+    );
     List<DirectoryAccessGrant> grants = const [];
     final decision = await plugin.modePolicy.request(
       operation: 'run command',
@@ -206,18 +223,7 @@ void attachModePolicy(ToolsPlugin plugin) {
         'access_coverage':
             envelope.completeVerifiedAccesses ? 'complete' : 'partial',
         'access_coverage_source': 'verified',
-        'description': (review.requiredPermissions
-                    .contains(ProcessPermission.unconfined)
-                ? ToolDescription(
-                    title:
-                        '${describeCommandRequest(request).title} outside sandbox',
-                    target: describeCommandRequest(request).target,
-                    fields: {
-                        'Access':
-                            'Host filesystem and network for this invocation'
-                      })
-                : describeCommandRequest(request))
-            .toJson(),
+        'description': description.toJson(),
         'executable': request.command,
         'arguments': request.arguments,
         'cwd': request.workingDirectory,

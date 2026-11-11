@@ -25,7 +25,6 @@ import 'package:tina_tools/tina_tools.dart';
 import 'package:test/test.dart';
 
 import 'harness.dart';
-import '../../tina_tools/test/support/human.dart';
 
 /// A provider whose stream emits one delta and then never completes —
 /// the only way a turn stays in flight for a cancel to catch. The

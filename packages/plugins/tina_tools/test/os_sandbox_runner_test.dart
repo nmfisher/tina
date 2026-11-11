@@ -5,6 +5,7 @@
 // Run: dart test
 library;
 
+import 'dart:io';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:test/test.dart';
 
@@ -521,7 +522,7 @@ void main() {
           plan: const SandboxPlan(workspaceRoot: '/work/proj'),
           backend: SandboxBackend.bwrap,
           hostLayout: () => SandboxHostLayout(
-            readOnlyDirectories: const ['/bin'],
+            readOnlyDirectories: const ['/bin', '/usr/bin'],
             temporaryDirectories: const ['/tmp'],
           ),
         ),
@@ -547,7 +548,7 @@ void main() {
       expect(argv.first, startsWith('--'));
       expect(argv, isNot(contains('bwrap')),
           reason: 'bwrap is the executable, never its own first child command');
-      expect(argv[argv.length - 3], '/bin/sh');
+      expect(argv[argv.length - 3], File('/bin/sh').resolveSymbolicLinksSync());
       expect(argv[argv.length - 2], '-c');
       expect(argv.last, 'echo x > /etc/hosts');
     });

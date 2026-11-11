@@ -64,7 +64,7 @@ void main() {
       final tool = BashTool(runner: inner, workingDirectory: '/tmp/ws');
       final res = await tool.execute({'command': 'echo hi | wc -c'});
       expect(res.isError, isFalse);
-      expect(inner.command, '/bin/sh');
+      expect(inner.command, File('/bin/sh').resolveSymbolicLinksSync());
       expect(inner.arguments, ['-c', 'echo hi | wc -c']);
       expect(inner.workingDirectory, '/tmp/ws');
     });
@@ -102,7 +102,7 @@ void main() {
       });
       expect(res.isError, isFalse);
       expect(approver.asked, 1, reason: 'write access requires approval');
-      expect(inner.command, '/bin/sh');
+      expect(inner.command, File('/bin/sh').resolveSymbolicLinksSync());
     });
 
     test('missing command is a validation error', () async {

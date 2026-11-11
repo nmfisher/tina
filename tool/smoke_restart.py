@@ -30,7 +30,7 @@ def main():
                 '[providers.local-smoke]\nwire = "anthropic"\n'
                 f'base_url = "http://127.0.0.1:{server.server_port}"\n'
                 'api_key = "fixture-key"\nmodels = ["smoke|Smoke model"]\n')
-            terminal = Terminal([args.dart,
+            terminal = Terminal([args.dart, 'run',
                 'apps/tina_cli/test/fixtures/restart_app.dart',
                 str(config), str(root)],
                 dict(os.environ, COCOON_UPDATE_CHECK='0', TERM='xterm-256color'), 80, 24)
