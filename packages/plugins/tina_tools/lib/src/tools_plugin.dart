@@ -38,6 +38,10 @@ final class ToolsPlugin extends AgentPlugin
   /// the jail while preserving environment filtering and permission checks.
   final bool osSandbox;
 
+  /// Force the box-model path on (Stage A) without settings. The live
+  /// setting ([permissionBoxesSetting]) also enables it when read true.
+  final bool permissionBoxes;
+
   final ModePlugin modePolicy;
 
   ToolsPlugin({
@@ -56,6 +60,7 @@ final class ToolsPlugin extends AgentPlugin
     Directory? sandboxState,
     CommandApprovalStore? approvalStore,
     List<String> protectedPaths = const [],
+    this.permissionBoxes = false,
   })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
         sandbox = SandboxedFileSystem(
           const IoFileSystem(),
@@ -134,6 +139,20 @@ final class ToolsPlugin extends AgentPlugin
                 ? directories
                 : const ProcessDirectoryAccess.empty());
     processJobs = ProcessJobs(processRunner);
+    boxes = BoxModelGate(
+      plan: osPlan,
+      workspaceRoot: workspaceRoot,
+      allowlist: BoxAllowlist.load(
+        project: File(boxAllowlistProjectPath(workspaceRoot)),
+        global: realHome == null
+            ? null
+            : File(boxAllowlistGlobalPath(realHome)),
+      ),
+      enabled: () =>
+          permissionBoxes ||
+          settings?.read(permissionBoxesSetting).value == true,
+    );
+    processRunner.boxes = boxes;
     this.modePolicy.listen((value) {
       if (sandbox.mode != value) processJobs.cancelAll(runningOnly: true);
       sandbox.mode = value;
@@ -229,6 +248,11 @@ final class ToolsPlugin extends AgentPlugin
   late final SandboxPlan osPlan;
   late final CommandApprovalStore commandApprovals;
   late final SandboxHome? home;
+
+  /// The box-model gate (Stage A). Active only when the opt-in is on;
+  /// inactive gates route nothing and every command keeps the existing
+  /// decision pipeline.
+  late final BoxModelGate boxes;
 
   /// The scratch notice for a resolved write target, when the target is
   /// session scratch (a sandbox-home generation or its TMPDIR). Null when
@@ -457,7 +481,30 @@ final class ToolsPlugin extends AgentPlugin
     _activeCall = null;
     _speculativePrefetch.cancel();
     _speculative.clear();
+    _emitBoxReports();
     modePolicy.onTurnEnd(c);
+  }
+
+  bool _allowlistErrorsNotified = false;
+
+  /// Box 2's report: one line per silently contained command this turn,
+  /// plus (once) any allowlist parse problems. Same shape as the
+  /// auto-mode end-of-turn batch.
+  void _emitBoxReports() {
+    final lines = boxes.drainReports();
+    if (lines.isNotEmpty) {
+      modePolicy.terminal?.writeln('sandboxed this turn:');
+      for (var i = 0; i < lines.length; i++) {
+        modePolicy.terminal?.writeln('  ${i + 1}. ${lines[i]}');
+      }
+    }
+    if (!_allowlistErrorsNotified) {
+      _allowlistErrorsNotified = true;
+      final errors = boxes.allowlist?.errors ?? const <String>[];
+      for (final error in errors) {
+        modePolicy.terminal?.writeln('box allowlist: $error');
+      }
+    }
   }
 
   @override

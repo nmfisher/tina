@@ -12,6 +12,10 @@ export 'package:tina_core/tina_core.dart'
     show ToolResult, ToolSchema, ToolDescription;
 
 export 'src/atomic_write.dart';
+export 'src/box_allowlist.dart';
+export 'src/box_gate.dart';
+export 'src/box_model.dart';
+export 'src/box_sorter.dart';
 export 'src/capability_envelope.dart';
 export 'src/scopes_store.dart';
 export 'src/decision_pipeline.dart';

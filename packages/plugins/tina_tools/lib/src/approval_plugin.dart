@@ -61,7 +61,8 @@ PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
           readOnlyDirectoriesSetting,
           writeDirectoriesSetting,
           homeCachesSetting,
-          allowReadsOutsideWorkspaceSetting
+          allowReadsOutsideWorkspaceSetting,
+          permissionBoxesSetting
         ],
         dependency: approvalRequester,
         provides: [toolProvider, modePolicySource],
@@ -491,6 +492,17 @@ void attachModePolicy(ToolsPlugin plugin) {
               ApprovalDecision.allowGlobal => CommandApprovalScope.global,
               _ => CommandApprovalScope.session,
             });
+        return Approval.yes;
+      }
+      // The box model keeps one list: under the opt-in, a remembered
+      // pattern lands in the box allowlist, naming the box/profile future
+      // matches run in — not in the scopes store.
+      if (commandPattern != null && plugin.boxes.isActive) {
+        plugin.boxes.rememberPattern(commandPattern!,
+            global: decision == ApprovalDecision.allowGlobal,
+            network: network,
+            readOnly: !review.requiredPermissions
+                .contains(ProcessPermission.workspaceWrite));
         return Approval.yes;
       }
       plugin.commandApprovals.remember(

@@ -6,6 +6,7 @@ import 'dart:io' show Platform, FileSystemException, Directory;
 import 'capability_envelope.dart';
 import 'command_approval_store.dart';
 import 'package:path/path.dart' as path;
+import 'box_gate.dart';
 import 'sandbox_home.dart';
 import 'dart:convert' show jsonEncode;
 
@@ -265,6 +266,11 @@ final class SandboxedProcessRunner
   Future<bool> Function(ProcessRequest, SandboxAccessRequest, bool retry,
       bool Function() isActive)? directoryApprover;
 
+  /// The box-model gate (Stage A). Null or inactive: every request takes
+  /// the existing decision pipeline below. Active: boxes 1 and 2 run
+  /// silently through it; box 3 falls through to the pipeline unchanged.
+  BoxModelGate? boxes;
+
   SandboxedProcessRunner({
     required this.inner,
     this.mode = PermissionMode.ask,
@@ -380,6 +386,22 @@ final class SandboxedProcessRunner
 
     final confined = inner is ConfinedProcessRunner &&
         (inner as ConfinedProcessRunner).confinesFilesystem;
+    // The box-model parallel path (Stage A, opt-in): boxes 1 and 2 execute
+    // silently here — no approval round trip, containment from the
+    // profile. Box 3 (and every case the gate declines) falls through to
+    // the one decision maker below, unchanged.
+    final boxes = this.boxes;
+    if (boxes != null) {
+      final routing = boxes.route(request, control,
+          envelope: envelope,
+          confined: confined,
+          mode: mode);
+      if (routing != null) {
+        final outcome =
+            await inner.run(routing.spawn, control: routing.control);
+        return _completed(outcome, routing.note);
+      }
+    }
     // The one decision maker: the pipeline (decision_pipeline.dart) owns
     // the execution profile — the Layer-1 fast paths (a certified reader
     // inside granted scopes; the agent's own script) select read-only
