@@ -229,12 +229,14 @@ enabled = ["tina/persistence", "tina/session-controls", "tina/goals"]
         '--goal',
         '-',
       ], workingDirectory: root.path);
+      addTearDown(() => child.kill(ProcessSignal.sigkill));
       final output = child.stdout.transform(utf8.decoder).join();
       final errors = child.stderr.transform(utf8.decoder).join();
       child.stdin.writeln('piped goal');
       await child.stdin.close();
       expect(
-        await child.exitCode.timeout(const Duration(seconds: 30)),
+        // This source subprocess includes native asset compilation at startup.
+        await child.exitCode.timeout(const Duration(minutes: 2)),
         0,
         reason: await errors,
       );
@@ -276,8 +278,8 @@ enabled = ["tina/persistence", "tina/session-controls", "tina/goals"]
         store.close();
       }
     },
-    // Leave room around the child's own 30-second deadline on shared CI hosts.
-    timeout: const Timeout(Duration(minutes: 1)),
+    // Leave room around the source child's startup deadline on shared CI hosts.
+    timeout: const Timeout(Duration(minutes: 3)),
   );
   test(
     'headless goals wait for verdicts and honor explicit turn bounds',
