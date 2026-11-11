@@ -119,8 +119,12 @@ class ApprovalDialog {
   int _pageSize = 1;
   bool _directoryScopeExplicit = false;
   final _selectedDirectories = <int>{};
-  final _directoryOffers =
-      <({String path, DirectoryAccess access, String source})>[];
+  final _directoryOffers = <({
+    String path,
+    DirectoryAccess access,
+    String source,
+    bool recursive
+  })>[];
   List<DirectoryGrantScope> _directoryScopes = const [
     DirectoryGrantScope.session
   ];
@@ -163,8 +167,12 @@ class ApprovalDialog {
         ],
       ];
 
+  bool get _resourcePermissions => ask?.details['resource_permissions'] == true;
   bool get _hasAlways =>
-      ask?.confirmation != true && call?.argumentsParseError == null;
+      ask?.details['workspace_write_grant'] != true &&
+      (!_resourcePermissions || _directoryOffers.isNotEmpty) &&
+      ask?.confirmation != true &&
+      call?.argumentsParseError == null;
   bool get _hasCommandPattern =>
       ask?.confirmation != true &&
       _hasAlways &&
@@ -180,7 +188,8 @@ class ApprovalDialog {
           _directoryOffers.add((
             path: offer['path'] as String,
             access: DirectoryAccess.values.byName(offer['access'] as String),
-            source: offer['source'] == 'inferred' ? 'inferred' : 'verified'
+            source: offer['source'] == 'inferred' ? 'inferred' : 'verified',
+            recursive: offer['recursive'] != false
           ));
         }
       }
@@ -226,7 +235,8 @@ class ApprovalDialog {
                     DirectoryAccessGrant(
                         _directoryOffers[index].path,
                         _directoryOffers[index].access,
-                        _directoryScopeFor(decision))
+                        _directoryScopeFor(decision),
+                        recursive: _directoryOffers[index].recursive)
                 ])
               : const []);
 
@@ -235,13 +245,13 @@ class ApprovalDialog {
       : !_rememberMenu
           ? ['allow', 'deny', if (_hasAlways) 'remember']
           : [
-              'allow always',
+              if (!_resourcePermissions) 'allow always',
               if (_hasPersistent) 'allow workspace',
-              if (_hasPersistent) 'allow global',
+              if (_hasPersistent && !_resourcePermissions) 'allow global',
               if (_hasDirectoryOffers) ...[
                 for (var i = 0; i < _directoryOffers.length; i++)
                   'directory $i',
-                'grant scope',
+                if (!_resourcePermissions) 'grant scope',
               ],
               if (_hasCommandPattern) 'edit command pattern',
               'back',
@@ -251,8 +261,12 @@ class ApprovalDialog {
     _details = false;
     _rememberMenu = true;
     _selected = 0;
-    _directoryScope = DirectoryGrantScope.session;
-    _directoryScopeExplicit = false;
+    _directoryScope = _resourcePermissions
+        ? DirectoryGrantScope.workspace
+        : DirectoryGrantScope.session;
+    _directoryScopeExplicit = _resourcePermissions;
+    if (_resourcePermissions && _directoryOffers.isNotEmpty)
+      _selectedDirectories.add(0);
     // Remember the requested directories, never extra model-inferred folders.
     final invocation = ask?.details['invocation_directory_access'];
     if (invocation is Map || ask?.details['directory_grant_required'] == true) {
@@ -482,15 +496,17 @@ class ApprovalDialog {
         // Indented: these rows modify the scope rows above (which folders a
         // remembered approval includes), they are not peer actions.
         return '  [${_selectedDirectories.contains(index) ? 'x' : ' '}] Allow all '
-            '${offer.access == DirectoryAccess.read ? 'reads' : 'writes (including deletes)'} '
-            'in ${offer.path}${offer.source == 'inferred' ? ' (inferred)' : ''} (Space)';
+            '${offer.access == DirectoryAccess.read ? 'reads' : _resourcePermissions ? 'writes' : 'writes (including deletes)'} '
+            '${offer.recursive ? 'in' : 'to'} ${offer.path}${offer.source == 'inferred' ? ' (inferred)' : ''} (Space)';
       }
       return switch (choice) {
         'Yes' => '[y] Yes',
         'No' => '[n] No',
-        'allow' => ask?.details['directory_grant_required'] == true
-            ? '[y] allow once and retry'
-            : '[y] allow once',
+        'allow' => ask?.details['workspace_write_grant'] == true
+            ? '[y] Allow workspace writes for this session'
+            : ask?.details['directory_grant_required'] == true
+                ? '[y] allow once and retry'
+                : '[y] allow once',
         'deny' => '[n] deny',
         'remember' => '[a] Remember…',
         'back' => 'Back',
@@ -597,8 +613,8 @@ class ApprovalDialog {
         final access = key == ApprovalKey.toggleReadDirectory
             ? DirectoryAccess.read
             : DirectoryAccess.write;
-        final match =
-            _directoryOffers.indexWhere((offer) => offer.access == access);
+        final match = _directoryOffers
+            .indexWhere((offer) => offer.access == access && offer.recursive);
         if (match >= 0) index = match;
       }
       if (index != null) {

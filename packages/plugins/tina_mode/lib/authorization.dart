@@ -2,7 +2,7 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'mode.dart';
 
 /// Capabilities describe access, independently of which tool requests it.
-enum AccessCapability { read, write, execute, network, host, external }
+enum AccessCapability { read, write, delete, execute, network, host, external }
 
 final class AccessRequirement {
   const AccessRequirement(
@@ -40,6 +40,7 @@ final class AuthorizationRequest {
   bool get mutates => requirements.any(
     (r) =>
         r.capability == AccessCapability.write ||
+        r.capability == AccessCapability.delete ||
         r.capability == AccessCapability.host ||
         r.capability == AccessCapability.external,
   );
@@ -62,7 +63,7 @@ enum AuthorizationRoute { allow, deny, human, review }
 
 typedef AuthorizationResolution = ({AuthorizationRoute route, String reason});
 
-/// One total policy table. Mode ceilings are applied before remembered grants.
+/// One policy table: grants answer access; modes select its reviewer.
 AuthorizationResolution resolveAuthorization(
   AuthorizationRequest request,
   PermissionMode mode, {
@@ -75,18 +76,6 @@ AuthorizationResolution resolveAuthorization(
     return (
       route: AuthorizationRoute.human,
       reason: 'Explicit user confirmation',
-    );
-  }
-  if (mode == PermissionMode.readOnly &&
-      (request.mutates ||
-          request.requirements.any(
-                (r) => r.capability == AccessCapability.execute,
-              ) &&
-              (!request.readOnlyExecution || !request.confined))) {
-    return (
-      route: AuthorizationRoute.deny,
-      reason:
-          'read-only mode blocks mutations and host or external execution. Change mode to edit.',
     );
   }
   if (request.readOnlyExecution &&
@@ -110,23 +99,22 @@ AuthorizationResolution resolveAuthorization(
   }
   if (missing.any(
     (r) =>
-        !r.workspace ||
+        r.workspace &&
         {
-          AccessCapability.network,
-          AccessCapability.host,
-          AccessCapability.external,
+          AccessCapability.write,
+          AccessCapability.delete,
         }.contains(r.capability),
   )) {
     return (
       route: AuthorizationRoute.human,
-      reason: 'Access outside the workspace requires explicit human approval',
+      reason: 'Allow writes to the entire workspace for this session?',
     );
   }
   return (
     route: mode == PermissionMode.auto
         ? AuthorizationRoute.review
         : AuthorizationRoute.human,
-    reason: 'Workspace mutation requires approval',
+    reason: 'Access outside the workspace requires approval',
   );
 }
 
@@ -137,12 +125,7 @@ bool _covered(
 ) {
   if (r.granted) return true;
   if (r.capability == AccessCapability.read && r.workspace) return true;
-  if (r.capability == AccessCapability.execute &&
-      request.confined &&
-      request.readOnlyExecution)
-    return true;
-  return mode == PermissionMode.allowEdits &&
-      r.workspace &&
-      (r.capability == AccessCapability.write ||
-          r.capability == AccessCapability.execute && request.confined);
+  return r.workspace &&
+      r.capability == AccessCapability.execute &&
+      request.confined;
 }

@@ -149,7 +149,7 @@ void main() {
       await expectLater(
           session.assembly.tools.sandbox.approver!(
               (op: FileOp.write, path: '/tmp/tina_app_test_probe'), 'outside'),
-          throwsA(isA<SandboxViolation>()));
+          completion(Approval.no));
     });
   });
 
@@ -168,7 +168,7 @@ void main() {
         consoleContextFor: scriptedConsole(NoKeys.new),
       );
       // Let the loop arm its readLine, then speak and quit.
-      expect(io.written.toString(), contains('mode: ask'),
+      expect(io.written.toString(), contains('mode: approve'),
           reason: 'the mode strip must be visible at 80 columns');
       await Future<void>.delayed(const Duration(milliseconds: 20));
       io.feedBytes('hello tina\r'.codeUnits);

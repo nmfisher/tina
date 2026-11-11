@@ -1,3 +1,4 @@
+import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina/src/config_settings_management.dart';
 import 'dart:io';
@@ -74,31 +75,24 @@ unknown = "preserve me"
   final enter = ControlKey(ControlCode.enter), escape = EscapeKey();
 
   test(
-    'trusted folders persist outside repository config and merge across scopes',
+    'saved folders are workspace owned and shared with sibling sessions',
     () {
       final shared = Directory('${directory.path}/shared')..createSync();
       final local = Directory('${directory.path}/local')..createSync();
-      final setting = field('tina/tools/read_only_directories');
-      app.settings.set(setting, [shared.path], SettingScope.global);
-      app.settings.set(setting, [local.path], SettingScope.workspace);
-      expect(
-        app.tools.readDirectories.paths,
-        containsAll([shared.path, local.path]),
+      (app.tools as ToolsPlugin).rememberReadDirectory(shared.path);
+      (app.tools as ToolsPlugin).rememberWriteDirectory(local.path);
+      final sibling = app.newSession(null);
+      addTearDown(sibling.close);
+      expect(sibling.tools.readDirectories.paths, [shared.path]);
+      expect(sibling.tools.writeDirectories.paths, [local.path]);
+      final manifest = File(
+        '${app.host.config.workingDirectory}/.tina/permissions.json',
       );
-      final workspaceConfig = File(app.settingsBackend.workspacePath);
-      if (workspaceConfig.existsSync())
-        expect(workspaceConfig.readAsStringSync(), isNot(contains(local.path)));
+      expect(manifest.readAsStringSync(), contains(shared.path));
       expect(global.readAsStringSync(), isNot(contains(shared.path)));
-      app.settings.reload();
-      expect(app.settings.read(setting, scope: SettingScope.workspace).value, [
-        local.path,
-      ]);
-      final grant = app.settingsBackend.permissionStore.entries.singleWhere(
-        (entry) => entry['scope'] == 'global',
-      );
-      app.settingsBackend.permissionStore.revoke(grant['id'] as String);
-      app.settings.reload();
-      expect(app.tools.readDirectories.paths, [local.path]);
+      final config = File(app.settingsBackend.workspacePath);
+      if (config.existsSync())
+        expect(config.readAsStringSync(), isNot(contains(local.path)));
     },
   );
 
@@ -122,47 +116,61 @@ write_directories = ["/untrusted/writable"]
     expect(config.readAsStringSync(), contains('/untrusted/folder'));
   });
 
-  test('revoking one trusted folder preserves other folders in the same scope',
-      () {
-    final first = Directory('${directory.path}/first')..createSync();
-    final second = Directory('${directory.path}/second')..createSync();
-    app.settings.set(field('tina/tools/read_only_directories'),
-        [first.path, second.path], SettingScope.workspace);
-    final management = ConfigSettingsManagement(
-        scopedSettings: app.settings, backend: app.settingsBackend);
-    final permission = management.commandApprovals.singleWhere(
-        (entry) => entry['directory'] == first.resolveSymbolicLinksSync());
-    management.revokeCommandApproval(permission['id'] as String);
-    expect(
-        app.tools.readDirectories.paths, [second.resolveSymbolicLinksSync()]);
-    expect(
+  test(
+    'revoking one trusted folder preserves other folders in the same scope',
+    () {
+      final first = Directory('${directory.path}/first')..createSync();
+      final second = Directory('${directory.path}/second')..createSync();
+      (app.tools as ToolsPlugin).rememberReadDirectory(first.path);
+      (app.tools as ToolsPlugin).rememberReadDirectory(second.path);
+      final management = ConfigSettingsManagement(
+        scopedSettings: app.settings,
+        backend: app.settingsBackend,
+        commandApprovals: (app.tools as ToolsPlugin).commandApprovals,
+      );
+      final permission = management.commandApprovals.singleWhere(
+        (entry) => entry['directory'] == first.resolveSymbolicLinksSync(),
+      );
+      management.revokeCommandApproval(permission['id'] as String);
+      expect(app.tools.readDirectories.paths, [
+        second.resolveSymbolicLinksSync(),
+      ]);
+      expect(
         management.commandApprovals.any(
-            (entry) => entry['directory'] == first.resolveSymbolicLinksSync()),
-        isFalse);
-  });
+          (entry) => entry['directory'] == first.resolveSymbolicLinksSync(),
+        ),
+        isFalse,
+      );
+    },
+  );
 
-  test('a stale permission edit cannot revive a revoked folder', () {
+  test('legacy settings cannot revive a revoked resource grant', () {
     final first = Directory('${directory.path}/first')..createSync();
-    final second = Directory('${directory.path}/second')..createSync();
-    final definition = field('tina/tools/read_only_directories');
-    app.settings.set(definition, [first.path], SettingScope.workspace);
-    final backend = app.settingsBackend;
-    final previous = backend.read(SettingScope.workspace);
-    final permission = backend.permissionStore.entries.single;
-    backend.permissionStore.revoke(permission['id'] as String,
-        directory: first.path);
-    expect(() => backend.write(SettingScope.workspace,
-        {...previous, definition.id: [first.path, second.path]}), throwsStateError);
+    (app.tools as ToolsPlugin).rememberReadDirectory(first.path);
+    final management = ConfigSettingsManagement(
+      scopedSettings: app.settings,
+      backend: app.settingsBackend,
+      commandApprovals: (app.tools as ToolsPlugin).commandApprovals,
+    );
+    addTearDown(management.close);
+    final id = management.commandApprovals.single['id'] as String;
+    management.revokeCommandApproval(id);
+    expect(
+      app.settings.catalog.contains('tina/tools/read_only_directories'),
+      false,
+    );
+    expect(app.settings.catalog.contains('tina/tools/home_caches'), false);
+    expect(app.settings.catalog.contains('tina/mode/precedents'), false);
     app.settings.reload();
     expect(app.tools.readDirectories.paths, isEmpty);
+    expect(management.commandApprovals, isEmpty);
   });
 
   test('trusted folders pin aliases and reject retargeted canonical roots', () async {
     final trusted = Directory('${directory.path}/trusted')..createSync();
     final other = Directory('${directory.path}/other')..createSync();
     final alias = Link('${directory.path}/alias')..createSync(trusted.path);
-    app.settings.set(field('tina/tools/read_only_directories'),
-        [alias.path], SettingScope.workspace);
+    (app.tools as ToolsPlugin).rememberReadDirectory(alias.path);
     expect(app.tools.readDirectories.paths, [trusted.path]);
     alias.updateSync(other.path);
     app.settings.reload();

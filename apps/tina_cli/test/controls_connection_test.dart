@@ -136,7 +136,7 @@ void main() {
       await expectLater(
         observer.mode.mode.setMode(
           PermissionMode.auto,
-          expectedMode: PermissionMode.ask,
+          expectedMode: PermissionMode.approve,
         ),
         throwsA(isA<SessionAccessDenied>()),
       );
@@ -184,13 +184,13 @@ void main() {
         reason: 'An old retry cannot apply again',
       );
       await second.mode.mode.setMode(
-        PermissionMode.readOnly,
-        expectedMode: PermissionMode.ask,
+        PermissionMode.auto,
+        expectedMode: PermissionMode.approve,
       );
-      await waitFor(() => observer.mode.mode.mode == PermissionMode.readOnly);
+      await waitFor(() => observer.mode.mode.mode == PermissionMode.auto);
       first.attach();
       expect(first.models.controls.currentModel, 'acme/three');
-      expect(first.mode.mode.mode, PermissionMode.readOnly);
+      expect(first.mode.mode.mode, PermissionMode.auto);
       expect(session.host.plugins.any((p) => p.id == 'tina/chat-tui'), false);
     },
   );
@@ -254,7 +254,7 @@ void main() {
       work.close();
       await first.mode.mode.setMode(
         PermissionMode.auto,
-        expectedMode: PermissionMode.ask,
+        expectedMode: PermissionMode.approve,
       );
       await waitFor(() => second.mode.mode.mode == PermissionMode.auto);
       final rejected = await _set(
@@ -298,7 +298,7 @@ void main() {
       final view = _Views(session);
       await view.mode.mode.setMode(
         PermissionMode.auto,
-        expectedMode: PermissionMode.ask,
+        expectedMode: PermissionMode.approve,
       );
       for (final args in [
         {'mode': 'allowEdits', 'expected_mode': 'ask'},
@@ -354,8 +354,8 @@ void main() {
       final session = _Session();
       final first = _Views(session), second = _Views(session);
       await first.mode.mode.setMode(
-        PermissionMode.readOnly,
-        expectedMode: PermissionMode.ask,
+        PermissionMode.auto,
+        expectedMode: PermissionMode.approve,
       );
       final pick = first.models.handleConsoleCommand('model', '')!;
       await waitFor(() => first.editor.isReadingKey);
@@ -381,7 +381,7 @@ void main() {
       await waitFor(
         () => second.mode.mode.available && second.models.controls.available,
       );
-      expect(second.mode.mode.mode, PermissionMode.readOnly);
+      expect(second.mode.mode.mode, PermissionMode.auto);
       await second.models.controls.select(
         'acme/two',
         expectedModel: 'acme/one',
@@ -436,8 +436,8 @@ enabled = ["tina/session-controls", "tina/mode", "tina/persistence"]
       expect(models.currentModel, 'one');
       await models.select('local/two', expectedModel: models.currentModel);
       await mode.setMode(
-        PermissionMode.allowEdits,
-        expectedMode: PermissionMode.ask,
+        PermissionMode.auto,
+        expectedMode: PermissionMode.approve,
       );
       final snapshot = client.attach();
       expect(
@@ -450,7 +450,7 @@ enabled = ["tina/session-controls", "tina/mode", "tina/persistence"]
       final resumed = open(resume: id);
       addTearDown(resumed.shutdown);
       expect(resumed.host.model, 'local/two');
-      expect(resumed.tools.mode, PermissionMode.allowEdits);
+      expect(resumed.tools.mode, PermissionMode.auto);
       expect(config.readAsStringSync(), original);
     },
   );
@@ -474,7 +474,7 @@ enabled = ["tina/session-controls", "tina/mode", "tina/persistence"]
       );
       expect(result.state, SessionRequestState.failed);
       expect(result.result!.detail, isNot(contains('private storage failure')));
-      expect(session.mode.mode, PermissionMode.ask);
+      expect(session.mode.mode, PermissionMode.approve);
       await waitFor(
         () => !second.mode.mode.available && !second.models.controls.available,
       );

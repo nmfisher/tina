@@ -9,7 +9,7 @@
 library;
 
 import 'dart:io';
-import 'package:crypto/crypto.dart';
+import 'support/human.dart';
 
 import 'package:test/test.dart';
 import 'package:tina_tools/tina_tools.dart';
@@ -18,7 +18,76 @@ bool get _backendAvailable =>
     resolveSandboxBackend() != SandboxBackend.passThrough;
 
 void main() {
-  test('trusted readers cannot write project or shared cache contents',
+  test('resource grants enforce independent workspace and external writes',
+      tags: 'live-os-sandbox', () async {
+    if (!_backendAvailable) {
+      markTestSkipped('no OS sandbox backend on this host');
+      return;
+    }
+    final fixture = Directory(Directory.systemTemp
+        .createTempSync('resource-live-')
+        .resolveSymbolicLinksSync());
+    addTearDown(() => fixture.deleteSync(recursive: true));
+    final workspace = Directory('${fixture.path}/workspace')..createSync();
+    final external = Directory('${fixture.path}/external')..createSync();
+    final home = Directory('${fixture.path}/home')..createSync();
+    final human = TestHuman();
+    final tools = ToolsPlugin(
+        workspaceRoot: workspace.path,
+        tinaDir: Directory('${workspace.path}/.tina'),
+        hostEnvironment: {'HOME': home.path, 'PATH': '/usr/bin:/bin'});
+    addTearDown(tools.closeSession);
+    tools.modePolicy.approvals = human;
+    final script = File('${workspace.path}/write.sh')
+      ..writeAsStringSync(r'printf changed > "$1"');
+    ProcessRequest write(String target) => (
+          command: '/bin/sh',
+          arguments: [script.path, target],
+          workingDirectory: workspace.path,
+          environment: null,
+          stdin: null,
+          timeout: null,
+        );
+    Future<void> blocked(String target, {ProcessControl? control}) async {
+      final result =
+          await tools.processRunner.run(write(target), control: control);
+      expect(
+          result is CommandBlocked ||
+              result is CommandCompleted && result.exitCode != 0,
+          true,
+          reason: result is CommandCompleted
+              ? '${result.exitCode}: ${result.stderr}'
+              : '$result');
+    }
+
+    final inside = '${workspace.path}/output';
+    await blocked(inside);
+    expect(File(inside).existsSync(), false);
+    expect(tools.modePolicy.hasWorkspaceWriteGrant(workspace.path), false);
+    tools.rememberWriteDirectory(external.path);
+    final outside = '${external.path}/output';
+    final saved = await tools.processRunner.run(write(outside));
+    expect(saved, isA<CommandCompleted>(), reason: '$saved');
+    expect((saved as CommandCompleted).exitCode, 0, reason: saved.stderr);
+    expect(File(outside).readAsStringSync(), 'changed');
+    expect(tools.modePolicy.hasWorkspaceWriteGrant(workspace.path), false);
+    await blocked(inside);
+    final approved = await tools.processRunner.run(write(inside),
+        control: const ProcessControl(readOnlyRequested: false));
+    expect(approved, isA<CommandCompleted>());
+    expect(File(inside).readAsStringSync(), 'changed');
+    expect(tools.modePolicy.hasWorkspaceWriteGrant(workspace.path), true);
+    final clamped = '${workspace.path}/clamped';
+    await blocked(clamped,
+        control: const ProcessControl(readOnlyRequested: true));
+    expect(File(clamped).existsSync(), false);
+    final secretControl = '${workspace.path}/.tina/permissions.json';
+    final permissions = File(secretControl).readAsStringSync();
+    await blocked(secretControl);
+    expect(File(secretControl).readAsStringSync(), permissions);
+  });
+
+  test('approved read-only execution cannot write project or cache contents',
       tags: 'live-os-sandbox', () async {
     if (!_backendAvailable) {
       markTestSkipped('no OS sandbox backend on this host');
@@ -41,11 +110,8 @@ echo reader-finished
     final gate = SandboxedProcessRunner(
         inner: OsSandboxRunner(inner: const IoProcessRunner(), plan: plan),
         plan: plan,
-        mode: PermissionMode.ask);
-    gate.trustedReaderExecutables = () => {
-          reader.resolveSymbolicLinksSync():
-              sha256.convert(reader.readAsBytesSync()).toString()
-        };
+        mode: PermissionMode.approve,
+        commandApprover: (_, __) async => Approval.yes);
     final result = await gate.run((
       command: reader.path,
       arguments: ['--files'],
@@ -66,8 +132,11 @@ echo reader-finished
       environment: null,
       stdin: null,
       timeout: null
-    ));
-    expect(output, isA<CommandBlocked>());
+    ), control: const ProcessControl(readOnlyRequested: true));
+    expect(
+        output is CommandBlocked ||
+            output is CommandCompleted && output.exitCode != 0,
+        true);
     expect(File('${reports.path}/result').existsSync(), false);
   });
 
@@ -260,8 +329,8 @@ echo reader-finished
         true);
     expect(connections, 1,
         reason: 'exact outside grant cannot open normal calls');
-    expect(reviews, hasLength(2));
-    expect(reviews.last.requiredPermissions, {
+    expect(reviews, hasLength(3));
+    expect(reviews[1].requiredPermissions, {
       ProcessPermission.execution,
       ProcessPermission.network,
       ProcessPermission.unconfined
@@ -371,25 +440,24 @@ echo reader-finished
             denied is CommandCompleted && denied.exitCode != 0,
         isTrue);
     expect(connections, 0);
-    // Quiet read-only default: an unrecognized offline command asks nobody.
-    // The OS jail enforces confinement, and this probe made no connection.
-    expect(reviews, isEmpty);
+    // External execution is reviewed even when network access is not requested.
+    expect(reviews, hasLength(1));
     const network = ProcessControl(
         networkRequested: true, networkReason: 'contact local fixture server');
     final allowed = await runner.run(request, control: network);
     expect(allowed, isA<CommandCompleted>());
     expect((allowed as CommandCompleted).exitCode, 0, reason: allowed.stderr);
     expect(allowed.stdout, 'network works');
-    // The network ask is the only human review. The quiet read-only profile
-    // already covers execution, so no workspace-write permission rides it.
-    expect(reviews, hasLength(1));
+    // Each invocation reviews execution plus its additional network capability.
+    expect(reviews, hasLength(2));
     expect(reviews.last.requiredPermissions,
         {ProcessPermission.execution, ProcessPermission.network});
-    expect(reviews.last.missingPermissions, {ProcessPermission.network});
+    expect(reviews.last.missingPermissions,
+        {ProcessPermission.execution, ProcessPermission.network});
     final remembered = await runner.run(request, control: network);
     expect((remembered as CommandCompleted).stdout, 'network works');
-    // The stored network grant answers the repeat without a new ask.
-    expect(reviews, hasLength(1));
+    // No command or network approval is remembered implicitly.
+    expect(reviews, hasLength(3));
     expect(connections, 2);
     final offline = await runner.run(request);
     expect(

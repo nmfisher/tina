@@ -356,7 +356,7 @@ final class SessionAssembly {
       ],
       osSandbox: options.osSandbox,
       settings: settings,
-      mode: options.yolo ? PermissionMode.yolo : PermissionMode.ask,
+      mode: options.yolo ? PermissionMode.yolo : PermissionMode.approve,
     ));
     diagnostics?.stage?.call('settings-and-tools-ready');
     final policy = configuredPolicy(resolved,

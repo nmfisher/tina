@@ -28,10 +28,8 @@ final class SystemInstructionPlugin extends AgentPlugin {
       'the write tool and running it with exec, instead of stringing one '
       'long command together (piped sed/awk/grep chains, ; sequences). '
       'Read-only inspection of a single file or directory stays a plain '
-      'command — do not script what one command already answers. Scripts '
-      'keep their names and arguments stable between calls, so an approval '
-      'covers the rerun; a composed one-liner differs every time and asks '
-      'again for each change. Keep scripts in the workspace or scratch, '
+      'command — do not script what one command already answers. '
+      'Keep scripts in the workspace or scratch, '
       'and reuse or edit an existing script rather than writing a near '
       'duplicate.');
 }

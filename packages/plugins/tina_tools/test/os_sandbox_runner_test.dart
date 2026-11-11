@@ -527,7 +527,7 @@ void main() {
         ),
         writableDirectories:
             WritableDirectories(['/work/proj', '/tmp', '/var/tmp']),
-        approver: (op, reason) async => Approval.yes,
+        commandApprover: (_, __) async => Approval.yes,
       );
       final outcome = await gate.run((
         command: '/bin/sh',
@@ -662,7 +662,7 @@ void main() {
           plan: const SandboxPlan(workspaceRoot: '/work/proj'),
           backend: SandboxBackend.bwrap,
           hostLayout: () => SandboxHostLayout(
-            readOnlyDirectories: const [],
+            readOnlyDirectories: const ['/bin', '/usr/bin'],
             temporaryDirectories: const [],
           ),
         ),
@@ -687,7 +687,7 @@ void main() {
       expect(start.command, 'bwrap');
       expect(start.arguments, contains('--unshare-net'));
       final tail = start.arguments.sublist(start.arguments.length - 3);
-      expect(tail, ['rm', '-rf', '/'],
+      expect([tail.first.split('/').last, ...tail.skip(1)], ['rm', '-rf', '/'],
           reason: 'the command rides verbatim behind the jail argv');
     });
   });

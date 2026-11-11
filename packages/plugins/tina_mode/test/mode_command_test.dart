@@ -5,11 +5,11 @@ import 'package:test/test.dart';
 
 void main() {
   test('mode vocabulary parses and formats the supported modes', () {
-    expect(ModePlugin.parseMode('ask'), PermissionMode.ask);
-    expect(ModePlugin.parseMode(' read-only '), PermissionMode.readOnly);
+    expect(ModePlugin.parseMode('ask'), PermissionMode.approve);
+    expect(ModePlugin.parseMode(' read-only '), PermissionMode.approve);
     expect(ModePlugin.parseMode('readonly'), isNull);
     expect(ModePlugin.parseMode(''), isNull);
-    expect(ModePlugin.wordFor(PermissionMode.readOnly), 'read-only');
+    expect(ModePlugin.wordFor(PermissionMode.approve), 'approve');
     expect(ModePlugin.wordFor(PermissionMode.yolo), 'yolo');
     // yolo is start-time only: not selectable via /mode.
     expect(ModePlugin.parseMode('yolo'), isNull);
@@ -22,18 +22,15 @@ void main() {
       final plugin = ModePlugin(terminal: terminal);
       final command = plugin.commands.single;
       expect(command.name, 'mode');
-      expect(
-        command.description,
-        contains('ask, read-only, allow-edits, auto'),
-      );
-      await command.handler('read-only');
-      expect(plugin.mode, PermissionMode.readOnly);
-      expect(terminal.lines, ['mode: read-only']);
+      expect(command.description, contains('approve, auto'));
+      await command.handler('approve');
+      expect(plugin.mode, PermissionMode.approve);
+      expect(terminal.lines, ['mode: approve']);
       await command.handler('sideways');
-      expect(plugin.mode, PermissionMode.readOnly);
+      expect(plugin.mode, PermissionMode.approve);
       expect(terminal.lines.last, 'no mode named sideways');
       await command.handler('');
-      expect(terminal.lines.last, 'mode: read-only');
+      expect(terminal.lines.last, 'mode: approve');
       expect(terminal.prompts, isEmpty);
     },
   );
@@ -43,8 +40,8 @@ void main() {
     final command = plugin.commands.single;
     await command.handler('');
     await command.handler('invalid');
-    await command.handler('read-only');
-    expect(plugin.mode, PermissionMode.readOnly);
+    await command.handler('approve');
+    expect(plugin.mode, PermissionMode.approve);
   });
 }
 

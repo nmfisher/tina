@@ -17,7 +17,6 @@ import 'sandbox_home.dart';
 import 'command_workflow.dart';
 import 'read_only_commands.dart';
 
-
 bool _shellString(ProcessRequest request) =>
     {'sh', 'bash', 'zsh', 'dash', 'ksh'}
         .contains(p.basename(request.command)) &&
@@ -70,7 +69,7 @@ String resolveHostExecutable(ProcessRequest request,
 ///
 /// Human decisions only. Never loaded from a repository's settings. Every
 /// lookup rereads disk, so revocation takes effect in other running sessions.
-final class CommandApprovalStore implements ToolCommandApprovals {
+class CommandApprovalStore implements ToolCommandApprovals {
   CommandApprovalStore({required this.workspace, this.file, this.searchPath});
   final String workspace;
   final File? file;
@@ -236,8 +235,9 @@ final class CommandApprovalStore implements ToolCommandApprovals {
     }
   }
 
-  void rememberAccess(String capability, String target,
-      CommandApprovalScope scope, {String decidedBy = 'user'}) {
+  void rememberAccess(
+      String capability, String target, CommandApprovalScope scope,
+      {String decidedBy = 'user'}) {
     final entry = <String, Object?>{
       'kind': 'access',
       'id': 'access:${scope.name}:$workspace:$capability:$target',

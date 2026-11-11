@@ -1,54 +1,8 @@
 import 'dart:io';
-import 'package:crypto/crypto.dart';
-
+import 'package:path/path.dart' as path;
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_host/tina_host.dart';
-import 'package:path/path.dart' as path;
 import '../tina_tools.dart';
-import 'access_review.dart';
-import 'command_workflow.dart';
-import 'package:tina_settings/tina_settings.dart';
-
-void _saveDirectoryGrants(
-    ToolsPlugin plugin, List<DirectoryAccessGrant> grants) {
-  for (final scope in DirectoryGrantScope.values) {
-    final selected = grants.where((grant) => grant.scope == scope).toList();
-    if (selected.isEmpty) continue;
-    final settings = plugin.settings;
-    if (settings == null) {
-      if (scope != DirectoryGrantScope.session)
-        throw const FormatException('No persistent directory storage');
-      for (final grant in selected) {
-        if (grant.access == DirectoryAccess.read) {
-          plugin.rememberReadDirectory(grant.path);
-        } else {
-          plugin.rememberWriteDirectory(grant.path);
-        }
-      }
-      continue;
-    }
-    final settingScope = SettingScope.values.byName(scope.name);
-    settings.update(settingScope, {
-      for (final access in DirectoryAccess.values)
-        if (selected.any((grant) => grant.access == access))
-          (access == DirectoryAccess.read
-                  ? readOnlyDirectoriesSetting
-                  : writeDirectoriesSetting)
-              .id: {
-            ...((settings.override(
-                        access == DirectoryAccess.read
-                            ? readOnlyDirectoriesSetting
-                            : writeDirectoriesSetting,
-                        settingScope) as List?)
-                    ?.cast<String>() ??
-                const <String>[]),
-            ...selected
-                .where((grant) => grant.access == access)
-                .map((grant) => grant.path),
-          }.toList(),
-    });
-  }
-}
 
 const toolProvider = PluginCapability<ToolSessionSource>('tina/tool-provider');
 const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
@@ -57,13 +11,6 @@ const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
 /// the loader supplies the approval capability, never a particular channel.
 PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/tools',
-        settings: [
-          readOnlyDirectoriesSetting,
-          writeDirectoriesSetting,
-          homeCachesSetting,
-          allowReadsOutsideWorkspaceSetting,
-          permissionBoxesSetting
-        ],
         dependency: approvalRequester,
         provides: [toolProvider, modePolicySource],
         create: (context, approvals) {
@@ -94,481 +41,205 @@ Approver requesterApprover(ApprovalRequester approvals) =>
       };
     };
 
-Approval _answer(ApprovalDecision decision, String reason) =>
-    switch (decision) {
-      ApprovalDecision.allow => Approval.yes,
-      ApprovalDecision.allowAlways => Approval.always,
-      ApprovalDecision.allowWorkspace ||
-      ApprovalDecision.allowGlobal ||
-      ApprovalDecision.allowReadsAlways ||
-      ApprovalDecision.allowReadsInDirectory ||
-      ApprovalDecision.allowAlwaysAndReadsInDirectory ||
-      ApprovalDecision.allowWritesInDirectory ||
-      ApprovalDecision.allowAlwaysAndWritesInDirectory =>
-        Approval.no,
-      ApprovalDecision.deny =>
-        throw SandboxViolation('$reason — approval denied or cancelled'),
-    };
-
-/// Connect enforcement boundaries to the shared mode policy.
+/// Resource approval is shared by file operations and sandboxed processes.
 void attachModePolicy(ToolsPlugin plugin) {
-  plugin.sandbox.approver = (request, reason) async {
-    if (request.op == FileOp.write && plugin.mode == PermissionMode.readOnly) {
-      reason = 'read-only mode blocks writes. Change mode to edit.';
+  final root = canonicalSandboxPath(plugin.workingDirectory);
+  bool inside(String target) => sandboxPathUnder(target, root);
+  plugin.processRunner.workspaceWriteGranted =
+      () => plugin.modePolicy.hasWorkspaceWriteGrant(root);
+  plugin.processRunner.requestWorkspaceWrite =
+      () => plugin.modePolicy.ensureWorkspaceWrite(root);
+
+  Map<String, Object?> reviewPaths(List<PermissionAccess> accesses) {
+    final offers = <Map<String, Object?>>[];
+    final seen = <String>{};
+    void offer(String target, String access, bool recursive) {
+      if (!plugin.osPlan.canGrant(target, write: access == 'write')) return;
+      if (target == path.separator || target == plugin.osPlan.hostHome) return;
+      if (seen.add('$target:$access:$recursive')) {
+        offers.add({
+          'path': target,
+          'access': access,
+          'recursive': recursive,
+          'source': 'verified'
+        });
+      }
     }
-    final readDirectory = request.op == FileOp.read
-        ? Directory(request.path).existsSync()
-            ? request.path
-            : path.dirname(request.path)
-        : null;
-    final writeDirectory =
-        request.op == FileOp.write ? path.dirname(request.path) : null;
-    List<DirectoryAccessGrant> directoryGrants = const [];
-    final verified = [
+
+    for (final access in accesses) {
+      if (inside(access.path) ||
+          access.operation == PermissionAccessOperation.delete) continue;
+      final directory = Directory(access.path).existsSync();
+      final operation =
+          access.operation == PermissionAccessOperation.read ? 'read' : 'write';
+      offer(access.path, operation, directory);
+      final parent = path.dirname(access.path);
+      if (!directory && Directory(parent).existsSync())
+        offer(parent, operation, true);
+    }
+    return {
+      'resource_permissions': true,
+      'accesses': [
+        for (final a in accesses) {...a.toJson(), 'source': 'verified'}
+      ],
+      'directory_accesses': offers,
+      'directory_grant_scopes': ['workspace'],
+      'persistent_command_approval': true,
+      'permission_scope_label': 'selected file or directory access',
+    };
+  }
+
+  bool save(List<DirectoryAccessGrant> grants, Map<String, Object?> details) {
+    final offers = (details['directory_accesses'] as List).cast<Map>();
+    for (final grant in grants) {
+      if (grant.scope != DirectoryGrantScope.workspace ||
+          !offers.any((offer) =>
+              offer['path'] == grant.path &&
+              offer['access'] == grant.access.name &&
+              offer['recursive'] == grant.recursive) ||
+          canonicalSandboxPath(grant.path) != grant.path ||
+          !plugin.osPlan.canGrant(grant.path,
+              write: grant.access == DirectoryAccess.write)) {
+        return false;
+      }
+    }
+    for (final grant in grants) {
+      plugin.pathGrants.remember(grant.path,
+          write: grant.access == DirectoryAccess.write,
+          recursive: grant.recursive);
+    }
+    plugin.processRunner.writableDirectories
+        .replace(plugin.osPlan.writableLayout());
+    return true;
+  }
+
+  plugin.sandbox.approver = (request, reason) async {
+    final workspace = inside(request.path);
+    if (workspace && request.op == FileOp.read) return Approval.yes;
+    if (workspace) {
+      return await plugin.modePolicy.ensureWorkspaceWrite(root)
+          ? Approval.yes
+          : Approval.no;
+    }
+    if (request.op != FileOp.delete &&
+        plugin.pathGrants.allows(request.path,
+            write: request.op == FileOp.write)) return Approval.yes;
+    final operation = switch (request.op) {
+      FileOp.read => PermissionAccessOperation.read,
+      FileOp.write => PermissionAccessOperation.write,
+      FileOp.delete => PermissionAccessOperation.delete,
+    };
+    final details = reviewPaths([
       PermissionAccess(
-          request.op == FileOp.read
-              ? PermissionAccessOperation.read
-              : PermissionAccessOperation.write,
+          operation,
           request.path,
           Directory(request.path).existsSync()
               ? PermissionTargetKind.directory
               : PermissionTargetKind.file)
-    ];
-    final accessDetails = permissionAccessReview(
-        plan: plugin.osPlan,
-        cwd: plugin.workingDirectory,
-        verified: verified,
-        judgment: const PermissionJudgment(null),
-        complete: true,
-        persistent: plugin.settings != null);
+    ]);
+    List<DirectoryAccessGrant> grants = const [];
     final decision = await plugin.modePolicy.request(
-      authorization: AuthorizationRequest(requirements: [
-        AccessRequirement(
-            request.op == FileOp.read
-                ? AccessCapability.read
-                : AccessCapability.write,
-            request.path,
-            workspace: sandboxPathUnder(
-                request.path, canonicalSandboxPath(plugin.workingDirectory)),
-            granted: request.op == FileOp.read
-                ? plugin.settings
-                            ?.read(allowReadsOutsideWorkspaceSetting)
-                            .value ==
-                        true ||
-                    plugin.readDirectories.allows(request.path) ||
-                    plugin.writeDirectories.allows(request.path) ||
-                    plugin.sandbox.readGrantsAllow(request.path) ||
-                    plugin.sandbox.grants.allows(request.path) ||
-                    plugin.commandApprovals.coversAccess('read', request.path)
-                : plugin.writeDirectories.allows(request.path) ||
-                    plugin.sandbox.grants.allows(request.path) ||
-                    plugin.commandApprovals
-                        .coversAccess('write', request.path)),
-      ]),
       operation: request.op.name,
       target: request.path,
       reason: reason,
-      onDirectoryGrants: (grants) => directoryGrants = grants,
-      prepareAccessReview: (_) => accessDetails,
-      context: {
-        ...accessDetails,
-        'workspace': plugin.workingDirectory,
-        'description':
-            plugin.describeFileRequest(request.op.name, request.path).toJson(),
-        'permission_scope': 'file',
-        'persistent_command_approval': plugin.commandApprovals.file != null,
-        'permission_scope_label': 'this file',
-        if (readDirectory != null) 'read_directory': readDirectory,
-        if (writeDirectory != null) 'write_directory': writeDirectory,
-      },
-    );
-    if (!validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
-      return Approval.no;
-    if ({
-      ApprovalDecision.allowAlways,
-      ApprovalDecision.allowWorkspace,
-      ApprovalDecision.allowGlobal
-    }.contains(decision)) {
-      plugin.commandApprovals.rememberAccess(
-          request.op.name,
-          request.path,
-          switch (decision) {
-            ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
-            ApprovalDecision.allowGlobal => CommandApprovalScope.global,
-            _ => CommandApprovalScope.session,
-          });
-      _saveDirectoryGrants(plugin, directoryGrants);
-      return Approval.yes;
-    }
-    if (decision == ApprovalDecision.allowReadsAlways &&
-        request.op == FileOp.read) {
-      _saveDirectoryGrants(plugin, directoryGrants);
-      final scope = directoryGrants.isEmpty
-          ? DirectoryGrantScope.session
-          : directoryGrants.first.scope;
-      plugin.settings?.set(allowReadsOutsideWorkspaceSetting, true,
-          SettingScope.values.byName(scope.name));
-      return Approval.yes;
-    }
-    if ({ApprovalDecision.allow, ApprovalDecision.allowAlways}
-        .contains(decision)) {
-      _saveDirectoryGrants(plugin, directoryGrants);
-    }
-    if ((decision == ApprovalDecision.allowReadsInDirectory ||
-            decision == ApprovalDecision.allowAlwaysAndReadsInDirectory) &&
-        readDirectory != null) {
-      plugin.rememberReadDirectory(readDirectory);
-      return decision == ApprovalDecision.allowReadsInDirectory
-          ? Approval.yes
-          : Approval.always;
-    }
-    if ((decision == ApprovalDecision.allowWritesInDirectory ||
-            decision == ApprovalDecision.allowAlwaysAndWritesInDirectory) &&
-        writeDirectory != null) {
-      plugin.rememberWriteDirectory(writeDirectory);
-      return decision == ApprovalDecision.allowWritesInDirectory
-          ? Approval.yes
-          : Approval.always;
-    }
-    return _answer(decision, reason);
-  };
-  plugin.sandbox.authorization = plugin.sandbox.approver;
-  plugin.processRunner.directoryApprover =
-      (request, candidate, retry, isActive) async {
-    if (!isActive() ||
-        !plugin.osPlan.canGrant(candidate.path, write: candidate.write))
-      return false;
-    final target = canonicalSandboxPath(candidate.path);
-    var directory =
-        Directory(target).existsSync() ? target : path.dirname(target);
-    while (!Directory(directory).existsSync()) {
-      final parent = path.dirname(directory);
-      if (parent == directory) return false;
-      directory = parent;
-    }
-    // Never turn a failed creation into a root/home-wide grant.
-    if (directory == path.separator ||
-        directory == plugin.osPlan.hostHome ||
-        !plugin.osPlan.canGrant(directory)) return false;
-    final access = candidate.write ? 'write' : 'read';
-    List<DirectoryAccessGrant> directoryGrants = const [];
-    final accessDetails = {
-      'directory_accesses': [
-        {'path': directory, 'access': access, 'source': 'verified'}
-      ],
-      'directory_grant_scopes': plugin.settings == null
-          ? ['session']
-          : ['session', 'workspace', 'global'],
-      'directory_grant_required': true,
-      'persistent_command_approval': plugin.settings != null,
-      'accesses': [
-        {
-          'operation': access,
-          'path': target,
-          'target_kind': Directory(target).existsSync() ? 'directory' : 'file',
-          'source': 'verified'
-        }
-      ],
-      'access_coverage': 'partial',
-    };
-    final decision = await plugin.modePolicy.request(
       authorization: AuthorizationRequest(requirements: [
         AccessRequirement(
-            candidate.write ? AccessCapability.write : AccessCapability.read,
-            directory,
-            workspace: false),
+            switch (request.op) {
+              FileOp.read => AccessCapability.read,
+              FileOp.write => AccessCapability.write,
+              FileOp.delete => AccessCapability.delete,
+            },
+            request.path),
       ]),
-      operation: 'Grant directory access',
-      target: directory,
-      humanOnly: true,
-      reason: 'The command needs $access access to ${candidate.path}. '
-          'Grant $access access to $directory and '
-          '${retry ? "rerun" : "run"} this command? '
-          '${retry ? "The previous attempt may already have changed files. " : ""}'
-          'Protected credentials remain excluded.',
       context: {
-        ...accessDetails,
-        'description': ToolDescription(
-            title: '${retry ? "Retry" : "Run"} with directory access',
-            target: directory,
-            fields: {
-              'Command': CommandGrants.lineOf(request),
-              'Access': '$access: $directory'
-            }).toJson(),
-        'cwd': request.workingDirectory,
-      },
-      onDirectoryGrants: (grants) => directoryGrants = grants,
-    );
-    if (!{
-          ApprovalDecision.allow,
-          ApprovalDecision.allowAlways,
-          ApprovalDecision.allowWorkspace,
-          ApprovalDecision.allowGlobal
-        }.contains(decision) ||
-        !isActive() ||
-        !validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
-      return false;
-    if (decision != ApprovalDecision.allow)
-      _saveDirectoryGrants(plugin, directoryGrants);
-    return true;
-  };
-  plugin.processRunner.commandApprover = (request, review) async {
-    final network =
-        review.requiredPermissions.contains(ProcessPermission.network);
-    final outsideSandbox =
-        review.requiredPermissions.contains(ProcessPermission.unconfined);
-    final settings = plugin.settings;
-    final description = describeCommandRequest(request);
-    final envelope = CapabilityEnvelope.parse(request,
-        searchPath: plugin.processRunner.executableSearchPath,
-        trustedExecutables: plugin.commandApprovals.readerExecutables);
-    final readerCandidate =
-        outsideSandbox || network ? null : envelope.firstComponentResolved;
-    final readerDigest = readerCandidate != null && envelope.reader == null
-        ? sha256.convert(File(readerCandidate).readAsBytesSync()).toString()
-        : null;
-    final workflow = outsideSandbox || network
-        ? null
-        : commandWorkflow(request, plugin.workingDirectory);
-    String? commandPattern;
-    List<DirectoryAccessGrant> directoryGrants = const [];
-    final verified = envelope.verifiedAccesses;
-    final certified = envelope.completeVerifiedAccesses;
-    Map<String, Object?> accessReview(PermissionJudgment judgment) {
-      final details = permissionAccessReview(
-          plan: plugin.osPlan,
-          cwd: request.workingDirectory ?? plugin.workingDirectory,
-          verified: verified,
-          complete: certified,
-          judgment: judgment,
-          persistent: plugin.settings != null);
-      final offers = (details['directory_accesses'] as List)
-          .cast<Map<String, Object?>>()
-          .toList();
-      for (final access in ['read', 'write']) {
-        for (final directory in access == 'read'
-            ? review.directoryAccess.read
-            : review.directoryAccess.write) {
-          if (!offers.any((offer) =>
-              offer['path'] == directory && offer['access'] == access)) {
-            offers.add(
-                {'path': directory, 'access': access, 'source': 'verified'});
-          }
-        }
-      }
-      return {
         ...details,
-        'directory_accesses': offers,
-        if (!review.directoryAccess.isEmpty)
-          'invocation_directory_access': review.directoryAccess.toJson()
-      };
-    }
-
-    var accessDetails = accessReview(const PermissionJudgment(null));
+        'workspace': root,
+        'permission_scope': 'file',
+        'description':
+            plugin.describeFileRequest(request.op.name, request.path).toJson()
+      },
+      onDirectoryGrants: (value) => grants = value,
+    );
+    if (decision == ApprovalDecision.deny) return Approval.no;
+    if (!save(grants, details)) return Approval.no;
+    return Approval.yes;
+  };
+  plugin.sandbox.authorization = plugin.sandbox.approver;
+  plugin.processRunner.directoryApprover = null;
+  plugin.processRunner.commandApprover = (request, review) async {
+    if (!review.isActive()) return Approval.no;
+    final envelope = CapabilityEnvelope.parse(request,
+        searchPath: plugin.processRunner.executableSearchPath);
+    final accesses = <PermissionAccess>[
+      ...envelope.verifiedAccesses,
+      for (final target in plugin.osPlan.runtimeReadPaths)
+        if (FileSystemEntity.typeSync(target) != FileSystemEntityType.notFound)
+          PermissionAccess(
+              PermissionAccessOperation.read,
+              canonicalSandboxPath(target),
+              Directory(target).existsSync()
+                  ? PermissionTargetKind.directory
+                  : PermissionTargetKind.file),
+      for (final target in review.directoryAccess.read)
+        PermissionAccess(PermissionAccessOperation.read, target,
+            PermissionTargetKind.directory),
+      for (final target in review.directoryAccess.write)
+        PermissionAccess(PermissionAccessOperation.write, target,
+            PermissionTargetKind.directory),
+      for (final target
+          in review.authorization?.requirements ?? const <AccessRequirement>[])
+        if (target.capability == AccessCapability.delete)
+          PermissionAccess(PermissionAccessOperation.delete, target.target,
+              PermissionTargetKind.unknown),
+    ];
+    final details = reviewPaths(accesses);
+    List<DirectoryAccessGrant> grants = const [];
     final decision = await plugin.modePolicy.request(
       operation: 'run command',
-      target: [request.command, ...request.arguments].join(' '),
+      target: approvalCommandText(request),
       reason: review.reason,
       authorization: review.authorization,
-      onCommandPattern: (pattern) => commandPattern = pattern,
-      onDirectoryGrants: (grants) => directoryGrants = grants,
-      prepareAccessReview: (judgment) => accessDetails = accessReview(judgment),
       context: {
-        ...accessDetails,
-        'workspace': plugin.workingDirectory,
+        ...details,
+        'workspace': root,
+        'permission_scope': 'command',
+        'access_coverage':
+            envelope.completeVerifiedAccesses ? 'complete' : 'partial',
+        'access_coverage_source': 'verified',
+        'description': (review.requiredPermissions
+                    .contains(ProcessPermission.unconfined)
+                ? ToolDescription(
+                    title:
+                        '${describeCommandRequest(request).title} outside sandbox',
+                    target: describeCommandRequest(request).target,
+                    fields: {
+                        'Access':
+                            'Host filesystem and network for this invocation'
+                      })
+                : describeCommandRequest(request))
+            .toJson(),
         'executable': request.command,
         'arguments': request.arguments,
         'cwd': request.workingDirectory,
-        'environment': request.environment,
         'stdin': request.stdin,
-        'approval_identity': {
-          'executable': request.command,
-          'arguments': request.arguments,
-          'cwd': request.workingDirectory,
-          'environment': request.environment,
-          'stdin': request.stdin,
-          'directory_access': review.directoryAccess.toJson(),
-        },
-        'approval_reason_codes': [
-          if (!review.directoryAccess.isEmpty) 'missing_directory_access',
-          if (outsideSandbox) 'host_execution',
-          if (plugin.commandApprovals.hasRelatedRule(request)) 'grant_mismatch',
-        ],
+        'runtime_read_paths': plugin.osPlan.runtimeReadPaths,
         'required_permissions': [
           for (final p in review.requiredPermissions) p.name
+        ],
+        'approval_reason_codes': [
+          if (!review.directoryAccess.isEmpty) 'missing_directory_access',
         ],
         'missing_permissions': [
           for (final p in review.missingPermissions) p.name
         ],
-        if (network) 'network_reason': review.networkReason,
-        if (outsideSandbox) 'sandbox_reason': review.sandboxReason,
-        'description': (outsideSandbox
-                ? ToolDescription(
-                    title: '${description.title} outside sandbox',
-                    target: description.target,
-                    fields: {
-                        ...description.fields,
-                        'Access':
-                            'Host filesystem and network for this subprocess tree',
-                      })
-                : network
-                    ? ToolDescription(
-                        title: '${description.title} with network access',
-                        target: description.target,
-                        fields: description.fields)
-                    : description)
-            .toJson(),
-        'permission_scope': 'command',
-        if (!outsideSandbox) 'recommended_scope': 'workspace',
-        if (readerDigest != null) ...{
-          'permission_scope_label': 'permitted reads with $readerCandidate',
-          'permission_scope_description':
-              'Remembering permits supported read-only arguments with this executable version. '
-                  'Folder access, network and host execution require their own permissions.',
-        } else if (workflow != null) ...{
-          'permission_scope_label': '$workflow in this project',
-          'permission_scope_description':
-              'Workspace approval covers $workflow with supported options and project files, '
-                  'including subdirectories. Global applies to other workspaces too. '
-                  'Filesystem confinement and network permissions stay in effect.',
-        },
-        'command_pattern_target': approvalCommandText(request),
-        if (plugin.commandApprovals.file != null)
-          'persistent_command_pattern': true,
-        if (plugin.commandApprovals.file != null)
-          'persistent_command_approval': true,
-        if (review.readDirectory != null &&
-            plugin.osPlan.canGrant(review.readDirectory!))
-          'read_directory': review.readDirectory,
-        if (outsideSandbox) ...{
-          'permission_scope_label': 'this exact command outside the sandbox',
-          'permission_scope_description':
-              'Session/workspace: exact executable, arguments, directory, environment and input. '
-                  'Global: same executable, arguments, environment and input in any directory. '
-                  'Grants host filesystem, real HOME credentials and network access. '
-                  'Revoke in Settings → Permissions.',
-        } else if (network) ...{
-          'permission_scope_label': 'this command with network access',
-          'permission_scope_description':
-              'Session approval covers this exact command, directory, environment '
-                  'and input, including network access for its subprocess tree.',
-        },
+        'invocation_directory_access': review.directoryAccess.toJson(),
+        'network_reason': review.networkReason,
+        'sandbox_reason': review.sandboxReason,
       },
+      onDirectoryGrants: (value) => grants = value,
     );
-    if (!review.isActive() ||
-        !validateDirectoryGrants(plugin.osPlan, directoryGrants, accessDetails))
+    if (decision == ApprovalDecision.deny || !review.isActive())
       return Approval.no;
-    if (readerDigest != null &&
-        readerCandidate != null &&
-        sha256.convert(File(readerCandidate).readAsBytesSync()).toString() !=
-            readerDigest) return Approval.no;
-    if ({
-      ApprovalDecision.allow,
-      ApprovalDecision.allowAlways,
-      ApprovalDecision.allowWorkspace,
-      ApprovalDecision.allowGlobal
-    }.contains(decision)) {
-      _saveDirectoryGrants(plugin, directoryGrants);
-    }
-    if ((outsideSandbox ||
-            commandPattern != null ||
-            decision != ApprovalDecision.allowAlways) &&
-        {
-          ApprovalDecision.allowAlways,
-          ApprovalDecision.allowWorkspace,
-          ApprovalDecision.allowGlobal
-        }.contains(decision)) {
-      if (!review.isActive()) return Approval.no;
-      if (readerDigest != null && commandPattern == null) {
-        if (sha256
-                .convert(File(readerCandidate!).readAsBytesSync())
-                .toString() !=
-            readerDigest) return Approval.no;
-        plugin.commandApprovals.rememberReader(
-            readerCandidate,
-            readerDigest,
-            switch (decision) {
-              ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
-              ApprovalDecision.allowGlobal => CommandApprovalScope.global,
-              _ => CommandApprovalScope.session,
-            });
-        return Approval.yes;
-      }
-      // The box model keeps one list: under the opt-in, a remembered
-      // pattern lands in the box allowlist, naming the box/profile future
-      // matches run in — not in the scopes store. The dialog speaks regex;
-      // the allowlist speaks glob. Patterns a glob cannot say exactly stay
-      // with the existing store instead of masquerading as globs.
-      if (commandPattern != null && plugin.boxes.isActive) {
-        final glob = globFromDialogPattern(commandPattern!);
-        if (glob != null) {
-          plugin.boxes.rememberPattern(glob,
-              global: decision == ApprovalDecision.allowGlobal,
-              network: network,
-              readOnly: !review.requiredPermissions
-                  .contains(ProcessPermission.workspaceWrite));
-          return Approval.yes;
-        }
-      }
-      plugin.commandApprovals.remember(
-          request,
-          review.missingPermissions,
-          switch (decision) {
-            ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
-            ApprovalDecision.allowGlobal => CommandApprovalScope.global,
-            _ => CommandApprovalScope.session,
-          },
-          pattern: commandPattern,
-          workflow: !outsideSandbox && !network && commandPattern == null,
-          directoryAccess: review.directoryAccess);
-      return Approval.yes;
-    }
-    if ((decision == ApprovalDecision.allowReadsInDirectory ||
-            decision == ApprovalDecision.allowAlwaysAndReadsInDirectory) &&
-        review.readDirectory != null &&
-        plugin.osPlan.canGrant(review.readDirectory!)) {
-      plugin.rememberReadDirectory(review.readDirectory!);
-    }
-    if (decision == ApprovalDecision.allowReadsAlways) {
-      if (network ||
-          outsideSandbox ||
-          review.directoryAccess.read.isEmpty ||
-          review.directoryAccess.write.isNotEmpty ||
-          review.missingPermissions.any(
-              (permission) => permission != ProcessPermission.directoryAccess))
-        return Approval.no;
-      // The dialog only offers this for all-read asks, and the grants were
-      // validated against those offers above; the scope rides the grants.
-      // A channel that answers without grants defaults to session scope —
-      // the narrowest standing read grant this answer can mean.
-      final scopes = directoryGrants.map((grant) => grant.scope).toSet();
-      final scope = switch (scopes.length) {
-        1 => scopes.single,
-        _ => DirectoryGrantScope.session,
-      };
-      if (settings != null) {
-        settings.set(allowReadsOutsideWorkspaceSetting, true,
-            SettingScope.values.byName(scope.name));
-      }
-      // Without persistent settings the standing grant cannot be remembered;
-      // the answer still approves this invocation, exactly like 'allow'.
-      return Approval.yes;
-    }
-    return switch (decision) {
-      ApprovalDecision.allow => Approval.yes,
-      // Handled above; the arm keeps the switch total if that block moves.
-      ApprovalDecision.allowReadsAlways => Approval.yes,
-      ApprovalDecision.allowAlways => Approval.always,
-      ApprovalDecision.allowReadsInDirectory =>
-        review.readDirectory != null ? Approval.yes : Approval.no,
-      ApprovalDecision.allowAlwaysAndReadsInDirectory =>
-        review.readDirectory != null ? Approval.always : Approval.no,
-      ApprovalDecision.allowWorkspace ||
-      ApprovalDecision.allowGlobal ||
-      ApprovalDecision.allowWritesInDirectory ||
-      ApprovalDecision.allowAlwaysAndWritesInDirectory =>
-        Approval.no,
-      ApprovalDecision.deny => Approval.no,
-    };
+    return save(grants, details) ? Approval.yes : Approval.no;
   };
 }

@@ -161,6 +161,7 @@ final class ProcessControl {
       this.writeDirectories = const [],
       this.approvedDirectories,
       this.readOnly = false,
+      this.workspaceWriteAllowed,
       this.readOnlyRequested,
       this.outputDirectories = const [],
       this.isCancelled,
@@ -191,6 +192,7 @@ final class ProcessControl {
   final List<String> writeDirectories;
   final ProcessDirectoryAccess? approvedDirectories;
   final bool readOnly;
+  final bool? workspaceWriteAllowed;
   final bool? readOnlyRequested;
   final List<String> outputDirectories;
   final bool Function()? isCancelled;
@@ -214,6 +216,7 @@ final class ProcessControl {
     List<String>? writeDirectories,
     ProcessDirectoryAccess? approvedDirectories,
     bool? readOnly,
+    bool? workspaceWriteAllowed,
     bool? readOnlyRequested,
     List<String>? outputDirectories,
     bool clearDirectoryApproval = false,
@@ -237,6 +240,8 @@ final class ProcessControl {
             ? null
             : approvedDirectories ?? this.approvedDirectories,
         readOnly: readOnly ?? this.readOnly,
+        workspaceWriteAllowed:
+            workspaceWriteAllowed ?? this.workspaceWriteAllowed,
         readOnlyRequested: readOnlyRequested ?? this.readOnlyRequested,
         outputDirectories: outputDirectories ?? this.outputDirectories,
         isCancelled: isCancelled,

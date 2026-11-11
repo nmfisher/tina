@@ -42,6 +42,8 @@ void main() {
         resolveAuthorization(request, mode).route,
         mode == PermissionMode.yolo
             ? AuthorizationRoute.allow
+            : mode == PermissionMode.auto
+            ? AuthorizationRoute.review
             : AuthorizationRoute.human,
       );
     });
@@ -56,7 +58,7 @@ void main() {
       );
     });
   }
-  test('read-only mode ceiling precedes every remembered write grant', () {
+  test('explicit grants are independent of the approval destination', () {
     for (final capability in [
       AccessCapability.write,
       AccessCapability.host,
@@ -73,8 +75,8 @@ void main() {
         ],
       );
       expect(
-        resolveAuthorization(request, PermissionMode.readOnly).route,
-        AuthorizationRoute.deny,
+        resolveAuthorization(request, PermissionMode.approve).route,
+        AuthorizationRoute.allow,
       );
     }
   });
@@ -91,10 +93,10 @@ void main() {
       ],
     );
     for (final entry in {
-      PermissionMode.readOnly: AuthorizationRoute.deny,
+      PermissionMode.readOnly: AuthorizationRoute.human,
       PermissionMode.ask: AuthorizationRoute.human,
-      PermissionMode.allowEdits: AuthorizationRoute.allow,
-      PermissionMode.auto: AuthorizationRoute.review,
+      PermissionMode.allowEdits: AuthorizationRoute.human,
+      PermissionMode.auto: AuthorizationRoute.human,
       PermissionMode.yolo: AuthorizationRoute.allow,
     }.entries) {
       expect(resolveAuthorization(request, entry.key).route, entry.value);
@@ -139,16 +141,19 @@ void main() {
     );
     await Future<void>.delayed(Duration.zero);
     expect(requests, hasLength(1));
-    policy.mode = PermissionMode.readOnly;
+    policy.mode = PermissionMode.auto;
+    await Future<void>.delayed(Duration.zero);
+    expect(requests, hasLength(2));
+    expect(channel.respond(requests.last.id, ApprovalDecision.deny), true);
     expect(await result, ApprovalDecision.deny);
     expect(approvals.pending, isEmpty);
-    expect(channel.respond(requests.single.id, ApprovalDecision.allow), false);
+    expect(channel.respond(requests.first.id, ApprovalDecision.allow), false);
   });
   test('running child policies follow the live parent mode', () {
     final parent = ModePlugin(mode: PermissionMode.allowEdits);
     final child = ModePlugin()..inheritPolicy(parent);
-    parent.mode = PermissionMode.readOnly;
-    expect(child.mode, PermissionMode.readOnly);
+    parent.mode = PermissionMode.auto;
+    expect(child.mode, PermissionMode.auto);
     child.closeSession();
     parent.mode = PermissionMode.auto;
     parent.closeSession();

@@ -40,7 +40,7 @@ import 'package:tina_tools/tina_tools.dart';
   List<List<List<StreamEvent>>> childScripts = const [],
   SubagentsConfig config = const SubagentsConfig(),
   String? storePath,
-  PermissionMode mode = PermissionMode.allowEdits,
+  PermissionMode mode = PermissionMode.approve,
   Directory? dir,
   LlmProvider? childProvider,
 }) {

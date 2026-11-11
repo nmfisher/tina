@@ -1,3 +1,4 @@
+import 'support/human.dart';
 import 'package:tina/src/console_catalog.dart';
 import 'package:tina_context_tui/tina_context_tui.dart';
 import 'support/session_connection.dart';
@@ -147,7 +148,8 @@ void main() {
     final provider = EditingProvider(() => context(app));
     app = SessionAssembly.start(
         options: options(), providerFactory: (_) => provider);
-    final plugin = context(app);
+    app.tools.modePolicy.approvals = TestHuman();
+      final plugin = context(app);
     final file = plugin.mirrorFile!;
     expect(app.tools.sandbox.grants.allows(file.resolveSymbolicLinksSync()),
         isTrue);

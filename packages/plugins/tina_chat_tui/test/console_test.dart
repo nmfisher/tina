@@ -343,7 +343,7 @@ void main() {
     final rendered = visible();
     expect(rendered, contains('v0.9.19 · update ⬆ v999.0.0'));
     expect(rendered, contains('Σ 58 +~8,525 est'));
-    expect(rendered, contains('mode: allow-edits'));
+    expect(rendered, contains('mode: approve'));
   });
   test(
       'backend, panels and update fit at 80 columns; wide bars retain the hint',
@@ -367,7 +367,7 @@ void main() {
     });
     final narrow = visible().split('\n').last;
     for (final label in [
-      'mode: ask',
+      'mode: approve',
       'notcurses',
       '1 panel',
       'v0.9.29',
@@ -390,14 +390,14 @@ void main() {
     await tick();
     io.feed('draft\x1b[Z');
     await tick();
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     expect(transcript(), isNot(contains('mode:')));
-    expect(io.output.toString(), contains('mode: read-only'));
+    expect(io.output.toString(), contains('mode: auto'));
     await control.commands.single.handler('ask');
     modes.repaintConsole();
     io.feed('\x1b[Z');
     await tick();
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     io.feed(' intact\r');
     expect(await line, 'draft intact');
     modes.detachConsole();
@@ -405,19 +405,19 @@ void main() {
     await tick();
     io.feed('\x1b[Z\r');
     expect(await next, '');
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
   });
   test('Shift-Tab works during a turn but yields to approval key ownership',
       () async {
     editor.beginCancelMonitor(() {}, onQueueSubmit: (_) {});
     io.feed('queued\x1b[Z');
     await tick();
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     final read = editor.readKey(globalKeys: true);
     await tick();
     io.feed('\x1b[Z');
     expect(await read, ControlKey(ControlCode.backtab));
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     editor.endInputCaptureWindow();
     final line = editor.readLine('unused');
     await tick();

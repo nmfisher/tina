@@ -80,7 +80,7 @@ void main() {
       final res = await tool
           .execute({'command': 'touch file', 'access': 'workspace-write'});
       expect(res.isError, isTrue);
-      expect(res.content, contains('Read-only mode'));
+      expect(res.content, contains('approver'));
     });
 
     test(
@@ -92,7 +92,8 @@ void main() {
         runner: SandboxedProcessRunner(
           inner: inner,
           writableDirectories: WritableDirectories()..add('/'),
-          approver: approver.call,
+          commandApprover: (_, review) =>
+              approver.call((op: FileOp.write, path: '/tmp'), review.reason),
         ),
       );
       final res = await tool.execute({
@@ -117,7 +118,8 @@ void main() {
         runner: SandboxedProcessRunner(
           inner: _RecordingRunner(_done(2, '', 'boom')),
           writableDirectories: WritableDirectories()..add('/'),
-          approver: approver.call,
+          commandApprover: (_, review) =>
+              approver.call((op: FileOp.write, path: '/tmp'), review.reason),
         ),
       );
       final res = await tool.execute({'command': 'false'});
@@ -270,7 +272,7 @@ void main() {
       // /etc/hostname is path-shaped and outside the writable directories → ask →
       // no approver wired → deny.
       expect(res.isError, isTrue);
-      expect(res.content, contains('no approver'));
+      expect(res.content, contains('approver'));
     });
 
     test('literal shell syntax is not interpreted by exec', () async {
@@ -299,7 +301,8 @@ void main() {
       final sandbox = SandboxedProcessRunner(
         inner: inner,
         writableDirectories: WritableDirectories()..add('/'),
-        approver: approver.call,
+        commandApprover: (_, review) =>
+            approver.call((op: FileOp.write, path: '/tmp'), review.reason),
       );
       final bash = BashTool(runner: sandbox);
       final exec = ExecTool(runner: sandbox);
@@ -321,8 +324,7 @@ void main() {
         'args': ['d']
       });
       expect(execApproved.isError, isFalse);
-      expect(approver.asked, 0,
-          reason: 'read-only mode certifies literal echo calls without asking');
+      expect(approver.asked, 4, reason: 'each external executable is reviewed');
       expect(sandbox.mode, PermissionMode.readOnly);
     });
   });

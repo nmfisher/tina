@@ -25,6 +25,7 @@ import 'package:tina_tools/tina_tools.dart';
 import 'package:test/test.dart';
 
 import 'harness.dart';
+import '../../tina_tools/test/support/human.dart';
 
 /// A provider whose stream emits one delta and then never completes —
 /// the only way a turn stays in flight for a cancel to catch. The
@@ -200,7 +201,7 @@ void main() {
     final tools = ToolsPlugin(
       workspaceRoot: ws.dir.path,
       tinaDir: Directory('${ws.dir.path}/.tina'),
-      mode: PermissionMode.allowEdits,
+      mode: PermissionMode.approve,
       osSandbox: false,
     );
     final host = Host.start(HostConfig(
@@ -430,12 +431,11 @@ void main() {
     h.dir.deleteSync(recursive: true);
   });
 
-  test('the child cannot escalate the mode: a read-only parent denies '
-      'a write in the child, never asked', () async {
+  test('a child cannot grant its own workspace writes', () async {
     final ws = workspace();
     final h = harness(
       dir: ws.dir,
-      mode: PermissionMode.readOnly,
+      mode: PermissionMode.auto,
       scripts: [
         [
           scriptedReply('', calls: [
@@ -447,7 +447,7 @@ void main() {
         [scriptedReply('parent done')],
       ],
       childScripts: [
-        // Child tries a write; the boundary denies without asking.
+        // Child tries a write; a human must authorize workspace writes.
         [
           scriptedReply('', calls: [
             ToolUseBlock(
@@ -459,15 +459,12 @@ void main() {
         [scriptedReply('child saw the denial')],
       ],
     );
-    var asked = false;
-    h.tools.sandbox.approver = (request, reason) async {
-      asked = true;
-      return Approval.no;
-    };
+    final human = TestHuman(allow: false);
+    h.tools.modePolicy.approvals = human;
     await h.host.send('try to escape');
     final id = h.plugin.launchedChildIds.single;
     await h.plugin.inspect(id, action: 'wait');
-    expect(asked, isFalse, reason: 'a read-only child must never ask');
+    expect(human.calls, 1, reason: 'even auto mode must ask a human');
     expect(File('${ws.dir.path}/escape.txt').existsSync(), isFalse);
     await h.host.whenIdle();
     h.host.close();
@@ -501,11 +498,15 @@ void main() {
         [scriptedReply('wrote it')],
       ],
     );
+    final human = TestHuman();
+    h.tools.modePolicy.approvals = human;
     await h.host.send('write via child');
     final id = h.plugin.launchedChildIds.single;
     await h.plugin.inspect(id, action: 'wait');
     expect(
         File('${ws.dir.path}/inside.txt').readAsStringSync(), 'from the child');
+    await h.tools.sandbox.writeFile('${ws.dir.path}/parent.txt', 'shared');
+    expect(human.calls, 1, reason: 'the child grant also covers the parent');
     await h.host.whenIdle();
     h.host.close();
     h.dir.deleteSync(recursive: true);
@@ -699,7 +700,7 @@ void main() {
     final tools = ToolsPlugin(
       workspaceRoot: ws.root,
       tinaDir: Directory('${ws.root}/.tina'),
-      mode: PermissionMode.allowEdits,
+      mode: PermissionMode.approve,
       osSandbox: false,
     );
     final resumed = Host.resume(
@@ -802,7 +803,7 @@ void main() {
     final tools = ToolsPlugin(
       workspaceRoot: ws.root,
       tinaDir: Directory('${ws.root}/.tina'),
-      mode: PermissionMode.allowEdits,
+      mode: PermissionMode.approve,
       osSandbox: false,
     );
     final resumed = Host.resume(

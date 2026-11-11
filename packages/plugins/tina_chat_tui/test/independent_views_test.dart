@@ -116,16 +116,16 @@ void main() {
     firstMode.dispose();
     firstUpdate.dispose();
     final detachedOutput = first.io.output.toString();
-    policy.mode = PermissionMode.readOnly;
+    policy.mode = PermissionMode.approve;
     updates.status = const UpdateStatus(UpdatePhase.available, tag: 'v1.0.1');
     updates.stream.add(null);
     await Future<void>.delayed(Duration.zero);
     expect(first.io.output.toString(), detachedOutput);
-    expect(second.io.output.toString(), contains('mode: read-only'));
+    expect(second.io.output.toString(), contains('mode: approve'));
     expect(second.io.output.toString(), contains('v1.0.1'));
     final replacement = ConsoleAttachment.attach(
         ModeView(mode: ConnectionModeObservation(connection1)), first.context);
-    expect(first.io.output.toString(), contains('mode: read-only'));
+    expect(first.io.output.toString(), contains('mode: approve'));
     replacement.dispose();
   });
   test('the rewind picker is offered only for a bare /rewind', () async {
