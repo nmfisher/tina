@@ -67,6 +67,11 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
     cli: providersCli,
     settings: providerLimitSettings,
     provides: [modelAccess],
+    // Structural: a session engine cannot serve a session without its
+    // provider, even when the config names only unknown plugins (those
+    // are skipped and recorded instead) - same as the wasm engine's
+    // catalog.
+    alwaysSelected: true,
     description:
         'Connects configured models and providers and enforces request and token limits.',
   ),

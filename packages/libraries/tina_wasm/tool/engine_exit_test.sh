@@ -131,7 +131,14 @@ if [ ! -f "$WASM_TOOLS_ROOT/assets/runtime_helpers.wasm" ]; then
   ( cd "$WASM_TOOLS_ROOT" && ./tool/build_runtime_helpers.sh )
 fi
 
-if [ ! -f "$ENGINE_WASM" ] || [ -n "$FORCE_ENGINE_BUILD" ]; then
+# Rebuild the engine component when its Dart sources are newer than the
+# compiled artifact (the engine imports this package AND the tina app
+# package, so both trees count), on force, or when absent.
+NEWER_ENGINE_SOURCES="$(find "$PKG/bin" "$PKG/lib" \
+  "$PKG/../../../apps/tina_cli/lib" -name '*.dart' \
+  -newer "$ENGINE_WASM" -print -quit 2>/dev/null || true)"
+if [ ! -f "$ENGINE_WASM" ] || [ -n "$FORCE_ENGINE_BUILD" ] \
+    || [ -n "$NEWER_ENGINE_SOURCES" ]; then
   echo "=== building the engine component"
   ( cd "$PKG" && "$DART" run wasm_tools compile bin/engine.dart )
 fi
@@ -183,6 +190,10 @@ enabled = [
   "tina/tools",
   "tina/approvals-stream",
   "tina/session-controls",
+  # Graceful degradation: an id the packaged engine's catalog does not
+  # know (it may exist in a native checkout). The wasm leg must skip it
+  # with a notice and a snapshot record - never fatal.
+  "tina/grok-guard",
 ]
 EOF
 
@@ -213,4 +224,9 @@ grep "RESULT" "$WASM_OUT" || true
 
 grep -q "RESULT: PASS" "$NATIVE_OUT"
 grep -q "RESULT: PASS" "$WASM_OUT"
-echo "STAGE-5 EXIT TEST: both engines completed the turn"
+# The unknown plugin degraded gracefully on the wasm leg: a notice names
+# it and the snapshot records the skip.
+grep -q "Skipped unknown plugins (not in this binary): tina/grok-guard" \
+  "$WASM_OUT"
+grep -q '"skippedPlugins":\["tina/grok-guard"\]' "$WASM_OUT"
+echo "STAGE-5 EXIT TEST: both engines completed the turn (unknown plugin skipped)"

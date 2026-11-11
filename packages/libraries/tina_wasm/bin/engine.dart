@@ -195,6 +195,11 @@ final class _TestedModule implements tests.TestedModule {
           ),
         ),
         settingsBackend: backend,
+        // The host owns the capability document on wasm (it ingests the
+        // launcher's --capabilities file or derives discovery itself);
+        // the engine compiles nothing - the compiler inputs read the
+        // process's own files, which a component cannot.
+        compileCapabilities: false,
         plugins: [
           // The portable baseline; persistence joins only when the
           // composition root loaded a store for it (the baseline is

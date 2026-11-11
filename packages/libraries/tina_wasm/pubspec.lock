@@ -505,6 +505,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_capability:
+    dependency: transitive
+    description:
+      path: "../tina_capability"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_chat:
     dependency: "direct main"
     description:
