@@ -82,6 +82,10 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
       'tina/providers',
       (c) => c.providerPolicy!,
       provides: [modelAccess],
+      // Structural: a packaged session engine cannot serve a session
+      // without its provider, even when the config names only unknown
+      // plugins (those are skipped and recorded instead).
+      alwaysSelected: true,
       description: 'Connects configured models and providers and enforces request and token limits.',
     ),
     PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(

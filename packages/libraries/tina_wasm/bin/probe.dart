@@ -16,10 +16,10 @@ import 'package:wasm_components/wasm_components.dart' as cm;
 void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
-      unnamedExport27: _TestedModule(imports),
+      unnamedExport29: _TestedModule(imports),
       // The stage-3 probe does not use `tina:process`; the world grew the
       // import in stage 4, so the record supplies it unopened.
-      unnamedExport16: const _Run(),
+      unnamedExport18: const _Run(),
     );
   });
 }

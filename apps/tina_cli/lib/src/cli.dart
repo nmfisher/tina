@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:async';
+import 'package:path/path.dart' as p;
+import 'package:tina_capability/tina_capability.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_tools/tina_tools.dart' show noSandboxOption;
@@ -484,6 +486,29 @@ Future<EngineProcess> startRemoteEngine({
   if (host != 'tina-wasm-host' && !File(host).existsSync()) {
     throw StateError('engine host not found: $host');
   }
+  // The capability document: compiled from the launch mode, the launch
+  // surface, and the standing grants, written for the host to ingest, and
+  // passed instead of the legacy --preopen flags. Only the wasm-host
+  // contract understands it; any other engine spec keeps the flags.
+  String? capabilitiesPath;
+  if (spec == 'wasm') {
+    final configDir = p.dirname(p.normalize(p.absolute(configPath)));
+    final document = compileCapabilities(readCapabilityInputs(
+      workspace: workingDirectory,
+      configDir: configDir,
+      yolo: yolo,
+    ));
+    capabilitiesPath = p.join(configDir, 'capabilities.json');
+    final staging =
+        File('${capabilitiesPath}.${p.basename(File(configPath).path)}.tmp');
+    staging.writeAsStringSync('${document.encode()}\n');
+    try {
+      staging.renameSync(capabilitiesPath);
+    } on FileSystemException {
+      staging.deleteSync();
+      rethrow;
+    }
+  }
   final argv = wasmEngineArgv(
     hostPath: host,
     workingDirectory: workingDirectory,
@@ -495,6 +520,7 @@ Future<EngineProcess> startRemoteEngine({
         .split(RegExp(r'\s+'))
         .where((argument) => argument.isNotEmpty)
         .toList(),
+    capabilitiesPath: capabilitiesPath,
   );
   return EngineProcess.start(argv, workingDirectory: workingDirectory);
 }

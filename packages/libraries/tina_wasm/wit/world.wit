@@ -6,8 +6,9 @@ package tina:probe@1.0.0;
 world engine-probe {
   include wasi:cli/command@0.3.0;
   import wasmdart:tests/result-collector;
-  import tina:http/client@1.0.0;
+  import tina:http/client@1.1.0;
   import tina:plugin-host/session@0.1.0;
-  import tina:process/process@1.0.0;
+  import tina:policy/policy@1.0.0;
+  import tina:process/process@1.1.0;
   export wasmdart:tests/tested-module;
 }

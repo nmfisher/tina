@@ -218,6 +218,7 @@ final class Host {
           _plugins.map((p) => p.id),
           features,
           unavailable,
+          config.skippedPlugins,
           _activeTools);
     } finally {
       _capturing = false;

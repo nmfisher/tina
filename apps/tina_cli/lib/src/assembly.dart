@@ -12,6 +12,9 @@ import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
 
 import 'app_io.dart';
+import 'engine_launcher.dart' show readCapabilityInputs;
+import 'package:tina_capability/tina_capability.dart'
+    show compileCapabilities;
 import 'native_kinds.dart';
 import 'app_stdout.dart';
 import 'assembly_config.dart';
@@ -88,7 +91,15 @@ final class AssemblyOptions {
     this.interactive = true,
     this.registry,
     this.settingsBackend,
+    this.compileCapabilities = true,
   });
+
+  /// Whether the assembly compiles the capability document from the
+  /// launch inputs (the native site). The wasm composition root sets
+  /// false: there the HOST ingests the launcher's document and the
+  /// engine compiles nothing - the compiler inputs read the process's
+  /// own files (dart:io), which a component cannot.
+  final bool compileCapabilities;
 
   /// Explicit config file, else `~/.tina/config`.
   final String? configPath;
@@ -357,6 +368,14 @@ final class SessionAssembly {
       osSandbox: options.osSandbox,
       settings: settings,
       mode: options.yolo ? PermissionMode.yolo : PermissionMode.ask,
+      capabilities: options.compileCapabilities
+          ? compileCapabilities(readCapabilityInputs(
+              workspace: workingDirectory,
+              configDir:
+                  p.dirname(options.configPath ?? defaultConfigPath()),
+              yolo: options.yolo,
+            ))
+          : null,
     ));
     diagnostics?.stage?.call('settings-and-tools-ready');
     final policy = configuredPolicy(resolved,
@@ -489,6 +508,7 @@ final class SessionAssembly {
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;
     final hostConfig = HostConfig(
       notices: output is SessionTerminal ? output.notices : null,
+      skippedPlugins: pluginSettings.skippedPluginIds,
       snapshotFeatureFor: snapshotFeatureFor,
       operationsFor: (plugin) => registry.definition(plugin.id).operations,
       questions: output is SessionTerminal
@@ -521,6 +541,16 @@ final class SessionAssembly {
         ? Host.start(hostConfig)
         : Host.resume(hostConfig, options.sessionId!);
     diagnostics?.stage?.call('host-open-end');
+    // Unknown enabled plugins were skipped at boot (graceful degradation
+    // for a packaged binary whose registry is a subset of a native
+    // checkout): surface the skip on the notice channel so the user sees
+    // what the config asked for and the binary left out.
+    if (pluginSettings.skippedPluginIds.isNotEmpty) {
+      host.notices.write(
+        'Skipped unknown plugins (not in this binary): '
+        '${pluginSettings.skippedPluginIds.join(', ')}',
+      );
+    }
     var previousConfiguration = jsonEncode(stack.effectiveDocument());
     final stopConfigurationUpdates = configurationUpdates.listen(() {
       try {

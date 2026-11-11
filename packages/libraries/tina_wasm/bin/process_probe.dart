@@ -16,8 +16,8 @@ import 'package:tina_wasm/src/wasm_process_port.dart';
 void main(List<String> arguments) {
   root.engineProbeComponent((imports) {
     return (
-      unnamedExport27: _TestedModule(imports),
-      unnamedExport16: const _Run(),
+      unnamedExport29: _TestedModule(imports),
+      unnamedExport18: const _Run(),
     );
   });
 }
@@ -44,7 +44,9 @@ final class _TestedModule implements tests.TestedModule {
     await runProcessProbe(
       processes: WasmProcessPort(
         process: _imports.processProcess,
-        profile: processProbeProfile,
+        // The probe asserts the backstop profile shape; the host's
+        // capability rules decide.
+        backstopProfile: processProbeProfile,
         approver: (request) => processProbeApprover(request, recorder),
       ),
       recorder: recorder,

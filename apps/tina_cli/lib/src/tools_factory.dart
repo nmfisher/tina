@@ -6,6 +6,7 @@
 /// platform-neutral on purpose — what the assembly knows, nothing more.
 library;
 
+import 'package:tina_capability/tina_capability.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:tina_settings/tina_settings.dart';
 
@@ -22,6 +23,7 @@ final class ToolsWiring {
     required this.osSandbox,
     required this.mode,
     this.settings,
+    this.capabilities,
   });
 
   final String workspaceRoot;
@@ -30,6 +32,11 @@ final class ToolsWiring {
   final bool osSandbox;
   final PermissionMode mode;
   final ScopedSettings? settings;
+
+  /// The compiled capability document (one source of truth): on native it
+  /// seeds the enforcement inputs; under wasm the host enforces it and
+  /// the portable factory ignores it.
+  final CapabilityDocument? capabilities;
 }
 
 /// Builds the tools plugin for [wiring].

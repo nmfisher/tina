@@ -443,6 +443,7 @@ final class _SessionPipes {
     'throughSeq': snapshot.throughSeq,
     'features': snapshot.features,
     'unavailableFeatures': snapshot.unavailableFeatures,
+    'skippedPlugins': snapshot.skippedPlugins,
     'activeTools': snapshot.activeTools,
     'questions': [
       for (final q in snapshot.questions)

@@ -16,6 +16,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:tina_capability/tina_capability.dart';
+import 'package:tina_tools/tina_tools.dart'
+    show CommandApprovalStore, CommandApprovalScope;
 
 import 'pipes.dart' show decodePipesLines;
 import 'pipes_connection.dart' show PipesConnection;
@@ -166,6 +169,107 @@ final class _StderrTail {
   String get text => _text;
 }
 
+/// Canonical path like the stores use (symlinks resolved); falls back to
+/// the normalized absolute path when the target does not exist yet.
+String _canonical(String path) {
+  final absolute = p.normalize(p.absolute(path));
+  try {
+    return File(absolute).resolveSymbolicLinksSync();
+  } on FileSystemException {
+    return absolute;
+  }
+}
+
+/// Reads the standing grants the approvals stores hold for [workspace]:
+/// directory settings from `permissions.json` and command/network grants
+/// from `commands.json`. A missing store contributes nothing - a fresh
+/// install compiles the structural-only document, byte-identical to
+/// yesterday's launch surface.
+CapabilityInputs readCapabilityInputs({
+  required String workspace,
+  required String configDir,
+  required bool yolo,
+  Map<String, String> environment = const {},
+}) {
+  final canonicalWorkspace = _canonical(workspace);
+  final permissions = CommandApprovalStore(
+    workspace: canonicalWorkspace,
+    file: File(p.join(configDir, 'approvals', 'permissions.json')),
+  );
+  final commands = CommandApprovalStore(
+    workspace: canonicalWorkspace,
+    file: File(p.join(configDir, 'approvals', 'commands.json')),
+  );
+
+  List<String> settingList(String id) => [
+        for (final scope in ['global', 'workspace'])
+          ...?((permissions.settings(
+            CommandApprovalScope.values.byName(scope),
+          ))[id] as List?)
+              ?.whereType<String>(),
+      ];
+
+  final rules = <CommandRuleInput>[];
+  final domains = <DomainEntry>[];
+  for (final entry in commands.entries) {
+    final origin = 'grant:${entry['id']}';
+    final pattern = entry['pattern'];
+    if (pattern is String && pattern.isNotEmpty) {
+      // A remembered command grant is an allow the user reviewed.
+      rules.add(CommandRuleInput(
+        pattern: pattern,
+        verdict: CommandVerdict.allow,
+        origin: origin,
+      ));
+    }
+    if (entry['capability'] == 'network' && entry['target'] is String) {
+      domains.add(DomainEntry(
+        domain: entry['target'] as String,
+        origin: origin,
+      ));
+    }
+  }
+
+  // The provider endpoints the wasm engine is allowed to reach: the
+  // forwarded endpoint env and the Anthropic API when a key rides along.
+  final endpoint = environment['TINA_LLM_ENDPOINT'] ??
+      Platform.environment['TINA_LLM_ENDPOINT'];
+  if (endpoint != null && endpoint.isNotEmpty) {
+    final host = Uri.tryParse(endpoint)?.host;
+    if (host != null && host.isNotEmpty) {
+      domains.add(DomainEntry(domain: host, origin: 'provider:tina-llm'));
+    }
+  }
+  if ((environment['ANTHROPIC_API_KEY'] ??
+              Platform.environment['ANTHROPIC_API_KEY']) !=
+          null &&
+      (environment['ANTHROPIC_API_KEY'] ??
+              Platform.environment['ANTHROPIC_API_KEY'])!
+          .isNotEmpty) {
+    domains.add(
+      const DomainEntry(domain: 'api.anthropic.com', origin: 'provider:anthropic'),
+    );
+  }
+
+  return CapabilityInputs(
+    mode: yolo ? CapabilityMode.yolo : CapabilityMode.ask,
+    workspace: canonicalWorkspace,
+    configDir: _canonical(configDir),
+    readDirectories: settingList('tina/tools/read_only_directories'),
+    writeDirectories: settingList('tina/tools/write_directories'),
+    homeCaches: settingList('tina/tools/home_caches'),
+    rules: rules,
+    domains: domains,
+    // Protected leaves, never the config dir itself: the config tree is
+    // a structural write grant (the engine persists settings through it)
+    // and its approvals subtree stays a protected leaf beneath that
+    // grant - the native model (masking), not a host-wall refusal.
+    protectedPaths: [
+      p.join(configDir, 'approvals'),
+    ].map(_canonical).toSet().toList(),
+  );
+}
+
 /// The tina-wasm-host invocation for one workspace: the workspace and the
 /// global config tree as preopens, the engine's knobs as WASI environment
 /// variables, provider endpoint and credential forwarded explicitly.
@@ -183,6 +287,7 @@ List<String> wasmEngineArgv({
   required bool yolo,
   Map<String, String> environment = const {},
   List<String> extraArgs = const [],
+  String? capabilitiesPath,
 }) {
   final workspace = p.normalize(p.absolute(workingDirectory));
   final config = p.normalize(p.absolute(configPath));
@@ -191,12 +296,19 @@ List<String> wasmEngineArgv({
         'the wasm engine reads the global config from a `config` file in '
         'its parent directory; --config must end in /config');
   }
-  final argv = <String>[
-    hostPath,
-    '--preopen=.=$workspace',
-    '--preopen=config=${p.dirname(config)}',
-    '--env=TINA_ENGINE_YOLO=${yolo ? '1' : '0'}',
-  ];
+  final argv = <String>[hostPath];
+  if (capabilitiesPath != null) {
+    // The capability document carries the preopen structure (derived from
+    // its directory grants at instantiation); the legacy --preopen flags
+    // stay for old launchers, and old hosts bail on unknown flags, so the
+    // two forms are mutually exclusive.
+    argv.add('--capabilities=$capabilitiesPath');
+  } else {
+    argv
+      ..add('--preopen=.=$workspace')
+      ..add('--preopen=config=${p.dirname(config)}');
+  }
+  argv.add('--env=TINA_ENGINE_YOLO=${yolo ? '1' : '0'}');
   if (storePath != null) {
     final store = p.normalize(p.absolute(storePath));
     final relative = p.relative(store, from: workspace);
@@ -204,9 +316,10 @@ List<String> wasmEngineArgv({
     if (inside) {
       argv.add('--env=TINA_ENGINE_STORE=$relative');
     } else {
-      argv
-        ..add('--preopen=store=${p.dirname(store)}')
-        ..add('--env=TINA_ENGINE_STORE=store/${p.basename(store)}');
+      if (capabilitiesPath == null) {
+        argv.add('--preopen=store=${p.dirname(store)}');
+      }
+      argv.add('--env=TINA_ENGINE_STORE=store/${p.basename(store)}');
     }
   }
   if (resumeSessionId != null) {
