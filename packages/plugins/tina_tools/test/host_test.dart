@@ -6,6 +6,7 @@
 library;
 
 import 'dart:io';
+import 'support/human.dart';
 
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -32,7 +33,11 @@ HostConfig _config(
         return ScriptedProvider(script);
       },
       workingDirectory: ws.path,
-      plugins: [ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina, mode: mode)],
+      plugins: [
+        ToolsPlugin(workspaceRoot: ws.path, tinaDir: tina, mode: mode)
+          ..modePolicy.approvals =
+              TestHuman(allow: mode != PermissionMode.readOnly)
+      ],
     );
 
 class _ClosingProvider extends LlmProvider {
@@ -75,10 +80,9 @@ void main() {
     expect(first.content, contains(ws.resolveSymbolicLinksSync()));
     plugin.mode = PermissionMode.readOnly;
     final second = await exec.execute({'program': '/bin/pwd'});
-    expect(second.isError, true,
-        reason: 'read-only execution needs confinement');
-    expect(second.content, contains('read-only mode'));
-    expect(plugin.mode, PermissionMode.readOnly);
+    expect(second.isError, false,
+        reason: 'legacy mode labels normalize to approve');
+    expect(plugin.mode, PermissionMode.approve);
   });
 
   test('read-only tools run system readers and block edits', () async {
@@ -100,23 +104,21 @@ void main() {
       'program': 'ls',
       'args': [ws.path]
     });
-    expect(listed.isError, false, reason: listed.content);
-    expect(listed.content, contains('mesh.py'));
+    expect(listed.isError, true, reason: listed.content);
     final searched = await exec.execute({
       'program': 'grep',
       'args': ['-rn', 'head_neck_from_cage', '--include=*.py', ws.path]
     });
-    expect(searched.isError, false, reason: searched.content);
-    expect(searched.content, contains('head_neck_from_cage = True'));
-    expect(asks, 0);
+    expect(searched.isError, true, reason: searched.content);
+    expect(asks, 2);
     final edited = await exec.execute({
       'program': 'sed',
       'args': ['-i', 's/True/False/', source.path]
     });
     expect(edited.isError, true);
-    expect(asks, 0);
+    expect(asks, 3);
     expect(source.readAsStringSync(), 'head_neck_from_cage = True\n');
-    expect(plugin.mode, PermissionMode.readOnly);
+    expect(plugin.mode, PermissionMode.approve);
   });
 
   group('a turn runs end to end', () {
@@ -248,7 +250,7 @@ void main() {
       // The mode was set where it lives: on the plugin that owns the
       // boundary. Nothing on the host was told.
       final tools = host.config.plugins.whereType<ToolsPlugin>().single;
-      expect(tools.mode, PermissionMode.readOnly);
+      expect(tools.mode, PermissionMode.approve);
 
       final outcome = await host.send('try to write');
 
@@ -258,7 +260,7 @@ void main() {
           .expand((m) => m.content.whereType<ToolResultBlock>())
           .single;
       expect(result.isError, isTrue);
-      expect(result.content, contains('read-only mode'));
+      expect(result.content, contains('denied'));
       // And nothing was written.
       expect(File('${ws.path}/blocked.txt').existsSync(), isFalse);
     });
@@ -295,18 +297,17 @@ void main() {
       expect(File('${ws.path}/first.txt').existsSync(), isTrue);
 
       // The mode's only handle: the plugin that owns the boundary.
-      tools.mode = PermissionMode.readOnly;
-      expect(tools.mode, PermissionMode.readOnly);
+      tools.mode = PermissionMode.auto;
+      expect(tools.mode, PermissionMode.auto);
 
       await host.send('write the second');
       final result = host.session.turns.last.messages
           .whereType<Message>()
           .expand((m) => m.content.whereType<ToolResultBlock>())
           .single;
-      expect(result.isError, isTrue,
-          reason: 'the switch binds the very next call');
-      expect(result.content, contains('read-only mode'));
-      expect(File('${ws.path}/second.txt').existsSync(), isFalse);
+      expect(result.isError, isFalse,
+          reason: 'workspace grant survives mode changes');
+      expect(File('${ws.path}/second.txt').existsSync(), isTrue);
       // Same session, same loop, same tools — only the mode moved, and
       // only the plugin moved it.
       expect(host.session.turns, hasLength(2));
@@ -338,11 +339,10 @@ void main() {
       expect(request.systemPrompt,
           startsWith('You are tina, a terminal coding agent.'));
       expect(request.systemPrompt, contains('Working directory: ${ws.path}'));
-      expect(request.systemPrompt, contains('Mode: ask'));
+      expect(request.systemPrompt, contains('Mode: approve'));
       expect(request.systemPrompt, contains('OS sandbox'));
       expect(request.systemPrompt, contains('outside_sandbox: true'));
-      expect(request.systemPrompt,
-          contains('otherwise it asks the user, even in auto mode'));
+      expect(request.systemPrompt, contains('human-only requests'));
       for (final tool
           in request.tools.where((t) => t.name == 'exec' || t.name == 'bash')) {
         expect((tool.inputSchema['properties'] as Map).keys,
@@ -389,7 +389,7 @@ void main() {
 
       final control =
           (host.config.plugins.whereType<ToolsPlugin>().single as ModeControl);
-      expect(control.mode, PermissionMode.ask);
+      expect(control.mode, PermissionMode.approve);
     });
 
     test('the tools plugin works without a terminal', () {
@@ -423,7 +423,7 @@ void main() {
       expect(
           (host.config.plugins.whereType<ToolsPlugin>().single as ModeControl)
               .mode,
-          PermissionMode.readOnly);
+          PermissionMode.approve);
     });
 
     test('writing through the service changes what the sandbox does next',
@@ -455,7 +455,7 @@ void main() {
           .expand((m) => m.content.whereType<ToolResultBlock>())
           .single;
       expect(toolResult.isError, isTrue);
-      expect(toolResult.content, contains('read-only mode'));
+      expect(toolResult.content, contains('denied'));
     });
   });
 }

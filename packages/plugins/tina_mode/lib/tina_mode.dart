@@ -22,11 +22,11 @@ abstract interface class ModePolicySource {
 
 class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   ModePlugin({
-    PermissionMode mode = PermissionMode.ask,
+    PermissionMode mode = PermissionMode.approve,
     this.terminal,
     this.approvals,
     this.classifier,
-  }) : _mode = mode;
+  }) : _mode = mode.normalized;
   @override
   String get id => 'tina/mode';
   @override
@@ -60,13 +60,13 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         );
       final word = state.value!['mode'];
       final restored = word == 'normal'
-          ? PermissionMode.ask
+          ? PermissionMode.approve
           : parseMode(word is String ? word : '');
       if (restored == null)
         throw FormatException('Unknown saved permission mode: $word');
       mode = restored;
     }
-    // Missing historical state retains the configured mode (ask by default).
+    // Missing historical state retains the configured mode (approve by default).
     _writeState = loop.stateWriter(ownerId);
   }
 
@@ -80,6 +80,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   /// Children follow the parent's live permission ceiling.
   void inheritPolicy(ModePlugin parent) {
     _stopParent?.call();
+    _workspaceWrites = parent._workspaceWrites;
+    _workspaceWriteRequests = parent._workspaceWriteRequests;
     mode = parent.mode;
     _stopParent = parent.listen((value) => mode = value);
   }
@@ -87,6 +89,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   final _closedSignal = Completer<void>();
   @override
   set mode(PermissionMode value) {
+    value = value.normalized;
     if (_mode == value) return;
     _writeState?.call(
       PluginStateEntry.snapshot(
@@ -117,10 +120,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   saveAccessGrant;
   bool persistentAccessGrants = false;
 
-  /// Records a classifier approval into the scopes store, marked auto, at
-  /// session scope. The tools plugin wires this. The entry appears beside
-  /// human decisions in the remembered-permissions screen and can be
-  /// removed there too.
+  /// Legacy embedding hook, no longer called. Model approval is invocation only.
   void Function(String capability, String target)? saveAutoGrant;
   Terminal? terminal;
   ApprovalRequester? approvals;
@@ -147,17 +147,51 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   /// The modes selectable through `/mode`. yolo is start-time only and is
   /// deliberately excluded so the command and its completion can't reach it.
-  static final modeWords = List<String>.unmodifiable(
-    PermissionMode.values
-        .where((m) => m != PermissionMode.yolo)
-        .map((m) => m.label),
-  );
-  static PermissionMode? parseMode(String word) {
-    for (final mode in PermissionMode.values) {
-      if (mode == PermissionMode.yolo) continue;
-      if (mode.label == word.trim()) return mode;
-    }
-    return null;
+  static const modeWords = ['approve', 'auto'];
+  static PermissionMode? parseMode(String word) => switch (word.trim()) {
+    'approve' ||
+    'ask' ||
+    'normal' ||
+    'read-only' ||
+    'allow-edits' => PermissionMode.approve,
+    'auto' => PermissionMode.auto,
+    _ => null,
+  };
+
+  // Session state shared with child agents, never restored from disk.
+  Set<String> _workspaceWrites = {};
+  Map<String, Future<bool>> _workspaceWriteRequests = {};
+  bool hasWorkspaceWriteGrant(String root) => _workspaceWrites.contains(root);
+  Future<bool> ensureWorkspaceWrite(String root) {
+    if (hasWorkspaceWriteGrant(root)) return Future.value(true);
+    return _workspaceWriteRequests.putIfAbsent(root, () async {
+      try {
+        final answer = await request(
+          operation: 'write workspace',
+          target: root,
+          reason:
+              'Allow Tina to create, edit, rename and delete files anywhere '
+              'in this workspace for this session?',
+          humanOnly: true,
+          authorization: AuthorizationRequest(
+            requirements: [
+              AccessRequirement(AccessCapability.write, root, workspace: true),
+            ],
+          ),
+          context: {
+            'workspace': root,
+            'workspace_write_grant': true,
+            'permission_scope_label':
+                'write access to this entire workspace for this session',
+          },
+        );
+        final allowed = answer != ApprovalDecision.deny;
+        if (allowed) _workspaceWrites.add(root);
+        return allowed;
+      } finally {
+        _workspaceWriteRequests.remove(root);
+      }
+    });
   }
 
   static String wordFor(PermissionMode mode) => mode.label;
@@ -197,24 +231,11 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     ),
   ];
 
-  /// Precedent evidence for one request, or empty when the feature is off or
-  /// the request has no recognizable shape. Wired into the classifier by the
-  /// application assembly.
+  /// Legacy embedding API. Prior approvals do not authorize a request.
   List<Map<String, Object?>> precedentEvidenceFor(
     Map<String, Object?> request,
   ) {
-    final mode = readPrecedentMode?.call() ?? PrecedentMode.evidence;
-    if (mode == PrecedentMode.off) return const [];
-    final store = precedentStore;
-    final scope = precedentScope?.call();
-    if (store == null || scope == null) return const [];
-    final signature = RequestSignature.of(request, scope: scope);
-    if (signature == null) return const [];
-    try {
-      return precedentEvidence(rankPrecedents(signature, store.read()));
-    } catch (_) {
-      return const []; // A damaged history never blocks a judgment.
-    }
+    return const [];
   }
 
   /// Record how a permission request was resolved. Cancellations and automatic
@@ -324,7 +345,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         ? AccessCapability.execute
         : AccessCapability.write;
     // A (server, tool) rule answers this call without arguments mattering.
-    final ruleGranted = mcp &&
+    final ruleGranted =
+        mcp &&
         mcpRule != null &&
         hasAccessGrant?.call(capability.name, mcpRule) == true;
     final canonical =
@@ -335,7 +357,9 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
               capability,
               identity,
               workspace: !external,
-              granted: mcp && hasAccessGrant?.call(capability.name, mcpGrantTarget) == true,
+              granted:
+                  mcp &&
+                  hasAccessGrant?.call(capability.name, mcpGrantTarget) == true,
             ),
           ],
         );
@@ -348,7 +372,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       if (ruleGranted) _noticeMcpRule(mcpRule);
       return ApprovalDecision.allow;
     }
-    var requireHuman = humanOnly || resolution.route == AuthorizationRoute.human;
+    var requireHuman =
+        humanOnly || resolution.route == AuthorizationRoute.human;
     final call = _call;
     final requiredPermissions = context['required_permissions'];
     final cacheKey = jsonEncode([
@@ -389,37 +414,28 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ...?_recentContext(turn),
     };
     var judgment = const PermissionJudgment(null, 'not classified');
-    // Unconfined execution is human-only. The classifier can never approve
-    // running without the sandbox. A real pipeline request — an
-    // authorization review the exec funnel is holding open for an answer —
-    // is routed to the human instead: one ask, and an allow-always answer
-    // remembers the exact command grant. A bare request with no pipeline
-    // behind it cannot surface that ask mid-run: deny it and batch it for
-    // the user to decide on at end of turn.
+    // Running without confinement requires a human for each invocation.
+    // Bare legacy requests are denied and reported at the end of the turn.
     if (mode == PermissionMode.auto &&
         permission &&
         requiredPermissions is Iterable &&
         requiredPermissions.contains('unconfined')) {
       if (authorization == null) {
-        _batchAutoDecision('denied', target, 'runs without sandbox (human-only)');
+        _batchAutoDecision(
+          'denied',
+          target,
+          'runs without sandbox (human-only)',
+        );
         terminal?.writeln(
-            'auto mode denied: $target — runs without sandbox; batched for '
-            'your review');
+          'auto mode denied: $target — runs without sandbox; batched for '
+          'your review',
+        );
         return ApprovalDecision.deny;
       }
       requireHuman = true;
     }
     if (mode == PermissionMode.auto && permission && !requireHuman) {
       final evidence = requestEvidence();
-      // Deterministic fast path: an exact read-only shape the user has already
-      // approved twice runs without a model round trip.
-      if (_precedentAllows(evidence)) {
-        terminal?.writeln('$operation allowed by precedent: $target');
-        if (call != null && identical(call, _call)) {
-          _callApprovals[cacheKey] = ApprovalDecision.allow;
-        }
-        return ApprovalDecision.allow;
-      }
       final judge = classifier;
       final result = judge == null
           ? const PermissionJudgment(null, 'not configured')
@@ -441,19 +457,10 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         if (call != null && identical(call, _call)) {
           _callApprovals[cacheKey] = ApprovalDecision.allow;
         }
-        // The classifier stood in for the user. Record its approval in the
-        // scopes store, marked auto, at session scope. If the request also
-        // widened the confined scope, list it in the end-of-turn batch.
-        saveAutoGrant?.call(capability.name, identity);
-        if (_isScopeExtension(evidence, judgment)) {
-          _batchAutoDecision(
-              'allowed', target, 'confined scope extension (session, auto)');
-        }
-        _rememberDecision(
-          evidence,
-          decision: ApprovalDecision.allow,
-          human: false,
-          coverage: judgment.assessment.coverage.name,
+        _batchAutoDecision(
+          'allowed',
+          target,
+          result.reason ?? 'external access approved once',
         );
         return ApprovalDecision.allow;
       }
@@ -610,43 +617,6 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     terminal?.writeln('use MCP tool allowed by rule $rule');
   }
 
-  /// Whether this exact read-only shape has been approved often enough to run
-  /// quietly. Every condition is checked here; the pure predicate in the
-  /// classification package holds the arithmetic.
-  bool _precedentAllows(Map<String, Object?> evidence) {
-    if ((readPrecedentMode?.call() ?? PrecedentMode.evidence) !=
-        PrecedentMode.full) {
-      return false;
-    }
-    final store = precedentStore;
-    final scope = precedentScope?.call();
-    if (store == null || scope == null) return false;
-    final signature = RequestSignature.of(evidence, scope: scope);
-    if (signature == null) return false;
-    final accesses = evidence['accesses'];
-    final allRead =
-        evidence['access_coverage_source'] == 'verified' &&
-        accesses is List &&
-        accesses.isNotEmpty &&
-        accesses.every(
-          (access) =>
-              access is Map &&
-              access['operation'] == 'read' &&
-              access['source'] == 'verified',
-        );
-    final coverage = evidence['access_coverage'];
-    try {
-      return allowsWithoutJudgment(
-        request: signature,
-        precedents: store.read(),
-        coverage: coverage is String ? coverage : 'unknown',
-        allAccessesRead: allRead,
-      );
-    } catch (_) {
-      return false;
-    }
-  }
-
   /// The conversation tail for the judge, or null when there is nothing
   /// recent to resolve. Keeps the last few user texts and tool calls so a
   /// correction ("that path is not correct") can be matched to the call it
@@ -730,17 +700,6 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     final turnId = _turn?.input.id;
     if (turnId == null) return;
     (_autoBatch[turnId] ??= []).add((verdict, target, reason));
-  }
-
-  /// A confined scope extension: the request asks for directory access it
-  /// did not have before, or the assessment found write-classified
-  /// effects. Destructive operations never get this far; they are denied
-  /// above.
-  bool _isScopeExtension(
-      Map<String, Object?> evidence, PermissionJudgment judgment) {
-    if (evidence['invocation_directory_access'] != null) return true;
-    return judgment.assessment.accesses
-        .any((access) => access.operation != PermissionAccessOperation.read);
   }
 
   /// The end-of-turn batch. Every auto-mode denial of the closing turn is

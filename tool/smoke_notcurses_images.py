@@ -159,6 +159,9 @@ def smoke(binary, endpoint, columns, rows):
                 # Cancellation of a live subprocess must also release input
                 # and kill descendants before the next instruction starts.
                 start = send_line(terminal, 'run cancellable tool')
+                terminal.expect('Allow workspace writes for this session', start, wrapped=True)
+                terminal.expect_cursor(False)
+                terminal.send('y')
                 terminal.wait_for(
                     lambda: '❯ [y] allow once' in
                         terminal_grid(terminal, columns - 8, rows + 2),

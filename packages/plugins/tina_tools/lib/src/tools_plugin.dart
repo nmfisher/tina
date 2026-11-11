@@ -45,7 +45,7 @@ final class ToolsPlugin extends AgentPlugin
     this.order = 10,
     required String workspaceRoot,
     required Directory tinaDir,
-    PermissionMode mode = PermissionMode.ask,
+    PermissionMode mode = PermissionMode.approve,
     ModePlugin? modePolicy,
     this.osSandbox = true,
     UnavailableBehaviour osUnavailable = UnavailableBehaviour.allow,
@@ -72,16 +72,36 @@ final class ToolsPlugin extends AgentPlugin
             stateRoot: sandboxState?.path ??
                 path.join(realHome, '.tina', 'sandbox-homes'),
           );
-    commandApprovals = approvalStore ??
-        CommandApprovalStore(
-          workspace: workspaceRoot,
-          file: realHome == null
-              ? null
-              : File(
-                  path.join(realHome, '.tina', 'approvals', 'commands.json')),
-          searchPath: SandboxPlan.defaultSearchPath,
-        );
+    pathGrants = approvalStore is ResourceApprovalStore
+        ? approvalStore.paths
+        : PathGrants(
+            file: File(path.join(workspaceRoot, '.tina', 'permissions.json')));
+    readDirectories = ReadOnlyDirectories(
+        source: () => [
+              for (final g in pathGrants.grants)
+                if (g.recursive && !g.write && g.covers(g.path)) g.path,
+            ]);
+    writeDirectories = WriteDirectories(
+        source: () => [
+              for (final g in pathGrants.grants)
+                if (g.recursive && g.write && g.covers(g.path, write: true))
+                  g.path,
+            ]);
+    commandApprovals = approvalStore is ResourceApprovalStore
+        ? approvalStore
+        : ResourceApprovalStore(
+            paths: pathGrants,
+            workspace: workspaceRoot,
+            file: approvalStore != null
+                ? approvalStore.file
+                : realHome == null
+                    ? null
+                    : File(path.join(
+                        realHome, '.tina', 'approvals', 'commands.json')),
+            searchPath: SandboxPlan.defaultSearchPath,
+          );
     osPlan = SandboxPlan(
+      pathGrants: pathGrants,
       workspaceRoot: workspaceRoot,
       tinaDir: tinaDir.path,
       parentEnvironment: environment,
@@ -117,22 +137,12 @@ final class ToolsPlugin extends AgentPlugin
       workspaceRoot: workspaceRoot,
       plan: osPlan,
     );
-    processRunner.trustedReaderExecutables =
-        () => commandApprovals.readerExecutables;
     processRunner.outputWritePermission = (target) =>
         osPlan.canWrite(target) &&
         (!sandboxPathUnder(target, workspaceRoot) ||
-            sandbox.mode == PermissionMode.allowEdits ||
-            writeDirectories.allows(target));
-    processRunner.persistentPermission = (request, permission, directories) =>
-        (permission == ProcessPermission.directoryAccess &&
-            directories.read.isNotEmpty &&
-            directories.write.isEmpty &&
-            settings?.read(allowReadsOutsideWorkspaceSetting).value == true) ||
-        commandApprovals.covers(request, {permission},
-            directoryAccess: permission == ProcessPermission.directoryAccess
-                ? directories
-                : const ProcessDirectoryAccess.empty());
+            this
+                .modePolicy
+                .hasWorkspaceWriteGrant(canonicalSandboxPath(workspaceRoot)));
     processJobs = ProcessJobs(processRunner);
     this.modePolicy.listen((value) {
       if (sandbox.mode != value) processJobs.cancelAll(runningOnly: true);
@@ -145,9 +155,13 @@ final class ToolsPlugin extends AgentPlugin
     toolList = [
       LsTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       ReadTool(fs: sandbox, workspaceRoot: workspaceRoot),
-      WriteTool(fs: sandbox, workspaceRoot: workspaceRoot,
+      WriteTool(
+          fs: sandbox,
+          workspaceRoot: workspaceRoot,
           scratchNoticeFor: _scratchNoticeFor),
-      EditTool(fs: sandbox, workspaceRoot: workspaceRoot,
+      EditTool(
+          fs: sandbox,
+          workspaceRoot: workspaceRoot,
           scratchNoticeFor: _scratchNoticeFor),
       GlobTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       StatTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
@@ -178,6 +192,7 @@ final class ToolsPlugin extends AgentPlugin
               .execute(input),
         },
         enabled: () => enableSpeculative && !_closed);
+    var migratedDirectories = false;
     void applyDirectories() {
       List<String> granted(SettingDefinition<List<String>> definition) => [
             for (final scope in SettingScope.values)
@@ -185,8 +200,17 @@ final class ToolsPlugin extends AgentPlugin
                       ?.cast<String>() ??
                   const <String>[]),
           ];
-      readDirectories.replace(granted(readOnlyDirectoriesSetting));
-      writeDirectories.replace(granted(writeDirectoriesSetting));
+      if (!migratedDirectories && pathGrants.file?.existsSync() != true) {
+        for (final directory in granted(readOnlyDirectoriesSetting)) {
+          pathGrants.remember(directory, write: false, recursive: true);
+        }
+        for (final directory in granted(writeDirectoriesSetting)) {
+          pathGrants.remember(directory, write: true, recursive: true);
+        }
+      }
+      migratedDirectories = true;
+      readDirectories.replace(const []);
+      writeDirectories.replace(const []);
       writable.replace(osPlan.writableLayout());
     }
 
@@ -201,23 +225,18 @@ final class ToolsPlugin extends AgentPlugin
       }, fireImmediately: true);
     }
     this.modePolicy.hasAccessGrant = commandApprovals.coversAccess;
-    this.modePolicy.saveAccessGrant =
-        (capability, target, decision) => commandApprovals.rememberAccess(
-            capability,
-            target,
-            switch (decision) {
-              ApprovalDecision.allowWorkspace => CommandApprovalScope.workspace,
-              ApprovalDecision.allowGlobal => CommandApprovalScope.global,
-              _ => CommandApprovalScope.session,
-            });
+    this.modePolicy.saveAccessGrant = (capability, target, decision) {
+      // This hook is used only by MCP; file/command grants use pathGrants.
+      commandApprovals.rememberAccess(
+          capability,
+          target,
+          decision == ApprovalDecision.allowAlways
+              ? CommandApprovalScope.session
+              : decision == ApprovalDecision.allowGlobal
+                  ? CommandApprovalScope.global
+                  : CommandApprovalScope.workspace);
+    };
     this.modePolicy.persistentAccessGrants = commandApprovals.file != null;
-    // Classifier approvals go into the scopes store, marked auto, at
-    // session scope. They appear beside human decisions in the
-    // remembered-permissions screen and can be removed there too.
-    this.modePolicy.saveAutoGrant = (capability, target) =>
-        commandApprovals.rememberAccess(capability, target,
-            CommandApprovalScope.session,
-            decidedBy: 'auto');
     attachModePolicy(this);
     prompt = HostPromptSection(workingDirectory, () => sandbox.mode,
         sandboxDescription: osRunner.describeEnvironment);
@@ -229,6 +248,8 @@ final class ToolsPlugin extends AgentPlugin
   late final SandboxPlan osPlan;
   late final CommandApprovalStore commandApprovals;
   late final SandboxHome? home;
+
+  late final PathGrants pathGrants;
 
   /// The scratch notice for a resolved write target, when the target is
   /// session scratch (a sandbox-home generation or its TMPDIR). Null when
@@ -243,8 +264,8 @@ final class ToolsPlugin extends AgentPlugin
 
   void Function()? _stopHomeSettings;
   final ScopedSettings? settings;
-  final ReadOnlyDirectories readDirectories = ReadOnlyDirectories();
-  final WriteDirectories writeDirectories = WriteDirectories();
+  late final ReadOnlyDirectories readDirectories;
+  late final WriteDirectories writeDirectories;
   void Function()? _stopReadSettings;
   late final SandboxedProcessRunner processRunner;
   late final ProcessJobs processJobs;
@@ -307,34 +328,14 @@ final class ToolsPlugin extends AgentPlugin
   ToolUse? _activeCall;
 
   void rememberReadDirectory(String directory, {SettingScope? scope}) {
-    if (settings case final ScopedSettings settings) {
-      scope ??= SettingScope.workspace;
-      final paths = {
-        ...((settings.override(readOnlyDirectoriesSetting, scope) as List?)
-                ?.cast<String>() ??
-            const <String>[]),
-        directory
-      }.toList();
-      settings.set(readOnlyDirectoriesSetting, paths, scope);
-    } else {
-      readDirectories.replace({...readDirectories.paths, directory});
-    }
+    pathGrants.remember(directory,
+        write: false, recursive: true, persist: scope != SettingScope.session);
   }
 
   void rememberWriteDirectory(String directory, {SettingScope? scope}) {
-    if (settings case final ScopedSettings settings) {
-      scope ??= SettingScope.workspace;
-      final paths = {
-        ...((settings.override(writeDirectoriesSetting, scope) as List?)
-                ?.cast<String>() ??
-            const <String>[]),
-        directory
-      }.toList();
-      settings.set(writeDirectoriesSetting, paths, scope);
-    } else {
-      writeDirectories.replace({...writeDirectories.paths, directory});
-      processRunner.writableDirectories.replace(osPlan.writableLayout());
-    }
+    pathGrants.remember(directory,
+        write: true, recursive: true, persist: scope != SettingScope.session);
+    processRunner.writableDirectories.replace(osPlan.writableLayout());
   }
 
   ToolDescription describeFileRequest(String operation, String path) {
@@ -487,6 +488,12 @@ final class ToolsPlugin extends AgentPlugin
   @override
   void onPrompt(TurnContext c) {
     c.promptSections.add(prompt.sectionFor(sandbox.mode));
+    c.promptSections.add(
+        'Workspace writes: ${modePolicy.hasWorkspaceWriteGrant(canonicalSandboxPath(workingDirectory)) ? 'approved for this session' : 'not yet approved'}.');
+    for (final grant in pathGrants.grants) {
+      c.promptSections.add(
+          'Human-approved ${grant.write ? 'read/write' : 'read'} ${grant.recursive ? 'directory' : 'file'}: ${grant.path}');
+    }
     if (writeDirectories.paths.isNotEmpty) {
       c.promptSections.add('User-approved writable directories: '
           '${writeDirectories.paths.join(', ')}. File tools may create and edit '
@@ -513,78 +520,30 @@ final class HostPromptSection {
   final PermissionMode Function() modeOf;
   final String Function()? sandboxDescription;
 
-  /// The section for a given mode — the words the model reads.
+  /// The resource permissions communicated to the acting model.
   String sectionFor(PermissionMode mode) =>
-      'Working directory: $workingDirectory. Mode: ${mode.label} — '
-      '${switch (mode) {
-        PermissionMode.ask =>
-          'workspace reads and enforced read-only commands or scripts run freely; workspace mutations require human approval; external access requires human approval',
-        PermissionMode.readOnly =>
-          'freely inspect, search and analyze anything inside the workspace using file tools, arbitrary commands or scripts; '
-              'workspace and external mutations are blocked, including remembered write grants; '
-              'execution uses an enforced read-only workspace profile; external reads and network require explicit human approval',
-        PermissionMode.allowEdits =>
-          'workspace reads, edits and confined commands or scripts run freely; external access requires explicit human approval',
-        PermissionMode.auto =>
-          'workspace reads and enforced read-only commands or scripts run freely; a safety judge reviews workspace mutations; external access requires explicit human approval',
-        PermissionMode.yolo =>
-          'requested capabilities are authorized by the yolo launch preset; configured OS confinement, protected paths and explicit Yes/No confirmations still apply',
-      }}.\n\n'
-      '${sandboxDescription?.call() ?? ''}\n\n'
-      'Ordinary command approval does not change the OS confinement described '
-      'above; it does not expose hidden paths or remove filesystem limits. '
-      'For external task files or toolchains, request read_directories or '
-      'write_directories on exec/bash. Name the narrowest existing directories; '
-      'relative paths resolve from the invocation working directory. These '
-      'capabilities are reviewed with the command and apply only to its '
-      'subprocess tree, without changing later calls or network access. '
-      'Known reader operands and simple touch/mkdir targets are gathered '
-      'before review. Human folder grants can be remembered for the session, '
-      'workspace or globally and reused by later commands and file tools. '
-      'Sandboxed commands use a private HOME and private TMPDIR. Host caches are shared only when explicitly configured. '
-      'That private HOME (a session home under the Tina sandbox-homes '
-      'directory) and its TMPDIR are ephemeral scratch: both are deleted '
-      'when this session ends. Never store deliverables there — files the '
-      'user should keep belong in the workspace (for example .plans/ at the '
-      'workspace root) or another durable location the user chose. '
-      'Host credential files and authentication configuration are excluded. '
-      'When host authentication is required, request outside_sandbox: true '
-      'with sandbox_reason immediately: for example git push over SSH, ssh '
-      'or scp using the host identity, or HTTPS using a host credential helper. '
-      'Do not first attempt a command known to need unavailable credentials. '
-      'Use the tool approval mechanism, not a request for the user to run it '
-      'manually. Approved host execution uses the real HOME and filtered host '
-      'environment, including SSH_AUTH_SOCK when available. It grants host '
-      'filesystem and network access to this invocation and subprocess tree. '
-      'Tina reuses matching human approvals for this session, workspace or '
-      'globally; otherwise it asks the user, even in auto mode. Ordinary '
-      'execution approval does not remove confinement. Global command '
-      'approvals apply in any directory. Supported workspace test, build, '
-      'analysis and formatting workflows cover project files and subdirectories; '
-      'other session/workspace approvals retain the exact arguments and '
-      'working directory. Host exceptions stay separate and exact. '
-      'Do not retry unchanged or switch shells '
-      'as a workaround. Respect denied or cancelled approvals.\n\n'
-      'Use access: "read-only" on exec/bash for inspection and analysis with arbitrary '
-      'commands or scripts. The OS sandbox blocks mutations; no command allowlist is required. '
-      'With confinement available, ask, auto and read-only modes default to read-only access. '
-      'Workspace file reads, git status, git log and other inspection need no user approval. '
-      'Use access: "workspace-write" when a command must create, modify, rename or delete '
-      'files, including tests or builds that write outputs or caches. Declaring '
-      'write_directories also requests a writable profile for unrecognized commands '
-      'unless access is explicit. '
-      'Read-only mode refuses that profile. Other modes resolve it through '
-      'the shared permission policy. Prefer dedicated file tools for ordinary edits. '
-      'Access to paths outside the workspace, including reads through symlinks, requires an '
-      'explicit human grant. Name read_directories or write_directories on the invocation. '
-      'Network also requires an explicit human grant: set network: true and network_reason. '
-      'Use working_directory to select the invocation directory. exec passes literal arguments; '
-      'bash supports shell syntax. Changing syntax never changes the access policy. '
-      'A blocked command may have partially run; an approved retry reruns the entire command.\n\n'
-      'For long builds, servers and polling loops, set background: true on '
-      'exec or bash, and set an appropriate timeout in seconds (default 600). '
-      'This returns a job ID after approval and startup so you can handle other '
-      'work. Use process to check status, wait with wait_ms, or cancel. Never '
-      'restart a command that already has a live job. Background jobs stop '
-      'when this session exits.';
+      'Working directory: $workingDirectory. Mode: ${mode.normalized.label}. '
+      'Workspace reads are permitted. The first workspace write requires human '
+      'approval for writes throughout this workspace for the session. '
+      'External reads, writes and execution require approval unless a human path '
+      'grant covers the requested read/write. Approve mode asks the user; auto '
+      'mode reviews external access with a model that denies secret access and '
+      'deletion outside the workspace. Saved read/write grants never authorize '
+      'external execution or deletion. '
+      'Use access: "workspace-write" for commands that modify workspace files. '
+      'Use access: "read-only" to keep a command read-only even after a write '
+      'grant. Specify read_directories or write_directories for external paths; '
+      'these requested capabilities apply to one invocation. '
+      'A blocked command may already have produced side effects. Request missing '
+      'access explicitly before retrying; never automatically rerun it. '
+      'Network requires network: true and network_reason and is reviewed with '
+      'the command. No command family or command pattern bypasses review. '
+      'Sandbox-private HOME and TMPDIR are temporary scratch; save deliverables '
+      'in the workspace or another user-approved durable location. '
+      'Host authentication requires outside_sandbox: true and sandbox_reason; '
+      'these human-only requests grant host filesystem and network access to '
+      'this invocation. Respect denied and cancelled approvals. '
+      '${sandboxDescription?.call() ?? ''} '
+      'Use background: true for long commands, and process to inspect or stop '
+      'the returned job. Do not restart a live job.';
 }

@@ -6,7 +6,11 @@ enum DirectoryAccess { read, write }
 enum DirectoryGrantScope { session, workspace, global }
 
 final class DirectoryAccessGrant {
-  const DirectoryAccessGrant(this.path, this.access, this.scope);
+  const DirectoryAccessGrant(this.path, this.access, this.scope,
+      {this.recursive = true});
+
+  /// False grants exactly one file. True grants a directory subtree.
+  final bool recursive;
   final String path;
   final DirectoryAccess access;
   final DirectoryGrantScope scope;

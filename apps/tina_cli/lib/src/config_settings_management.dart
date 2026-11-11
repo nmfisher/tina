@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart';
-import 'package:tina_tools/tina_tools.dart' show CommandApprovalStore;
+import 'package:tina_tools/tina_tools.dart'
+    show CommandApprovalStore, ResourceApprovalStore;
 import 'assembly_config.dart';
 import 'config_document.dart';
 import 'configured_provider.dart';
@@ -167,6 +168,16 @@ final class ConfigSettingsManagement implements SettingsManagement {
   Iterable<Map<String, Object?>> _folderPermissions() sync* {
     for (final entry in _backend.permissionStore.entries) {
       final setting = entry['setting'];
+      if (_approvals is ResourceApprovalStore &&
+          (entry['kind'] != 'access' && entry['kind'] != 'setting' ||
+              {
+                'tina/tools/read_only_directories',
+                'tina/tools/write_directories',
+                'tina/tools/allow_reads_outside_workspace',
+                'tina/tools/permission_boxes',
+                'tina/tools/home_caches',
+              }.contains(setting)))
+        continue;
       final value = entry['value'];
       if (entry['kind'] == 'setting' &&
           value is List &&

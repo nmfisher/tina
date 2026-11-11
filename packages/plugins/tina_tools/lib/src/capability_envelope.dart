@@ -269,6 +269,23 @@ final class CapabilityEnvelope {
     'git-clean': 'removes untracked files',
   };
 
+  /// The destructive-table verdict for one component (program + arguments),
+  /// public so other gates (the box sorter) can apply the same table to
+  /// every pipeline component. Destructive commands are never run silently
+  /// by any path.
+  static String? componentDestructiveBecause(
+          String program, List<String> arguments) =>
+      _destructiveBecause(
+          (
+            command: program,
+            arguments: arguments,
+            workingDirectory: null,
+            environment: null,
+            stdin: null,
+            timeout: null,
+          ),
+          reader: null);
+
   static String? _destructiveBecause(ProcessRequest request,
       {required String? reader}) {
     if (reader != null) return null; // A pinned single reader never deletes.

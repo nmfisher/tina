@@ -60,24 +60,24 @@ void main() {
     config.writeAsStringSync(
         '[default]\nmodel="test"\n[plugins]\nselection_version=2\nenabled=["tina/providers","tina/tools","tina/approvals","tina/mode","tina/persistence"]\n');
     final app = start();
-    await app.handleCommand('/mode read-only');
+    await app.handleCommand('/mode auto');
     final id = app.host.session.id;
     final saved = app.host.session.loop.log
         .whereType<PluginStateEntry>()
         .where((e) => e.pluginId == 'tina/tools')
         .toList();
     expect(saved, hasLength(1));
-    expect(saved.single.value, {'mode': 'read-only'});
+    expect(saved.single.value, {'mode': 'auto'});
     app.pluginSettings
         .apply('tina/mode', false, PluginScope.session, app.pluginManager);
     expect(app.commands['mode'], isNull);
-    expect(app.tools.mode, PermissionMode.readOnly);
-    expect(app.tools.sandbox.mode, PermissionMode.readOnly);
-    expect(app.tools.processRunner.mode, PermissionMode.readOnly);
+    expect(app.tools.mode, PermissionMode.auto);
+    expect(app.tools.sandbox.mode, PermissionMode.auto);
+    expect(app.tools.processRunner.mode, PermissionMode.auto);
     app.close();
     final resumed = start(resume: id);
     addTearDown(resumed.close);
-    expect(resumed.tools.mode, PermissionMode.readOnly);
+    expect(resumed.tools.mode, PermissionMode.auto);
     expect(
         resumed.host.session.loop.log
             .whereType<PluginStateEntry>()

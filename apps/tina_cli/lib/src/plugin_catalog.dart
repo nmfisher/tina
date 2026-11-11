@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:classification/command_regex.dart';
 import 'package:classification/plugin.dart';
@@ -72,11 +71,7 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
   ),
   PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
     'tina/mode',
-    settings: [
-      classifierInstructionSetting,
-      classifierModelSetting,
-      precedentSetting,
-    ],
+    settings: [classifierInstructionSetting, classifierModelSetting],
     operations: modeOperations,
     dependency: modePolicySource,
     create: (c, source) => ModeControlsPlugin(source.modePolicy),
@@ -236,40 +231,21 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     >(
       'tina/tools',
       cli: toolsCli,
-      settings: [
-        readOnlyDirectoriesSetting,
-        writeDirectoriesSetting,
-        homeCachesSetting,
-        allowReadsOutsideWorkspaceSetting,
-      ],
       first: approvalRequester,
       second: modelAccess,
       provides: [toolProvider, modePolicySource],
       create: (c, approvals, models) {
-        final workspace = Directory(c.workingDirectory).absolute.path;
         // Statements, not one cascade: a cascade after an arrow body binds
         // to that body's expression.
         final policy = (c.tools as ToolsPlugin).modePolicy;
         policy.approvals = approvals;
         policy.terminal = c.terminal;
-        policy.precedentStore = FilePrecedentStore(
-          '${File(c.configPath).parent.path}/precedents/'
-          '${_workspaceKey(workspace)}.jsonl',
-        );
-        policy.readPrecedentMode = () =>
-            parsePrecedentMode(c.settings?.read(precedentSetting).value);
         policy.classifier = PermissionClassifier(
           () => models.mainProvider(_classifierModel(c)),
           readInstruction: () =>
               c.settings?.read(classifierInstructionSetting).value ?? '',
-          readPrecedents: policy.precedentEvidenceFor,
         );
         final tools = c.tools as ToolsPlugin;
-        policy.precedentScope = () => PrecedentScope(
-          workspace: workspace,
-          readDirectories: tools.readDirectories.paths,
-          writeDirectories: tools.writeDirectories.paths,
-        );
         return tools;
       },
       description:
@@ -426,12 +402,8 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         readBudgetTokens: () =>
             c.settings?.read(contextBudgetSetting).value ??
             defaultContextBudgetTokens,
-        onMirrorReady: (file) => (c.tools as ToolsPlugin)
-            .sandbox
-            .grants
-            .rememberExact(
-          file.resolveSymbolicLinksSync(),
-        ),
+        onMirrorReady: (file) => (c.tools as ToolsPlugin).sandbox.grants
+            .rememberExact(file.resolveSymbolicLinksSync()),
       ),
       description:
           'Experimental: lets the agent edit its working conversation through a temporary file. Preserves the original log and pauses automatic and manual compaction while loaded. Changes require restart.',
@@ -486,7 +458,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           childPlugins: () => [
             const SystemInstructionPlugin(),
             if (c.openStore != null)
-            PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
+              PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
           ],
         ),
         history: c.openStore != null
@@ -550,24 +522,6 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     ),
   ],
 );
-
-/// A stable, filesystem-safe per-workspace name for its precedent file.
-///
-/// FNV-1a over the absolute path: deterministic across runs and Dart versions
-/// (unlike [Object.hashCode]), and the readable suffix keeps the file
-/// identifiable when inspecting `~/.tina/precedents`.
-String _workspaceKey(String path) {
-  var hash = 0x811c9dc5;
-  for (final unit in utf8.encode(path)) {
-    hash = ((hash ^ unit) * 0x01000193) & 0xffffffff;
-  }
-  final safe = path.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-');
-  final trimmed = safe.replaceAll(RegExp(r'^-+|-+$'), '');
-  final prefix = trimmed.length > 60
-      ? trimmed.substring(trimmed.length - 60)
-      : trimmed;
-  return '${prefix.isEmpty ? 'workspace' : prefix}-${hash.toRadixString(16).padLeft(8, '0')}';
-}
 
 /// A [SubagentHistorySource] backed by the session store: lists every stored
 /// session and its last assistant text, so the sub-agents plugin can

@@ -205,7 +205,7 @@ def smoke(launcher, endpoint, backend, panels):
             result = tool('pipeline output')
             assert 'Build failed:' in str(result)
             submit('/mode ask')
-            visible('mode: ask')
+            visible('mode: approve')
             result = tool('background output')
             assert 'Job ID:' in str(result)
             terminal.wait_for(lambda: (root / 'background-ready').exists(),

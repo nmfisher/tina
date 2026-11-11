@@ -43,11 +43,12 @@ import 'tools_plugin_surface.dart' show ToolSandboxView;
 /// allows or refuses, and an ask goes to the [Approver] exactly once per
 /// operation — interior re-guards (atomic-write staging paths, missing
 /// parent directories) are absorbed by the enclosing authorization.
-final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView {
+final class AskingBoundary
+    implements FileSystem, ToolBoundary, ToolSandboxView {
   AskingBoundary(
     this._inner, {
     required String workspaceRoot,
-    this.mode = PermissionMode.ask,
+    this.mode = PermissionMode.approve,
     this.approver,
     FileGrants? grants,
     List<String> protectedPaths = const [],
@@ -55,7 +56,8 @@ final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView 
   })  : _workspaceRoot = workspaceRoot,
         grants = grants ?? FileGrants(),
         _protected = List.unmodifiable(protectedPaths),
-        _insideWorkspace = isWithinWorkspace ?? _defaultContainment(workspaceRoot);
+        _insideWorkspace =
+            isWithinWorkspace ?? _defaultContainment(workspaceRoot);
 
   /// The underlying filesystem — WASI preopens under wasm, anything in
   /// tests.
@@ -127,8 +129,8 @@ final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView 
 
   /// Resolve a tool-supplied path: workspace-relative join, normalize.
   /// No symlink walk exists here (see the library comment).
-  String _resolve(String path) => p.normalize(
-      p.isAbsolute(path) ? path : p.join(_workspaceRoot, path));
+  String _resolve(String path) =>
+      p.normalize(p.isAbsolute(path) ? path : p.join(_workspaceRoot, path));
 
   bool _isProtected(String path) =>
       _protected.any((prefix) => _sameOrUnder(path, prefix));
@@ -171,7 +173,8 @@ final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView 
   Future<Set<String>> _missingParents(String target) async {
     final paths = <String>{};
     var parent = p.dirname(target);
-    while (parent != p.dirname(parent) && !await _inner.directoryExists(parent)) {
+    while (
+        parent != p.dirname(parent) && !await _inner.directoryExists(parent)) {
       paths.add(parent);
       parent = p.dirname(parent);
     }
@@ -179,8 +182,8 @@ final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView 
   }
 
   bool _scopeAllows(FileOp op, String target) {
-    for (_AuthorizationScope? scope = Zone.current[_scopeKey]
-        as _AuthorizationScope?;
+    for (_AuthorizationScope? scope =
+            Zone.current[_scopeKey] as _AuthorizationScope?;
         scope != null;
         scope = scope.parent) {
       if (scope.allows(this, op, target)) return true;
@@ -197,10 +200,11 @@ final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView 
   /// an ask is refused ("no approver wired"), exactly as natively.
   Future<void> _authorize(FileOp op, String target) async {
     final staged = _temporaryTargets[target] ?? target;
-    if (_scopeAllows(op, target) || staged != target && _scopeAllows(op, staged)) {
+    if (_scopeAllows(op, target) ||
+        staged != target && _scopeAllows(op, staged)) {
       return;
     }
-    if (op == FileOp.write && _isProtected(staged)) {
+    if (op != FileOp.read && _isProtected(staged)) {
       throw SandboxViolation(
           'write to a protected path is denied (${p.basename(staged)})');
     }
@@ -221,9 +225,13 @@ final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView 
     final resolution = resolveAuthorization(
       AuthorizationRequest(requirements: [
         AccessRequirement(
-          op == FileOp.read ? AccessCapability.read : AccessCapability.write,
+          switch (op) {
+            FileOp.read => AccessCapability.read,
+            FileOp.write => AccessCapability.write,
+            FileOp.delete => AccessCapability.delete
+          },
           staged,
-          workspace: op == FileOp.read || _insideWorkspace(staged),
+          workspace: _insideWorkspace(staged),
           granted: op == FileOp.read
               ? _readGrants.allows(staged)
               : grants.allows(staged),
@@ -283,14 +291,22 @@ final class AskingBoundary implements FileSystem, ToolBoundary, ToolSandboxView 
 
   @override
   Future<void> rename(String from, String to) async {
-    await guard(FileOp.write, from);
+    await guard(
+        _temporaryTargets.containsKey(_resolve(from))
+            ? FileOp.write
+            : FileOp.delete,
+        from);
     await guard(FileOp.write, to);
     return _inner.rename(from, to);
   }
 
   @override
   Future<void> delete(String path) async {
-    await guard(FileOp.write, path);
+    await guard(
+        _temporaryTargets.containsKey(_resolve(path))
+            ? FileOp.write
+            : FileOp.delete,
+        path);
     try {
       return await _inner.delete(path);
     } finally {
@@ -334,7 +350,9 @@ final class _AuthorizationScope {
 
   bool allows(AskingBoundary boundary, FileOp op, String target) {
     var matches = false;
-    for (_AuthorizationScope? scope = this; scope != null; scope = scope.parent) {
+    for (_AuthorizationScope? scope = this;
+        scope != null;
+        scope = scope.parent) {
       // A nested operation cannot extend the lifetime of an inherited grant.
       if (!scope.active ||
           scope.revision != scope.boundary.policyRevision?.call()) return false;

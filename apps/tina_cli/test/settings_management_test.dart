@@ -116,7 +116,7 @@ token = "unknown-secret"
         () => read.settings.setInAllScopes('tina/goals/enabled', false,
             expectedRevision: snapshot.revision),
         denied);
-    final grant = read.commandApprovals.single['id'] as String;
+    final grant = read.commandApprovals.first['id'] as String;
     expect(() => read.revokeCommandApproval(grant), denied);
     expect(read.refresh, denied);
     expect(applications, 0);

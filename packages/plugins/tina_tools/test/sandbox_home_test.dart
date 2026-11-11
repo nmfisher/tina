@@ -186,13 +186,13 @@ void main() {
     expect(config.readAsStringSync(), 'config-secret');
   }, tags: 'live-os-sandbox');
 
-  test('prompt requests host credentials proactively and explains all scopes',
-      () {
-    final prompt = HostPromptSection(workspace.path, () => PermissionMode.ask)
-        .sectionFor(PermissionMode.ask);
-    expect(prompt, contains('Do not first attempt'));
-    expect(prompt, contains('git push over SSH'));
-    expect(prompt, contains('session, workspace or globally'));
+  test('prompt explains resource grants and explicit retries', () {
+    final prompt = HostPromptSection('/workspace', () => PermissionMode.approve)
+        .sectionFor(PermissionMode.approve);
+    expect(prompt, contains('first workspace write'));
+    expect(prompt, contains('External reads, writes and execution'));
+    expect(prompt, contains('never automatically rerun'));
+    expect(prompt, contains('temporary scratch'));
   });
 
   test(

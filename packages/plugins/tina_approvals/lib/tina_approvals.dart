@@ -271,7 +271,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
                   !offers.any((offer) =>
                       offer is Map &&
                       offer['path'] == grant.path &&
-                      offer['access'] == grant.access.name)));
+                      offer['access'] == grant.access.name &&
+                      (offer['recursive'] != false) == grant.recursive)));
       if (!invalid &&
           !invalidScope &&
           !invalidPattern &&

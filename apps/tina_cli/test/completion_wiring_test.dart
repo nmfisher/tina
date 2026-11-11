@@ -87,7 +87,7 @@ void main() {
       );
       expect(
         told,
-        contains('mode: ask'),
+        contains('mode: approve'),
         reason: 'the / picker was fed from the Commands registry',
       );
       expect(

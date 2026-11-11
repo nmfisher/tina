@@ -2,7 +2,13 @@
 /// enforces the selected filesystem profile for one invocation.
 library;
 
-import 'dart:io' show Platform, FileSystemException, Directory;
+import 'dart:io'
+    show
+        Platform,
+        FileSystemException,
+        Directory,
+        FileSystemEntity,
+        FileSystemEntityType;
 import 'capability_envelope.dart';
 import 'command_approval_store.dart';
 import 'package:path/path.dart' as path;
@@ -16,77 +22,16 @@ import 'process_runner.dart';
 import 'read_only_commands.dart';
 import 'read_directories.dart';
 import 'os_sandbox_runner.dart';
-import 'command_workflow.dart';
 import 'package:tina_mode/tina_mode.dart'
     show
         PermissionAccessOperation,
         AuthorizationRequest,
         AccessRequirement,
-        AccessCapability,
-        AuthorizationRoute,
-        resolveAuthorization;
-import 'decision_pipeline.dart';
+        AccessCapability;
 
 /// The session mode a [SandboxedProcessRunner] enforces. Re-exported from
 /// the permissions vocabulary so callers need one import less.
 export 'permissions.dart' show PermissionMode;
-
-/// One policy rule, named so a reason can cite it. These are the words the
-/// model reads in a refusal; keep them specific.
-enum CommandRule {
-  /// Execution requires approval even within writable directories.
-  permissionMode,
-
-  /// `readOnly`: workspace mutations and host execution are blocked.
-  readOnly,
-
-  /// A direct invocation of a verified system reader with supported options.
-  readOnlyReader,
-
-  /// The command provably reads, or creates/edits/moves/deletes, nothing
-  /// outside the session's writable directories, and shows no sign of
-  /// needing to reach the network while network is off.
-  insideWritableSet,
-
-  /// A session grant (`CommandGrants`) remembered for this exact command
-  /// covers it.
-  sessionGrant,
-
-  /// The command might create, edit or delete something outside the
-  /// writable directories, or needs to reach the network while network is
-  /// off — the approver decides.
-  outsideSession,
-
-  /// A single collapsed shell string (`/bin/sh -c <string>`, the bash-tool
-  /// shape). What the string does cannot be proven from argv — it may read,
-  /// write, or reach the network anywhere — so it never rides the writable
-  /// directories. Only separately certified literal readers may reuse a
-  /// directory read grant; other strings ask.
-  shellString,
-}
-
-/// Why the table landed where it did, in one plain phrase — the string a UI
-/// shows and the model reads. Names the rule and, when it matters, the
-/// first offending path.
-String commandReason(CommandRule rule, ProcessRequest request) =>
-    switch (rule) {
-      CommandRule.permissionMode => 'allow command (${request.command})?',
-      CommandRule.readOnly =>
-        'allow command in read-only mode (${request.command})?',
-      CommandRule.readOnlyReader =>
-        'permitted read: verified command (${request.command})',
-      CommandRule.insideWritableSet =>
-        'command stays inside the session\'s writable directories '
-            '(${request.command})',
-      CommandRule.sessionGrant =>
-        'allowed by session grant (${request.command})',
-      CommandRule.outsideSession =>
-        'allow command outside the session\'s writable directories '
-            '(${request.command})?',
-      CommandRule.shellString =>
-        'allow a shell command string? what it runs cannot be checked '
-            'against the writable directories (${request.arguments.join(' ')})',
-    };
 
 /// Session-scoped "always" answers, remembered as permissions on exact structured
 /// commands — the twin of `FileGrants`, but there is no sibling-glob trick here:
@@ -265,9 +210,13 @@ final class SandboxedProcessRunner
   Future<bool> Function(ProcessRequest, SandboxAccessRequest, bool retry,
       bool Function() isActive)? directoryApprover;
 
+  bool Function()? workspaceWriteGranted;
+  Future<bool> Function()? requestWorkspaceWrite;
+  bool _workspaceWrites = false;
+
   SandboxedProcessRunner({
     required this.inner,
-    this.mode = PermissionMode.ask,
+    this.mode = PermissionMode.approve,
     WritableDirectories? writableDirectories,
     this.networkOff = true,
     this.approver,
@@ -301,6 +250,9 @@ final class SandboxedProcessRunner
     );
     control = control?.copyWith(
         readOnly: false,
+        workspaceWriteAllowed: false,
+        networkAllowed: false,
+        outsideSandboxAllowed: false,
         outputDirectories: const [],
         readDirectories: List.unmodifiable(control.readDirectories),
         writeDirectories: List.unmodifiable(control.writeDirectories),
@@ -334,323 +286,213 @@ final class SandboxedProcessRunner
       }
     }
     final network = (control?.networkRequested ?? false) || outsideSandbox;
-    // Parse the command once. The envelope owns the quote-aware parser and
-    // the certified-reader tables. Every later question in this check
-    // reads the envelope; nothing re-parses the command.
+    final root =
+        canonicalSandboxPath(workspaceRoot ?? request.workingDirectory ?? '.');
+    bool inside(String target) =>
+        sandboxPathUnder(canonicalSandboxPath(target), root);
+    final confined = inner is ConfinedProcessRunner &&
+        (inner as ConfinedProcessRunner).confinesFilesystem;
     final envelope = CapabilityEnvelope.parse(request,
         control: control,
         searchPath: executableSearchPath,
-        trustedExecutables: trustedReaderExecutables?.call() ?? const {},
         canWrite: outputWritePermission);
-    final readerRequest = envelope.readerRequest;
-    var shellReader = envelope.shellReader;
-    final candidate = envelope.reader;
-    var reader = candidate;
-    final ProcessDirectoryAccess declaredAccess;
-    final ProcessDirectoryAccess explicitAccess;
-    final ProcessDirectoryAccess directoryAccess;
+    final ProcessDirectoryAccess access;
     try {
-      explicitAccess =
-          _directoryRequirements(envelope, request, control, infer: false);
-      declaredAccess = _directoryRequirements(
-          envelope, request, control, infer: !outsideSandbox);
-      directoryAccess = ProcessDirectoryAccess(
-          read: declaredAccess.read.where((value) => !_canRead(value)),
-          write: declaredAccess.write
-              .where((value) => plan?.canWrite(value, linux: _linux) != true));
+      access = _directoryRequirements(envelope, request, control,
+          infer: !outsideSandbox);
     } on FormatException catch (error) {
       return CommandRefused(error.message);
     } on FileSystemException {
-      return const CommandRefused('Cannot resolve additional directory access');
+      return const CommandRefused('Cannot resolve requested path access');
     }
-    bool directoriesUnchanged() {
+    final accessIdentity = jsonEncode(access.toJson());
+    final cwdIdentity = canonicalSandboxPath(request.workingDirectory ?? root);
+    bool accessUnchanged() {
       try {
-        return (plan?.validDirectoryAccess(declaredAccess, linux: _linux) ??
-                true) &&
+        return canonicalSandboxPath(
+                    workspaceRoot ?? request.workingDirectory ?? '.') ==
+                root &&
+            canonicalSandboxPath(request.workingDirectory ?? root) ==
+                cwdIdentity &&
             jsonEncode(_directoryRequirements(envelope, request, control,
-                    infer: false)
+                        infer: !outsideSandbox)
                     .toJson()) ==
-                jsonEncode(explicitAccess.toJson());
-      } on FileSystemException {
-        return false;
-      } on FormatException {
+                accessIdentity;
+      } on Object {
         return false;
       }
     }
 
-    final confined = inner is ConfinedProcessRunner &&
-        (inner as ConfinedProcessRunner).confinesFilesystem;
-    // The one decision maker: the pipeline (decision_pipeline.dart) owns
-    // the execution profile — the Layer-1 fast paths (a certified reader
-    // inside granted scopes; the agent's own script) select read-only
-    // enforcement — and, below, the mode ceilings, backend feasibility and
-    // grant coverage that decide run / refuse / judgment. The plumbing
-    // between the two calls (the permission set, the requirement list and
-    // its coverage) is computed here and handed back in.
-    final scopes = _RunnerScopes(this);
-    final agentScriptArguments = agentCreated != null &&
-        request.arguments.isNotEmpty &&
-        request.arguments.every((argument) =>
-            !argument.startsWith('-') &&
-            (path.isAbsolute(argument)
-                ? agentCreated!(argument)
-                : agentCreated!(path.join(
-                    request.workingDirectory ?? workspaceRoot ?? '.', argument))));
-    final readOnlyProfile = readOnlyProfileOf(envelope,
-        scopes: scopes,
-        confined: confined,
-        network: network,
-        outsideSandbox: outsideSandbox,
-        agentCreatedScriptArguments: agentScriptArguments,
-        declaredReadsEmpty: declaredAccess.read.isEmpty,
-        declaredWritesEmpty: declaredAccess.write.isEmpty,
-        controlReadOnlyRequested: control?.readOnlyRequested,
-        mode: mode);
-    final requiredPermissions = {
+    final writesRequested = control?.readOnlyRequested == false ||
+        access.write.any(inside) ||
+        envelope.writes.any(inside);
+    if (control?.readOnlyRequested == true && access.write.isNotEmpty) {
+      return const CommandRefused(
+          'Read-only access cannot include write paths.');
+    }
+    bool workspaceAllowed() =>
+        mode == PermissionMode.yolo ||
+        (workspaceWriteGranted?.call() ?? _workspaceWrites);
+    if (writesRequested &&
+        !workspaceAllowed() &&
+        requestWorkspaceWrite != null) {
+      if (!await requestWorkspaceWrite!()) {
+        return const CommandRefused('Workspace writes were not approved.');
+      }
+    }
+    if (cancelled || control?.isCancelled?.call() == true) {
+      return const CommandRefused('cancelled: command was not started');
+    }
+    final readOnly = control?.readOnlyRequested == true ||
+        !outsideSandbox &&
+            confined &&
+            !writesRequested &&
+            !workspaceAllowed() &&
+            access.write.isEmpty &&
+            !(plan?.pathGrants?.grants
+                    .any((g) => g.write && g.covers(g.path, write: true)) ??
+                false);
+    if (readOnly && (!confined || outsideSandbox)) {
+      return const CommandRefused(
+          'Read-only execution requires an available OS sandbox.');
+    }
+    String executable;
+    try {
+      executable = resolveHostExecutable(request,
+          workspace: root, searchPath: executableSearchPath);
+    } on FileSystemException {
+      executable = request.command;
+    }
+    final deletions =
+        _deletionTargets(request, request.workingDirectory ?? root);
+    final requirements = <AccessRequirement>[
+      AccessRequirement(AccessCapability.execute, executable,
+          workspace: path.isAbsolute(executable) &&
+              inside(executable) &&
+              !outsideSandbox),
+      if (writesRequested || workspaceAllowed())
+        AccessRequirement(AccessCapability.write, root,
+            workspace: true, granted: workspaceAllowed()),
+      if (network) AccessRequirement(AccessCapability.network, executable),
+      if (outsideSandbox || !confined)
+        AccessRequirement(AccessCapability.host, executable),
+      for (final target in {
+        for (final runtime in plan?.runtimeReadPaths ?? const <String>[])
+          if (FileSystemEntity.typeSync(runtime) !=
+              FileSystemEntityType.notFound)
+            canonicalSandboxPath(runtime),
+      })
+        AccessRequirement(AccessCapability.read, target,
+            granted: _canRead(target)),
+      for (final target in access.read)
+        AccessRequirement(AccessCapability.read, target,
+            workspace: inside(target), granted: _canRead(target)),
+      for (final target in access.write)
+        AccessRequirement(AccessCapability.write, target,
+            workspace: inside(target),
+            granted: inside(target)
+                ? workspaceAllowed()
+                : plan?.canWrite(target) == true),
+      for (final target in deletions)
+        AccessRequirement(AccessCapability.delete, target,
+            workspace: inside(target),
+            granted: inside(target) && workspaceAllowed()),
+    ];
+    final authorization = AuthorizationRequest(
+        requirements: requirements,
+        readOnlyExecution: readOnly,
+        confined: confined);
+    final missing = authorization.uncovered(mode);
+    final requiredPermissions = <ProcessPermission>{
       ProcessPermission.execution,
-      if (!readOnlyProfile && !outsideSandbox) ProcessPermission.workspaceWrite,
+      if (writesRequested || workspaceAllowed())
+        ProcessPermission.workspaceWrite,
       if (network) ProcessPermission.network,
       if (outsideSandbox || !confined) ProcessPermission.unconfined,
-      if (!directoryAccess.isEmpty) ProcessPermission.directoryAccess,
+      if (!access.isEmpty) ProcessPermission.directoryAccess,
     };
-    final missing = requiredPermissions
-        .where((permission) =>
-            !(permission == ProcessPermission.execution &&
-                (reader != null || shellReader != null)) &&
-            persistentPermission?.call(request, permission, directoryAccess) !=
-                true &&
-            !grants.coversRequest(request,
-                permission: permission, directoryAccess: directoryAccess))
-        .toSet();
-    bool granted(ProcessPermission permission) => !missing.contains(permission);
-    final authorization = AuthorizationRequest(
-      readOnlyExecution: readOnlyProfile && !outsideSandbox,
-      confined: confined,
-      requirements: [
-        AccessRequirement(AccessCapability.execute, request.command,
-            workspace: !outsideSandbox,
-            granted: granted(ProcessPermission.execution) &&
-                !(mode == PermissionMode.readOnly && !confined)),
-        if (!readOnlyProfile && !outsideSandbox)
-          AccessRequirement(AccessCapability.write,
-              workspaceRoot ?? request.workingDirectory ?? '.',
-              workspace: true,
-              granted: granted(ProcessPermission.workspaceWrite)),
-        if (network)
-          AccessRequirement(AccessCapability.network, request.command,
-              granted: granted(ProcessPermission.network)),
-        if (outsideSandbox || !confined)
-          AccessRequirement(AccessCapability.host, request.command,
-              granted: granted(ProcessPermission.unconfined)),
-        for (final directory in declaredAccess.read)
-          AccessRequirement(AccessCapability.read, directory,
-              workspace: workspaceRoot != null &&
-                  sandboxPathUnder(directory, workspaceRoot!),
-              granted: _canRead(directory) ||
-                  granted(ProcessPermission.directoryAccess)),
-        for (final directory in declaredAccess.write)
-          AccessRequirement(AccessCapability.write, directory,
-              workspace: workspaceRoot != null &&
-                  sandboxPathUnder(directory, workspaceRoot!),
-              granted: plan?.canWrite(directory, linux: _linux) == true ||
-                  granted(ProcessPermission.directoryAccess)),
-      ],
-    );
-    final uncovered = authorization.uncovered(mode);
-    missing.removeWhere(
-        (permission) => !uncovered.any((requirement) => switch (permission) {
-              ProcessPermission.execution =>
-                requirement.capability == AccessCapability.execute,
-              ProcessPermission.workspaceWrite =>
-                requirement.capability == AccessCapability.write &&
-                    requirement.workspace,
-              ProcessPermission.network =>
-                requirement.capability == AccessCapability.network,
-              ProcessPermission.unconfined =>
-                requirement.capability == AccessCapability.host,
-              ProcessPermission.directoryAccess => !requirement.workspace &&
-                  {AccessCapability.read, AccessCapability.write}
-                      .contains(requirement.capability),
-            }));
-    // The verdict: the pipeline decides (decision_pipeline.dart). A
-    // refusal carries its reason; covered requirements run silently;
-    // everything else asks below.
-    final decision = decidePermission(envelope,
-        scopes: scopes,
-        confined: confined,
-        network: network,
-        outsideSandbox: outsideSandbox,
-        controlReadOnlyRequested: control?.readOnlyRequested,
-        agentCreatedScriptArguments: agentScriptArguments,
-        declaredReadsEmpty: declaredAccess.read.isEmpty,
-        declaredWritesEmpty: declaredAccess.write.isEmpty,
-        mode: mode,
-        requirementsCovered: uncovered.isEmpty,
-        judgmentOutsideWorkspace: uncovered.any((requirement) =>
-            !requirement.workspace ||
-            {
-              AccessCapability.network,
-              AccessCapability.host,
-              AccessCapability.external,
-            }.contains(requirement.capability)));
-    if (decision.refuses) {
-      return CommandRefused(decision.reason);
-    }
-    final baseReason = !directoryAccess.isEmpty
-        ? 'allow command with additional directory access (${request.command})?'
-        : missing.length == 1 && missing.contains(ProcessPermission.network)
-            ? 'allow network access for this command (${request.command})?'
-            // A silent covered run carries this as its note; an ask never
-            // reaches this arm (runs do not ask).
-            : decision.runs && decision.readOnlyProfile
-                ? 'permitted read: enforced read-only execution'
-                : decision.reason;
-    final reason = outsideSandbox
-        ? 'Run this exact command outside the OS sandbox? '
-            '${control!.sandboxReason}\n'
-            'This grants host filesystem and network access to the command '
-            'and its subprocesses. Other calls keep their configured confinement.'
-        : network
-            ? '$baseReason\nNetwork access: ${control?.networkReason ?? 'requested'}. '
-                'Access applies to this subprocess and its children. '
-                'Filesystem confinement is unchanged.'
-            : baseReason;
-    var remember = false;
-    if (decision.needsJudgment) {
-      final review = CommandApproval(
-        reason: reason,
-        authorization: authorization,
-        isActive: () =>
-            !cancelled &&
-            control?.isCancelled?.call() != true &&
-            directoriesUnchanged(),
-        requiredPermissions: requiredPermissions,
-        missingPermissions: missing,
-        directoryAccess: directoryAccess,
-        networkReason: network ? control?.networkReason : null,
-        sandboxReason: outsideSandbox ? control?.sandboxReason : null,
-        readDirectory: candidate != null
-            ? readDirectoryForRequest(readerRequest, workspaceRoot)
-            : null,
-      );
+    const reason =
+        'Approve the executable and requested access outside the workspace.';
+    if (missing.isNotEmpty && mode != PermissionMode.yolo) {
       final approve = commandApprover;
-      final fileApprover = approver;
-      // A filesystem-only approver cannot authorize network or remove the jail.
-      if (approve == null &&
-          (fileApprover == null ||
-              missing.contains(ProcessPermission.network) ||
-              missing.contains(ProcessPermission.directoryAccess) ||
-              missing.contains(ProcessPermission.unconfined))) {
-        return CommandRefused(
-            '$reason — denied: no approver is wired to approve it');
-      }
-      final answer = approve != null
-          ? approve(request, review)
-          : fileApprover!(_asFileOperation(request), reason);
-      final cancellation = control?.whenCancelled;
-      final permission = await (cancellation == null
+      if (approve == null)
+        return const CommandRefused('No command approver is configured.');
+      final answer = approve(
+          request,
+          CommandApproval(
+              reason: reason,
+              authorization: authorization,
+              requiredPermissions: requiredPermissions,
+              missingPermissions: requiredPermissions,
+              directoryAccess: access,
+              networkReason: control?.networkReason,
+              sandboxReason: control?.sandboxReason,
+              isActive: () =>
+                  !cancelled &&
+                  control?.isCancelled?.call() != true &&
+                  accessUnchanged()));
+      final result = await (control?.whenCancelled == null
           ? answer
-          : Future.any([answer, cancellation.then((_) => Approval.no)]));
-      if (cancelled || control?.isCancelled?.call() == true) {
-        return const CommandRefused('cancelled: command was not started');
+          : Future.any([
+              answer,
+              control!.whenCancelled!.then((_) => Approval.no),
+            ]));
+      if (result == Approval.no ||
+          cancelled ||
+          control?.isCancelled?.call() == true) {
+        return const CommandRefused(
+            'Access denied or cancelled; command was not started.');
       }
-      if (permission == Approval.no) {
-        return CommandRefused('$reason — denied by the user or cancelled');
-      }
-      if (permission == Approval.always) {
-        remember = true;
-      }
+      if (writesRequested && requestWorkspaceWrite == null)
+        _workspaceWrites = true;
     }
-    if (!directoriesUnchanged()) {
-      return const CommandRefused(
-          'Additional directories changed during approval');
+    if (!accessUnchanged() ||
+        plan?.validDirectoryAccess(access, linux: _linux) == false) {
+      return const CommandRefused('Requested paths changed during approval.');
     }
-    final currentReaders =
-        trustedReaderExecutables?.call() ?? const <String, String>{};
-    final current = CapabilityEnvelope.parse(request,
-        searchPath: executableSearchPath,
-        trustedExecutables: currentReaders,
-        canWrite: outputWritePermission);
-    final currentReader = current.reader;
-    final currentShell = current.shellReader;
-    if (reader != null && currentReader == null ||
-        shellReader != null && currentShell == null)
-      return const CommandRefused(
-          'Reader executable or output permissions changed during approval');
-    reader = currentReader;
-    shellReader = currentShell;
-    final onlyReads = !outsideSandbox && readOnlyProfile;
-    const outputDirectories = <String>[];
-    if (mode == PermissionMode.readOnly && !onlyReads) {
-      return const CommandRefused(
-          'Permission mode changed: workspace mutation is blocked.');
-    }
-    if (remember) {
-      grants.rememberRequest(request,
-          permissions: missing, directoryAccess: directoryAccess);
+    if (path.isAbsolute(executable) &&
+        canonicalSandboxPath(executable) != executable) {
+      return const CommandRefused('Executable changed during approval.');
     }
     final authorized = (control ?? const ProcessControl()).copyWith(
-        readOnly: onlyReads,
-        outputDirectories: List.unmodifiable(outputDirectories),
-        networkAllowed: network,
-        outsideSandboxAllowed: outsideSandbox,
-        approvedDirectories: directoryAccess,
-        approvedHostEnvironment:
-            outsideSandbox && plan != null ? request.environment : null);
-    final spawned = reader == null
-        ? shellReader ?? request
-        : (
-            command: reader,
-            arguments: envelope.certifiedArguments,
-            workingDirectory: request.workingDirectory,
-            environment: path.basename(reader) == 'git'
-                ? {
-                    ...?request.environment,
-                    // Certified git readers must not refresh the index.
-                    'GIT_OPTIONAL_LOCKS': '0',
-                  }
-                : request.environment,
-            stdin: request.stdin,
-            timeout: request.timeout,
-          );
-    bool active() => !cancelled && control?.isCancelled?.call() != true;
-    final approveDirectory = directoryApprover;
-    var outcome = await inner.run(spawned, control: authorized);
-    if (confined &&
-        !outsideSandbox &&
-        approveDirectory != null &&
-        outcome is CommandBlocked &&
-        active()) {
-      final candidates = outcome.accessRequests
-          .where((candidate) =>
-              plan?.canGrant(candidate.path, write: candidate.write) == true)
-          .toList();
-      if (candidates.length == 1 &&
-          await approveDirectory(request, candidates.single, true, active) &&
-          active()) {
-        // Exactly one retry, explicitly authorized after possible partial work.
-        final candidate = candidates.single;
-        var directory = Directory(candidate.path).existsSync()
-            ? candidate.path
-            : path.dirname(candidate.path);
-        while (!Directory(directory).existsSync()) {
-          directory = path.dirname(directory);
-        }
-        if (mode == PermissionMode.readOnly &&
-            (candidate.write || !authorized.readOnly)) {
-          return const CommandRefused(
-              'Read-only mode blocks write access and writable retries.');
-        }
-        final retryAccess = plan!.resolveDirectoryAccess(
-            read: [...directoryAccess.read, if (!candidate.write) directory],
-            write: [...directoryAccess.write, if (candidate.write) directory],
-            cwd: request.workingDirectory ?? plan!.workspaceRoot,
-            linux: _linux);
-        outcome = await inner.run(spawned,
-            control: authorized.copyWith(approvedDirectories: retryAccess));
-      }
-    }
-    return _completed(outcome, reason);
+      readOnly: readOnly,
+      workspaceWriteAllowed:
+          workspaceAllowed() && control?.readOnlyRequested != true,
+      networkAllowed: network,
+      outsideSandboxAllowed: outsideSandbox,
+      outputDirectories: const [],
+      approvedDirectories: access,
+      approvedHostEnvironment: outsideSandbox ? plan?.outsideEnvironment : null,
+    );
+    final outcome = await inner.run((
+      command: executable,
+      arguments: request.arguments,
+      workingDirectory: request.workingDirectory,
+      environment: request.environment,
+      stdin: request.stdin,
+      timeout: request.timeout,
+    ), control: authorized);
+    // An undeclared access remains a blocked result. Retrying is a new tool
+    // request: a command may already have produced side effects.
+    return _completed(
+        outcome, 'Allowed by resource grants and invocation approval');
+  }
+
+  List<String> _deletionTargets(ProcessRequest request, String cwd) {
+    final parts = literalShellParts(request);
+    final commands = parts == null
+        ? [
+            [request.command, ...request.arguments]
+          ]
+        : parts.map((p) => p.words);
+    return [
+      for (final words in commands)
+        if (words.isNotEmpty &&
+            {'rm', 'rmdir', 'unlink'}.contains(path.basename(words.first)))
+          for (final operand in words.skip(1).where((a) => !a.startsWith('-')))
+            canonicalSandboxPath(
+                path.isAbsolute(operand) ? operand : path.join(cwd, operand)),
+    ];
   }
 
   bool get _linux => inner is OsSandboxRunner
@@ -664,9 +506,8 @@ final class SandboxedProcessRunner
               : null) ==
       true;
 
-  ProcessDirectoryAccess _directoryRequirements(
-      CapabilityEnvelope envelope, ProcessRequest request,
-      ProcessControl? control,
+  ProcessDirectoryAccess _directoryRequirements(CapabilityEnvelope envelope,
+      ProcessRequest request, ProcessControl? control,
       {required bool infer}) {
     final read = <String>[...?control?.readDirectories];
     final write = <String>[...?control?.writeDirectories];
@@ -702,27 +543,6 @@ final class SandboxedProcessRunner
       if (!sandboxPathUnder(canonicalSandboxPath(cwd),
           canonicalSandboxPath(plan.workspaceRoot))) {
         add(canonicalSandboxPath(cwd), false);
-      }
-      if (commandWorkflow(request, plan.workspaceRoot) != null) {
-        try {
-          final executable = resolveHostExecutable(
-              envelope.literalRequest ?? request,
-              workspace: plan.workspaceRoot,
-              searchPath: executableSearchPath);
-          var ancestor = Directory(path.dirname(executable));
-          for (var depth = 0; depth < 5; depth++) {
-            if (Directory(path.join(ancestor.path, 'packages', 'flutter_tools'))
-                    .existsSync() &&
-                Directory(path.join(ancestor.path, 'bin', 'cache'))
-                    .existsSync()) {
-              add(ancestor.path, false);
-              add(path.join(ancestor.path, 'bin', 'cache'), true);
-              break;
-            }
-            if (ancestor.parent.path == ancestor.path) break;
-            ancestor = ancestor.parent;
-          }
-        } on FileSystemException {}
       }
       for (final access in envelope.verifiedAccesses) {
         add(access.path, access.operation != PermissionAccessOperation.read);
@@ -769,100 +589,7 @@ final class SandboxedProcessRunner
         CommandBlocked() => inner,
         CommandRunning() => inner,
       };
-
-  /// The approver is the filesystem's type: a [FileOperation]. The command's
-  /// cwd — or the first path-like argument, when there is no cwd — is the
-  /// path the ask dialog can show.
-  static FileOperation _asFileOperation(ProcessRequest request) => (
-        op: FileOp.write,
-        path: request.workingDirectory ?? request.arguments.firstOrNull ?? '',
-      );
 }
-
-// Inspection is quiet by default when the backend can enforce it. A command
-// that needs mutations must request workspace-write (or additional write paths).
-bool _defaultReadOnlyProfile(PermissionMode mode,
-        {required bool confined,
-        required bool certifiedReadOnly,
-        bool writeRequested = false}) =>
-    mode == PermissionMode.readOnly ||
-    confined &&
-        (certifiedReadOnly ||
-            !writeRequested &&
-                (mode == PermissionMode.ask || mode == PermissionMode.auto));
-
-/// The command × mode table: the whole rule, as built. Pure — a request in,
-/// a verdict out — so its tests are headless by construction.
-///
-/// Compatibility adapter for callers with a structured command. The same
-/// resolver applies the mode ceiling before explicit grants.
-CommandDecision decideCommand(
-  ProcessRequest request,
-  PermissionMode mode, {
-  required WritableDirectories writableDirectories,
-  required bool networkOff,
-  CommandGrants? grants,
-  bool certifiedReadOnly = false,
-  bool confined = true,
-  bool? readOnlyProfile,
-}) {
-  final readOnly = readOnlyProfile ??
-      _defaultReadOnlyProfile(mode,
-          confined: confined, certifiedReadOnly: certifiedReadOnly);
-  final resolution = resolveAuthorization(
-      AuthorizationRequest(
-          readOnlyExecution: readOnly,
-          confined: confined,
-          requirements: [
-            AccessRequirement(AccessCapability.execute, request.command,
-                workspace: true,
-                granted: grants?.coversRequest(request) == true ||
-                    certifiedReadOnly && !readOnly),
-            if (!readOnly)
-              AccessRequirement(
-                  AccessCapability.write, request.workingDirectory ?? '.',
-                  workspace: true,
-                  granted: grants?.coversRequest(request,
-                          permission: ProcessPermission.workspaceWrite) ==
-                      true),
-          ]),
-      mode);
-  return (
-    verdict: switch (resolution.route) {
-      AuthorizationRoute.allow => ToolVerdict.allow,
-      AuthorizationRoute.deny => ToolVerdict.deny,
-      AuthorizationRoute.human || AuthorizationRoute.review => ToolVerdict.ask,
-    },
-    reason: resolution.route == AuthorizationRoute.allow && readOnly
-        ? 'permitted read: enforced read-only execution'
-        : resolution.reason
-  );
-}
-
-/// The verdict plus the reason — same shape as `FileDecision`.
-typedef CommandDecision = ({ToolVerdict verdict, String reason});
-
-/// True when a request collapses a shell command into one argv element —
-/// the `command: <shell>, arguments: ['-c', <string>]` shape every bash tool
-/// produces. What the string runs cannot be proven from argv: redirects,
-/// backticks, and newlines mean the writable directories can say nothing about it.
-/// Shell syntax never grants access: the selected execution profile and the
-/// shared permission policy determine which capabilities a script receives.
-///
-/// Shape test: the basename of [ProcessRequest.command] is a known shell and
-/// the shell's flag is followed by a payload — i.e. there is at least one
-/// argument that is not the flag itself. Flags carrying the string as their
-/// value (`-c` on BSD, `-c` on Windows) are matched by name, not position,
-/// so any arguments list containing `-c` with something after it counts.
-bool argumentsCollapsed(ProcessRequest request) {
-  final shell = request.command.split(Platform.pathSeparator).last;
-  if (!_shells.contains(shell)) return false;
-  // `-c <string>`: the payload argument exists whenever the args list holds
-  // anything besides the flag tokens themselves.
-  return request.arguments.any((a) => a != '-c' && a != '--command');
-}
-
-const _shells = {'sh', 'bash', 'dash', 'ash', 'zsh', 'ksh', 'bash5'};
 
 /// The session's writable directories, and the one heuristic that keeps the table
 /// honest: which requests provably stay inside them.
@@ -992,24 +719,4 @@ bool _isUnder(String child, String parent) {
   final c = trail(child == '' ? '/' : child);
   final par = trail(parent == '' ? '/' : parent);
   return c == par || c.startsWith(par);
-}
-
-/// The runner's scopes, as the decision pipeline sees them: the sandbox
-/// plan plus this runner's read grants decide what a path may do.
-final class _RunnerScopes implements ScopesView {
-  _RunnerScopes(this._runner);
-  final SandboxedProcessRunner _runner;
-
-  @override
-  bool canRead(String path) => _runner._canRead(path);
-
-  @override
-  bool canWrite(String path) =>
-      _runner.plan?.canWrite(path, linux: _runner._linux) == true;
-
-  @override
-  bool withinPlan(String path) =>
-      _runner._canRead(path) ||
-      _runner.plan?.canWrite(path, linux: _runner._linux) == true ||
-      _runner.plan?.canGrant(path, linux: _runner._linux) == true;
 }

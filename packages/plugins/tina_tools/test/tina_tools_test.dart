@@ -18,7 +18,11 @@ void main() {
       sandbox = SandboxedFileSystem(io,
           workspaceRoot: tmp.path,
           tinaDir: tina,
-          mode: PermissionMode.allowEdits);
+          mode: PermissionMode.approve,
+          approver: (op, _) async =>
+              sandboxPathUnder(op.path, tmp.resolveSymbolicLinksSync())
+                  ? Approval.yes
+                  : Approval.no);
     });
 
     tearDown(() {
@@ -343,8 +347,8 @@ void main() {
       final res = await WriteTool(fs: sandbox, workspaceRoot: tmp.path)
           .execute({'filePath': 'in-project.txt', 'content': 'x'});
       expect(res.isError, isTrue);
-      expect(res.content, contains('read-only mode'));
-      expect(asked, 0);
+      expect(res.content, contains('denied'));
+      expect(asked, 1);
       expect(File(p.join(tmp.path, 'in-project.txt')).existsSync(), false);
     });
 
@@ -360,7 +364,8 @@ void main() {
           fs: SandboxedFileSystem(const IoFileSystem(),
               workspaceRoot: tmp.path,
               tinaDir: tinaDir,
-              mode: PermissionMode.allowEdits),
+              mode: PermissionMode.approve,
+              approver: (_, __) async => Approval.yes),
           workspaceRoot: tmp.path);
 
       final normal = await tool.execute({'filePath': 'a.txt', 'content': 'n'});
@@ -368,11 +373,11 @@ void main() {
       expect(File(p.join(tmp.path, 'a.txt')).readAsStringSync(), 'n');
 
       // The very same instance flips with the filesystem's mode.
-      (tool.fs as SandboxedFileSystem).mode = PermissionMode.readOnly;
+      (tool.fs as SandboxedFileSystem).approver = (_, __) async => Approval.no;
       final readOnly =
           await tool.execute({'filePath': 'b.txt', 'content': 'r'});
       expect(readOnly.isError, isTrue);
-      expect(readOnly.content, contains('read-only mode'));
+      expect(readOnly.content, contains('denied'));
       expect(File(p.join(tmp.path, 'b.txt')).existsSync(), isFalse);
     });
 
@@ -406,7 +411,8 @@ void main() {
       });
       expect(scratch.isError, isFalse);
       expect(scratch.content, contains('session scratch'));
-      expect(File(p.join(home.path, 'plans', 'deploy.md')).existsSync(), isTrue);
+      expect(
+          File(p.join(home.path, 'plans', 'deploy.md')).existsSync(), isTrue);
 
       // A workspace write does not.
       final workspace = await tool
@@ -487,8 +493,7 @@ void main() {
           fs: sandbox,
           workspaceRoot: tmp.path,
           scratchNoticeFor: (t) => scratchPathNotice(t,
-              sandboxHomesRoot: homes.path,
-              tmpdir: p.join(home.path, 'tmp')));
+              sandboxHomesRoot: homes.path, tmpdir: p.join(home.path, 'tmp')));
 
       final res = await tool.execute({
         'filePath': target.path,

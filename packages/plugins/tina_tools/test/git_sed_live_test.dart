@@ -79,13 +79,14 @@ void main() {
     } catch (_) {}
   });
 
-  test('certified git readers run without approval against a real repo',
+  test('approved git readers run in read-only confinement against a real repo',
       () async {
     final recorder = makeRecorder();
     final gate = SandboxedProcessRunner(
       inner: recorder,
       mode: PermissionMode.readOnly,
       executableSearchPath: gitPath,
+      commandApprover: (_, __) async => Approval.yes,
     );
     for (final args in [
       ['status'],
@@ -101,7 +102,7 @@ void main() {
     expect(recorder.requests, isNotEmpty);
     for (final spawned in recorder.requests) {
       expect(spawned.command, startsWith('/usr/bin/git'));
-      expect(spawned.environment?['GIT_OPTIONAL_LOCKS'], '0');
+      expect(spawned.arguments, isNotEmpty);
     }
   });
 
@@ -119,11 +120,13 @@ void main() {
       inner: recorder,
       mode: PermissionMode.ask,
       executableSearchPath: gitPath,
+      commandApprover: (_, __) async => Approval.yes,
     );
     final ok = await gate.run(sed(['-n', '1,2p', 'runtime.py']));
     expect(ok, isA<CommandCompleted>());
     expect((ok as CommandCompleted).stdout, contains('line one'));
-    // -i edit has no approver wired -> refused.
+    gate.commandApprover = null;
+    // A write needs a new approval, not the earlier inspection approval.
     expect(
       await gate.run(sed(['-i', 's/one/ONE/', 'runtime.py']),
           control: const ProcessControl(readOnlyRequested: false)),
