@@ -13,6 +13,9 @@ dependencies:
   classification:
     path: ../../packages/classification
   ffi: ^2.1.0
+  crypto: ^3.0.3
+  tina_plugin_registry:
+    path: ../../packages/libraries/tina_plugin_registry
   path: ^1.9.0
   tina_activity:
     path: ../../packages/plugins/tina_activity

@@ -7,6 +7,7 @@ import 'cli_options.dart';
 import 'engine_launcher.dart';
 import 'pipes.dart';
 import 'plugin_catalog.dart';
+import 'plugin_commands.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/tui.dart';
@@ -25,6 +26,18 @@ Future<int> runCli(
   Future<String> Function()? readStdin,
   String? Function() locateTerminalDevice = terminalDevicePath,
 }) async {
+  // The `tina plugin` subcommand tree routes before the main flag schema:
+  // its arguments are a different grammar (design doc section 6).
+  final globalTinaDir = Platform.environment['HOME'] != null
+      ? '${Platform.environment['HOME']}/.tina'
+      : Directory.current.path;
+  final pluginExit = await runPluginSubcommand(
+    args,
+    globalConfigPath: '$globalTinaDir/config',
+  );
+  if (pluginExit != null) {
+    return pluginExit;
+  }
   final registry = firstPartyPlugins();
   registerPlugins?.call(registry);
   final schema = applicationCliSchema(registry: registry);
@@ -484,6 +497,11 @@ Future<EngineProcess> startRemoteEngine({
   if (host != 'tina-wasm-host' && !File(host).existsSync()) {
     throw StateError('engine host not found: $host');
   }
+  // The active registry plugin mounts through the existing
+  // --plugin-component path; grants are the host-accepted subset of what
+  // the installer recorded (plugin_commands.dart consent).
+  final plugin = await activeRegistryPlugin(
+      globalConfigPath: globalPluginRegistryConfigPath());
   final argv = wasmEngineArgv(
     hostPath: host,
     workingDirectory: workingDirectory,
@@ -495,6 +513,11 @@ Future<EngineProcess> startRemoteEngine({
         .split(RegExp(r'\s+'))
         .where((argument) => argument.isNotEmpty)
         .toList(),
+    pluginComponent: plugin?.componentPath,
+    pluginGrants: plugin?.grants
+            .where((g) => !g.contains(':'))
+            .toList() ??
+        const [],
   );
   return EngineProcess.start(argv, workingDirectory: workingDirectory);
 }

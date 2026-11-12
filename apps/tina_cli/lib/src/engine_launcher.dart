@@ -183,6 +183,11 @@ List<String> wasmEngineArgv({
   required bool yolo,
   Map<String, String> environment = const {},
   List<String> extraArgs = const [],
+  /// The active registry plugin's cached component + the host-accepted
+  /// grants (design doc section 6): appended as the existing
+  /// `--plugin-component` / `--plugin-grant` mount flags.
+  String? pluginComponent,
+  List<String> pluginGrants = const [],
 }) {
   final workspace = p.normalize(p.absolute(workingDirectory));
   final config = p.normalize(p.absolute(configPath));
@@ -220,6 +225,14 @@ List<String> wasmEngineArgv({
   }
   argv.addAll(
       environment.entries.map((entry) => '--env=${entry.key}=${entry.value}'));
+  if (pluginComponent != null) {
+    argv.add('--plugin-component=$pluginComponent');
+    // Only grants the running host accepts are mounted; recorded grants
+    // the host does not know are reported by the installer instead.
+    for (final grant in pluginGrants) {
+      argv.add('--plugin-grant=$grant');
+    }
+  }
   argv.addAll(extraArgs);
   return argv;
 }
