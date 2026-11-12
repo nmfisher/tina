@@ -326,6 +326,7 @@ write_directories = ["/untrusted/writable"]
     app.settings
         .set(classifierInstructionSetting, instruction, SettingScope.session);
     app.settings.set(stepLimitSetting, 12, SettingScope.session);
+    app.settings.set(classifierTimeoutSetting, 120, SettingScope.session);
     expect(app.tools.modePolicy.classifier, isNotNull);
     final judgment = await app.tools.modePolicy.classifier!
         .classify({'operation': 'write file'});
@@ -348,6 +349,7 @@ write_directories = ["/untrusted/writable"]
             sessionId: id));
     expect(app.settings.read(classifierInstructionSetting).value, instruction);
     expect(app.settings.read(stepLimitSetting).value, 12);
+    expect(app.tools.modePolicy.classifier!.timeout, const Duration(seconds: 120));
     await app.tools.modePolicy.classifier!
         .classify({'operation': 'write file'});
     expect(judges.last.systems.single, contains(instruction));
@@ -365,6 +367,52 @@ write_directories = ["/untrusted/writable"]
     app.settings.removeOverride(classifierModelSetting, SettingScope.workspace);
     await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
     expect(judges.last.model, 'fixture');
+  });
+  test('classifier timeout follows scoped settings without rebuilding', () {
+    final classifier = app.tools.modePolicy.classifier!;
+    expect(classifier.timeout, const Duration(seconds: 60));
+    for (final entry in [
+      (SettingScope.global, 90),
+      (SettingScope.workspace, 120),
+      (SettingScope.session, 180),
+    ]) {
+      app.settings.set(classifierTimeoutSetting, entry.$2, entry.$1);
+      expect(classifier.timeout, Duration(seconds: entry.$2));
+      expect(app.tools.modePolicy.classifier, same(classifier));
+    }
+    final sibling = app.newSession(null);
+    addTearDown(sibling.close);
+    expect(
+      sibling.tools.modePolicy.classifier!.timeout,
+      const Duration(seconds: 120),
+    );
+    for (final entry in [
+      (SettingScope.session, 120),
+      (SettingScope.workspace, 90),
+      (SettingScope.global, 60),
+    ]) {
+      app.settings.removeOverride(classifierTimeoutSetting, entry.$1);
+      expect(classifier.timeout, Duration(seconds: entry.$2));
+    }
+  });
+  test('classifier timeout rejects nonpositive and fractional values', () {
+    final original = global.readAsStringSync();
+    for (final invalid in [0, -1]) {
+      expect(
+        () => app.settings.set(
+          classifierTimeoutSetting,
+          invalid,
+          SettingScope.global,
+        ),
+        throwsFormatException,
+      );
+    }
+    expect(() => classifierTimeoutSetting.checked(1.5), throwsFormatException);
+    expect(
+      app.tools.modePolicy.classifier!.timeout,
+      const Duration(seconds: 60),
+    );
+    expect(global.readAsStringSync(), original);
   });
   test('unsupported scopes and invalid limits cannot modify files', () {
     final original = global.readAsStringSync();

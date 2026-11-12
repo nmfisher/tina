@@ -71,7 +71,11 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
   ),
   PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
     'tina/mode',
-    settings: [classifierInstructionSetting, classifierModelSetting],
+    settings: [
+      classifierInstructionSetting,
+      classifierModelSetting,
+      classifierTimeoutSetting,
+    ],
     operations: modeOperations,
     dependency: modePolicySource,
     create: (c, source) => ModeControlsPlugin(source.modePolicy),
@@ -256,6 +260,11 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         policy.terminal = c.terminal;
         policy.classifier = PermissionClassifier(
           () => models.mainProvider(_classifierModel(c)),
+          readTimeout: () => Duration(
+            seconds:
+                c.settings?.read(classifierTimeoutSetting).value ??
+                classifierTimeoutSetting.defaultValue,
+          ),
           readInstruction: () =>
               c.settings?.read(classifierInstructionSetting).value ?? '',
         );

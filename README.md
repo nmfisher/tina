@@ -67,6 +67,8 @@ See [scoped settings](docs/engine2-settings.md) for the plugin API and scope rul
 In `/settings` → **Permissions** → **Mode and auto approval**, edit **Auto-approval classifier
 instruction** to supply permission preferences. The default Session scope saves
 that instruction with the conversation and prepends it to each classifier request.
+In the same section, **Auto-approval classifier timeout (seconds)** defaults to
+**60** and accepts positive whole seconds at Session, Workspace or Global scope.
 
 MCP servers, including Blender Lab's official server, are supported by `tina/mcp`.
 Configure them in Settings → Permissions → MCP servers; see [MCP setup](docs/engine2-mcp.md).

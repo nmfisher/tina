@@ -45,6 +45,7 @@ their counters into a process-wide or cross-process quota.
 | Request/token limits, output/thinking, step limit, subagent limits | All | Next request/spawn |
 | Auto-approval classifier instruction | All | Next classification request |
 | Auto-approval classifier model | All | Next classification request |
+| Auto-approval classifier timeout (seconds) | All | Next classification request |
 | Plugin enablement | All | When idle if live; otherwise restart |
 | Default provider/model | Global, Workspace | New conversations; `/model` changes the current one |
 | Approval delivery | Global, Workspace | New conversation/restart |
@@ -134,3 +135,9 @@ conversation's model. The provider must support structured output; an
 unsupported model fails the judgment with a diagnostics error rather than
 falling back silently. Like the instruction, it is read again per request and
 supports all scopes.
+
+**Auto-approval classifier timeout (seconds)** defaults to **60**. Enter a
+positive whole number of seconds in the same section. The deadline covers the
+entire permission judgment, including a retry after a malformed response. Changes
+apply to the next request without restarting; an active request keeps its current
+deadline. Session, Workspace and Global scopes are supported.

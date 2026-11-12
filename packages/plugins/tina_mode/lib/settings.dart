@@ -23,6 +23,18 @@ final classifierModelSetting = SettingDefinition<String>(
   applyAt: ApplyAt.nextRequest,
 );
 
+final classifierTimeoutSetting = SettingDefinition<int>(
+  id: 'tina/mode/classifier_timeout_seconds',
+  label: 'Auto-approval classifier timeout (seconds)',
+  description:
+      'Maximum time for each permission classification request, including its '
+      'retry. Positive whole seconds; changes apply to the next request.',
+  defaultValue: 60,
+  kind: SettingKind.integer,
+  minimum: 1,
+  applyAt: ApplyAt.nextRequest,
+);
+
 final precedentSetting = SettingDefinition<String>(
   id: 'tina/mode/precedents',
   label: 'Approval precedents',

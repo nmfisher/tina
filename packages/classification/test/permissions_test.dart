@@ -405,6 +405,39 @@ void main() {
       expect(provider.closed, true);
     },
   );
+  test('reads the timeout once per judgment, including its retry', () async {
+    var configured = const Duration(milliseconds: 20);
+    var reads = 0;
+    final providers = <Provider>[];
+    final streams = <StreamController<StreamEvent>>[];
+    final classifier = PermissionClassifier(
+      () {
+        final stream = StreamController<StreamEvent>();
+        streams.add(stream);
+        final provider = Provider((attempt) {
+          // A setting edit during an attempt must not reset its deadline.
+          configured = const Duration(days: 1);
+          return attempt == 1 ? completed('invalid') : stream.stream;
+        });
+        providers.add(provider);
+        return provider;
+      },
+      readTimeout: () {
+        reads++;
+        return configured;
+      },
+    );
+    for (final milliseconds in [20, 40]) {
+      configured = Duration(milliseconds: milliseconds);
+      final result = await classifier.classify({});
+      expect(result.allow, isNull);
+      expect(result.failure, 'timed out');
+      expect(result.diagnostics['attempts'], 2);
+      expect(providers.last.closed, true);
+      await streams.last.close();
+    }
+    expect(reads, 2);
+  });
   for (final retry in [false, true]) {
     for (final cancel in [true, false]) {
       test(

@@ -6,7 +6,8 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart' show SettingScope;
-import 'package:tina_mode/tina_mode.dart' show classifierModelSetting;
+import 'package:tina_mode/tina_mode.dart'
+    show classifierModelSetting, classifierTimeoutSetting;
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
@@ -221,6 +222,36 @@ enabled = []
     expect(output, contains('Choose default model'));
     expect(output, contains('org/model'));
   });
+
+  test(
+    'classifier timeout edits through Settings and persists globally',
+    () async {
+      final (saved, output) = await drive(
+        [
+          ControlKey(ControlCode.tab),
+          ControlKey(ControlCode.tab), // global scope
+          CharInput('classifier timeout'), enter,
+          EditingKey(EditingAction.killToStart), CharInput('120'), enter,
+          escape,
+        ],
+        verify: (assembly) {
+          final state = assembly.settings.read(classifierTimeoutSetting);
+          expect(state.value, 120);
+          expect(state.source, SettingScope.global);
+          expect(
+            assembly.tools.modePolicy.classifier!.timeout,
+            const Duration(seconds: 120),
+          );
+        },
+      );
+      expect(saved, isTrue);
+      expect(output, contains('Auto-approval classifier timeout (seconds)'));
+      final section =
+          ConfigDocument.open(config.path).table('plugin_config')['tina/mode']
+              as Map;
+      expect(section['classifier_timeout_seconds'], 120);
+    },
+  );
 
   test('the classifier model setting opens the searchable model picker',
       () async {

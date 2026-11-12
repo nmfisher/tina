@@ -42,12 +42,17 @@ final class PermissionJudgment {
 class PermissionClassifier {
   PermissionClassifier(
     this.createProvider, {
-    this.timeout = const Duration(seconds: 30),
+    Duration timeout = const Duration(seconds: 60),
+    this.readTimeout,
     this.readInstruction,
     this.readPrecedents,
-  });
+  }) : _timeout = timeout;
   final LlmProvider Function() createProvider;
-  final Duration timeout;
+  final Duration _timeout;
+
+  /// Read once per judgment; the deadline covers both attempts.
+  final Duration Function()? readTimeout;
+  Duration get timeout => readTimeout?.call() ?? _timeout;
   final String Function()? readInstruction;
 
   /// Legacy embedding parameter. Prior approvals never waive or inform review.
