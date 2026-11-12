@@ -91,12 +91,51 @@ Field semantics:
     records these as **publisher-declared** metadata checked against the
     client's known-good constants for the running engine; extracting the
     import list from component bytes is a v2 item (flagged below).
-- `capabilities`: the **requested grants**, from the host's fail-closed
-  vocabulary (`session.read-context`, `engine-service-import`,
-  `engine-service-call` — `PLUGIN_GRANTS` in `policy.rs`). Users see
-  what a plugin wants before installing; unknown grants in a published
-  entry are a publisher error (the client warns and the loader would
-  reject them at run time anyway).
+- `capabilities`: the **requested access**, one object per capability.
+  This is the consent manifest: the installer shows these objects, the
+  user approves or denies each one, and the approved set is recorded as
+  the plugin's grants **in the same format** the loader enforces
+  (§4, §6). The object schema:
+
+  ```json
+  {
+    "id": "network",                  // the capability id (below)
+    "required": false,                // see denial semantics (§4.2)
+    "summary": "Call the weather API.",  // one human line, shown verbatim
+    ...                                // id-specific parameters (below)
+  }
+  ```
+
+  Capability vocabulary v1 (ids, parameters, enforcement mapping):
+
+  - `session.read-context` — the existing grant: read the current
+    session id and model. Parameterless. This is the only grant the
+    running host accepts today (`PLUGIN_GRANTS` in `policy.rs`);
+    `engine-service-import` / `engine-service-call` remain probe-world
+    grants in the same vocabulary.
+  - `session-store` — conversation history in the session store.
+    Parameters: `access`: `"redacted-read"` (default offer, §4.4) or
+    `"read"`. Parameterless encoding of the default tier is the bare id.
+    Default **DENY** (§4.4). Host enforcement is a designed shape, not
+    built in v1 (§7).
+  - `filesystem` — preopened paths in the plugin's Store. Parameters:
+    `mode`: `"ro"` or `"rw"`; `paths`: a subset vocabulary —
+    `"workspace"`, `"config"`, or absolute paths. No grant = no preopen
+    (§7). Host enforcement is a designed shape, not built in v1.
+  - `network` — outbound HTTP through mediated calls. Parameters:
+    `domains`: allowlist of exact hostnames (no wildcards in v1).
+    Host enforcement is a designed shape, not built in v1.
+
+  The **recorded grant string** for an approved capability is the
+  canonical parameter encoding of the same object — `<id>` when no
+  parameters, otherwise `<id>:<key>=<value>[,<key>=<value>]` with keys
+  and values sorted (e.g. `session-store:access=redacted-read`,
+  `filesystem:mode=ro,paths=workspace`,
+  `network:domains=api.weather.example`). One manifest object ↔ one
+  grant string ↔ one loader decision, so the installer consent maps 1:1
+  onto enforcement. Unknown `id`s in a published entry are a publisher
+  error; the client warns, records nothing for the unknown id, and the
+  loader would fail closed at run time anyway.
 - `signature`: detached, over the entry. The signed payload is the entry
   object **without** the `signature` field, serialized canonically:
   keys sorted lexicographically recursively, `,`/`:` separators with no
@@ -116,7 +155,11 @@ Layered, with the registry adding provenance only:
    (`minisign.pub`, which signs release binaries and stays untouched).
 3. **Transparency**: `capabilities` are shown at install time and
    recorded; a user installs "read session context" on purpose.
-4. **Runtime sandbox**: the existing loader gates are unchanged and
+4. **Consent**: nothing in the three sensitive surfaces — session store,
+   filesystem, network — is granted without an explicit per-capability
+   user decision at install time (§4); first-time runtime needs go
+   through the existing approval flow (§4.3).
+5. **Runtime sandbox**: the existing loader gates are unchanged and
    remain the real sandbox — `verify_embedder_abi` preflight, admission
    shape checks (descriptor/run/service shapes as the admission fixtures
    pin them), the fail-closed grant vocabulary, per-call and
@@ -151,7 +194,128 @@ registry key is a separate, new key pair, so no compatibility is lost.
 If the principal prefers real minisign envelopes, the swap is local to
 the signature codec.
 
-## 4. Server and publisher (tools/plugin-registry/)
+## 4. User consent for plugin access
+
+The user must be asked before a plugin can access (a) the session
+store, (b) the filesystem, (c) the network. Consent is per capability,
+at two points: install time (the manifest, §4.1–4.2) and run time
+(escalation, §4.3). The session store is additionally special-cased as
+sensitive (§4.4).
+
+### 4.1 Install-time manifest consent
+
+`install` renders the entry's `capabilities` manifest — one block per
+capability, verbatim `summary` plus the decoded parameters — and asks
+approve/deny for each, remembering the decision per capability id:
+
+```text
+tina/wasm-prompt 0.1.0 requests:
+
+  [1/2] session.read-context (optional)
+        Read the current session id and model name.
+        Grant? [y/N]: y
+  [2/2] session-store:access=redacted-read (optional)
+        Read redacted past-conversation history: ids, roles and
+        lengths — message bodies are NOT included.
+        Grant? [y/N]: n
+
+Installing without session-store; the plugin will see denials if it
+uses it.
+```
+
+Rules:
+
+- Every capability in the manifest is asked. There is no "accept all";
+  scripts use explicit `--grant <id>` opt-ins (§4.2).
+- The approved set is recorded **as the canonical grant strings** (§2)
+  in the `[plugin-registry]` config section (the plugin's grants), and
+  — once the capability-document machinery merges into this lineage —
+  into the capability document's `Plugin { plugin, grants }` entry.
+  One manifest object ↔ one grant string ↔ one loader decision.
+- Denied + `required: false` → **install and run without it**: the
+  plugin degrades (its calls hit the loader's fail-closed denials),
+  which keeps installation useful and honest about partial function.
+- Denied + `required: true` → **do not install**: the plugin declares
+  it cannot fulfil its purpose without the capability; proceeding would
+  ship a knowingly broken install.
+- **Recommendation recorded:** install-but-degrade for optional
+  capabilities, refuse-installing for required ones. The alternative
+  (refuse on any denial) makes partial-utility plugins uninstallable;
+  the loader already knows how to deny.
+- The mount passes only grants the **running host accepts** (today:
+  `session.read-context`). Recorded-but-not-yet-enforced grants
+  (`session-store`, `filesystem`, `network`) are printed as recorded
+  but unenforced-by-this-engine — no false security. Nothing unknown is
+  ever mounted.
+
+### 4.2 Non-interactive installs
+
+Scripts and CI must not get silent consent. Non-interactive install:
+
+- grants are opt-in only, via repeated `--grant <canonical-id>`
+  flags (e.g. `--grant session.read-context`);
+- manifest capabilities not explicitly granted are DENIED;
+- a denied `required: true` capability aborts the install;
+- the installer prints the decision summary (granted/denied per id) so
+  logs show what was consented.
+
+### 4.3 Runtime escalation
+
+First-time or one-off needs beyond the recorded grants go through the
+**existing approval flow**: the plugin's mediated call fails closed
+(`denied`), the engine surfaces the need, and the user approves or
+denies in the normal prompt; **always-allow** upgrades the grant
+persistently via `tina:policy` escalation (the widening mechanism
+already exists: `CapabilityEntry::Plugin` + the widen path). The
+persisted upgrade records the same canonical grant string, so
+install-time consent and runtime upgrades stay one format. Flagged:
+the escalation plumbing lands with the capability-document merge into
+this lineage; until then the loader's fail-closed denials are the
+runtime answer to un-granted needs.
+
+### 4.4 Session store is sensitive — default DENY
+
+The session store holds the whole conversation history. Default deny;
+the manifest proposes tiers rather than a blanket grant, and the
+consent copy must say what history means:
+
+- **Tiers (recommendation):** offer `redacted-read` as the default
+  tier, `read` (full) as the rarer explicit tier, and defer
+  read/write access entirely. Rationale: the mediation broker can
+  redact mechanically (fields kept: session id, model, turn count,
+  token totals, message roles and lengths; message bodies dropped),
+  which covers the honest use cases (recall aids, session analytics)
+  with a bounded blast radius; full read is a real grant for real need;
+  write access to history invites tampering and is not worth v1.
+- **Redacted subset feasibility:** feasible and recommended as the
+  default — redaction lives in the mediation layer (the broker that
+  mediates plugin calls), not in the plugin, so the plugin cannot opt
+  out of it. It is a designed shape, not built in v1 (host-side).
+- **Consent wording (proposal, shown verbatim by the installer):**
+
+  ```text
+  session-store:access=redacted-read (optional)
+    Read PAST CONVERSATION HISTORY from this machine's session store —
+    redacted: session ids, model names, message roles and lengths only.
+    Message text is NOT included. Default is denied.
+    Grant? [y/N]:
+  ```
+
+  and for the full tier:
+
+  ```text
+  session-store:access=read (optional)
+    Read FULL PAST CONVERSATION HISTORY from this machine's session
+    store, including message text. This is everything you have said in
+    Tina sessions. Default is denied.
+    Grant? [y/N]:
+  ```
+
+  Wording rules: name the surface plainly ("conversation history"),
+  state the default (denied), and for the full tier say the worst case
+  in one sentence ("everything you have said").
+
+## 5. Server and publisher (tools/plugin-registry/)
 
 Rust crate in this branch, two binaries, one shared lib:
 
@@ -174,7 +338,7 @@ already-Rust concerns (the wasm.dart workspace shows the pattern), and
 the publisher must produce exactly the bytes the Dart client
 re-verifies.
 
-## 5. Client integration (tina repo)
+## 6. Client integration (tina repo)
 
 New package `packages/libraries/tina_plugin_registry/`:
 
@@ -187,12 +351,12 @@ New package `packages/libraries/tina_plugin_registry/`:
   are versioned; removal deletes the directory and the config record.
 - `RegistryConfig` reader/writer for the `[plugin-registry]` TOML
   section in the global config: `url`, `key` (base64 ed25519 public
-  key), `installed` (name → version), `active` (name = the plugin the
-  engine mounts). Kept deliberately independent of the settings-layer
-  plugin machinery, which at this branch's base predates the capability
-  document; merging the registry records into the capability document
-  (`CapabilityEntry::Plugin`) rides the capability-merger merge and is
-  flagged in §7.
+  key), `installed` (name → version + the approved grant strings),
+  `active` (name = the plugin the engine mounts). Kept deliberately
+  independent of the settings-layer plugin machinery, which at this
+  branch's base predates the capability document; merging the registry
+  records into the capability document (`CapabilityEntry::Plugin`)
+  rides the capability-merger merge and is flagged in §7.
 
 `apps/tina_cli`: `tina plugin` subcommand routing (argv[0] == `plugin`,
 dispatched before the main flag schema):
@@ -201,23 +365,27 @@ dispatched before the main flag schema):
   (registry index, name/version/description/capabilities).
 - `tina plugin install <name[@version]>` — resolve entry (latest or
   pinned), verify signature → sha256 → embedded stamp → ABI stamps,
-  print the requested capabilities, write the cache, record in config,
-  and set `active` if none.
+  run the **manifest consent flow** (§4.1; non-interactive rules in
+  §4.2), write the cache with the approved grants, record in config,
+  and set `active` if none. The printed summary lists granted and
+  denied capabilities and flags recorded-but-not-yet-enforced grants.
 - `tina plugin remove <name>` — delete cache + records; refuse if
   active unless `--force` (and clear `active`).
 - `tina plugin info <name>` — full entry JSON for inspection.
 
 Engine mount (still the client's job, still no host changes): when the
 config has an `active` plugin, the engine launcher appends
-`--plugin-component=<cache path>` plus `--plugin-grant=<recorded
-grants>` to the wasm engine argv (`wasmEngineArgv`'s extra arguments),
-which is the existing, tested host mount path — `--plugin-component`
-reads the artifact as a host file, `verify_embedder_abi` preflights it,
-and the engine mounts `tina/wasm-prompt` through the same adapter the
+`--plugin-component=<cache path>` plus the host-accepted grants
+(`--plugin-grant=session.read-context` today; recorded grants the
+running host does not accept are printed as recorded-but-unenforced)
+to the wasm engine argv (`wasmEngineArgv`'s extra arguments), which is
+the existing, tested host mount path — `--plugin-component` reads the
+artifact as a host file, `verify_embedder_abi` preflights it, and the
+engine mounts `tina/wasm-prompt` through the same adapter the
 `plugin_lifecycle_probe` exercises. Approval flow for anything beyond
-the granted capabilities is the loader's existing behavior.
+the granted capabilities is the loader's existing behavior (§4.3).
 
-## 6. Host side: no changes in v1
+## 7. Host side: no changes in v1
 
 Plugin components arrive as local files in the cache and flow through
 the existing `--plugin-component` path; the host already preflights the
@@ -227,7 +395,7 @@ v1.** Flagged (not built):
 
 - `--plugin-grant` accepts exactly one literal grant
   (`session.read-context`); richer per-plugin grant lists arrive
-  naturally with the capability-document merge (§5) rather than by
+  naturally with the capability-document merge (§6) rather than by
   widening the flag.
 - A component-path flag exists on the host for the dev flow; the
   embedded-only packaged binary mounts from its frozen bytes. When the
@@ -237,7 +405,7 @@ v1.** Flagged (not built):
 - Manifest-level deep import extraction (v2, §2) would let the loader
   cross-check declared stamps at admission.
 
-## 7. Sequencing
+## 8. Sequencing
 
 1. This design doc (committed first, before any implementation).
 2. `tools/plugin-registry` (server + publisher) with crate tests.
@@ -249,6 +417,8 @@ v1.** Flagged (not built):
    published from `pkg/tina_wasm_host/testdata/plugin_probe/` artifacts
    (wasm.dart side), signed with a generated demo registry key.
 6. End-to-end demo in the container: serve → `tina plugin install
-   tina/wasm-prompt` (verify + cache + record) → engine launched with
-   the installed component → a scripted-provider turn exercises the
-   plugin's prompt hook → remove.
+   tina/wasm-prompt` with the interactive consent flow (approve
+   `session.read-context`, deny an optional capability to show
+   degradation) → verify + cache + record → engine launched with the
+   installed component and the approved grant → a scripted-provider
+   turn exercises the plugin's prompt hook → remove.
