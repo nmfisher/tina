@@ -138,8 +138,9 @@ Verified wasm-clean already (grep evidence, merged tree):
      `tina:http@1.1.0`, `tina:policy@1.0.0`, `tina:process@1.1.0`,
      `tina:plugin-host@0.1.0` (the engine world's import set + tty/crash)
      + `export wasi:cli/run`. Bindings via `wasm_tools witgen`, component
-     via `wasm_tools compile` (the engine build's recipe, edge SDK +
-     branch-tip wasm_tools via the gitignored overrides).
+     via `wasm_tools compile` (the engine build's recipe, pinned stable
+     3.14.0 SDK since the 2026-11-12 pin move — edge at the time of
+     writing — + branch-tip wasm_tools via the gitignored overrides).
    - `bin/tui.dart`: the `engine.dart` composition root's assembly boot
      (snapshot config, `compileCapabilities: false`, ports, plugin
      registry) + the native TUI path's front end: in-process

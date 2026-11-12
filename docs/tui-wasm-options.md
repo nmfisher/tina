@@ -4,6 +4,17 @@ Recorded 2026-11-09. Decision: **Option 1 proceeds now. Option 2 is a timeboxed
 experiment in parallel. Option 3 is parked.** This document records the options,
 the facts behind them, and the work plan.
 
+**SDK note (updated 2026-11-12):** the wasm toolchain no longer rides an
+experimental SDK. The Dart pin moved from the source-built edge
+`3.14.0-edge.e7112ac…` to released **stable 3.14.0**
+(`/home/agent/tools/dart-sdk-3.14.0-stable`), validated end to end: engine and
+TUI components plus the entity-decode fixture rebuilt on stable, boot +
+scripted-turn green on both engines, the wasm.dart component and parity suites
+passing, and the wasm_tools patches the move needed landed upstream of the pin
+(SIMD opcode-table widening, timeline-import DCE tolerance). The edge checkout
+stays at `/home/agent/tools/dart-sdk-src` as a fallback only. Any earlier text
+below that assumes an experimental/edge SDK is historical.
+
 ## Background
 
 The wasm stack ships as one binary: `tina-wasm-host` with the Tina engine
