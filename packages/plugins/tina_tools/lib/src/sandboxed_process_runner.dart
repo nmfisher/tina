@@ -5,6 +5,7 @@ library;
 import 'dart:io' show Platform, FileSystemException, Directory;
 import 'capability_envelope.dart';
 import 'command_approval_store.dart';
+import 'command_prefix.dart';
 import 'package:path/path.dart' as path;
 import 'sandbox_home.dart';
 import 'dart:convert' show jsonEncode;
@@ -193,6 +194,7 @@ final class SandboxedProcessRunner
   final ReadOnlyDirectories? readDirectories;
   final String? workspaceRoot;
   final SandboxPlan? plan;
+  final CommandApprovalStore? approvalStore;
   Map<String, String> Function()? trustedReaderExecutables;
 
   /// The sandbox fast path lookup: files this session's own write/edit
@@ -220,6 +222,7 @@ final class SandboxedProcessRunner
     this.readDirectories,
     this.workspaceRoot,
     this.plan,
+    this.approvalStore,
   })  : writableDirectories = writableDirectories ?? WritableDirectories(),
         grants = grants ?? CommandGrants();
 
@@ -247,6 +250,7 @@ final class SandboxedProcessRunner
         workspaceWriteAllowed: false,
         networkAllowed: false,
         outsideSandboxAllowed: false,
+        clearEnvironmentApproval: true,
         outputDirectories: const [],
         readDirectories: List.unmodifiable(control.readDirectories),
         writeDirectories: List.unmodifiable(control.writeDirectories),
@@ -255,6 +259,22 @@ final class SandboxedProcessRunner
       return const CommandRefused('cancelled: command was not started');
     }
     final outsideSandbox = control?.outsideSandboxRequested ?? false;
+    final confined = inner is ConfinedProcessRunner &&
+        (inner as ConfinedProcessRunner).confinesFilesystem;
+    if (plan != null) {
+      request = (
+        command: request.command,
+        arguments: request.arguments,
+        workingDirectory: request.workingDirectory,
+        environment: Map<String, String>.unmodifiable(
+            outsideSandbox || !confined
+                ? plan!.outsideEnvironment
+                : plan!.childEnvironment),
+        stdin: request.stdin,
+        timeout: request.timeout,
+      );
+    }
+    final searchPath = request.environment?['PATH'] ?? executableSearchPath;
     if (outsideSandbox && (control?.sandboxReason?.trim().isEmpty ?? true)) {
       return const CommandRefused(
           'A sandbox_reason is required for outside-sandbox execution.');
@@ -263,8 +283,7 @@ final class SandboxedProcessRunner
     // access explicitly rather than pretending the offline restriction holds.
     if (outsideSandbox && plan != null) {
       try {
-        final environment =
-            Map<String, String>.unmodifiable(plan!.outsideEnvironment);
+        final environment = request.environment!;
         request = (
           command: resolveHostExecutable(request,
               workspace: plan!.workspaceRoot, searchPath: environment['PATH']),
@@ -284,11 +303,10 @@ final class SandboxedProcessRunner
         canonicalSandboxPath(workspaceRoot ?? request.workingDirectory ?? '.');
     bool inside(String target) =>
         sandboxPathUnder(canonicalSandboxPath(target), root);
-    final confined = inner is ConfinedProcessRunner &&
-        (inner as ConfinedProcessRunner).confinesFilesystem;
     final envelope = CapabilityEnvelope.parse(request,
+        filteredEnvironment: plan != null,
         control: control,
-        searchPath: executableSearchPath,
+        searchPath: searchPath,
         canWrite: outputWritePermission);
     final ProcessDirectoryAccess access;
     try {
@@ -353,23 +371,40 @@ final class SandboxedProcessRunner
     String executable;
     try {
       executable = resolveHostExecutable(request,
-          workspace: root, searchPath: executableSearchPath);
+          workspace: root, searchPath: searchPath);
     } on FileSystemException {
       executable = request.command;
     }
     final deletions =
         _deletionTargets(request, request.workingDirectory ?? root);
+    final prefixPlan = CommandPrefixPlan.parse(request,
+        workspace: root,
+        sandboxHomeRoot:
+            confined && !outsideSandbox ? plan?.home?.stateRoot : null,
+        searchPath: request.environment?['PATH'] ?? executableSearchPath);
+    final rememberedCapabilities = <String>{};
+    bool prefixGranted(String capability) {
+      final covered =
+          approvalStore?.coversPrefixes(prefixPlan, capability) ?? false;
+      if (covered) rememberedCapabilities.add(capability);
+      return covered;
+    }
+
     final requirements = <AccessRequirement>[
       AccessRequirement(AccessCapability.execute, executable,
+          granted: prefixGranted('execute'),
           workspace: path.isAbsolute(executable) &&
               inside(executable) &&
               !outsideSandbox),
       if (writesRequested || workspaceAllowed())
         AccessRequirement(AccessCapability.write, root,
             workspace: true, granted: workspaceAllowed()),
-      if (network) AccessRequirement(AccessCapability.network, executable),
+      if (network)
+        AccessRequirement(AccessCapability.network, executable,
+            granted: prefixGranted('network')),
       if (outsideSandbox || !confined)
-        AccessRequirement(AccessCapability.host, executable),
+        AccessRequirement(AccessCapability.host, executable,
+            granted: prefixGranted('host')),
       for (final target in access.read)
         AccessRequirement(AccessCapability.read, target,
             workspace: inside(target), granted: _canRead(target)),
@@ -433,6 +468,18 @@ final class SandboxedProcessRunner
         _workspaceWrites = true;
     }
     if (!accessUnchanged() ||
+        rememberedCapabilities.any((capability) =>
+            approvalStore?.coversPrefixes(prefixPlan, capability) != true) ||
+        prefixPlan != null &&
+            CommandPrefixPlan.parse(request,
+                        workspace: root,
+                        sandboxHomeRoot: confined && !outsideSandbox
+                            ? plan?.home?.stateRoot
+                            : null,
+                        searchPath: request.environment?['PATH'] ??
+                            executableSearchPath)
+                    ?.identity !=
+                prefixPlan.identity ||
         plan?.validDirectoryAccess(access, linux: _linux) == false) {
       return const CommandRefused('Requested paths changed during approval.');
     }
@@ -448,7 +495,8 @@ final class SandboxedProcessRunner
       outsideSandboxAllowed: outsideSandbox,
       outputDirectories: const [],
       approvedDirectories: access,
-      approvedHostEnvironment: outsideSandbox ? plan?.outsideEnvironment : null,
+      approvedHostEnvironment: outsideSandbox ? request.environment : null,
+      approvedEnvironment: plan == null ? null : request.environment,
     );
     final outcome = await inner.run((
       command: executable,

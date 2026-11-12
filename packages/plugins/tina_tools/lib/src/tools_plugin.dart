@@ -105,6 +105,12 @@ final class ToolsPlugin extends AgentPlugin
       workspaceRoot: workspaceRoot,
       tinaDir: tinaDir.path,
       parentEnvironment: environment,
+      readSearchPath: () {
+        final value = settings?.read(commandPathSetting).value ?? '';
+        return value.isEmpty ? SandboxPlan.defaultSearchPath : value;
+      },
+      readEnvironment: () =>
+          settings?.read(commandEnvironmentSetting).value ?? const {},
       home: home,
       protectedPaths: [
         ...protectedPaths,
@@ -136,6 +142,7 @@ final class ToolsPlugin extends AgentPlugin
       readDirectories: readDirectories,
       workspaceRoot: workspaceRoot,
       plan: osPlan,
+      approvalStore: commandApprovals,
     );
     processRunner.outputWritePermission = (target) =>
         osPlan.canWrite(target) &&
@@ -165,8 +172,14 @@ final class ToolsPlugin extends AgentPlugin
           scratchNoticeFor: _scratchNoticeFor),
       GlobTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
       StatTool(workspaceRoot: workspaceRoot, sandbox: sandbox),
-      BashTool(runner: processJobs, workingDirectory: workspaceRoot),
-      ExecTool(runner: processJobs, workingDirectory: workspaceRoot),
+      BashTool(
+          runner: processJobs,
+          workingDirectory: workspaceRoot,
+          readWorkingDirectory: () => commandWorkingDirectory),
+      ExecTool(
+          runner: processJobs,
+          workingDirectory: workspaceRoot,
+          readWorkingDirectory: () => commandWorkingDirectory),
       ProcessJobTool(processJobs),
     ];
     workingDirectory = workspaceRoot;
@@ -283,6 +296,33 @@ final class ToolsPlugin extends AgentPlugin
 
   /// The session's working directory.
   late final String workingDirectory;
+  String? _lastCommandContext;
+
+  String get _commandContext =>
+      'Default command working_directory: $commandWorkingDirectory. '
+      'Command PATH: ${osPlan.searchPath}. Use this environment directly; '
+      'do not prepend cd or redundant PATH exports. '
+      'Configured environment variable names: ${osPlan.readEnvironment?.call().keys.join(', ') ?? ''}.';
+
+  @override
+  void beforeModelCall(TurnContext context) {
+    final index = context.promptSections.indexOf(_lastCommandContext ?? '');
+    _lastCommandContext = _commandContext;
+    if (index < 0) {
+      context.promptSections.add(_lastCommandContext!);
+    } else {
+      context.promptSections[index] = _lastCommandContext!;
+    }
+  }
+
+  String get commandWorkingDirectory {
+    final value = settings?.read(commandWorkingDirectorySetting).value ?? '';
+    return canonicalSandboxPath(value.isEmpty
+        ? workingDirectory
+        : path.isAbsolute(value)
+            ? value
+            : path.join(workingDirectory, value));
+  }
 
   /// The session's tools. Their schemas are what the loop pins and
   /// advertises ([toolSchemas]); their executors are registered by
@@ -326,6 +366,7 @@ final class ToolsPlugin extends AgentPlugin
   /// measuring whether prediction is earning its keep.
   SpeculativeStats get speculativeStats => _speculative.stats;
   ToolUse? _activeCall;
+  void Function()? _stopPrefixState;
 
   void rememberReadDirectory(String directory, {SettingScope? scope}) {
     pathGrants.remember(directory,
@@ -366,6 +407,22 @@ final class ToolsPlugin extends AgentPlugin
 
   void mountOn(AgentLoop loop) {
     modePolicy.mountPolicy(loop, ownerId: id);
+    final state = loop.derive().pluginStates[id]?['command-prefixes'];
+    if (state != null && state.value != null) {
+      if (state.schemaVersion != 1)
+        throw const FormatException('Unsupported command prefix state');
+    }
+    commandApprovals.restoreSessionPrefixes(
+        state?.value?['grants'] ?? commandApprovals.sessionPrefixEntries);
+    final writeState = loop.stateWriter(id);
+    _stopPrefixState?.call();
+    _stopPrefixState = commandApprovals.listenSessionPrefixes(() {
+      writeState(PluginStateEntry.snapshot(
+          pluginId: id,
+          stateKey: 'command-prefixes',
+          schemaVersion: 1,
+          value: {'grants': commandApprovals.sessionPrefixEntries}));
+    });
     registerExecutors(loop.registerContextExecutor);
   }
 
@@ -467,6 +524,7 @@ final class ToolsPlugin extends AgentPlugin
     _speculativePrefetch.cancel();
     _stopReadSettings?.call();
     _stopHomeSettings?.call();
+    _stopPrefixState?.call();
     _speculative.clear();
     unawaited(processJobs.close().whenComplete(() => home?.close()));
     modePolicy.closeSession();
@@ -488,6 +546,8 @@ final class ToolsPlugin extends AgentPlugin
   @override
   void onPrompt(TurnContext c) {
     c.promptSections.add(prompt.sectionFor(sandbox.mode));
+    _lastCommandContext = _commandContext;
+    c.promptSections.add(_lastCommandContext!);
     c.promptSections.add(
         'Workspace writes: ${modePolicy.hasWorkspaceWriteGrant(canonicalSandboxPath(workingDirectory)) ? 'approved for this session' : 'not yet approved'}.');
     for (final grant in pathGrants.grants) {

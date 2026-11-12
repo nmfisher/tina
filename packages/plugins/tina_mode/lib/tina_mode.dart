@@ -258,6 +258,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ApprovalDecision.allowAlways ||
       ApprovalDecision.allowWorkspace ||
       ApprovalDecision.allowGlobal ||
+      ApprovalDecision.allowPrefixInSession ||
+      ApprovalDecision.allowPrefixInWorkspace ||
       ApprovalDecision.allowReadsInDirectory ||
       ApprovalDecision.allowAlwaysAndReadsInDirectory ||
       ApprovalDecision.allowWritesInDirectory ||
@@ -271,6 +273,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
             ApprovalDecision.allowAlways ||
             ApprovalDecision.allowWorkspace ||
             ApprovalDecision.allowGlobal ||
+            ApprovalDecision.allowPrefixInSession ||
+            ApprovalDecision.allowPrefixInWorkspace ||
             ApprovalDecision.allowReadsAlways => PrecedentAuthority.humanAlways,
             _ => PrecedentAuthority.humanOnce,
           };

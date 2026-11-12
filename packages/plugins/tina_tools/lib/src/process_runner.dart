@@ -157,6 +157,7 @@ final class ProcessControl {
       this.sandboxReason,
       this.outsideSandboxAllowed = false,
       this.approvedHostEnvironment,
+      this.approvedEnvironment,
       this.readDirectories = const [],
       this.writeDirectories = const [],
       this.approvedDirectories,
@@ -186,6 +187,9 @@ final class ProcessControl {
   /// Tool input cannot supply this authorization snapshot.
   final Map<String, String>? approvedHostEnvironment;
 
+  /// Filtered environment frozen by the permission boundary for this command.
+  final Map<String, String>? approvedEnvironment;
+
   /// Requested additions, never authorization. The gate freezes and validates
   /// these before review. Tool calls reset any incoming authorization.
   final List<String> readDirectories;
@@ -212,6 +216,8 @@ final class ProcessControl {
     String? sandboxReason,
     bool? outsideSandboxAllowed,
     Map<String, String>? approvedHostEnvironment,
+    Map<String, String>? approvedEnvironment,
+    bool clearEnvironmentApproval = false,
     List<String>? readDirectories,
     List<String>? writeDirectories,
     ProcessDirectoryAccess? approvedDirectories,
@@ -234,6 +240,9 @@ final class ProcessControl {
         approvedHostEnvironment: outsideSandboxAllowed == false
             ? null
             : approvedHostEnvironment ?? this.approvedHostEnvironment,
+        approvedEnvironment: clearEnvironmentApproval
+            ? null
+            : approvedEnvironment ?? this.approvedEnvironment,
         readDirectories: readDirectories ?? this.readDirectories,
         writeDirectories: writeDirectories ?? this.writeDirectories,
         approvedDirectories: clearDirectoryApproval

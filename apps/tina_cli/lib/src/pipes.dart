@@ -276,9 +276,12 @@ final class _SessionPipes {
     final decision = switch (decisionName) {
       'allow' => ApprovalDecision.allow,
       'always' => ApprovalDecision.allowAlways,
+      'prefix-session' => ApprovalDecision.allowPrefixInSession,
+      'prefix-workspace' => ApprovalDecision.allowPrefixInWorkspace,
       'deny' => ApprovalDecision.deny,
       _ => throw ArgumentError(
-          'approve decision must be allow, always or deny'),
+        'approve decision must be allow, always, prefix-session, prefix-workspace or deny',
+      ),
     };
     final accepted = channel.respond(id, decision);
     _emitNow({

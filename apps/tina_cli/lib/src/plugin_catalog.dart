@@ -43,6 +43,31 @@ final webSearchSetting = SettingDefinition<int>(
   applyAt: ApplyAt.nextRequest,
 );
 
+final toolCallFormatSetting = SettingDefinition<bool>(
+  id: 'tina/classification/tool_call_format',
+  label: 'Check command format before running',
+  description:
+      'Use the configured Typesafe model to check exec and bash calls. '
+      'Ask the agent to rewrite unnecessary wrappers or setup before approval '
+      'and execution. Requires tina/classification and a Typesafe API key.',
+  defaultValue: true,
+  kind: SettingKind.toggle,
+  applyAt: ApplyAt.nextRequest,
+);
+
+final toolCallFormatTimeoutSetting = SettingDefinition<int>(
+  id: 'tina/classification/tool_call_format_timeout_seconds',
+  label: 'Command format check timeout (seconds)',
+  description:
+      'Maximum time for a Typesafe command format check. If unavailable '
+      'or timed out, continue with normal permission checks.',
+  defaultValue: 60,
+  kind: SettingKind.integer,
+  minimum: 1,
+  maximum: 300,
+  applyAt: ApplyAt.nextRequest,
+);
+
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
 /// The model for permission-side judgments: the configured classifier model,
@@ -249,6 +274,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     >(
       'tina/tools',
       cli: toolsCli,
+      settings: executionSettings,
       first: approvalRequester,
       second: modelAccess,
       provides: [toolProvider, modePolicySource],
@@ -277,13 +303,21 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     PluginDefinition.dependingOn<SessionPluginContext, ModelAccess>(
       'tina/classification',
       dependency: modelAccess,
+      settings: [toolCallFormatSetting, toolCallFormatTimeoutSetting],
       create: (c, models) => ClassificationPlugin.configured(
         terminal: c.terminal,
         configPath: c.configPath,
         createProvider: () => models.mainProvider(c.currentModel()),
+        toolCallFormatEnabled: () =>
+            c.settings?.read(toolCallFormatSetting).value ?? true,
+        toolCallFormatTimeout: () => Duration(
+          seconds: c.settings?.read(toolCallFormatTimeoutSetting).value ?? 60,
+        ),
       ),
       description:
-          'Classifies user input and Git operations, learns reusable categories from Other using the active model, and counts selections. Displays results without changing how the agent responds.',
+          'Classifies user input and Git operations, learns reusable categories, '
+          'and checks command format with Typesafe before execution. '
+          'Requests rewrites for poorly formatted commands without granting permissions.',
       live: true,
     ),
     PluginDefinition<SessionPluginContext>(

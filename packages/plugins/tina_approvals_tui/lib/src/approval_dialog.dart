@@ -175,6 +175,18 @@ class ApprovalDialog {
       ];
 
   bool get _resourcePermissions => ask?.details['resource_permissions'] == true;
+  List<String> get _commandPrefixes {
+    final value = ask?.details['command_prefixes'];
+    return ask?.confirmation != true &&
+            call?.argumentsParseError == null &&
+            value is List &&
+            value.isNotEmpty &&
+            value.every((p) => p is String && p.isNotEmpty)
+        ? value.cast<String>()
+        : const [];
+  }
+
+  bool get _hasPrefixes => _commandPrefixes.isNotEmpty;
   bool get _hasAlways =>
       ask?.details['workspace_write_grant'] != true &&
       (!_resourcePermissions || _directoryOffers.isNotEmpty) &&
@@ -256,7 +268,16 @@ class ApprovalDialog {
   List<String> get _choices => ask?.confirmation == true
       ? ['Yes', 'No']
       : !_rememberMenu
-          ? ['allow', 'deny', if (_hasAlways) 'remember']
+          ? [
+              'allow',
+              if (_hasPrefixes) ...[
+                'prefix session',
+                if (ask?.details['persistent_command_prefix'] == true)
+                  'prefix workspace',
+              ],
+              'deny',
+              if (_hasAlways) 'remember'
+            ]
           : [
               if (!_resourcePermissions) 'allow always',
               if (_hasPersistent) 'allow workspace',
@@ -314,6 +335,8 @@ class ApprovalDialog {
   }
 
   ApprovalDecision decisionFor(int index) => switch (_choices[index]) {
+        'prefix session' => ApprovalDecision.allowPrefixInSession,
+        'prefix workspace' => ApprovalDecision.allowPrefixInWorkspace,
         'allow always' => ApprovalDecision.allowAlways,
         'allow workspace' => ApprovalDecision.allowWorkspace,
         'allow global' => ApprovalDecision.allowGlobal,
@@ -378,6 +401,11 @@ class ApprovalDialog {
     final hasDenialReason =
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
+      if (_hasPrefixes && _details) ...[
+        'Command prefixes offered for remembering (every pipeline stage is checked):',
+        for (final prefix in _commandPrefixes) '  $prefix …',
+        'Prefix rules cover only the displayed execution, network and host capabilities. File access is checked separately.',
+      ],
       if (ask?.details['authorization_reason'] case final String why)
         'Why approval is needed: $why',
       if (ask?.details['access_requirements'] case final List requirements)
@@ -454,10 +482,13 @@ class ApprovalDialog {
           ask!.details['permission_scope_description'] as String
         else if (_hasAlways && scope == 'file')
           'Session approval covers only this file. Other files still ask.',
-        if (_hasAlways &&
+        if (!_hasPrefixes &&
+            _hasAlways &&
             ask?.details['permission_scope_description'] == null &&
             scope == 'command')
           'Session approval covers this exact command in this directory.',
+        if (_hasPrefixes)
+          'Prefix rules apply in this directory and environment; file access is checked separately.',
       ],
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',
@@ -523,9 +554,16 @@ class ApprovalDialog {
             ? '[y] Allow workspace writes for this session'
             : ask?.details['directory_grant_required'] == true
                 ? '[y] allow once and retry'
-                : '[y] allow once',
+                : _hasPrefixes
+                    ? '[y] Run once'
+                    : '[y] allow once',
+        'prefix session' =>
+          '[a] Remember for this conversation: ${_commandPrefixes.join(' | ')} …',
+        'prefix workspace' =>
+          '[p] Persist for this workspace: ${_commandPrefixes.join(' | ')} …',
         'deny' => '[n] deny',
-        'remember' => '[a] Remember…',
+        'remember' =>
+          _hasPrefixes ? 'Remember file or directory access…' : '[a] Remember…',
         'back' => 'Back',
         'allow always' => '[a] $alwaysLabel',
         'allow workspace' => '[p] Remember $object for this workspace',
@@ -606,7 +644,10 @@ class ApprovalDialog {
   bool handleKey(ApprovalKey key) {
     if (key == ApprovalKey.confirm && !_details && _navigateRemember())
       return true;
-    if (key == ApprovalKey.always && !_rememberMenu && _hasAlways) {
+    if (key == ApprovalKey.always &&
+        !_rememberMenu &&
+        _hasAlways &&
+        !_hasPrefixes) {
       _openRemember();
       return true;
     }
@@ -748,10 +789,18 @@ class ApprovalDialog {
           return const ApprovalOutcome(ApprovalDecision.deny);
         case ApprovalKey.workspace:
         case ApprovalKey.global:
+          if (!_rememberMenu &&
+              _hasPrefixes &&
+              key == ApprovalKey.workspace &&
+              ask?.details['persistent_command_prefix'] == true) {
+            return _outcome(ApprovalDecision.allowPrefixInWorkspace);
+          }
           // Scope shortcuts are active only inside Remember.
           final outcome = scopeDecision(key!);
           if (outcome != null) return outcome;
         case ApprovalKey.always:
+          if (!_rememberMenu && _hasPrefixes)
+            return _outcome(ApprovalDecision.allowPrefixInSession);
           if (_hasAlways) {
             if (!_rememberMenu) {
               _openRemember();

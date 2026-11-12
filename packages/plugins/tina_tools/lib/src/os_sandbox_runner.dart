@@ -154,7 +154,7 @@ enum UnavailableBehaviour { allow, refuse }
 /// paths the kernel makes writable, never a hair less or more.
 class SandboxPlan {
   static const defaultSearchPath =
-      '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+      '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 
   /// The session's project root: bound read-write in the namespace.
   final String workspaceRoot;
@@ -182,28 +182,37 @@ class SandboxPlan {
   final String? realHome;
   final List<String> protectedPaths;
   final PathGrants? pathGrants;
+  final String Function()? readSearchPath;
+  final Map<String, String> Function()? readEnvironment;
 
   Map<String, String> get hostEnvironment =>
       parentEnvironment ?? Platform.environment;
   String? get hostHome => realHome ?? hostEnvironment['HOME'];
-  String get searchPath => _childEnvironment?['PATH'] ?? defaultSearchPath;
-  Map<String, String> get childEnvironment =>
-      _childEnvironment ??
-      {
-        'PATH': searchPath,
-        'HOME': home?.ensure() ?? '/tmp',
-        'TMPDIR': home?.existingPath == null
-            ? '/tmp'
-            : path.join(home!.existingPath!, 'tmp'),
-        'LANG': 'C.UTF-8',
+  String get searchPath =>
+      readSearchPath?.call() ?? _childEnvironment?['PATH'] ?? defaultSearchPath;
+  Map<String, String> get childEnvironment => {
+        ...(_childEnvironment ??
+            {
+              'PATH': searchPath,
+              'HOME': home?.ensure() ?? '/tmp',
+              'TMPDIR': home?.existingPath == null
+                  ? '/tmp'
+                  : path.join(home!.existingPath!, 'tmp'),
+              'LANG': 'C.UTF-8',
+            }),
+        ...?readEnvironment?.call(),
+        if (readSearchPath != null) 'PATH': searchPath,
       };
   Map<String, String> get outsideEnvironment => {
-        'PATH': hostEnvironment['PATH'] ?? searchPath,
+        'PATH': readSearchPath != null
+            ? searchPath
+            : hostEnvironment['PATH'] ?? searchPath,
         'HOME': hostHome ?? '/tmp',
         'TMPDIR': sandboxTempDirectory(hostEnvironment),
         'LANG': hostEnvironment['LANG'] ?? 'C.UTF-8',
         if (hostEnvironment['SSH_AUTH_SOCK'] case final String socket)
           'SSH_AUTH_SOCK': socket,
+        ...?readEnvironment?.call(),
       };
   List<String> get deniedPaths => sandboxPathAliases([
         ...protectedPaths,
@@ -342,8 +351,9 @@ class SandboxPlan {
 
   /// A private layout for one invocation. Never mutate live settings or the
   /// shared plan, which may be serving other running jobs.
-  SandboxPlan withDirectoryAccess(ProcessDirectoryAccess access) {
-    if (access.isEmpty) return this;
+  SandboxPlan withDirectoryAccess(ProcessDirectoryAccess access,
+      {Map<String, String>? environment}) {
+    if (access.isEmpty && environment == null) return this;
     return SandboxPlan(
       workspaceRoot: workspaceRoot,
       tinaDir: tinaDir,
@@ -353,7 +363,9 @@ class SandboxPlan {
       writeDirectories: WriteDirectories()
         ..replace([...?writeDirectories?.existingPaths, ...access.write]),
       isolateNetwork: isolateNetwork,
-      childEnvironment: _childEnvironment,
+      childEnvironment: environment ?? _childEnvironment,
+      readSearchPath: environment == null ? readSearchPath : null,
+      readEnvironment: environment == null ? readEnvironment : null,
       parentEnvironment: parentEnvironment,
       home: home,
       realHome: realHome,
@@ -378,6 +390,8 @@ class SandboxPlan {
     this.realHome,
     this.protectedPaths = const [],
     this.pathGrants,
+    this.readSearchPath,
+    this.readEnvironment,
   }) : _childEnvironment = childEnvironment;
 
   /// Every path the layout makes writable: the workspace root, the extra
@@ -517,7 +531,9 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
       return const CommandRefused(
           'Approved directories changed before execution');
     }
-    final plan = this.plan.withDirectoryAccess(access);
+    final plan = this
+        .plan
+        .withDirectoryAccess(access, environment: control?.approvedEnvironment);
     if (control?.outsideSandboxRequested == true &&
         (control?.outsideSandboxAllowed != true ||
             control?.networkAllowed != true)) {
@@ -539,22 +555,23 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
         command: request.command,
         arguments: request.arguments,
         workingDirectory: request.workingDirectory,
-        environment: control?.outsideSandboxRequested == true &&
-                control?.approvedHostEnvironment != null
-            ? {
-                // The gate snapshots these fields before human approval.
-                // Never inherit arbitrary environment variables here.
-                for (final key in [
-                  'PATH',
-                  'HOME',
-                  'TMPDIR',
-                  'LANG',
-                  'SSH_AUTH_SOCK'
-                ])
-                  if (control!.approvedHostEnvironment!.containsKey(key))
-                    key: control.approvedHostEnvironment![key]!,
-              }
-            : plan.outsideEnvironment,
+        environment: control?.approvedEnvironment ??
+            (control?.outsideSandboxRequested == true &&
+                    control?.approvedHostEnvironment != null
+                ? {
+                    // The gate snapshots these fields before human approval.
+                    // Never inherit arbitrary environment variables here.
+                    for (final key in [
+                      'PATH',
+                      'HOME',
+                      'TMPDIR',
+                      'LANG',
+                      'SSH_AUTH_SOCK'
+                    ])
+                      if (control!.approvedHostEnvironment!.containsKey(key))
+                        key: control.approvedHostEnvironment![key]!,
+                  }
+                : plan.outsideEnvironment),
         stdin: request.stdin,
         timeout: request.timeout,
       ), control: control);
@@ -573,7 +590,8 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
             command: request.command,
             arguments: request.arguments,
             workingDirectory: request.workingDirectory,
-            environment: plan.outsideEnvironment,
+            environment:
+                control?.approvedEnvironment ?? plan.outsideEnvironment,
             stdin: request.stdin,
             timeout: request.timeout
           ), control: control),

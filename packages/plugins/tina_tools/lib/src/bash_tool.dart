@@ -24,6 +24,7 @@ class BashTool extends ProcessToolBase {
   /// The directory the command runs in. Null means the process inherits the
   /// host's cwd.
   final String? workingDirectory;
+  final String? Function()? readWorkingDirectory;
 
   /// The shell that interprets the command string, with the flag that hands
   /// it the script. Defaults to `/bin/sh -c` on POSIX.
@@ -36,6 +37,7 @@ class BashTool extends ProcessToolBase {
   BashTool({
     required this.runner,
     this.workingDirectory,
+    this.readWorkingDirectory,
     this.shell = '/bin/sh',
     this.shellFlag = '-c',
     this.environment,
@@ -137,7 +139,8 @@ class BashTool extends ProcessToolBase {
     final String command;
     final String? directory;
     try {
-      directory = processWorkingDirectory(input, workingDirectory);
+      directory = processWorkingDirectory(
+          input, readWorkingDirectory?.call() ?? workingDirectory);
       command = requiredString(input, 'command');
     } on ToolValidationException catch (e) {
       return ToolResult.error(e.message);

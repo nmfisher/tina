@@ -3,10 +3,11 @@ import 'package:toml/toml.dart';
 import 'typesafe_classifier.dart';
 
 /// Read the existing Typesafe settings independently of conversation providers.
-/// Called per input so credentials can change without recreating the session.
+/// Called per operation so credentials can change without recreating the session.
 TypeSafeConfig? readClassificationConfig(
   String path, {
   Map<String, String>? environment,
+  Duration? timeout,
 }) {
   final env = environment ?? Platform.environment;
   final file = File(path);
@@ -28,6 +29,7 @@ TypeSafeConfig? readClassificationConfig(
   return TypeSafeConfig(
     apiKey: key,
     model: settings['model'] as String? ?? 'jev-latest',
+    timeout: timeout ?? const Duration(seconds: 30),
     endpoint: settings['endpoint'] == null
         ? null
         : Uri.parse(settings['endpoint'] as String),

@@ -3,7 +3,7 @@ import 'package:path/path.dart' as p;
 import 'command_approval_store.dart';
 import 'path_grants.dart';
 
-/// Compatibility view for Settings: path grants replace command grants.
+/// Current grants shown in Settings: paths, token prefixes and MCP access.
 /// Explicit MCP access entries retain their existing store and revocation UI.
 final class ResourceApprovalStore extends CommandApprovalStore {
   ResourceApprovalStore(
@@ -16,10 +16,12 @@ final class ResourceApprovalStore extends CommandApprovalStore {
   @override
   List<Map<String, Object?>> get entries => [
         ...super.entries.where((e) =>
+            e['kind'] == 'command_prefix' ||
             e['kind'] == 'access' &&
-            (!{'read', 'write', 'delete', 'execute'}
-                    .contains(e['capability']) ||
-                e['target'] is String && !p.isAbsolute(e['target'] as String))),
+                (!{'read', 'write', 'delete', 'execute'}
+                        .contains(e['capability']) ||
+                    e['target'] is String &&
+                        !p.isAbsolute(e['target'] as String))),
         for (final grant in paths.grants)
           {
             'id':

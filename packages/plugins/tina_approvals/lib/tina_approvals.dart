@@ -16,6 +16,8 @@ enum ApprovalDecision {
   allowAlways,
   allowWorkspace,
   allowGlobal,
+  allowPrefixInSession,
+  allowPrefixInWorkspace,
   deny,
   allowReadsInDirectory,
   allowAlwaysAndReadsInDirectory,
@@ -192,7 +194,10 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       final writeGrant = decision == ApprovalDecision.allowWritesInDirectory ||
           decision == ApprovalDecision.allowAlwaysAndWritesInDirectory;
       final persistentGrant = decision == ApprovalDecision.allowWorkspace ||
-          decision == ApprovalDecision.allowGlobal;
+          decision == ApprovalDecision.allowGlobal ||
+          decision == ApprovalDecision.allowPrefixInWorkspace;
+      final prefixGrant = decision == ApprovalDecision.allowPrefixInSession ||
+          decision == ApprovalDecision.allowPrefixInWorkspace;
       var invalidPattern = false;
       if (commandPattern != null) {
         try {
@@ -213,7 +218,17 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           invalidPattern = true;
         }
       }
-      final invalidScope = (persistentGrant &&
+      final prefixes = request.details['command_prefixes'];
+      final invalidScope = (prefixGrant &&
+              (request.kind != ApprovalKind.permission ||
+                  request.details['permission_scope'] != 'command' ||
+                  decision == ApprovalDecision.allowPrefixInWorkspace &&
+                      request.details['persistent_command_prefix'] != true ||
+                  prefixes is! List ||
+                  prefixes.isEmpty ||
+                  prefixes
+                      .any((prefix) => prefix is! String || prefix.isEmpty))) ||
+          (persistentGrant &&
               (request.kind != ApprovalKind.permission ||
                   !(request.details['persistent_command_approval'] == true ||
                       commandPattern != null &&

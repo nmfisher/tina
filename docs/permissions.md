@@ -42,9 +42,35 @@ Paths are canonical, with symlinks resolved. A saved file never becomes a parent
 directory grant. Replacing a saved directory with a symlink does not redirect its
 grant. Settings → Permissions lists saved paths and supports revocation; changes
 are reread for subsequent accesses. Invalid files grant nothing and are not
-overwritten. Legacy read/write directory settings are imported once. Command
-patterns, trusted-reader identities, workflow grants, and approval precedents no
-longer authorize filesystem commands.
+overwritten. Legacy read/write directory settings are imported once. Legacy
+regex patterns, trusted-reader identities, workflow grants, and approval
+precedents do not authorize commands or filesystem access.
+
+## Saved command prefixes
+
+Eligible command prompts offer **Run once**, **Remember for this conversation**,
+**Persist for this workspace**, and **Deny**. The scope choices show the literal
+argument prefix, such as `gh pr view`. Prefixes match whole argument tokens:
+`gh pr view 429` and `gh pr view 430` match; `gh pr checkout` and `gh pr viewevil`
+do not. Every stage of a literal pipeline needs its own matching rule. A `head`
+rule never approves an earlier `otool` or `grep` stage. The menu shows every
+prefix it will remember. Scripts, assignments, expansion, command lists and file
+redirections remain invocation reviews rather than broad shell-prefix rules.
+
+Rules remember only the displayed execution, network and host capabilities.
+They never grant file reads, writes or deletion, and the first workspace-write
+approval still applies. They bind the resolved executable, working directory,
+filtered environment, stdin and shell context. Changing that context requires
+fresh approval. Private sandbox HOME/TMPDIR generations do not invalidate an
+otherwise identical context. Executables, path access and saved rules are checked
+again after an asynchronous approval; cancellation cannot create a late grant.
+
+Conversation rules are saved in that conversation's protected session state and
+restored on resume. New conversations do not inherit them. Workspace rules live
+in the existing private `~/.tina/approvals/commands.json` store and apply to new
+conversations in that workspace. Settings → Permissions → Remembered permissions
+lists both kinds and supports revocation. Revocation takes effect on subsequent
+access and while another approval for the command is pending.
 
 ## Auto review
 
@@ -66,14 +92,26 @@ even after writes have been approved. Network authorization is separate.
 
 Use `access: "workspace-write"` when exec/bash needs workspace mutations. External
 paths can be requested through `read_directories` and `write_directories`. An
-external executable such as `/usr/bin/python3` is reviewed per invocation; a saved
-read grant does not authorize execution. System runtime reads use the sandbox's
+external executable requires execution review unless a current token-prefix
+rule covers it; a saved read grant does not authorize execution. System runtime reads use the sandbox's
 built-in read-only baseline: `/bin`, `/usr/bin`, library/include/share directories,
 selected public configuration files, and platform runtime paths. These do not
 need saved grants or appear as directory choices in Remember. The baseline does
 not grant writes, network access, or access to all of `/usr`, `/etc`, or the host
 home. Protected paths still take precedence. Private session HOME/TMPDIR are
 scratch, not durable outputs; shared host caches require grants.
+
+Settings → Permissions → Tools provides **Command working directory**, **Command
+PATH**, and **Command environment variables**. Defaults apply to both exec and
+bash; `working_directory` on one call overrides the default. Relative default
+directories resolve from the workspace. The built-in PATH includes
+`/opt/homebrew/bin`. Explicit environment variables support conversation and
+global scope, use a JSON object of string values, and are hidden as secret
+settings. Repository settings cannot supply them. HOME, temporary directories
+and shell-loader variables remain managed by Tina; PATH has its own setting.
+These settings survive conversation resume. Each command receives a frozen
+environment snapshot before review. Shell `cd` and `export` statements do not
+change later calls; no live shell, aliases or startup files are retained.
 
 Approval happens before an operation or command starts. There is no syscall
 broker: undeclared access fails in the sandbox. A blocked command is returned

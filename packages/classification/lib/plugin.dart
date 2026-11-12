@@ -3,8 +3,10 @@ import 'observation.dart';
 export 'observation.dart';
 import 'dart:io' show File;
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'config.dart';
+import 'configured_service.dart';
+export 'configured_service.dart';
 import 'judgments.dart';
+import 'tool_call_format.dart';
 import 'typesafe_classifier.dart';
 import 'utterance.dart';
 import 'category_store.dart';
@@ -16,32 +18,6 @@ InputCategoryStore openClassificationCategories(String configPath) =>
           .resolve('classification/categories.json')
           .toFilePath(),
     );
-
-ClassificationLease? openConfiguredClassification(
-  String configPath, {
-  Map<String, String>? environment,
-}) {
-  final config = readClassificationConfig(configPath, environment: environment);
-  if (config == null) return null;
-  final service = TypeSafeJudgmentService(config: config);
-  return ClassificationLease(
-    service: service,
-    budget: config.requestBudget,
-    close: service.close,
-  );
-}
-
-/// A single input's classifier service. The plugin owns and closes the lease.
-final class ClassificationLease {
-  ClassificationLease({
-    required this.service,
-    required this.budget,
-    required this.close,
-  });
-  final JudgmentService service;
-  final JudgmentRequestBudget budget;
-  final void Function() close;
-}
 
 /// Read-only access to one session's classification status and diagnostics.
 /// Detaching a reader cannot cancel inference or close the runtime plugin.
@@ -61,8 +37,9 @@ final class _ClassificationObservation implements ClassificationObservation {
   }
 }
 
-/// Informational input classification. Background work never rewrites input,
-/// grants permissions, or adds predictions to the model's prompt/transcript.
+/// Background input classification and an optional process-call format guard.
+/// Input predictions remain informational; format checks can request a rewrite
+/// before execution. Neither path grants permissions.
 class ClassificationPlugin extends AgentPlugin {
   ClassificationPlugin({
     required this.terminal,
@@ -70,12 +47,15 @@ class ClassificationPlugin extends AgentPlugin {
     this.timeout = const Duration(seconds: 30),
     InputCategoryStore? categories,
     this.learner,
+    this.toolCalls,
   }) : categories = categories ?? MemoryInputCategoryStore();
   factory ClassificationPlugin.configured({
     required Terminal terminal,
     required String configPath,
     Map<String, String>? environment,
     required LlmProvider Function() createProvider,
+    bool Function()? toolCallFormatEnabled,
+    Duration Function()? toolCallFormatTimeout,
   }) => ClassificationPlugin(
     terminal: terminal,
     open: () =>
@@ -83,6 +63,13 @@ class ClassificationPlugin extends AgentPlugin {
     categories: openClassificationCategories(configPath),
     learner: MainAgentCategoryLearner(createProvider),
     timeout: const Duration(seconds: 90),
+    toolCalls: ToolCallFormatReviewer.configured(
+      terminal: terminal,
+      configPath: configPath,
+      environment: environment,
+      enabled: toolCallFormatEnabled,
+      readTimeout: toolCallFormatTimeout,
+    ),
   );
 
   final Terminal terminal;
@@ -90,6 +77,7 @@ class ClassificationPlugin extends AgentPlugin {
   final Duration timeout;
   final InputCategoryStore categories;
   final CategoryLearner? learner;
+  final ToolCallFormatReviewer? toolCalls;
   @override
   String get id => 'tina/classification';
   // Observe the accepted text after ordinary input guards and rewrites.
@@ -140,6 +128,11 @@ class ClassificationPlugin extends AgentPlugin {
       }),
     );
     unawaited(_classify(input, history, token));
+  }
+
+  @override
+  Future<void> beforeToolCall(TurnContext context) async {
+    if (!_closed) await toolCalls?.review(context, trace: trace);
   }
 
   Future<void> _classify(
@@ -331,6 +324,7 @@ class ClassificationPlugin extends AgentPlugin {
   void closeSession() {
     if (_closed) return;
     _closed = true;
+    toolCalls?.close();
     _stop();
     trace.close();
     unawaited(_changes.close());

@@ -19,6 +19,7 @@ class ExecTool extends ProcessToolBase {
   /// The directory the program runs in. Null means the process inherits the
   /// host's cwd.
   final String? workingDirectory;
+  final String? Function()? readWorkingDirectory;
 
   /// Extra environment for the child, on top of the inherited environment.
   final Map<String, String>? environment;
@@ -26,6 +27,7 @@ class ExecTool extends ProcessToolBase {
   ExecTool({
     required this.runner,
     this.workingDirectory,
+    this.readWorkingDirectory,
     this.environment,
   });
 
@@ -135,7 +137,8 @@ class ExecTool extends ProcessToolBase {
     final List<String> modelArgs;
     final String? directory;
     try {
-      directory = processWorkingDirectory(input, workingDirectory);
+      directory = processWorkingDirectory(
+          input, readWorkingDirectory?.call() ?? workingDirectory);
       program = requiredString(input, 'program');
       final raw = input['args'];
       if (raw == null) {

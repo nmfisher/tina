@@ -359,7 +359,7 @@ agent. The panel shares sidebar space with the plan and yields to dialogs.
 The last 32 exchanges are kept in memory for the session; each displayed body is
 limited to 65,536 characters. Transport credentials are not recorded. Headless
 `/classification` still prints the latest result.
-Results never change agent routing or permissions. Work runs in the background and stops on cancellation,
+Input predictions never change agent routing or permissions. This work runs in the background and stops on cancellation,
 superseding input, timeout or unload.
 
 ```toml
@@ -377,6 +377,26 @@ Requests have bounded input size. Classification and learning share a 90-second
 deadline, with a 60-second timeout for each isolated discovery. Typesafe usage is
 separate from conversation spend; discovery uses the normal conversation provider
 rates and token limits. Repository indexing and Attractor remain disconnected.
+
+The same plugin also checks `exec` and `bash` call format with the configured
+Typesafe model **before approval and execution**. The request includes only the
+tool name, command/program/arguments, shell and explicit working directory, plus
+the format policy. It excludes conversation history, command output and the
+process environment. A typed GOOD result continues to normal permission checks.
+A typed BAD result returns a tool error asking the conversation model to rewrite
+the call with direct executable/arguments, `working_directory`, and only necessary
+shell setup. Short pipelines and necessary environment setup remain valid. The
+rewritten call gets fresh format and permission checks; the classifier never
+edits or executes commands and never approves access. After two unsuccessful
+rewrites in a row, the turn stops rather than looping indefinitely.
+
+Settings → Plugins → `tina/classification` includes **Check command format before
+running** (on by default) and **Command format check timeout (seconds)** (60 by
+default, 1–300). Both support session, workspace and global settings. Missing
+Typesafe credentials, an oversized request, transport failure or timeout skips
+the format check with a brief notice and retains normal permission checks.
+Checks and GOOD/BAD results appear in the classification execution tree. File
+tools and other native tools do not need this process-command formatting check.
 
 ## Completion
 

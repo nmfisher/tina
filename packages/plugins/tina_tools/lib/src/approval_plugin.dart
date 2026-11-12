@@ -11,6 +11,7 @@ const modePolicySource = PluginCapability<ModePolicySource>('tina/mode-policy');
 /// the loader supplies the approval capability, never a particular channel.
 PluginDefinition<C> toolsDefinition<C>(ToolsPlugin Function(C) tools) =>
     PluginDefinition.dependingOn<C, ApprovalRequester>('tina/tools',
+        settings: executionSettings,
         dependency: approvalRequester,
         provides: [toolProvider, modePolicySource],
         create: (context, approvals) {
@@ -30,6 +31,8 @@ Approver requesterApprover(ApprovalRequester approvals) =>
         ApprovalDecision.allowAlways => Approval.always,
         ApprovalDecision.allowWorkspace ||
         ApprovalDecision.allowGlobal ||
+        ApprovalDecision.allowPrefixInSession ||
+        ApprovalDecision.allowPrefixInWorkspace ||
         ApprovalDecision.allowReadsAlways ||
         ApprovalDecision.allowReadsInDirectory ||
         ApprovalDecision.allowAlwaysAndReadsInDirectory ||
@@ -170,6 +173,8 @@ void attachModePolicy(ToolsPlugin plugin) {
       onDirectoryGrants: (value) => grants = value,
     );
     if (decision == ApprovalDecision.deny) return Approval.no;
+    if (decision == ApprovalDecision.allowPrefixInSession ||
+        decision == ApprovalDecision.allowPrefixInWorkspace) return Approval.no;
     if (!save(grants, details)) return Approval.no;
     return Approval.yes;
   };
@@ -178,7 +183,8 @@ void attachModePolicy(ToolsPlugin plugin) {
   plugin.processRunner.commandApprover = (request, review) async {
     if (!review.isActive()) return Approval.no;
     final envelope = CapabilityEnvelope.parse(request,
-        searchPath: plugin.processRunner.executableSearchPath);
+        filteredEnvironment: true,
+        searchPath: request.environment?['PATH'] ?? plugin.osPlan.searchPath);
     final accesses = <PermissionAccess>[
       ...envelope.verifiedAccesses,
       for (final target in review.directoryAccess.read)
@@ -194,6 +200,13 @@ void attachModePolicy(ToolsPlugin plugin) {
               PermissionTargetKind.unknown),
     ];
     final details = reviewPaths(accesses);
+    final prefixes = CommandPrefixPlan.parse(request,
+        workspace: root,
+        sandboxHomeRoot:
+            review.requiredPermissions.contains(ProcessPermission.unconfined)
+                ? null
+                : plugin.home?.stateRoot,
+        searchPath: request.environment?['PATH'] ?? plugin.osPlan.searchPath);
     final commandDescription = describeCommandRequest(request);
     final unconfined =
         review.requiredPermissions.contains(ProcessPermission.unconfined);
@@ -219,6 +232,9 @@ void attachModePolicy(ToolsPlugin plugin) {
       authorization: review.authorization,
       context: {
         ...details,
+        if (prefixes != null) 'command_prefixes': prefixes.labels,
+        if (prefixes != null)
+          'persistent_command_prefix': plugin.commandApprovals.file != null,
         'workspace': root,
         'permission_scope': 'command',
         'access_coverage':
@@ -247,6 +263,33 @@ void attachModePolicy(ToolsPlugin plugin) {
     );
     if (decision == ApprovalDecision.deny || !review.isActive())
       return Approval.no;
-    return save(grants, details) ? Approval.yes : Approval.no;
+    final prefixScope = switch (decision) {
+      ApprovalDecision.allowPrefixInSession => CommandApprovalScope.session,
+      ApprovalDecision.allowPrefixInWorkspace => CommandApprovalScope.workspace,
+      _ => null,
+    };
+    if (!save(grants, details)) return Approval.no;
+    if (prefixScope != null) {
+      if (prefixes == null ||
+          CommandPrefixPlan.parse(request,
+                      workspace: root,
+                      sandboxHomeRoot: review.requiredPermissions
+                              .contains(ProcessPermission.unconfined)
+                          ? null
+                          : plugin.home?.stateRoot,
+                      searchPath: request.environment?['PATH'] ??
+                          plugin.osPlan.searchPath)
+                  ?.identity !=
+              prefixes.identity) return Approval.no;
+      plugin.commandApprovals.rememberPrefixes(
+          prefixes,
+          {
+            for (final requirement
+                in review.authorization?.requirements ?? <AccessRequirement>[])
+              requirement.capability.name,
+          },
+          prefixScope);
+    }
+    return Approval.yes;
   };
 }

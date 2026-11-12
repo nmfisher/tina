@@ -98,7 +98,16 @@ void main() {
       ));
       expect(await nextRequest.timeout(const Duration(seconds: 5)), isTrue);
       final request = requests.current;
-      final dialog = dialogFor(request)..handleKey(ApprovalKey.always);
+      final dialog = dialogFor(request);
+      if (request.details['command_prefixes'] is List) {
+        // Prefix choices are now direct actions. Open the separate folder menu.
+        for (var i = 0; i < 4; i++) {
+          dialog.handleKey(ApprovalKey.down);
+        }
+        dialog.handleKey(ApprovalKey.confirm);
+      } else {
+        dialog.handleKey(ApprovalKey.always);
+      }
       final offers =
           (request.details['directory_accesses'] as List).cast<Map>();
       if (attempt == 0) {

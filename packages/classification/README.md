@@ -1,11 +1,11 @@
-# Input classification
+# Input and command classification
 
 `tina/classification` classifies the latest user input in the background:
 project question, agent instruction, a learned category, Other, or unclear. Only detected
 instructions proceed to Git classification: no Git request, unclear, or one or
 more subcommands (push, branch, checkout, commit, etc.).
 
-The plugin is informational: it never executes commands, changes permissions,
+Input classification is informational: it never executes commands, changes permissions,
 rewrites input, or adds its predictions to the conversation. The console's live
 classification panel groups runs by classifier, with one line per run, such as `Request type: [loading]`
 or `Request type: Request to do work`. Independent classifiers appear as siblings; dependent classifiers
@@ -33,6 +33,22 @@ continues independently. Classifier calls use their own bounded request budget.
 The configured plugin allows 90 seconds for classification and discovery together;
 each discovery has a 60-second timeout. Typesafe usage stays separate from the
 conversation provider's usage; discovery requests obey and charge normal provider policy.
+
+The configured plugin also reviews `exec` and `bash` command format before
+approval and execution. Typesafe returns a typed GOOD/BAD choice using only the
+command and format policy, without conversation history or process environment.
+BAD calls return a tool error asking the conversation model to rewrite them;
+the reviewer does not generate, edit or run replacement commands. Direct exec
+arguments and `working_directory` are preferred; necessary shell setup and short
+pipelines remain valid. Rewritten calls receive fresh format and permission
+checks. Two unsuccessful rewrites stop the turn. GOOD never grants permissions.
+
+The app exposes a command format toggle and a 60-second timeout in Settings →
+Plugins → `tina/classification`, with session/workspace/global scope. Unavailable
+configuration, transport errors, oversized requests and timeouts skip the format
+check with a notice and retain normal permission checks. Cancellation and plugin
+unload cancel pending checks and close their leases. Format requests and results
+share the bounded classification trace and execution tree.
 
 ## Learning categories and questions
 
@@ -79,6 +95,8 @@ Package API:
 - `category_store.dart`: the plugin's atomic filesystem catalog adapter.
 - `plugin.dart`: the terminal-independent engine2 plugin, result/status stream,
   and owned classifier service lease.
+- `tool_call_format.dart`: the process-call format policy and foreground reviewer.
+- `configured_service.dart`: leases backed by the existing Typesafe configuration.
 - `config.dart`: the existing Typesafe config reader.
 - `typesafe_classifier.dart`: the existing HTTP transport.
 - `classification.dart`, `judgments.dart`, `exploration.dart`: retained library

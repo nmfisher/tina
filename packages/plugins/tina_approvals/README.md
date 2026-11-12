@@ -16,6 +16,14 @@ paths, access types and scopes, and invokes `onDirectoryGrants` only for an
 active permission approval. The requester then revalidates and saves grants;
 model summaries and approval delivery alone never change filesystem access.
 
+Native process requests may offer `command_prefixes`, a list of the literal
+argument-prefix labels the requester will remember. `allowPrefixInSession`
+selects the current conversation; `allowPrefixInWorkspace` requires the explicit
+`persistent_command_prefix` storage flag. Both are valid only for permission
+requests with `permission_scope: command` and nonempty prefix offers. These
+decisions do not carry folder grants or regex patterns. The process boundary
+owns token matching, executable/context binding, persistence and revocation.
+
 Command requests may offer `command_pattern_target` and the optional
 `persistent_command_pattern` flag. A channel responds with a remembered scope
 and `commandPattern`; the service validates a strict whole-command match before
