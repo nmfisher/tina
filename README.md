@@ -64,6 +64,10 @@ UI plugins can register settings sections and other console contributions;
 see [UI contribution interfaces and lifecycle](docs/ui-contributions.md).
 See [scoped settings](docs/engine2-settings.md) for the plugin API and scope rules.
 
+In Settings → Models → Providers and models, confirm a new model ID with Enter.
+Esc then saves the confirmed addition and returns to Settings. Esc while typing
+an unfinished model cancels that entry. Adding a model does not switch to it.
+
 In `/settings` → **Permissions** → **Mode and auto approval**, edit **Auto-approval classifier
 instruction** to supply permission preferences. The default Session scope saves
 that instruction with the conversation and prepends it to each classifier request.

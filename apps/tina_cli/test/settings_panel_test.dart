@@ -120,6 +120,79 @@ enabled = []
     expect(loaded.model, 'original');
   });
 
+  test('confirmed model persists after Escape without selecting it', () async {
+    final (saved, _) = await drive([
+      CharInput('Providers and models'), enter,
+      enter, // Edit Global providers.
+      ArrowKey(ArrowDirection.right),
+      for (var i = 0; i < 7; i++) down, // Add model after three existing models.
+      enter, CharInput('added|Added model'), enter,
+      escape, // Return from Providers with the confirmed addition.
+      escape, // Close Settings.
+    ], verify: (assembly) {
+      expect(assembly.host.model, 'custom/original');
+    });
+    expect(saved, isTrue);
+    final loaded = loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    expect(loaded.model, 'original');
+    expect(loaded.providers['custom']!.models!['added']!.name, 'Added model');
+    final reopened = SessionAssembly.start(descriptors: descriptors,
+        options: AssemblyOptions(configPath: config.path));
+    final management = ConfigSettingsManagement(
+        scopedSettings: reopened.settings,
+        backend: reopened.settingsBackend,
+        descriptors: descriptors);
+    try {
+      expect(reopened.host.model, 'custom/original');
+      final draft = management.openDraft(SettingScope.global, providerCatalog: true);
+      try {
+        expect(modelChoices(draft, management.providers, reopened.host.model)!.refs,
+            contains('custom/added'));
+      } finally {
+        management.closeDraft(draft);
+      }
+    } finally {
+      management.close();
+      reopened.close();
+    }
+  });
+
+  test('adding a model preserves an implicitly configured default provider',
+      () async {
+    config.writeAsStringSync('''
+[default]
+provider = "custom"
+model = "original"
+[plugins]
+enabled = []
+''');
+    const builtin = ProviderDescriptor(
+        id: 'custom', name: 'Custom', wire: ProviderWire.openAiCompatible,
+        baseUrl: 'https://custom.example', keyEnvVar: 'CUSTOM_API_KEY',
+        keyStyle: ProviderKeyStyle.bearer,
+        models: {
+          'original': ModelInfo(id: 'original', name: 'Original',
+              contextWindow: 8192, supportsTools: true),
+          'next': ModelInfo(id: 'next', name: 'Next',
+              contextWindow: 8192, supportsTools: true),
+        });
+    final (saved, _) = await drive([
+      CharInput('Providers and models'), enter,
+      enter,
+      ArrowKey(ArrowDirection.right),
+      for (var i = 0; i < 6; i++) down,
+      enter, CharInput('added|Added model'), enter,
+      escape, escape,
+    ], providerDescriptors: const [builtin]);
+    expect(saved, isTrue);
+    final loaded = loadTinaConfig(path: config.path,
+        descriptors: const [builtin]).config;
+    expect(loaded.model, 'original');
+    expect(loaded.providers['custom']!.models, contains('added'));
+    expect(loaded.providers['custom']!.disabledModels,
+        isNot(contains('original')));
+  });
+
   test('settings selects a channel independently of feature plugins', () async {
     final (saved, _) = await drive([
       CharInput('Plugins'), enter, // plugins matrix
