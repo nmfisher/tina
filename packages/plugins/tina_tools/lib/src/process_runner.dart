@@ -178,7 +178,7 @@ final class ProcessControl {
   final bool outsideSandboxRequested;
   final String? sandboxReason;
 
-  /// Set by the permission boundary after explicit human authorization.
+  /// Set by the permission boundary after authorization of host execution.
   /// An execution or network approval alone never sets this.
   final bool outsideSandboxAllowed;
 

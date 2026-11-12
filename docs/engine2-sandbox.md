@@ -62,13 +62,14 @@ Remember saves only selected file/directory access, per workspace.
 invocation while retaining filesystem confinement. Saved file grants never imply
 network access. No destination filtering is implied.
 
-`outside_sandbox: true` requires a nonempty reason and a human decision on every
-invocation. It authorizes host filesystem and network access for the subprocess
+`outside_sandbox: true` requires a nonempty reason and approval on every
+invocation: the classifier reviews it in Auto mode; Approve mode asks the user.
+It authorizes host filesystem and network access for the subprocess
 tree. The executable and filtered host environment are frozen before approval.
 Provider tokens are not inherited. Declining starts nothing.
 
 `tina --no-sandbox` disables confinement for the launch and its panels/children,
-while retaining human host-authorization checks. It is not persisted. The explicit
+while retaining the mode's host-authorization checks. It is not persisted. The explicit
 launch-only `--yolo` compatibility override authorizes capabilities; confirmations
 and configured confinement still apply.
 

@@ -541,8 +541,9 @@ final class HostPromptSection {
       'Sandbox-private HOME and TMPDIR are temporary scratch; save deliverables '
       'in the workspace or another user-approved durable location. '
       'Host authentication requires outside_sandbox: true and sandbox_reason; '
-      'these human-only requests grant host filesystem and network access to '
-      'this invocation. Respect denied and cancelled approvals. '
+      'auto mode sends these requests to the classifier; approve mode asks the '
+      'user. They grant host filesystem and network access to this invocation '
+      'only. Respect denied and cancelled approvals. '
       '${sandboxDescription?.call() ?? ''} '
       'Use background: true for long commands, and process to inspect or stop '
       'the returned job. Do not restart a live job.';

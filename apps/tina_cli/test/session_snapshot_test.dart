@@ -5,6 +5,8 @@ import 'package:tina/session.dart';
 import 'package:tina/src/snapshot_catalog.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_chat/tina_chat.dart';
+import 'package:tina_chat_tui/tina_chat_tui.dart' show ConnectionChatObservation;
+import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_persistence/tina_persistence.dart';
@@ -12,6 +14,34 @@ import 'package:tina_mcp/tina_mcp.dart';
 import 'turn_rendering_test.dart' show ControlledProvider, waitFor;
 
 void main() {
+  test('current goal is available without replaying its old history entry', () {
+    final goals = GoalsPlugin();
+    final chat = ChatPlugin(model: 'fixture');
+    final host = Host.start(HostConfig(
+        workingDirectory: '.', plugins: [goals, chat],
+        snapshotFeatureFor: snapshotFeatureFor,
+        providerFactory: (_) => ScriptedProvider([])));
+    addTearDown(host.shutdown);
+    host.session.loop.stateWriter(goals.id)(const GoalChangedEntry(
+        text: 'Ship the release', verdict: GoalVerdict.inProgress));
+    for (var i = 0; i < 100; i++) {
+      host.session.loop.recordUsage(const UsageRecordedEntry(turnId: 'old'));
+    }
+    final connection = host.connect();
+    addTearDown(connection.close);
+    final observation = ConnectionChatObservation(connection);
+    final events = <SessionObservationEvent>[];
+    final history = observation.listenRecent(events.add, limit: 16);
+    addTearDown(history.close);
+    expect(events.whereType<ObservedEntry>().any((event) =>
+        GoalChangedEntry.matches(event.entry)), isFalse);
+    expect(observation.snapshot['goal'], {
+      'text': 'Ship the release',
+      'verdict': 'inProgress',
+      'evidence': '',
+    });
+  });
+
   test(
     'late attachment captures live preview then reconciles committed output',
     () async {

@@ -473,6 +473,32 @@ void main() {
     expect(plugin.pathGrants.grants, isEmpty);
   });
 
+  test('auto mode reviews host commands before allowing their invocation', () async {
+    plugin.mode = PermissionMode.auto;
+    final inner = Recorder();
+    final value = runner(inner);
+    const control = ProcessControl(
+        outsideSandboxRequested: true,
+        sandboxReason: 'Read authenticated GitHub logs');
+    final request = command('/bin/bash', ['-c', 'gh api repos/example/project']);
+    expect(await value.run(request, control: control), isA<CommandCompleted>());
+    expect(asks, isEmpty);
+    expect(judge.requests, hasLength(1));
+    expect(judge.requests.single['required_permissions'],
+        containsAll(['execution', 'network', 'unconfined']));
+    expect(inner.controls.single!.outsideSandboxAllowed, isTrue);
+    expect(inner.controls.single!.networkAllowed, isTrue);
+    judge.answer = const PermissionJudgment.denied('Accesses a secret.');
+    expect(await value.run(request, control: control), isA<CommandRefused>());
+    expect(inner.requests, hasLength(1));
+    expect(asks, isEmpty);
+    expect(judge.requests, hasLength(2));
+    judge.answer = const PermissionJudgment(null, 'timed out');
+    expect(await value.run(request, control: control), isA<CommandCompleted>());
+    expect(asks, hasLength(1));
+    expect(plugin.pathGrants.grants, isEmpty);
+  });
+
   test('tool input cannot supply authorization stamps', () async {
     final inner = Recorder();
     decision = ApprovalDecision.deny;

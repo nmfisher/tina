@@ -342,7 +342,8 @@ void main() {
       expect(request.systemPrompt, contains('Mode: approve'));
       expect(request.systemPrompt, contains('OS sandbox'));
       expect(request.systemPrompt, contains('outside_sandbox: true'));
-      expect(request.systemPrompt, contains('human-only requests'));
+      expect(request.systemPrompt,
+          contains('auto mode sends these requests to the classifier'));
       for (final tool
           in request.tools.where((t) => t.name == 'exec' || t.name == 'bash')) {
         expect((tool.inputSchema['properties'] as Map).keys,

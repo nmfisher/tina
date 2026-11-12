@@ -15,6 +15,7 @@ import 'package:tina_self_update/tina_self_update.dart' show UpdateStatusSource;
 import 'package:tina_session_controls/tina_session_controls.dart';
 import 'package:tina_rewind/tina_rewind.dart';
 import 'package:tina_tasks/tina_tasks.dart';
+import 'package:tina_goals/tina_goals.dart';
 
 /// Public data adapters for attachment snapshots. Feature policy, persistence
 /// and mutable state stay in their plugins. Never serialize a configuration
@@ -93,6 +94,13 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
       },
       listen: tasks.listen,
     );
+  }
+  if (plugin is GoalsPlugin) {
+    return SnapshotFeature(() => {
+      'text': plugin.goal?.text ?? '',
+      'verdict': (plugin.goal?.verdict ?? GoalVerdict.none).name,
+      'evidence': plugin.goal?.evidence ?? '',
+    });
   }
   if (plugin is ContextPlugin) {
     final context = plugin.observation;

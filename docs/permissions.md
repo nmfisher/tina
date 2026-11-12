@@ -53,8 +53,9 @@ It approves when both conditions hold: the action accesses no secrets/credential
 and it deletes no files outside the workspace. Known violations are denied.
 Uncertain results, model errors, and missing configuration go to the human.
 Auto approvals apply once and create no standing grants. Explicit human path
-grants are checked before auto review. Unconfined execution and explicit
-confirmation requests remain human-only.
+grants are checked before auto review. Unconfined host execution also goes to the
+classifier in Auto mode and to the user in Approve mode. Explicit confirmation
+requests remain human-only.
 
 ## Commands and sandbox enforcement
 

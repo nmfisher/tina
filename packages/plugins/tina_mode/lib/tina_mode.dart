@@ -372,7 +372,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       if (ruleGranted) _noticeMcpRule(mcpRule);
       return ApprovalDecision.allow;
     }
-    var requireHuman =
+    final requireHuman =
         humanOnly || resolution.route == AuthorizationRoute.human;
     final call = _call;
     final requiredPermissions = context['required_permissions'];
@@ -414,26 +414,6 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       ...?_recentContext(turn),
     };
     var judgment = const PermissionJudgment(null, 'not classified');
-    // Running without confinement requires a human for each invocation.
-    // Bare legacy requests are denied and reported at the end of the turn.
-    if (mode == PermissionMode.auto &&
-        permission &&
-        requiredPermissions is Iterable &&
-        requiredPermissions.contains('unconfined')) {
-      if (authorization == null) {
-        _batchAutoDecision(
-          'denied',
-          target,
-          'runs without sandbox (human-only)',
-        );
-        terminal?.writeln(
-          'auto mode denied: $target — runs without sandbox; batched for '
-          'your review',
-        );
-        return ApprovalDecision.deny;
-      }
-      requireHuman = true;
-    }
     if (mode == PermissionMode.auto && permission && !requireHuman) {
       final evidence = requestEvidence();
       final judge = classifier;

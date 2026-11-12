@@ -140,6 +140,9 @@ class ScrollingTextRegion extends Region {
   /// the "↓ N new" badge without polling. Deferred via a microtask so it never
   /// re-enters a write frame mid-stream.
   void Function()? onScrollbackChanged;
+  /// Ask the transcript for older history before clamping an upward scroll.
+  /// The callback may synchronously prepend rows while preserving this offset.
+  void Function()? onHistoryRequested;
   bool _scrollbackNotifyScheduled = false;
 
   /// Phase 3: the chat region's own opaque child plane. When non-null, chat
@@ -693,13 +696,20 @@ class ScrollingTextRegion extends Region {
   @visibleForTesting
   int get debugHistoryLength => _history.length;
 
+  /// The retained scrollback is full; prepending more rows would evict them.
+  bool get historyAtCapacity => _history.length >= _maxHistoryRows;
+
   /// Scroll the view by [deltaRows] lines, where positive scrolls toward the
   /// tail (PgDn) and negative scrolls back into history (PgUp) — matching the
   /// [PanelFrame.onScroll] convention (+1 pageDown, −1 pageUp). Clamped to
   /// `[0, maxOffset]`. Returning to the tail (offset 0) clears the
   /// new-while-scrolled counter.
   void scrollBy(int deltaRows) {
-    final maxOffset = _maxScrollOffset();
+    var maxOffset = _maxScrollOffset();
+    if (deltaRows < 0 && _scrollOffset - deltaRows > maxOffset) {
+      onHistoryRequested?.call();
+      maxOffset = _maxScrollOffset();
+    }
     final next = (_scrollOffset - deltaRows).clamp(0, maxOffset);
     if (next == _scrollOffset) return;
     _scrollOffset = next;

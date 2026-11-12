@@ -147,6 +147,9 @@ an explicit enabled-plugin list, add it and restart. Saved conversations can
 be resumed individually; the arrangement of open panels is not persisted.
 After shutdown, Tina prints a command to resume the saved main session,
 including any custom config and store paths. Empty sessions have no resume hint.
+Resuming paints a recent page first. Page Up or scrolling upward loads older
+pages on demand, within the terminal's retained scrollback limit. The engine
+restores the full session for model context and session state.
 
 ```sh
 tina --resume                       # list and select a workspace session

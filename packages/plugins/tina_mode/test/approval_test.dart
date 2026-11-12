@@ -701,33 +701,44 @@ void main() {
     expect(recorded, isEmpty);
   });
 
-  test(
-    'unconfined execution is human-only in auto mode: denied and batched',
-    () async {
-      final human = Human()..answer = ApprovalDecision.allow;
-      final terminal = _Terminal();
-      final judge = Judge(Future.value(const PermissionJudgment(true)));
-      final mode = ModePlugin(
-        mode: PermissionMode.auto,
-        approvals: human,
-        terminal: terminal,
-        classifier: judge,
-      );
-      addTearDown(mode.closeSession);
-      // Direct request without a turn: the decision and notice still fire.
-      final decision =
-          await ModePlugin(mode: PermissionMode.auto, approvals: human).request(
-            operation: 'run command',
-            target: 'deploy',
-            reason: 'outside sandbox',
-            context: const {
-              'required_permissions': ['execution', 'unconfined'],
-            },
-          );
-      expect(decision, ApprovalDecision.deny);
-      mode.closeSession();
-    },
-  );
+  for (final canonical in [false, true]) {
+    for (final judgment in [
+      const PermissionJudgment(true),
+      const PermissionJudgment.denied('Deletes files outside the workspace.'),
+      const PermissionJudgment(null, 'timed out'),
+    ]) {
+      test('auto reviews host execution ($canonical, ${judgment.allow})', () async {
+        final human = Human();
+        final judge = Judge(Future.value(judgment));
+        final mode = ModePlugin(
+          mode: PermissionMode.auto,
+          approvals: human,
+          classifier: judge,
+        );
+        addTearDown(mode.closeSession);
+        final decision = await mode.request(
+          operation: 'run command',
+          target: '/bin/bash -c "gh api repos/example/project"',
+          reason: 'outside sandbox',
+          authorization: canonical ? AuthorizationRequest(requirements: const [
+            AccessRequirement(AccessCapability.execute, '/bin/bash'),
+            AccessRequirement(AccessCapability.network, '/bin/bash'),
+            AccessRequirement(AccessCapability.host, '/bin/bash'),
+          ]) : null,
+          context: const {
+            'required_permissions': ['execution', 'network', 'unconfined'],
+            'sandbox_reason': 'Use authenticated GitHub CLI',
+          },
+        );
+        expect(judge.calls, 1);
+        expect(judge.requests.single['required_permissions'],
+            contains('unconfined'));
+        expect(decision, judgment.allow == false
+            ? ApprovalDecision.deny : ApprovalDecision.allow);
+        expect(human.calls, judgment.allow == null ? 1 : 0);
+      });
+    }
+  }
 
   test(
     'read-only refuses mutation requests before human or automatic review',
