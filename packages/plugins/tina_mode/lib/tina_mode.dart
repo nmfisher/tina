@@ -441,21 +441,14 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         if (call != null && identical(call, _call)) {
           _callApprovals[cacheKey] = ApprovalDecision.allow;
         }
-        _batchAutoDecision(
-          'allowed',
-          target,
-          result.reason ?? 'external access approved once',
-        );
         return ApprovalDecision.allow;
       }
       if (mode == PermissionMode.auto && result.allow == false) {
         // A classifier denial is final. Do not run the command. Keep the
-        // turn going. Batch the command and the reason for the user to
-        // read at end of turn; no dialog interrupts the run.
+        // turn going and report the reason once; no dialog interrupts the run.
         final denial =
             'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}';
-        _batchAutoDecision('denied', target, denial);
-        terminal?.writeln('auto mode denied: $target — $denial (batched)');
+        terminal?.writeln('auto mode denied: $target — $denial');
         return ApprovalDecision.deny;
       }
       autoFallback = mode != PermissionMode.auto
@@ -672,34 +665,9 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   @override
   void onTurnEnd(TurnContext context) {
-    _emitAutoBatch();
     _turn = null;
     _call = null;
     _callApprovals.clear();
-  }
-
-  final _autoBatch = <String, List<(String, String, String)>>{};
-
-  /// Collect one auto-mode decision for the end-of-turn batch. Decisions
-  /// are grouped by the turn they happened in.
-  void _batchAutoDecision(String verdict, String target, String reason) {
-    final turnId = _turn?.input.id;
-    if (turnId == null) return;
-    (_autoBatch[turnId] ??= []).add((verdict, target, reason));
-  }
-
-  /// The end-of-turn batch. Every auto-mode denial of the closing turn is
-  /// one line. Allowed scope extensions are listed too.
-  void _emitAutoBatch() {
-    final turnId = _turn?.input.id;
-    if (turnId == null) return;
-    final entries = _autoBatch.remove(turnId);
-    if (entries == null || entries.isEmpty) return;
-    terminal?.writeln('auto mode decisions this turn:');
-    for (var i = 0; i < entries.length; i++) {
-      final (verdict, target, reason) = entries[i];
-      terminal?.writeln('  ${i + 1}. $verdict: $target — $reason');
-    }
   }
 
   @override

@@ -535,7 +535,7 @@ void main() {
     'auto fallback reason travels with the approval instead of only chat',
     () async {
       for (final entry in {
-        // A denial is final (batched test below); only failures ask.
+        // A denial is final; only failures ask.
         const PermissionJudgment(null, 'timed out'): 'classifier timed out',
         const PermissionJudgment(null, 'provider error'):
             'classifier provider error',
@@ -608,12 +608,42 @@ void main() {
       expect(human.calls, 0, reason: 'the classifier stands in for the user');
       expect(terminal.lines.join('\n'), contains('auto mode denied'));
       expect(terminal.lines.join('\n'), contains(risk));
-      expect(terminal.lines.join('\n'), contains('batched'));
       // The refusal is final for this call; a later decision stands on its own.
       expect(await request(mode), ApprovalDecision.deny);
       expect(human.calls, 0);
     },
   );
+
+  test('auto decisions produce no end-of-turn summary', () async {
+    for (final allowed in [true, false]) {
+      final terminal = _Terminal();
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        terminal: terminal,
+        classifier: Judge(Future.value(PermissionJudgment(allowed))),
+      );
+      final turn = TurnContext(
+        CancelToken(),
+        input: const Input('inspect', id: 'summary'),
+        messages: [],
+        promptSections: [],
+        pinnedTools: [],
+      );
+      mode.onInput(turn);
+      expect(
+        await request(mode),
+        allowed ? ApprovalDecision.allow : ApprovalDecision.deny,
+      );
+      final before = List<String>.of(terminal.lines);
+      mode.onTurnEnd(turn);
+      expect(terminal.lines, before);
+      expect(
+        terminal.lines.join('\n'),
+        isNot(contains('auto mode decisions this turn')),
+      );
+      mode.closeSession();
+    }
+  });
 
   test(
     'human receives full tool context and allow once expires with invocation',
@@ -703,7 +733,7 @@ void main() {
       mode.classifier = Judge(Future.value(const PermissionJudgment(true)));
       expect(await request(mode), ApprovalDecision.allow);
       expect(human.calls, 0);
-      // A denial never reaches the human: it is final and batched.
+      // A denial never reaches the human: it is final.
       mode.classifier = Judge(Future.value(const PermissionJudgment(false)));
       human.answer = ApprovalDecision.allow;
       expect(await request(mode), ApprovalDecision.deny);
