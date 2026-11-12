@@ -4,6 +4,17 @@ Recorded 2026-11-09. Decision: **Option 1 proceeds now. Option 2 is a timeboxed
 experiment in parallel. Option 3 is parked.** This document records the options,
 the facts behind them, and the work plan.
 
+**SDK note (updated 2026-11-12):** the wasm toolchain no longer rides an
+experimental SDK. The Dart pin moved from the source-built edge
+`3.14.0-edge.e7112ac…` to released **stable 3.14.0**
+(`/home/agent/tools/dart-sdk-3.14.0-stable`), validated end to end: engine and
+TUI components plus the entity-decode fixture rebuilt on stable, boot +
+scripted-turn green on both engines, the wasm.dart component and parity suites
+passing, and the wasm_tools patches the move needed landed upstream of the pin
+(SIMD opcode-table widening, timeline-import DCE tolerance). The edge checkout
+stays at `/home/agent/tools/dart-sdk-src` as a fallback only. Any earlier text
+below that assumes an experimental/edge SDK is historical.
+
 ## Background
 
 The wasm stack ships as one binary: `tina-wasm-host` with the Tina engine
@@ -317,3 +328,39 @@ and reload counters, and clean engine shutdown on quit.
   for remote engines.
 - Option 2 (TUI inside the sandbox, ANSI) stays a timeboxed spike on
   a separate branch, awaiting the go.
+
+## Option 2 outcome: productionized — the full TUI ships in the sandbox (2026-11-11)
+
+The principal's go turned this round's timeboxed spike into the shipped
+path. Production report: `docs/option2-wasm-tui.md` (tina
+`codex/issue85-wasm-tui`) and its wasm.dart mirror. Round summary:
+
+- Bare `tina-wasm-host` boots the FULL tina TUI (real `SessionAssembly`,
+  `runApp`, `AnsiBackend`, `LineEditor`, status strip) from the embedded
+  component; `--headless`/`--pipes` keeps the pipes protocol byte-for-byte
+  for agents and scripts.
+- Milestone-3 tmux matrix, all green on the branch tip: interactive
+  parity (native `tina` vs the sandbox TUI, scripted keys: paint, typing
+  echo, Ctrl-L, command palette, model picker, quit — structural byte
+  comparison, not equality), resize 100x30→120x35 via the guest's 250 ms
+  tty poll on both legs, clean quit (exit 0, balanced alt-screen
+  enter/leave pairs), epoch kill (`TINA_TUI_EPOCH_TICKS`, exit 3 with the
+  terminal restored — armed pre-boot and against a parked, already
+  painted guest), and the failure channel (a guest config FormatException
+  surfaces as `guest crashed: …; terminal restored`, exit 3, no parking).
+- `/plugins` is not a session command on EITHER leg (the command registry
+  carries no such command; plugin sessions still cross `tina:plugin-host`
+  at boot) — the design doc's matrix item is satisfied by the registry's
+  actual surface, noted as a deviation.
+- Headless regression: the stage-5 exit test passes BOTH legs (native and
+  wasm via `--headless` — the harness passes the new selector explicitly;
+  the dispatch changed, the protocol did not).
+- Suites at baselines: tina_console 1170, tina_tui 52, tina_chat_tui 126,
+  fuzzy_ranker 11, tina_wasm 19, tina_capability 21, host crate 57,
+  discovery_boot 4; the app-suite failure set is IDENTICAL to the merge
+  base (the tip even fixes two headless tests that fail at the base).
+- Host-side additions (wasm.dart `codex/issue85-wasm-tui`): wasmtime's
+  compilation cache (the 4.8 MB guest recompiled on every bare boot),
+  and the crash message is surfaced even when the exit-backstop trap wins
+  the select race. The guest components rebuilt BYTE-IDENTICAL (engine =
+  the ace8ca4 artifact; TUI = the milestone-2 embedded bytes).

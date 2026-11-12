@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'platform_env.dart';
 
 import 'package:meta/meta.dart';
 
@@ -175,7 +175,7 @@ class OpCounters {
 abstract final class InputLatency {
   static bool _forced = false;
   static bool get enabled =>
-      _forced || Platform.environment['COCOON_DEBUG_INPUT_LATENCY'] == '1';
+      _forced || platformEnv('COCOON_DEBUG_INPUT_LATENCY') == '1';
 
   /// Test-only escape hatch so unit tests can enable tracing without spawning a
   /// process with the env var set.

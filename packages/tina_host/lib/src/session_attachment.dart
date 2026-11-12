@@ -35,6 +35,10 @@ abstract interface class SessionSnapshot {
   List<SessionQuestion> get questions;
   List<String> get plugins;
   List<String> get unavailableFeatures;
+
+  /// Config-enabled plugin ids this binary's registry does not know -
+  /// recorded and skipped at boot (graceful degradation), never fatal.
+  List<String> get skippedPlugins;
   Map<String, Object?> get features;
   Map<String, Object?> get activeTools;
 }
@@ -53,6 +57,7 @@ final class InProcessSessionSnapshot implements SessionSnapshot {
       Iterable<String> plugins,
       Map<String, Object?> features,
       Iterable<String> unavailableFeatures,
+      Iterable<String> skippedPlugins,
       Map<String, Object?> tools)
       : pendingInputs = List.unmodifiable(inputs),
         requests = List.unmodifiable(requests),
@@ -61,6 +66,7 @@ final class InProcessSessionSnapshot implements SessionSnapshot {
         plugins = List.unmodifiable(plugins),
         features = Map.unmodifiable(features),
         unavailableFeatures = List.unmodifiable(unavailableFeatures),
+        skippedPlugins = List.unmodifiable(skippedPlugins),
         activeTools = freezeSnapshotValue(tools) as Map<String, Object?>;
   final SessionCursor cursor;
   final SessionStatus status;
@@ -78,6 +84,10 @@ final class InProcessSessionSnapshot implements SessionSnapshot {
   final List<SessionWork> activeWork;
   final List<SessionQuestion> questions;
   final List<String> plugins, unavailableFeatures;
+
+  /// Config-enabled plugins this registry does not know (skipped, see
+  /// [skippedPlugins] on the interface).
+  final List<String> skippedPlugins;
   final Map<String, Object?> features, activeTools;
 }
 

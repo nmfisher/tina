@@ -18,8 +18,8 @@ import 'package:tina_wasm/src/wasm_prompt_bridge.dart';
 void main() {
   root.engineProbeComponent(
     (imports) => (
-      unnamedExport27: _LifecycleProbe(imports),
-      unnamedExport16: const _Run(),
+      unnamedExport29: _LifecycleProbe(imports),
+      unnamedExport18: const _Run(),
     ),
   );
 }

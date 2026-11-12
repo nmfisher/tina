@@ -14,6 +14,19 @@ final class _Io implements Stdio {
   void write(String text) {}
   @override
   int get terminalColumns => 80;
+
+  @override
+  int get terminalLines => 24;
+  @override
+  bool get stdinHasTerminal => true;
+  @override
+  bool get echoMode => true;
+  @override
+  bool get lineMode => true;
+  @override
+  void setEchoMode(bool value) {}
+  @override
+  void setLineMode(bool value) {}
   @override
   bool get hasTerminal => false;
   @override

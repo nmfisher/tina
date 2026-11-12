@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_host/tina_host.dart';
 import 'completion_sources.dart';
+import 'file_completion.dart';
 import 'console_commands.dart';
 import 'session_presentation.dart';
 import 'question_view.dart';
@@ -106,8 +107,8 @@ final class SessionView
   CompletionProvider get commandCompletion =>
       CommandNameCompletionSource(connection);
   @override
-  CompletionProvider get fileCompletion =>
-      GitFileCompletionSource(workingDir: status.workingDirectory);
+  CompletionProvider? get fileCompletion =>
+      defaultFileCompletion(workingDir: status.workingDirectory);
 
   Future<void>? _offerLocalCommand(String text, {bool whileRunning = false}) {
     final call = connection.commandFor(text);

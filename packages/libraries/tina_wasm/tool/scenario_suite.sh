@@ -11,9 +11,9 @@ set -e
 cd "$(dirname "$0")/.."
 PKG="$PWD"
 SCEN="$PKG/tool/scenarios"
-PINNED="${DART_SDK:-$HOME/tools/dart-sdk-src/sdk/out/ReleaseX64/dart-sdk/bin/dart}"
-# The native engine runs on the box's stable SDK (its build hooks do not
-# build under the pinned edge SDK); the client runs under the pinned one.
+PINNED="${DART_SDK:-$HOME/tools/dart-sdk-3.14.0-stable/bin/dart}"
+# The native engine runs on the box's own stable SDK; the client runs
+# under the pinned one (stable 3.14.0 since the 2026-11-12 pin move).
 STABLE="${STABLE_DART:-/opt/dart-sdk/bin/dart}"
 RUNNER="${RUNNER:-/workspace/target/debug/test_runner}"
 ART="${1:-/tmp/stage6-scenarios}"
