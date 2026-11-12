@@ -347,3 +347,107 @@ mod tests {
         assert_eq!(hex(&key.verifying_key().as_bytes().to_vec()).len(), 64);
     }
 }
+
+/// The reference server's router, shared by the binary and the router
+/// tests so a route regression (e.g. the axum 0.7 `:param` syntax) fails
+/// a test instead of a demo.
+pub fn build_router(root: PathBuf) -> axum::Router {
+    let state = Root(std::fs::canonicalize(&root).unwrap_or(root));
+    axum::Router::new()
+        .route("/", axum::routing::get(index_page))
+        .route("/index.html", axum::routing::get(index_page))
+        .route("/index.json", axum::routing::get(index_json))
+        .route("/keys/registry.pub", axum::routing::get(pubkey))
+        .route("/blobs/:file", axum::routing::get(blob))
+        .with_state(state)
+}
+
+#[derive(Clone)]
+pub(crate) struct Root(std::path::PathBuf);
+
+fn safe_blob_name(requested: &str) -> Option<String> {
+    // Only a plain file name: no separators, no parent components.
+    let name = std::path::Path::new(requested);
+    if name.components().count() != 1
+        || requested.contains('/')
+        || requested.contains('\\')
+        || requested == ".."
+    {
+        return None;
+    }
+    Some(requested.to_string())
+}
+
+async fn index_page(axum::extract::State(root): axum::extract::State<Root>) -> axum::response::Response {
+    use axum::response::{Html, IntoResponse};
+    use axum::http::StatusCode;
+    match tokio::fs::read_to_string(root.0.join("index.html")).await {
+        Ok(html) => Html(html).into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            "index.html missing; run registry-publish",
+        )
+            .into_response(),
+    }
+}
+
+async fn index_json(axum::extract::State(root): axum::extract::State<Root>) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    match tokio::fs::read(root.0.join("index.json")).await {
+        Ok(bytes) => (
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            "index.json missing",
+        )
+            .into_response(),
+    }
+}
+
+async fn pubkey(axum::extract::State(root): axum::extract::State<Root>) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    match tokio::fs::read_to_string(root.0.join("keys").join("registry.pub")).await {
+        Ok(text) => (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; charset=utf-8",
+            )],
+            text,
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            "registry public key missing",
+        )
+            .into_response(),
+    }
+}
+
+async fn blob(
+    axum::extract::State(root): axum::extract::State<Root>,
+    axum::extract::Path(file): axum::extract::Path<String>,
+) -> axum::response::Response {
+    use axum::http::{header, StatusCode};
+    use axum::response::IntoResponse;
+    let Some(name) = safe_blob_name(&file) else {
+        return (StatusCode::BAD_REQUEST, "bad blob name").into_response();
+    };
+    let path = root.0.join("blobs").join(name);
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            [
+                (header::CONTENT_TYPE, "application/wasm"),
+                // Content-addressed artifacts are immutable forever.
+                (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "artifact missing").into_response(),
+    }
+}
