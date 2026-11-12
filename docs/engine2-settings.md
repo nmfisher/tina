@@ -117,6 +117,9 @@ cannot abort a successful settings write or silence another client.
 
 ## Auto-approval instruction
 
+The classifier instruction field is optional additional guidance. Blank uses
+the built-in approval policy; it does not remove the classifier's system prompt.
+
 Open `/settings` → **Mode and auto approval** → **Auto-approval classifier
 instruction**. For example: “I'm ok with writing files to any directory outside
 the working directory.” Keep Session scope to save it only with this conversation.

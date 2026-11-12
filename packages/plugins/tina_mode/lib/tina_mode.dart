@@ -625,12 +625,14 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       if (users.length >= 3 && tools.length >= 3) break;
       for (final block in message.content.reversed) {
         if (users.length >= 3 && tools.length >= 3) break;
-        if (block is TextBlock && message.role == Role.user) {
+        if (users.length < 3 &&
+            block is TextBlock &&
+            message.role == Role.user) {
           final text = clip(block.text.trim(), 500);
           if (text.isNotEmpty) {
             users.add({'text': text});
           }
-        } else if (block is ToolUseBlock) {
+        } else if (tools.length < 3 && block is ToolUseBlock) {
           tools.add({
             'name': block.name,
             'input': clip(block.input.toString(), 300),

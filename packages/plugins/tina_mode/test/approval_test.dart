@@ -276,6 +276,40 @@ void main() {
     expect(judge.requests.single.containsKey('recent_tool_calls'), false);
   });
 
+  for (final counts in [(1, 100), (100, 1), (100, 100)]) {
+    test('judge history bounds each context list independently: $counts', () async {
+      final judge = Judge(Future.value(const PermissionJudgment(true)));
+      final mode = ModePlugin(mode: PermissionMode.auto,
+          approvals: Human(), classifier: judge);
+      addTearDown(mode.closeSession);
+      final turn = TurnContext(CancelToken(),
+          input: const Input('Continue the task.', id: 'current'),
+          messages: [
+            for (var i = 0; i < counts.$1; i++)
+              Message(role: Role.user, content: [TextBlock('user $i')]),
+            Message(role: Role.assistant, content: [
+              for (var i = 0; i < counts.$2; i++)
+                ToolUseBlock(id: 'call-$i', name: 'tool-$i',
+                    input: {'argument': 'x' * 1000}),
+            ]),
+          ], promptSections: [], pinnedTools: []);
+      mode.onInput(turn);
+      mode.beforeToolCall(turn);
+      await request(mode);
+      final evidence = judge.requests.single;
+      final users = (evidence['recent_context'] as Map)['user_messages'] as List;
+      final calls = evidence['recent_tool_calls'] as List;
+      expect(users.map((u) => (u as Map)['text']),
+          [for (var i = (counts.$1 - 3).clamp(0, counts.$1); i < counts.$1; i++)
+            'user $i']);
+      expect(calls.map((c) => (c as Map)['name']),
+          [for (var i = (counts.$2 - 3).clamp(0, counts.$2); i < counts.$2; i++)
+            'tool-$i']);
+      expect(calls.map((c) => ((c as Map)['input'] as String).length),
+          everyElement(lessThanOrEqualTo(301)));
+    });
+  }
+
   test('a correction reaches the judge with the failed call it answers', () async {
     final judge = Judge(Future.value(const PermissionJudgment(true)));
     final mode = ModePlugin(
