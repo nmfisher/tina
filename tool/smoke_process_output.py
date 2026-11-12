@@ -161,7 +161,7 @@ def smoke(launcher, endpoint, backend, panels):
 
         connected = False
 
-        def tool(text, approve=True):
+        def tool(text, approve=True, auto_review=False):
             nonlocal connected
             before = len(OutputStub.requests)
             start = submit(text)
@@ -174,8 +174,12 @@ def smoke(launcher, endpoint, backend, panels):
             if approve:
                 visible('[y] allow once')
                 terminal.send('y')
-            terminal.wait_for(lambda: len(OutputStub.requests) == before + 2,
+            expected_requests = before + 2 + int(auto_review)
+            terminal.wait_for(lambda: len(OutputStub.requests) == expected_requests,
                               'tool did not complete', timeout=30)
+            if auto_review:
+                assert OutputStub.requests[before + 1].get('output_config', {}).get('format'), \
+                    'outside-sandbox command bypassed the classifier'
             terminal.expect_idle()
             assert b'\n' not in terminal.output[start:], 'raw line breaks escaped positioned painting'
             assert 'DIRECT_TTY_LEAK' not in grid(), 'a child reopened the UI terminal'
@@ -200,9 +204,9 @@ def smoke(launcher, endpoint, backend, panels):
             assert 'Build failed:' in str(result)
             submit('/mode auto')
             visible('mode: auto')
-            # This fixture deliberately runs without a sandbox. Auto must
-            # obtain human host authorization, even for an approved task.
-            result = tool('pipeline output')
+            # This fixture deliberately runs without a sandbox. Auto reviews
+            # host access through the classifier without a human prompt.
+            result = tool('pipeline output', approve=False, auto_review=True)
             assert 'Build failed:' in str(result)
             submit('/mode ask')
             visible('mode: approve')

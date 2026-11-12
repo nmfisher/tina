@@ -209,10 +209,17 @@ def smoke(binary, endpoint, columns, rows):
             resumed.send('\r')
             resumed.expect('smoke > ')
             resumed.expect_cursor(True)
-            for _ in range(3):
-                resumed.send('\x1b[5~')
-                time.sleep(0.05)
-            resumed.expect('24×32')
+            # Resume initially paints only recent history. Scroll one row at
+            # a time so paging cannot jump past the caption on a short screen.
+            # Read the retained grid: repainting can reuse individual cells.
+            for _ in range(200):
+                resumed.read()
+                if '24×32' in terminal_grid(resumed, columns, rows):
+                    break
+                resumed.send('\x1b[1;3A')
+                time.sleep(0.03)
+            else:
+                raise AssertionError('resumed image caption was not reachable by scrolling')
             resumed.wait_for(lambda: red_present(resumed), 'resume lost image pixels')
             resumed.expect_idle()
             start = send_line(resumed, '/clear')
