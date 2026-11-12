@@ -292,6 +292,8 @@ List<String> wasmEngineArgv({
   /// `--plugin-component` / `--plugin-grant` mount flags.
   String? pluginComponent,
   List<String> pluginGrants = const [],
+  /// The compiled capability document for the wasm-host contract
+  /// (wasm-tui stream): passed instead of the legacy --preopen flags.
   String? capabilitiesPath,
 }) {
   final workspace = p.normalize(p.absolute(workingDirectory));
