@@ -37,9 +37,11 @@ SettingCatalog createSettingsCatalog(
   ];
   catalog.register(SettingDefinition<String>(
       id: 'tina/approvals/channel',
-      label: 'Approval delivery',
+      label: 'Permission prompts',
       description:
-          'Selects the plugin that presents approval requests. Exactly one delivery channel is selected.',
+          'Where Tina asks you to allow or deny an action. Choose This terminal '
+          'for normal CLI use. External app requires a connected client to show '
+          'and answer the prompts. Applies to new conversations or after restart.',
       // A registry that does not carry the default channel (the wasm
       // registry omits the TUI plugins) falls back to its first
       // registered channel, so the setting stays constructible.
@@ -48,9 +50,17 @@ SettingCatalog createSettingsCatalog(
           : channels.first.id,
       kind: SettingKind.choice,
       choices: [for (final definition in channels) definition.id],
+      choiceLabels: {
+        for (final definition in channels)
+          definition.id: switch (definition.id) {
+            'tina/approvals-tui' => 'This terminal',
+            'tina/approvals-stream' => 'External app',
+            _ => definition.id,
+          },
+      },
       scopes: {SettingScope.global, SettingScope.workspace},
       applyAt: ApplyAt.restart,
-      scopeReason: 'Approval delivery is selected when a conversation opens.',
+      scopeReason: 'Where permission prompts appear is chosen when a conversation opens.',
       configPath: ['plugins', 'approval_channel']));
   refreshProviderDefinitions(catalog, config);
   return catalog;

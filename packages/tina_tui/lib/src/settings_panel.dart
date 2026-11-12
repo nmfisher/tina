@@ -476,7 +476,7 @@ final class SettingsPanel {
                       ? (value ? 'On' : 'Off')
                       : value is Map || value is List
                           ? jsonEncode(value)
-                          : value.toString();
+                          : definition.choiceLabels[value.toString()] ?? value.toString();
   String _settingRow(SettingInfo definition) {
     final state = _state.read(definition, scope: _scope);
     return '${definition.label}: ${_settingValue(definition, state.value)}';
@@ -592,8 +592,11 @@ final class SettingsPanel {
       value = current != true;
     } else if (definition.kind == SettingKind.choice) {
       final options = definition.choices;
-      final selected = await _menu(definition.label, options,
+      final selected = await _menu(definition.label,
+          [for (final option in options) definition.choiceLabels[option] ?? option],
           valid: valid,
+          showDescription: true,
+          descriptionFor: (_) => definition.description,
           initialSelected:
               options.indexOf(current.toString()).clamp(0, options.length - 1));
       if (selected == null) return;
@@ -695,7 +698,7 @@ final class SettingsPanel {
               : pluginInfo[fields[i - 1].owner]?.description ??
                   fields[i - 1].description,
           detailFor: (i) => i == 0
-              ? 'Selected delivery plugin · opens with conversation'
+              ? 'Where permission prompts appear · applies to new conversations'
               : pluginInfo[fields[i - 1].owner]?.required == true
                   ? pluginInfo[fields[i - 1].owner]!.blockingReasons.join('; ')
                   : '${column == 3 ? 'All: toggle session, workspace and global' : '${_scope.name}: ${_state.hasOverride(fields[i - 1], _scope) ? 'set here' : 'inherited from ${_state.read(fields[i - 1], scope: _scope).sourceLabel}'}'} · ${pluginInfo[fields[i - 1].owner]?.status ?? _applyLabel(fields[i - 1].applyAt)}');

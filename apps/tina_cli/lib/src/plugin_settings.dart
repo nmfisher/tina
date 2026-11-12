@@ -60,7 +60,7 @@ final class PluginSettings<C> {
   String get channel => _channel(_global, _workspace);
   Map<String, List<String>> get blockingReasons => {
         ...registry.blockingReasons(selected),
-        channel: ['Selected approval delivery role'],
+        channel: ['Selected place for permission prompts'],
       };
   Set<String> get requiredIds => blockingReasons.keys.toSet();
 

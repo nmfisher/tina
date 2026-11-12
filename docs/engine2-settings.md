@@ -48,13 +48,19 @@ their counters into a process-wide or cross-process quota.
 | Auto-approval classifier timeout (seconds) | All | Next classification request |
 | Plugin enablement | All | When idle if live; otherwise restart |
 | Default provider/model | Global, Workspace | New conversations; `/model` changes the current one |
-| Approval delivery | Global, Workspace | New conversation/restart |
+| Permission prompts | Global, Workspace | New conversation/restart |
 | Theme | Global | Immediately across the terminal |
 | Terminal alerts | Global | Immediately for response completion and new approvals |
 | MCP servers | Global | Enabled/disabled servers apply at the next message |
 | Provider catalog/credentials and MCP server configuration | Global | Existing specialized editors apply their changes; each MCP server collapses into one row that shows its On/Off state and opens its details on Enter |
 
 A plugin lists eligible scopes and explains restrictions with `scopeReason`.
+
+**Permission prompts** chooses where Tina asks you to allow or deny an action.
+Keep **This terminal** for normal CLI use. **External app** sends requests to a
+connected client that must show and answer them. Permission mode (Approve or
+Auto) controls how actions are reviewed separately. Changing the prompt location
+applies to new conversations or after restarting Tina.
 The editor offers a supported scope when the selected one is unavailable.
 Actions and temporary controls remain UI contributions with callbacks; they do
 not acquire inherited configuration merely because they appear in Settings.

@@ -26,6 +26,7 @@ final class SettingDefinition<T extends Object> {
     this.minimum,
     this.maximum,
     List<String> choices = const [],
+    Map<String, String> choiceLabels = const {},
     List<String>? configPath,
     T Function(Object?)? decode,
     Object Function(T)? encode,
@@ -34,6 +35,7 @@ final class SettingDefinition<T extends Object> {
     this.writeConfig,
   })  : scopes = Set.unmodifiable(scopes),
         choices = List.unmodifiable(choices),
+        choiceLabels = Map.unmodifiable(choiceLabels),
         configPath = List.unmodifiable(configPath ?? _defaultPath(id)),
         _decode = decode,
         _encode = encode {
@@ -57,6 +59,8 @@ final class SettingDefinition<T extends Object> {
   final bool secret;
   final int? minimum, maximum;
   final List<String> choices;
+  /// Display names for choice values; stored values remain stable.
+  final Map<String, String> choiceLabels;
 
   /// Optional legacy TOML path. New plugins default to plugin_config tables.
   final List<String> configPath;

@@ -22,6 +22,7 @@ final class SettingInfo {
         minimum = definition.minimum,
         maximum = definition.maximum,
         choices = List.unmodifiable(definition.choices),
+        choiceLabels = Map.unmodifiable(definition.choiceLabels),
         configPath = List.unmodifiable(definition.configPath),
         defaultValue = _publicValue(
             definition, definition.encodeObject(definition.defaultValue));
@@ -32,6 +33,7 @@ final class SettingInfo {
   final bool secret;
   final int? minimum, maximum;
   final List<String> choices, configPath;
+  final Map<String, String> choiceLabels;
   final Object? defaultValue;
 }
 
@@ -130,6 +132,7 @@ final class SettingsClient {
             d.id,
             d.kind.name,
             d.choices,
+            d.choiceLabels,
             d.scopes.map((s) => s.name).toList(),
             d.encodeObject(d.defaultValue),
             d.minimum,

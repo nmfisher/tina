@@ -194,14 +194,18 @@ enabled = []
   });
 
   test('settings selects a channel independently of feature plugins', () async {
-    final (saved, _) = await drive([
+    final (saved, output) = await drive([
       CharInput('Plugins'), enter, // plugins matrix
-      CharInput('Approval'), enter, // approval delivery row
-      CharInput('global'), enter, // delivery has no session scope
-      CharInput('approvals-stream'), enter, // choice
+      CharInput('Permission prompts'), enter,
+      CharInput('global'), enter, // prompt destination has no session scope
+      CharInput('External app'), enter,
       escape, escape, // close
     ]);
     expect(saved, true);
+    expect(output, contains('Permission prompts'));
+    expect(output, contains('This terminal'));
+    expect(output, contains('External app'));
+    expect(output, isNot(contains('Approval delivery')));
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
     expect(loaded.approvalChannel, 'tina/approvals-stream');
