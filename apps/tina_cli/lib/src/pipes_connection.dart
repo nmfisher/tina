@@ -811,6 +811,8 @@ final class _EmptySnapshot implements SessionSnapshot {
   @override
   List<String> get unavailableFeatures => const [];
   @override
+  List<String> get skippedPlugins => const [];
+  @override
   Map<String, Object?> get features => const {};
   @override
   Map<String, Object?> get activeTools => const {};
@@ -857,6 +859,10 @@ final class _WireSnapshot implements SessionSnapshot {
               in (event['unavailableFeatures'] as List? ?? const []))
             feature as String,
         ],
+        skippedPlugins = [
+          for (final plugin in (event['skippedPlugins'] as List? ?? const []))
+            plugin as String,
+        ],
         features = Map.unmodifiable(
             (event['features'] as Map?)?.cast<String, Object?>() ?? const {}),
         activeTools = Map.unmodifiable(
@@ -884,6 +890,8 @@ final class _WireSnapshot implements SessionSnapshot {
   final List<String> plugins;
   @override
   final List<String> unavailableFeatures;
+  @override
+  final List<String> skippedPlugins;
   @override
   final Map<String, Object?> features;
   @override

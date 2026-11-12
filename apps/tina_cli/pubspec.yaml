@@ -17,6 +17,8 @@ dependencies:
   tina_plugin_registry:
     path: ../../packages/libraries/tina_plugin_registry
   path: ^1.9.0
+  tina_capability:
+    path: ../../packages/libraries/tina_capability
   tina_activity:
     path: ../../packages/plugins/tina_activity
   tina_activity_tui:

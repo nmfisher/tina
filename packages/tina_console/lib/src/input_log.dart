@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'platform_env.dart';
 
 import 'package:logging/logging.dart';
 
@@ -67,7 +67,7 @@ enum KeyHandledBy {
 /// alternate screen).
 abstract final class InputLog {
   static final Logger _log = Logger('tina_console.input');
-  static String? _tracePath = Platform.environment['TINA_INPUT_TRACE'];
+  static String? _tracePath = platformEnv('TINA_INPUT_TRACE');
   static final Stopwatch _clock = Stopwatch()..start();
 
   /// Full trail lines written per one-second window before coalescing.
@@ -189,10 +189,9 @@ abstract final class InputLog {
     if (path == null) return;
     final ms = _clock.elapsedMilliseconds;
     try {
-      File(path).writeAsStringSync(
+      platformAppendFile(
+        path,
         'tina-input ${ms}ms $line\n',
-        mode: FileMode.append,
-        flush: true,
       );
     } catch (_) {
       // A debug log must never break the TUI.

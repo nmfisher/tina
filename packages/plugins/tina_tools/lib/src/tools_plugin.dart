@@ -20,6 +20,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:path/path.dart' as path;
 
+import 'package:tina_capability/tina_capability.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina_settings/tina_settings.dart';
@@ -56,6 +57,7 @@ final class ToolsPlugin extends AgentPlugin
     Directory? sandboxState,
     CommandApprovalStore? approvalStore,
     List<String> protectedPaths = const [],
+    CapabilityDocument? this.capabilities,
   })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
         sandbox = SandboxedFileSystem(
           const IoFileSystem(),
@@ -88,6 +90,7 @@ final class ToolsPlugin extends AgentPlugin
       home: home,
       protectedPaths: [
         ...protectedPaths,
+        ...?capabilities?.protectedPaths,
         if (commandApprovals.file != null) commandApprovals.file!.parent.path
       ],
       isolateNetwork: osIsolateNetwork,
@@ -179,18 +182,34 @@ final class ToolsPlugin extends AgentPlugin
         },
         enabled: () => enableSpeculative && !_closed);
     void applyDirectories() {
-      List<String> granted(SettingDefinition<List<String>> definition) => [
-            for (final scope in SettingScope.values)
-              ...((settings?.override(definition, scope) as List?)
-                      ?.cast<String>() ??
-                  const <String>[]),
-          ];
-      readDirectories.replace(granted(readOnlyDirectoriesSetting));
-      writeDirectories.replace(granted(writeDirectoriesSetting));
+      if (capabilities != null) {
+        // The compiled document is the source of truth: its standing
+        // grants seed the tables the sandbox consults live. Exact grants
+        // (commands.json / access grants) keep their live store rereads.
+        readDirectories.replace([
+          for (final dir in capabilities!.readDirectories)
+            if (dir.origin.startsWith('setting:')) dir.path,
+        ]);
+        writeDirectories.replace([
+          for (final dir in capabilities!.writeDirectories)
+            if (dir.origin.startsWith('setting:')) dir.path,
+        ]);
+      } else {
+        List<String> granted(SettingDefinition<List<String>> definition) => [
+              for (final scope in SettingScope.values)
+                ...((settings?.override(definition, scope) as List?)
+                        ?.cast<String>() ??
+                    const <String>[]),
+            ];
+        readDirectories.replace(granted(readOnlyDirectoriesSetting));
+        writeDirectories.replace(granted(writeDirectoriesSetting));
+      }
       writable.replace(osPlan.writableLayout());
     }
 
-    if (settings != null) {
+    if (capabilities != null) {
+      applyDirectories();
+    } else if (settings != null) {
       _stopReadSettings = settings!.listen(applyDirectories);
       applyDirectories();
     }
@@ -245,6 +264,12 @@ final class ToolsPlugin extends AgentPlugin
   final ScopedSettings? settings;
   final ReadOnlyDirectories readDirectories = ReadOnlyDirectories();
   final WriteDirectories writeDirectories = WriteDirectories();
+
+  /// The compiled capability document, when the launcher provided one:
+  /// the one source of truth the native enforcement consults (its
+  /// directory grants seed the tables below; protected paths joined the
+  /// OS plan). Without it, settings feed the tables exactly as before.
+  CapabilityDocument? capabilities;
   void Function()? _stopReadSettings;
   late final SandboxedProcessRunner processRunner;
   late final ProcessJobs processJobs;
