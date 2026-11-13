@@ -29,10 +29,11 @@ cd "$(dirname "$0")/.."
 PKG="$PWD"
 
 # --- toolchain capture -----------------------------------------------------
-# The driver and the engine-component build run on the pinned edge SDK
-# (dart2wasm needs branch-tip wasm_tools); the native engine leg runs on
-# the box's stable SDK, which a fresh PATH may not even have.
-DART="${DART:-$HOME/tools/dart-sdk-src/sdk/out/ReleaseX64/dart-sdk/bin/dart}"
+# The driver and the engine-component build run on the pinned SDK
+# (stable 3.14.0 since the 2026-11-12 pin move; dart2wasm needs
+# branch-tip wasm_tools); the native engine leg runs on the box's own
+# stable SDK, which a fresh PATH may not even have.
+DART="${DART:-$HOME/tools/dart-sdk-3.14.0-stable/bin/dart}"
 STABLE_DART="${STABLE_DART:-$(command -v dart || true)}"
 STABLE_DART="${STABLE_DART:-/opt/dart-sdk/bin/dart}"
 WASM_DART="${WASM_DART:-/tmp/codex85-loader-integration-20261108/wasm.dart}"
@@ -101,7 +102,7 @@ fi
 LOCK_BACKUP=/tmp/stage5_pubspec.lock.backup
 cp "$PKG/pubspec.lock" "$LOCK_BACKUP"
 
-echo "=== resolving packages (pinned edge SDK)"
+echo "=== resolving packages (pinned SDK)"
 ( cd "$PKG" && "$DART" pub get )
 
 # The native leg spawns tina_cli on the stable SDK; resolve it when this
