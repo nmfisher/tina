@@ -9,6 +9,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "111.0.0"
+  adaptive_number:
+    dependency: transitive
+    description:
+      name: adaptive_number
+      sha256: "3a567544e9b5c9c803006f51140ad544aedc79604fd4f3f2c1380003f97c1d77"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.0"
   analyzer:
     dependency: transitive
     description:
@@ -135,6 +143,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.14"
+  ed25519_edwards:
+    dependency: transitive
+    description:
+      name: ed25519_edwards
+      sha256: f3c3b109a0e470ee35f6346a155cab290578660852237fce10df6bbd92758534
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.2"
   ffi:
     dependency: transitive
     description:
@@ -151,6 +167,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.1"
+  fixnum:
+    dependency: transitive
+    description:
+      name: fixnum
+      sha256: b6dc7065e46c974bc7c5f143080a6764ec7a4be6da1285ececdc37be96de53be
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.1"
   frontend_server_client:
     dependency: transitive
     description:
@@ -478,7 +502,7 @@ packages:
     source: path
     version: "0.9.106"
   tina_activity:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../plugins/tina_activity"
       relative: true
@@ -548,7 +572,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_context:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../plugins/tina_context"
       relative: true
@@ -597,7 +621,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_grok_guard:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../plugins/tina_grok_guard"
       relative: true
@@ -663,6 +687,13 @@ packages:
     dependency: transitive
     description:
       path: "../../plugins/tina_plans_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_plugin_registry:
+    dependency: transitive
+    description:
+      path: "../tina_plugin_registry"
       relative: true
     source: path
     version: "0.1.0"
@@ -737,7 +768,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_tasks:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../../plugins/tina_tasks"
       relative: true
@@ -806,8 +837,8 @@ packages:
     dependency: "direct main"
     description:
       path: "pkg/wasm_components"
-      ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
-      resolved-ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
+      ref: c3c8f3230605033df01d637f2bfd635dad106125
+      resolved-ref: c3c8f3230605033df01d637f2bfd635dad106125
       url: "https://github.com/nmfisher/wasm.dart.git"
     source: git
     version: "0.1.1-preview.0"
@@ -815,11 +846,11 @@ packages:
     dependency: "direct dev"
     description:
       path: "pkg/wasm_tools"
-      ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
-      resolved-ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
+      ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
+      resolved-ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
       url: "https://github.com/nmfisher/wasm.dart.git"
     source: git
-    version: "0.1.1-preview.1"
+    version: "0.1.0-preview.0"
   watcher:
     dependency: transitive
     description:

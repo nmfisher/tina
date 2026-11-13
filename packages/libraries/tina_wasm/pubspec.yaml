@@ -15,6 +15,12 @@ dependencies:
     path: ../../../apps/tina_cli
   tina_approvals:
     path: ../../../packages/plugins/tina_approvals
+  tina_activity:
+    path: ../../../packages/plugins/tina_activity
+  tina_context:
+    path: ../../../packages/plugins/tina_context
+  tina_grok_guard:
+    path: ../../../packages/plugins/tina_grok_guard
   tina_chat:
     path: ../../../packages/plugins/tina_chat
   tina_console:
@@ -39,6 +45,8 @@ dependencies:
     path: ../../../packages/libraries/tina_settings
   tina_system_instruction:
     path: ../../../packages/plugins/tina_system_instruction
+  tina_tasks:
+    path: ../../../packages/plugins/tina_tasks
   tina_tools:
     path: ../../../packages/plugins/tina_tools
   toml: ^0.16.0

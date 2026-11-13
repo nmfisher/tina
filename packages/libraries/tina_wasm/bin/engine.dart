@@ -214,6 +214,14 @@ final class _TestedModule implements tests.TestedModule {
           'tina/approvals-stream',
           'tina/session-controls',
           'tina/chat-tui',
+          // The ported catalog set: guard, markers, browser, tasks and
+          // the working-context pair (the file mirror stays native).
+          'tina/grok-guard',
+          'tina/token-rate-tui',
+          'tina/activity-tui',
+          'tina/tasks',
+          'tina/context',
+          'tina/context-tui',
           if (store != null) 'tina/persistence',
           if (includeRemotePromptPlugin) ...[
             RemotePromptPlugin.pluginId,

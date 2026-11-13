@@ -6,13 +6,21 @@
 library;
 
 import 'package:tina_approvals/tina_approvals.dart' as tina_approvals;
+import 'package:tina_activity/tina_activity.dart' show ActivityPlugin;
+import 'package:tina_context/tina_context.dart'
+    show ContextPlugin, contextBudgetSetting, contextResponseReserveSetting,
+    defaultContextBudgetTokens, defaultContextResponseReserveTokens;
+import 'package:tina_grok_guard/tina_grok_guard.dart' show grokGuardDefinition;
+import 'package:tina_tasks/tina_tasks.dart' show TasksPlugin;
 import 'package:tina_chat/tina_chat.dart'
     show ChatPlugin, terminalAlertsSetting;
 import 'package:tina_host/tina_host.dart' hide PluginManager;
 import 'package:tina_mode/tina_mode.dart';
+import 'package:tina_tools/tina_tools.dart' as tt;
 import 'package:tina_session_controls/tina_session_controls.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
 
+import 'package:tina_core/src/command.dart' show Command;
 import 'package:tina/src/session_context.dart';
 
 import 'portable_tools_plugin.dart';
@@ -36,6 +44,15 @@ const approvalChannel = tina_approvals.approvalChannel;
 
 // The approval requester the tools plugin routes asks through.
 const approvalRequester = tina_approvals.approvalRequester;
+
+// The tools session source, exactly as the native catalog's context
+// plugin consumes it (PortableToolsPlugin implements the interface).
+final toolSession = tt.toolProvider;
+
+// `tina/context`, as the native catalog serves it.
+const _workingContext = PluginCapability<ContextPlugin>(
+  'tina/working-context',
+);
 
 /// The wasm registry: every first-party plugin whose dependency tree
 /// compiles without `dart:io`/`dart:ffi`, driven by the same definitions
@@ -106,7 +123,7 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
         plugin.attachApprovals(approvals);
         return plugin;
       },
-      provides: [toolProvider, modePolicySource],
+      provides: [toolProvider, modePolicySource, toolSession],
       description: 'File tools (read, write, edit) over the preopened workspace with permission policy.',
     ),
     tina_approvals.approvalsDefinition<SessionPluginContext>(),
@@ -148,6 +165,72 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
       description:
           'Projects the live conversation preview (streaming tokens, model, '
           'token spend) to the attached front end.',
+      live: true,
+    ),
+    // The same portable plugins the native catalog registers, in its
+    // order: the guard, the status-bar markers, the activity browser,
+    // the task queue, and the working-context pair. The context plugin
+    // runs its in-memory shape here: the experimental file mirror is a
+    // native-only slice (dart:io + the console viewer); budgets and
+    // observation are served unchanged.
+    grokGuardDefinition<SessionPluginContext>(),
+    PluginDefinition<SessionPluginContext>(
+      'tina/token-rate-tui',
+      (_) => PresentationPlugin<void>(id: 'tina/token-rate-tui', source: null),
+      live: true,
+      description:
+          'Shows a live tokens-per-second gauge for the active model turn in the status bar.',
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/activity-tui',
+      (c) => ActivityPlugin(terminal: c.terminal, printTranscript: false),
+      live: true,
+      description:
+          'Shows tool progress, results, file diffs and subagent activity in the activity browser.',
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/tasks',
+      (c) => TasksPlugin(terminal: c.terminal),
+      live: true,
+      description:
+          'Maintains a queue of follow-up tasks distinct from the plan, and auto-advances when the current task completes.',
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, tt.ToolSessionSource>(
+      'tina/context',
+      dependency: toolSession,
+      provides: [_workingContext],
+      settings: [contextBudgetSetting, contextResponseReserveSetting],
+      create: (c, _) => ContextPlugin(
+        readResponseReserveTokens: () =>
+            c.settings?.read(contextResponseReserveSetting).value ??
+            defaultContextResponseReserveTokens,
+        readBudgetTokens: () =>
+            c.settings?.read(contextBudgetSetting).value ??
+            defaultContextBudgetTokens,
+      ),
+      description:
+          'Experimental: lets the agent edit its working conversation through a temporary file. Preserves the original log and pauses automatic and manual compaction while loaded. Changes require restart. The wasm build serves budgets and observation; the file mirror is native-only.',
+      live: false,
+    ),
+    PluginDefinition.dependingOn<SessionPluginContext, ContextPlugin>(
+      'tina/context-tui',
+      dependency: _workingContext,
+      create: (c, _) => PresentationPlugin<void>(
+        id: 'tina/context-tui',
+        source: null,
+        commands: [
+          Command(
+            name: 'context',
+            description: 'inspect accepted working context and edits',
+            allowWhileRunning: true,
+            handler: (_) => c.terminal.writeln(
+              'The context viewer requires the interactive console.',
+            ),
+          ),
+        ],
+      ),
+      description:
+          'Adds /context to inspect accepted working messages, estimated tokens, pending file edits and the latest accepted changes. Requires tina/context.',
       live: true,
     ),
     if (includeRemotePromptPlugin) ...[

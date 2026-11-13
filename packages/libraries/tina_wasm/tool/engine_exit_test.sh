@@ -191,10 +191,17 @@ enabled = [
   "tina/tools",
   "tina/approvals-stream",
   "tina/session-controls",
-  # Graceful degradation: an id the packaged engine's catalog does not
-  # know (it may exist in a native checkout). The wasm leg must skip it
-  # with a notice and a snapshot record - never fatal.
+  # The ported catalog set (grok-guard, markers, browser, tasks, the
+  # working-context pair) plus one deliberate unknown id: an id no catalog
+  # knows must still skip with a notice and a snapshot record - never
+  # fatal - now that grok-guard is a known, active wasm plugin.
   "tina/grok-guard",
+  "tina/token-rate-tui",
+  "tina/activity-tui",
+  "tina/tasks",
+  "tina/context",
+  "tina/context-tui",
+  "tina/nonexistent-probe",
 ]
 EOF
 
@@ -232,7 +239,12 @@ grep -q "RESULT: PASS" "$NATIVE_OUT"
 grep -q "RESULT: PASS" "$WASM_OUT"
 # The unknown plugin degraded gracefully on the wasm leg: a notice names
 # it and the snapshot records the skip.
-grep -q "Skipped unknown plugins (not in this binary): tina/grok-guard" \
+grep -q "Skipped unknown plugins (not in this binary): tina/nonexistent-probe" \
   "$WASM_OUT"
-grep -q '"skippedPlugins":\["tina/grok-guard"\]' "$WASM_OUT"
-echo "STAGE-5 EXIT TEST: both engines completed the turn (unknown plugin skipped)"
+grep -q '"skippedPlugins":\["tina/nonexistent-probe"\]' "$WASM_OUT"
+# The ported catalog plugins are active on the wasm leg (not skipped).
+for plugin in grok-guard token-rate-tui activity-tui tasks context context-tui; do
+  grep -q "\"plugins\":\\[[^]]*\"tina/$plugin\"" "$WASM_OUT" \
+    || { echo "tina/$plugin not active in wasm snapshot" >&2; exit 1; }
+done
+echo "STAGE-5 EXIT TEST: both engines completed the turn (ported plugins active, unknown plugin skipped)"
