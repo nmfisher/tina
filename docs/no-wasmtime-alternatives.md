@@ -1,126 +1,109 @@
-# No-wasmtime alternatives: plugins in plain Dart?
+# No-wasmtime alternatives: a 100% Dart plugin story?
 
 Proposal-only analysis. No code changed. Branch
 `codex/issue85-no-wasmtime-alternatives` (off `codex/issue85-plugin-registry`
-@ `18d210d1`). Question: what would the full plugin story — authoring,
-runtime compilation, loading, use, unloading, replacement, capability
-enforcement, sandboxing — take in plain Dart with no wasmtime?
+@ `18d210d1`). Constraint (Nick): zero wasmtime anywhere — not embedded,
+not via FFI. Wasmtime-embedding options are treated below only as
+rejected alternatives. Question: what does a pure-Dart plugin story look
+like, and what does the product lose versus the current wasm stack?
 
-## 1. Dynamic compilation
+## 1. The pure-Dart baseline: PR #49 today
 
-Dart has three ways to get new code into a running program. None is a
-shippable plugin mechanism for an AOT product.
+PR #49 (merged in main at `43e60e1`, v0.6.13) built the plugin runtime:
+typed services (`ServiceKey`), scopes with reversible registrations,
+validation before activation, deterministic ordering, rollback on
+failure, child-before-parent teardown. Extensions ride the same scope —
+tools, deny-only guards, execution/result hooks, observers. Documented as
+implemented in `docs/plugin_system.md` (branch `wasm-plugin-support`).
 
-- **AOT binaries cannot compile new Dart.** There is no embedder API and
-  no runtime compiler. `dartaotruntime` executes precompiled snapshots.
-- **`Isolate.spawnUri`** can load source or kernel (.dill) files — but
-  only under a JIT VM (`dart` itself). Shipping it means shipping the JIT
-  VM inside the product and paying JIT warmup on every plugin boot.
-- **VM-service hot reload** is a development tool. It needs the service
-  protocol connection, does not exist in AOT, and was never a deploy
-  story. **C dylibs via `dart:ffi`** load at runtime, but that is a
-  C/Rust toolchain, not Dart, and `DynamicLibrary` has no unload.
+What it deliberately lacks, in that document's own words: "no loader, no
+external plugins … adding one means recompiling"; no user-facing plugin
+config; no async factories. The trust model is compiled-in: services are
+Dart objects, "not a security boundary"
+(`docs/proposals/wasm_plugin_support.md` §2). Versus the wasm stack it
+lacks exactly: runtime compilation of new code, memory isolation,
+per-plugin capability enforcement, crash containment, and unload
+guarantees for external code.
 
-So plugins must arrive precompiled. This was the original reason for the
-wasm choice: a precompiled, portable, sandboxed unit. The registry leans
-on exactly that — one wasm artifact per plugin-version, no per-platform
-builds (`docs/plugin-registry-design.md`).
+## 2. The extension paths, head-on
 
-## 2. Isolation
+- **`Isolate.spawnUri` + shipped JIT VM.** Loads Dart source/kernel at
+  runtime — the only true dynamic-compile path, and it requires shipping
+  the JIT VM inside an AOT product. Lost versus wasm: the AOT binary,
+  warmup predictability, and still no isolation — isolates share one
+  process, `dart:io` is all-or-nothing, so consent grants cannot attach;
+  a native fault or `kill -9` takes the process including the sqlite
+  store (the truncated-tail and kill-before-COMMIT recovery rules in
+  `packages/tina_sqlite` and `docs/persistence-durability.md` exist for
+  that hazard).
+- **Dev-mode-only paths (VM-service hot reload).** Dev tooling; needs
+  the service protocol; does not exist in AOT. Not shippable.
+- **Accept no runtime compilation; prebuilt plugin artifacts.** An AOT
+  binary can only run code it was built with — there is no embedder API
+  to load new Dart. "Prebuilt" pure-Dart plugins therefore mean separate
+  processes, which is §4 — everything else collapses back to compiled-in.
+- **No preemption either way.** `Isolate.kill` lands at message
+  checkpoints; a spinning plugin isolate cannot be stopped, only the
+  process can. Unload of loaded code otherwise does not exist.
 
-Isolates are separate heaps inside one process. That is all they are.
+## 3. What the wasm stack (rejected here) had bought
 
-- No address-space boundary and no permission boundary. Anything with
-  FFI in-process can reach every heap. `dart:io` is process-global:
-  filesystem and network cannot be granted per isolate, so the
-  per-plugin consent model (file grants, the HTTP approval gate,
-  `session.read-context`) has nothing to attach to.
-- Uncaught Dart errors stay in their isolate. Native faults do not. An
-  FFI bug, a VM bug, or `kill -9` ends the whole process, including the
-  open sqlite session store.
-- We have recorded the shape of that event. `tina_sqlite` treats a crash
-  mid-append as real: a truncated tail line is an error, never silently
-  dropped rows. The recovery checks kill a writer's process group before
-  COMMIT and verify atomic recovery
-  (`docs/persistence-durability.md`, `packages/tina_sqlite/README.md`).
-  Native SIGSEGV hunts with the TUI are preserved in `tool/crash_hunt.sh`
-  and `tool/crash_teardown.sh`.
+For comparison only — this is what a pure-Dart story must replace:
+runtime compilation of components at boot and per plugin load; the
+wasmtime sandbox; fail-closed capability documents into WASI preopens,
+`tina:http` approvals, `tina:process` patterns; epoch kills, tested
+(`epoch_deadline_interrupts_spin_call_and_revokes_lease`); one Store per
+plugin with lease/busy admission; one self-contained binary; one signed,
+portable artifact per plugin-version in the registry.
 
-## 3. Unload semantics
+## 4. Process-per-plugin: the honest pure-Dart fallback
 
-`Isolate.kill` is a true unload: the heap goes away. Two caveats.
+One OS process per plugin, IPC to the engine — the pipes architecture we
+already ship (`packages/libraries/tina_wasm/bin/engine.dart` runs the
+same `SessionAssembly` over `runSessionPipes`). Real isolation: separate
+address spaces; a crash ends one plugin process. But the OS grants
+nothing per plugin by default: the supervisor must mediate every file
+and network call over IPC, or drop privileges per child — rebuilding in
+Dart what preopens and host imports gave. Costs: a runtime boot per
+plugin, serialization on every call, lifecycle plumbing. This path also
+carries the store-vs-plugin split naturally: the engine process owns
+sqlite; plugins never touch it.
 
-- Kill takes effect at message checkpoints. A plugin spinning in a tight
-  loop never reaches one. Dart has no preemption; only process death
-  stops a runaway isolate.
-- Short of killing the isolate, code loaded into a VM stays loaded. No
-  module unload exists. Hot replacement means new code alongside old.
+## 5. Rejected: every wasmtime embedding
 
-## 4. Process-per-plugin
-
-One OS process per plugin, IPC to the engine. This is the pipes
-architecture we already ship — the wasm engine runs the same
-`SessionAssembly` over `runSessionPipes`, driven through stdio
-(`packages/libraries/tina_wasm/bin/engine.dart`).
-
-- Real isolation: separate address spaces; a crash ends one plugin
-  process; the supervisor survives. Real enforcement gap: the OS grants
-  nothing per plugin by default. The parent must mediate every file and
-  network call over IPC, or drop OS privileges per child. That rebuilds,
-  in Dart, what wasmtime's preopens and host imports already give us.
-- Costs: one runtime boot per plugin, serialization on every call, and
-  lifecycle plumbing per plugin.
-
-## 5. What each side buys
-
-Wasmtime today, each point in-tree:
-
-- Runtime compilation of components: the host compiles the engine at
-  boot and each plugin at load; `--plugin-watch` recompiles per attach
-  (`pkg/tina_wasm_host/src/runner.rs`, wasm.dart).
-- Memory isolation: the wasmtime sandbox.
-- Capability enforcement: fail-closed policy document into WASI preopens
-  (ro/rw), `tina:http` approvals, `tina:process` command patterns, and
-  per-plugin grants (`policy.rs`, `tina_http.rs`, `tina_process.rs`).
-- Epoch preemption: infinite-loop kills, tested for both plugins
-  (`epoch_deadline_interrupts_spin_call_and_revokes_lease`, and lease
-  revocation on the killed call) and the TUI (`TINA_TUI_EPOCH_TICKS`).
-- Topology this enables: one async engine for the guest, a separate
-  sync engine for plugins, one Store per plugin with lease/busy
-  admission (`tina_plugin.rs`, `plugin_loader.rs`).
-- One self-contained binary with engine and TUI embedded
-  (`src/main.rs`), and a stable-SDK toolchain (dart2wasm on 3.14.0).
-- Already-paid costs, honestly: the dart:io/dart:ffi closure had to be
-  ported out of the front end; boot pays the JIT-compile tax (the ~19 s
-  startup, under fix); `Finalizer`, `WeakReference`, `Expando` and real
-  stack traces are stubs under Wasm GC, and raw dart2wasm interop is
-  externref-only — the WIT component layer is what makes host/guest
-  values typed (`docs/proposals/wasm_ecosystem_research.md`).
-
-Plain Dart buys: no Rust toolchain or wasmtime in the product build,
-native speed, no boot compile tax, the whole codebase unported, and
-ordinary Dart debugging.
+- **PR #52 tin-w4sm FFI** (`packages/dart_wasmtime`, wasm-plugin-support
+  line): vendored wasmtime v36 static archives per target, `@Native`
+  bindings, a supervised worker isolate, epoch interruption. Rejected:
+  it contains wasmtime — the constraint forbids it outright. It also
+  carried per-platform vendored archives (a 25.2 MB merged lib) and the
+  dart2wasm interop limits that later pushed us to the component model:
+  externref-only host sharing and stubbed `Finalizer`/`WeakReference`/
+  `Expando`/stack traces (`docs/proposals/wasm_ecosystem_research.md`).
+- **The current Rust host** (`tina-wasm-host` in wasm.dart): rejected by
+  the same constraint, though it is what main's engine leg uses today;
+  its capabilities are the baseline every variant above is measured
+  against.
 
 ## 6. Decision matrix
 
-Status quo = today's native binary with every plugin compiled in
-(pre-#85). ✔ yes, ~ partial, ✘ no.
+✔ yes, ~ partial, ✘ no. "PR #49 ext." = pure-Dart isolates extended.
 
-| | wasmtime stack | plain-Dart isolates | process-per-plugin | status quo |
-|---|---|---|---|---|
-| Compile new code at runtime | ✔ (wasm) | ✘ (AOT) or ship JIT VM | ✘ same, or ship JIT VM | ✘ |
-| Unload / kill runaway plugin | ✔ epoch | ~ kill at checkpoints; no preemption | ✔ process kill | n/a |
-| Per-plugin capability grant | ✔ preopens + policy | ✘ dart:io is process-global | ~ supervisor-mediated | n/a |
-| Crash containment | ✔ sandbox | ✘ one process, store inside | ✔ per process | one process |
-| Hot replace | ✔ watch mode + new Store | ~ shadow code, no unload | ✔ spawn new process | ✘ |
-| Performance | JIT-compiled wasm; boot tax | native | native + IPC per call | native |
-| Deployment | one binary + wasm artifacts | one binary | engine + per-plugin runtimes | one binary |
+| | wasm stack (rejected) | PR #49 ext. | process-per-plugin | PR #52 FFI (rejected) | hot reload (rejected) |
+|---|---|---|---|---|---|
+| New code without recompile | ✔ | ~ JIT VM only | ~ child programs | ✔ | ✔ dev only |
+| Zero wasmtime | ✘ | ✔ | ✔ | ✘ | ✔ |
+| Per-plugin capability grant | ✔ | ✘ process-global | ~ supervisor | ✔ | ✘ |
+| Crash containment | ✔ | ✘ store inside | ✔ | ✔ | ✘ |
+| Kill runaway plugin | ✔ epoch | ✘ no preemption | ✔ | ✔ | ✘ |
+| Unload / hot replace | ✔ | ~ checkpoints | ✔ | ~ | ✔ dev only |
+| Performance | wasm + boot tax | native | native + IPC | native-side FFI | native |
+| Ship as one binary | ✔ | ✔ | engine + children | ✔ + vendored libs | ✘ |
 
 ## 7. Recommendation
 
-Keep wasmtime. Plain Dart cannot enforce capabilities or contain native
-faults, and the consent model dies with them. If wasmtime must go,
-process-per-plugin is the only honest fallback — it is the pipes
-architecture, costs IPC latency and a supervisor we would have to write,
-and still ships precompiled plugins. Isolates alone are not a plugin
-story; they are a concurrency story.
+Under a zero-wasmtime rule, the shippable pure-Dart story is PR #49 for
+trusted, compiled-in plugins plus process-per-plugin for anything
+external. In-process isolate loading (spawnUri) should stay out: it
+costs the AOT product and buys no enforcement. The product loses, versus
+the wasm stack, runtime compilation, sandboxed consent enforcement and
+crash containment in-process; a written supervisor owns them instead.
