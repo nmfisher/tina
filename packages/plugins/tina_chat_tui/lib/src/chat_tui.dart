@@ -42,6 +42,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   ConsoleContext? _console;
   void Function()? _unbindPrompt, _unbindKey, _unbindModal;
   void Function()? _unbindStatus;
+  void Function()? _unbindScrollHint;
   void Function()? _unbindAttention;
   Timer? _ticker;
   int _frame = 0, _width = -1, _height = -1;
@@ -84,6 +85,14 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _unbindAttention =
         context.bindAttentionPreference(() => chat.terminalAlertsEnabled);
     _unbindStatus = context.bindStatus(_statusLines);
+    _unbindScrollHint = context.bindStatus(
+        () => [
+              RenderLine(runs: [
+                RenderRun('Alt/Option+↑↓ line · PgUp/PgDn page',
+                    context.screen.theme.chat.dim)
+              ])
+            ],
+        priority: 1000);
     _unbindPrompt = context.bindPrompt(
         () => renderConversationPrompt(
             ConversationPrompt(
@@ -917,6 +926,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _selected = null;
     _unbindStatus?.call();
     _unbindStatus = null;
+    _unbindScrollHint?.call();
+    _unbindScrollHint = null;
     _unbindAttention?.call();
     _unbindAttention = null;
     _console = null;
