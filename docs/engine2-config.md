@@ -1,5 +1,10 @@
 # Engine2 configuration
 
+Conversation scrolling: **Option/Alt + ↑/↓** moves one displayed line at a time
+(Option on macOS); **Page Up/Down** moves a page. The mouse wheel also scrolls
+line by line. Plain ↑/↓ recalls input history. Scrolling preserves the current
+draft and cursor, including while a response streams. `/help` lists these keys.
+
 The CLI application owns one configuration reader for interactive and headless runs. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
 edit it, preserving unknown legacy tables. Live `/settings` also supports Session

@@ -629,6 +629,8 @@ final class SessionAssembly {
         }
         output.writeln(
             'Type while busy and Enter to queue. Ctrl+C clears the draft; with an empty draft it quits. Esc cancels active work and preserves the draft, including while a dialog is open. Tab completes command arguments; @ completes files.');
+        output.writeln(
+            'Scroll conversation: Option/Alt+Up/Down moves one displayed line; Page Up/Down moves a page. Plain Up/Down recalls input history.');
       },
     ));
     diagnostics?.stage?.call('assembly-ready');
