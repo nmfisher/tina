@@ -1,9 +1,15 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
 import 'package:tina_console/tina_console.dart';
 import 'panels_status.dart';
 import 'prompt.dart';
 
 /// UI-only workspace: session creation/execution is supplied by the app.
+///
+/// Since the image panel work it also opens [ImagePanelSpec] panels
+/// (`/image <path>` or the [openImagePanel] helper plugins use).
 final class PanelsView
     implements ConsoleContribution, ConsoleWorkspace, ConsoleCommandHandler {
   PanelsView();
@@ -17,8 +23,21 @@ final class PanelsView
       'spawn' =>
         panels.spawn(arguments.trim().isEmpty ? null : arguments.trim()),
       'close' => panels.closeFocused(),
+      'image' => _openImageCommandLine(arguments),
       _ => null,
     };
+  }
+
+  Future<void>? _openImageCommandLine(String arguments) {
+    final path = arguments.trim();
+    if (path.isEmpty) return null;
+    final panels = _console!.panels;
+    if (panels case ImagePanelOpener opener) {
+      final stem = path.split(RegExp(r'[\\/]')).last;
+      return opener.openImagePanel(
+          ImagePanelSpec(path: path, label: 'image: $stem'));
+    }
+    return null;
   }
 
   @override
@@ -59,7 +78,13 @@ final class _View {
   bool closed = false, minimized = false;
 }
 
-final class _Workspace implements ConsolePanels {
+final class _ImagePanel {
+  _ImagePanel(this.frame, this.content);
+  final PanelFrame frame;
+  final ImagePanelContent content;
+}
+
+final class _Workspace implements ConsolePanels, ImagePanelOpener {
   _Workspace(this.context, this.initial, this.createSession, this.onViewClosed);
   final ConsoleContext context;
   final ConsoleSessionView initial;
@@ -75,6 +100,109 @@ final class _Workspace implements ConsolePanels {
   int width = -1, height = -1, visibleIndex = 0;
   int _nextPanel = 1;
   int _themeEpoch = -1;
+
+  // -- Image panels -------------------------------------------------------
+
+  final imagePanels = <_ImagePanel>[];
+  final _decodedImages = <String, ConsoleImage?>{};
+
+  static const _maxDecodedImages = 8;
+
+  Future<void> openImagePanel(ImagePanelSpec spec) async {
+    if (stopped) return;
+    final path = spec.path;
+    final Uint8List bytes;
+    try {
+      bytes = spec.bytes ?? await File(path!).readAsBytes();
+    } catch (error) {
+      active?.session.notice('Image panel: cannot read '
+          '${path ?? '<bytes>'}: $error');
+      return;
+    }
+    final cacheKey = path ?? 'bytes:${bytes.length}:${identityHashCode(bytes)}';
+    var decoded = _decodedImages[cacheKey];
+    if (decoded == null && !_decodedImages.containsKey(cacheKey)) {
+      // Decode off the UI thread: package:image work on a multi-megapixel
+      // file visibly janks the editor loop otherwise.
+      decoded = await Isolate.run(() => ConsoleImage.decode(bytes));
+      if (_decodedImages.length >= _maxDecodedImages) _decodedImages.clear();
+      _decodedImages[cacheKey] = decoded;
+    }
+    if (stopped) return;
+    if (decoded == null) {
+      active?.session
+          .notice('Image panel: ${path ?? 'bytes'} is not a decodable image.');
+      return;
+    }
+    final content = ImagePanelContent(screen, label: spec.label);
+    content.image = decoded;
+    final frame = PanelFrame(
+        screen: screen, label: spec.label, conversationId: 'image-panel');
+    frame.onPanelKey = (event) {
+      // q or Esc closes an image panel - it has no editor of its own.
+      // Escape arrives as a raw 0x1b char in this input layer.
+      if (event is CharInput &&
+          (event.text == 'q' || event.text == '\x1b')) {
+        closeImagePanel(frame);
+        return true;
+      }
+      return false;
+    };
+    final panel = _ImagePanel(frame, content);
+    imagePanels.add(panel);
+    focus.register(frame);
+    frame.onFocus = () {};
+    _layoutImagePanels();
+    content.fit(frame.interior, reserveInputRow: false);
+    content.attach();
+    focus.focusPanel(frame);
+  }
+
+  void closeImagePanel(PanelFrame frame) {
+    final index = imagePanels.indexWhere((panel) => panel.frame == frame);
+    if (index < 0) return;
+    final panel = imagePanels.removeAt(index);
+    final bounds = frame.bounds;
+    focus.unregister(frame);
+    screen.frame(() {
+      panel.content.detach();
+      for (var row = bounds.row; row < bounds.row + bounds.height; row++) {
+        screen.eraseAtAbsolute(
+            row: row, col: bounds.col, n: bounds.width, moveCursor: false);
+      }
+    });
+    if (identical(focus.focused, frame)) {
+      focus.focusPanel(active?.frame ?? panelStatus);
+    }
+    _layoutImagePanels();
+  }
+
+  /// Right-anchored overlay column, newest panel on top; stacked when
+  /// more than one is open. Modest on purpose: v1 does not participate in
+  /// the split tiling - image panels float above the chat grid.
+  void _layoutImagePanels() {
+    if (stopped) return;
+    screen.frame(() {
+      final layout = screen.layout;
+      final panelWidth = (width * 2 / 5).clamp(24, 64).toInt();
+      final bodyHeight = layout.stripRow - layout.chat.row;
+      for (final panel in imagePanels) {
+        final index = imagePanels.indexOf(panel);
+        final stackHeight = (bodyHeight ~/ (imagePanels.length))
+            .clamp(6, bodyHeight);
+        final rect = Rect(
+            row: layout.chat.row + 1 + index * (stackHeight - 1),
+            col: (layout.chat.col + layout.chat.width - panelWidth)
+                .clamp(0, width - 1),
+            width: panelWidth,
+            height: stackHeight.clamp(1, bodyHeight));
+        panel.frame.setBorder(true);
+        panel.frame.setOuter(rect, parked: false);
+        panel.content.fit(panel.frame.interior, reserveInputRow: false);
+      }
+    });
+  }
+
   late final PanelsStatus panelStatus = PanelsStatus(
       context: context,
       choices: () => [
@@ -133,6 +261,11 @@ final class _Workspace implements ConsolePanels {
         closing.add(_closeView(view));
       }
       views.clear();
+      for (final panel in imagePanels) {
+        panel.content.detach();
+        panel.frame.dispose();
+      }
+      imagePanels.clear();
       screen.input.setBoundsOverride(null);
       // Late creations also release their view and notify its application
       // owner. Borrowed sessions never hold workspace teardown open.
@@ -153,6 +286,14 @@ final class _Workspace implements ConsolePanels {
         unawaited(spawn(parts.length > 1 ? parts.skip(1).join(' ') : null));
       case '/close':
         unawaited(closeFocused());
+      case '/image':
+        if (parts.length < 2) {
+          target.session.notice('usage: /image <file-path>');
+        } else {
+          unawaited(openImagePanel(ImagePanelSpec(
+              path: parts.skip(1).join(' '),
+              label: 'image: ${parts.skip(1).join(' ').split(RegExp(r'[\\\\/]')).last}')));
+        }
       default:
         late final Future<void> work;
         work = target.session.submit(line).catchError((Object error) {
@@ -326,6 +467,7 @@ final class _Workspace implements ConsolePanels {
         final selected = active!;
         screen.input.setBoundsOverride(
             selected.frame.isParked ? Rect.empty : selected.frame.inputRect);
+        _layoutImagePanels();
         for (final view in views) {
           view.frame.relabel(
               '${view.frame.label.split(':').first}: ${view.session.label}');
@@ -431,6 +573,15 @@ final class _Workspace implements ConsolePanels {
 
   @override
   Future<void> closeFocused() async {
+    // An image panel focused? Close that, not the conversation behind it.
+    final focused = focus.focused;
+    final image = imagePanels
+        .where((panel) => identical(panel.frame, focused))
+        .firstOrNull;
+    if (image != null) {
+      closeImagePanel(image.frame);
+      return;
+    }
     final view = active;
     if (view == null || view.closed || stopped) return;
     if (views.length == 1) {

@@ -18,6 +18,9 @@ library;
 
 export 'src/renderer.dart';
 export 'src/console_image.dart';
+export 'src/image/half_block.dart';
+export 'src/image/image_capabilities.dart';
+export 'src/image_panel.dart';
 export 'src/status_layout.dart';
 
 export 'src/backend/backend_factory.dart';

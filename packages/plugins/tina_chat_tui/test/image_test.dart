@@ -146,7 +146,13 @@ void main() {
               TextBlock('Still working')
             ])),
         LogEvent.appended);
-    expect(ansiScreen.chat.contentRows, lessThan(10));
+    // Since the image-panel work the ANSI backend implements
+    // RetainedImageBackend, so a GOOD image now renders real half-block
+    // rows (a 24x32 fixture is ~20 rows) instead of the old caption-only
+    // stub. The contract this test owns is bounded growth and graceful
+    // degradation: caption still present, bad image still a caption,
+    // output still continues.
+    expect(ansiScreen.chat.contentRows, lessThan(40));
     final text = ansiScreen.chat.snapshotLines().join('\n');
     expect(text, contains('Image · image/png · 24×32'));
     expect(text, contains('Image unavailable'));
