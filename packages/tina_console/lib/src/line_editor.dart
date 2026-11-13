@@ -1657,7 +1657,7 @@ class LineEditor {
                 // Accepting a command replaces the buffer with the command
                 // text. Submit immediately — no second Enter needed.
                 final result = _edit.buffer;
-                _edit = _edit.addHistory(result).clear();
+                _edit = _edit.addHistory(result).clear().resetNavigation();
                 _redraw();
                 _complete(result);
               }
@@ -1668,7 +1668,9 @@ class LineEditor {
             // region while the command's dispatch runs (a /index confirm +
             // fleet run can take minutes). The next readLine clears anyway;
             // clearing here makes the window invisible.
-            _edit = _edit.addHistory(result).clear();
+            // readLines keeps this editor armed across submissions, so reset
+            // recall here rather than waiting for another readLine call.
+            _edit = _edit.addHistory(result).clear().resetNavigation();
             // Repaint now: clearing state alone leaves the old text as stale
             // pixels whenever dispatch is slow (e.g. /compact summarizes
             // through an LLM call) — the next readLine's repaint only lands

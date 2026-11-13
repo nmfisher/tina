@@ -52,10 +52,15 @@ Eligible command prompts offer **Run once**, **Remember for this conversation**,
 **Persist for this workspace**, and **Deny**. The scope choices show the literal
 argument prefix, such as `gh pr view`. Prefixes match whole argument tokens:
 `gh pr view 429` and `gh pr view 430` match; `gh pr checkout` and `gh pr viewevil`
-do not. Every stage of a literal pipeline needs its own matching rule. A `head`
-rule never approves an earlier `otool` or `grep` stage. The menu shows every
-prefix it will remember. Scripts, assignments, expansion, command lists and file
-redirections remain invocation reviews rather than broad shell-prefix rules.
+do not. Every command in a literal list (`;` or `&&`) and every pipeline stage
+needs its own matching rule. A `head` rule never approves another `otool` or
+`grep` command. The menu shows every prefix it will remember. Literal `echo`,
+`pwd`, `true` and `false` builtins have separate rules from external executables.
+Assignments, expansion, state-changing builtins (including `printf`, which can
+assign variables), interpreter wrappers and file redirections remain invocation
+reviews. Discarding output with `2>/dev/null` is supported; that redirect stays
+part of the rule's context. Ineligible prompts explain why remembering is
+unavailable and suggest splitting the command.
 
 Rules remember only the displayed execution, network and host capabilities.
 They never grant file reads, writes or deletion, and the first workspace-write

@@ -90,7 +90,15 @@ void main() {
     workspace = Directory('${root.path}/project')..createSync();
     bin = Directory('${root.path}/bin')..createSync();
     home = Directory('${root.path}/home')..createSync();
-    for (final name in ['gh', 'head', 'grep', 'otool', 'sed']) {
+    for (final name in [
+      'gh',
+      'head',
+      'grep',
+      'otool',
+      'sed',
+      'enable',
+      'readonly'
+    ]) {
       final file = File('${bin.path}/$name')
         ..writeAsStringSync('#!/bin/sh\nexit 0\n');
       expect(Process.runSync('/bin/chmod', ['+x', file.path]).exitCode, 0);
@@ -221,16 +229,25 @@ void main() {
   });
 
   test(
-      'shell expansion, command lists, builtins and redirects cannot acquire prefix grants',
+      'shell expansion, state changes and file redirects cannot acquire prefix grants',
       () {
     for (final script in [
       r'X=1; gh pr view 429',
       r'gh pr view $(cat file)',
-      r'gh pr view 429 && head file',
       r'gh pr view 429 > result',
       r'gh pr view $PR',
-      r'echo text | head',
-      r'gh pr view *'
+      r'gh pr view *',
+      r'cd other; head file',
+      r'export PATH=/tmp; head file',
+      r'printf -v PATH /tmp; head file',
+      r'printf -vPATH /tmp; head file',
+      r"printf '%n' PATH; head file",
+      r'enable -n echo; head file',
+      r'readonly PATH=/tmp; head file',
+      r'eval "head file"',
+      r'gh pr view 429 || head file',
+      r'echo hi; sh -c "head file"',
+      r'echo hi; rm file > result',
     ]) {
       expect(
           CommandPrefixPlan.parse(request('/bin/sh', ['-c', script]),
@@ -242,6 +259,96 @@ void main() {
     final quoted = plan(request('/bin/sh',
         ['-c', '${bin.path}/grep "a | b" | ${bin.path}/head -n 35']));
     expect(quoted.stages.first.arguments, ['a | b']);
+  });
+
+  test('literal command lists offer every prefix and require every rule',
+      () async {
+    final recorder = _Recorder();
+    final gate = runner(recorder);
+    ProcessRequest shell(String script) => request('/bin/sh', ['-c', script]);
+    // Saving just the heading must not authorize the commands that follow it.
+    expect(await gate.run(shell("echo 'heading'")), isA<CommandCompleted>());
+    final script = "echo '=== run.sh (what platforms)'; "
+        '${bin.path}/head -40 run.sh; '
+        "echo '=== engine selection'; "
+        "${bin.path}/grep -n 'hooks\\|user_defines' pubspec.yaml && "
+        '${bin.path}/grep -rn Backend lib 2>/dev/null | ${bin.path}/head -12';
+    decision = ApprovalDecision.deny;
+    expect(await gate.run(shell(script)), isA<CommandRefused>());
+    expect(asks.last.details['command_prefixes'], ['echo', 'head', 'grep']);
+    decision = ApprovalDecision.allowPrefixInSession;
+    expect(await gate.run(shell(script)), isA<CommandCompleted>());
+    final asksBefore = asks.length;
+    decision = ApprovalDecision.deny;
+    expect(await gate.run(shell(script.replaceFirst('-40', '-50'))),
+        isA<CommandCompleted>());
+    expect(asks, hasLength(asksBefore));
+    // A new last command is checked even if all earlier stages match.
+    expect(await gate.run(shell('$script; ${bin.path}/sed -n 1p file')),
+        isA<CommandRefused>());
+    expect(asks, hasLength(asksBefore + 1));
+    // Context changes and extra access still need approval.
+    expect(await gate.run(shell(script.replaceFirst('2>/dev/null', '2>&1'))),
+        isA<CommandRefused>());
+    expect(
+        await gate.run(shell(script),
+            control: const ProcessControl(
+                networkRequested: true, networkReason: 'New access')),
+        isA<CommandRefused>());
+    expect(recorder.requests, hasLength(3));
+  });
+
+  test('shell builtins and external executables have separate prefix rules',
+      () {
+    final builtin = plan(request('/bin/sh', ['-c', 'echo hello']));
+    final external = plan(request('/bin/sh', ['-c', '/bin/echo hello']));
+    expect(builtin.labels, ['echo']);
+    expect(builtin.stages.single.executable,
+        File('/bin/sh').resolveSymbolicLinksSync());
+    expect(builtin.stages.single.executable,
+        isNot(external.stages.single.executable));
+    tools.commandApprovals
+        .rememberPrefixes(builtin, {'execute'}, CommandApprovalScope.session);
+    expect(tools.commandApprovals.coversPrefixes(external, 'execute'), false);
+    expect(
+        tools.commandApprovals.coversPrefixes(
+            plan(request('/bin/sh', ['-c', 'echo bye'])), 'execute'),
+        true);
+  });
+
+  for (final scope in [
+    CommandApprovalScope.session,
+    CommandApprovalScope.workspace
+  ]) {
+    test('command lists with builtins survive restoring ${scope.name} grants',
+        () {
+      final initial = plan(request(
+          '/bin/sh', ['-c', "echo heading; ${bin.path}/head -40 run.sh"]));
+      tools.commandApprovals.rememberPrefixes(initial, {'execute'}, scope);
+      final fresh = create();
+      if (scope == CommandApprovalScope.session) {
+        fresh.commandApprovals.restoreSessionPrefixes(
+            tools.commandApprovals.sessionPrefixEntries);
+      }
+      expect(
+          fresh.commandApprovals.coversPrefixes(
+              plan(request('/bin/sh',
+                  ['-c', "echo other; ${bin.path}/head -50 other.sh"])),
+              'execute'),
+          true);
+    });
+  }
+
+  test('unsupported shell prompts explain why remembering is unavailable',
+      () async {
+    decision = ApprovalDecision.deny;
+    expect(
+        await runner(_Recorder())
+            .run(request('/bin/sh', ['-c', 'cd other; ${bin.path}/head file'])),
+        isA<CommandRefused>());
+    expect(asks.single.details['command_prefixes'], isNull);
+    expect(asks.single.details['command_prefix_unavailable_reason'],
+        contains('state-changing builtins'));
   });
 
   test('workspace prefixes survive new conversations; revocation is read live',

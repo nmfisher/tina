@@ -200,7 +200,9 @@ void attachModePolicy(ToolsPlugin plugin) {
               PermissionTargetKind.unknown),
     ];
     final details = reviewPaths(accesses);
+    String? prefixUnavailable;
     final prefixes = CommandPrefixPlan.parse(request,
+        onUnavailable: (reason) => prefixUnavailable = reason,
         workspace: root,
         sandboxHomeRoot:
             review.requiredPermissions.contains(ProcessPermission.unconfined)
@@ -233,6 +235,8 @@ void attachModePolicy(ToolsPlugin plugin) {
       context: {
         ...details,
         if (prefixes != null) 'command_prefixes': prefixes.labels,
+        if (prefixUnavailable != null)
+          'command_prefix_unavailable_reason': prefixUnavailable,
         if (prefixes != null)
           'persistent_command_prefix': plugin.commandApprovals.file != null,
         'workspace': root,

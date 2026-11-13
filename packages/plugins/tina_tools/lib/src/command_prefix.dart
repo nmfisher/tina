@@ -37,9 +37,10 @@ final class CommandPrefixStage {
   }
 }
 
-/// Only plain exec calls and literal pipelines are eligible. Assignments,
-/// expansion, command lists, file redirects and shell builtins stay reviewed
-/// as whole invocations. A saved head rule cannot cover another pipeline stage.
+/// Plain exec calls and literal shell lists/pipelines are eligible. Every
+/// command needs its own rule, including output-only shell builtins.
+/// Assignments, expansion, file redirects and state-changing builtins remain
+/// invocation reviews. A head rule cannot cover an earlier or later command.
 final class CommandPrefixPlan {
   CommandPrefixPlan._(this.stages);
   final List<CommandPrefixStage> stages;
@@ -49,7 +50,13 @@ final class CommandPrefixPlan {
   static CommandPrefixPlan? parse(ProcessRequest request,
       {required String workspace,
       String? searchPath,
-      String? sandboxHomeRoot}) {
+      String? sandboxHomeRoot,
+      void Function(String reason)? onUnavailable}) {
+    CommandPrefixPlan? unavailable(String reason) {
+      onUnavailable?.call(reason);
+      return null;
+    }
+
     try {
       final shell = const {'sh', 'bash', 'dash', 'zsh', 'ksh'}
           .contains(p.basename(request.command));
@@ -66,7 +73,9 @@ final class CommandPrefixPlan {
           '/usr/bin/bash',
           '/bin/dash',
           '/usr/bin/dash'
-        ].contains(launcher)) return null;
+        ].contains(launcher)) {
+          return unavailable('This shell is not supported for saved prefixes.');
+        }
         parts = literalShellParts((
           command: '/bin/sh',
           arguments: request.arguments,
@@ -75,11 +84,16 @@ final class CommandPrefixPlan {
           stdin: request.stdin,
           timeout: request.timeout,
         ));
-        if (parts == null ||
-            parts.any((part) =>
-                part.operator != null && part.operator != '|' ||
-                part.redirects.any((redirect) => redirect.target != null)))
-          return null;
+        if (parts == null) {
+          return unavailable('Only literal commands joined by ;, && or | can '
+              'be remembered. Split commands that use expansion, control '
+              'flow or other shell syntax.');
+        }
+        if (parts.any((part) =>
+            part.redirects.any((redirect) => redirect.target != null))) {
+          return unavailable('File redirections require review for each '
+              'invocation. Split the redirected command to remember the others.');
+        }
       } else {
         parts = [
           (
@@ -105,19 +119,29 @@ final class CommandPrefixPlan {
       for (final part in parts) {
         final words = part.words;
         final name = p.basename(words.first);
-        if (_wrappers.contains(name) ||
-            shell && _builtins.contains(name) ||
-            words.first.contains('=') ||
-            words.first.startsWith('-')) return null;
-        final executable = resolveHostExecutable((
-          command: words.first,
-          arguments: words.skip(1).toList(),
-          workingDirectory: request.workingDirectory,
-          environment: environment,
-          stdin: request.stdin,
-          timeout: request.timeout,
-        ), workspace: workspace, searchPath: searchPath);
         final arguments = words.skip(1).toList();
+        final builtin =
+            shell && words.first == name && _builtins.contains(name);
+        if (_wrappers.contains(name) ||
+            builtin && !_literalBuiltins.contains(name) ||
+            words.first.contains('=') ||
+            words.first.startsWith('-')) {
+          return unavailable('Shell setup, state-changing builtins and '
+              'interpreter wrappers cannot be remembered as prefixes. '
+              'Split them from the commands you want to remember.');
+        }
+        // A builtin is executed by the selected shell, not the external
+        // executable of the same name found on PATH. Keep their rules distinct.
+        final executable = builtin
+            ? launcher!
+            : resolveHostExecutable((
+                command: words.first,
+                arguments: words.skip(1).toList(),
+                workingDirectory: request.workingDirectory,
+                environment: environment,
+                stdin: request.stdin,
+                timeout: request.timeout,
+              ), workspace: workspace, searchPath: searchPath);
         final depth = _subcommands[name];
         final prefix = <String>[name];
         if (depth != null) {
@@ -125,7 +149,10 @@ final class CommandPrefixPlan {
             if (!RegExp(r'^[A-Za-z][A-Za-z0-9_-]*$').hasMatch(argument)) break;
             prefix.add(argument);
           }
-          if (prefix.length == 1) return null;
+          if (prefix.length == 1) {
+            return unavailable('$name needs a literal subcommand before a '
+                'prefix can be remembered.');
+          }
         }
         final context = sha256
             .convert(utf8.encode(jsonEncode([
@@ -137,6 +164,7 @@ final class CommandPrefixPlan {
                 {for (final key in keys) key: identityEnvironment![key]},
               request.stdin,
               part.redirects.map((r) => r.text).toList(),
+              if (builtin) 'shell-builtin:$name',
             ])))
             .toString();
         stages.add(CommandPrefixStage(executable, List.unmodifiable(arguments),
@@ -144,10 +172,15 @@ final class CommandPrefixPlan {
       }
       return CommandPrefixPlan._(List.unmodifiable(stages));
     } on FileSystemException {
-      return null;
+      return unavailable('An executable could not be resolved. Check its path '
+          'before remembering a prefix.');
     }
   }
 }
+
+// These do not change shell state. printf is deliberately excluded: both -v
+// and the bash %n format can assign shell variables, including PATH.
+const _literalBuiltins = {'echo', 'pwd', 'true', 'false'};
 
 const _subcommands = {
   'gh': 2,
@@ -180,6 +213,43 @@ const _wrappers = {
   'perl'
 };
 const _builtins = {
+  ':',
+  'enable',
+  'readonly',
+  'typeset',
+  'let',
+  'getopts',
+  'shopt',
+  'pushd',
+  'popd',
+  'dirs',
+  'mapfile',
+  'readarray',
+  'bind',
+  'complete',
+  'compgen',
+  'compopt',
+  'history',
+  'fc',
+  'jobs',
+  'fg',
+  'bg',
+  'wait',
+  'kill',
+  'disown',
+  'logout',
+  'suspend',
+  'help',
+  'caller',
+  'times',
+  'ulimit',
+  'break',
+  'continue',
+  'select',
+  'in',
+  'coproc',
+  '[[',
+  ']]',
   'cd',
   'export',
   'unset',

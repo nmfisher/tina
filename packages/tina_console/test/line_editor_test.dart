@@ -541,6 +541,38 @@ void main() {
       ed.close();
     });
 
+    for (final stepsBack in [1, 2]) {
+      test('submission resets history after recalling $stepsBack entries',
+          () async {
+        final ed = _editor(io);
+        ed.restoreHistory(['first', 'second', 'third']);
+        final submitted = <String>[];
+        final reading = ed.readLines('> ', onLine: submitted.add);
+        await _flush();
+        io.feedBytes('unsent draft'.codeUnits);
+        await _flush();
+        for (var i = 0; i < stepsBack; i++) {
+          io.feedBytes([0x1b, 0x5b, 0x41]); // Up
+        }
+        await _flush();
+        final recalled = ed.editState.buffer;
+        expect(recalled, stepsBack == 1 ? 'third' : 'second');
+        io.feedBytes([0x0d]);
+        await _flush();
+        expect(submitted, [recalled]);
+        expect(ed.editState.buffer, isEmpty);
+        io.feedBytes([0x1b, 0x5b, 0x41]); // Up starts at the newest submission
+        await _flush();
+        expect(ed.editState.buffer, recalled);
+        io.feedBytes([0x1b, 0x5b, 0x42]); // Down restores the new empty draft
+        await _flush();
+        expect(ed.editState.buffer, isEmpty);
+        io.feedBytes([0x04]); // Ctrl+D closes the continuous reader
+        await reading;
+        ed.close();
+      });
+    }
+
     test('history up restores previous entry', () async {
       final ed = _editor(io);
       var f = ed.readLine('> ');

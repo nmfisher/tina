@@ -16,6 +16,21 @@ ApprovalDialog _dialog({bool persistent = true, bool confirmation = false}) =>
             }));
 
 void main() {
+  test('unavailable prefixes explain why in the normal approval prompt', () {
+    final dialog = ApprovalDialog(null,
+        ask: ApprovalAskContext('run command', 'cd sub; head file', 'Inspect',
+            details: {
+              'permission_scope': 'command',
+              'command_prefix_unavailable_reason':
+                  'State-changing builtins require invocation review.',
+            }));
+    final shown = dialog.rows(width: 160).map(_text).join('\n');
+    expect(shown, contains('Remembering unavailable: State-changing builtins'));
+    expect(shown, isNot(contains('Remember for this conversation')));
+    expect(shown, contains('[y] allow once'));
+    expect(shown, contains('[n] deny'));
+  });
+
   test('prefix scopes are visible immediately and Run once is the default', () {
     final dialog = _dialog();
     final shown = dialog.rows(width: 140).map(_text).join('\n');

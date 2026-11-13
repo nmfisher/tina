@@ -402,7 +402,7 @@ class ApprovalDialog {
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
       if (_hasPrefixes && _details) ...[
-        'Command prefixes offered for remembering (every pipeline stage is checked):',
+        'Command prefixes offered for remembering (every command and pipeline stage is checked):',
         for (final prefix in _commandPrefixes) '  $prefix …',
         'Prefix rules cover only the displayed execution, network and host capabilities. File access is checked separately.',
       ],
@@ -489,6 +489,9 @@ class ApprovalDialog {
           'Session approval covers this exact command in this directory.',
         if (_hasPrefixes)
           'Prefix rules apply in this directory and environment; file access is checked separately.',
+        if (!_hasPrefixes &&
+            ask?.details['command_prefix_unavailable_reason'] is String)
+          'Remembering unavailable: ${ask!.details['command_prefix_unavailable_reason']}',
       ],
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',
@@ -558,9 +561,9 @@ class ApprovalDialog {
                     ? '[y] Run once'
                     : '[y] allow once',
         'prefix session' =>
-          '[a] Remember for this conversation: ${_commandPrefixes.join(' | ')} …',
+          '[a] Remember for this conversation: ${_commandPrefixes.join(', ')} …',
         'prefix workspace' =>
-          '[p] Persist for this workspace: ${_commandPrefixes.join(' | ')} …',
+          '[p] Persist for this workspace: ${_commandPrefixes.join(', ')} …',
         'deny' => '[n] deny',
         'remember' =>
           _hasPrefixes ? 'Remember file or directory access…' : '[a] Remember…',
