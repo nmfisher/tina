@@ -117,9 +117,19 @@ class InputParser {
       if (mouse.length < 3) return null;
       _mouseReport = null;
       final button = (mouse.first - 32) & ~28;
-      return mouse[1] > 32 && mouse[2] > 32 && (button == 64 || button == 65)
-          ? ScrollEvent(up: button == 64)
-          : null;
+      if (mouse[1] <= 32 || mouse[2] <= 32) return null;
+      if (button == 64 || button == 65) return ScrollEvent(up: button == 64);
+      final row = mouse[2] - 33, col = mouse[1] - 33;
+      if (button == 3)
+        return MouseEvent(MouseAction.release, row: row, col: col);
+      if (button == 35)
+        return MouseEvent(MouseAction.hover, row: row, col: col);
+      if ((button & ~32) == 0)
+        return MouseEvent(
+            button & 32 == 0 ? MouseAction.press : MouseAction.move,
+            row: row,
+            col: col);
+      return null;
     }
 
     // Mid-OSC discard: consume bytes until the terminator (BEL or ST).
@@ -389,20 +399,31 @@ class InputParser {
     final last = rest.last;
     final params = rest.sublist(0, rest.length - 1);
     if (introducer == 0x5b) {
-      // SGR mouse reports: only vertical wheel presses have input semantics.
-      // Ignore clicks, movement and release reports rather than leaking them
-      // into the conversation draft or scrolling twice for one notch.
+      // SGR mouse reports retain left-button coordinates for selection.
+      // Wheel releases and unrelated buttons never become draft text.
       if (params.isNotEmpty && params.first == 0x3c) {
         final values = String.fromCharCodes(params.skip(1)).split(';');
-        if (last == 0x4d && values.length == 3) {
+        if ((last == 0x4d || last == 0x6d) && values.length == 3) {
           final button = int.tryParse(values[0]);
           final x = int.tryParse(values[1]);
           final y = int.tryParse(values[2]);
           if (button != null && x != null && y != null && x > 0 && y > 0) {
             // Shift/Alt/Ctrl modifiers do not change the wheel's direction.
             final base = button & ~28;
-            if (base == 64 || base == 65) {
+            if ((base == 64 || base == 65) && last == 0x4d) {
               _pendingEvent = ScrollEvent(up: base == 64);
+            } else if (base == 35) {
+              _pendingEvent =
+                  MouseEvent(MouseAction.hover, row: y - 1, col: x - 1);
+            } else if ((base & ~32) == 0) {
+              _pendingEvent = MouseEvent(
+                  last == 0x6d
+                      ? MouseAction.release
+                      : base & 32 != 0
+                          ? MouseAction.move
+                          : MouseAction.press,
+                  row: y - 1,
+                  col: x - 1);
             }
           }
         }

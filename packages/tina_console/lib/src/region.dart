@@ -140,6 +140,7 @@ class ScrollingTextRegion extends Region {
   /// the "↓ N new" badge without polling. Deferred via a microtask so it never
   /// re-enters a write frame mid-stream.
   void Function()? onScrollbackChanged;
+
   /// Ask the transcript for older history before clamping an upward scroll.
   /// The callback may synchronously prepend rows while preserving this offset.
   void Function()? onHistoryRequested;
@@ -691,6 +692,9 @@ class ScrollingTextRegion extends Region {
   /// Visible for tests.
   @visibleForTesting
   int get debugScrollOffset => _scrollOffset;
+
+  /// Viewport distance in displayed rows from the live tail.
+  int get scrollOffset => _scrollOffset;
 
   /// Rows of scrollback retained above the visible window. Visible for tests.
   @visibleForTesting

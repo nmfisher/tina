@@ -299,6 +299,7 @@ class NotcursesBackend
     implements
         TerminalBackend,
         TerminalAttentionBackend,
+        TerminalMouseBackend,
         BackendDiagnostics,
         CursorBackend,
         CanvasBackend,
@@ -496,6 +497,18 @@ class NotcursesBackend
     _cursorCol =
         _emitSgrStyled(_platform, _cursorRow, _cursorCol, _canvas.apply(text));
     _gridDirty = true;
+  }
+
+  @override
+  void setMouseReporting(bool enabled) {
+    if (_stopped) return;
+    if (enabled) {
+      _platform.notc?.miceEnable(nc.MiceEvents.allEvents);
+    } else {
+      _platform.notc?.miceDisable();
+    }
+    _platform.writeRawToTty(
+        enabled ? '\x1b[?1002h\x1b[?1003h\x1b[?1006h' : disableMouseReporting);
   }
 
   @override

@@ -5,6 +5,14 @@ Conversation scrolling: **Option/Alt + ↑/↓** moves one displayed line at a t
 line by line. Plain ↑/↓ recalls input history. Scrolling preserves the current
 draft and cursor, including while a response streams. `/help` lists these keys.
 
+Drag with the left mouse button in a conversation to select text. Hold the
+pointer at or beyond the top or bottom edge to scroll and extend the selection
+across pages. Release to copy to the system clipboard; the status bar confirms
+the copy. Esc cancels without copying. Selection uses a snapshot of the retained
+conversation rows, so streaming output cannot change the copied text. Dialogs
+temporarily restore the terminal's native text selection. On macOS the clipboard
+uses `pbcopy`; Linux needs `wl-copy` or `xclip`. Resize cancels an active drag.
+
 The CLI application owns one configuration reader for interactive and headless runs. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
 edit it, preserving unknown legacy tables. Live `/settings` also supports Session

@@ -981,6 +981,39 @@ void main() {
     expect(await line, 'draft');
   });
 
+  test('mouse drag copies across pages without editing the draft', () async {
+    final copied = Completer<String>();
+    final replacement = ChatView(chat.chat, copyText: (text) async {
+      if (!copied.isCompleted) copied.complete(text);
+      return true;
+    });
+    chat.detachConsole();
+    replacement.attachConsole(context);
+    addTearDown(replacement.detachConsole);
+    for (var i = 0; i < 70; i++) {
+      replacement.watch(SawText('history row $i\n\n'));
+    }
+    screen.chat.scrollBy(-50);
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('draft');
+    await tick();
+    final draft = editor.editState;
+    final x = screen.chat.bounds.col + 1;
+    final y = screen.chat.bounds.row + 2;
+    final bottom = screen.chat.bounds.row + screen.chat.usableHeight + 1;
+    io.feed('\x1b[<0;$x;${y}M');
+    io.feed('\x1b[<32;${x + 12};${bottom}M');
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    io.feed('\x1b[<0;${x + 12};${bottom}m');
+    final text = await copied.future.timeout(const Duration(seconds: 2));
+    expect(text, contains('history row'));
+    expect(text.split('\n').length, greaterThan(screen.chat.usableHeight));
+    expect(editor.editState, draft);
+    io.feed('\r');
+    expect(await line, 'draft');
+  });
+
   test(
       'line scrolling holds the viewport through streamed output and resumes at the tail',
       () async {

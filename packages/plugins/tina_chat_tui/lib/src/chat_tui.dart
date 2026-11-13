@@ -8,15 +8,22 @@ import 'chat_transcript.dart';
 import 'markdown_renderer.dart';
 import 'prompt.dart';
 import 'timestamp_chat.dart';
+import 'clipboard_stub.dart' if (dart.library.io) 'clipboard_io.dart';
 
 /// Transcript presentation driven by the runtime's read-only observations.
 /// This view owns chat rows, folds, timestamps and the live model prompt.
 /// No UI state is written into the model's messages.
 final class ChatView implements ConsoleContribution, ConsoleTranscript {
-  ChatView(this.chat, {DateTime Function()? now})
+  ChatView(this.chat, {DateTime Function()? now, this.copyText})
       : _now = now ?? DateTime.now,
         renderer = TimestampChatRenderer(now: now ?? DateTime.now);
   final ChatObservation chat;
+  final Future<bool> Function(String text)? copyText;
+  MouseTextSelection? _mouseSelection;
+  void Function()? _unbindMouse,
+      _unbindMouseModal,
+      _unbindMouseShortcut,
+      _unbindMouseStatus;
   @override
   bool get observesSessionNotices => chat.includesSessionNotices;
   int _tokens = 0;
@@ -85,10 +92,16 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _unbindAttention =
         context.bindAttentionPreference(() => chat.terminalAlertsEnabled);
     _unbindStatus = context.bindStatus(_statusLines);
+    final selection = _mouseSelection =
+        MouseTextSelection(context, copyText: copyText ?? copyChatText);
+    _unbindMouse = context.own(context.screen.bindMouseSelection());
+    _unbindMouseModal = context.addModal(selection);
+    _unbindMouseShortcut = context.bindPointer(selection.handleEvent);
+    _unbindMouseStatus = context.bindStatus(selection.status, priority: -20);
     _unbindScrollHint = context.bindStatus(
         () => [
               RenderLine(runs: [
-                RenderRun('Alt/Option+↑↓ line · PgUp/PgDn page',
+                RenderRun('Drag to copy · Alt/Option+↑↓ line · PgUp/PgDn page',
                     context.screen.theme.chat.dim)
               ])
             ],
@@ -143,6 +156,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
         _history!.loadEarlier();
       previousHistoryRequest?.call();
     }
+
     context.chat.onHistoryRequested = requestHistory;
     _releaseHistory = () {
       if (identical(context.chat.onHistoryRequested, requestHistory))
@@ -194,6 +208,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
           watch(event.event);
       }
     }
+
     final console = _console;
     if (console == null) return;
     final source = chat.events;
@@ -206,7 +221,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       // Metadata-only tail pages may contain fewer than one screen of text.
       // Fetch another page only until the visible window is filled.
       for (var pages = 1;
-          pages < 4 && history.hasEarlier &&
+          pages < 4 &&
+              history.hasEarlier &&
               console.chat.contentRows < console.chat.usableHeight;
           pages++) {
         history.loadEarlier();
@@ -658,7 +674,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   }
 
   void _add(ChatBlock block, {DateTime? at}) {
-    if (_entrySeq != null) _blockIds[block] = '$_entrySeq:${_entryBlockIndex++}';
+    if (_entrySeq != null)
+      _blockIds[block] = '$_entrySeq:${_entryBlockIndex++}';
     renderer.stamp(block, at ?? _now());
     renderer.follow(block, _blocks.lastOrNull);
     _blocks.add(block);
@@ -797,7 +814,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     final goal = chat.events.snapshot['goal'];
     if (goal is Map) {
       try {
-        _goal = GoalChangedEntry.fromJson(Map<String, dynamic>.from(goal), '', 0);
+        _goal =
+            GoalChangedEntry.fromJson(Map<String, dynamic>.from(goal), '', 0);
       } on FormatException {
         _goal = null;
       }
@@ -926,6 +944,16 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _selected = null;
     _unbindStatus?.call();
     _unbindStatus = null;
+    _mouseSelection?.close();
+    _mouseSelection = null;
+    _unbindMouse?.call();
+    _unbindMouse = null;
+    _unbindMouseModal?.call();
+    _unbindMouseModal = null;
+    _unbindMouseShortcut?.call();
+    _unbindMouseShortcut = null;
+    _unbindMouseStatus?.call();
+    _unbindMouseStatus = null;
     _unbindScrollHint?.call();
     _unbindScrollHint = null;
     _unbindAttention?.call();

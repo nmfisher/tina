@@ -135,6 +135,11 @@ abstract interface class TerminalAttentionBackend {
   void requestAttention();
 }
 
+/// Mouse reporting is optional; selection owners lease it through Screen.
+abstract interface class TerminalMouseBackend {
+  void setMouseReporting(bool enabled);
+}
+
 /// Hardware cursor visibility, independent of drawing and cursor position.
 /// Screen coordinates ownership; backends preserve this state across renders.
 abstract interface class CursorBackend {

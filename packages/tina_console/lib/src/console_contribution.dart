@@ -272,6 +272,19 @@ final class ConsoleContext {
     return own(_editor.registerShortcut((event) => isActive && handler(event)));
   }
 
+  /// A pointer press may focus its conversation before the active-view check.
+  void Function() bindPointer(bool Function(MouseEvent) handler) {
+    _checkOpen();
+    return own(_editor.registerShortcut((event) {
+      if (_disposed || event is! MouseEvent || isReadingKey) return false;
+      if (event.action == MouseAction.press &&
+          chat.bounds.containsCell(event.row, event.col)) {
+        _activate?.call();
+      }
+      return isActive && handler(event);
+    }));
+  }
+
   void Function() addModal(ModalSurface modal) {
     _checkOpen();
     final scoped = _ScopedModal(this, modal);

@@ -115,6 +115,41 @@ class Screen {
   (int, int)? _inputCursor;
   final List<ScreenCursor> _cursorOwners = [];
   bool _cursorStopped = false;
+  int _mouseOwners = 0, _mousePauses = 0;
+  bool _mouseReporting = false;
+
+  void _updateMouseReporting() {
+    final enabled = _inAltScreen && _mouseOwners > 0 && _mousePauses == 0;
+    if (enabled == _mouseReporting) return;
+    _mouseReporting = enabled;
+    if (_backend case TerminalMouseBackend mouse)
+      mouse.setMouseReporting(enabled);
+  }
+
+  void Function() bindMouseSelection() {
+    _mouseOwners++;
+    _updateMouseReporting();
+    var released = false;
+    return () {
+      if (released) return;
+      released = true;
+      _mouseOwners--;
+      _updateMouseReporting();
+    };
+  }
+
+  /// Dialogs retain Terminal's native selection while they own the keyboard.
+  void Function() pauseMouseSelection() {
+    _mousePauses++;
+    _updateMouseReporting();
+    var released = false;
+    return () {
+      if (released) return;
+      released = true;
+      _mousePauses--;
+      _updateMouseReporting();
+    };
+  }
 
   /// Which box is the focused (input) panel — cyan border — and which is the
   /// cycling highlight — yellow border. Mutually exclusive per box. Driven by
@@ -391,6 +426,7 @@ class Screen {
     _inAltScreen = true;
     _cursorStopped = false;
     _backend!.enterAltScreen();
+    _updateMouseReporting();
     _backend!.enableBracketedPaste();
     redrawFrame();
     // redrawFrame calls flush(), so alt-screen escape + paste mode + frame
@@ -410,6 +446,7 @@ class Screen {
     if (passthrough) return;
     if (!_inAltScreen) return;
     _inAltScreen = false;
+    _updateMouseReporting();
     _cursorStopped = true;
     _cursorOwners.clear();
     _backend!.disableBracketedPaste();

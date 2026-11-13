@@ -8,7 +8,8 @@ void main() {
 
     setUp(() => parser = InputParser());
 
-    test('SGR wheel presses become scroll events, clicks/releases stay inert',
+    test(
+        'SGR wheel presses scroll and left-button selection preserves coordinates',
         () {
       List<InputEvent> decode(String bytes) => [
             for (final byte in bytes.codeUnits)
@@ -21,9 +22,11 @@ void main() {
           [ScrollEvent(up: true)]);
       expect(decode('\x1b[M${String.fromCharCodes([97, 42, 37])}'),
           [ScrollEvent(up: false)]);
-      expect(decode('\x1b[M${String.fromCharCodes([32, 42, 37])}'), isEmpty);
+      expect(decode('\x1b[M${String.fromCharCodes([32, 42, 37])}'),
+          [MouseEvent(MouseAction.press, row: 4, col: 9)]);
+      expect(decode('\x1b[M${String.fromCharCodes([35, 42, 37])}'),
+          [MouseEvent(MouseAction.release, row: 4, col: 9)]);
       for (final report in [
-        '\x1b[<0;10;5M',
         '\x1b[<64;10;5m',
         '\x1b[<66;10;5M',
         '\x1b[<64;0;5M',
@@ -31,6 +34,12 @@ void main() {
       ]) {
         expect(decode(report), isEmpty);
       }
+      expect(decode('\x1b[<0;10;5M'),
+          [MouseEvent(MouseAction.press, row: 4, col: 9)]);
+      expect(decode('\x1b[<32;11;6M'),
+          [MouseEvent(MouseAction.move, row: 5, col: 10)]);
+      expect(decode('\x1b[<0;11;6m'),
+          [MouseEvent(MouseAction.release, row: 5, col: 10)]);
       expect(decode('x\r'), [CharInput('x'), ControlKey(ControlCode.enter)]);
     });
 

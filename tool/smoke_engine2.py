@@ -269,13 +269,13 @@ def _elided_in(expected, shown):
 
 
 class Terminal:
-    def __init__(self, command, env, columns, rows):
+    def __init__(self, command, env, columns, rows, *, cwd=None):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         self.original_modes = termios.tcgetattr(self.master)
         self.output = bytearray()
         self.process = subprocess.Popen(
-            command, cwd=PACKAGE.parent.parent, env=env,
+            command, cwd=cwd or PACKAGE.parent.parent, env=env,
             stdin=self.slave, stdout=self.slave, stderr=self.slave,
             start_new_session=True,
             preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0),

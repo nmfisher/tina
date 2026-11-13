@@ -332,6 +332,7 @@ class LineEditor {
     if (_inputSession != null || _readKeyTurn != null) {
       throw StateError('another dialog owns the keyboard');
     }
+    final resumeMouse = screen.pauseMouseSelection();
     _burstTimer?.cancel();
     _burstTimer = null;
     _pending.clear();
@@ -345,6 +346,7 @@ class LineEditor {
     void release() {
       if (released) return;
       released = true;
+      resumeMouse();
       if (identical(_inputSession, session)) {
         if (_input case SynchronousInputBackend backend) {
           backend.synchronousDispatch = false;
@@ -514,6 +516,7 @@ class LineEditor {
 
   Future<InputEvent> _readKeyOnce(bool globalKeys, bool panelNavigation,
       bool acceptPaste, Future<void>? stop) {
+    final resumeMouse = screen.pauseMouseSelection();
     final c = Completer<InputEvent>();
     final savedGeneration = _monitorGeneration;
     final savedCancel = _cancelHandler;
@@ -553,6 +556,7 @@ class LineEditor {
       _log.fine('[readkey] armed');
     }
     return c.future.whenComplete(() {
+      resumeMouse();
       restoreMonitor();
       _keyCompleterGlobal = false;
       _keyAcceptsPaste = false;
@@ -1401,8 +1405,7 @@ class LineEditor {
             return KeyHandledBy.chatBox;
           case ControlCode.backspace:
             if (_searchQuery.isNotEmpty) {
-              _searchQuery =
-                  _searchQuery.substring(0, _searchQuery.length - 1);
+              _searchQuery = _searchQuery.substring(0, _searchQuery.length - 1);
             }
             if (_searchQuery.isEmpty) {
               // Backspacing to an empty query exits the search (readline).
@@ -1429,6 +1432,7 @@ class LineEditor {
       case AltKey():
       case FunctionKey():
       case UnknownEscape():
+      case MouseEvent():
       case ScrollEvent():
         break;
     }
@@ -1609,6 +1613,7 @@ class LineEditor {
     switch (event) {
       // The mouse wheel is routed to the focused panel's scrollback (it had
       // first claim above); an unclaimed wheel is dropped, never typed.
+      case MouseEvent():
       case ScrollEvent():
         return KeyHandledBy.nobody;
       case CharInput(:final text):
@@ -1912,6 +1917,7 @@ class LineEditor {
 
   void _handleQueueEvent(InputEvent event) {
     switch (event) {
+      case MouseEvent():
       case ScrollEvent():
         return; // the wheel never drives queue/command history.
       case EscapeKey():
