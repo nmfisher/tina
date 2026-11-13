@@ -63,7 +63,7 @@ def smoke(launcher, endpoint, backend, columns, rows):
                 alerts_before = terminal.output.count(b'\x07')
                 start = line('failed command approval example')
                 # Host execution is approved separately on every invocation.
-                visible('[y] allow once')
+                visible('[y] Run once')
                 terminal.send('y')
                 terminal.wait_for(
                     lambda: len(ModelStub.requests) == requests_before + 2,

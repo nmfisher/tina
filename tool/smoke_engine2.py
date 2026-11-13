@@ -752,10 +752,11 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [y] allow once', start)
-            # System runtime reads are built-in; this command has no extra
-            # file access to remember. Network approval remains invocation-only.
-            assert b'[a] Remember' not in terminal.output[start:]
+            terminal.expect('❯ [y] Run once', start)
+            # Literal commands offer scoped prefix grants; choosing Run once
+            # still requires a fresh approval for the next invocation.
+            terminal.expect('[a] Remember for this conversation: echo', start)
+            terminal.expect('[p] Persist for this workspace: echo', start)
             start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
@@ -767,7 +768,7 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('❯ [y] Run once', start)
             assert len(ModelStub.requests) == before_network + 1, 'repeat ran before approval'
             start = terminal.send('y')
             deadline = time.monotonic() + 10
@@ -780,7 +781,7 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('different network example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('❯ [y] Run once', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
@@ -809,13 +810,8 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_auto = len(ModelStub.requests)
             start = terminal.send('auto denied workspace example\r')
-            # The classifier's DENY is final: no dialog interrupts the run.
-            # At 80 columns the one-line denial notice truncates in the
-            # middle (the reason is elided), so the reason is asserted from
-            # the end-of-turn batch entry, whose head-and-tail rendering
-            # keeps both the denied target and the full reason.
+            # The classifier's DENY is final and appears once without a batch.
             terminal.expect('auto mode denied', start, wrapped=True)
-            terminal.expect('batched', start, wrapped=True)
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
                 terminal.read()
@@ -823,16 +819,8 @@ def smoke(launcher, endpoint, columns, rows):
             budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
             assert b'allow once' not in terminal.output[start:], 'a final auto denial still asked'
-            # The end-of-turn batch lists the denial for the user. At 80
-            # columns the entry renders head…tail with the middle elided at
-            # a column the pane decides, so assert the whole entry —
-            # verdict, denied target and classifier reason — with elision
-            # tolerated (expect(elided=True)).
-            terminal.expect('auto mode decisions this turn', start, wrapped=True)
-            terminal.expect(
-                '1. denied: /bin/echo denied-workspace-output — classifier '
-                'recommends denial: Project data could be exposed.',
-                start, wrapped=True, elided=True)
+            assert b'auto mode decisions this turn' not in terminal.output[start:]
+            assert b'batched' not in terminal.output[start:]
             time.sleep(0.1)
             start = terminal.send('/mode approve\r')
             terminal.expect('mode: approve', start)
