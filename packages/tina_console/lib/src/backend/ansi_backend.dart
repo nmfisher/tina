@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import '../ansi_capable.dart';
+import '../console_image.dart';
+import '../image/half_block.dart';
+import '../image/image_capabilities.dart';
+import '../platform_env.dart';
 import '../rect.dart';
 import '../stdio.dart';
 import '../input_latency.dart';
@@ -15,6 +19,13 @@ import 'canvas_style.dart';
 /// Batches all operations into a [StringBuffer] and writes them to
 /// [Stdio] on [flush]. This matches the original Screen behavior of
 /// building one batched string per operation.
+///
+/// Since the image panel work this backend also implements
+/// [RetainedImageBackend]: images render as half-block cells (two
+/// pixels per cell, `▀` with top-pixel foreground and bottom-pixel
+/// background), direct-color when the terminal advertises it and
+/// xterm-256 with Floyd-Steinberg dithering otherwise. Terminals with
+/// neither signal get a readable placeholder glyph.
 class AnsiBackend
     implements
         TerminalBackend,
@@ -22,7 +33,8 @@ class AnsiBackend
         BackendDiagnostics,
         CursorBackend,
         CanvasBackend,
-        BackendDamageSource {
+        BackendDamageSource,
+        RetainedImageBackend {
   CanvasStyle _canvas = const CanvasStyle();
   bool _usedCanvas = false;
   String? _cursorColor;
@@ -64,9 +76,90 @@ class AnsiBackend
   static final _sgr = RegExp(r'\x1b\[[0-9;:]*m');
   static final _controls = RegExp(r'[\x00-\x1f\x7f-\x9f]');
 
-  AnsiBackend({required Stdio io, required AnsiCapable ansi})
+  AnsiBackend(
+      {required Stdio io, required AnsiCapable ansi, ImageColorMode? imageColor})
       : _io = io,
-        _ansi = ansi;
+        _ansi = ansi,
+        _imageColorOverride = imageColor;
+
+  // -- Retained images (half-block cells) ---------------------------------
+
+  /// Image color mode override (tests pin this). Null: detect from the
+  /// environment (`TINA_IMAGE_COLOR` beats `COLORTERM` beats `TERM`).
+  final ImageColorMode? _imageColorOverride;
+  ImageColorMode get imageColorMode {
+    final pinned = _imageColorOverride;
+    if (pinned != null) return pinned;
+    if (!_ansi.useColor) return ImageColorMode.mono;
+    return ImageColorCapabilities.detect(
+        override: platformEnv('TINA_IMAGE_COLOR'),
+        colorterm: platformEnv('COLORTERM'),
+        term: platformEnv('TERM'));
+  }
+
+  /// Cell extents painted for an owner, so a later update or clear can
+  /// erase exactly what the image covered (ANSI has no planes; the cells
+  /// live on the shared grid underneath the region's text).
+  final _imagePainted = <Object, List<(int, int, int)>>{};
+
+  @override
+  ImageCellSize get imageCellSize =>
+      imageColorMode == ImageColorMode.mono ? const ImageCellSize(1, 1) : ImageCellSize.halfBlock;
+
+  @override
+  bool updateImages(Object owner, List<ImagePlacement> images,
+      {BackendSurface? targetSurface}) {
+    final painted = _imagePainted[owner];
+    if (painted != null) {
+      for (final (row, col, len) in painted) {
+        eraseCells(row, col, len);
+      }
+    }
+    final next = <(int, int, int)>[];
+    final mode = imageColorMode;
+    for (final placement in images) {
+      if (mode == ImageColorMode.mono) {
+        // No usable image colors: one readable placeholder per image,
+        // same degradation the pre-panel ANSI path had.
+        moveCursor(placement.row, placement.column);
+        writeText('\x1b[2m▣\x1b[0m');
+        next.add((placement.row, placement.column, 1));
+        continue;
+      }
+      final cells = placement.image.cells;
+      final width = placement.columns * cells.width;
+      final height = placement.rows * cells.height;
+      final top = placement.sourceRow * cells.height;
+      if (width < 1 || height < 1) continue;
+      final cropped = placement.image.cropRgba(top: top, width: width, height: height);
+      final raster = ImageRaster(
+          rgba: cropped.buffer
+              .asUint32List(cropped.offsetInBytes, width * height),
+          width: width,
+          height: height,
+          cells: cells);
+      final rows = renderHalfBlockRows(raster, truecolor: mode == ImageColorMode.truecolor);
+      for (var i = 0; i < rows.length && i < placement.rows; i++) {
+        final row = placement.row + i;
+        moveCursor(row, placement.column);
+        writeText(rows[i]);
+        // Erase extent is in CELLS: the row string carries SGR escapes
+        // that must not count toward the painted width.
+        next.add((row, placement.column, placement.columns));
+      }
+    }
+    _imagePainted[owner] = next;
+    return next.isNotEmpty;
+  }
+
+  @override
+  void clearImages(Object owner) {
+    final painted = _imagePainted.remove(owner);
+    if (painted == null) return;
+    for (final (row, col, len) in painted) {
+      eraseCells(row, col, len);
+    }
+  }
 
   // -- Cursor positioning -------------------------------------------------
 
@@ -268,10 +361,11 @@ class AnsiBackend
     required int maxCols,
     BackendSurface? targetSurface,
   }) {
-    // The ANSI backend has no pixel-graphics protocol.  Emit a single dimmed
-    // placeholder cell so the method is total and headless/CI runs degrade
-    // gracefully instead of throwing.  targetSurface is ignored — ANSI has no
-    // child planes, so there is no surface to parent the image onto.
+    // The non-retained image API: no pixel-graphics protocol, so a single
+    // dimmed placeholder cell keeps the method total for headless/CI runs.
+    // Retained chat/panel images go through updateImages above (half-block
+    // cells). targetSurface is ignored — ANSI has no child planes, so there
+    // is no surface to parent the image onto.
     moveCursor(row, col);
     writeText('\x1b[2m▣\x1b[0m'); // dim placeholder glyph
   }

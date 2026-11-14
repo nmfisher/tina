@@ -2,11 +2,13 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:tina_layout/tina_layout.dart' show LayoutStrategies;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_session_controls/tina_session_controls.dart'
     show ModelCatalog, reasoningSetting;
+import 'layout_strategies.dart';
 import 'session_terminal.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
@@ -326,6 +328,23 @@ final class SessionAssembly {
     final output = terminal ??
         SessionTerminal(
             questions: SessionQuestions(interactive: options.interactive));
+    // The config's layout_strategy key selects the screen arrangement for
+    // this session; /layout swaps it live. Unknown names keep the default
+    // with one notice — a typo must never wedge the screen.
+    LayoutStrategies.instance.onFallbackNotice = writer.writeln;
+    // Installing even the default would notify relayout listeners on every
+    // session start; the dispatcher already IS the default when nothing is
+    // installed, so only a non-default selection touches it.
+    if (resolved.layoutStrategy != 'default') {
+      final strategyFactory = layoutStrategyFactories[resolved.layoutStrategy];
+      if (strategyFactory == null) {
+        writer.writeln(
+            'unknown layout strategy "${resolved.layoutStrategy}"; '
+            'using the default (available: ${layoutStrategyFactories.keys.join(', ')})');
+      } else {
+        LayoutStrategies.instance.install(strategyFactory());
+      }
+    }
     final registry = options.registry ?? ScopedSettingsStack.defaultPluginRegistry();
     registerPlugins?.call(registry);
     final stack = ScopedSettingsStack.build(
@@ -633,6 +652,43 @@ final class SessionAssembly {
       if (entry is TurnEndedEntry || entry is ContextClearedEntry)
         assembly._turnObservation = null;
     });
+    host.commands.publish(Command(
+      name: 'layout',
+      description:
+          'show or switch the layout strategy (default, focus, two-column)',
+      allowWhileRunning: true,
+      complete: (prefix) => layoutStrategyFactories.keys
+          .where((name) => name.startsWith(prefix))
+          .toList(),
+      handler: (argument) async {
+        void report(String line) {
+          // Two sinks, one visible in each front end: the writer serves
+          // the headless loop, the session-terminal notice serves the
+          // TUI (which passes a null writer — /help does the same).
+          writer.writeln(line);
+          output.writeln(line);
+        }
+
+        final strategies = layoutStrategyFactories;
+        if (argument.isEmpty) {
+          report(
+              'layout strategy: ${LayoutStrategies.instance.active.id} '
+              '(available: ${strategies.keys.join(', ')})');
+          return;
+        }
+        final factory = strategies[argument];
+        if (factory == null) {
+          report(
+              'unknown layout strategy "$argument" '
+              '(available: ${strategies.keys.join(', ')})');
+          return;
+        }
+        LayoutStrategies.instance.install(factory());
+        report(
+            'layout strategy: ${LayoutStrategies.instance.active.id} '
+            '(persists for this session; set layout_strategy in config)');
+      },
+    ));
     host.commands.publish(Command(
       name: 'quit',
       description: 'leave the app',

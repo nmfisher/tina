@@ -18,6 +18,9 @@ library;
 
 export 'src/renderer.dart';
 export 'src/console_image.dart';
+export 'src/image/half_block.dart';
+export 'src/image/image_capabilities.dart';
+export 'src/image_panel.dart';
 export 'src/status_layout.dart';
 
 export 'src/backend/backend_factory.dart';
@@ -55,6 +58,7 @@ export 'src/panel_content.dart';
 export 'src/panel_input.dart';
 export 'src/screen.dart';
 export 'src/screen_layout.dart';
+export 'src/screen_layout_strategy.dart';
 export 'src/spinner.dart';
 export 'src/stdio.dart';
 export 'src/text_buffer.dart';
