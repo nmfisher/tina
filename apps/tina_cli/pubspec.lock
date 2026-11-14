@@ -602,6 +602,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_layout:
+    dependency: transitive
+    description:
+      path: "../../packages/tina_layout"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_llm:
     dependency: "direct main"
     description:
