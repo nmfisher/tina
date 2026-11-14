@@ -34,6 +34,11 @@ final class BridgeLayoutStrategy implements LayoutStrategy {
     );
   }
 
+  /// The mounted plugin's id for cheap display (the host bridge is the
+  /// only strategy whose identity lives across the boundary).
+  @override
+  String get id => mounted()?.id ?? 'tina/layout-bridge';
+
   /// The mounted strategy per the host, or `null` when none is.
   ({String id, String version, String description})? mounted() {
     final reported = _bridge.describe();

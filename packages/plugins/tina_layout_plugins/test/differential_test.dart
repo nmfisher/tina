@@ -1,4 +1,4 @@
-import 'package:tina_layout/tina_layout.dart';
+import 'package:tina_layout/tina_layout.dart' hide FocusLayoutStrategy;
 import 'package:tina_layout_plugins/src/plugin/strategies.dart';
 import 'package:test/test.dart';
 

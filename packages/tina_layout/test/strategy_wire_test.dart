@@ -213,6 +213,9 @@ void main() {
 /// solver's weighted distribution.
 final class _EqualShareStrategy implements LayoutStrategy {
   @override
+  String get id => 'tina/layout-focus';
+
+  @override
   StrategyDescriptor describe() => const StrategyDescriptor(
       id: 'test/equal-share',
       version: '1.0.0',
@@ -270,6 +273,9 @@ final class _ThrowingStrategy implements LayoutStrategy {
 
 final class _GarbageRectStrategy implements LayoutStrategy {
   @override
+  String get id => 'bad/garbage';
+
+  @override
   StrategyDescriptor describe() => const StrategyDescriptor(
       id: 'test/garbage-rect', version: '1.0.0', description: 'garbage');
 
@@ -287,6 +293,9 @@ final class _GarbageRectStrategy implements LayoutStrategy {
 }
 
 final class _NegativeRectStrategy implements LayoutStrategy {
+  @override
+  String get id => 'bad/negative';
+
   @override
   StrategyDescriptor describe() => const StrategyDescriptor(
       id: 'test/negative-rect', version: '1.0.0', description: 'garbage');

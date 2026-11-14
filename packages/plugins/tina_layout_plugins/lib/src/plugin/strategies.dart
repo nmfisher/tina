@@ -47,6 +47,9 @@ final class SolverLayoutStrategy implements LayoutStrategy {
   const SolverLayoutStrategy();
 
   @override
+  String get id => 'tina/layout-solver';
+
+  @override
   StrategyDescriptor describe() => const StrategyDescriptor(
         id: 'tina/layout-solver',
         version: '1.0.0',
@@ -68,6 +71,9 @@ final class SolverLayoutStrategy implements LayoutStrategy {
 /// wide terminals - visibly different, still honoring every minimum.
 final class FocusLayoutStrategy implements LayoutStrategy {
   const FocusLayoutStrategy();
+
+  @override
+  String get id => 'tina/layout-focus';
 
   @override
   StrategyDescriptor describe() => const StrategyDescriptor(
@@ -109,6 +115,9 @@ final class FocusLayoutStrategy implements LayoutStrategy {
 /// install for real use; describe() says so loudly.
 final class HangLayoutStrategy implements LayoutStrategy {
   const HangLayoutStrategy();
+
+  @override
+  String get id => 'tina/layout-hang';
 
   @override
   StrategyDescriptor describe() => const StrategyDescriptor(

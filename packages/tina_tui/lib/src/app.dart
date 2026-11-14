@@ -3,6 +3,7 @@ library;
 import 'dart:async';
 
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_layout/tina_layout.dart' show LayoutStrategies;
 import 'package:tina_console/notcurses.dart';
 import 'package:tina_console/src/platform_env.dart';
 import 'app_stdio.dart';
@@ -42,6 +43,9 @@ Future<int> runApp(
   void Function()? releaseQueueStatus, releaseBackendStatus, releaseActivity;
   StreamSubscription<ScreenLayout>? resizeSubscription;
   StreamSubscription<ProcessSignal>? interruptSubscription;
+
+  /// Relayout hook for live layout-strategy swaps (`/layout`).
+  void Function()? _onLayoutStrategyChange;
   Screen? terminalScreen;
   LineEditor? terminalEditor;
   var ownsTty = false;
@@ -99,6 +103,18 @@ Future<int> runApp(
     interruptSubscription = s.io
         .watchSignal(ProcessSignal.sigint)
         .listen((_) => editor.inject(ControlKey(ControlCode.ctrlC)));
+    void relayout() {
+      s.resize(ScreenLayout.fromSize(
+          s.io.terminalColumns, s.io.terminalLines,
+          split: false));
+      if (workspace != null)
+        workspace.repaintConsole();
+      else {
+        editor.handleResize();
+        view.repaintConsole();
+      }
+    }
+
     resizeSubscription = (resizes ??
             (screen == null
                 ? s.io.watchSignal(ProcessSignal.sigwinch).map((_) =>
@@ -115,6 +131,10 @@ Future<int> runApp(
         view.repaintConsole();
       }
     });
+    // A layout strategy swap (`/layout focus`, config reload) re-solves
+    // the screen on the spot: same path as a resize.
+    LayoutStrategies.addListener(_onLayoutStrategyChange =
+        () => relayout());
     if (workspace != null) {
       return await workspace.runConsole(console, view, createSession!,
           onViewClosed: onViewClosed);
@@ -187,6 +207,11 @@ Future<int> runApp(
     } finally {
       await interruptSubscription?.cancel();
       await resizeSubscription?.cancel();
+      if (_onLayoutStrategyChange != null) {
+        LayoutStrategies.removeListener(_onLayoutStrategyChange);
+        _onLayoutStrategyChange = null;
+      }
+
       if (ownsTty) {
         try {
           if (s != null && previousEchoMode != null) {
