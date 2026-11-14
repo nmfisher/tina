@@ -58,6 +58,7 @@ export 'src/panel_content.dart';
 export 'src/panel_input.dart';
 export 'src/screen.dart';
 export 'src/screen_layout.dart';
+export 'src/screen_layout_strategy.dart';
 export 'src/spinner.dart';
 export 'src/stdio.dart';
 export 'src/text_buffer.dart';

@@ -84,6 +84,7 @@ final class TinaConfig {
     required this.model,
     this.plugins = defaultPluginIds,
     this.approvalChannel = defaultApprovalChannel,
+    this.layoutStrategy = 'default',
     this.providers = const {},
     this.descriptors = builtinDescriptors,
   });
@@ -103,6 +104,13 @@ final class TinaConfig {
   /// An explicit list replaces the default feature plugins.
   final List<String> plugins;
   final String approvalChannel;
+
+  /// The layout strategy name from the config's top-level
+  /// `layout_strategy` key: `default`, a built-in preset (`focus`,
+  /// `two-column`) or a workspace-declared strategy registered by the
+  /// binary. Resolved when the session's TUI opens; `/layout` swaps it
+  /// live. Unknown names fall back to `default` with a notice.
+  final String layoutStrategy;
   final Map<String, ProviderSettings> providers;
   final List<ProviderDescriptor> descriptors;
 }
@@ -447,6 +455,16 @@ TinaConfigResult parseTinaConfig(
   }
 
   validateTheme(theme);
+  // Top-level `layout_strategy = "focus"` is canonical; the [default]
+  // section form is accepted so the key can live beside the model.
+  final layoutStrategyValue =
+      parsed['layout_strategy'] ?? section['layout_strategy'];
+  if (layoutStrategyValue != null &&
+      (layoutStrategyValue is! String ||
+          !RegExp(r'^[a-z][a-z0-9_-]*(/[a-z][a-z0-9_-]*)?$')
+              .hasMatch(layoutStrategyValue)))
+    throw FormatException(
+        'layout_strategy must be a strategy name such as "focus"');
   return TinaConfigOk(
     TinaConfig(
       limits: RequestLimits.fromMap(table('limits')),
@@ -458,6 +476,7 @@ TinaConfigResult parseTinaConfig(
       model: modelId,
       plugins: plugins,
       approvalChannel: approvalChannel,
+      layoutStrategy: layoutStrategyValue as String? ?? 'default',
       providers: Map.unmodifiable(providers),
       descriptors: List.unmodifiable(resolvedDescriptors.values),
     ),

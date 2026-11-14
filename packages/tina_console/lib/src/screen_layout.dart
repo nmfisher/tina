@@ -1,6 +1,7 @@
 import 'package:tina_layout/tina_layout.dart';
 
 import 'rect.dart';
+import 'screen_layout_strategy.dart';
 
 /// Where every visible region lives, derived from the terminal size.
 ///
@@ -158,14 +159,47 @@ class ScreenLayout {
         ? 0
         : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
     final available = w - sideWidth;
-    final isSplit = (split ?? available >= splitThreshold) && available >= 50;
+
+    // Policy: the ACTIVE strategy may reshape the template. Native
+    // strategies are trusted code (see docs/native-layout-strategies.md):
+    // beyond sizing tracks they can flip the split decision, move its
+    // threshold, change the weights and mirror the columns. A strategy
+    // that is not a [ScreenLayoutStrategy] — or one whose policy
+    // throws — changes nothing here (the dispatcher reports the throw).
+    ScreenPolicy? policy;
+    final strategy = LayoutStrategies.instance.active;
+    if (strategy is ScreenLayoutStrategy) {
+      try {
+        policy = strategy.policyFor(
+            width: w,
+            height: h,
+            hasMenuBar: hasMenuBar,
+            sidebarWidth: sideWidth);
+      } catch (_) {
+        policy = null;
+      }
+    }
+    final minSplit = policy?.minSplitWidth ?? 50;
+    final mirrored = policy?.mirror ?? false;
+    final isSplit = (((split ?? available >= splitThreshold)) ||
+            (policy?.forceSplit ?? false)) &&
+        available >= minSplit;
 
     // -- Outer grid: box-level screen regions ------------------------------
+    final chatWeight = policy?.chatWeight ?? 65;
+    final infoWeight = policy?.infoWeight ?? 35;
+    final chatTrack = sideWidth > 0 ? 1 : 0;
     final columns = <GridTrack>[
       if (sideWidth > 0) GridTrack.fixed(sideWidth.toDouble()),
-      if (isSplit) ...const [
-        GridTrack.weighted(65, minUnits: 30),
-        GridTrack.weighted(35, minUnits: 20),
+      if (isSplit) ...[
+        if (mirrored)
+          GridTrack.weighted(infoWeight.toDouble(), minUnits: 20)
+        else
+          GridTrack.weighted(chatWeight.toDouble(), minUnits: 30),
+        if (mirrored)
+          GridTrack.weighted(chatWeight.toDouble(), minUnits: 30)
+        else
+          GridTrack.weighted(infoWeight.toDouble(), minUnits: 20),
       ] else
         const GridTrack.weighted(1),
     ];
@@ -174,10 +208,12 @@ class ScreenLayout {
       const GridTrack.weighted(1), // panel boxes, borders included
       const GridTrack.fixed(0.5), // mode/status strip
     ];
-    final chatTrack = sideWidth > 0 ? 1 : 0;
     final bodyRow = hasMenuBar ? 1 : 0;
     final stripRowTrack = rows.length - 1;
-    final screen = GridSolver.solve(
+    // Mirrored layouts put the info box in the first content column.
+    final chatColumn = isSplit && mirrored ? chatTrack + 1 : chatTrack;
+    final infoColumn = isSplit && mirrored ? chatTrack : chatTrack + 1;
+    final screen = LayoutStrategies.instance.solve(
         GridSpec(
             columns: columns,
             rows: rows,
@@ -194,12 +230,12 @@ class ScreenLayout {
                     row: TrackSpan.at(bodyRow)),
               GridItem(
                   id: 'chatBox',
-                  column: TrackSpan.at(chatTrack),
+                  column: TrackSpan.at(chatColumn),
                   row: TrackSpan.at(bodyRow)),
               if (isSplit)
                 GridItem(
                     id: 'infoBox',
-                    column: TrackSpan.at(chatTrack + 1),
+                    column: TrackSpan.at(infoColumn),
                     row: TrackSpan.at(bodyRow)),
               GridItem(
                   id: 'strip',
@@ -269,7 +305,7 @@ class ScreenLayout {
       chatLeftCol: chatBox.col,
       chatRightCol: chatBox.col + chatBox.width - 1,
       infoLeftCol: isSplit ? infoBox!.col : -1,
-      infoRightCol: isSplit ? w - 1 : -1,
+      infoRightCol: isSplit ? infoBox!.col + infoBox.width - 1 : -1,
       topBorderRow: chatBox.row,
       bottomBorderRow: chatBox.row + chatBox.height - 1,
       inputRow: inputRect.row,
@@ -287,7 +323,7 @@ class ScreenLayout {
   /// Returns `(content, input)` — `input` is empty without [bottomBorder].
   static List<GridRect?> _solveInterior(int width, int height,
       {required bool bottomBorder}) {
-    final solution = GridSolver.solve(
+    final solution = LayoutStrategies.instance.solve(
         GridSpec(
             columns: const [
               GridTrack.fixed(1),
