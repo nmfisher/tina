@@ -1,0 +1,26 @@
+name: tina_layout_plugins
+description: >-
+  Layout strategy plugins (tina:layout@1.0.0): the built-in solver and a
+  deliberately different focus strategy compiled as wasm components, plus
+  the wedge fixture used to prove the fallback path. See
+  docs/layout-plugin.md.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.0
+dependencies:
+  tina_layout:
+    path: ../../tina_layout
+  wasm_components:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      path: pkg/wasm_components
+      ref: c3c8f3230605033df01d637f2bfd635dad106125
+  hooks: ">=1.0.0 <3.0.0"
+dev_dependencies:
+  test: ^1.25.0
+  wasm_tools:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      path: pkg/wasm_tools
+      ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f

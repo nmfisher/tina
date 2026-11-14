@@ -61,7 +61,10 @@ final class WideFocusStrategy implements ScreenLayoutStrategy {
   String get id => 'acme/wide-focus';
 
   @override
-  String get version => '1.0.0';
+  StrategyDescriptor describe() => const StrategyDescriptor(
+      id: 'acme/wide-focus',
+      version: '1.0.0',
+      description: 'Equal halves from 96 columns.');
 
   @override
   ScreenPolicy? policyFor(
@@ -76,9 +79,12 @@ final class WideFocusStrategy implements ScreenLayoutStrategy {
           infoWeight: 50);
 
   @override
-  GridSolution solve(GridSpec spec,
-          {required int columns, required int rows}) =>
-      const FocusLayoutStrategy().solve(spec, columns: columns, rows: rows);
+  GridSolution solveSpec(GridSpec spec,
+          {required int columns,
+          required int rows,
+          CellMetrics metrics = CellMetrics.standard}) =>
+      const FocusLayoutStrategy().solveSpec(spec,
+          columns: columns, rows: rows, metrics: metrics);
 }
 ```
 
@@ -100,7 +106,7 @@ The name is then valid in config (`layout_strategy =
 Two levels are available:
 
 * **`LayoutStrategy`** (`tina_layout`) — the wasm contract's shape:
-  `solve(spec, columns, rows)`. It sizes the tracks of whatever spec
+  `solveSpec(spec, columns, rows, metrics)`. It sizes the tracks of whatever spec
   the screen hands it. This is all a strategy needs if it only wants to
   redistribute space.
 * **`ScreenLayoutStrategy`** (`tina_console`) — adds `policyFor`:
@@ -137,7 +143,10 @@ pre-registered.
 
 ## Relationship to the wasm plugin round
 
-Same vocabulary, two runtimes:
+The two rounds now share ONE dispatcher (`LayoutStrategies` in
+tina_layout): native presets, workspace-registered strategies and the
+wasm bridge plugin all install into the same slot and fall back the
+same way. Same vocabulary, two strategy sources:
 
 * Both solve `GridSpec` → `GridSolution` from `tina_layout`; the wasm
   contract (`tina:layout@1.0.0`) serializes those records across the
@@ -145,9 +154,10 @@ Same vocabulary, two runtimes:
 * Both fall back to the compiled-in solver on any strategy failure,
   with one notice.
 * The wasm round's plugins are untrusted, capability-admitted,
-  epoch-deadline-bounded; native strategies are trusted, registered at
-  compile time, and additionally allowed to reshape the template
-  (`ScreenPolicy`) — something the wasm side deliberately cannot do.
+  epoch-deadline-bounded — but isolated, not trusted; native strategies
+  are trusted, registered at compile time, and additionally allowed to
+  reshape the template (`ScreenPolicy`) — something the wasm side
+  deliberately cannot do.
 
 ## Tests
 

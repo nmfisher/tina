@@ -133,7 +133,7 @@ Future<int> runApp(
     });
     // A layout strategy swap (`/layout focus`, config reload) re-solves
     // the screen on the spot: same path as a resize.
-    LayoutStrategies.instance.addListener(_onLayoutStrategyChange =
+    LayoutStrategies.addListener(_onLayoutStrategyChange =
         () => relayout());
     if (workspace != null) {
       return await workspace.runConsole(console, view, createSession!,
@@ -208,7 +208,7 @@ Future<int> runApp(
       await interruptSubscription?.cancel();
       await resizeSubscription?.cancel();
       if (_onLayoutStrategyChange != null) {
-        LayoutStrategies.instance.removeListener(_onLayoutStrategyChange);
+        LayoutStrategies.removeListener(_onLayoutStrategyChange);
         _onLayoutStrategyChange = null;
       }
 

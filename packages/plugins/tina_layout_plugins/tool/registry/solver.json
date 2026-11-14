@@ -1,0 +1,12 @@
+{
+  "name": "tina/layout-solver",
+  "version": "0.1.0",
+  "description": "The built-in tina_layout grid solver as an installable layout strategy (tina:layout@1.0.0). Identical rects to the compiled-in solver by construction; pure function over records.",
+  "abi": {
+    "embedder_abi": 1,
+    "world": "tina:layout-app/layout-plugin@1.0.0",
+    "imports": ["tina:layout/types@1.0.0"],
+    "exports": ["tina:layout/strategy@1.0.0"]
+  },
+  "capabilities": []
+}

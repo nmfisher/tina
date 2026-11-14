@@ -167,7 +167,7 @@ class ScreenLayout {
     // that is not a [ScreenLayoutStrategy] — or one whose policy
     // throws — changes nothing here (the dispatcher reports the throw).
     ScreenPolicy? policy;
-    final strategy = LayoutStrategies.instance.active;
+    final strategy = LayoutStrategies.active;
     if (strategy is ScreenLayoutStrategy) {
       try {
         policy = strategy.policyFor(
@@ -213,7 +213,7 @@ class ScreenLayout {
     // Mirrored layouts put the info box in the first content column.
     final chatColumn = isSplit && mirrored ? chatTrack + 1 : chatTrack;
     final infoColumn = isSplit && mirrored ? chatTrack : chatTrack + 1;
-    final screen = LayoutStrategies.instance.solve(
+    final screen = LayoutStrategies.solve(
         GridSpec(
             columns: columns,
             rows: rows,
@@ -323,7 +323,7 @@ class ScreenLayout {
   /// Returns `(content, input)` — `input` is empty without [bottomBorder].
   static List<GridRect?> _solveInterior(int width, int height,
       {required bool bottomBorder}) {
-    final solution = LayoutStrategies.instance.solve(
+    final solution = LayoutStrategies.solve(
         GridSpec(
             columns: const [
               GridTrack.fixed(1),
