@@ -177,7 +177,7 @@ class ScreenLayout {
     final chatTrack = sideWidth > 0 ? 1 : 0;
     final bodyRow = hasMenuBar ? 1 : 0;
     final stripRowTrack = rows.length - 1;
-    final screen = GridSolver.solve(
+    final screen = LayoutStrategies.solve(
         GridSpec(
             columns: columns,
             rows: rows,
@@ -287,7 +287,7 @@ class ScreenLayout {
   /// Returns `(content, input)` — `input` is empty without [bottomBorder].
   static List<GridRect?> _solveInterior(int width, int height,
       {required bool bottomBorder}) {
-    final solution = GridSolver.solve(
+    final solution = LayoutStrategies.solve(
         GridSpec(
             columns: const [
               GridTrack.fixed(1),

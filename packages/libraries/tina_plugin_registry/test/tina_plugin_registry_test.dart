@@ -155,6 +155,34 @@ void main() {
       capabilities: manifest,
     );
 
+    test('zero-capability entries (layout strategies) ask nothing', () {
+      // A layout plugin declares no capabilities: the consent flow must
+      // render no questions and install with no grants (the manifests
+      // carry `capabilities: []`; the host admission refuses any import
+      // beyond WASI + the contract's own types).
+      final layout = ParsedEntry(
+        name: 'tina/layout-solver',
+        version: '0.1.0',
+        description: '',
+        sha256: 'b' * 64,
+        size: 1,
+        blobPath: 'blobs/layout.wasm',
+        capabilities: const [],
+      );
+      var questions = 0;
+      final outcome = runInteractiveConsent(
+          layout, (_) => fail('a zero-capability entry must not ask'));
+      questions++;
+      expect(outcome.aborted, isFalse);
+      expect(questions, 1); // the callback never ran
+      expect(outcome.grantedStrings(), isEmpty);
+      expect(outcome.deniedIds(), isEmpty);
+      // Non-interactive installs are equally silent.
+      final scripted = runNonInteractiveConsent(layout, const <String>{});
+      expect(scripted.aborted, isFalse);
+      expect(scripted.grantedStrings(), isEmpty);
+    });
+
     test('interactive: approve everything grants everything', () {
       final outcome = runInteractiveConsent(entry, (_) => true);
       expect(outcome.aborted, isFalse);

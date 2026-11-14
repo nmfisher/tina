@@ -35,6 +35,8 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/src/backend/ansi_input_backend.dart';
 import 'package:tina_tui/tina_tui.dart' show runApp;
 
+import 'package:tina_layout/tina_layout.dart';
+import 'package:tina_wasm/src/bridge_layout_strategy.dart';
 import 'package:tina_wasm/src/components/tina_probe_tui_app.dart' as root;
 import 'package:tina_wasm/src/components/wasi_cli.dart' as wasi_cli;
 import 'package:tina_wasm/src/engine_registry.dart';
@@ -116,6 +118,23 @@ final class _TuiRun implements wasi_cli.Run {
     final imports = _imports!;
     final stdio = _stdio!;
     final environment = _environment(imports);
+
+    // Layout strategy dispatch (docs/layout-plugin.md): when the host has
+    // a strategy plugin mounted, every ScreenLayout solve routes through
+    // the host bridge; absent/erroring/timed-out plugins fall back to the
+    // compiled-in solver there (one notice per install, on stderr: the
+    // screen must survive a wedged strategy).
+    LayoutStrategies.onFallbackNotice = (message) {
+      unawaited(stdio.stderrWrite('tina: $message\n'));
+    };
+    final bridgeStrategy = BridgeLayoutStrategy(imports.layoutBridge);
+    final mountedLayout = bridgeStrategy.mounted();
+    if (mountedLayout != null) {
+      LayoutStrategies.install(bridgeStrategy);
+      unawaited(stdio.stderrWrite(
+          'tina: layout strategy ${mountedLayout.id} ${mountedLayout.version} '
+          'mounted\n'));
+    }
 
     // 1-4: identical to the pipes engine's boot (bin/engine.dart): the
     // preopened config snapshot, the portable tools plugin, the tina:http

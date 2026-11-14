@@ -1,0 +1,7 @@
+package tina:layout-app@1.0.0;
+
+/// Local alias so this wit tree has a root package (witgen requires
+/// one); the world re-exports the vendored strategy interface verbatim.
+world layout-plugin {
+  export tina:layout/strategy@1.0.0;
+}

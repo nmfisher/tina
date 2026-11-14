@@ -15,6 +15,11 @@ The vendored WIT under `wit/deps/` is not authored here:
   `pkg/test_runner/docs/tina_process.md`), from
   `pkg/test_runner/wit/deps/tina-process` in the same repository.
 - `wasmdart-tests` is the case-runner protocol (`pkg/test_runner/world.wit`).
+- `tina-layout` is the `tina:layout@1.0.0` contract (types + strategy +
+  bridge), defined jointly with the Rust host (`pkg/tina_wasm_host/wit/
+  deps/tina-layout`) and the layout plugin package
+  (`packages/plugins/tina_layout_plugins/wit/deps/tina-layout`); see
+  `docs/layout-plugin.md`.
 
 When either repository changes those files, refresh the copies here and
 regenerate.

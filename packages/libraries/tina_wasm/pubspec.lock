@@ -641,6 +641,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_layout:
+    dependency: transitive
+    description:
+      path: "../../tina_layout"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_llm:
     dependency: "direct main"
     description:
@@ -836,21 +843,17 @@ packages:
   wasm_components:
     dependency: "direct main"
     description:
-      path: "pkg/wasm_components"
-      ref: c3c8f3230605033df01d637f2bfd635dad106125
-      resolved-ref: c3c8f3230605033df01d637f2bfd635dad106125
-      url: "https://github.com/nmfisher/wasm.dart.git"
-    source: git
+      path: "/tmp/m3-wasmdart/pkg/wasm_components"
+      relative: false
+    source: path
     version: "0.1.1-preview.0"
   wasm_tools:
     dependency: "direct dev"
     description:
-      path: "pkg/wasm_tools"
-      ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
-      resolved-ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
-      url: "https://github.com/nmfisher/wasm.dart.git"
-    source: git
-    version: "0.1.0-preview.0"
+      path: "/tmp/m3-wasmdart/pkg/wasm_tools"
+      relative: false
+    source: path
+    version: "0.1.1-preview.1"
   watcher:
     dependency: transitive
     description:

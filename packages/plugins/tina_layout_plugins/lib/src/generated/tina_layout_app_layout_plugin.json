@@ -1,0 +1,744 @@
+{
+  "imports": [],
+  "exports": [
+    {
+      "implements": 1,
+      "functions": {
+        "describe": {
+          "exported_name": "component_0",
+          "options": {
+            "uses_memory": true,
+            "uses_strings": true,
+            "uses_realloc": false,
+            "is_async": false,
+            "uses_callback": false,
+            "post_return": "component_0_postreturn"
+          },
+          "parameters": [],
+          "result": 21
+        },
+        "solve": {
+          "exported_name": "component_1",
+          "options": {
+            "uses_memory": true,
+            "uses_strings": true,
+            "uses_realloc": true,
+            "is_async": false,
+            "uses_callback": false,
+            "post_return": "component_1_postreturn"
+          },
+          "parameters": [
+            {
+              "name": "spec",
+              "type": 20
+            },
+            {
+              "name": "columns",
+              "type": "u32"
+            },
+            {
+              "name": "rows",
+              "type": "u32"
+            },
+            {
+              "name": "metrics",
+              "type": 18
+            }
+          ],
+          "result": 22
+        }
+      }
+    }
+  ],
+  "world": {
+    "worlds": [
+      {
+        "name": "layout-plugin",
+        "imports": {
+          "interface-0": {
+            "interface": {
+              "id": 0
+            }
+          }
+        },
+        "exports": {
+          "interface-1": {
+            "interface": {
+              "id": 1
+            }
+          }
+        },
+        "package": 0,
+        "docs": {
+          "contents": "The world a layout strategy plugin compiles against."
+        }
+      },
+      {
+        "name": "layout-plugin",
+        "imports": {
+          "interface-0": {
+            "interface": {
+              "id": 0
+            }
+          }
+        },
+        "exports": {
+          "interface-1": {
+            "interface": {
+              "id": 1
+            }
+          }
+        },
+        "package": 1,
+        "docs": {
+          "contents": "Local alias so this wit tree has a root package (witgen requires\none); the world re-exports the vendored strategy interface verbatim."
+        }
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "types",
+        "types": {
+          "track-kind": 0,
+          "track": 2,
+          "span": 4,
+          "layout-item": 5,
+          "layout-spec": 8,
+          "cell-metrics": 9,
+          "cell-rect": 10,
+          "rect-entry": 11,
+          "layout-drop": 12,
+          "layout-solution": 16,
+          "strategy-descriptor": 17
+        },
+        "functions": {},
+        "docs": {
+          "contents": "The layout contract vocabulary: tina_layout's GridSpec and solution\ntypes as structured records (see tina docs/layout-plugin.md). The\nrecord shapes are the single serialization - the same field names\nserve the Dart codec (LayoutWire), the guest bindings and the host's\nVal records. Plugins never change what a rectangle is."
+        },
+        "package": 0
+      },
+      {
+        "name": "strategy",
+        "types": {
+          "cell-metrics": 18,
+          "layout-solution": 19,
+          "layout-spec": 20,
+          "strategy-descriptor": 21
+        },
+        "functions": {
+          "describe": {
+            "name": "describe",
+            "kind": "freestanding",
+            "params": [],
+            "result": 21
+          },
+          "solve": {
+            "name": "solve",
+            "kind": "freestanding",
+            "params": [
+              {
+                "name": "spec",
+                "type": 20
+              },
+              {
+                "name": "columns",
+                "type": "u32"
+              },
+              {
+                "name": "rows",
+                "type": "u32"
+              },
+              {
+                "name": "metrics",
+                "type": 18
+              }
+            ],
+            "result": 22,
+            "docs": {
+              "contents": "Solve one spec for one terminal size. Synchronous; the host runs it\nunder an epoch deadline and falls back to the built-in solver on\nany failure."
+            }
+          }
+        },
+        "docs": {
+          "contents": "What a layout strategy plugin exports. Pure function, zero\ncapabilities: a strategy imports nothing beyond WASI and the contract's\nown types (the host admits nothing else)."
+        },
+        "package": 0
+      },
+      {
+        "name": "bridge",
+        "types": {
+          "cell-metrics": 23,
+          "layout-solution": 24,
+          "layout-spec": 25,
+          "strategy-descriptor": 26,
+          "fallback": 27
+        },
+        "functions": {
+          "describe": {
+            "name": "describe",
+            "kind": "freestanding",
+            "params": [],
+            "result": 28,
+            "docs": {
+              "contents": "The mounted strategy, or none. Cheap enough to poll."
+            }
+          },
+          "solve": {
+            "name": "solve",
+            "kind": "freestanding",
+            "params": [
+              {
+                "name": "spec",
+                "type": 25
+              },
+              {
+                "name": "columns",
+                "type": "u32"
+              },
+              {
+                "name": "rows",
+                "type": "u32"
+              },
+              {
+                "name": "metrics",
+                "type": 23
+              }
+            ],
+            "result": 29
+          }
+        },
+        "docs": {
+          "contents": "The host-mediated bridge the TUI imports. The host routes solve calls\nto the mounted strategy plugin's own Store; components never call\ncomponents."
+        },
+        "package": 0
+      }
+    ],
+    "types": [
+      {
+        "name": "track-kind",
+        "kind": {
+          "enum": {
+            "cases": [
+              {
+                "name": "fixed"
+              },
+              {
+                "name": "weighted"
+              },
+              {
+                "name": "auto"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": "f64"
+        },
+        "owner": null
+      },
+      {
+        "name": "track",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "kind",
+                "type": 0
+              },
+              {
+                "name": "size-units",
+                "type": "f64"
+              },
+              {
+                "name": "weight",
+                "type": "f64"
+              },
+              {
+                "name": "min-units",
+                "type": "f64"
+              },
+              {
+                "name": "max-units",
+                "type": 1,
+                "docs": {
+                  "contents": "`none` = unbounded (the GridTrack default)."
+                }
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": "u32"
+        },
+        "owner": null
+      },
+      {
+        "name": "span",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "start",
+                "type": 3
+              },
+              {
+                "name": "span",
+                "type": "u32"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        },
+        "docs": {
+          "contents": "Placement along one axis: an explicit track index, or auto-flow\n(`start` = none) with a span count."
+        }
+      },
+      {
+        "name": "layout-item",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "name": "column",
+                "type": 4
+              },
+              {
+                "name": "row",
+                "type": 4
+              },
+              {
+                "name": "min-width-units",
+                "type": "f64"
+              },
+              {
+                "name": "min-height-units",
+                "type": "f64"
+              },
+              {
+                "name": "max-width-units",
+                "type": 1
+              },
+              {
+                "name": "max-height-units",
+                "type": 1
+              },
+              {
+                "name": "aspect-hint",
+                "type": 1
+              },
+              {
+                "name": "priority",
+                "type": "s32"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": 2
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": 5
+        },
+        "owner": null
+      },
+      {
+        "name": "layout-spec",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "columns",
+                "type": 6
+              },
+              {
+                "name": "rows",
+                "type": 6
+              },
+              {
+                "name": "items",
+                "type": 7
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": "cell-metrics",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "rows-per-unit",
+                "type": "f64"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": "cell-rect",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "col",
+                "type": "s32"
+              },
+              {
+                "name": "row",
+                "type": "s32"
+              },
+              {
+                "name": "width",
+                "type": "s32"
+              },
+              {
+                "name": "height",
+                "type": "s32"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        },
+        "docs": {
+          "contents": "A rectangle in terminal cells. Never negative, never outside the\nterminal the solve was for."
+        }
+      },
+      {
+        "name": "rect-entry",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "name": "rect",
+                "type": 10
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": "layout-drop",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "name": "reason",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": 11
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": "f64"
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "list": 12
+        },
+        "owner": null
+      },
+      {
+        "name": "layout-solution",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "columns",
+                "type": "u32"
+              },
+              {
+                "name": "rows",
+                "type": "u32"
+              },
+              {
+                "name": "metrics",
+                "type": 9
+              },
+              {
+                "name": "rects",
+                "type": 13
+              },
+              {
+                "name": "column-track-sizes",
+                "type": 14
+              },
+              {
+                "name": "row-track-sizes",
+                "type": 14
+              },
+              {
+                "name": "dropped",
+                "type": 15
+              },
+              {
+                "name": "overflow-units-x",
+                "type": "f64"
+              },
+              {
+                "name": "overflow-units-y",
+                "type": "f64"
+              },
+              {
+                "name": "trailing-gap-units-x",
+                "type": "f64"
+              },
+              {
+                "name": "trailing-gap-units-y",
+                "type": "f64"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        }
+      },
+      {
+        "name": "strategy-descriptor",
+        "kind": {
+          "record": {
+            "fields": [
+              {
+                "name": "id",
+                "type": "string"
+              },
+              {
+                "name": "version",
+                "type": "string",
+                "docs": {
+                  "contents": "The contract version this strategy speaks (\"1.0.0\")."
+                }
+              },
+              {
+                "name": "description",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 0
+        },
+        "docs": {
+          "contents": "Identity card of a layout strategy; shared by the strategy export\nand the bridge import (living here so the bridge does not need the\nstrategy interface for its types)."
+        }
+      },
+      {
+        "name": "cell-metrics",
+        "kind": {
+          "type": 9
+        },
+        "owner": {
+          "interface": 1
+        }
+      },
+      {
+        "name": "layout-solution",
+        "kind": {
+          "type": 16
+        },
+        "owner": {
+          "interface": 1
+        }
+      },
+      {
+        "name": "layout-spec",
+        "kind": {
+          "type": 8
+        },
+        "owner": {
+          "interface": 1
+        }
+      },
+      {
+        "name": "strategy-descriptor",
+        "kind": {
+          "type": 17
+        },
+        "owner": {
+          "interface": 1
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 19,
+            "err": "string"
+          }
+        },
+        "owner": null
+      },
+      {
+        "name": "cell-metrics",
+        "kind": {
+          "type": 9
+        },
+        "owner": {
+          "interface": 2
+        }
+      },
+      {
+        "name": "layout-solution",
+        "kind": {
+          "type": 16
+        },
+        "owner": {
+          "interface": 2
+        }
+      },
+      {
+        "name": "layout-spec",
+        "kind": {
+          "type": 8
+        },
+        "owner": {
+          "interface": 2
+        }
+      },
+      {
+        "name": "strategy-descriptor",
+        "kind": {
+          "type": 17
+        },
+        "owner": {
+          "interface": 2
+        }
+      },
+      {
+        "name": "fallback",
+        "kind": {
+          "variant": {
+            "cases": [
+              {
+                "name": "no-plugin",
+                "type": null,
+                "docs": {
+                  "contents": "No layout plugin is mounted."
+                }
+              },
+              {
+                "name": "plugin-error",
+                "type": "string",
+                "docs": {
+                  "contents": "The plugin trapped or returned an error."
+                }
+              },
+              {
+                "name": "plugin-timeout",
+                "type": "string",
+                "docs": {
+                  "contents": "The per-call epoch deadline killed the plugin mid-solve."
+                }
+              }
+            ]
+          }
+        },
+        "owner": {
+          "interface": 2
+        }
+      },
+      {
+        "name": null,
+        "kind": {
+          "option": 26
+        },
+        "owner": null
+      },
+      {
+        "name": null,
+        "kind": {
+          "result": {
+            "ok": 24,
+            "err": 27
+          }
+        },
+        "owner": null
+      }
+    ],
+    "packages": [
+      {
+        "name": "tina:layout@1.0.0",
+        "interfaces": {
+          "types": 0,
+          "strategy": 1,
+          "bridge": 2
+        },
+        "worlds": {
+          "layout-plugin": 0
+        }
+      },
+      {
+        "name": "tina:layout-app@1.0.0",
+        "interfaces": {},
+        "worlds": {
+          "layout-plugin": 1
+        }
+      }
+    ]
+  }
+}
