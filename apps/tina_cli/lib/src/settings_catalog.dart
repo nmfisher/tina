@@ -4,6 +4,7 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'assembly_config.dart';
+import 'layout_strategies.dart';
 import 'session_context.dart';
 
 SettingCatalog createSettingsCatalog(
@@ -52,6 +53,25 @@ SettingCatalog createSettingsCatalog(
       applyAt: ApplyAt.restart,
       scopeReason: 'Approval delivery is selected when a conversation opens.',
       configPath: ['plugins', 'approval_channel']));
+  // The chat screen arrangement (docs/native-layout-strategies.md).
+  // Selected when the session opens; `/layout` swaps it live without a
+  // restart.
+  catalog.register(SettingDefinition<String>(
+      id: 'tina/layout/strategy',
+      label: 'Layout strategy',
+      description:
+          'How the chat screen is arranged: default (65/35 split at 100 '
+          'columns), focus (equal 50/50 halves from 80 columns) or '
+          'two-column (info panel on the left from 80 columns).',
+      defaultValue: 'default',
+      kind: SettingKind.choice,
+      choices: layoutStrategyFactories.keys.toList(growable: false),
+      scopes: {SettingScope.global, SettingScope.workspace},
+      applyAt: ApplyAt.restart,
+      scopeReason:
+          'The layout strategy is selected when a conversation opens; '
+          'use /layout to swap it live.',
+      configPath: ['layout_strategy']));
   refreshProviderDefinitions(catalog, config);
   return catalog;
 }
