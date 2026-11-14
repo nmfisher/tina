@@ -473,6 +473,7 @@
     "classification": [
       "crypto",
       "http",
+      "path",
       "toml",
       "tina_core",
       "tina_engine_2"
