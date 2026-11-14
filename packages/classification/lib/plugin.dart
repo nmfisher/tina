@@ -37,7 +37,7 @@ final class _ClassificationObservation implements ClassificationObservation {
   }
 }
 
-/// Background input classification and an optional process-call format guard.
+/// Background input classification and an optional command/file-call guard.
 /// Input predictions remain informational; format checks can request a rewrite
 /// before execution. Neither path grants permissions.
 class ClassificationPlugin extends AgentPlugin {
@@ -56,6 +56,7 @@ class ClassificationPlugin extends AgentPlugin {
     required LlmProvider Function() createProvider,
     bool Function()? toolCallFormatEnabled,
     Duration Function()? toolCallFormatTimeout,
+    String Function()? readWorkspace,
   }) => ClassificationPlugin(
     terminal: terminal,
     open: () =>
@@ -69,6 +70,7 @@ class ClassificationPlugin extends AgentPlugin {
       environment: environment,
       enabled: toolCallFormatEnabled,
       readTimeout: toolCallFormatTimeout,
+      readWorkspace: readWorkspace,
     ),
   );
 
@@ -133,6 +135,11 @@ class ClassificationPlugin extends AgentPlugin {
   @override
   Future<void> beforeToolCall(TurnContext context) async {
     if (!_closed) await toolCalls?.review(context, trace: trace);
+  }
+
+  @override
+  void afterToolResult(TurnContext context) {
+    if (!_closed) toolCalls?.observeResult(context);
   }
 
   Future<void> _classify(

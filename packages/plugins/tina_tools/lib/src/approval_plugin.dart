@@ -33,6 +33,8 @@ Approver requesterApprover(ApprovalRequester approvals) =>
         ApprovalDecision.allowGlobal ||
         ApprovalDecision.allowPrefixInSession ||
         ApprovalDecision.allowPrefixInWorkspace ||
+        ApprovalDecision.allowExactInSession ||
+        ApprovalDecision.allowExactInWorkspace ||
         ApprovalDecision.allowReadsAlways ||
         ApprovalDecision.allowReadsInDirectory ||
         ApprovalDecision.allowAlwaysAndReadsInDirectory ||
@@ -174,7 +176,9 @@ void attachModePolicy(ToolsPlugin plugin) {
     );
     if (decision == ApprovalDecision.deny) return Approval.no;
     if (decision == ApprovalDecision.allowPrefixInSession ||
-        decision == ApprovalDecision.allowPrefixInWorkspace) return Approval.no;
+        decision == ApprovalDecision.allowPrefixInWorkspace ||
+        decision == ApprovalDecision.allowExactInSession ||
+        decision == ApprovalDecision.allowExactInWorkspace) return Approval.no;
     if (!save(grants, details)) return Approval.no;
     return Approval.yes;
   };
@@ -201,6 +205,14 @@ void attachModePolicy(ToolsPlugin plugin) {
     ];
     final details = reviewPaths(accesses);
     String? prefixUnavailable;
+    CommandExactPlan? exact() => CommandExactPlan.parse(request,
+        workspace: root,
+        sandboxHomeRoot:
+            review.requiredPermissions.contains(ProcessPermission.unconfined)
+                ? null
+                : plugin.home?.stateRoot,
+        searchPath: request.environment?['PATH'] ?? plugin.osPlan.searchPath);
+    final exactPlan = exact();
     final prefixes = CommandPrefixPlan.parse(request,
         onUnavailable: (reason) => prefixUnavailable = reason,
         workspace: root,
@@ -235,6 +247,9 @@ void attachModePolicy(ToolsPlugin plugin) {
       context: {
         ...details,
         if (prefixes != null) 'command_prefixes': prefixes.labels,
+        if (exactPlan != null) 'exact_command_approval': true,
+        if (exactPlan != null)
+          'persistent_exact_command': plugin.commandApprovals.file != null,
         if (prefixUnavailable != null)
           'command_prefix_unavailable_reason': prefixUnavailable,
         if (prefixes != null)
@@ -293,6 +308,24 @@ void attachModePolicy(ToolsPlugin plugin) {
               requirement.capability.name,
           },
           prefixScope);
+    }
+    final exactScope = switch (decision) {
+      ApprovalDecision.allowExactInSession => CommandApprovalScope.session,
+      ApprovalDecision.allowExactInWorkspace => CommandApprovalScope.workspace,
+      _ => null,
+    };
+    if (exactScope != null) {
+      if (exactPlan == null || exact()?.identity != exactPlan.identity)
+        return Approval.no;
+      plugin.commandApprovals.rememberExact(
+          exactPlan,
+          {
+            for (final requirement
+                in review.authorization?.requirements ?? <AccessRequirement>[])
+              requirement.capability.name,
+          },
+          exactScope,
+          command: approvalCommandText(request));
     }
     return Approval.yes;
   };

@@ -175,6 +175,11 @@ class ApprovalDialog {
       ];
 
   bool get _resourcePermissions => ask?.details['resource_permissions'] == true;
+  bool get _hasExact =>
+      ask?.confirmation != true &&
+      call?.argumentsParseError == null &&
+      ask?.details['permission_scope'] == 'command' &&
+      ask?.details['exact_command_approval'] == true;
   List<String> get _commandPrefixes {
     final value = ask?.details['command_prefixes'];
     return ask?.confirmation != true &&
@@ -189,7 +194,8 @@ class ApprovalDialog {
   bool get _hasPrefixes => _commandPrefixes.isNotEmpty;
   bool get _hasAlways =>
       ask?.details['workspace_write_grant'] != true &&
-      (!_resourcePermissions || _directoryOffers.isNotEmpty) &&
+      (!_resourcePermissions ||
+          _directoryOffers.any((offer) => !offer.granted)) &&
       ask?.confirmation != true &&
       call?.argumentsParseError == null;
   bool get _hasCommandPattern =>
@@ -275,6 +281,11 @@ class ApprovalDialog {
                 if (ask?.details['persistent_command_prefix'] == true)
                   'prefix workspace',
               ],
+              if (_hasExact) ...[
+                'exact session',
+                if (ask?.details['persistent_exact_command'] == true)
+                  'exact workspace',
+              ],
               'deny',
               if (_hasAlways) 'remember'
             ]
@@ -335,6 +346,8 @@ class ApprovalDialog {
   }
 
   ApprovalDecision decisionFor(int index) => switch (_choices[index]) {
+        'exact session' => ApprovalDecision.allowExactInSession,
+        'exact workspace' => ApprovalDecision.allowExactInWorkspace,
         'prefix session' => ApprovalDecision.allowPrefixInSession,
         'prefix workspace' => ApprovalDecision.allowPrefixInWorkspace,
         'allow always' => ApprovalDecision.allowAlways,
@@ -483,15 +496,18 @@ class ApprovalDialog {
         else if (_hasAlways && scope == 'file')
           'Session approval covers only this file. Other files still ask.',
         if (!_hasPrefixes &&
+            !_resourcePermissions &&
             _hasAlways &&
             ask?.details['permission_scope_description'] == null &&
             scope == 'command')
           'Session approval covers this exact command in this directory.',
         if (_hasPrefixes)
           'Prefix rules apply in this directory and environment; file access is checked separately.',
+        if (_hasExact)
+          'Exact rules match the executable, arguments, directory and environment; file access is checked separately.',
         if (!_hasPrefixes &&
             ask?.details['command_prefix_unavailable_reason'] is String)
-          'Remembering unavailable: ${ask!.details['command_prefix_unavailable_reason']}',
+          'Prefix approval unavailable: ${ask!.details['command_prefix_unavailable_reason']}',
       ],
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',
@@ -561,9 +577,13 @@ class ApprovalDialog {
                     ? '[y] Run once'
                     : '[y] allow once',
         'prefix session' =>
-          '[a] Remember for this conversation: ${_commandPrefixes.join(', ')} …',
+          '[a] For this session: always allow commands starting with ${_commandPrefixes.join(', ')} …',
         'prefix workspace' =>
-          '[p] Persist for this workspace: ${_commandPrefixes.join(', ')} …',
+          '[p] For this workspace: always allow commands starting with ${_commandPrefixes.join(', ')} …',
+        'exact session' =>
+          '[e] Always allow this exact command for this session',
+        'exact workspace' =>
+          '[w] Always allow this exact command for this workspace',
         'deny' => '[n] deny',
         'remember' =>
           _hasPrefixes ? 'Remember file or directory access…' : '[a] Remember…',
@@ -785,6 +805,13 @@ class ApprovalDialog {
     while (true) {
       final key = await keys.next();
       onAnyKey?.call();
+      if (!_details && !_rememberMenu && _hasExact) {
+        if (key == ApprovalKey.editCommandPattern)
+          return _outcome(ApprovalDecision.allowExactInSession);
+        if (key == ApprovalKey.toggleWriteDirectory &&
+            ask?.details['persistent_exact_command'] == true)
+          return _outcome(ApprovalDecision.allowExactInWorkspace);
+      }
       switch (key) {
         case ApprovalKey.allow:
           return _outcome(ApprovalDecision.allow);

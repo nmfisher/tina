@@ -391,25 +391,42 @@ deadline, with a 60-second timeout for each isolated discovery. Typesafe usage i
 separate from conversation spend; discovery uses the normal conversation provider
 rates and token limits. Repository indexing and Attractor remain disconnected.
 
-The same plugin also checks `exec` and `bash` call format with the configured
-Typesafe model **before approval and execution**. The request includes only the
-tool name, command/program/arguments, shell and explicit working directory, plus
-the format policy. It excludes conversation history, command output and the
-process environment. A typed GOOD result continues to normal permission checks.
+The same plugin checks `exec` and `bash` command formatting and the target paths
+of `read`, `write`, `edit`, `ls`, `stat` and `glob` with the configured Typesafe
+model **before approval and execution**. Requests include the tool name, the
+current task (up to 1,000 characters, with truncation marked), workspace, and
+command/program/arguments or file path, plus the relevant review policy. They
+exclude conversation history, tool output, the process environment and file-tool
+contents. A typed GOOD result continues to normal permission checks.
 A typed BAD result returns a tool error asking the conversation model to rewrite
 the call with direct executable/arguments, `working_directory`, and only necessary
-shell setup. Short pipelines and necessary environment setup remain valid. The
+shell setup. Unnecessary wrappers such as `bash -c 'echo test'` request a rewrite
+to direct exec even when short. Explicitly testing Bash itself or requiring
+Bash-specific behavior preserves the shell. The bash tool takes the shell body
+directly, without another `bash -c` layer. Short pipelines and necessary
+environment setup remain valid. The
 rewritten call gets fresh format and permission checks; the classifier never
-edits or executes commands and never approves access. After two unsuccessful
+edits or executes tools and never approves access. After two unsuccessful
 rewrites in a row, the turn stops rather than looping indefinitely.
 
-Settings → Plugins → `tina/classification` includes **Check command format before
-running** (on by default) and **Command format check timeout (seconds)** (60 by
+File-path checks use lexical resolution against the workspace and up to eight
+recent successful file-tool paths (each at most 512 characters, held in this
+session's memory). Failed calls and model claims never become successful-path
+evidence. The reviewer performs no filesystem probes or symlink resolution.
+Malformed required paths return a rewrite error without a classifier request.
+Likely typos such as `/VVolumes` or a duplicated workspace directory ask the
+main model to verify the intended target and rewrite the call. Paths outside
+the workspace and new files are not inherently mistakes. Tina never silently
+corrects the path; the rewritten call receives normal permission and existence
+checks. Evidence is cleared if the workspace changes and when the session closes.
+
+Settings → Plugins → `tina/classification` includes **Check tool calls before
+running** (on by default) and **Tool call check timeout (seconds)** (60 by
 default, 1–300). Both support session, workspace and global settings. Missing
 Typesafe credentials, an oversized request, transport failure or timeout skips
 the format check with a brief notice and retains normal permission checks.
-Checks and GOOD/BAD results appear in the classification execution tree. File
-tools and other native tools do not need this process-command formatting check.
+Checks and GOOD/BAD results appear in the classification execution tree as
+**Command formatting** or **File path check**, so the verdict's scope is explicit.
 
 ## Completion
 

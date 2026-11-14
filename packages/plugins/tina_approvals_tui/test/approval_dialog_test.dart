@@ -296,7 +296,7 @@ void main() {
               'permission_scope': 'session-history',
               'permission_scope_label': 'these histories',
               'permission_scope_description':
-                  'Only these histories for this conversation. New histories still ask.',
+                  'Only these histories for this session. New histories still ask.',
               'description': const ToolDescription(
                   title: 'Search saved conversations',
                   target: '2 workspace histories',

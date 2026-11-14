@@ -481,6 +481,13 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     } else if (entry is TurnStartedEntry) {
       _busy = event == LogEvent.appended;
     } else if (entry is InputRecordedEntry) {
+      if (!_replaying && event == LogEvent.appended) {
+        // A new submission returns to live conversation. Keep the viewport
+        // anchored only while browsing an existing response; otherwise the
+        // user's own message can be appended below an invisible live tail.
+        _mouseSelection?.cancel();
+        _console?.chat.scrollToTail();
+      }
       _recordedInputs.add(entry.turnId);
       _add(ChatBlock.user(_clean(entry.text)), at: at);
     } else if (entry is MessageAppendedEntry) {

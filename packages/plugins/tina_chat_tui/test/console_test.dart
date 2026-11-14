@@ -981,6 +981,49 @@ void main() {
     expect(await line, 'draft');
   });
 
+  test('new input returns to the live tail after browsing older messages',
+      () async {
+    for (var i = 0; i < 70; i++) chat.writeNotice('older message $i');
+    screen.chat.scrollBy(-40);
+    expect(screen.chat.isTailPinned, false);
+    chat.watch(const SawText('response received while browsing\n\n'));
+    expect(screen.chat.newWhileScrolled, greaterThan(0));
+    chat.entry(
+        const InputRecordedEntry(turnId: 'new-input', text: 'new user message'),
+        LogEvent.appended);
+    await tick();
+    expect(screen.chat.isTailPinned, true);
+    expect(screen.chat.newWhileScrolled, 0);
+    expect(visible(), contains('new user message'));
+    chat.watch(const SawText('new visible response\n\n'));
+    await tick();
+    expect(visible(), contains('new visible response'));
+  });
+
+  test('new input dismisses a mouse snapshot that lost its release', () async {
+    for (var i = 0; i < 70; i++) chat.writeNotice('older message $i');
+    screen.chat.scrollBy(-40);
+    final line = editor.readLine('unused');
+    await tick();
+    final x = screen.chat.bounds.col + 2;
+    final y = screen.chat.bounds.row + 3;
+    io.feed('\x1b[<0;$x;${y}M');
+    await tick();
+    expect(visible(), contains('Release to copy'));
+    // A session can submit from another control without a local key cancelling
+    // the selection first. The old snapshot must not cover the new message.
+    chat.entry(
+        const InputRecordedEntry(
+            turnId: 'new-input', text: 'message after selection'),
+        LogEvent.appended);
+    await tick();
+    expect(visible(), contains('message after selection'));
+    expect(visible(), isNot(contains('Release to copy')));
+    expect(screen.chat.isTailPinned, true);
+    io.feed('\x04');
+    expect(await line, isNull);
+  });
+
   test('mouse drag copies across pages without editing the draft', () async {
     final copied = Completer<String>();
     final replacement = ChatView(chat.chat, copyText: (text) async {

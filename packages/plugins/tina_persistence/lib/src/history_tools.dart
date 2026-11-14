@@ -297,7 +297,7 @@ final class SessionHistoryTools {
         'permission_scope': 'session-history',
         'permission_scope_label': 'these histories',
         'permission_scope_description': 'Remember permits searches and reads of '
-            'only these histories for this conversation. New histories still '
+            'only these histories for this session. New histories still '
             'ask. This does not grant file access.',
         'description': description.toJson(),
       },

@@ -46,11 +46,21 @@ overwritten. Legacy read/write directory settings are imported once. Legacy
 regex patterns, trusted-reader identities, workflow grants, and approval
 precedents do not authorize commands or filesystem access.
 
-## Saved command prefixes
+## Saved command approvals
 
-Eligible command prompts offer **Run once**, **Remember for this conversation**,
-**Persist for this workspace**, and **Deny**. The scope choices show the literal
-argument prefix, such as `gh pr view`. Prefixes match whole argument tokens:
+Command prompts offer **Always allow this exact command for this session**
+and **Always allow this exact command for this workspace** when the executable
+can be resolved (workspace storage is required for the latter). Exact rules
+bind the resolved executable, complete arguments or shell body, working
+directory, filtered environment, stdin and displayed execution/network/host
+capabilities. They support interpreters such as `node scripts/qa.cjs` without
+granting access to other Node commands. Script contents can change at the same
+path; these rules cover the invocation, not a script-content hash. Additional
+file reads, writes, deletion and workspace-write grants remain independent.
+
+Eligible commands also offer **always allow commands starting with …** for
+**this session** or **this workspace**. Those choices show the literal argument
+prefix, such as `gh pr view`. Prefixes match whole argument tokens:
 `gh pr view 429` and `gh pr view 430` match; `gh pr checkout` and `gh pr viewevil`
 do not. Every command in a literal list (`;` or `&&`) and every pipeline stage
 needs its own matching rule. A `head` rule never approves another `otool` or
@@ -59,8 +69,9 @@ needs its own matching rule. A `head` rule never approves another `otool` or
 Assignments, expansion, state-changing builtins (including `printf`, which can
 assign variables), interpreter wrappers and file redirections remain invocation
 reviews. Discarding output with `2>/dev/null` is supported; that redirect stays
-part of the rule's context. Ineligible prompts explain why remembering is
-unavailable and suggest splitting the command.
+part of the rule's context. Ineligible prompts explain why prefix approval is
+unavailable and suggest splitting the command. Exact-command approval remains
+available when the executable can be resolved.
 
 Rules remember only the displayed execution, network and host capabilities.
 They never grant file reads, writes or deletion, and the first workspace-write
@@ -70,11 +81,11 @@ fresh approval. Private sandbox HOME/TMPDIR generations do not invalidate an
 otherwise identical context. Executables, path access and saved rules are checked
 again after an asynchronous approval; cancellation cannot create a late grant.
 
-Conversation rules are saved in that conversation's protected session state and
-restored on resume. New conversations do not inherit them. Workspace rules live
+Session rules are saved in protected session state and restored on resume.
+New sessions do not inherit them. Workspace rules live
 in the existing private `~/.tina/approvals/commands.json` store and apply to new
-conversations in that workspace. Settings → Permissions → Remembered permissions
-lists both kinds and supports revocation. Revocation takes effect on subsequent
+sessions in that workspace. Settings → Permissions → Remembered permissions
+lists exact and prefix rules and supports revocation. Revocation takes effect on subsequent
 access and while another approval for the command is pending.
 
 ## Auto review

@@ -160,12 +160,36 @@ endpoint = "http://127.0.0.1:${server.port}/judge"
         expect(bodies, hasLength(2));
         expect(bodies.last['state'], {
           'tool': 'exec',
+          'current_task': 'inspect the PR',
+          'workspace': directory.path,
           'input': {
             'program': 'gh',
             'args': ['pr', 'view', '429'],
           },
         });
         expect(plugin.trace.snapshot.exchanges.last.outcome?.label, 'GOOD');
+        expect(
+          plugin.trace.snapshot.exchanges.last.title,
+          'Command formatting',
+        );
+        final file = _call('edit', {
+          'filePath': 'lib/main.dart',
+          'oldString': 'private old contents',
+          'newString': 'private new contents',
+        });
+        await plugin.beforeToolCall(file);
+        expect(file.decision.kind, DecisionKind.allow);
+        expect(bodies, hasLength(3));
+        final state = bodies.last['state'] as Map;
+        expect(state['workspace'], directory.path);
+        expect(state['input'], {'filePath': 'lib/main.dart'});
+        expect(
+          (state['path_context'] as Map)['resolved_lexically'],
+          '${directory.path}/lib/main.dart',
+        );
+        expect((state['path_context'] as Map)['existence'], 'not_checked');
+        expect(jsonEncode(state), isNot(contains('private')));
+        expect(plugin.trace.snapshot.exchanges.last.title, 'File path check');
         expect(
           jsonEncode(
             plugin.trace.snapshot.exchanges.map((e) => e.request).toList(),

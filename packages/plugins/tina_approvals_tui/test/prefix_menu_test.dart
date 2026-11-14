@@ -16,6 +16,63 @@ ApprovalDialog _dialog({bool persistent = true, bool confirmation = false}) =>
             }));
 
 void main() {
+  ApprovalDialog exact({bool persistent = true, bool file = false}) =>
+      ApprovalDialog(null,
+          ask: ApprovalAskContext(
+              'run command', 'node scripts/qa.cjs', 'Run QA',
+              details: {
+                'permission_scope': file ? 'file' : 'command',
+                'resource_permissions': true,
+                'exact_command_approval': true,
+                'persistent_exact_command': persistent,
+                'persistent_command_approval': true,
+                'directory_accesses': [
+                  {'path': '/opt/homebrew', 'access': 'read', 'granted': true}
+                ],
+              }));
+  test(
+      'exact command choices are explicit and do not offer redundant Homebrew reads',
+      () async {
+    final shown = exact().rows(width: 160).map(_text).join('\n');
+    expect(shown,
+        contains('[e] Always allow this exact command for this session'));
+    expect(shown,
+        contains('[w] Always allow this exact command for this workspace'));
+    expect(shown, isNot(contains('Remember…')));
+    expect(
+        shown, isNot(contains('Session approval covers this exact command')));
+    expect(shown, isNot(contains('conversation')));
+    expect(
+        (await exact().awaitDecision(
+                ScriptedKeySource([ApprovalKey.editCommandPattern])))
+            .decision,
+        ApprovalDecision.allowExactInSession);
+    expect(
+        (await exact().awaitDecision(
+                ScriptedKeySource([ApprovalKey.toggleWriteDirectory])))
+            .decision,
+        ApprovalDecision.allowExactInWorkspace);
+    expect(
+        (await exact().awaitDecision(
+                ScriptedKeySource([ApprovalKey.down, ApprovalKey.confirm])))
+            .decision,
+        ApprovalDecision.allowExactInSession);
+    expect(
+        (await exact().awaitDecision(ScriptedKeySource(
+                [ApprovalKey.down, ApprovalKey.down, ApprovalKey.confirm])))
+            .decision,
+        ApprovalDecision.allowExactInWorkspace);
+    expect(exact(persistent: false).rows(width: 160).map(_text).join(),
+        isNot(contains('[w]')));
+    expect(exact(file: true).rows(width: 160).map(_text).join(),
+        isNot(contains('Always allow this exact command')));
+    expect(
+        (await exact(persistent: false).awaitDecision(ScriptedKeySource(
+                [ApprovalKey.toggleWriteDirectory, ApprovalKey.deny])))
+            .decision,
+        ApprovalDecision.deny);
+  });
+
   test('unavailable prefixes explain why in the normal approval prompt', () {
     final dialog = ApprovalDialog(null,
         ask: ApprovalAskContext('run command', 'cd sub; head file', 'Inspect',
@@ -25,7 +82,7 @@ void main() {
                   'State-changing builtins require invocation review.',
             }));
     final shown = dialog.rows(width: 160).map(_text).join('\n');
-    expect(shown, contains('Remembering unavailable: State-changing builtins'));
+    expect(shown, contains('Prefix approval unavailable: State-changing builtins'));
     expect(shown, isNot(contains('Remember for this conversation')));
     expect(shown, contains('[y] allow once'));
     expect(shown, contains('[n] deny'));
@@ -35,8 +92,14 @@ void main() {
     final dialog = _dialog();
     final shown = dialog.rows(width: 140).map(_text).join('\n');
     expect(shown, contains('❯ [y] Run once'));
-    expect(shown, contains('[a] Remember for this conversation: gh pr view'));
-    expect(shown, contains('[p] Persist for this workspace: gh pr view'));
+    expect(
+        shown,
+        contains(
+            '[a] For this session: always allow commands starting with gh pr view'));
+    expect(
+        shown,
+        contains(
+            '[p] For this workspace: always allow commands starting with gh pr view'));
     expect(shown, contains('[n] deny'));
     expect(dialog.current.decision, ApprovalDecision.allow);
   });

@@ -19,6 +19,7 @@ export 'src/edit_tool.dart';
 export 'src/exec_tool.dart';
 export 'src/execution_settings.dart';
 export 'src/command_prefix.dart';
+export 'src/command_exact.dart';
 export 'src/fenced_arguments.dart';
 export 'src/file_system.dart';
 export 'src/glob.dart';

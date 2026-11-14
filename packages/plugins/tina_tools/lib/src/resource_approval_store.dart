@@ -17,6 +17,7 @@ final class ResourceApprovalStore extends CommandApprovalStore {
   List<Map<String, Object?>> get entries => [
         ...super.entries.where((e) =>
             e['kind'] == 'command_prefix' ||
+            e['kind'] == 'command_exact' ||
             e['kind'] == 'access' &&
                 (!{'read', 'write', 'delete', 'execute'}
                         .contains(e['capability']) ||

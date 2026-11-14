@@ -40,5 +40,9 @@ final class SystemInstructionPlugin extends AgentPlugin {
       'and reuse or edit an existing script rather than writing a near '
       'duplicate. If a tool call is rejected for format, rewrite it and '
       'resubmit it before continuing, preserving its behavior and permission '
-      'requirements. Never split or disguise an operation to evade approval.');
+      'requirements. A file-path review asks you to verify and correct the '
+      'target while preserving the requested edit; use the workspace and '
+      'previous successful file calls as evidence. Never invent a path or '
+      'silently redirect an edit to a guessed file. Never split or disguise '
+      'an operation to evade approval.');
 }

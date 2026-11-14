@@ -45,10 +45,10 @@ final webSearchSetting = SettingDefinition<int>(
 
 final toolCallFormatSetting = SettingDefinition<bool>(
   id: 'tina/classification/tool_call_format',
-  label: 'Check command format before running',
+  label: 'Check tool calls before running',
   description:
-      'Use the configured Typesafe model to check exec and bash calls. '
-      'Ask the agent to rewrite unnecessary wrappers or setup before approval '
+      'Use the configured Typesafe model to check command formatting and file paths. '
+      'Ask the agent to rewrite concrete command or path mistakes before approval '
       'and execution. Requires tina/classification and a Typesafe API key.',
   defaultValue: true,
   kind: SettingKind.toggle,
@@ -57,9 +57,9 @@ final toolCallFormatSetting = SettingDefinition<bool>(
 
 final toolCallFormatTimeoutSetting = SettingDefinition<int>(
   id: 'tina/classification/tool_call_format_timeout_seconds',
-  label: 'Command format check timeout (seconds)',
+  label: 'Tool call check timeout (seconds)',
   description:
-      'Maximum time for a Typesafe command format check. If unavailable '
+      'Maximum time for a Typesafe tool call check. If unavailable '
       'or timed out, continue with normal permission checks.',
   defaultValue: 60,
   kind: SettingKind.integer,
@@ -307,6 +307,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       create: (c, models) => ClassificationPlugin.configured(
         terminal: c.terminal,
         configPath: c.configPath,
+        readWorkspace: () => c.workingDirectory,
         createProvider: () => models.mainProvider(c.currentModel()),
         toolCallFormatEnabled: () =>
             c.settings?.read(toolCallFormatSetting).value ?? true,
@@ -316,7 +317,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       ),
       description:
           'Classifies user input and Git operations, learns reusable categories, '
-          'and checks command format with Typesafe before execution. '
+          'and checks command formatting and file paths with Typesafe before execution. '
           'Requests rewrites for poorly formatted commands without granting permissions.',
       live: true,
     ),

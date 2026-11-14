@@ -97,6 +97,7 @@ void main() {
       'otool',
       'sed',
       'enable',
+      'node',
       'readonly'
     ]) {
       final file = File('${bin.path}/$name')
@@ -118,6 +119,161 @@ void main() {
     addTearDown(subscription.cancel);
     settings = freshSettings();
     tools = create(configuration: settings);
+  });
+
+  test(
+      'exact Node grants cover only the same invocation and approved capabilities',
+      () async {
+    decision = ApprovalDecision.allowExactInSession;
+    final recorder = _Recorder();
+    final gate = runner(recorder);
+    const control =
+        ProcessControl(networkRequested: true, networkReason: 'Run QA');
+    final command = request('node', ['scripts/.qa-diag2.cjs']);
+    expect(await gate.run(command, control: control), isA<CommandCompleted>());
+    expect(asks.single.details['exact_command_approval'], true);
+    expect(asks.single.details['command_prefixes'], isNull);
+    expect(tools.commandApprovals.entries.single['kind'], 'command_exact');
+    decision = ApprovalDecision.deny;
+    expect(await gate.run(command, control: control), isA<CommandCompleted>());
+    expect(asks, hasLength(1));
+    final sub = Directory('${workspace.path}/sub')..createSync();
+    for (final changed in [
+      request('node', ['scripts/.qa-diag3.cjs']),
+      request('node', ['scripts/.qa-diag2.cjs', '--extra']),
+      request('node', ['scripts/.qa-diag2.cjs'], cwd: sub.path),
+      request('node', ['scripts/.qa-diag2.cjs'], stdin: 'new stdin'),
+    ]) {
+      expect(await gate.run(changed, control: control), isA<CommandRefused>());
+    }
+    final extraRead = Directory('${root.path}/outside')..createSync();
+    expect(
+        await gate.run(command,
+            control: ProcessControl(readDirectories: [extraRead.path])),
+        isA<CommandRefused>());
+    expect(
+        await gate.run(command,
+            control: const ProcessControl(outsideSandboxRequested: true)),
+        isA<CommandRefused>());
+    settings.set(
+        commandEnvironmentSetting, {'BUILD_MODE': 'new'}, SettingScope.session);
+    expect(await gate.run(command, control: control), isA<CommandRefused>());
+    expect(recorder.requests, hasLength(2));
+  });
+
+  test(
+      'exact shell grants compare the entire script without parsing or prefixes',
+      () async {
+    decision = ApprovalDecision.allowExactInSession;
+    final gate = runner(_Recorder());
+    ProcessRequest script(String body) => request('/bin/sh', ['-c', body]);
+    expect(await gate.run(script(r'X=1; echo "$X"')), isA<CommandCompleted>());
+    decision = ApprovalDecision.deny;
+    expect(await gate.run(script(r'X=1; echo "$X"')), isA<CommandCompleted>());
+    expect(await gate.run(script(r'X=2; echo "$X"')), isA<CommandRefused>());
+    expect(asks, hasLength(2));
+  });
+
+  for (final scope in [
+    ApprovalDecision.allowExactInSession,
+    ApprovalDecision.allowExactInWorkspace
+  ]) {
+    test('exact $scope grants survive resume/storage and remain revocable',
+        () async {
+      decision = scope;
+      final loop = AgentLoop(provider: ScriptedProvider([]), plugins: [tools]);
+      loop.mountPlugin(tools);
+      final command = request('node', ['scripts/.qa-diag2.cjs']);
+      expect(await runner(_Recorder()).run(command), isA<CommandCompleted>());
+      final fresh = create();
+      if (scope == ApprovalDecision.allowExactInSession) {
+        final restored = AgentLoop(
+            provider: ScriptedProvider([]),
+            plugins: [fresh],
+            seedLog: loop.log);
+        restored.mountPlugin(fresh);
+        final unrelated = create();
+        decision = ApprovalDecision.deny;
+        expect(await runner(_Recorder(), unrelated).run(command),
+            isA<CommandRefused>());
+      }
+      decision = ApprovalDecision.deny;
+      expect(await runner(_Recorder(), fresh).run(command),
+          isA<CommandCompleted>());
+      fresh.commandApprovals
+          .revoke(fresh.commandApprovals.entries.single['id'] as String);
+      expect(
+          await runner(_Recorder(), fresh).run(command), isA<CommandRefused>());
+    });
+  }
+
+  test('exact grants are revalidated after a pending approval', () async {
+    final alias = Link('${bin.path}/node-alias')
+      ..createSync('${bin.path}/node');
+    final entered = Completer<void>();
+    final release = Completer<ApprovalDecision>();
+    answer = (_) {
+      entered.complete();
+      return release.future;
+    };
+    final recorder = _Recorder();
+    final pending = runner(recorder).run(request(alias.path, ['script.cjs']));
+    await entered.future;
+    alias.deleteSync();
+    alias.createSync('${bin.path}/head');
+    release.complete(ApprovalDecision.allowExactInWorkspace);
+    expect(await pending, isA<CommandRefused>());
+    expect(tools.commandApprovals.entries, isEmpty);
+    expect(recorder.requests, isEmpty);
+  });
+
+  test(
+      'revoking an exact grant during a new access approval prevents execution',
+      () async {
+    decision = ApprovalDecision.allowExactInSession;
+    final recorder = _Recorder();
+    final gate = runner(recorder);
+    final command = request('node', ['script.cjs']);
+    expect(await gate.run(command), isA<CommandCompleted>());
+    final entered = Completer<void>();
+    final release = Completer<ApprovalDecision>();
+    answer = (_) {
+      entered.complete();
+      return release.future;
+    };
+    final pending = gate.run(command,
+        control: const ProcessControl(
+            networkRequested: true, networkReason: 'New access'));
+    await entered.future;
+    tools.commandApprovals
+        .revoke(tools.commandApprovals.entries.single['id'] as String);
+    release.complete(ApprovalDecision.allow);
+    expect(await pending, isA<CommandRefused>());
+    expect(recorder.requests, hasLength(1));
+  });
+
+  test('cancelled exact answers do not save session or workspace grants',
+      () async {
+    final entered = Completer<void>();
+    final release = Completer<ApprovalDecision>();
+    answer = (_) {
+      entered.complete();
+      return release.future;
+    };
+    final cancel = Completer<void>();
+    var cancelled = false;
+    final recorder = _Recorder();
+    final pending = runner(recorder).run(request('node', ['script.cjs']),
+        control: ProcessControl(
+            isCancelled: () => cancelled, whenCancelled: cancel.future));
+    await entered.future;
+    cancelled = true;
+    cancel.complete();
+    expect(await pending, isA<CommandRefused>());
+    release.complete(ApprovalDecision.allowExactInWorkspace);
+    await Future<void>.delayed(Duration.zero);
+    expect(tools.commandApprovals.entries, isEmpty);
+    expect(recorder.requests, isEmpty);
   });
 
   test('gh pr view matches argv tokens; other subcommands and contexts do not',

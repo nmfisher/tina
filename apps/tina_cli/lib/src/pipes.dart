@@ -278,9 +278,11 @@ final class _SessionPipes {
       'always' => ApprovalDecision.allowAlways,
       'prefix-session' => ApprovalDecision.allowPrefixInSession,
       'prefix-workspace' => ApprovalDecision.allowPrefixInWorkspace,
+      'exact-session' => ApprovalDecision.allowExactInSession,
+      'exact-workspace' => ApprovalDecision.allowExactInWorkspace,
       'deny' => ApprovalDecision.deny,
       _ => throw ArgumentError(
-        'approve decision must be allow, always, prefix-session, prefix-workspace or deny',
+        'approve decision must be allow, always, prefix-session, prefix-workspace, exact-session, exact-workspace or deny',
       ),
     };
     final accepted = channel.respond(id, decision);

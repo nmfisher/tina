@@ -6,6 +6,7 @@ import 'dart:io' show Platform, FileSystemException, Directory;
 import 'capability_envelope.dart';
 import 'command_approval_store.dart';
 import 'command_prefix.dart';
+import 'command_exact.dart';
 import 'package:path/path.dart' as path;
 import 'sandbox_home.dart';
 import 'dart:convert' show jsonEncode;
@@ -383,9 +384,15 @@ final class SandboxedProcessRunner
             confined && !outsideSandbox ? plan?.home?.stateRoot : null,
         searchPath: request.environment?['PATH'] ?? executableSearchPath);
     final rememberedCapabilities = <String>{};
+    final exactPlan = CommandExactPlan.parse(request,
+        workspace: root,
+        sandboxHomeRoot:
+            confined && !outsideSandbox ? plan?.home?.stateRoot : null,
+        searchPath: request.environment?['PATH'] ?? executableSearchPath);
     bool prefixGranted(String capability) {
       final covered =
-          approvalStore?.coversPrefixes(prefixPlan, capability) ?? false;
+          (approvalStore?.coversPrefixes(prefixPlan, capability) ?? false) ||
+              (approvalStore?.coversExact(exactPlan, capability) ?? false);
       if (covered) rememberedCapabilities.add(capability);
       return covered;
     }
@@ -469,7 +476,18 @@ final class SandboxedProcessRunner
     }
     if (!accessUnchanged() ||
         rememberedCapabilities.any((capability) =>
-            approvalStore?.coversPrefixes(prefixPlan, capability) != true) ||
+            approvalStore?.coversPrefixes(prefixPlan, capability) != true &&
+            approvalStore?.coversExact(exactPlan, capability) != true) ||
+        exactPlan != null &&
+            CommandExactPlan.parse(request,
+                        workspace: root,
+                        sandboxHomeRoot: confined && !outsideSandbox
+                            ? plan?.home?.stateRoot
+                            : null,
+                        searchPath: request.environment?['PATH'] ??
+                            executableSearchPath)
+                    ?.identity !=
+                exactPlan.identity ||
         prefixPlan != null &&
             CommandPrefixPlan.parse(request,
                         workspace: root,

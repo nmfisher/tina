@@ -99,17 +99,37 @@ void main() {
       expect(await nextRequest.timeout(const Duration(seconds: 5)), isTrue);
       final request = requests.current;
       final dialog = dialogFor(request);
+      final offers =
+          (request.details['directory_accesses'] as List).cast<Map>();
+      if (offers.every((offer) => offer['granted'] == true)) {
+        // The remaining ask is execution, not filesystem access. Do not offer
+        // a directory-only Remember menu when there is nothing left to grant.
+        final shown = dialog
+            .rows(width: 500)
+            .map((row) => row.runs.map((run) => run.text).join())
+            .join('\n');
+        channel.respond(request.id, ApprovalDecision.allow);
+        expect(await pending.timeout(const Duration(seconds: 5)),
+            isA<CommandCompleted>());
+        expect(shown, isNot(contains('Remember file or directory access')));
+        for (final directory in paths) {
+          expect(plugin.pathGrants.allows('$directory/another.txt'), true);
+        }
+        expect(plugin.pathGrants.grants, hasLength(3));
+        continue;
+      }
       if (request.details['command_prefixes'] is List) {
         // Prefix choices are now direct actions. Open the separate folder menu.
-        for (var i = 0; i < 4; i++) {
+        final actionsBeforeRemember = 4 +
+            (request.details['exact_command_approval'] == true ? 1 : 0) +
+            (request.details['persistent_exact_command'] == true ? 1 : 0);
+        for (var i = 0; i < actionsBeforeRemember; i++) {
           dialog.handleKey(ApprovalKey.down);
         }
         dialog.handleKey(ApprovalKey.confirm);
       } else {
         dialog.handleKey(ApprovalKey.always);
       }
-      final offers =
-          (request.details['directory_accesses'] as List).cast<Map>();
       if (attempt == 0) {
         for (final offer in offers) {
           dialog.handleKey(ApprovalKey.down);

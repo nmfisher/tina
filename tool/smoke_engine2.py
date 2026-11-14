@@ -755,8 +755,8 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('❯ [y] Run once', start)
             # Literal commands offer scoped prefix grants; choosing Run once
             # still requires a fresh approval for the next invocation.
-            terminal.expect('[a] Remember for this conversation: echo', start)
-            terminal.expect('[p] Persist for this workspace: echo', start)
+            terminal.expect('[a] For this session: always allow commands starting with echo', start)
+            terminal.expect('[p] For this workspace: always allow commands starting with echo', start)
             start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:

@@ -52,7 +52,16 @@ class _Tools extends AgentPlugin {
   String get id => 'test/tools';
   @override
   List<ToolSchema> get tools => [
-    for (final name in ['bash', 'exec', 'read'])
+    for (final name in [
+      'bash',
+      'exec',
+      'read',
+      'write',
+      'edit',
+      'ls',
+      'stat',
+      'glob',
+    ])
       ToolSchema(name: name, description: '', inputSchema: {}),
   ];
 }
@@ -90,6 +99,279 @@ TurnContext _context({
 );
 
 void main() {
+  test(
+    'file path rewrites precede permission review and preserve edit contents',
+    () async {
+      const correct = '/Volumes/T7/projects/zombie_golf/lib/main.dart';
+      const typo = '/VVolumes/T7/projects/zombie_golf/lib/main.dart';
+      final service = _Judgments((request) {
+        final input = (request.state.value as Map)['input'] as Map;
+        return _answer(request, input['filePath'] == typo ? 'BAD' : 'GOOD');
+      });
+      final output = _Output();
+      final plugin = ClassificationPlugin(
+        terminal: output,
+        open: () => null,
+        toolCalls: ToolCallFormatReviewer(
+          terminal: output,
+          readWorkspace: () => '/Volumes/T7/projects/zombie_golf',
+          open: () => ClassificationLease(
+            service: service,
+            budget: JudgmentRequestBudget(),
+            close: () {},
+          ),
+        ),
+      );
+      addTearDown(plugin.closeSession);
+      final permissions = _Permissions();
+      final provider = ScriptedProvider([
+        scriptedReply(
+          '',
+          calls: [
+            ToolUseBlock(
+              id: 'read',
+              name: 'read',
+              input: {'filePath': correct},
+            ),
+          ],
+        ),
+        scriptedReply(
+          '',
+          calls: [
+            ToolUseBlock(
+              id: 'typo',
+              name: 'edit',
+              input: {
+                'filePath': typo,
+                'oldString': 'private old contents',
+                'newString': 'private new contents',
+              },
+            ),
+          ],
+        ),
+        scriptedReply(
+          '',
+          calls: [
+            ToolUseBlock(
+              id: 'fixed',
+              name: 'edit',
+              input: {
+                'filePath': correct,
+                'oldString': 'private old contents',
+                'newString': 'private new contents',
+              },
+            ),
+          ],
+        ),
+        scriptedReply('done'),
+      ]);
+      final loop = AgentLoop(
+        provider: provider,
+        plugins: [_Tools(), plugin, permissions],
+      );
+      final edits = <Map<String, Object?>>[];
+      loop.registerExecutor(
+        'read',
+        (_) async => const ToolResult('private file body'),
+      );
+      loop.registerExecutor('edit', (input) async {
+        edits.add(input);
+        return const ToolResult('edited');
+      });
+      await loop.runTurn(const Input('rename the inner method', id: 'one'));
+      expect(permissions.calls.map((call) => call.id), ['read', 'fixed']);
+      expect(edits.single['filePath'], correct);
+      expect(edits.single['newString'], 'private new contents');
+      final feedback = provider.requests[2].messages
+          .expand((m) => m.content)
+          .whereType<ToolResultBlock>()
+          .where((r) => r.toolUseId == 'typo')
+          .single;
+      expect(feedback.isError, true);
+      expect(feedback.content, contains('File path needs review'));
+      final state = service.requests[1].state.value as Map;
+      expect(state['recent_successful_paths'], [correct]);
+      expect(state['path_context'], {
+        'resolved_lexically': typo,
+        'within_workspace_lexically': false,
+        'existence': 'not_checked',
+      });
+      expect(state['input'], {'filePath': typo});
+      expect(state.toString(), isNot(contains('private')));
+      expect(
+        service.requests[1].questions['tool_call_format']!.toJson().toString(),
+        contains('/projects/projects/project'),
+      );
+      expect(
+        plugin.trace.exchanges.map((e) => e.title),
+        everyElement('File path check'),
+      );
+      expect(loop.hookFailures, isEmpty);
+    },
+  );
+
+  test(
+    'file path GOOD still needs permission and never rewrites the target',
+    () async {
+      final output = _Output();
+      final service = _Judgments((request) => _answer(request, 'GOOD'));
+      final reviewer = ToolCallFormatReviewer(
+        terminal: output,
+        readWorkspace: () => '/workspace/project',
+        open: () => ClassificationLease(
+          service: service,
+          budget: JudgmentRequestBudget(),
+          close: () {},
+        ),
+      );
+      final context = _context(
+        tool: 'write',
+        input: {
+          'filePath': '/deliberate/outside/new.dart',
+          'content': 'private body',
+        },
+      );
+      await reviewer.review(context);
+      expect(context.call!.input['filePath'], '/deliberate/outside/new.dart');
+      final permission = _Permissions(deny: true);
+      permission.beforeToolCall(context);
+      expect(context.decision.kind, DecisionKind.deny);
+      expect(
+        service.requests.single.state.value.toString(),
+        isNot(contains('private body')),
+      );
+      expect(
+        service.requests.single.questions['tool_call_format']!
+            .toJson()
+            .toString(),
+        contains('not by itself BAD'),
+      );
+    },
+  );
+
+  test(
+    'path evidence is lexical, bounded, success-only and scoped to workspace',
+    () async {
+      var workspace = '/workspace/project';
+      final service = _Judgments((request) => _answer(request, 'GOOD'));
+      final reviewer = ToolCallFormatReviewer(
+        terminal: _Output(),
+        readWorkspace: () => workspace,
+        open: () => ClassificationLease(
+          service: service,
+          budget: JudgmentRequestBudget(),
+          close: () {},
+        ),
+      );
+      for (var i = 0; i < 10; i++) {
+        reviewer.observeResult(
+          _context(tool: 'read', input: {'filePath': 'lib/file$i.dart'})
+            ..toolResult = const ToolResult('private body'),
+        );
+      }
+      reviewer.observeResult(
+        _context(tool: 'edit', input: {'filePath': 'failed.dart'})
+          ..toolResult = ToolResult.error('File not found'),
+      );
+      final context = _context(
+        tool: 'edit',
+        input: {'filePath': 'lib/../main.dart'},
+      );
+      await reviewer.review(context);
+      final state = service.requests.last.state.value as Map;
+      expect(state['recent_successful_paths'], [
+        for (var i = 2; i < 10; i++) '/workspace/project/lib/file$i.dart',
+      ]);
+      expect(
+        (state['path_context'] as Map)['resolved_lexically'],
+        '/workspace/project/main.dart',
+      );
+      expect((state['path_context'] as Map)['existence'], 'not_checked');
+      workspace = '/workspace/other';
+      await reviewer.review(_context(tool: 'ls', input: {}));
+      final next = service.requests.last.state.value as Map;
+      expect(next['recent_successful_paths'], isEmpty);
+      expect((next['path_context'] as Map)['resolved_lexically'], workspace);
+    },
+  );
+
+  test(
+    'malformed file paths request a rewrite without opening a classifier',
+    () async {
+      var opens = 0;
+      final reviewer = ToolCallFormatReviewer(
+        terminal: _Output(),
+        open: () {
+          opens++;
+          return null;
+        },
+      );
+      final trace = ClassificationTrace();
+      addTearDown(trace.close);
+      for (final value in ['', 42, 'bad\u0000path']) {
+        final context = _context(
+          tool: 'edit',
+          inputId: '$value',
+          input: {'filePath': value},
+        );
+        await reviewer.review(context, trace: trace);
+        expect(context.decision.kind, DecisionKind.deny);
+        expect(context.decision.reason, contains('non-empty path without NUL'));
+      }
+      expect(opens, 0);
+      expect(trace.exchanges.map((e) => e.outcome?.label), [
+        'Rewrite',
+        'Rewrite',
+        'Rewrite',
+      ]);
+    },
+  );
+
+  for (final scenario in [
+    ('print test', 'BAD', DecisionKind.deny),
+    ('test whether bash works', 'GOOD', DecisionKind.allow),
+  ]) {
+    test('shell wrapper review uses task evidence: ${scenario.$1}', () async {
+      final service = _Judgments((request) {
+        expect((request.state.value as Map)['current_task'], scenario.$1);
+        return _answer(request, scenario.$2);
+      });
+      final reviewer = ToolCallFormatReviewer(
+        terminal: _Output(),
+        open: () => ClassificationLease(
+          service: service,
+          budget: JudgmentRequestBudget(),
+          close: () {},
+        ),
+      );
+      final context = _context(
+        tool: 'bash',
+        input: {'command': "bash -c 'echo test'"},
+      )..input = Input(scenario.$1, id: 'one');
+      await reviewer.review(context);
+      expect(context.decision.kind, scenario.$3);
+      expect(
+        (service.requests.single.state.value as Map)['current_task'],
+        scenario.$1,
+      );
+      expect(toolCallFormatPolicy, contains("bash -c 'echo test' is BAD"));
+      expect(
+        toolCallFormatPolicy,
+        contains('An explicit task to test Bash itself'),
+      );
+      final trace = ClassificationTrace();
+      final retried = _context(
+        tool: 'bash',
+        input: {'command': "bash -c 'echo test'"},
+      )..input = Input(scenario.$1, id: 'one');
+      await reviewer.review(retried, trace: trace);
+      expect(trace.exchanges.single.title, 'Command formatting');
+      expect(trace.exchanges.single.outcome?.label, scenario.$2);
+      reviewer.close();
+      trace.close();
+    });
+  }
+
   test(
     'BAD never reaches approval/execution; model rewrite gets fresh checks',
     () async {
@@ -130,7 +412,7 @@ void main() {
               name: 'bash',
               input: {
                 'command':
-                      r'TASK_DIR=/workspace/project; cd "$TASK_DIR"; gh pr view 429',
+                    r'TASK_DIR=/workspace/project; cd "$TASK_DIR"; gh pr view 429',
                 'network': true,
               },
             ),
@@ -165,7 +447,7 @@ void main() {
       expect(feedback.isError, true);
       expect(feedback.content, contains('Rewrite the tool call now'));
       expect(feedback.content, contains('not executed'));
-        expect(outcome.stopReason, StopReason.complete);
+      expect(outcome.stopReason, StopReason.complete);
       expect(service.requests, hasLength(2));
       expect(closed, 2);
       final exchanges = plugin.trace.exchanges;
@@ -297,6 +579,7 @@ void main() {
       expect(context.decision.kind, DecisionKind.allow);
       expect(service.requests.single.state.value, {
         'tool': 'bash',
+        'current_task': 'inspect PR',
         'input': {
           'command': command,
           'working_directory': '/workspace/project',
@@ -357,7 +640,7 @@ void main() {
   }
 
   test(
-    'disabled, non-process or already-denied calls never open a service',
+    'disabled, unsupported or already-denied calls never open a service',
     () async {
       var opens = 0;
       var enabled = true;
@@ -369,7 +652,7 @@ void main() {
           return null;
         },
       );
-      await reviewer.review(_context(tool: 'read'));
+      await reviewer.review(_context(tool: 'update_plan'));
       final denied = _context()
         ..decision = const Decision.deny('earlier guard');
       await reviewer.review(denied);

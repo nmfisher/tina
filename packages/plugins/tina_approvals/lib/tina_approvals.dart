@@ -18,6 +18,8 @@ enum ApprovalDecision {
   allowGlobal,
   allowPrefixInSession,
   allowPrefixInWorkspace,
+  allowExactInSession,
+  allowExactInWorkspace,
   deny,
   allowReadsInDirectory,
   allowAlwaysAndReadsInDirectory,
@@ -198,6 +200,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           decision == ApprovalDecision.allowPrefixInWorkspace;
       final prefixGrant = decision == ApprovalDecision.allowPrefixInSession ||
           decision == ApprovalDecision.allowPrefixInWorkspace;
+      final exactGrant = decision == ApprovalDecision.allowExactInSession ||
+          decision == ApprovalDecision.allowExactInWorkspace;
       var invalidPattern = false;
       if (commandPattern != null) {
         try {
@@ -219,7 +223,13 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
         }
       }
       final prefixes = request.details['command_prefixes'];
-      final invalidScope = (prefixGrant &&
+      final invalidScope = (exactGrant &&
+              (request.kind != ApprovalKind.permission ||
+                  request.details['permission_scope'] != 'command' ||
+                  request.details['exact_command_approval'] != true ||
+                  decision == ApprovalDecision.allowExactInWorkspace &&
+                      request.details['persistent_exact_command'] != true)) ||
+          (prefixGrant &&
               (request.kind != ApprovalKind.permission ||
                   request.details['permission_scope'] != 'command' ||
                   decision == ApprovalDecision.allowPrefixInWorkspace &&
