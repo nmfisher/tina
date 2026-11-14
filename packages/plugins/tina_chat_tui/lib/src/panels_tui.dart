@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:tina_console/tina_console.dart';
+import 'package:tina_layout/tina_layout.dart';
 import 'panels_status.dart';
 import 'prompt.dart';
 
@@ -177,30 +178,84 @@ final class _Workspace implements ConsolePanels, ImagePanelOpener {
     _layoutImagePanels();
   }
 
-  /// Right-anchored overlay column, newest panel on top; stacked when
-  /// more than one is open. Modest on purpose: v1 does not participate in
-  /// the split tiling - image panels float above the chat grid.
+  /// Right-anchored overlay column over the chat box, one stacked panel per
+  /// open image. Solved by the tina_layout grid: the panel column takes two
+  /// fifths of the chat box (clamped 24..64 columns) and each panel's row
+  /// track is sized from its image's aspect hint in square units, so the
+  /// frame is proportional to the image it holds. When the stack cannot
+  /// fit, the solver drops the oldest panels first (priority = age).
   void _layoutImagePanels() {
     if (stopped) return;
+    if (imagePanels.isEmpty) return;
+    // Panels the solver could not keep (tiny terminals, deep stacks). Built
+    // inside the paint frame, closed after it — closing relayouts the
+    // survivors, so this loop terminates (each pass removes one panel).
+    final overflowed = <PanelFrame>[];
     screen.frame(() {
       final layout = screen.layout;
-      final panelWidth = (width * 2 / 5).clamp(24, 64).toInt();
+      final regionWidth = layout.chatRightCol - layout.chatLeftCol + 1;
       final bodyHeight = layout.stripRow - layout.chat.row;
-      for (final panel in imagePanels) {
-        final index = imagePanels.indexOf(panel);
-        final stackHeight = (bodyHeight ~/ (imagePanels.length))
-            .clamp(6, bodyHeight);
-        final rect = Rect(
-            row: layout.chat.row + 1 + index * (stackHeight - 1),
-            col: (layout.chat.col + layout.chat.width - panelWidth)
-                .clamp(0, width - 1),
-            width: panelWidth,
-            height: stackHeight.clamp(1, bodyHeight));
+      const metrics = CellMetrics.standard;
+      final count = imagePanels.length;
+      // Equal shares of the body below the chat box's top border row.
+      final shareUnits = metrics.rowsToUnits(bodyHeight - 1) / count;
+      final solution = GridSolver.solve(
+          GridSpec(
+              columns: const [
+                GridTrack.weighted(3),
+                GridTrack.weighted(2, minUnits: 24, maxUnits: 64),
+              ],
+              rows: [
+                const GridTrack.fixed(0.5), // chat box top border row
+                for (var i = 0; i < count; i++) const GridTrack.auto(minUnits: 3),
+              ],
+              items: [
+                for (var i = 0; i < count; i++)
+                  GridItem(
+                    id: 'panel$i',
+                    column: const TrackSpan.at(1),
+                    row: TrackSpan.at(i + 1),
+                    minWidthUnits: 24,
+                    minHeightUnits: 3,
+                    maxHeightUnits: shareUnits,
+                    // Square-unit aspect of the decoded image keeps the box
+                    // proportional to the image it frames.
+                    aspectHint: () {
+                      final image = imagePanels[i].content.image;
+                      return image == null
+                          ? null
+                          : metrics.aspectFromPixels(
+                              image.width, image.height);
+                    }(),
+                    // Oldest panels are dropped first when space runs out.
+                    priority: i,
+                  ),
+              ]),
+          columns: regionWidth,
+          rows: bodyHeight,
+          metrics: metrics);
+      for (var i = 0; i < count; i++) {
+        final panel = imagePanels[i];
+        final rect = solution.rectOf('panel$i');
+        if (rect == null || rect.isEmpty) {
+          overflowed.add(panel.frame);
+          continue;
+        }
         panel.frame.setBorder(true);
-        panel.frame.setOuter(rect, parked: false);
+        panel.frame.setOuter(
+            Rect(
+              row: layout.chat.row + rect.row,
+              col: layout.chatLeftCol + rect.col,
+              width: rect.width,
+              height: rect.height,
+            ),
+            parked: false);
         panel.content.fit(panel.frame.interior, reserveInputRow: false);
       }
     });
+    for (final frame in overflowed) {
+      closeImagePanel(frame);
+    }
   }
 
   late final PanelsStatus panelStatus = PanelsStatus(

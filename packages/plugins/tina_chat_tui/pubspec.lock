@@ -486,6 +486,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_layout:
+    dependency: "direct main"
+    description:
+      path: "../../tina_layout"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_mode:
     dependency: "direct main"
     description:

@@ -20,6 +20,8 @@ dependencies:
   markdown: ^7.3.1
   tina_console:
     path: ../../tina_console
+  tina_layout:
+    path: ../../tina_layout
   tina_engine_2:
     path: ../../tina_engine_2
   tina_self_update:

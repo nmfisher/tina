@@ -1,4 +1,7 @@
+import 'package:tina_layout/tina_layout.dart';
+
 import 'rect.dart';
+import 'screen_layout_strategy.dart';
 
 /// Where every visible region lives, derived from the terminal size.
 ///
@@ -124,6 +127,19 @@ class ScreenLayout {
 
   /// Compute the layout for a terminal of [width] cols and [height] rows.
   ///
+  /// Policy (size clamps, split threshold, sidebar reservation) is decided
+  /// here; the geometry itself is solved by the `tina_layout` grid solver
+  /// in square units (1 unit = 1 column x 2 rows, so half-unit tracks are
+  /// single rows). Two nested grids reproduce the historical layout:
+  ///
+  /// * outer — columns `[sidebar?] [chat 65% min 30 | info 35% min 20]`
+  ///   (single flexible column when not split); rows
+  ///   `[menu 3 rows?] [panel body] [status strip]`.
+  /// * inner (chat box) — `[border 1 | interior | border 1]` columns;
+  ///   `[top border .5u | transcript 1fr | input row .5u | bottom border
+  ///   .5u]` rows. The info box is inset the same way, minus a bottom
+  ///   border row (legacy: info content runs through its bottom border).
+  ///
   /// Reserves a 3-row bordered menu box at the top (rows 0–2, when
   /// [hasMenuBar]), the chat/info top border row below it, one input row
   /// inside the chat box just above the bottom border, and the bottom border
@@ -133,76 +149,140 @@ class ScreenLayout {
       bool? split,
       bool drawInfoFrame = true,
       int sidebarWidth = 0}) {
+    // Policy: clamp the terminal to something usable.
     final w = width < 1 ? 1 : width;
     final minH = hasMenuBar ? 8 : 6;
     final h = height < minH ? minH : height;
-    final menuOffset = hasMenuBar ? 3 : 0; // menu box = border/content/border
 
-    final topBorder = menuOffset; // 3 with menu, 0 without.
-    // Reserve space for a usable transcript even on small terminals.
+    // Policy: sidebar reservation and chat/info split decision.
     final sideWidth = sidebarWidth <= 0 || w < 30
         ? 0
         : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
-    // The strip owns the LAST row in every layout, and the panel boxes stop
-    // one row above it. The primary panel's input row is the bottom INTERIOR
-    // row of its box (box bottom - 1); with the box ending at h-2 that input
-    // row is h-3 — distinct from the strip. (Full-width layouts used to put
-    // the box bottom AT h-1, putting the input row on the strip row: the
-    // first-paint relocateInput erased the mode label — tin-q9w2.)
-    final bottomBorder = h - 2;
-    final stripRow = h - 1;
-    final inputRow = h - 3;
-
-    // Menu box geometry (rows 0–2 when present).
-    final menuTop = hasMenuBar ? 0 : -1;
-    final menuContent = hasMenuBar ? 1 : -1;
-    final menuBottom = hasMenuBar ? 2 : -1;
-
     final available = w - sideWidth;
-    final isSplit = (split ?? available >= splitThreshold) && available >= 50;
-    final chatWidth = isSplit
-        ? (available * 0.65).round().clamp(30, available - 20)
-        : available;
-    final infoWidth = isSplit ? available - chatWidth : 0;
 
-    final chatLeftCol = sideWidth;
-    final chatRightCol = sideWidth + chatWidth - 1;
-    final infoLeftCol = isSplit ? sideWidth + chatWidth : -1;
-    final infoRightCol = isSplit ? w - 1 : -1;
+    // Policy: the ACTIVE strategy may reshape the template. Native
+    // strategies are trusted code (see docs/native-layout-strategies.md):
+    // beyond sizing tracks they can flip the split decision, move its
+    // threshold, change the weights and mirror the columns. A strategy
+    // that is not a [ScreenLayoutStrategy] — or one whose policy
+    // throws — changes nothing here (the dispatcher reports the throw).
+    ScreenPolicy? policy;
+    final strategy = LayoutStrategies.instance.active;
+    if (strategy is ScreenLayoutStrategy) {
+      try {
+        policy = strategy.policyFor(
+            width: w,
+            height: h,
+            hasMenuBar: hasMenuBar,
+            sidebarWidth: sideWidth);
+      } catch (_) {
+        policy = null;
+      }
+    }
+    final minSplit = policy?.minSplitWidth ?? 50;
+    final mirrored = policy?.mirror ?? false;
+    final isSplit = (((split ?? available >= splitThreshold)) ||
+            (policy?.forceSplit ?? false)) &&
+        available >= minSplit;
 
-    // Chat scrollback: rows between top border and input row, inside the
-    // vertical borders. Height is inputRow - (topBorder+1), which can be
-    // zero when the terminal is very short (still valid — no crash, just
-    // no room for content).
-    final chatContentTop = topBorder + 1;
-    final chatContentHeight = inputRow - chatContentTop;
+    // -- Outer grid: box-level screen regions ------------------------------
+    final chatWeight = policy?.chatWeight ?? 65;
+    final infoWeight = policy?.infoWeight ?? 35;
+    final chatTrack = sideWidth > 0 ? 1 : 0;
+    final columns = <GridTrack>[
+      if (sideWidth > 0) GridTrack.fixed(sideWidth.toDouble()),
+      if (isSplit) ...[
+        if (mirrored)
+          GridTrack.weighted(infoWeight.toDouble(), minUnits: 20)
+        else
+          GridTrack.weighted(chatWeight.toDouble(), minUnits: 30),
+        if (mirrored)
+          GridTrack.weighted(chatWeight.toDouble(), minUnits: 30)
+        else
+          GridTrack.weighted(infoWeight.toDouble(), minUnits: 20),
+      ] else
+        const GridTrack.weighted(1),
+    ];
+    final rows = <GridTrack>[
+      if (hasMenuBar) const GridTrack.fixed(1.5), // bordered menu box
+      const GridTrack.weighted(1), // panel boxes, borders included
+      const GridTrack.fixed(0.5), // mode/status strip
+    ];
+    final bodyRow = hasMenuBar ? 1 : 0;
+    final stripRowTrack = rows.length - 1;
+    // Mirrored layouts put the info box in the first content column.
+    final chatColumn = isSplit && mirrored ? chatTrack + 1 : chatTrack;
+    final infoColumn = isSplit && mirrored ? chatTrack : chatTrack + 1;
+    final screen = LayoutStrategies.instance.solve(
+        GridSpec(
+            columns: columns,
+            rows: rows,
+            items: [
+              if (hasMenuBar)
+                GridItem(
+                    id: 'menu',
+                    column: TrackSpan.at(0, span: columns.length),
+                    row: const TrackSpan.at(0)),
+              if (sideWidth > 0)
+                GridItem(
+                    id: 'sidebar',
+                    column: const TrackSpan.at(0),
+                    row: TrackSpan.at(bodyRow)),
+              GridItem(
+                  id: 'chatBox',
+                  column: TrackSpan.at(chatColumn),
+                  row: TrackSpan.at(bodyRow)),
+              if (isSplit)
+                GridItem(
+                    id: 'infoBox',
+                    column: TrackSpan.at(infoColumn),
+                    row: TrackSpan.at(bodyRow)),
+              GridItem(
+                  id: 'strip',
+                  column: TrackSpan.at(0, span: columns.length),
+                  row: TrackSpan.at(stripRowTrack)),
+            ]),
+        columns: w,
+        rows: h);
+    final chatBox = screen.rectOf('chatBox')!;
+    final infoBox = isSplit ? screen.rectOf('infoBox')! : null;
+    final strip = screen.rectOf('strip')!;
+    final menu = screen.rectOf('menu');
+
+    // -- Inner grid: chat box interior (transcript + input) ----------------
+    final chatInterior = _solveInterior(chatBox.width, chatBox.height,
+        bottomBorder: true);
+    final transcript = chatInterior[0]!;
+    final input = chatInterior[1]!;
     final chat = Rect(
-      row: chatContentTop,
-      col: chatLeftCol + 1,
-      width: chatWidth - 2,
-      height: chatContentHeight < 0 ? 0 : chatContentHeight,
+      row: chatBox.row + transcript.row,
+      col: chatBox.col + transcript.col,
+      width: transcript.width,
+      height: transcript.height,
+    );
+    final inputRect = Rect(
+      row: chatBox.row + input.row,
+      col: chatBox.col + input.col,
+      width: input.width,
+      height: input.height,
     );
 
-    final input = Rect(
-      row: inputRow,
-      col: chatLeftCol + 1,
-      width: chatWidth - 2,
-      height: 1,
-    );
-
-    // Chat scrollback now ends at input row - 1 (strip is at stripRow).
-
-    // Info content spans from the top border row+1 to the stripRow-1
-    // — it does NOT reserve an input row because the info box has none.
-    final infoContentHeight = stripRow - topBorder - 1;
-    final info = isSplit
-        ? Rect(
-            row: topBorder + 1,
-            col: infoLeftCol + 1,
-            width: infoWidth - 2,
-            height: infoContentHeight < 0 ? 0 : infoContentHeight,
-          )
-        : Rect.empty;
+    // -- Inner grid: info box interior --------------------------------------
+    // Legacy: the info content area spans from the top border row + 1 to
+    // the strip row - 1 — through the box's bottom border row (no input
+    // row, no bottom inset). Non-split layouts have no info box at all.
+    var info = Rect.empty;
+    if (isSplit) {
+      final infoInterior =
+          _solveInterior(infoBox!.width, infoBox.height, bottomBorder: false);
+      final content = infoInterior[0]!;
+      info = Rect(
+        row: infoBox.row + content.row,
+        col: infoBox.col + content.col,
+        width: content.width,
+        height: content.height,
+      );
+    }
 
     return ScreenLayout._(
       width: w,
@@ -210,29 +290,69 @@ class ScreenLayout {
       isSplit: isSplit,
       drawInfoFrame: drawInfoFrame,
       chat: chat,
-      input: input,
+      input: inputRect,
       info: info,
       sidebar: sideWidth == 0
           ? Rect.empty
-          : Rect(
-              row: topBorder,
-              col: 0,
-              width: sideWidth,
-              height: bottomBorder - topBorder + 1,
-            ),
-      chatLeftCol: chatLeftCol,
-      chatRightCol: chatRightCol,
-      infoLeftCol: infoLeftCol,
-      infoRightCol: infoRightCol,
-      topBorderRow: topBorder,
-      bottomBorderRow: bottomBorder,
-      inputRow: inputRow,
-      stripRow: stripRow,
+          : () {
+              final sb = screen.rectOf('sidebar')!;
+              return Rect(
+                  row: sb.row,
+                  col: sb.col,
+                  width: sb.width,
+                  height: sb.height);
+            }(),
+      chatLeftCol: chatBox.col,
+      chatRightCol: chatBox.col + chatBox.width - 1,
+      infoLeftCol: isSplit ? infoBox!.col : -1,
+      infoRightCol: isSplit ? infoBox!.col + infoBox.width - 1 : -1,
+      topBorderRow: chatBox.row,
+      bottomBorderRow: chatBox.row + chatBox.height - 1,
+      inputRow: inputRect.row,
+      stripRow: strip.row,
       hasMenuBar: hasMenuBar,
-      menuBarRow: menuContent,
-      menuTopBorderRow: menuTop,
-      menuBottomBorderRow: menuBottom,
+      menuBarRow: hasMenuBar ? menu!.row + 1 : -1,
+      menuTopBorderRow: hasMenuBar ? menu!.row : -1,
+      menuBottomBorderRow: hasMenuBar ? menu!.row + menu.height - 1 : -1,
     );
+  }
+
+  /// Solve a panel box interior: `[border | content | border]` columns and,
+  /// with [bottomBorder], `[top .5u | content 1fr | input .5u | bottom .5u]`
+  /// rows; without it `[top .5u | content 1fr]` (the info box model).
+  /// Returns `(content, input)` — `input` is empty without [bottomBorder].
+  static List<GridRect?> _solveInterior(int width, int height,
+      {required bool bottomBorder}) {
+    final solution = LayoutStrategies.instance.solve(
+        GridSpec(
+            columns: const [
+              GridTrack.fixed(1),
+              GridTrack.weighted(1),
+              GridTrack.fixed(1),
+            ],
+            rows: bottomBorder
+                ? const [
+                    GridTrack.fixed(0.5),
+                    GridTrack.weighted(1),
+                    GridTrack.fixed(0.5),
+                    GridTrack.fixed(0.5),
+                  ]
+                : const [
+                    GridTrack.fixed(0.5),
+                    GridTrack.weighted(1),
+                  ],
+            items: [
+              const GridItem(
+                  id: 'content',
+                  column: TrackSpan.at(1),
+                  row: TrackSpan.at(1)),
+              if (bottomBorder)
+                const GridItem(
+                    id: 'input', column: TrackSpan.at(1), row: TrackSpan.at(2)),
+            ]),
+        columns: width,
+        rows: height);
+    return [solution.rectOf('content'), solution.rectOf('input')];
   }
 
   /// Cell content for the border cell at ([row], [col]), or `null` if that
