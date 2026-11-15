@@ -433,17 +433,19 @@ jobs:
         with:
           run-id: ${{ inputs.build_run_id || github.run_id }}
           github-token: ${{ github.token }}
-          # Comma-separated pattern: the wasm-runner uploads carry their
-          # own tina-wasm-host-<tag>-<target> prefix, which tina-<tag>-*
-          # does NOT match — dry-run 43675473799 attached only the native
-          # tarballs to the draft release for exactly this reason. v4
-          # takes multiple patterns ONLY comma-separated: a YAML block
-          # (newline-separated) arrives as one glob containing a newline
-          # and matches nothing, which is exactly how dry-run #3 died
-          # ("Total of 0 artifact(s) downloaded", then Collect found no
-          # artifacts/). An empty union still fails the step, so recovery
-          # of pre-wasm-runner tags (native artifacts only) keeps working.
-          pattern: tina-${{ env.TAG }}-*,tina-wasm-host-${{ env.TAG }}-*
+          # ONE covering glob: the wasm-runner uploads carry their own
+          # tina-wasm-host-<tag>-<target> prefix, which tina-<tag>-* does
+          # NOT match — dry-run 43675473799 attached only the native
+          # tarballs for exactly this reason. The vendored
+          # download-artifact pin treats `pattern` as a SINGLE glob: no
+          # comma splitting (dry-run #4: 'a,b' one line -> 0 downloaded)
+          # and no newline splitting (dry-run #3: block -> 0 downloaded).
+          # `tina-*<tag>-*` covers both prefixes — the `*` absorbs the
+          # optional `wasm-host-` before the tag; smoke-logs-* still
+          # doesn't match. (Follow-up, not now: bump the action pin to a
+          # v4.x with real multi-pattern support, then split this back
+          # into two explicit patterns.)
+          pattern: tina-*${{ env.TAG }}-*
           merge-multiple: false
           path: artifacts
 
