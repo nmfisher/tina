@@ -15,8 +15,9 @@ import 'package:tina_approvals/tina_approvals.dart' show CommandApprovalPattern;
 import 'process_runner.dart';
 import 'sandbox_home.dart';
 import 'command_workflow.dart';
+import 'command_prefix.dart';
+import 'command_exact.dart';
 import 'read_only_commands.dart';
-
 
 bool _shellString(ProcessRequest request) =>
     {'sh', 'bash', 'zsh', 'dash', 'ksh'}
@@ -70,7 +71,7 @@ String resolveHostExecutable(ProcessRequest request,
 ///
 /// Human decisions only. Never loaded from a repository's settings. Every
 /// lookup rereads disk, so revocation takes effect in other running sessions.
-final class CommandApprovalStore implements ToolCommandApprovals {
+class CommandApprovalStore implements ToolCommandApprovals {
   CommandApprovalStore({required this.workspace, this.file, this.searchPath});
   final String workspace;
   final File? file;
@@ -79,6 +80,188 @@ final class CommandApprovalStore implements ToolCommandApprovals {
   String? get filePath => file?.path;
   final String? searchPath;
   final List<Map<String, Object?>> _session = [];
+  final _prefixListeners = <void Function()>{};
+  bool _prefixStateRestored = false;
+
+  List<Map<String, Object?>> get sessionPrefixEntries => [
+        for (final entry in _session)
+          if ({'command_prefix', 'command_exact'}.contains(entry['kind']))
+            Map<String, Object?>.from(jsonDecode(jsonEncode(entry)) as Map),
+      ];
+
+  /// Restored only from this conversation's protected plugin state, never
+  /// repository settings. Invalid records cannot introduce authorization.
+  void restoreSessionPrefixes(Object? values) {
+    // A helper sharing its parent's store cannot replay stale child grants
+    // over the parent's current approvals or revocations.
+    if (_prefixStateRestored) return;
+    if (values is! List)
+      throw const FormatException('Invalid session command grants');
+    final restored = <Map<String, Object?>>[];
+    for (final value in values) {
+      if (value is! Map ||
+          !{'command_prefix', 'command_exact'}.contains(value['kind']) ||
+          value['version'] != 1 ||
+          value['scope'] != 'session' ||
+          value['decided_by'] != 'user' ||
+          value['workspace'] != canonicalSandboxPath(workspace) ||
+          value['id'] is! String ||
+          value['executable'] is! String ||
+          !p.isAbsolute(value['executable'] as String) ||
+          value['context'] is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(value['context'] as String) ||
+          value[value['kind'] == 'command_exact' ? 'arguments' : 'prefix']
+              is! List ||
+          value['kind'] == 'command_prefix' &&
+              (value['prefix'] as List).isEmpty ||
+          (value[value['kind'] == 'command_exact' ? 'arguments' : 'prefix']
+                  as List)
+              .any((v) => v is! String || v.contains('\u0000')) ||
+          value['capabilities'] is! List ||
+          (value['capabilities'] as List).isEmpty ||
+          (value['capabilities'] as List)
+              .any((v) => !{'execute', 'network', 'host'}.contains(v))) {
+        throw const FormatException('Invalid session command rule');
+      }
+      restored.add(Map<String, Object?>.from(value));
+    }
+    _session.removeWhere(
+        (e) => {'command_prefix', 'command_exact'}.contains(e['kind']));
+    _session.addAll(restored);
+    _prefixStateRestored = true;
+  }
+
+  void Function() listenSessionPrefixes(void Function() changed) {
+    _prefixListeners.add(changed);
+    return () => _prefixListeners.remove(changed);
+  }
+
+  void _prefixesChanged() {
+    for (final changed in _prefixListeners.toList()) {
+      changed();
+    }
+  }
+
+  /// Token-prefix rules are a separate schema from obsolete regex grants.
+  /// Every stage must have a matching grant for the requested capability.
+  bool coversPrefixes(CommandPrefixPlan? plan, String capability) {
+    if (plan == null || !{'execute', 'network', 'host'}.contains(capability))
+      return false;
+    try {
+      final rules = entries.where((entry) =>
+          entry['kind'] == 'command_prefix' &&
+          entry['version'] == 1 &&
+          entry['decided_by'] == 'user');
+      return plan.stages.every((stage) => rules.any((rule) =>
+          rule['capabilities'] is List &&
+          (rule['capabilities'] as List).contains(capability) &&
+          stage.matches(rule)));
+    } on FileSystemException {
+      return false;
+    } on FormatException {
+      return false;
+    } on TypeError {
+      return false;
+    }
+  }
+
+  void rememberPrefixes(CommandPrefixPlan plan, Set<String> capabilities,
+      CommandApprovalScope scope) {
+    final allowed = capabilities.intersection({'execute', 'network', 'host'});
+    if (allowed.isEmpty || plan.stages.isEmpty) return;
+    final additions = [
+      for (final stage in plan.stages)
+        <String, Object?>{
+          'kind': 'command_prefix',
+          'version': 1,
+          'id':
+              'prefix:${scope.name}:${stage.context}:${stage.executable}:${jsonEncode(stage.prefix)}',
+          'scope': scope.name,
+          'workspace': canonicalSandboxPath(workspace),
+          'decided_by': 'user',
+          'executable': stage.executable,
+          'prefix': stage.prefix,
+          'context': stage.context,
+          'capabilities': allowed.toList()..sort(),
+          'command': '${stage.label} …',
+          'directory': canonicalSandboxPath(workspace),
+        }
+    ];
+    _rememberCommandRules(additions, allowed, scope);
+  }
+
+  bool coversExact(CommandExactPlan? plan, String capability) {
+    if (plan == null || !{'execute', 'network', 'host'}.contains(capability))
+      return false;
+    try {
+      return entries.any((entry) =>
+          entry['kind'] == 'command_exact' &&
+          entry['version'] == 1 &&
+          entry['decided_by'] == 'user' &&
+          entry['context'] == plan.identity &&
+          entry['executable'] == plan.executable &&
+          jsonEncode(entry['arguments']) == jsonEncode(plan.arguments) &&
+          entry['capabilities'] is List &&
+          (entry['capabilities'] as List).contains(capability));
+    } on FileSystemException {
+      return false;
+    } on FormatException {
+      return false;
+    } on TypeError {
+      return false;
+    }
+  }
+
+  void rememberExact(CommandExactPlan plan, Set<String> capabilities,
+      CommandApprovalScope scope,
+      {required String command}) {
+    final allowed = capabilities.intersection({'execute', 'network', 'host'});
+    if (allowed.isEmpty) return;
+    _rememberCommandRules([
+      {
+        'kind': 'command_exact',
+        'version': 1,
+        'id': 'exact:${scope.name}:${plan.identity}',
+        'scope': scope.name,
+        'workspace': canonicalSandboxPath(workspace),
+        'decided_by': 'user',
+        'executable': plan.executable,
+        'arguments': plan.arguments,
+        'context': plan.identity,
+        'capabilities': allowed.toList()..sort(),
+        'command': command,
+        'directory': canonicalSandboxPath(workspace),
+      }
+    ], allowed, scope);
+  }
+
+  void _rememberCommandRules(List<Map<String, Object?>> additions,
+      Set<String> allowed, CommandApprovalScope scope) {
+    void change(List<Map<String, Object?>> values) {
+      for (final addition in additions) {
+        final existing =
+            values.where((entry) => entry['id'] == addition['id']).firstOrNull;
+        if (existing != null && existing['capabilities'] is List) {
+          addition['capabilities'] = {
+            ...(existing['capabilities'] as List),
+            ...allowed
+          }.toList()
+            ..sort();
+        }
+        values.removeWhere((entry) => entry['id'] == addition['id']);
+        values.add(addition);
+      }
+    }
+
+    if (scope == CommandApprovalScope.session) {
+      change(_session);
+      _prefixesChanged();
+    } else {
+      if (file == null)
+        throw StateError('Persistent approval storage is unavailable');
+      _update(change);
+    }
+  }
 
   String _executable(ProcessRequest request) => resolveHostExecutable(request,
       workspace: workspace, searchPath: searchPath);
@@ -236,8 +419,9 @@ final class CommandApprovalStore implements ToolCommandApprovals {
     }
   }
 
-  void rememberAccess(String capability, String target,
-      CommandApprovalScope scope, {String decidedBy = 'user'}) {
+  void rememberAccess(
+      String capability, String target, CommandApprovalScope scope,
+      {String decidedBy = 'user'}) {
     final entry = <String, Object?>{
       'kind': 'access',
       'id': 'access:${scope.name}:$workspace:$capability:$target',
@@ -357,7 +541,11 @@ final class CommandApprovalStore implements ToolCommandApprovals {
   }
 
   void revoke(String id, {String? directory}) {
+    final hadSessionPrefix = _session.any((e) =>
+        e['id'] == id &&
+        {'command_prefix', 'command_exact'}.contains(e['kind']));
     _session.removeWhere((entry) => entry['id'] == id);
+    if (hadSessionPrefix) _prefixesChanged();
     if (file?.existsSync() == true)
       _update((entries) {
         for (final entry in entries) {

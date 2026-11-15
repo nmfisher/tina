@@ -14,6 +14,9 @@ in Settings → Plugins at session, workspace or global scope.
   Tools show `→ name · arguments`, followed by `ok`/`failed` and measured timing.
 - Reasoning and tool output start collapsed. Ctrl-B selects foldable blocks;
   arrows select, Enter/space folds, Escape/Ctrl-B leaves. Drafts stay intact.
+  Mouse drag selects conversation text. Drag past the top/bottom edge to scroll
+  through retained history and release to copy. Esc cancels. The selection is
+  stable while output streams; dialogs retain terminal-native selection.
   Alt-Up/Down scrolls the focused conversation one displayed line at a time
   (Option-Up/Down on macOS). Plain Up/Down retains input history. Page Up/Down
   and the mouse wheel also scroll without editing input. Scrolling back holds

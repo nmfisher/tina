@@ -223,14 +223,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
-  source_maps:
-    dependency: transitive
-    description:
-      name: source_maps
-      sha256: "14c2945847669b44089bb1222f66873d7ff7103c58911917f2a63c5a62327898"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.10.14"
   source_span:
     dependency: transitive
     description:
@@ -281,8 +273,8 @@ packages:
     dependency: "direct main"
     description:
       path: "pkg/wasm_components"
-      ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
-      resolved-ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
+      ref: c3c8f3230605033df01d637f2bfd635dad106125
+      resolved-ref: c3c8f3230605033df01d637f2bfd635dad106125
       url: "https://github.com/nmfisher/wasm.dart.git"
     source: git
     version: "0.1.1-preview.0"
@@ -290,11 +282,11 @@ packages:
     dependency: "direct dev"
     description:
       path: "pkg/wasm_tools"
-      ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
-      resolved-ref: "18f51eaa619d9ab15cf8d0708ebf7c3fbed4c239"
+      ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
+      resolved-ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
       url: "https://github.com/nmfisher/wasm.dart.git"
     source: git
-    version: "0.1.1-preview.1"
+    version: "0.1.0-preview.0"
   watcher:
     dependency: transitive
     description:

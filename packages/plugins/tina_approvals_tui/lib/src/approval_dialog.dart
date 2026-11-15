@@ -33,6 +33,7 @@ enum ApprovalKey {
   workspace,
   global,
   editCommandPattern,
+  allowCommandPrefix,
   toggleReadDirectory,
   toggleWriteDirectory,
   toggleDirectory,
@@ -69,12 +70,17 @@ class ApprovalOutcome {
   final String? reason;
   final String? commandPattern;
   final bool editCommandPattern;
+
+  /// The editor should draft an "any command starting with …" rule instead of
+  /// a full-command one; rides an [editCommandPattern] outcome.
+  final bool prefixCommandPattern;
   final List<DirectoryAccessGrant> directoryGrants;
 
   const ApprovalOutcome(this.decision,
       {this.reason,
       this.commandPattern,
       this.editCommandPattern = false,
+      this.prefixCommandPattern = false,
       this.directoryGrants = const []});
 
   bool get isCancellation => reason == 'cancelled';
@@ -119,8 +125,13 @@ class ApprovalDialog {
   int _pageSize = 1;
   bool _directoryScopeExplicit = false;
   final _selectedDirectories = <int>{};
-  final _directoryOffers =
-      <({String path, DirectoryAccess access, String source})>[];
+  final _directoryOffers = <({
+    String path,
+    DirectoryAccess access,
+    String source,
+    bool recursive,
+    bool granted
+  })>[];
   List<DirectoryGrantScope> _directoryScopes = const [
     DirectoryGrantScope.session
   ];
@@ -163,8 +174,30 @@ class ApprovalDialog {
         ],
       ];
 
+  bool get _resourcePermissions => ask?.details['resource_permissions'] == true;
+  bool get _hasExact =>
+      ask?.confirmation != true &&
+      call?.argumentsParseError == null &&
+      ask?.details['permission_scope'] == 'command' &&
+      ask?.details['exact_command_approval'] == true;
+  List<String> get _commandPrefixes {
+    final value = ask?.details['command_prefixes'];
+    return ask?.confirmation != true &&
+            call?.argumentsParseError == null &&
+            value is List &&
+            value.isNotEmpty &&
+            value.every((p) => p is String && p.isNotEmpty)
+        ? value.cast<String>()
+        : const [];
+  }
+
+  bool get _hasPrefixes => _commandPrefixes.isNotEmpty;
   bool get _hasAlways =>
-      ask?.confirmation != true && call?.argumentsParseError == null;
+      ask?.details['workspace_write_grant'] != true &&
+      (!_resourcePermissions ||
+          _directoryOffers.any((offer) => !offer.granted)) &&
+      ask?.confirmation != true &&
+      call?.argumentsParseError == null;
   bool get _hasCommandPattern =>
       ask?.confirmation != true &&
       _hasAlways &&
@@ -180,7 +213,9 @@ class ApprovalDialog {
           _directoryOffers.add((
             path: offer['path'] as String,
             access: DirectoryAccess.values.byName(offer['access'] as String),
-            source: offer['source'] == 'inferred' ? 'inferred' : 'verified'
+            source: offer['source'] == 'inferred' ? 'inferred' : 'verified',
+            recursive: offer['recursive'] != false,
+            granted: _resourcePermissions && offer['granted'] == true
           ));
         }
       }
@@ -213,9 +248,11 @@ class ApprovalDialog {
             };
 
   ApprovalOutcome _outcome(ApprovalDecision decision,
-          {bool editCommandPattern = false}) =>
+          {bool editCommandPattern = false,
+          bool prefixCommandPattern = false}) =>
       ApprovalOutcome(decision,
           editCommandPattern: editCommandPattern,
+          prefixCommandPattern: prefixCommandPattern,
           directoryGrants: {
             ApprovalDecision.allowAlways,
             ApprovalDecision.allowWorkspace,
@@ -223,25 +260,44 @@ class ApprovalDialog {
           }.contains(decision)
               ? List.unmodifiable([
                   for (final index in _selectedDirectories)
-                    DirectoryAccessGrant(
-                        _directoryOffers[index].path,
-                        _directoryOffers[index].access,
-                        _directoryScopeFor(decision))
+                    // Covered offers are shown checked, but must not create
+                    // redundant grants that outlive revocation of their parent.
+                    if (!_directoryOffers[index].granted)
+                      DirectoryAccessGrant(
+                          _directoryOffers[index].path,
+                          _directoryOffers[index].access,
+                          _directoryScopeFor(decision),
+                          recursive: _directoryOffers[index].recursive)
                 ])
               : const []);
 
   List<String> get _choices => ask?.confirmation == true
       ? ['Yes', 'No']
       : !_rememberMenu
-          ? ['allow', 'deny', if (_hasAlways) 'remember']
+          ? [
+              'allow',
+              if (_hasPrefixes) ...[
+                'prefix session',
+                if (ask?.details['persistent_command_prefix'] == true)
+                  'prefix workspace',
+              ],
+              if (_hasExact) ...[
+                'exact session',
+                if (ask?.details['persistent_exact_command'] == true)
+                  'exact workspace',
+              ],
+              'deny',
+              if (_hasAlways) 'remember'
+            ]
           : [
-              'allow always',
+              if (!_resourcePermissions) 'allow always',
               if (_hasPersistent) 'allow workspace',
-              if (_hasPersistent) 'allow global',
+              if (_hasPersistent && !_resourcePermissions) 'allow global',
+              if (_hasCommandPattern) 'allow command prefix',
               if (_hasDirectoryOffers) ...[
                 for (var i = 0; i < _directoryOffers.length; i++)
                   'directory $i',
-                'grant scope',
+                if (!_resourcePermissions) 'grant scope',
               ],
               if (_hasCommandPattern) 'edit command pattern',
               'back',
@@ -251,8 +307,15 @@ class ApprovalDialog {
     _details = false;
     _rememberMenu = true;
     _selected = 0;
-    _directoryScope = DirectoryGrantScope.session;
-    _directoryScopeExplicit = false;
+    _directoryScope = _resourcePermissions
+        ? DirectoryGrantScope.workspace
+        : DirectoryGrantScope.session;
+    _directoryScopeExplicit = _resourcePermissions;
+    if (_resourcePermissions && _directoryOffers.isNotEmpty)
+      _selectedDirectories.add(0);
+    for (var i = 0; i < _directoryOffers.length; i++) {
+      if (_directoryOffers[i].granted) _selectedDirectories.add(i);
+    }
     // Remember the requested directories, never extra model-inferred folders.
     final invocation = ask?.details['invocation_directory_access'];
     if (invocation is Map || ask?.details['directory_grant_required'] == true) {
@@ -283,6 +346,10 @@ class ApprovalDialog {
   }
 
   ApprovalDecision decisionFor(int index) => switch (_choices[index]) {
+        'exact session' => ApprovalDecision.allowExactInSession,
+        'exact workspace' => ApprovalDecision.allowExactInWorkspace,
+        'prefix session' => ApprovalDecision.allowPrefixInSession,
+        'prefix workspace' => ApprovalDecision.allowPrefixInWorkspace,
         'allow always' => ApprovalDecision.allowAlways,
         'allow workspace' => ApprovalDecision.allowWorkspace,
         'allow global' => ApprovalDecision.allowGlobal,
@@ -347,6 +414,11 @@ class ApprovalDialog {
     final hasDenialReason =
         denialReason is String && denialReason.trim().isNotEmpty;
     final details = <String>[
+      if (_hasPrefixes && _details) ...[
+        'Command prefixes offered for remembering (every command and pipeline stage is checked):',
+        for (final prefix in _commandPrefixes) '  $prefix …',
+        'Prefix rules cover only the displayed execution, network and host capabilities. File access is checked separately.',
+      ],
       if (ask?.details['authorization_reason'] case final String why)
         'Why approval is needed: $why',
       if (ask?.details['access_requirements'] case final List requirements)
@@ -423,10 +495,19 @@ class ApprovalDialog {
           ask!.details['permission_scope_description'] as String
         else if (_hasAlways && scope == 'file')
           'Session approval covers only this file. Other files still ask.',
-        if (_hasAlways &&
+        if (!_hasPrefixes &&
+            !_resourcePermissions &&
+            _hasAlways &&
             ask?.details['permission_scope_description'] == null &&
             scope == 'command')
           'Session approval covers this exact command in this directory.',
+        if (_hasPrefixes)
+          'Prefix rules apply in this directory and environment; file access is checked separately.',
+        if (_hasExact)
+          'Exact rules match the executable, arguments, directory and environment; file access is checked separately.',
+        if (!_hasPrefixes &&
+            ask?.details['command_prefix_unavailable_reason'] is String)
+          'Prefix approval unavailable: ${ask!.details['command_prefix_unavailable_reason']}',
       ],
       if (_details && ask?.details['mode'] != null)
         'Mode: ${ask!.details['mode']}',
@@ -482,22 +563,36 @@ class ApprovalDialog {
         // Indented: these rows modify the scope rows above (which folders a
         // remembered approval includes), they are not peer actions.
         return '  [${_selectedDirectories.contains(index) ? 'x' : ' '}] Allow all '
-            '${offer.access == DirectoryAccess.read ? 'reads' : 'writes (including deletes)'} '
-            'in ${offer.path}${offer.source == 'inferred' ? ' (inferred)' : ''} (Space)';
+            '${offer.access == DirectoryAccess.read ? 'reads' : _resourcePermissions ? 'writes' : 'writes (including deletes)'} '
+            '${offer.recursive ? 'in' : 'to'} ${offer.path}${offer.source == 'inferred' ? ' (inferred)' : ''} (Space)';
       }
       return switch (choice) {
         'Yes' => '[y] Yes',
         'No' => '[n] No',
-        'allow' => ask?.details['directory_grant_required'] == true
-            ? '[y] allow once and retry'
-            : '[y] allow once',
+        'allow' => ask?.details['workspace_write_grant'] == true
+            ? '[y] Allow workspace writes for this session'
+            : ask?.details['directory_grant_required'] == true
+                ? '[y] allow once and retry'
+                : _hasPrefixes
+                    ? '[y] Run once'
+                    : '[y] allow once',
+        'prefix session' =>
+          '[a] For this session: always allow commands starting with ${_commandPrefixes.join(', ')} …',
+        'prefix workspace' =>
+          '[p] For this workspace: always allow commands starting with ${_commandPrefixes.join(', ')} …',
+        'exact session' =>
+          '[e] Always allow this exact command for this session',
+        'exact workspace' =>
+          '[w] Always allow this exact command for this workspace',
         'deny' => '[n] deny',
-        'remember' => '[a] Remember…',
+        'remember' =>
+          _hasPrefixes ? 'Remember file or directory access…' : '[a] Remember…',
         'back' => 'Back',
         'allow always' => '[a] $alwaysLabel',
         'allow workspace' => '[p] Remember $object for this workspace',
         'allow global' => '[g] Remember $object in every workspace',
         'edit command pattern' => '[e] Approve with an editable regex',
+        'allow command prefix' => '[b] Allow any command starting with …',
         // Not a decision row: the checked folders are saved when one of the
         // scope rows above is confirmed. This line only sets their scope,
         // so its label states that instead of implying it saves something.
@@ -572,7 +667,10 @@ class ApprovalDialog {
   bool handleKey(ApprovalKey key) {
     if (key == ApprovalKey.confirm && !_details && _navigateRemember())
       return true;
-    if (key == ApprovalKey.always && !_rememberMenu && _hasAlways) {
+    if (key == ApprovalKey.always &&
+        !_rememberMenu &&
+        _hasAlways &&
+        !_hasPrefixes) {
       _openRemember();
       return true;
     }
@@ -597,8 +695,8 @@ class ApprovalDialog {
         final access = key == ApprovalKey.toggleReadDirectory
             ? DirectoryAccess.read
             : DirectoryAccess.write;
-        final match =
-            _directoryOffers.indexWhere((offer) => offer.access == access);
+        final match = _directoryOffers
+            .indexWhere((offer) => offer.access == access && offer.recursive);
         if (match >= 0) index = match;
       }
       if (index != null) {
@@ -647,6 +745,7 @@ class ApprovalDialog {
       case ApprovalKey.global:
       case ApprovalKey.always:
       case ApprovalKey.editCommandPattern:
+      case ApprovalKey.allowCommandPrefix:
       case ApprovalKey.details:
       case ApprovalKey.toggleReadDirectory:
       case ApprovalKey.toggleWriteDirectory:
@@ -675,7 +774,9 @@ class ApprovalDialog {
   ApprovalOutcome get current {
     final choice = _choices[_selected];
     return _outcome(decisionFor(_selected),
-        editCommandPattern: choice == 'edit command pattern');
+        editCommandPattern: choice == 'edit command pattern' ||
+            choice == 'allow command prefix',
+        prefixCommandPattern: choice == 'allow command prefix');
   }
 
   /// The decision for the scope matching [shortcut], when the ask offers
@@ -704,6 +805,13 @@ class ApprovalDialog {
     while (true) {
       final key = await keys.next();
       onAnyKey?.call();
+      if (!_details && !_rememberMenu && _hasExact) {
+        if (key == ApprovalKey.editCommandPattern)
+          return _outcome(ApprovalDecision.allowExactInSession);
+        if (key == ApprovalKey.toggleWriteDirectory &&
+            ask?.details['persistent_exact_command'] == true)
+          return _outcome(ApprovalDecision.allowExactInWorkspace);
+      }
       switch (key) {
         case ApprovalKey.allow:
           return _outcome(ApprovalDecision.allow);
@@ -711,10 +819,18 @@ class ApprovalDialog {
           return const ApprovalOutcome(ApprovalDecision.deny);
         case ApprovalKey.workspace:
         case ApprovalKey.global:
+          if (!_rememberMenu &&
+              _hasPrefixes &&
+              key == ApprovalKey.workspace &&
+              ask?.details['persistent_command_prefix'] == true) {
+            return _outcome(ApprovalDecision.allowPrefixInWorkspace);
+          }
           // Scope shortcuts are active only inside Remember.
           final outcome = scopeDecision(key!);
           if (outcome != null) return outcome;
         case ApprovalKey.always:
+          if (!_rememberMenu && _hasPrefixes)
+            return _outcome(ApprovalDecision.allowPrefixInSession);
           if (_hasAlways) {
             if (!_rememberMenu) {
               _openRemember();
@@ -727,6 +843,11 @@ class ApprovalDialog {
           if (_rememberMenu && _hasCommandPattern) {
             return const ApprovalOutcome(ApprovalDecision.deny,
                 editCommandPattern: true);
+          }
+        case ApprovalKey.allowCommandPrefix:
+          if (_rememberMenu && _hasCommandPattern) {
+            return const ApprovalOutcome(ApprovalDecision.deny,
+                editCommandPattern: true, prefixCommandPattern: true);
           }
         case ApprovalKey.pageUp:
         case ApprovalKey.pageDown:

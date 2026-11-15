@@ -13,8 +13,15 @@ typedef SuggestCommandPattern = Future<CommandPatternSuggestion> Function(
 /// leaves existing requests with the session's cancellation and expiry policy.
 final class AttachmentApprovalChannel extends AgentPlugin
     implements ApprovalChannel {
-  AttachmentApprovalChannel({this.suggestCommandPattern});
+  AttachmentApprovalChannel(
+      {this.suggestCommandPattern, this.suggestCommandPrefix});
+
+  /// Drafts a rule for the entire pending command.
   final SuggestCommandPattern? suggestCommandPattern;
+
+  /// Drafts a "any command starting with …" rule for the pending command.
+  /// Null channels simply offer the literal pattern in the editor.
+  final SuggestCommandPattern? suggestCommandPrefix;
   @override
   String get id => 'tina/approvals-tui';
   final _pending = <String, _PresentedQuestion>{};
@@ -90,10 +97,19 @@ final class ApprovalInteraction {
   void Function() listen(void Function(ApprovalQuestion) listener) =>
       _channel._listen(listener, _access);
   Future<CommandPatternSuggestion> suggest(
+          ApprovalRequest request, Future<void> cancelled) =>
+      _suggest(_channel.suggestCommandPattern, request, cancelled);
+
+  /// Same contract as [suggest], for the prefix-shaped editor: the drafted
+  /// rule is meant to cover commands that begin the same way.
+  Future<CommandPatternSuggestion> suggestPrefix(
+          ApprovalRequest request, Future<void> cancelled) =>
+      _suggest(_channel.suggestCommandPrefix, request, cancelled);
+
+  Future<CommandPatternSuggestion> _suggest(SuggestCommandPattern? suggest,
       ApprovalRequest request, Future<void> cancelled) async {
     _access.requireControl();
     final question = _channel._pending[request.id];
-    final suggest = _channel.suggestCommandPattern;
     if (question?.isActive != true || suggest == null) {
       return (
         pattern: null,

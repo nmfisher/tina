@@ -99,6 +99,12 @@ directory. For example, use `exec` with `program: "ls"` and
 The override does not change later calls and remains subject to the same
 permission and OS sandbox checks. Tool and approval details show the directory.
 
+Settings → Permissions → Tools also exposes default command working directory,
+PATH and explicit environment variables. Defaults apply to exec and bash without
+`cd`/`export` preludes, survive conversation resume, and are snapshotted before
+each approval. The built-in PATH includes `/opt/homebrew/bin`. Each command starts
+a fresh process; shell state is not retained. See [the permission guide](../../../docs/permissions.md).
+
 The system prompt prefers dedicated `edit` and `write` tools for file changes.
 Python scripts, sed and other command-based patches are reserved for changes
 that those tools cannot perform.
@@ -121,9 +127,11 @@ changing Tina's subprocess launcher cannot replace another process's descriptors
 
 `exec` and `bash` accept `network: true` with a required `network_reason`.
 The process boundary includes execution and network in one canonical request.
-Missing network access requires human approval in ordinary modes, including auto.
-Remember can save the displayed capabilities for the exact program, argv,
-directory, environment and stdin at Session, Workspace or Global scope.
+Missing network access goes to the human in Approve mode and the classifier in
+Auto mode. Eligible commands offer token-prefix rules for this conversation or
+persistently for this workspace, such as `gh pr view`. Every pipeline stage must
+match independently. Rules bind executable and execution context and do not
+grant filesystem access. Legacy regex grants stay inactive.
 An execution-only grant never implies network or host access. A new read-only
 execution grant cannot authorize a workspace-write profile.
 Cancellation cannot create a late grant or start the command.

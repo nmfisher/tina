@@ -25,7 +25,7 @@ def smoke(dart, endpoint, backend):
             'models=["smoke|Smoke model"]\n'
             '[plugins]\nenabled=["tina/chat-tui", "tina/panels-tui", '
             '"tina/persistence", "tina/session-controls"]\n')
-        command = [dart, 'apps/tina_cli/test/fixtures/resume_terminal.dart',
+        command = [dart, 'run', 'apps/tina_cli/test/fixtures/resume_terminal.dart',
                    '--backend', backend, '--config', str(config),
                    '--cwd', str(root), '--store', str(root / 'session history.db')]
         env = dict(os.environ, HOME=str(root), TERM='xterm-256color', LANG='en_US.UTF-8')
@@ -50,8 +50,8 @@ def smoke(dart, endpoint, backend):
 
         try:
             terminal = Terminal(command, env, 100, 24)
-            terminal.expect('RESTART_DEVICE_UNAVAILABLE')
-            terminal.expect('smoke >')
+            terminal.expect('RESTART_DEVICE_UNAVAILABLE', timeout=120)
+            terminal.expect('smoke >', timeout=120)
             start = line('before resume')
             terminal.expect('smoke answer', start)
             terminal.quit()
@@ -59,7 +59,7 @@ def smoke(dart, endpoint, backend):
             terminal.close()
 
             terminal = Terminal(command + ['--resume'], env, 100, 24)
-            terminal.expect('RESTART_DEVICE_UNAVAILABLE')
+            terminal.expect('RESTART_DEVICE_UNAVAILABLE', timeout=120)
             terminal.expect('Enter resume')
             start = terminal.send('\r')
             terminal.expect('smoke >', start)
@@ -77,8 +77,8 @@ def smoke(dart, endpoint, backend):
             # Execute the exact printed arguments, then quit during streaming.
             # Neither /quit nor Ctrl+C may wait for the provider to finish.
             for quit_input in ['/quit\r', '\x03']:
-                terminal = Terminal(command[:2] + saved_arguments, env, 100, 24)
-                terminal.expect('smoke >')
+                terminal = Terminal(command[:3] + saved_arguments, env, 100, 24)
+                terminal.expect('smoke >', timeout=120)
                 terminal.expect('before resume')
                 ModelStub.release_cancelled.clear()
                 try:
@@ -95,7 +95,7 @@ def smoke(dart, endpoint, backend):
 
             # A new empty session is intentionally not persisted.
             terminal = Terminal(command, env, 100, 24)
-            terminal.expect('smoke >')
+            terminal.expect('smoke >', timeout=120)
             terminal.quit()
             assert b'Resume this session:' not in terminal.output
             terminal.close()

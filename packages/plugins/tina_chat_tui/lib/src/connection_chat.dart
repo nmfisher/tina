@@ -7,7 +7,7 @@ import 'package:tina_host/tina_host.dart';
 /// Chat's existing presentation contract, backed exclusively by session data.
 /// Each listener owns an attachment; releasing it never closes the connection.
 final class ConnectionChatObservation
-    implements ChatObservation, SessionObservation {
+    implements ChatObservation, PagedSessionObservation {
   ConnectionChatObservation(this._connection);
   final SessionConnection _connection;
   SessionSnapshot? _current;
@@ -40,7 +40,11 @@ final class ConnectionChatObservation
   bool get terminalAlertsEnabled =>
       _chat['terminal_alerts_enabled'] as bool? ?? true;
   @override
-  Map<String, Object?> get snapshot => Map<String, Object?>.unmodifiable(_chat);
+  Map<String, Object?> get snapshot => Map<String, Object?>.unmodifiable({
+        ...Map<String, Object?>.from(_chat),
+        if (_current?.features.containsKey('tina/goals') == true)
+          'goal': _current!.features['tina/goals'],
+      });
   @override
   ToolDescription? describe(ToolUse call) =>
       ToolDescription.fromJson(_descriptions[call.id]);
@@ -50,14 +54,30 @@ final class ConnectionChatObservation
   @override
   void Function() listenChanges(void Function() listener) =>
       _ChatSubscription(this, changed: listener).start();
+
+  @override
+  SessionHistorySubscription listenRecent(
+      void Function(SessionObservationEvent) listener,
+      {int limit = 32, void Function(void Function())? batchReplay}) {
+    RangeError.checkValueInInterval(limit, 1, 512, 'limit');
+    final subscription = _ChatSubscription(this,
+        listener: listener, pageSize: limit, batchReplay: batchReplay);
+    subscription.start();
+    return subscription;
+  }
 }
 
-final class _ChatSubscription {
-  _ChatSubscription(this.owner, {this.listener, this.changed});
+final class _ChatSubscription implements SessionHistorySubscription {
+  _ChatSubscription(this.owner,
+      {this.listener, this.changed, this.pageSize, this.batchReplay});
   final ConnectionChatObservation owner;
   final void Function(SessionObservationEvent)? listener;
   final void Function()? changed;
+  final int? pageSize;
+  final void Function(void Function())? batchReplay;
   late final SessionAttachment attachment;
+  SessionSnapshot? _snapshot;
+  int _firstSeq = 0, _floorSeq = 0;
   var closed = false;
   var afterSeq = -1;
   var afterNoticeSeq = -1;
@@ -68,8 +88,13 @@ final class _ChatSubscription {
 
   void Function() start() {
     attachment = owner._connection.attach();
+    if (pageSize != null) {
+      _firstSeq = (attachment.initial.throughSeq + 1 - pageSize!).clamp(0,
+          attachment.initial.throughSeq + 1);
+      afterSeq = _firstSeq - 1;
+    }
     try {
-      apply(attachment.initial, replay: true);
+      replay(() => apply(attachment.initial, replay: true));
     } catch (_) {
       close();
       rethrow;
@@ -78,6 +103,29 @@ final class _ChatSubscription {
     return close;
   }
 
+  void replay(void Function() action) {
+    final batch = batchReplay;
+    if (batch == null) {
+      action();
+    } else {
+      batch(action);
+    }
+  }
+
+  @override
+  bool get hasEarlier => !closed && pageSize != null && _firstSeq > _floorSeq;
+
+  @override
+  void loadEarlier() {
+    if (!hasEarlier) return;
+    _firstSeq = (_firstSeq - pageSize!).clamp(_floorSeq, _firstSeq);
+    replay(() {
+      reset();
+      apply(_snapshot!, replay: true);
+    });
+  }
+
+  @override
   void close() {
     if (closed) return;
     closed = true;
@@ -108,6 +156,7 @@ final class _ChatSubscription {
   }
 
   void apply(SessionSnapshot snapshot, {bool replay = false}) {
+    _snapshot = snapshot;
     if (owner._current == null ||
         snapshot.cursor.revision >= owner._current!.cursor.revision) {
       owner._current = snapshot;
@@ -149,7 +198,7 @@ final class _ChatSubscription {
   }
 
   void reset() {
-    afterSeq = -1;
+    afterSeq = _firstSeq - 1;
     afterNoticeSeq = -1;
     preview = const [];
     tools.clear();
@@ -163,7 +212,8 @@ final class _ChatSubscription {
     while (afterNoticeSeq < snapshot.throughNoticeSeq) {
       final page =
           attachment.notices(snapshot: snapshot, afterSeq: afterNoticeSeq);
-      if (page.omittedThroughSeq != null) {
+      if (page.omittedThroughSeq != null &&
+          page.omittedAfterHistorySeq! >= _firstSeq - 1) {
         notices.add((
           afterHistorySeq: page.omittedAfterHistorySeq!,
           text:
@@ -171,6 +221,7 @@ final class _ChatSubscription {
         ));
       }
       for (final notice in page.entries) {
+        if (notice.afterHistorySeq < _firstSeq - 1) continue;
         notices.add((
           afterHistorySeq: notice.afterHistorySeq,
           text:
@@ -233,6 +284,9 @@ final class _ChatSubscription {
           truncated = false;
           calls.clear();
           tools.clear();
+          if (entry is ContextClearedEntry) {
+            _floorSeq = _firstSeq = entry.seq;
+          }
         }
         emit(
             ObservedEntry(entry, replay ? LogEvent.replay : LogEvent.appended));

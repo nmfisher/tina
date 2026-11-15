@@ -30,17 +30,17 @@ final class PortableToolsPlugin extends AgentPlugin
   PortableToolsPlugin({
     required tt.FileSystem fileSystem,
     required String workspaceRoot,
-    PermissionMode mode = PermissionMode.yolo,
+    PermissionMode mode = PermissionMode.approve,
     List<String> protectedPaths = const [],
     bool Function(String path)? isWithinWorkspace,
-  })  : _boundary = tt.AskingBoundary(
-          fileSystem,
-          workspaceRoot: workspaceRoot,
-          mode: mode,
-          protectedPaths: protectedPaths,
-          isWithinWorkspace: isWithinWorkspace,
-        ),
-        modePolicy = ModePlugin(mode: mode) {
+  }) : _boundary = tt.AskingBoundary(
+         fileSystem,
+         workspaceRoot: workspaceRoot,
+         mode: mode,
+         protectedPaths: protectedPaths,
+         isWithinWorkspace: isWithinWorkspace,
+       ),
+       modePolicy = ModePlugin(mode: mode) {
     modePolicy.listen((value) {
       _boundary.mode = value;
     });
@@ -108,30 +108,41 @@ final class PortableToolsPlugin extends AgentPlugin
   void attachApprovals(ApprovalRequester approvals) {
     modePolicy.approvals = approvals;
     _boundary.approver = (request, reason) async {
+      final inside = _boundary.isWithinWorkspacePath(request.path);
+      if (inside && request.op == tt.FileOp.read) return tt.Approval.yes;
+      if (inside)
+        return await modePolicy.ensureWorkspaceWrite(workingDirectory)
+            ? tt.Approval.yes
+            : tt.Approval.no;
       final decision = await modePolicy.request(
         operation: request.op.name,
         target: request.path,
         reason: reason,
-        context: const {'permission_scope': 'file'},
+        context: {
+          'permission_scope': 'file',
+          'resource_permissions': true,
+          'workspace': workingDirectory,
+        },
         authorization: AuthorizationRequest(
           requirements: [
             AccessRequirement(
-              request.op == tt.FileOp.read
-                  ? AccessCapability.read
-                  : AccessCapability.write,
+              switch (request.op) {
+                tt.FileOp.read => AccessCapability.read,
+                tt.FileOp.write => AccessCapability.write,
+                tt.FileOp.delete => AccessCapability.delete,
+              },
               request.path,
-              workspace: request.op == tt.FileOp.read ||
-                  _boundary.isWithinWorkspacePath(request.path),
-              granted: _boundary.grantsOf(request.op).allows(request.path),
+              workspace: inside,
             ),
           ],
         ),
       );
       return switch (decision) {
         ApprovalDecision.allow => tt.Approval.yes,
-        ApprovalDecision.allowAlways => tt.Approval.always,
-        ApprovalDecision.deny =>
-          throw tt.SandboxViolation('$reason — approval denied or cancelled'),
+        ApprovalDecision.allowAlways => tt.Approval.yes,
+        ApprovalDecision.deny => throw tt.SandboxViolation(
+          '$reason — approval denied or cancelled',
+        ),
         _ => tt.Approval.no,
       };
     };
@@ -181,10 +192,13 @@ final class _NoProcessRunner implements tt.ToolProcessRunnerView {
   const _NoProcessRunner();
 
   @override
-  Future<tt.RunOutcome> run(tt.ProcessRequest request,
-      {tt.ProcessControl? control}) async {
+  Future<tt.RunOutcome> run(
+    tt.ProcessRequest request, {
+    tt.ProcessControl? control,
+  }) async {
     throw UnsupportedError(
-        'the process tools are a native-only slice; no runner exists under wasm');
+      'the process tools are a native-only slice; no runner exists under wasm',
+    );
   }
 
   @override
@@ -213,15 +227,18 @@ final class _NoCommandGrants implements tt.ToolCommandGrants {
   int get length => 0;
 
   @override
-  bool coversRequest(tt.ProcessRequest request,
-          {tt.ProcessPermission permission = tt.ProcessPermission.execution,
-          tt.ProcessDirectoryAccess directoryAccess =
-              const tt.ProcessDirectoryAccess.empty()}) =>
-      false;
+  bool coversRequest(
+    tt.ProcessRequest request, {
+    tt.ProcessPermission permission = tt.ProcessPermission.execution,
+    tt.ProcessDirectoryAccess directoryAccess =
+        const tt.ProcessDirectoryAccess.empty(),
+  }) => false;
 
   @override
-  void rememberRequest(tt.ProcessRequest request,
-      {Set<tt.ProcessPermission> permissions = const {}}) {}
+  void rememberRequest(
+    tt.ProcessRequest request, {
+    Set<tt.ProcessPermission> permissions = const {},
+  }) {}
 }
 
 /// No remembered command approvals: the process tools are a native-only

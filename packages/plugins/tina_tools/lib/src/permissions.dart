@@ -11,8 +11,8 @@
 /// out. It never touches a terminal, a loop, or the real filesystem, so the
 /// tests for it are headless by construction.
 ///
-/// Modes choose which operations need approval; an explicit human answer can
-/// authorize them in every mode. No approver wired means deny.
+/// Workspace reads are free; grants cover writes and external paths. Modes
+/// select the reviewer for uncovered access. No approver means deny.
 library;
 
 import 'package:tina_mode/tina_mode.dart';
@@ -40,8 +40,11 @@ enum FileOp {
   /// Read a path's bytes, contents, existence or listing.
   read,
 
-  /// Create, overwrite, edit, move or delete something at a path.
+  /// Create, overwrite or edit a path, including atomic save staging.
   write,
+
+  /// Remove a file; separate from a saved ordinary write grant.
+  delete,
 }
 
 /// One operation resolved by the filesystem, with the path it will act on —
@@ -61,7 +64,7 @@ enum Approval {
   yes,
 
   /// Run it and remember it for the session: the second identical write
-  /// does not ask again. Remembered as a path glob by the caller.
+  /// does not ask again. Legacy embedding API; live resource grants are explicit.
   always,
 
   /// Refuse it.
@@ -73,9 +76,8 @@ enum Approval {
 /// note — so it names the axis that decided.
 typedef FileDecision = ({ToolVerdict verdict, String reason});
 
-/// Reads run in every mode; read-only asks before writes.
-/// Allow-edits permits project writes. Other writes go through the mode
-/// plugin's approval routing (human in ask, safety judge first in auto).
+/// Workspace reads are allowed. The owning mode policy routes uncovered writes
+/// and external access to a human or model reviewer.
 FileDecision decideOperation(
   FileOperation op,
   PermissionMode mode, {
@@ -86,9 +88,11 @@ FileDecision decideOperation(
   final resolution = resolveAuthorization(
       AuthorizationRequest(requirements: [
         AccessRequirement(
-            op.op == FileOp.read
-                ? AccessCapability.read
-                : AccessCapability.write,
+            switch (op.op) {
+              FileOp.read => AccessCapability.read,
+              FileOp.write => AccessCapability.write,
+              FileOp.delete => AccessCapability.delete,
+            },
             op.path,
             workspace: inside,
             granted: grants?.allows(op.path) == true),
@@ -121,6 +125,7 @@ String operationReason(FileOperation op, PermissionMode mode) {
     (FileOp.read, _) => 'read of $name',
     (FileOp.write, PermissionMode.readOnly) =>
       'allow write in read-only mode ($name)?',
+    (FileOp.delete, _) => 'allow delete ($name)?',
     (FileOp.write, _) => 'allow write outside the project root ($name)?',
   };
 }

@@ -1,5 +1,18 @@
 # Engine2 configuration
 
+Conversation scrolling: **Option/Alt + ↑/↓** moves one displayed line at a time
+(Option on macOS); **Page Up/Down** moves a page. The mouse wheel also scrolls
+line by line. Plain ↑/↓ recalls input history. Scrolling preserves the current
+draft and cursor, including while a response streams. `/help` lists these keys.
+
+Drag with the left mouse button in a conversation to select text. Hold the
+pointer at or beyond the top or bottom edge to scroll and extend the selection
+across pages. Release to copy to the system clipboard; the status bar confirms
+the copy. Esc cancels without copying. Selection uses a snapshot of the retained
+conversation rows, so streaming output cannot change the copied text. Dialogs
+temporarily restore the terminal's native text selection. On macOS the clipboard
+uses `pbcopy`; Linux needs `wl-copy` or `xclip`. Resize cancels an active drag.
+
 The CLI application owns one configuration reader for interactive and headless runs. Global TOML lives at
 `~/.tina/config` (`--config FILE` overrides it). `/settings` and `--configure`
 edit it, preserving unknown legacy tables. Live `/settings` also supports Session
@@ -359,7 +372,7 @@ agent. The panel shares sidebar space with the plan and yields to dialogs.
 The last 32 exchanges are kept in memory for the session; each displayed body is
 limited to 65,536 characters. Transport credentials are not recorded. Headless
 `/classification` still prints the latest result.
-Results never change agent routing or permissions. Work runs in the background and stops on cancellation,
+Input predictions never change agent routing or permissions. This work runs in the background and stops on cancellation,
 superseding input, timeout or unload.
 
 ```toml
@@ -377,6 +390,43 @@ Requests have bounded input size. Classification and learning share a 90-second
 deadline, with a 60-second timeout for each isolated discovery. Typesafe usage is
 separate from conversation spend; discovery uses the normal conversation provider
 rates and token limits. Repository indexing and Attractor remain disconnected.
+
+The same plugin checks `exec` and `bash` command formatting and the target paths
+of `read`, `write`, `edit`, `ls`, `stat` and `glob` with the configured Typesafe
+model **before approval and execution**. Requests include the tool name, the
+current task (up to 1,000 characters, with truncation marked), workspace, and
+command/program/arguments or file path, plus the relevant review policy. They
+exclude conversation history, tool output, the process environment and file-tool
+contents. A typed GOOD result continues to normal permission checks.
+A typed BAD result returns a tool error asking the conversation model to rewrite
+the call with direct executable/arguments, `working_directory`, and only necessary
+shell setup. Unnecessary wrappers such as `bash -c 'echo test'` request a rewrite
+to direct exec even when short. Explicitly testing Bash itself or requiring
+Bash-specific behavior preserves the shell. The bash tool takes the shell body
+directly, without another `bash -c` layer. Short pipelines and necessary
+environment setup remain valid. The
+rewritten call gets fresh format and permission checks; the classifier never
+edits or executes tools and never approves access. After two unsuccessful
+rewrites in a row, the turn stops rather than looping indefinitely.
+
+File-path checks use lexical resolution against the workspace and up to eight
+recent successful file-tool paths (each at most 512 characters, held in this
+session's memory). Failed calls and model claims never become successful-path
+evidence. The reviewer performs no filesystem probes or symlink resolution.
+Malformed required paths return a rewrite error without a classifier request.
+Likely typos such as `/VVolumes` or a duplicated workspace directory ask the
+main model to verify the intended target and rewrite the call. Paths outside
+the workspace and new files are not inherently mistakes. Tina never silently
+corrects the path; the rewritten call receives normal permission and existence
+checks. Evidence is cleared if the workspace changes and when the session closes.
+
+Settings → Plugins → `tina/classification` includes **Check tool calls before
+running** (on by default) and **Tool call check timeout (seconds)** (60 by
+default, 1–300). Both support session, workspace and global settings. Missing
+Typesafe credentials, an oversized request, transport failure or timeout skips
+the format check with a brief notice and retains normal permission checks.
+Checks and GOOD/BAD results appear in the classification execution tree as
+**Command formatting** or **File path check**, so the verdict's scope is explicit.
 
 ## Completion
 

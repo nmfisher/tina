@@ -31,8 +31,8 @@ void main() {
       expect(
           result.verdict,
           switch (mode) {
-            PermissionMode.allowEdits => ToolVerdict.allow,
-            PermissionMode.readOnly => ToolVerdict.deny,
+            PermissionMode.allowEdits => ToolVerdict.ask,
+            PermissionMode.readOnly => ToolVerdict.ask,
             _ => ToolVerdict.ask,
           });
     }
@@ -70,14 +70,13 @@ void main() {
   });
 
   group('table: write', () {
-    test('inside the project in allow-edits → allow', () {
+    test('legacy allow-edits requires the initial workspace approval', () {
       final d = decideOperation(
         (op: FileOp.write, path: '$root/lib/main.dart'),
         PermissionMode.allowEdits,
         projectRoot: root,
       );
-      expect(d.verdict, ToolVerdict.allow);
-      expect(d.reason, contains('inside the project root'));
+      expect(d.verdict, ToolVerdict.ask);
     });
 
     test('inside the project in readOnly → deny', () {
@@ -86,7 +85,7 @@ void main() {
         PermissionMode.readOnly,
         projectRoot: root,
       );
-      expect(d.verdict, ToolVerdict.deny);
+      expect(d.verdict, ToolVerdict.ask);
       expect(d.reason, contains('read-only mode'));
     });
 
@@ -107,7 +106,7 @@ void main() {
         PermissionMode.readOnly,
         projectRoot: root,
       );
-      expect(d.verdict, ToolVerdict.deny);
+      expect(d.verdict, ToolVerdict.ask);
     });
 
     test('a path that merely shares a prefix is not "inside"', () {
@@ -122,10 +121,10 @@ void main() {
     test('the root itself counts as inside', () {
       final d = decideOperation(
         (op: FileOp.write, path: root),
-        PermissionMode.allowEdits,
+        PermissionMode.approve,
         projectRoot: root,
       );
-      expect(d.verdict, ToolVerdict.allow);
+      expect(d.verdict, ToolVerdict.ask);
     });
   });
 
@@ -182,7 +181,7 @@ void main() {
       expect(allows('/tmp/other.txt'), isFalse);
     });
 
-    test('read-only overrides a remembered write grant', () {
+    test('saved explicit grants are independent of legacy mode names', () {
       final grants = FileGrants()..remember('/etc/hosts');
       final d = decideOperation(
         (op: FileOp.write, path: '/etc/hosts'),
@@ -190,7 +189,7 @@ void main() {
         projectRoot: root,
         grants: grants,
       );
-      expect(d.verdict, ToolVerdict.deny);
+      expect(d.verdict, ToolVerdict.allow);
     });
 
     test('remembering twice is idempotent; patterns list oldest first', () {
@@ -225,7 +224,7 @@ void main() {
         PermissionMode.readOnly,
         projectRoot: root,
       );
-      expect(d.reason, contains('read-only mode blocks'));
+      expect(d.reason, contains('write'));
     });
   });
 }

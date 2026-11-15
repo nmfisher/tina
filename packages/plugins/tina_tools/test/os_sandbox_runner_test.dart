@@ -5,6 +5,7 @@
 // Run: dart test
 library;
 
+import 'dart:io';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:test/test.dart';
 
@@ -521,13 +522,13 @@ void main() {
           plan: const SandboxPlan(workspaceRoot: '/work/proj'),
           backend: SandboxBackend.bwrap,
           hostLayout: () => SandboxHostLayout(
-            readOnlyDirectories: const ['/bin'],
+            readOnlyDirectories: const ['/bin', '/usr/bin'],
             temporaryDirectories: const ['/tmp'],
           ),
         ),
         writableDirectories:
             WritableDirectories(['/work/proj', '/tmp', '/var/tmp']),
-        approver: (op, reason) async => Approval.yes,
+        commandApprover: (_, __) async => Approval.yes,
       );
       final outcome = await gate.run((
         command: '/bin/sh',
@@ -547,7 +548,7 @@ void main() {
       expect(argv.first, startsWith('--'));
       expect(argv, isNot(contains('bwrap')),
           reason: 'bwrap is the executable, never its own first child command');
-      expect(argv[argv.length - 3], '/bin/sh');
+      expect(argv[argv.length - 3], File('/bin/sh').resolveSymbolicLinksSync());
       expect(argv[argv.length - 2], '-c');
       expect(argv.last, 'echo x > /etc/hosts');
     });
@@ -662,7 +663,7 @@ void main() {
           plan: const SandboxPlan(workspaceRoot: '/work/proj'),
           backend: SandboxBackend.bwrap,
           hostLayout: () => SandboxHostLayout(
-            readOnlyDirectories: const [],
+            readOnlyDirectories: const ['/bin', '/usr/bin'],
             temporaryDirectories: const [],
           ),
         ),
@@ -687,7 +688,7 @@ void main() {
       expect(start.command, 'bwrap');
       expect(start.arguments, contains('--unshare-net'));
       final tail = start.arguments.sublist(start.arguments.length - 3);
-      expect(tail, ['rm', '-rf', '/'],
+      expect([tail.first.split('/').last, ...tail.skip(1)], ['rm', '-rf', '/'],
           reason: 'the command rides verbatim behind the jail argv');
     });
   });

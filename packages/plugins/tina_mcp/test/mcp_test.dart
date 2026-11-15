@@ -401,7 +401,7 @@ void main() {
   });
 
   test(
-      'MCP calls require human approval in ordinary modes; read-only blocks mutations',
+      'MCP uses human review for approve and model review for auto',
       () async {
     final channel = Channel();
     final approvals = ApprovalsPlugin(channel: channel);
@@ -430,16 +430,17 @@ void main() {
       provider.next('mutate', {'value': mode.label});
       final outcome = await loop.runTurn(Input('run', id: mode.label));
       expect(outcome.stopReason, StopReason.complete);
-      expect(results(outcome).single.isError, mode == PermissionMode.readOnly);
+      expect(results(outcome).single.isError, false);
+      expect(tools.mode, PermissionMode.approve);
     }
-    expect(channel.requests, 3);
+    expect(channel.requests, 4);
     tools.modePolicy.classifier = PermissionClassifier(() => SafetyProvider());
     tools.mode = PermissionMode.auto;
     provider.next('mutate', {'value': 'auto'});
     final automatic = await loop.runTurn(const Input('run', id: 'auto'));
     expect(results(automatic).single.isError, false);
     expect(channel.requests, 4,
-        reason: 'auto cannot authorize external MCP access');
+        reason: 'model approval does not require another human decision');
   });
 
   test('server disable closes it and removes its schemas on the next turn',

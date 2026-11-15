@@ -367,7 +367,7 @@ final class SessionAssembly {
       ],
       osSandbox: options.osSandbox,
       settings: settings,
-      mode: options.yolo ? PermissionMode.yolo : PermissionMode.ask,
+      mode: options.yolo ? PermissionMode.yolo : PermissionMode.approve,
       capabilities: options.compileCapabilities
           ? compileCapabilities(readCapabilityInputs(
               workspace: workingDirectory,
@@ -659,6 +659,8 @@ final class SessionAssembly {
         }
         output.writeln(
             'Type while busy and Enter to queue. Ctrl+C clears the draft; with an empty draft it quits. Esc cancels active work and preserves the draft, including while a dialog is open. Tab completes command arguments; @ completes files.');
+        output.writeln(
+            'Scroll conversation: Option/Alt+Up/Down moves one displayed line; Page Up/Down moves a page. Plain Up/Down recalls input history. Drag past a chat edge to scroll a text selection; release to copy, Esc to cancel.');
       },
     ));
     diagnostics?.stage?.call('assembly-ready');

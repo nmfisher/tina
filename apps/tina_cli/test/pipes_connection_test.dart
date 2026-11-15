@@ -154,8 +154,12 @@ void main() {
 
   test('plugin operations ride receipts; the mode lands in the snapshot',
       () async {
+    // Main (v0.9.117 box-model permissions) normalizes the legacy mode
+    // vocabulary: ask/allowEdits/readOnly collapse to `approve` at the
+    // policy layer, so a stale-expectation test needs two LIVE modes.
+    // `auto` and `approve` are the two user-selectable ones.
     final operation = connection.submitOperation('tina/mode', 'set',
-        arguments: {'mode': 'allowEdits', 'expected_mode': 'ask'},
+        arguments: {'mode': 'auto', 'expected_mode': 'approve'},
         id: connection.requestWindow.id('mode-op-1'));
     final snapshot = await operation.completed.timeout(
         const Duration(seconds: 30));
@@ -169,7 +173,7 @@ void main() {
     // is a failed receipt with the error stop reason — the same terminal
     // receipt shape a TUI mode view consumes.
     final stale = connection.submitOperation('tina/mode', 'set',
-        arguments: {'mode': 'allowEdits', 'expected_mode': 'ask'},
+        arguments: {'mode': 'approve', 'expected_mode': 'approve'},
         id: connection.requestWindow.id('mode-op-2'));
     final staleSnapshot = await stale.completed
         .timeout(const Duration(seconds: 30));
@@ -181,7 +185,7 @@ void main() {
     final update = await connection.attach().next()
         .timeout(const Duration(seconds: 30));
     expect(
-        (update!.snapshot.features['tina/mode'] as Map)['mode'], 'allowEdits');
+        (update!.snapshot.features['tina/mode'] as Map)['mode'], 'auto');
   });
 
   test('questions: answering without a pending question reports not accepted',

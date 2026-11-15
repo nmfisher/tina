@@ -14,10 +14,12 @@ export 'package:tina_core/tina_core.dart'
 export 'src/atomic_write.dart';
 export 'src/capability_envelope.dart';
 export 'src/scopes_store.dart';
-export 'src/decision_pipeline.dart';
 export 'src/bash_tool.dart';
 export 'src/edit_tool.dart';
 export 'src/exec_tool.dart';
+export 'src/execution_settings.dart';
+export 'src/command_prefix.dart';
+export 'src/command_exact.dart';
 export 'src/fenced_arguments.dart';
 export 'src/file_system.dart';
 export 'src/glob.dart';
@@ -54,3 +56,7 @@ export 'src/cli.dart';
 
 export 'src/approval_plugin.dart';
 export 'src/command_approval_store.dart';
+
+export 'src/path_grants.dart';
+
+export 'src/resource_approval_store.dart';

@@ -30,11 +30,12 @@ def main():
                 '[providers.local-smoke]\nwire = "anthropic"\n'
                 f'base_url = "http://127.0.0.1:{server.server_port}"\n'
                 'api_key = "fixture-key"\nmodels = ["smoke|Smoke model"]\n')
-            terminal = Terminal([args.dart,
+            terminal = Terminal([args.dart, 'run',
                 'apps/tina_cli/test/fixtures/restart_app.dart',
                 str(config), str(root)],
                 dict(os.environ, COCOON_UPDATE_CHECK='0', TERM='xterm-256color'), 80, 24)
-            terminal.expect('smoke >')
+            # A cold dart run builds native assets before any terminal input.
+            terminal.expect('smoke >', timeout=120)
             # Match the restarted prompt only, not the old app's final repaint.
             start = terminal.send('/restart-test')
             terminal.expect_idle()
@@ -49,7 +50,7 @@ def main():
             terminal.wait_for(
                 lambda: 'config:' in screen_text(terminal.output[start:], 80, 24)
                 and 'smoke >' in screen_text(terminal.output[start:], 80, 24),
-                'restarted app did not show a ready prompt', timeout=30)
+                'restarted app did not show a ready prompt', timeout=120)
             time.sleep(0.2)
             start = terminal.send('hello after restart')
             terminal.expect_idle()

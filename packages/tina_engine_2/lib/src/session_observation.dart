@@ -43,6 +43,24 @@ abstract interface class SessionObservation {
   void Function() listen(void Function(SessionObservationEvent) listener);
 }
 
+/// Optional transcript paging. Ordinary observers can still replay all history.
+abstract interface class PagedSessionObservation implements SessionObservation {
+  SessionHistorySubscription listenRecent(
+    void Function(SessionObservationEvent) listener, {
+    int limit = 32,
+    void Function(void Function())? batchReplay,
+  });
+}
+
+abstract interface class SessionHistorySubscription {
+  bool get hasEarlier;
+
+  /// Replay a larger suffix, retaining the live subscription and its cursor.
+  /// Older committed entries are fetched only when the frontend requests them.
+  void loadEarlier();
+  void close();
+}
+
 final class _LocalSessionObservation implements SessionObservation {
   _LocalSessionObservation(this._source);
   final SessionObservationSource _source;

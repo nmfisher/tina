@@ -91,7 +91,15 @@ approval_channel = "acme/messages"
     final requests = <ApprovalRequest>[];
     final subscription = channel.requests.listen((request) {
       requests.add(request);
-      channel.respond(request.id, ApprovalDecision.allowReadsInDirectory);
+      channel.respond(request.id, ApprovalDecision.allow,
+          directoryGrants: [
+            DirectoryAccessGrant(
+              external.resolveSymbolicLinksSync(),
+              DirectoryAccess.read,
+              DirectoryGrantScope.workspace,
+            ),
+          ],
+        );
     });
     final first = open(channel);
     addTearDown(first.close);
@@ -101,8 +109,10 @@ approval_channel = "acme/messages"
     final outcome = await read.execute(input);
     expect(outcome.isError, isFalse, reason: outcome.content);
     expect(outcome.content, contains('needle'));
-    expect(requests.single.details['read_directory'],
-        external.resolveSymbolicLinksSync());
+    expect(first.tools.commandApprovals.coversAccess('read',
+        source.path),
+        isTrue,
+      );
     expect(first.tools.processRunner.grants.isEmpty, isTrue);
     expect(first.commands['read-dir'], isNull);
     first.close();
@@ -143,7 +153,15 @@ approval_channel = "acme/messages"
     final requests = <ApprovalRequest>[];
     final sub = channel.requests.listen((request) {
       requests.add(request);
-      channel.respond(request.id, ApprovalDecision.allowWritesInDirectory);
+      channel.respond(request.id, ApprovalDecision.allow,
+          directoryGrants: [
+            DirectoryAccessGrant(
+              external.resolveSymbolicLinksSync(),
+              DirectoryAccess.write,
+              DirectoryGrantScope.workspace,
+            ),
+          ],
+        );
     });
     final first = open(channel);
     addTearDown(first.close);
@@ -153,8 +171,11 @@ approval_channel = "acme/messages"
         .execute({'filePath': '${external.path}/first', 'content': 'first'});
     expect(result.isError, isFalse, reason: result.content);
     expect(requests, hasLength(1));
-    expect(requests.single.details['write_directory'],
-        external.resolveSymbolicLinksSync());
+    expect(first.tools.commandApprovals.coversAccess(
+          'write',
+        external.resolveSymbolicLinksSync()),
+        isTrue,
+      );
     expect(first.tools.sandbox.grants.isEmpty, isTrue);
     first.close();
     await sub.cancel();

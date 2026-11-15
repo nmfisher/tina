@@ -6,6 +6,8 @@
 // Run: dart test test/speculative_cache_test.dart
 library;
 
+import 'support/human.dart';
+
 import 'dart:async';
 import 'dart:io';
 
@@ -395,7 +397,9 @@ void main() {
         () async {
       final paused = _PausedFileSystem();
       plugin.sandbox.reinner(paused);
-      plugin.mode = PermissionMode.allowEdits;
+      plugin.modePolicy.approvals = TestHuman();
+      await plugin.modePolicy
+          .ensureWorkspaceWrite(canonicalSandboxPath(ws.path));
       final writing =
           run('write', {'filePath': 'lib/a.dart', 'content': 'updated'});
       await paused.started.future;

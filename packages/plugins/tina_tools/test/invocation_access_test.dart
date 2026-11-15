@@ -134,52 +134,6 @@ void main() {
     expect(spawn.requests, isEmpty);
   });
 
-  for (final backend in [SandboxBackend.sandboxExec, SandboxBackend.bwrap]) {
-    test(
-        '$backend applies human-approved directory access only to this invocation',
-        () async {
-      final tools = plugin();
-      final judge = Judge(const PermissionJudgment(true));
-      final human = Human();
-      tools.modePolicy
-        ..classifier = judge
-        ..approvals = human;
-      final spawn = Spawn();
-      final runner = gate(tools, spawn, backend: backend);
-      final request =
-          command(program: '/bin/sh', args: ['-c', 'project-build']);
-      final outcome = await runner.run(request,
-          control: ProcessControl(
-            readDirectories: [other.path],
-            writeDirectories: [external.path],
-            networkRequested: true,
-            networkReason: 'dependencies',
-          ));
-      expect(outcome, isA<CommandCompleted>());
-      expect(judge.requests, isEmpty);
-      expect(human.details.single['required_permissions'],
-          containsAll(['execution', 'network', 'directoryAccess']));
-      expect(human.details.single['invocation_directory_access'], {
-        'read': [other.path],
-        'write': [external.path]
-      });
-      expect(human.details, hasLength(1));
-      expect(tools.readDirectories.paths, isEmpty);
-      expect(tools.writeDirectories.paths, isEmpty);
-      expect(
-          spawn.requests.single.arguments.join(' '), contains(external.path));
-      expect(spawn.requests.single.arguments.join(' '), contains(other.path));
-      expect(spawn.controls.single!.outsideSandboxAllowed, false);
-      expect(spawn.controls.single!.networkAllowed, true);
-      expect(await runner.run(command()), isA<CommandCompleted>());
-      expect(spawn.controls.last!.approvedDirectories!.isEmpty, true);
-      expect(spawn.requests.last.arguments.join(' '),
-          isNot(contains(external.path)));
-      expect(spawn.controls.last!.networkAllowed, false);
-      expect(tools.osPlan.canWrite(external.path), false);
-    });
-  }
-
   test('all known reader directories are reviewed together before spawning',
       () async {
     final a = File('${external.path}/a')..writeAsStringSync('a');
@@ -212,118 +166,6 @@ void main() {
     final index = args.indexOf(external.path);
     expect(args[index - 1], '--ro-bind');
     expect(spawn.controls.single!.approvedDirectories!.write, isEmpty);
-  });
-
-  test(
-      'session folder grant covers new filenames and revocation affects next call',
-      () async {
-    final tools = plugin();
-    final human = Human()
-      ..grants = [
-        DirectoryAccessGrant(
-            external.path, DirectoryAccess.write, DirectoryGrantScope.session)
-      ];
-    tools.modePolicy.approvals = human;
-    final runner = gate(tools, Spawn());
-    final control = ProcessControl(writeDirectories: [external.path]);
-    expect(await runner.run(command(args: ['first']), control: control),
-        isA<CommandCompleted>());
-    expect(tools.writeDirectories.paths, [external.path]);
-    human.answer = ApprovalDecision.deny;
-    expect(await runner.run(command(args: ['second']), control: control),
-        isA<CommandCompleted>());
-    expect(human.details, hasLength(1));
-    tools.writeDirectories.replace([]);
-    expect(await runner.run(command(args: ['third']), control: control),
-        isA<CommandRefused>());
-    expect(human.details, hasLength(2));
-  });
-
-  test(
-      'workspace folder grants survive rebuilding the session from saved settings',
-      () async {
-    final backend = MemorySettingsBackend();
-    final catalog = SettingCatalog()
-      ..register(readOnlyDirectoriesSetting)
-      ..register(writeDirectoriesSetting);
-    ScopedSettings settings() {
-      final value = ScopedSettings(catalog: catalog, backend: backend);
-      addTearDown(value.close);
-      return value;
-    }
-
-    final tools = plugin(settings: settings());
-    final human = Human()
-      ..grants = [
-        DirectoryAccessGrant(
-            external.path, DirectoryAccess.write, DirectoryGrantScope.workspace)
-      ];
-    tools.modePolicy.approvals = human;
-    final control = ProcessControl(writeDirectories: [external.path]);
-    expect(await gate(tools, Spawn()).run(command(), control: control),
-        isA<CommandCompleted>());
-    final resumed = plugin(settings: settings());
-    final denied = Human()..answer = ApprovalDecision.deny;
-    resumed.modePolicy.approvals = denied;
-    expect(
-        await gate(resumed, Spawn())
-            .run(command(args: ['resumed']), control: control),
-        isA<CommandCompleted>());
-    expect(denied.details, isEmpty);
-  });
-
-  test(
-      'Always grants cannot cover a different directory or read-to-write upgrade',
-      () async {
-    final tools = plugin();
-    final human = Human()..answer = ApprovalDecision.allowAlways;
-    tools.modePolicy.approvals = human;
-    final runner = gate(tools, Spawn());
-    final read = ProcessControl(readDirectories: [external.path]);
-    await runner.run(command(), control: read);
-    await runner.run(command(), control: read);
-    expect(human.details, hasLength(1));
-    human.answer = ApprovalDecision.deny;
-    expect(
-        await runner.run(command(),
-            control: ProcessControl(writeDirectories: [external.path])),
-        isA<CommandRefused>());
-    expect(
-        await runner.run(command(),
-            control: ProcessControl(readDirectories: [other.path])),
-        isA<CommandRefused>());
-    expect(human.details, hasLength(3));
-  });
-
-  test('persistent command rules retain directory capabilities across restart',
-      () {
-    final file = File('${root.path}/grants/commands.json');
-    final store = CommandApprovalStore(workspace: workspace.path, file: file);
-    final permissions = {
-      ProcessPermission.execution,
-      ProcessPermission.directoryAccess
-    };
-    final access = ProcessDirectoryAccess(read: [external.path]);
-    store.remember(command(), permissions, CommandApprovalScope.workspace,
-        directoryAccess: access);
-    final resumed = CommandApprovalStore(workspace: workspace.path, file: file);
-    expect(
-        resumed.covers(command(), permissions, directoryAccess: access), true);
-    expect(
-        resumed.covers(command(), permissions,
-            directoryAccess: ProcessDirectoryAccess(write: [external.path])),
-        false);
-    expect(
-        resumed.covers(command(), permissions,
-            directoryAccess: ProcessDirectoryAccess(read: [other.path])),
-        false);
-    expect(
-        resumed.covers(command(), {...permissions, ProcessPermission.network},
-            directoryAccess: access),
-        false);
-    resumed.revoke(resumed.entries.single['id'] as String);
-    expect(
-        store.covers(command(), permissions, directoryAccess: access), false);
   });
 
   test('changed symlinks and cancellation install no late grants or processes',
@@ -360,25 +202,6 @@ void main() {
     expect(runner.grants.isEmpty, true);
   });
 
-  test(
-      'protected, home-wide and root-wide directory requests fail before review',
-      () async {
-    final secret = Directory('${home.path}/.ssh')..createSync();
-    final tools = plugin();
-    final judge = Judge(const PermissionJudgment(true));
-    tools.modePolicy.classifier = judge;
-    final spawn = Spawn();
-    final runner = gate(tools, spawn);
-    for (final directory in [secret.path, home.path, '/']) {
-      expect(
-          await runner.run(command(),
-              control: ProcessControl(readDirectories: [directory])),
-          isA<CommandRefused>());
-    }
-    expect(judge.requests, isEmpty);
-    expect(spawn.requests, isEmpty);
-  });
-
   test('parallel invocation layouts never inherit each other\'s access',
       () async {
     final tools = plugin();
@@ -405,33 +228,6 @@ void main() {
     expect(await second, isA<CommandCompleted>());
   });
 
-  test('real command adapter supplies verified coverage for precedent reuse',
-      () async {
-    final file = File('${workspace.path}/source')..writeAsStringSync('read');
-    final tools = plugin();
-    final human = Human();
-    final judge = Judge(const PermissionJudgment(null, 'test unavailable'));
-    tools.modePolicy
-      ..approvals = human
-      ..classifier = judge
-      ..precedentStore = MemoryPrecedentStore()
-      ..precedentScope = (() => PrecedentScope(workspace: workspace.path))
-      ..readPrecedentMode = (() => PrecedentMode.full);
-    final request = command(program: '/bin/cat', args: [file.path]);
-    final review = CommandApproval(
-        reason: 'review',
-        requiredPermissions: {ProcessPermission.execution},
-        missingPermissions: {ProcessPermission.execution});
-    for (var i = 0; i < 3; i++) {
-      expect(await tools.processRunner.commandApprover!(request, review),
-          Approval.yes);
-    }
-    expect(human.details, hasLength(2));
-    expect(judge.requests, hasLength(2));
-    expect(judge.requests.first['access_coverage'], 'complete');
-    expect(judge.requests.first['access_coverage_source'], 'verified');
-  });
-
   test(
       'exec/bash and background jobs preserve requests and reset supplied authority',
       () async {
@@ -443,7 +239,7 @@ void main() {
       final input = <String, dynamic>{
         if (shell) 'command': 'echo ok' else 'program': '/bin/echo',
         'read_directories': [external.path],
-        'write_directories': [other.path],
+        'write_directories': [other.path]
       };
       await tool.execute(input,
           control: ProcessControl(

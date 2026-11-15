@@ -356,7 +356,7 @@ void main() {
     final rendered = visible();
     expect(rendered, contains('v0.9.19 · update ⬆ v999.0.0'));
     expect(rendered, contains('Σ 58 +~8,525 est'));
-    expect(rendered, contains('mode: allow-edits'));
+    expect(rendered, contains('mode: approve'));
   });
   test(
       'backend, panels and update fit at 80 columns; wide bars retain the hint',
@@ -380,7 +380,7 @@ void main() {
     });
     final narrow = visible().split('\n').last;
     for (final label in [
-      'mode: ask',
+      'mode: approve',
       'notcurses',
       '1 panel',
       'v0.9.29',
@@ -403,14 +403,14 @@ void main() {
     await tick();
     io.feed('draft\x1b[Z');
     await tick();
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     expect(transcript(), isNot(contains('mode:')));
-    expect(io.output.toString(), contains('mode: read-only'));
+    expect(io.output.toString(), contains('mode: auto'));
     await control.commands.single.handler('ask');
     modes.repaintConsole();
     io.feed('\x1b[Z');
     await tick();
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     io.feed(' intact\r');
     expect(await line, 'draft intact');
     modes.detachConsole();
@@ -418,19 +418,19 @@ void main() {
     await tick();
     io.feed('\x1b[Z\r');
     expect(await next, '');
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
   });
   test('Shift-Tab works during a turn but yields to approval key ownership',
       () async {
     editor.beginCancelMonitor(() {}, onQueueSubmit: (_) {});
     io.feed('queued\x1b[Z');
     await tick();
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     final read = editor.readKey(globalKeys: true);
     await tick();
     io.feed('\x1b[Z');
     expect(await read, ControlKey(ControlCode.backtab));
-    expect(control.mode, PermissionMode.readOnly);
+    expect(control.mode, PermissionMode.auto);
     editor.endInputCaptureWindow();
     final line = editor.readLine('unused');
     await tick();
@@ -991,6 +991,82 @@ void main() {
     expect(editor.editState.buffer, 'previous input');
     expect(screen.chat.debugScrollOffset, 0);
     io.feed('\x1b[B\r');
+    expect(await line, 'draft');
+  });
+
+  test('new input returns to the live tail after browsing older messages',
+      () async {
+    for (var i = 0; i < 70; i++) chat.writeNotice('older message $i');
+    screen.chat.scrollBy(-40);
+    expect(screen.chat.isTailPinned, false);
+    chat.watch(const SawText('response received while browsing\n\n'));
+    expect(screen.chat.newWhileScrolled, greaterThan(0));
+    chat.entry(
+        const InputRecordedEntry(turnId: 'new-input', text: 'new user message'),
+        LogEvent.appended);
+    await tick();
+    expect(screen.chat.isTailPinned, true);
+    expect(screen.chat.newWhileScrolled, 0);
+    expect(visible(), contains('new user message'));
+    chat.watch(const SawText('new visible response\n\n'));
+    await tick();
+    expect(visible(), contains('new visible response'));
+  });
+
+  test('new input dismisses a mouse snapshot that lost its release', () async {
+    for (var i = 0; i < 70; i++) chat.writeNotice('older message $i');
+    screen.chat.scrollBy(-40);
+    final line = editor.readLine('unused');
+    await tick();
+    final x = screen.chat.bounds.col + 2;
+    final y = screen.chat.bounds.row + 3;
+    io.feed('\x1b[<0;$x;${y}M');
+    await tick();
+    expect(visible(), contains('Release to copy'));
+    // A session can submit from another control without a local key cancelling
+    // the selection first. The old snapshot must not cover the new message.
+    chat.entry(
+        const InputRecordedEntry(
+            turnId: 'new-input', text: 'message after selection'),
+        LogEvent.appended);
+    await tick();
+    expect(visible(), contains('message after selection'));
+    expect(visible(), isNot(contains('Release to copy')));
+    expect(screen.chat.isTailPinned, true);
+    io.feed('\x04');
+    expect(await line, isNull);
+  });
+
+  test('mouse drag copies across pages without editing the draft', () async {
+    final copied = Completer<String>();
+    final replacement = ChatView(chat.chat, copyText: (text) async {
+      if (!copied.isCompleted) copied.complete(text);
+      return true;
+    });
+    chat.detachConsole();
+    replacement.attachConsole(context);
+    addTearDown(replacement.detachConsole);
+    for (var i = 0; i < 70; i++) {
+      replacement.watch(SawText('history row $i\n\n'));
+    }
+    screen.chat.scrollBy(-50);
+    final line = editor.readLine('unused');
+    await tick();
+    io.feed('draft');
+    await tick();
+    final draft = editor.editState;
+    final x = screen.chat.bounds.col + 1;
+    final y = screen.chat.bounds.row + 2;
+    final bottom = screen.chat.bounds.row + screen.chat.usableHeight + 1;
+    io.feed('\x1b[<0;$x;${y}M');
+    io.feed('\x1b[<32;${x + 12};${bottom}M');
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    io.feed('\x1b[<0;${x + 12};${bottom}m');
+    final text = await copied.future.timeout(const Duration(seconds: 2));
+    expect(text, contains('history row'));
+    expect(text.split('\n').length, greaterThan(screen.chat.usableHeight));
+    expect(editor.editState, draft);
+    io.feed('\r');
     expect(await line, 'draft');
   });
 

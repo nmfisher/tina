@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:classification/command_regex.dart';
 import 'package:classification/plugin.dart';
@@ -44,6 +43,31 @@ final webSearchSetting = SettingDefinition<int>(
   applyAt: ApplyAt.nextRequest,
 );
 
+final toolCallFormatSetting = SettingDefinition<bool>(
+  id: 'tina/classification/tool_call_format',
+  label: 'Check tool calls before running',
+  description:
+      'Use the configured Typesafe model to check command formatting and file paths. '
+      'Ask the agent to rewrite concrete command or path mistakes before approval '
+      'and execution. Requires tina/classification and a Typesafe API key.',
+  defaultValue: true,
+  kind: SettingKind.toggle,
+  applyAt: ApplyAt.nextRequest,
+);
+
+final toolCallFormatTimeoutSetting = SettingDefinition<int>(
+  id: 'tina/classification/tool_call_format_timeout_seconds',
+  label: 'Tool call check timeout (seconds)',
+  description:
+      'Maximum time for a Typesafe tool call check. If unavailable '
+      'or timed out, continue with normal permission checks.',
+  defaultValue: 60,
+  kind: SettingKind.integer,
+  minimum: 1,
+  maximum: 300,
+  applyAt: ApplyAt.nextRequest,
+);
+
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
 /// The model for permission-side judgments: the configured classifier model,
@@ -80,7 +104,7 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
     settings: [
       classifierInstructionSetting,
       classifierModelSetting,
-      precedentSetting,
+      classifierTimeoutSetting,
     ],
     operations: modeOperations,
     dependency: modePolicySource,
@@ -208,11 +232,18 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       'tina/approvals-tui',
       dependency: modelAccess,
       provides: [approvalChannel],
-      create: (c, models) => AttachmentApprovalChannel(
-        suggestCommandPattern: (request, cancelled) async {
+      create: (c, models) {
+        // Both editors draft through the same model lease; only the
+        // instruction differs (full command vs starting-with rule).
+        Future<CommandPatternSuggestion> suggest(
+          CommandRegexSuggestionMode mode,
+          ApprovalRequest request,
+          Future<void> cancelled,
+        ) async {
           final suggestion =
               await CommandRegexSuggester(
                 () => models.mainProvider(_classifierModel(c)),
+                mode: mode,
               ).suggest(
                 request.details['command_pattern_target'] as String,
                 whenCancelled: cancelled,
@@ -222,8 +253,15 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             explanation: suggestion.explanation,
             failure: suggestion.failure,
           );
-        },
-      ),
+        }
+
+        return AttachmentApprovalChannel(
+          suggestCommandPattern: (request, cancelled) =>
+              suggest(CommandRegexSuggestionMode.exact, request, cancelled),
+          suggestCommandPrefix: (request, cancelled) =>
+              suggest(CommandRegexSuggestionMode.prefix, request, cancelled),
+        );
+      },
       description:
           'Shows approval choices and edits model-suggested command approval regexes.',
     ),
@@ -241,40 +279,27 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     >(
       'tina/tools',
       cli: toolsCli,
-      settings: [
-        readOnlyDirectoriesSetting,
-        writeDirectoriesSetting,
-        homeCachesSetting,
-        allowReadsOutsideWorkspaceSetting,
-      ],
+      settings: executionSettings,
       first: approvalRequester,
       second: modelAccess,
       provides: [toolProvider, modePolicySource],
       create: (c, approvals, models) {
-        final workspace = Directory(c.workingDirectory).absolute.path;
         // Statements, not one cascade: a cascade after an arrow body binds
         // to that body's expression.
         final policy = (c.tools as ToolsPlugin).modePolicy;
         policy.approvals = approvals;
         policy.terminal = c.terminal;
-        policy.precedentStore = FilePrecedentStore(
-          '${File(c.configPath).parent.path}/precedents/'
-          '${_workspaceKey(workspace)}.jsonl',
-        );
-        policy.readPrecedentMode = () =>
-            parsePrecedentMode(c.settings?.read(precedentSetting).value);
         policy.classifier = PermissionClassifier(
           () => models.mainProvider(_classifierModel(c)),
+          readTimeout: () => Duration(
+            seconds:
+                c.settings?.read(classifierTimeoutSetting).value ??
+                classifierTimeoutSetting.defaultValue,
+          ),
           readInstruction: () =>
               c.settings?.read(classifierInstructionSetting).value ?? '',
-          readPrecedents: policy.precedentEvidenceFor,
         );
         final tools = c.tools as ToolsPlugin;
-        policy.precedentScope = () => PrecedentScope(
-          workspace: workspace,
-          readDirectories: tools.readDirectories.paths,
-          writeDirectories: tools.writeDirectories.paths,
-        );
         return tools;
       },
       description:
@@ -283,13 +308,22 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     PluginDefinition.dependingOn<SessionPluginContext, ModelAccess>(
       'tina/classification',
       dependency: modelAccess,
+      settings: [toolCallFormatSetting, toolCallFormatTimeoutSetting],
       create: (c, models) => ClassificationPlugin.configured(
         terminal: c.terminal,
         configPath: c.configPath,
+        readWorkspace: () => c.workingDirectory,
         createProvider: () => models.mainProvider(c.currentModel()),
+        toolCallFormatEnabled: () =>
+            c.settings?.read(toolCallFormatSetting).value ?? true,
+        toolCallFormatTimeout: () => Duration(
+          seconds: c.settings?.read(toolCallFormatTimeoutSetting).value ?? 60,
+        ),
       ),
       description:
-          'Classifies user input and Git operations, learns reusable categories from Other using the active model, and counts selections. Displays results without changing how the agent responds.',
+          'Classifies user input and Git operations, learns reusable categories, '
+          'and checks command formatting and file paths with Typesafe before execution. '
+          'Requests rewrites for poorly formatted commands without granting permissions.',
       live: true,
     ),
     PluginDefinition<SessionPluginContext>(
@@ -431,12 +465,8 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         readBudgetTokens: () =>
             c.settings?.read(contextBudgetSetting).value ??
             defaultContextBudgetTokens,
-        onMirrorReady: (file) => (c.tools as ToolsPlugin)
-            .sandbox
-            .grants
-            .rememberExact(
-          file.resolveSymbolicLinksSync(),
-        ),
+        onMirrorReady: (file) => (c.tools as ToolsPlugin).sandbox.grants
+            .rememberExact(file.resolveSymbolicLinksSync()),
       ),
       description:
           'Experimental: lets the agent edit its working conversation through a temporary file. Preserves the original log and pauses automatic and manual compaction while loaded. Changes require restart.',
@@ -491,7 +521,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           childPlugins: () => [
             const SystemInstructionPlugin(),
             if (c.openStore != null)
-            PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
+              PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
           ],
         ),
         history: c.openStore != null
@@ -555,24 +585,6 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     ),
   ],
 );
-
-/// A stable, filesystem-safe per-workspace name for its precedent file.
-///
-/// FNV-1a over the absolute path: deterministic across runs and Dart versions
-/// (unlike [Object.hashCode]), and the readable suffix keeps the file
-/// identifiable when inspecting `~/.tina/precedents`.
-String _workspaceKey(String path) {
-  var hash = 0x811c9dc5;
-  for (final unit in utf8.encode(path)) {
-    hash = ((hash ^ unit) * 0x01000193) & 0xffffffff;
-  }
-  final safe = path.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-');
-  final trimmed = safe.replaceAll(RegExp(r'^-+|-+$'), '');
-  final prefix = trimmed.length > 60
-      ? trimmed.substring(trimmed.length - 60)
-      : trimmed;
-  return '${prefix.isEmpty ? 'workspace' : prefix}-${hash.toRadixString(16).padLeft(8, '0')}';
-}
 
 /// A [SubagentHistorySource] backed by the session store: lists every stored
 /// session and its last assistant text, so the sub-agents plugin can

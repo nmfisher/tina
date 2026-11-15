@@ -17,7 +17,8 @@ typedef _Row = ({_Kind kind, String id, String? model});
 
 /// The legacy settings tree: expand providers, paste a masked credential or
 /// endpoint inline, and check individual models. Config ownership stays with
-/// the settings document; Escape discards the tree's draft.
+/// the settings document. Confirmed model additions are saved when returning;
+/// Escape still cancels an unfinished model entry or an unconfirmed draft.
 final class ProvidersPanel {
   ProvidersPanel(
       {required this.screen,
@@ -30,8 +31,12 @@ final class ProvidersPanel {
       this.contextLine,
       this.title = 'Providers & models'}) {
     _checked.addAll(providers.keys);
+    // The configured default is active even when it uses only built-in
+    // settings or an environment credential and has no provider table yet.
+    final selected = draft.table('default')['provider'] as String? ?? 'anthropic';
+    if (_ids.contains(selected)) _checked.add(selected);
     for (final id in _ids) {
-      _disabled[id] = providers.containsKey(id)
+      _disabled[id] = _checked.contains(id)
           ? _disabledModels(id)
           : _models(id).keys.toSet();
     }
@@ -54,6 +59,7 @@ final class ProvidersPanel {
   String _query = '', _entry = '';
   _Row? _adding;
   bool _open = false;
+  bool _addedModel = false;
 
   List<String> get _ids =>
       {...descriptors.map((d) => d.id), ...providers.keys}.toList();
@@ -137,6 +143,7 @@ final class ProvidersPanel {
               values['models'] = [...models, text];
               _checked.add(adding.id);
               _disabled[adding.id]!.remove(id);
+              _addedModel = true;
             }
             _adding = null;
             _entry = '';
@@ -145,7 +152,7 @@ final class ProvidersPanel {
           _entry = _editText(_entry, event);
           continue;
         }
-        if (event is EscapeKey) return false;
+        if (event is EscapeKey) return _addedModel ? _apply() : false;
         final rows = _rows;
         _focus = _focus.clamp(0, rows.length - 1);
         final row = rows[_focus];
@@ -237,11 +244,7 @@ final class ProvidersPanel {
             _disabled[row.id] = _disabledModels(row.id);
             continue;
           }
-          for (final id in _checked) {
-            _values(id)['disabled_models'] = _disabled[id]!.toList();
-          }
-          providers.removeWhere((id, _) => !_checked.contains(id));
-          return true;
+          return _apply();
         }
       }
     } finally {
@@ -250,6 +253,14 @@ final class ProvidersPanel {
       _overlay.dispose();
       cursor.release();
     }
+  }
+
+  bool _apply() {
+    for (final id in _checked) {
+      _values(id)['disabled_models'] = _disabled[id]!.toList();
+    }
+    providers.removeWhere((id, _) => !_checked.contains(id));
+    return true;
   }
 
   int get _room => (_height - 4 - (_height >= 6 && contextLine != null ? 1 : 0))
@@ -317,8 +328,10 @@ final class ProvidersPanel {
             height: height,
             title: title,
             body: lines,
-            footer:
-                '↑↓ move · → expand · ← collapse · space toggle · enter apply · esc cancel',
+            footer: _adding != null
+                ? 'Enter confirm model or provider · Esc cancel entry'
+                : '↑↓ move · → expand · space toggle · Enter apply · '
+                    '${_addedModel ? 'Esc save & back' : 'Esc cancel'}',
             paint: (text) => screen.colorize(screen.theme.border.focus, text)));
   }
 

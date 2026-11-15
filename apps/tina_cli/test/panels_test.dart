@@ -525,7 +525,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('\x1b');
     expect(session.host.session.loop.running, true,
         reason: 'closing Settings must not cancel the awaiting turn');
-    await waitFor(() => io.written.toString().contains('[y] allow once'));
+    await waitFor(() => io.written.toString()
+        .contains('Allow workspace writes for this session'));
     // Esc at the approval prompt cancels the turn (global prompt path).
     await keys('\x1b');
     await waitFor(() => !session.host.session.loop.running);
@@ -533,180 +534,63 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(provider.requests, hasLength(1));
     expect(File('${dir.path}/reviewed.txt').existsSync(), false);
     expect(session.host.session.turns.single.stopReason, StopReason.cancelled);
-    expect(session.assembly.tools.mode.label, 'ask');
+    expect(session.assembly.tools.mode.label, 'approve');
     await keys('chat draft');
     expect(editor.editState.buffer, 'chat draft');
   });
 
-  test('Always entered in the UI is reused on later turns for the same file',
-      () async {
-    await session.commands['mode']!.handler('ask');
-    final provider = providers.first;
-    Future<void> write(int index, String path, String content) async {
-      provider.streams[index]
-          .add(ToolCallStart(id: 'write-$index', name: 'write'));
-      provider.streams[index].add(MessageComplete(content: [
-        ToolUseBlock(id: 'write-$index', name: 'write', input: {
-          'filePath': path,
-          'content': content,
-        })
-      ], stopReason: 'tool_use'));
-      await provider.streams[index].close();
-    }
+  test(
+    'workspace approval in the UI covers later files for this session',
+    () async {
+      final provider = providers.first;
+      final initialGrants = session.assembly.tools.commandApprovals.entries;
+      Future<void> write(int index, String path) async {
+        provider.streams[index].add(
+          ToolCallStart(id: 'w$index', name: 'write'),
+        );
+        provider.streams[index].add(
+          MessageComplete(
+            content: [
+              ToolUseBlock(
+                id: 'w$index',
+                name: 'write',
+                input: {'filePath': path, 'content': path},
+              ),
+            ],
+            stopReason: 'tool_use',
+          ),
+        );
+        await provider.streams[index].close();
+      }
 
-    await keys('first write\r');
-    await waitFor(() => provider.requests.length == 1);
-    await write(0, 'remembered.txt', 'first');
-    await waitFor(
-        () => approvalUi(session).interaction.pending.firstOrNull != null);
-    expect(
-        approvalUi(session)
-            .interaction
-            .pending
-            .firstOrNull!
-            .details['permission_scope'],
-        'file');
-    await keys('a\r');
-    await waitFor(() => provider.requests.length == 2);
-    final target = File('${dir.path}/remembered.txt');
-    expect(target.readAsStringSync(), 'first');
-    expect(session.assembly.tools.commandApprovals.coversAccess(
-        'write', target.resolveSymbolicLinksSync()), true);
-    provider.answer(1, 'saved');
-    await waitFor(() => !session.host.session.loop.running);
+      await keys('first write\r');
+      await waitFor(() => provider.requests.length == 1);
+      await write(0, 'first.txt');
+      await waitFor(() => approvalUi(session).interaction.pending.isNotEmpty);
+      expect(
+        approvalUi(
+          session,
+        ).interaction.pending.single.details['workspace_write_grant'],
+        true,
+      );
+      expect(File('${dir.path}/first.txt').existsSync(), false);
+      await keys('y');
+      await waitFor(() => provider.requests.length == 2);
+      expect(File('${dir.path}/first.txt').readAsStringSync(), 'first.txt');
+      provider.answer(1, 'saved');
+      await waitFor(() => !session.host.session.loop.running);
 
-    await keys('write again\r');
-    await waitFor(() => provider.requests.length == 3);
-    await write(2, './remembered.txt', 'second');
-    await waitFor(() => provider.requests.length == 4);
-    expect(approvalUi(session).interaction.pending.firstOrNull, isNull);
-    expect(target.readAsStringSync(), 'second');
-    expect(session.assembly.tools.commandApprovals.entries
-        .where((entry) => entry['kind'] == 'access').length, 1);
-    provider.answer(3, 'saved again');
-    await waitFor(() => !session.host.session.loop.running);
-
-    await keys('write another file\r');
-    await waitFor(() => provider.requests.length == 5);
-    await write(4, 'other.txt', 'denied');
-    await waitFor(
-        () => approvalUi(session).interaction.pending.firstOrNull != null);
-    await keys('n');
-    await waitFor(() => provider.requests.length == 6);
-    expect(File('${dir.path}/other.txt').existsSync(), false);
-    expect(session.assembly.tools.commandApprovals.entries
-        .where((entry) => entry['kind'] == 'access').length, 1);
-    provider.answer(5, 'declined');
-    await waitFor(() => !session.host.session.loop.running);
-  });
-
-  for (final selectAlways in [false, true]) {
-    for (final access in ['confined', 'network', 'outside sandbox']) {
-      final network = access == 'network';
-      final outside = access == 'outside sandbox';
-      Iterable<Map<String, Object?>> sessionGrants() =>
-          session.assembly.tools.commandApprovals.entries
-              .where((entry) => entry['scope'] == 'session');
-      int rememberedCommands() => outside
-          ? sessionGrants().length
-          : session.assembly.tools.processRunner.grants.length;
-      test(
-          'UI Always (${selectAlways ? 'arrows and Enter' : 'shortcut'}) remembers the exact command ($access) on later turns, even after failure',
-          () async {
-        await session.commands['mode']!.handler('ask');
-        final provider = providers.first;
-        Future<void> command(int index, String text) async {
-          provider.streams[index]
-              .add(ToolCallStart(id: 'exec-$index', name: 'exec'));
-          provider.streams[index].add(MessageComplete(content: [
-            ToolUseBlock(id: 'exec-$index', name: 'exec', input: {
-              // Explicitly request writes so this fixture exercises approval.
-              'program': outside ? '/usr/bin/false' : '/usr/bin/printf',
-              'args': ['%s\\n', text],
-              if (!outside) 'access': 'workspace-write',
-              if (network) 'network': true,
-              if (network) 'network_reason': 'test session network approval',
-              if (outside) 'outside_sandbox': true,
-              if (outside) 'sandbox_reason': 'test unconfined session approval',
-            })
-          ], stopReason: 'tool_use'));
-          await provider.streams[index].close();
-        }
-
-        await keys('run command\r');
-        await waitFor(() => provider.requests.length == 1);
-        await command(0, 'remembered command');
-        await waitFor(
-            () => approvalUi(session).interaction.pending.firstOrNull != null);
-        expect(
-            approvalUi(session)
-                .interaction
-                .pending
-                .firstOrNull!
-                .details['permission_scope'],
-            'command');
-        expect(approvalUi(session).interaction.pending.firstOrNull!.kind,
-            ApprovalKind.permission);
-        expect(
-            approvalUi(session)
-                .interaction
-                .pending
-                .firstOrNull!
-                .details['required_permissions'],
-            [
-              'execution',
-              if (!outside) 'workspaceWrite',
-              if (network || outside) 'network',
-              if (outside) 'unconfined'
-            ]);
-        if (network) {
-          await waitFor(
-              () => io.written.toString().contains('with network access'));
-          expect(io.written.toString(),
-              contains('Remember…'));
-        }
-        // Exercise both the shortcut and selecting Always with Enter.
-        await keys(
-            selectAlways ? '\x1b[B\x1b[B\r\r' : 'a\r');
-        await waitFor(() => provider.requests.length == 2);
-        expect(rememberedCommands(), 1);
-        if (outside) {
-          expect(sessionGrants().single['scope'], 'session');
-          expect(session.assembly.tools.processRunner.grants.length, 0,
-              reason: 'host approvals use the revocable scoped store');
-        }
-        provider.answer(1, 'ran');
-        await waitFor(() => !session.host.session.loop.running);
-
-        await keys('run again\r');
-        await waitFor(() => provider.requests.length == 3);
-        await command(2, 'remembered command');
-        await waitFor(() => provider.requests.length == 4);
-        expect(approvalUi(session).interaction.pending.firstOrNull, isNull);
-        final results = session.host.session.loop.log
-            .whereType<MessageAppendedEntry>()
-            .expand((entry) => entry.message.content)
-            .whereType<ToolResultBlock>();
-        expect(results, hasLength(2));
-        expect(results.every((result) => result.isError == outside), true);
-        expect(results.last.content,
-            contains(outside ? 'exit code: 1' : 'remembered command'));
-        provider.answer(3, 'ran again');
-        await waitFor(() => !session.host.session.loop.running);
-
-        await keys('run different command\r');
-        await waitFor(() => provider.requests.length == 5);
-        await command(4, 'different arguments');
-        await waitFor(
-            () => approvalUi(session).interaction.pending.firstOrNull != null);
-        await keys('n');
-        await waitFor(() => provider.requests.length == 6);
-        expect(rememberedCommands(), 1);
-        provider.answer(5, 'declined');
-        await waitFor(() => !session.host.session.loop.running);
-      });
-    }
-  }
+      await keys('another file\r');
+      await waitFor(() => provider.requests.length == 3);
+      await write(2, 'second.txt');
+      await waitFor(() => provider.requests.length == 4);
+      expect(approvalUi(session).interaction.pending, isEmpty);
+      expect(File('${dir.path}/second.txt').readAsStringSync(), 'second.txt');
+      expect(session.assembly.tools.commandApprovals.entries, initialGrants);
+      provider.answer(3, 'saved again');
+      await waitFor(() => !session.host.session.loop.running);
+    },
+  );
 
   test('model picker updates the active panel without changing its session',
       () async {

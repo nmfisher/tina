@@ -15,6 +15,23 @@ typedef _ShellPart = ({
   List<({String text, String? target})> redirects
 });
 
+/// Public view of one parsed pipeline component: its literal words, the
+/// operator that follows it (`|`, `;`, `&&`), and its redirects. The same
+/// shape the internal grammar produces; exposed for the box sorter.
+typedef ShellCommandPart = ({
+  List<String> words,
+  String? operator,
+  List<({String text, String? target})> redirects
+});
+
+/// The literal shell parse of a `/bin/sh -c` request, or null when the
+/// payload uses a construct this grammar rejects (substitution, subshells,
+/// globs, newlines). Public seam over the internal parser: the box sorter
+/// reuses the exact words/operators/redirects the certified-reader path
+/// parses.
+List<ShellCommandPart>? literalShellParts(ProcessRequest request) =>
+    _literalShellParts(request);
+
 ({String text, String target, int end})? _fileRedirectAt(
     String script, int start) {
   var cursor = start;

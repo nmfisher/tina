@@ -32,9 +32,25 @@ class ControlKey extends InputEvent {
   int get hashCode => code.hashCode;
 }
 
-/// A mouse scroll wheel notch. Routed to the focused panel's scrollback
-/// (conversation panels and run panels scroll their chat) — never to the
-/// editor, so the wheel can't be confused with command-history arrows.
+/// Left-button selection phases; hover means no button remains pressed.
+enum MouseAction { press, move, release, hover }
+
+/// Left-button selection coordinates in terminal cells, zero based.
+class MouseEvent extends InputEvent {
+  MouseEvent(this.action, {required this.row, required this.col});
+  final MouseAction action;
+  final int row, col;
+  @override
+  bool operator ==(Object other) =>
+      other is MouseEvent &&
+      other.action == action &&
+      other.row == row &&
+      other.col == col;
+  @override
+  int get hashCode => Object.hash(action, row, col);
+}
+
+/// A mouse wheel notch, routed to scrollback rather than input history.
 class ScrollEvent extends InputEvent {
   /// True = wheel up (scroll back into history), false = wheel down.
   final bool up;

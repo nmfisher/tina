@@ -27,16 +27,11 @@ export 'sandbox_violation.dart';
 /// here, so one decorator covers every file operation; the refusal comes
 /// back to the model as that call's tool result.
 ///
-/// The decision is the operation × mode table ([decideOperation]):
-///
-/// - `ask` / `auto`: reads run; writes go to the mode-aware [approver].
-/// - `allowEdits`: project writes run; other writes go to the [approver].
-/// - `readOnly`: reads run; writes require explicit human approval.
-///
-/// Asking is fail-closed: no approver wired means deny. An approver's
-/// [Approval.always] remembers a pattern in the session [grants], so
-/// the second identical write does not ask again. A session grant
-/// short-circuits the ask without consulting the approver.
+/// The resource resolver allows workspace reads, requests a human grant for
+/// the first workspace write, and checks saved external path grants. The mode
+/// selects a human or model reviewer for uncovered external access. Asking is
+/// fail-closed. Legacy embedders may still use [decideOperation] and [grants]
+/// without the shared [authorization] resolver.
 ///
 /// Structural checks that need no mode and no table are kept verbatim, and
 /// they apply to reads too: canonicalization resolves the project root and
@@ -52,11 +47,11 @@ class SandboxedFileSystem implements FileSystem, ToolBoundary, ToolSandboxView {
   String _tinaDir;
 
   /// The session permission mode. Mutable so a host can flip a live session
-  /// (for example to [PermissionMode.readOnly] for a read-only run); each
+  /// between [PermissionMode.approve] and [PermissionMode.auto]; each
   /// call reads whatever is current.
   PermissionMode mode;
 
-  /// Who answers an out-of-project write. Null means asks deny — fail
+  /// Who answers a resource access request. Null means asks deny — fail
   /// closed. The filesystem never blocks on the approver beyond this call.
   Approver? approver;
 
@@ -114,7 +109,7 @@ class SandboxedFileSystem implements FileSystem, ToolBoundary, ToolSandboxView {
     this._inner, {
     required String workspaceRoot,
     required Directory tinaDir,
-    this.mode = PermissionMode.ask,
+    this.mode = PermissionMode.approve,
     this.approver,
     FileGrants? grants,
   })  : _projectRoot = workspaceRoot,
@@ -191,14 +186,22 @@ class SandboxedFileSystem implements FileSystem, ToolBoundary, ToolSandboxView {
 
   @override
   Future<void> rename(String from, String to) async {
-    await guard(FileOp.write, from);
+    await guard(
+        _temporaryTargets.containsKey(await resolveCanonical(from))
+            ? FileOp.write
+            : FileOp.delete,
+        from);
     await guard(FileOp.write, to);
     return _inner.rename(from, to);
   }
 
   @override
   Future<void> delete(String path) async {
-    await guard(FileOp.write, path);
+    await guard(
+        _temporaryTargets.containsKey(await resolveCanonical(path))
+            ? FileOp.write
+            : FileOp.delete,
+        path);
     try {
       await _inner.delete(path);
     } finally {
@@ -276,8 +279,7 @@ class SandboxedFileSystem implements FileSystem, ToolBoundary, ToolSandboxView {
         }
         final approval = await approver(request, decision.reason);
         if (approval != Approval.no &&
-            (op == FileOp.write && mode == PermissionMode.readOnly ||
-                await resolveCanonical(path) != target)) {
+            (await resolveCanonical(path) != target)) {
           throw SandboxViolation(
               'Path changed while awaiting approval: ${p.basename(path)}');
         }

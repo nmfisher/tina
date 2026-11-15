@@ -4,7 +4,10 @@ final classifierInstructionSetting = SettingDefinition<String>(
   id: 'tina/mode/classifier_instruction',
   label: 'Auto-approval classifier instruction',
   description:
-      'Your permission preferences, prepended to every auto-approval classification request. Session overrides are saved with this conversation. Approvals and the OS sandbox still enforce execution permissions.',
+      'Optional additional permission preferences. Blank uses the built-in '
+      'approval policy. Your preferences are prepended to every classification '
+      'request; session overrides are saved with this conversation. Approvals '
+      'and the OS sandbox still enforce execution permissions.',
   defaultValue: '',
   kind: SettingKind.text,
   applyAt: ApplyAt.nextRequest,
@@ -20,6 +23,18 @@ final classifierModelSetting = SettingDefinition<String>(
       'approval diagnostics.',
   defaultValue: '',
   kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
+final classifierTimeoutSetting = SettingDefinition<int>(
+  id: 'tina/mode/classifier_timeout_seconds',
+  label: 'Auto-approval classifier timeout (seconds)',
+  description:
+      'Maximum time for each permission classification request, including its '
+      'retry. Positive whole seconds; changes apply to the next request.',
+  defaultValue: 60,
+  kind: SettingKind.integer,
+  minimum: 1,
   applyAt: ApplyAt.nextRequest,
 );
 

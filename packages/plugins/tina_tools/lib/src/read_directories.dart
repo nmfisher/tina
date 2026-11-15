@@ -6,13 +6,10 @@ import 'package:tina_settings/tina_settings.dart';
 
 final readOnlyDirectoriesSetting = SettingDefinition<List<String>>(
   id: 'tina/tools/read_only_directories',
-  label: 'Read-only directories',
+  label: 'Legacy read-only directories',
   description:
-      'External directories available to file tools and sandboxed commands. '
-      'Verified reader commands can read these paths without execution approval. '
-      'Select “Allow all reads in this directory” in an approval prompt, '
-      'or enter a JSON array of absolute directory paths here. Grants from '
-      'session, workspace and global scopes are additive.',
+      'Imported once into workspace path grants. Manage current file and '
+      'directory grants through Settings → Permissions.',
   defaultValue: const [],
   kind: SettingKind.object,
   decode: (raw) {
@@ -33,9 +30,11 @@ final readOnlyDirectoriesSetting = SettingDefinition<List<String>>(
 /// Live read access, shared by the approval gate and OS sandbox layout.
 /// This list never contributes writable mounts or write approvals.
 final class ReadOnlyDirectories implements ToolDirectoryGrants {
+  ReadOnlyDirectories({this.source});
+  final List<String> Function()? source;
   List<String> _paths = const [];
-  List<String> get paths => _paths;
-  List<String> get existingPaths => _paths.where((value) {
+  List<String> get paths => List.unmodifiable({..._paths, ...?source?.call()});
+  List<String> get existingPaths => paths.where((value) {
         try {
           return Directory(value).existsSync() &&
               p.equals(Directory(value).resolveSymbolicLinksSync(), value);
@@ -54,7 +53,7 @@ final class ReadOnlyDirectories implements ToolDirectoryGrants {
   }
 
   bool allows(String target) =>
-      _paths.any((root) => p.equals(target, root) || p.isWithin(root, target));
+      paths.any((root) => p.equals(target, root) || p.isWithin(root, target));
 }
 
 /// A standing answer to read-shaped asks: when set, the command approver

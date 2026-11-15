@@ -148,9 +148,12 @@ final class ConfigSettingsBackend implements ConfigSettingsSurface {
     _permissionSnapshots[scope] = Map.of(permissions);
     result.addAll(_validPermissionPaths(permissions));
     if (scope == SettingScope.global) {
-      for (final definition in catalog.definitions) {
-        if (!permissionSettings.contains(definition.id) ||
-            result.containsKey(definition.id)) continue;
+      // Legacy directory settings are migration inputs, not live controls.
+      for (final definition in [
+        readOnlyDirectoriesSetting,
+        writeDirectoriesSetting,
+      ]) {
+        if (result.containsKey(definition.id)) continue;
         final value = _at(values, definition.configPath);
         if (value != null) result[definition.id] = value;
       }

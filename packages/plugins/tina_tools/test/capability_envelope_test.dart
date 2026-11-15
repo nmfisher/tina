@@ -12,9 +12,7 @@ import 'package:tina_tools/tina_tools.dart';
 
 const searchPath = '/usr/bin:/bin';
 
-ProcessRequest req(String command, List<String> arguments,
-        [String? cwd]) =>
-    (
+ProcessRequest req(String command, List<String> arguments, [String? cwd]) => (
       command: command,
       arguments: arguments,
       workingDirectory: cwd,
@@ -26,7 +24,8 @@ ProcessRequest req(String command, List<String> arguments,
 void main() {
   late Directory root;
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('tina_envelope_');
+    root = Directory((await Directory.systemTemp.createTemp('tina_envelope_'))
+        .resolveSymbolicLinksSync());
   });
   tearDown(() => root.deleteSync(recursive: true));
 
@@ -52,10 +51,7 @@ void main() {
   test('a certified pipeline pins every component and stays read-only', () {
     final source = File('${root.path}/payload')..writeAsStringSync('data');
     final envelope = CapabilityEnvelope.parse(
-        req('/bin/sh', [
-          '-c',
-          'grep needle ${source.path} | head -5'
-        ]),
+        req('/bin/sh', ['-c', 'grep needle ${source.path} | head -5']),
         searchPath: searchPath);
     expect(envelope.certifiedReadOnly, isTrue);
     expect(envelope.shellReader, isNotNull,
@@ -66,14 +62,13 @@ void main() {
   });
 
   test('unknown commands are not certified and carry named provenance', () {
-    final envelope =
-        CapabilityEnvelope.parse(req('definitely-not-a-tool', ['x']),
-            searchPath: searchPath);
+    final envelope = CapabilityEnvelope.parse(
+        req('definitely-not-a-tool', ['x']),
+        searchPath: searchPath);
     expect(envelope.certifiedReadOnly, isFalse);
     expect(envelope.verifiedAccesses, isEmpty);
     expect(envelope.completeVerifiedAccesses, isFalse);
-    expect(envelope.executions.single.provenance,
-        CapabilityProvenance.named,
+    expect(envelope.executions.single.provenance, CapabilityProvenance.named,
         reason: 'an unresolved word never claims a resolved path');
   });
 
@@ -109,8 +104,7 @@ void main() {
             .destructiveBecause,
         contains('force'));
     expect(
-        CapabilityEnvelope.parse(
-                req('dd', ['if=rootfs.img', 'of=/dev/sda']),
+        CapabilityEnvelope.parse(req('dd', ['if=rootfs.img', 'of=/dev/sda']),
                 searchPath: searchPath)
             .destructiveBecause,
         contains('raw device'));
@@ -122,8 +116,7 @@ void main() {
         reason: 'dd to a regular file is not the device case');
   });
 
-  test('a certified reader is never destructive; plain commands are not',
-      () {
+  test('a certified reader is never destructive; plain commands are not', () {
     final target = File('${root.path}/file')..writeAsStringSync('x');
     expect(
         CapabilityEnvelope.parse(req('cat', [target.path]),
@@ -131,8 +124,7 @@ void main() {
             .destructive,
         isFalse);
     expect(
-        CapabilityEnvelope.parse(req('ls', [root.path]),
-                searchPath: searchPath)
+        CapabilityEnvelope.parse(req('ls', [root.path]), searchPath: searchPath)
             .destructive,
         isFalse);
     expect(
@@ -145,10 +137,8 @@ void main() {
   test('parsing is pure: the same request yields the same facts', () {
     final target = File('${root.path}/a.txt')..writeAsStringSync('a');
     final request = req('grep', ['needle', target.path]);
-    final first =
-        CapabilityEnvelope.parse(request, searchPath: searchPath);
-    final second =
-        CapabilityEnvelope.parse(request, searchPath: searchPath);
+    final first = CapabilityEnvelope.parse(request, searchPath: searchPath);
+    final second = CapabilityEnvelope.parse(request, searchPath: searchPath);
     expect(first.reads, second.reads);
     expect(first.reader, second.reader);
     expect(first.certifiedReadOnly, second.certifiedReadOnly);

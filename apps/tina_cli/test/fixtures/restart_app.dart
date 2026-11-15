@@ -19,6 +19,7 @@ Future<void> main(List<String> args) async {
   await runTui(TuiSession.wrap(assembly));
   stdout.writeln('RESTART_PARENT_CLOSED');
   exitCode = await restartInTerminal(Platform.resolvedExecutable, [
+    'run',
     '${Directory.current.path}/apps/tina_cli/bin/tina.dart',
     '--config',
     args[0],

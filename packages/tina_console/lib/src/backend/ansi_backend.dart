@@ -19,6 +19,7 @@ class AnsiBackend
     implements
         TerminalBackend,
         TerminalAttentionBackend,
+        TerminalMouseBackend,
         BackendDiagnostics,
         CursorBackend,
         CanvasBackend,
@@ -188,6 +189,13 @@ class AnsiBackend
   @override
   void requestAttention() {
     _buf.write('\x07');
+    flush();
+  }
+
+  @override
+  void setMouseReporting(bool enabled) {
+    _buf.write(
+        enabled ? '\x1b[?1002h\x1b[?1003h\x1b[?1006h' : disableMouseReporting);
     flush();
   }
 

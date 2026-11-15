@@ -15,7 +15,7 @@ final class ConnectionModeObservation implements ModeObservation {
   bool get canControl => available && _connection.canControl;
   @override
   PermissionMode get mode => _mode;
-  PermissionMode _mode = PermissionMode.ask;
+  PermissionMode _mode = PermissionMode.approve;
 
   void _apply(SessionSnapshot snapshot) {
     if (snapshot.cursor.revision <= _revision) return;

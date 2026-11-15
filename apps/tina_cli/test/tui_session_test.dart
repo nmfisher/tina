@@ -67,7 +67,7 @@ void main() {
 
   test('manual shell output is captured without a model turn or tool approval',
       () async {
-    await tui.runLine('/mode read-only');
+    await tui.runLine('/mode auto');
     final before = tui.host.session.loop.log.toList();
     await tui
         .runLine('!printf "manual stdout"; printf "manual stderr" >&2; exit 7');
@@ -324,18 +324,18 @@ void main() {
   });
 
   test('/mode flips the assembly\u2019s mode service by word', () async {
-    await tui.runLine('/mode read-only');
-    expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'read-only');
+    await tui.runLine('/mode auto');
+    expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'auto');
     expect(
         (tui.terminal as SessionTerminal)
             .notices
             .retained
             .map((l) => l.text)
             .join("\n"),
-        contains('mode: read-only'));
+        contains('mode: auto'));
     // And back, by the same word.
     await tui.runLine('/mode ask');
-    expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'ask');
+    expect(ModePlugin.wordFor(tui.assembly.tools.mode), 'approve');
   });
 
   test('a handed-in terminal is used; a default one is built otherwise', () {

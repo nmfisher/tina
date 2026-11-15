@@ -28,7 +28,7 @@
       },
       "expect": {
         "preopen": "rw",
-        "route": "allow",
+        "route": "human",
         "host-verdict": "allow-structural"
       }
     },
@@ -43,7 +43,7 @@
       },
       "expect": {
         "preopen": "ro",
-        "route": "deny",
+        "route": "human",
         "host-verdict": "deny-structural"
       }
     },

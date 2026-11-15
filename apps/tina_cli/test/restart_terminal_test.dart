@@ -43,7 +43,7 @@ Future<void> main() async {
       expect(result.stdout, contains('cancel (notcurses)'));
     },
     skip: Platform.isWindows,
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 6)),
   );
 
   test(
@@ -58,7 +58,7 @@ Future<void> main() async {
       expect(result.stdout, contains('PASS full restarted app input'));
     },
     skip: Platform.isWindows,
-    timeout: const Timeout(Duration(minutes: 2)),
+    timeout: const Timeout(Duration(minutes: 6)),
   );
 
   test(

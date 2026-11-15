@@ -160,6 +160,36 @@ in the stack's diff reverts or depends on their absence.
   wasm TUI spikes compile against the same pointer (submodule content
   fetched for tests where needed).
 
+## Findings during resolution (audit addendum)
+
+Three things the file-level audit under-weighted, resolved and recorded:
+
+1. **Box-model permissions (4f0bc8b1, under v0.9.116/117) changed the
+   mode ROUTE table**, not just the approval stores:
+   `PermissionMode.normalized` collapses ask/allowEdits/readOnly →
+   `approve`, and un-granted workspace writes route **human** in every
+   non-yolo mode (probe: ask/readOnly/allowEdits/auto all human, yolo
+   allow). The stack's vendored parity table encoded allow (allow-edits)
+   and deny (read-only). Resolved theirs-supersedes: both tina copies of
+   `parity-scenarios.json` updated (kept byte-identical); **wasm.dart's
+   vendored copy + host-side wall semantics now diverge until synced** —
+   the #1 cross-repo follow-up, needs Nick's call on whether the wasm
+   structural wall mirrors main's human-routing or keeps the stronger
+   wall with per-side rows.
+2. **The stack widened `Stdio`** (terminal modes, line count) and
+   main's two NEW test fakes (`resume_paging_test`, approvals_tui
+   `console_test`) implement the old interface — completed with inert
+   members, not deleted.
+3. **The stack's pipes mode-receipt test** asserted the stale-mode
+   invariant through legacy mode names that now normalize to the same
+   value — rewritten to exercise the same invariant with the two live
+   modes (auto/approve). The invariant (stale expectation → failed
+   receipt) is unchanged.
+
+Also confirmed during validation: main's grant machinery FIXES 22
+sandbox-environment failures the stack's own tina_tools suite carried
+(stack baseline 22 → merged 0).
+
 ## Step-2 directives
 
 1. Union the 12 overlap files per the table.

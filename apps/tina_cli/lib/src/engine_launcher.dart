@@ -212,8 +212,46 @@ CapabilityInputs readCapabilityInputs({
   final rules = <CommandRuleInput>[];
   final domains = <DomainEntry>[];
   for (final entry in commands.entries) {
+    // Only grants a human reviewed compile into the document; auto
+    // approvals stay with the native runtime's live re-reads.
+    if (entry['decided_by'] != null && entry['decided_by'] != 'user') {
+      continue;
+    }
     final origin = 'grant:${entry['id']}';
-    final pattern = entry['pattern'];
+    // Main (v0.9.116+) remembers two command-grant kinds: scoped
+    // prefixes (`command_prefix`: executable + leading argument words)
+    // and exact invocations (`command_exact`: executable + full
+    // arguments). The document's rules are anchored regexes over the
+    // command line, so each kind projects to its escaped words. The
+    // v0.9.111 `pattern` shape is still honored for stores written
+    // before the migration.
+    final kind = entry['kind'];
+    final executable = entry['executable'];
+    final rawPattern = entry['pattern'];
+    String? pattern = rawPattern is String ? rawPattern : null;
+    if (executable is String && executable.isNotEmpty) {
+      List<String> words(String key) => [
+            if (entry[key] case final List list)
+              for (final word in list)
+                if (word is String && word.isNotEmpty) word,
+          ];
+      if (kind == 'command_prefix') {
+        final prefix = words('prefix');
+        if (prefix.isNotEmpty) {
+          pattern = [
+            RegExp.escape(executable),
+            for (final word in prefix) RegExp.escape(word),
+          ].join(' ');
+        }
+      } else if (kind == 'command_exact') {
+        // An exact grant covers the invocation even with no arguments.
+        final arguments = words('arguments');
+        pattern = [
+          RegExp.escape(executable),
+          for (final word in arguments) RegExp.escape(word),
+        ].join(' ');
+      }
+    }
     if (pattern is String && pattern.isNotEmpty) {
       // A remembered command grant is an allow the user reviewed.
       rules.add(CommandRuleInput(

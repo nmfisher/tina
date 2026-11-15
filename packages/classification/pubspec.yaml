@@ -4,7 +4,8 @@ description: >
   execution, the Typesafe HTTP service) and repository exploration
   (evidence models, ranking, chunking, caching, snapshotting, workflow).
   Typed source-driven classification with context planning and restoration.
-  Terminal-independent, with an optional engine2 input-classification plugin.
+  Terminal-independent, with an optional engine2 plugin for input classification
+  and command format checks.
   Judgment and exploration APIs have no direct I/O; the Typesafe transport
   and runtime adapter are exposed separately.
 publish_to: none
@@ -21,6 +22,7 @@ dependencies:
   toml: ^0.16.0
   crypto: ^3.0.7
   http: ^1.2.0
+  path: ^1.9.0
 
 dev_dependencies:
   test: ^1.25.0

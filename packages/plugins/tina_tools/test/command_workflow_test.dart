@@ -86,7 +86,8 @@ void main() {
         isFalse);
   });
 
-  test('one review covers SDK access and reusable sandboxed tests', () async {
+  test('SDK paths can be saved but each external execution is reviewed',
+      () async {
     final sdk = Directory('${root.path}/home/flutter');
     Directory('${sdk.path}/packages/flutter_tools').createSync(recursive: true);
     final cache = Directory('${sdk.path}/bin/cache')
@@ -120,13 +121,11 @@ void main() {
     final requests = <ApprovalRequest>[];
     final subscription = channel.requests.listen((ask) {
       requests.add(ask);
-      if (requests.length != 1) {
+      if (requests.length > 2) {
         channel.respond(ask.id, ApprovalDecision.deny);
         return;
       }
-      expect(
-          ask.details['permission_scope_label'], 'dart test in this project');
-      expect(ask.details['recommended_scope'], 'workspace');
+      expect(ask.details['resource_permissions'], isTrue);
       final offers = ask.details['directory_accesses'] as List;
       expect(offers,
           contains(containsPair('path', sdk.resolveSymbolicLinksSync())));
@@ -135,9 +134,9 @@ void main() {
       channel
           .respond(ask.id, ApprovalDecision.allowWorkspace, directoryGrants: [
         DirectoryAccessGrant(sdk.resolveSymbolicLinksSync(),
-            DirectoryAccess.read, DirectoryGrantScope.global),
+            DirectoryAccess.read, DirectoryGrantScope.workspace),
         DirectoryAccessGrant(cache.resolveSymbolicLinksSync(),
-            DirectoryAccess.write, DirectoryGrantScope.global),
+            DirectoryAccess.write, DirectoryGrantScope.workspace),
       ]);
     });
     addTearDown(subscription.cancel);
@@ -145,10 +144,14 @@ void main() {
         tools.toolList.singleWhere((tool) => tool.schema.name == 'exec');
     for (final input in [
       {
+        'read_directories': [sdk.path],
+        'write_directories': [cache.path],
         'program': dart.path,
         'args': ['test', 'first.dart']
       },
       {
+        'read_directories': [sdk.path],
+        'write_directories': [cache.path],
         'program': dart.path,
         'args': ['test', '--reporter=expanded', 'second.dart'],
         'working_directory': nested.path
@@ -158,9 +161,8 @@ void main() {
       expect(result.isError, isFalse, reason: result.content);
       expect(result.content, contains('workflow works'));
     }
-    expect(requests, hasLength(1));
-    expect(settings.override(readOnlyDirectoriesSetting, SettingScope.global),
-        [sdk.resolveSymbolicLinksSync()]);
+    expect(requests, hasLength(2));
+    expect(tools.pathGrants.allows(sdk.path), isTrue);
     final denied = await exec.execute({
       'program': dart.path,
       'args': ['test'],
@@ -168,7 +170,7 @@ void main() {
       'network_reason': 'separate permission'
     });
     expect(denied.isError, isTrue);
-    expect(requests, hasLength(2));
+    expect(requests, hasLength(3));
   }, skip: Platform.isWindows);
 
   test('stdin, environments, unknown flags, escapes and host grants stay exact',

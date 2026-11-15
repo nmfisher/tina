@@ -169,8 +169,7 @@ void main() {
     save(local, 'local', [user('needle')], at: '2026-01-01T00:00:00Z');
     save(other, 'newer-external', [user('needle')], at: '2026-02-01T00:00:00Z');
     catalog.remember(other);
-    for (final mode
-        in PermissionMode.values.where((m) => m != PermissionMode.yolo)) {
+    for (final mode in [PermissionMode.approve, PermissionMode.auto]) {
       policy.mode = mode;
       final denied = await history
           .execute('search_sessions', {'scope': 'global', 'query': 'needle'});
@@ -183,7 +182,7 @@ void main() {
           ['newer-external', 'local']);
       answer = ApprovalDecision.deny;
     }
-    expect(requests, hasLength(8));
+    expect(requests, hasLength(4));
     final details = requests.last.details;
     final description = details['description'] as Map;
     expect(description['title'], 'Search saved conversations');

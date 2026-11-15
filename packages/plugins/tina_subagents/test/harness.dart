@@ -13,6 +13,7 @@
 library;
 
 import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_approvals/tina_approvals.dart';
 import 'dart:io';
 
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -40,7 +41,7 @@ import 'package:tina_tools/tina_tools.dart';
   List<List<List<StreamEvent>>> childScripts = const [],
   SubagentsConfig config = const SubagentsConfig(),
   String? storePath,
-  PermissionMode mode = PermissionMode.allowEdits,
+  PermissionMode mode = PermissionMode.approve,
   Directory? dir,
   LlmProvider? childProvider,
 }) {
@@ -107,4 +108,24 @@ import 'package:tina_tools/tina_tools.dart';
     providers: providers,
     dir: ws
   );
+}
+
+
+class TestHuman implements ApprovalRequester {
+  TestHuman({this.allow = true});
+  bool allow;
+  int calls = 0;
+  @override
+  Future<ApprovalDecision> request(
+      {required String operation,
+      required String target,
+      required String reason,
+      ApprovalKind kind = ApprovalKind.permission,
+      Future<void>? whenCancelled,
+      Map<String, Object?> details = const {},
+      void Function(String)? onCommandPattern,
+      void Function(List<DirectoryAccessGrant>)? onDirectoryGrants}) async {
+    calls++;
+    return allow ? ApprovalDecision.allow : ApprovalDecision.deny;
+  }
 }

@@ -276,6 +276,40 @@ void main() {
     expect(judge.requests.single.containsKey('recent_tool_calls'), false);
   });
 
+  for (final counts in [(1, 100), (100, 1), (100, 100)]) {
+    test('judge history bounds each context list independently: $counts', () async {
+      final judge = Judge(Future.value(const PermissionJudgment(true)));
+      final mode = ModePlugin(mode: PermissionMode.auto,
+          approvals: Human(), classifier: judge);
+      addTearDown(mode.closeSession);
+      final turn = TurnContext(CancelToken(),
+          input: const Input('Continue the task.', id: 'current'),
+          messages: [
+            for (var i = 0; i < counts.$1; i++)
+              Message(role: Role.user, content: [TextBlock('user $i')]),
+            Message(role: Role.assistant, content: [
+              for (var i = 0; i < counts.$2; i++)
+                ToolUseBlock(id: 'call-$i', name: 'tool-$i',
+                    input: {'argument': 'x' * 1000}),
+            ]),
+          ], promptSections: [], pinnedTools: []);
+      mode.onInput(turn);
+      mode.beforeToolCall(turn);
+      await request(mode);
+      final evidence = judge.requests.single;
+      final users = (evidence['recent_context'] as Map)['user_messages'] as List;
+      final calls = evidence['recent_tool_calls'] as List;
+      expect(users.map((u) => (u as Map)['text']),
+          [for (var i = (counts.$1 - 3).clamp(0, counts.$1); i < counts.$1; i++)
+            'user $i']);
+      expect(calls.map((c) => (c as Map)['name']),
+          [for (var i = (counts.$2 - 3).clamp(0, counts.$2); i < counts.$2; i++)
+            'tool-$i']);
+      expect(calls.map((c) => ((c as Map)['input'] as String).length),
+          everyElement(lessThanOrEqualTo(301)));
+    });
+  }
+
   test('a correction reaches the judge with the failed call it answers', () async {
     final judge = Judge(Future.value(const PermissionJudgment(true)));
     final mode = ModePlugin(
@@ -501,7 +535,7 @@ void main() {
     'auto fallback reason travels with the approval instead of only chat',
     () async {
       for (final entry in {
-        // A denial is final (batched test below); only failures ask.
+        // A denial is final; only failures ask.
         const PermissionJudgment(null, 'timed out'): 'classifier timed out',
         const PermissionJudgment(null, 'provider error'):
             'classifier provider error',
@@ -574,12 +608,42 @@ void main() {
       expect(human.calls, 0, reason: 'the classifier stands in for the user');
       expect(terminal.lines.join('\n'), contains('auto mode denied'));
       expect(terminal.lines.join('\n'), contains(risk));
-      expect(terminal.lines.join('\n'), contains('batched'));
       // The refusal is final for this call; a later decision stands on its own.
       expect(await request(mode), ApprovalDecision.deny);
       expect(human.calls, 0);
     },
   );
+
+  test('auto decisions produce no end-of-turn summary', () async {
+    for (final allowed in [true, false]) {
+      final terminal = _Terminal();
+      final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        terminal: terminal,
+        classifier: Judge(Future.value(PermissionJudgment(allowed))),
+      );
+      final turn = TurnContext(
+        CancelToken(),
+        input: const Input('inspect', id: 'summary'),
+        messages: [],
+        promptSections: [],
+        pinnedTools: [],
+      );
+      mode.onInput(turn);
+      expect(
+        await request(mode),
+        allowed ? ApprovalDecision.allow : ApprovalDecision.deny,
+      );
+      final before = List<String>.of(terminal.lines);
+      mode.onTurnEnd(turn);
+      expect(terminal.lines, before);
+      expect(
+        terminal.lines.join('\n'),
+        isNot(contains('auto mode decisions this turn')),
+      );
+      mode.closeSession();
+    }
+  });
 
   test(
     'human receives full tool context and allow once expires with invocation',
@@ -615,31 +679,26 @@ void main() {
       mode.beforeToolCall(context);
       await write('/outside/result');
       expect(human.calls, 2);
-      mode.mode = PermissionMode.readOnly;
-      expect(await write('/outside/result'), ApprovalDecision.deny);
-      expect(human.calls, 2);
+      mode.mode = PermissionMode.auto;
+      expect(await write('/outside/result'), ApprovalDecision.allow);
+      expect(human.calls, 3);
       mode.closeSession();
     },
   );
   test('selectable modes share command vocabulary and cycle order', () async {
     final mode = ModePlugin();
-    const selectable = [
-      PermissionMode.ask,
-      PermissionMode.readOnly,
-      PermissionMode.allowEdits,
-      PermissionMode.auto,
-    ];
-    expect(ModePlugin.modeWords, ['ask', 'read-only', 'allow-edits', 'auto']);
+    const selectable = [PermissionMode.approve, PermissionMode.auto];
+    expect(ModePlugin.modeWords, ['approve', 'auto']);
     for (final value in selectable) {
       expect(mode.mode, value);
       mode.mode = mode.mode.next;
     }
-    expect(mode.mode, PermissionMode.ask);
+    expect(mode.mode, PermissionMode.approve);
     for (final value in selectable) {
       await mode.commands.single.handler(value.label);
       expect(mode.mode, value);
     }
-    expect(ModePlugin.parseMode('normal'), isNull);
+    expect(ModePlugin.parseMode('normal'), PermissionMode.approve);
     expect(ModePlugin.parseMode('yolo'), isNull);
   });
 
@@ -658,80 +717,92 @@ void main() {
           approvals: human,
           classifier: judge,
         );
-        expect(
-          await request(mode),
-          value == PermissionMode.readOnly
-              ? ApprovalDecision.deny
-              : ApprovalDecision.allow,
-        );
-        expect(human.calls, value == PermissionMode.readOnly ? 0 : 1);
+        expect(await request(mode), ApprovalDecision.allow);
+        expect(human.calls, 1);
         expect(judge.calls, 0);
       }
     },
   );
 
-  test('auto allows once; denials are final, errors and no judge ask the human',
-      () async {
-    final human = Human();
-    final mode = ModePlugin(mode: PermissionMode.auto, approvals: human);
-    addTearDown(mode.closeSession);
-    mode.classifier = Judge(Future.value(const PermissionJudgment(true)));
-    expect(await request(mode), ApprovalDecision.allow);
-    expect(human.calls, 0);
-    // A denial never reaches the human: it is final and batched.
-    mode.classifier = Judge(Future.value(const PermissionJudgment(false)));
-    human.answer = ApprovalDecision.allow;
-    expect(await request(mode), ApprovalDecision.deny);
-    expect(human.calls, 0);
-    // A classifier failure or a missing judge still asks the human.
-    for (final judgment in [const PermissionJudgment(null, 'timeout')]) {
-      mode.classifier = Judge(Future.value(judgment));
-      human.answer = ApprovalDecision.deny;
+  test(
+    'auto allows once; denials are final, errors and no judge ask the human',
+    () async {
+      final human = Human();
+      final mode = ModePlugin(mode: PermissionMode.auto, approvals: human);
+      addTearDown(mode.closeSession);
+      mode.classifier = Judge(Future.value(const PermissionJudgment(true)));
+      expect(await request(mode), ApprovalDecision.allow);
+      expect(human.calls, 0);
+      // A denial never reaches the human: it is final.
+      mode.classifier = Judge(Future.value(const PermissionJudgment(false)));
+      human.answer = ApprovalDecision.allow;
       expect(await request(mode), ApprovalDecision.deny);
-    }
-    mode.classifier = null;
-    expect(await request(mode), ApprovalDecision.deny);
-    expect(human.calls, 2);
-  });
+      expect(human.calls, 0);
+      // A classifier failure or a missing judge still asks the human.
+      for (final judgment in [const PermissionJudgment(null, 'timeout')]) {
+        mode.classifier = Judge(Future.value(judgment));
+        human.answer = ApprovalDecision.deny;
+        expect(await request(mode), ApprovalDecision.deny);
+      }
+      mode.classifier = null;
+      expect(await request(mode), ApprovalDecision.deny);
+      expect(human.calls, 2);
+    },
+  );
 
-  test('auto-mode approvals are recorded through the auto-grant hook', () async {
+  test('auto-mode approvals never create standing grants', () async {
     final recorded = <(String, String)>[];
-    final mode = ModePlugin(
-      mode: PermissionMode.auto,
-      approvals: Human(),
-      classifier: Judge(Future.value(const PermissionJudgment(true))),
-    )..saveAutoGrant = (capability, target) => recorded.add((capability, target));
+    final mode =
+        ModePlugin(
+            mode: PermissionMode.auto,
+            approvals: Human(),
+            classifier: Judge(Future.value(const PermissionJudgment(true))),
+          )
+          ..saveAutoGrant = (capability, target) =>
+              recorded.add((capability, target));
     addTearDown(mode.closeSession);
     expect(await request(mode), ApprovalDecision.allow);
-    expect(recorded, [('execute', 'git status')],
-        reason: 'a classifier approval lands in the scopes store');
+    expect(recorded, isEmpty);
   });
 
-  test('unconfined execution is human-only in auto mode: denied and batched',
-      () async {
-    final human = Human()..answer = ApprovalDecision.allow;
-    final terminal = _Terminal();
-    final judge = Judge(Future.value(const PermissionJudgment(true)));
-    final mode = ModePlugin(
-      mode: PermissionMode.auto,
-      approvals: human,
-      terminal: terminal,
-      classifier: judge,
-    );
-    addTearDown(mode.closeSession);
-    // Direct request without a turn: the decision and notice still fire.
-    final decision = await ModePlugin(mode: PermissionMode.auto, approvals: human)
-        .request(
-      operation: 'run command',
-      target: 'deploy',
-      reason: 'outside sandbox',
-      context: const {
-        'required_permissions': ['execution', 'unconfined'],
-      },
-    );
-    expect(decision, ApprovalDecision.deny);
-    mode.closeSession();
-  });
+  for (final canonical in [false, true]) {
+    for (final judgment in [
+      const PermissionJudgment(true),
+      const PermissionJudgment.denied('Deletes files outside the workspace.'),
+      const PermissionJudgment(null, 'timed out'),
+    ]) {
+      test('auto reviews host execution ($canonical, ${judgment.allow})', () async {
+        final human = Human();
+        final judge = Judge(Future.value(judgment));
+        final mode = ModePlugin(
+          mode: PermissionMode.auto,
+          approvals: human,
+          classifier: judge,
+        );
+        addTearDown(mode.closeSession);
+        final decision = await mode.request(
+          operation: 'run command',
+          target: '/bin/bash -c "gh api repos/example/project"',
+          reason: 'outside sandbox',
+          authorization: canonical ? AuthorizationRequest(requirements: const [
+            AccessRequirement(AccessCapability.execute, '/bin/bash'),
+            AccessRequirement(AccessCapability.network, '/bin/bash'),
+            AccessRequirement(AccessCapability.host, '/bin/bash'),
+          ]) : null,
+          context: const {
+            'required_permissions': ['execution', 'network', 'unconfined'],
+            'sandbox_reason': 'Use authenticated GitHub CLI',
+          },
+        );
+        expect(judge.calls, 1);
+        expect(judge.requests.single['required_permissions'],
+            contains('unconfined'));
+        expect(decision, judgment.allow == false
+            ? ApprovalDecision.deny : ApprovalDecision.allow);
+        expect(human.calls, judgment.allow == null ? 1 : 0);
+      });
+    }
+  }
 
   test(
     'read-only refuses mutation requests before human or automatic review',
@@ -743,10 +814,10 @@ void main() {
         approvals: human,
         classifier: judge,
       );
-      expect(await request(mode), ApprovalDecision.deny);
+      expect(await request(mode), ApprovalDecision.allow);
       human.answer = ApprovalDecision.deny;
       expect(await request(mode), ApprovalDecision.deny);
-      expect(human.calls, 0);
+      expect(human.calls, 2);
       expect(judge.calls, 0);
     },
   );
@@ -785,9 +856,11 @@ void main() {
       pending.complete(const PermissionJudgment(true));
       expect(
         await result,
-        action == 'ask' ? ApprovalDecision.allow : ApprovalDecision.deny,
+        {'ask', 'read-only'}.contains(action)
+            ? ApprovalDecision.allow
+            : ApprovalDecision.deny,
       );
-      expect(human.calls, action == 'ask' ? 1 : 0);
+      expect(human.calls, {'ask', 'read-only'}.contains(action) ? 1 : 0);
     });
   }
 }
@@ -849,7 +922,7 @@ void precedentTests() {
     );
   });
 
-  test('an exact read-only shape runs quietly after two approvals', () async {
+  test('previous approvals never bypass review', () async {
     final store = MemoryPrecedentStore();
     final human = Human();
     final judge = Judge(Future.value(const PermissionJudgment(null, 'unused')));
@@ -873,8 +946,8 @@ void precedentTests() {
     judge.calls = 0;
 
     expect(await run(mode), ApprovalDecision.allow);
-    expect(human.calls, 0, reason: 'the third ask must not reach the human');
-    expect(judge.calls, 0, reason: 'the third ask must not reach the model');
+    expect(human.calls, 1);
+    expect(judge.calls, 1);
   });
 
   test('the fast path never covers network or partial access', () async {
@@ -913,8 +986,7 @@ void precedentTests() {
       'tool': {'name': 'exec'},
       ...commandContext(),
     });
-    expect(evidence, hasLength(1));
-    expect(evidence.single['outcome'], 'allow');
+    expect(evidence, isEmpty);
 
     mode.readPrecedentMode = () => PrecedentMode.off;
     expect(

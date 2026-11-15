@@ -26,7 +26,7 @@ final modeOperations = <String, SessionOperation>{
 
 PermissionMode? _mode(Object? name) {
   for (final mode in PermissionMode.values) {
-    if (mode.name == name) return mode;
+    if (mode.name == name || mode.label == name) return mode.normalized;
   }
   return null;
 }

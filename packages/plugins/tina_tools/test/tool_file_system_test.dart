@@ -191,7 +191,7 @@ void main() {
       final result =
           await tool.execute({'filePath': 'note.txt', 'content': 'hi'});
       expect(result.isError, isFalse, reason: result.content);
-      expect(spy.calls, 0, reason: 'in-project writes are table-allowed');
+      expect(spy.calls, 1, reason: 'the first write requires approval');
       expect(File(p.join(workspace.path, 'note.txt')).readAsStringSync(), 'hi');
     });
 

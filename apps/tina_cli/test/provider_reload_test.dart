@@ -246,7 +246,7 @@ enabled = ["tina/providers", "tina/session-controls"]
           down,
           enter,
           PasteInput('discarded|Discard me'),
-          enter,
+          escape, // Cancel the unfinished model entry.
           escape,
           escape,
         ]),

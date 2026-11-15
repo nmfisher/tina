@@ -46,7 +46,8 @@ void main() {
         expect(effect['operation'], 'write');
         expect(effect['path'], '${external.resolveSymbolicLinksSync()}/report');
         expect(effect['source'], 'verified');
-        final offer = (request.details['directory_accesses'] as List).single;
+        final offer =
+            (request.details['directory_accesses'] as List).cast<Map>().last;
         channel.respond(request.id, ApprovalDecision.allow, directoryGrants: [
           DirectoryAccessGrant(offer['path'] as String, DirectoryAccess.write,
               DirectoryGrantScope.workspace),
@@ -67,8 +68,7 @@ void main() {
     expect(result.isError, false, reason: result.content);
     expect(File(file).readAsStringSync(), 'saved');
     expect(asks, 1);
-    expect(
-        settings.read(writeDirectoriesSetting).source, SettingScope.workspace);
+    expect(plugin.pathGrants.allows(file, write: true), isTrue);
     expect(settings.layer(SettingScope.global), isEmpty);
     expect(plugin.readDirectories.paths, isEmpty);
     expect(plugin.processRunner.writableDirectories.roots,
@@ -98,11 +98,14 @@ void main() {
       final requests = <ApprovalRequest>[];
       final sub = channel.requests.listen((request) {
         requests.add(request);
-        channel.respond(
-            request.id,
-            requests.length == 1
-                ? ApprovalDecision.allowWritesInDirectory
-                : ApprovalDecision.deny);
+        if (requests.length == 1) {
+          channel.respond(request.id, ApprovalDecision.allow, directoryGrants: [
+            DirectoryAccessGrant(external.resolveSymbolicLinksSync(),
+                DirectoryAccess.write, DirectoryGrantScope.workspace),
+          ]);
+        } else {
+          channel.respond(request.id, ApprovalDecision.deny);
+        }
       });
       plugin.modePolicy.approvals = service;
       addTearDown(() async {
@@ -116,18 +119,12 @@ void main() {
       final firstPath = '${external.path}/${mode.name}.txt';
       final first =
           await write.execute({'filePath': firstPath, 'content': 'before'});
-      if (mode == PermissionMode.readOnly) {
-        expect(first.isError, isTrue);
-        expect(File(firstPath).existsSync(), false);
-        expect(requests, isEmpty);
-        continue;
-      }
       expect(first.isError, isFalse, reason: first.content);
       expect(requests, hasLength(1));
-      expect(requests.single.details['write_directory'],
-          external.resolveSymbolicLinksSync());
-      expect(settings.read(writeDirectoriesSetting).source,
-          SettingScope.workspace);
+      expect(
+          plugin.pathGrants
+              .allows(external.resolveSymbolicLinksSync(), write: true),
+          isTrue);
       expect(plugin.sandbox.grants.isEmpty, isTrue);
       final sibling = await write.execute({
         'filePath': '${external.path}/nested/${mode.name}.txt',
@@ -146,14 +143,16 @@ void main() {
               .isError,
           isTrue);
       expect(requests, hasLength(2));
-      settings.set(writeDirectoriesSetting, <String>[], SettingScope.workspace);
+      final id = plugin.commandApprovals.entries.firstWhere(
+              (e) => e['target'] == external.resolveSymbolicLinksSync())['id']
+          as String;
+      plugin.commandApprovals.revoke(id);
       expect(
           (await write.execute({'filePath': firstPath, 'content': 'blocked'}))
               .isError,
           isTrue);
       expect(requests, hasLength(3));
-      expect(plugin.processRunner.writableDirectories.roots,
-          isNot(contains(external.resolveSymbolicLinksSync())));
+      expect(plugin.osPlan.canWrite(external.path), isFalse);
     }
   });
 
@@ -265,8 +264,7 @@ void main() {
         workspaceRoot: workspace.path, tinaDir: tina, settings: settings);
     addTearDown(plugin.closeSession);
     plugin.rememberWriteDirectory(external.path);
-    expect(
-        settings.read(writeDirectoriesSetting).source, SettingScope.workspace);
+    expect(plugin.pathGrants.allows(external.path, write: true), isTrue);
   });
 }
 

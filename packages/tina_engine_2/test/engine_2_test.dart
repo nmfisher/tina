@@ -764,9 +764,9 @@ void main() {
     });
   });
 
-  group('12. bash behind the loop, read-only', () {
+  group('12. bash behind the loop, resource permissions', () {
     test(
-        'an uncertified writer is refused as a tool_result and the turn '
+        'an unapproved writer is refused as a tool_result and the turn '
         'continues; nothing ran', () async {
       final dir = await Directory.systemTemp.createTemp('tina_e2_proc_');
       addTearDown(() => dir.deleteSync(recursive: true));
@@ -774,15 +774,13 @@ void main() {
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
           writableDirectories: WritableDirectories()..add(dir.path),
-          mode: PermissionMode.readOnly,
+          mode: PermissionMode.approve,
         ),
         workingDirectory: dir.path,
       );
       final provider = ScriptedProvider([
         scriptedReply('', calls: [
-          // `touch` is a writer and is not a certified read-only reader, so
-          // read-only mode refuses it. (`echo` no longer would: v0.9.50
-          // certified literal echo as a reader — see the test below.)
+          // Arbitrary commands need approval. No approver means no launch.
           ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'touch hi'}),
         ]),
         // The turn continues: the model sees the refusal and answers.
@@ -802,10 +800,10 @@ void main() {
       // The refusal is exactly what the model was told, as the tool_result.
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
-      expect(result.content, contains('read-only mode'));
+      expect(result.content, contains('approver'));
       // The enforcement is at the runner, not the loop: no tool_result guard
-      // was involved, and the sandbox decided. Nothing ran — in read-only
-      // mode the sandbox denies without spawning, so we assert on the
+      // was involved, and the runner decided. Without approval nothing
+      // spawns, so we assert on the
       // absence of any side effect the command would have had. With `touch`
       // this is a real check: the command's whole job is creating the file.
       final marker = File('${dir.path}/hi');
@@ -821,13 +819,13 @@ void main() {
         runner: SandboxedProcessRunner(
           inner: const IoProcessRunner(),
           writableDirectories: WritableDirectories()..add(dir.path),
-          mode: PermissionMode.readOnly,
+          mode: PermissionMode.approve,
         ),
         workingDirectory: dir.path,
       );
       final provider = ScriptedProvider([
         scriptedReply('', calls: [
-          ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi'}),
+          ToolUseBlock(id: 'c1', name: 'bash', input: {'command': 'echo hi', 'access': 'read-only'}),
         ]),
         scriptedReply('done'),
       ]);
@@ -843,7 +841,7 @@ void main() {
       // The raw IO runner cannot enforce the requested read-only profile.
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
-      expect(result.content, contains('read-only mode'));
+      expect(result.content, contains('Read-only execution requires an available OS sandbox'));
     });
 
     test(
@@ -878,8 +876,7 @@ void main() {
       final result = _result(outcome.messages.firstWhere(_isResult));
       expect(result.isError, isTrue);
       // Host execution requires human authorization when no jail is wired.
-      expect(result.content, contains('outside the workspace'));
-      expect(result.content, contains('no approver'));
+      expect(result.content, contains('approver'));
     });
   });
 }

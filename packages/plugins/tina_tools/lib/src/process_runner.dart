@@ -157,10 +157,12 @@ final class ProcessControl {
       this.sandboxReason,
       this.outsideSandboxAllowed = false,
       this.approvedHostEnvironment,
+      this.approvedEnvironment,
       this.readDirectories = const [],
       this.writeDirectories = const [],
       this.approvedDirectories,
       this.readOnly = false,
+      this.workspaceWriteAllowed,
       this.readOnlyRequested,
       this.outputDirectories = const [],
       this.isCancelled,
@@ -177,7 +179,7 @@ final class ProcessControl {
   final bool outsideSandboxRequested;
   final String? sandboxReason;
 
-  /// Set by the permission boundary after explicit human authorization.
+  /// Set by the permission boundary after authorization of host execution.
   /// An execution or network approval alone never sets this.
   final bool outsideSandboxAllowed;
 
@@ -185,12 +187,16 @@ final class ProcessControl {
   /// Tool input cannot supply this authorization snapshot.
   final Map<String, String>? approvedHostEnvironment;
 
+  /// Filtered environment frozen by the permission boundary for this command.
+  final Map<String, String>? approvedEnvironment;
+
   /// Requested additions, never authorization. The gate freezes and validates
   /// these before review. Tool calls reset any incoming authorization.
   final List<String> readDirectories;
   final List<String> writeDirectories;
   final ProcessDirectoryAccess? approvedDirectories;
   final bool readOnly;
+  final bool? workspaceWriteAllowed;
   final bool? readOnlyRequested;
   final List<String> outputDirectories;
   final bool Function()? isCancelled;
@@ -210,10 +216,13 @@ final class ProcessControl {
     String? sandboxReason,
     bool? outsideSandboxAllowed,
     Map<String, String>? approvedHostEnvironment,
+    Map<String, String>? approvedEnvironment,
+    bool clearEnvironmentApproval = false,
     List<String>? readDirectories,
     List<String>? writeDirectories,
     ProcessDirectoryAccess? approvedDirectories,
     bool? readOnly,
+    bool? workspaceWriteAllowed,
     bool? readOnlyRequested,
     List<String>? outputDirectories,
     bool clearDirectoryApproval = false,
@@ -231,12 +240,17 @@ final class ProcessControl {
         approvedHostEnvironment: outsideSandboxAllowed == false
             ? null
             : approvedHostEnvironment ?? this.approvedHostEnvironment,
+        approvedEnvironment: clearEnvironmentApproval
+            ? null
+            : approvedEnvironment ?? this.approvedEnvironment,
         readDirectories: readDirectories ?? this.readDirectories,
         writeDirectories: writeDirectories ?? this.writeDirectories,
         approvedDirectories: clearDirectoryApproval
             ? null
             : approvedDirectories ?? this.approvedDirectories,
         readOnly: readOnly ?? this.readOnly,
+        workspaceWriteAllowed:
+            workspaceWriteAllowed ?? this.workspaceWriteAllowed,
         readOnlyRequested: readOnlyRequested ?? this.readOnlyRequested,
         outputDirectories: outputDirectories ?? this.outputDirectories,
         isCancelled: isCancelled,

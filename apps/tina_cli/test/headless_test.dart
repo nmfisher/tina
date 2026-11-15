@@ -79,7 +79,9 @@ enabled = ["tina/goals"]
       final output = child.stdout.transform(utf8.decoder).join();
       final errors = child.stderr.transform(utf8.decoder).join();
       await child.stdin.close();
-      await judging.future.timeout(const Duration(seconds: 30));
+      // A cold source launch builds its native assets before contacting the
+      // fixture server. The cancellation deadline begins only after it is ready.
+      await judging.future.timeout(const Duration(minutes: 2));
       expect(child.kill(ProcessSignal.sigint), isTrue);
       expect(
         await child.exitCode.timeout(const Duration(seconds: 10)),
@@ -88,7 +90,7 @@ enabled = ["tina/goals"]
       );
       expect(await output, contains('work complete'));
     },
-    timeout: const Timeout(Duration(seconds: 45)),
+    timeout: const Timeout(Duration(minutes: 3)),
   );
 
   test(
@@ -227,12 +229,14 @@ enabled = ["tina/persistence", "tina/session-controls", "tina/goals"]
         '--goal',
         '-',
       ], workingDirectory: root.path);
+      addTearDown(() => child.kill(ProcessSignal.sigkill));
       final output = child.stdout.transform(utf8.decoder).join();
       final errors = child.stderr.transform(utf8.decoder).join();
       child.stdin.writeln('piped goal');
       await child.stdin.close();
       expect(
-        await child.exitCode.timeout(const Duration(seconds: 30)),
+        // This source subprocess includes native asset compilation at startup.
+        await child.exitCode.timeout(const Duration(minutes: 2)),
         0,
         reason: await errors,
       );
@@ -274,8 +278,8 @@ enabled = ["tina/persistence", "tina/session-controls", "tina/goals"]
         store.close();
       }
     },
-    // Leave room around the child's own 30-second deadline on shared CI hosts.
-    timeout: const Timeout(Duration(minutes: 1)),
+    // Leave room around the source child's startup deadline on shared CI hosts.
+    timeout: const Timeout(Duration(minutes: 3)),
   );
   test(
     'headless goals wait for verdicts and honor explicit turn bounds',

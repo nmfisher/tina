@@ -168,7 +168,7 @@ class ModelStub(BaseHTTPRequestHandler):
         if output is not None:
             assert output == {'type': 'json_schema', 'schema': {
                 'type': 'object',
-                'properties': {'decision': {'type': 'string', 'enum': ['ALLOW', 'DENY']},
+                'properties': {'decision': {'type': 'string', 'enum': ['ALLOW', 'DENY', 'UNCERTAIN']},
                                'reason': {'type': 'string'},
                                'accesses': {'type': 'array', 'maxItems': 64, 'items': {
                                    'type': 'object',
@@ -269,13 +269,13 @@ def _elided_in(expected, shown):
 
 
 class Terminal:
-    def __init__(self, command, env, columns, rows):
+    def __init__(self, command, env, columns, rows, *, cwd=None):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         self.original_modes = termios.tcgetattr(self.master)
         self.output = bytearray()
         self.process = subprocess.Popen(
-            command, cwd=PACKAGE.parent.parent, env=env,
+            command, cwd=cwd or PACKAGE.parent.parent, env=env,
             stdin=self.slave, stdout=self.slave, stderr=self.slave,
             start_new_session=True,
             preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0),
@@ -301,11 +301,11 @@ class Terminal:
             if time.monotonic() >= deadline or not select.select([self.master], [], [], 0)[0]:
                 return
 
-    def expect(self, text, start=0, *, wrapped=False, elided=False):
+    def expect(self, text, start=0, *, wrapped=False, elided=False, timeout=30):
         expected = text.encode()
         if wrapped:
             expected = re.sub(rb'\s+', b'', expected)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             self.read()
             shown = ANSI.sub(b"", self.output[start:])
@@ -506,7 +506,7 @@ def smoke(launcher, endpoint, columns, rows):
                 assert background in terminal.output, 'theme did not set the application background'
                 cursor = b'\x1b]12;#d0d0d0\x07' if rows == 10 else b'\x1b]12;#080808\x07'
                 assert cursor in terminal.output, 'hardware cursor did not follow the theme'
-            terminal.expect("mode: ask")
+            terminal.expect("mode: approve")
             terminal.expect("update ⬆ v999.0.0")
             start = terminal.send('inspect @zz_file_target')
             terminal.expect('zz_file_target.dart', start)
@@ -568,17 +568,13 @@ def smoke(launcher, endpoint, columns, rows):
             budget.spent('streaming reasoning turn', before_reasoning, 1)
             time.sleep(0.1)
             start = terminal.send("\x1b[Z")
-            terminal.expect("mode: read-only", start)
-            start = terminal.send("\x1b[Z")
-            terminal.expect("mode: allow-edits", start)
-            start = terminal.send("\x1b[Z")
             terminal.expect("mode: auto", start)
             start = terminal.send("\x1b[Z")
-            terminal.expect("mode: ask", start)
+            terminal.expect("mode: approve", start)
             start = terminal.send("/m")
             terminal.expect("/mode", start)
-            start = terminal.send("ode read-only\r")
-            terminal.expect("mode: read-only", start)
+            start = terminal.send("ode approve\r")
+            terminal.expect("mode: approve", start)
             # The editor diffs its rows; an unchanged prompt emits no bytes.
             time.sleep(0.05)
             before_stream = len(ModelStub.requests)
@@ -670,8 +666,8 @@ def smoke(launcher, endpoint, columns, rows):
             ModelStub.advance_reasoning.set()
             ModelStub.release_reasoning.set()
             time.sleep(0.1)
-            start = terminal.send('/mode ask\r')
-            terminal.expect('mode: ask', start)
+            start = terminal.send('/mode approve\r')
+            terminal.expect('mode: approve', start)
             terminal.resize(columns, rows)
             time.sleep(0.1)
             before_denied_write = len(ModelStub.requests)
@@ -756,8 +752,12 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
-            terminal.expect('[a] Remember…', start)
-            start = terminal.send('a\r')
+            terminal.expect('❯ [y] Run once', start)
+            # Literal commands offer scoped prefix grants; choosing Run once
+            # still requires a fresh approval for the next invocation.
+            terminal.expect('[a] For this session: always allow commands starting with echo', start)
+            terminal.expect('[p] For this workspace: always allow commands starting with echo', start)
+            start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
@@ -767,18 +767,21 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
+            terminal.expect('with network access', start)
+            terminal.expect('❯ [y] Run once', start)
+            assert len(ModelStub.requests) == before_network + 1, 'repeat ran before approval'
+            start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
-            assert len(ModelStub.requests) == before_network + 2, 'remembered network command did not finish'
-            budget.spent('remembered network command', before_network, 2)
+            assert len(ModelStub.requests) == before_network + 2, 'repeat network command did not finish'
+            budget.spent('repeat network command', before_network, 2)
             terminal.expect('smoke answer', start)
-            assert b'awaiting approval' not in terminal.output[start:], 'network Always was not reused'
             time.sleep(0.1)
             before_network = len(ModelStub.requests)
             start = terminal.send('different network example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('❯ [y] Run once', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
@@ -791,6 +794,9 @@ def smoke(launcher, endpoint, columns, rows):
             terminal.expect('mode: auto', start)
             before_auto = len(ModelStub.requests)
             start = terminal.send('auto workspace example\r')
+            # Auto cannot substitute for the first human workspace write grant.
+            terminal.expect('Allow workspace writes for this session', start, wrapped=True)
+            terminal.send('y')
             terminal.expect('run command allowed by classifier', start)
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
@@ -798,18 +804,14 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_auto + 3, 'automatic review did not use its own structured request'
             terminal.expect('smoke answer', start)
             assert 'output_config' in ModelStub.requests[before_auto + 1]
-            assert b'awaiting approval' not in terminal.output[start:], 'schema-valid ALLOW still prompted'
+            # One human workspace answer above must let model-approved execution finish.
+            # A second human prompt would prevent the continuation request arriving.
             budget.spent('auto workspace approval', before_auto, 3)
             time.sleep(0.1)
             before_auto = len(ModelStub.requests)
             start = terminal.send('auto denied workspace example\r')
-            # The classifier's DENY is final: no dialog interrupts the run.
-            # At 80 columns the one-line denial notice truncates in the
-            # middle (the reason is elided), so the reason is asserted from
-            # the end-of-turn batch entry, whose head-and-tail rendering
-            # keeps both the denied target and the full reason.
+            # The classifier's DENY is final and appears once without a batch.
             terminal.expect('auto mode denied', start, wrapped=True)
-            terminal.expect('batched', start, wrapped=True)
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
                 terminal.read()
@@ -817,21 +819,15 @@ def smoke(launcher, endpoint, columns, rows):
             budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
             assert b'allow once' not in terminal.output[start:], 'a final auto denial still asked'
-            # The end-of-turn batch lists the denial for the user. At 80
-            # columns the entry renders head…tail with the middle elided at
-            # a column the pane decides, so assert the whole entry —
-            # verdict, denied target and classifier reason — with elision
-            # tolerated (expect(elided=True)).
-            terminal.expect('auto mode decisions this turn', start, wrapped=True)
-            terminal.expect(
-                '1. denied: /bin/echo denied-workspace-output — classifier '
-                'recommends denial: Project data could be exposed.',
-                start, wrapped=True, elided=True)
+            assert b'auto mode decisions this turn' not in terminal.output[start:]
+            assert b'batched' not in terminal.output[start:]
             time.sleep(0.1)
-            start = terminal.send('/mode allow-edits\r')
-            terminal.expect('mode: allow-edits', start)
+            start = terminal.send('/mode approve\r')
+            terminal.expect('mode: approve', start)
             before_background = len(ModelStub.requests)
             start = terminal.send('background poll example\r')
+            terminal.expect('❯ [y] allow once', start)
+            terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_background + 2 and time.monotonic() < deadline:
                 terminal.read()
@@ -866,6 +862,8 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('run cancellable tool\r')
             tool_paint_start = start
             terminal.expect('Run shell command', start)
+            terminal.expect('❯ [y] allow once', start)
+            terminal.send('y')
             terminal.resize(100, 30)
             terminal.wait_for(lambda: (workspace / 'subprocess-ready').exists(),
                               'approved subprocess never started')

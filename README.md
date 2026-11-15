@@ -64,9 +64,15 @@ UI plugins can register settings sections and other console contributions;
 see [UI contribution interfaces and lifecycle](docs/ui-contributions.md).
 See [scoped settings](docs/engine2-settings.md) for the plugin API and scope rules.
 
+In Settings → Models → Providers and models, confirm a new model ID with Enter.
+Esc then saves the confirmed addition and returns to Settings. Esc while typing
+an unfinished model cancels that entry. Adding a model does not switch to it.
+
 In `/settings` → **Permissions** → **Mode and auto approval**, edit **Auto-approval classifier
 instruction** to supply permission preferences. The default Session scope saves
 that instruction with the conversation and prepends it to each classifier request.
+In the same section, **Auto-approval classifier timeout (seconds)** defaults to
+**60** and accepts positive whole seconds at Session, Workspace or Global scope.
 
 MCP servers, including Blender Lab's official server, are supported by `tina/mcp`.
 Configure them in Settings → Permissions → MCP servers; see [MCP setup](docs/engine2-mcp.md).
@@ -145,6 +151,9 @@ an explicit enabled-plugin list, add it and restart. Saved conversations can
 be resumed individually; the arrangement of open panels is not persisted.
 After shutdown, Tina prints a command to resume the saved main session,
 including any custom config and store paths. Empty sessions have no resume hint.
+Resuming paints a recent page first. Page Up or scrolling upward loads older
+pages on demand, within the terminal's retained scrollback limit. The engine
+restores the full session for model context and session state.
 
 ```sh
 tina --resume                       # list and select a workspace session

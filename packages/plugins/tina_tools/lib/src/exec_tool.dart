@@ -19,6 +19,7 @@ class ExecTool extends ProcessToolBase {
   /// The directory the program runs in. Null means the process inherits the
   /// host's cwd.
   final String? workingDirectory;
+  final String? Function()? readWorkingDirectory;
 
   /// Extra environment for the child, on top of the inherited environment.
   final Map<String, String>? environment;
@@ -26,6 +27,7 @@ class ExecTool extends ProcessToolBase {
   ExecTool({
     required this.runner,
     this.workingDirectory,
+    this.readWorkingDirectory,
     this.environment,
   });
 
@@ -55,14 +57,14 @@ class ExecTool extends ProcessToolBase {
               'type': 'string',
               'enum': ['read-only', 'workspace-write'],
               'description':
-                  'Execution profile. Sandboxed commands default to read-only in ask, auto and read-only modes, so workspace inspection never asks for execution approval, including arbitrary scripts and Git options. Request workspace-write explicitly for commands that create, modify, rename or delete files. Unrecognized commands also select a writable profile when write_directories is declared. Recognized readers default to read-only in other modes. Outside paths and network require explicit human approval in every ordinary mode.'
+                  'Execution profile. Sandboxed commands default to read-only in ask, auto and read-only modes, so workspace inspection never asks for execution approval, including arbitrary scripts and Git options. Request workspace-write explicitly for commands that create, modify, rename or delete files. Unrecognized commands also select a writable profile when write_directories is declared. Recognized readers default to read-only in other modes. Outside paths and network are reviewed according to the active permission mode.'
             },
             'read_directories': {
               'type': 'array',
               'items': {'type': 'string'},
               'maxItems': 32,
               'description':
-                  'Additional existing directories to read for this invocation. Relative paths resolve from working_directory. Requires explicit human approval with the command; keeps the sandbox active and does not save a grant. Prefer this over outside_sandbox for external files or toolchains.'
+                  'Additional existing directories to read for this invocation. Relative paths resolve from working_directory. Reviewed with the command according to the active permission mode; keeps the sandbox active and does not save a grant. Prefer this over outside_sandbox for external files or toolchains.'
             },
             'write_directories': {
               'type': 'array',
@@ -83,8 +85,7 @@ class ExecTool extends ProcessToolBase {
               'type': 'boolean',
               'description':
                   'Request running this exact command outside the OS sandbox. '
-                      'Request this immediately when host credentials/configuration are needed; no failed attempt is required. Requires human approval even in auto mode, or a matching '
-                      'human session, workspace or global grant. Uses real HOME and grants host filesystem and network '
+                      'Request this immediately when host credentials/configuration are needed; no failed attempt is required. Reviewed by the auto-approver in auto mode and by the user in approve mode. Uses real HOME and grants host filesystem and network '
                       'access to this subprocess tree only. Default false.',
             },
             'sandbox_reason': {
@@ -136,7 +137,8 @@ class ExecTool extends ProcessToolBase {
     final List<String> modelArgs;
     final String? directory;
     try {
-      directory = processWorkingDirectory(input, workingDirectory);
+      directory = processWorkingDirectory(
+          input, readWorkingDirectory?.call() ?? workingDirectory);
       program = requiredString(input, 'program');
       final raw = input['args'];
       if (raw == null) {

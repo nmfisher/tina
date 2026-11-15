@@ -99,6 +99,78 @@ void main() {
     expect(document.domains.map((d) => d.domain), contains('llm.internal.example'));
   });
 
+  test('v0.9.116+ prefix and exact grants compile; auto grants do not',
+      () {
+    // Main changed commands.json from single `pattern` entries to typed
+    // kinds (v0.9.116 command_prefix, v0.9.117 command_exact). The wasm
+    // document must carry both, and must carry ONLY human-reviewed
+    // grants - auto approvals stay with the native live re-reads.
+    writeStore('commands.json', [
+      {
+        'kind': 'command_prefix',
+        'version': 1,
+        'id': 'prefix:global:shell:git:["status"]',
+        'scope': 'global',
+        'workspace': workspace.path,
+        'decided_by': 'user',
+        'executable': 'git',
+        'prefix': ['status'],
+        'context': 'shell',
+        'capabilities': ['execute'],
+        'command': 'git status ...',
+        'directory': workspace.path,
+      },
+      {
+        'kind': 'command_exact',
+        'version': 1,
+        'id': 'exact:global:shell:cargo',
+        'scope': 'global',
+        'workspace': workspace.path,
+        'decided_by': 'user',
+        'executable': 'cargo',
+        'arguments': ['test', '--quiet'],
+        'context': 'cargo test --quiet',
+        'capabilities': ['execute'],
+        'command': 'cargo test --quiet',
+        'directory': workspace.path,
+      },
+      {
+        'kind': 'command_prefix',
+        'version': 1,
+        'id': 'prefix:session:shell:rm:["-rf"]',
+        'scope': 'session',
+        'decided_by': 'auto',
+        'executable': 'rm',
+        'prefix': ['-rf'],
+        'context': 'shell',
+        'capabilities': ['execute'],
+        'command': 'rm -rf ...',
+        'directory': workspace.path,
+      },
+    ]);
+
+    final inputs = readCapabilityInputs(
+      workspace: workspace.path,
+      configDir: configDir.path,
+      yolo: false,
+    );
+
+    expect(
+      inputs.rules.map((r) => (r.pattern, r.origin)),
+      [
+        ('git status', 'grant:prefix:global:shell:git:["status"]'),
+        ('cargo test --quiet', 'grant:exact:global:shell:cargo'),
+      ],
+      reason: 'prefix and exact user grants compile, escaped and ordered; '
+          'the auto-approved rm grant does not',
+    );
+
+    final document = compileCapabilities(inputs);
+    expect(document.rules, hasLength(2));
+    expect(document.rules.every((r) => r.verdict == CommandVerdict.allow),
+        isTrue);
+  });
+
   test('a fresh install compiles the structural-only document', () {
     final inputs = readCapabilityInputs(
       workspace: workspace.path,

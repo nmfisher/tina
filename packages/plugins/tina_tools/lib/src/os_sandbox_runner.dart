@@ -28,6 +28,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import 'process_runner.dart';
+import 'path_grants.dart';
 import 'read_directories.dart';
 import 'write_directories.dart';
 import 'sandbox_failure.dart';
@@ -153,7 +154,7 @@ enum UnavailableBehaviour { allow, refuse }
 /// paths the kernel makes writable, never a hair less or more.
 class SandboxPlan {
   static const defaultSearchPath =
-      '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+      '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 
   /// The session's project root: bound read-write in the namespace.
   final String workspaceRoot;
@@ -180,34 +181,46 @@ class SandboxPlan {
   final SandboxHome? home;
   final String? realHome;
   final List<String> protectedPaths;
+  final PathGrants? pathGrants;
+  final String Function()? readSearchPath;
+  final Map<String, String> Function()? readEnvironment;
 
   Map<String, String> get hostEnvironment =>
       parentEnvironment ?? Platform.environment;
   String? get hostHome => realHome ?? hostEnvironment['HOME'];
-  String get searchPath => _childEnvironment?['PATH'] ?? defaultSearchPath;
-  Map<String, String> get childEnvironment =>
-      _childEnvironment ??
-      {
-        'PATH': searchPath,
-        'HOME': home?.ensure() ?? '/tmp',
-        'TMPDIR': home?.existingPath == null
-            ? '/tmp'
-            : path.join(home!.existingPath!, 'tmp'),
-        'LANG': 'C.UTF-8',
+  String get searchPath =>
+      readSearchPath?.call() ?? _childEnvironment?['PATH'] ?? defaultSearchPath;
+  Map<String, String> get childEnvironment => {
+        ...(_childEnvironment ??
+            {
+              'PATH': searchPath,
+              'HOME': home?.ensure() ?? '/tmp',
+              'TMPDIR': home?.existingPath == null
+                  ? '/tmp'
+                  : path.join(home!.existingPath!, 'tmp'),
+              'LANG': 'C.UTF-8',
+            }),
+        ...?readEnvironment?.call(),
+        if (readSearchPath != null) 'PATH': searchPath,
       };
   Map<String, String> get outsideEnvironment => {
-        'PATH': hostEnvironment['PATH'] ?? searchPath,
+        'PATH': readSearchPath != null
+            ? searchPath
+            : hostEnvironment['PATH'] ?? searchPath,
         'HOME': hostHome ?? '/tmp',
         'TMPDIR': sandboxTempDirectory(hostEnvironment),
         'LANG': hostEnvironment['LANG'] ?? 'C.UTF-8',
         if (hostEnvironment['SSH_AUTH_SOCK'] case final String socket)
           'SSH_AUTH_SOCK': socket,
+        ...?readEnvironment?.call(),
       };
   List<String> get deniedPaths => sandboxPathAliases([
         ...protectedPaths,
         if (tinaDir != null) tinaDir!,
-        if (hostHome case final String host)
-          for (final relative in credentialHomePaths) path.join(host, relative),
+        if (pathGrants == null)
+          if (hostHome case final String host)
+            for (final relative in credentialHomePaths)
+              path.join(host, relative),
       ]);
   bool isProtected(String value) {
     final targets = sandboxPathAliases([value]);
@@ -250,15 +263,38 @@ class SandboxPlan {
     if (isProtected(value)) return false;
     final target = canonicalSandboxPath(value);
     return sandboxPathUnder(target, canonicalSandboxPath(workspaceRoot)) ||
+        allowsRuntimeRead(target) ||
+        pathGrants?.allows(target) == true ||
         readDirectories?.allows(target) == true ||
         writeDirectories?.allows(target) == true ||
         writablePaths.any(
             (root) => sandboxPathUnder(target, canonicalSandboxPath(root)));
   }
 
+  /// Read-only system runtime access already provided by the OS sandbox.
+  /// Files match exactly; directory entries include their descendants.
+  /// Canonical paths keep a symlink inside a runtime directory from granting
+  /// access to an unrelated target. Protected paths always take precedence.
+  bool allowsRuntimeRead(String value) {
+    if (isProtected(value)) return false;
+    final target = canonicalSandboxPath(value);
+    for (final runtime in runtimeReadPaths) {
+      final type = FileSystemEntity.typeSync(runtime);
+      if (type == FileSystemEntityType.notFound) continue;
+      final root = canonicalSandboxPath(runtime);
+      if (target == root ||
+          type == FileSystemEntityType.directory &&
+              sandboxPathUnder(target, root)) return true;
+    }
+    return false;
+  }
+
   List<String> get readAllowPaths => [
         ...writableLayout(),
         ...?readDirectories?.existingPaths,
+        ...?pathGrants?.grants
+            .where((g) => g.covers(g.path))
+            .map((g) => g.path),
       ];
 
   ProcessDirectoryAccess resolveDirectoryAccess({
@@ -315,8 +351,9 @@ class SandboxPlan {
 
   /// A private layout for one invocation. Never mutate live settings or the
   /// shared plan, which may be serving other running jobs.
-  SandboxPlan withDirectoryAccess(ProcessDirectoryAccess access) {
-    if (access.isEmpty) return this;
+  SandboxPlan withDirectoryAccess(ProcessDirectoryAccess access,
+      {Map<String, String>? environment}) {
+    if (access.isEmpty && environment == null) return this;
     return SandboxPlan(
       workspaceRoot: workspaceRoot,
       tinaDir: tinaDir,
@@ -326,11 +363,14 @@ class SandboxPlan {
       writeDirectories: WriteDirectories()
         ..replace([...?writeDirectories?.existingPaths, ...access.write]),
       isolateNetwork: isolateNetwork,
-      childEnvironment: _childEnvironment,
+      childEnvironment: environment ?? _childEnvironment,
+      readSearchPath: environment == null ? readSearchPath : null,
+      readEnvironment: environment == null ? readEnvironment : null,
       parentEnvironment: parentEnvironment,
       home: home,
       realHome: realHome,
       protectedPaths: protectedPaths,
+      pathGrants: pathGrants,
     );
   }
 
@@ -349,6 +389,9 @@ class SandboxPlan {
     this.home,
     this.realHome,
     this.protectedPaths = const [],
+    this.pathGrants,
+    this.readSearchPath,
+    this.readEnvironment,
   }) : _childEnvironment = childEnvironment;
 
   /// Every path the layout makes writable: the workspace root, the extra
@@ -360,7 +403,7 @@ class SandboxPlan {
           ...extraWritablePaths,
           ...scratchDirectories,
           if (home?.existingPath != null) home!.existingPath!,
-          ...?home?.targets
+          if (pathGrants == null) ...?home?.targets
         },
       ];
 
@@ -385,7 +428,10 @@ class SandboxPlan {
   List<String> get extraWritablePaths => [
         ...writablePaths,
         if (home?.existingPath != null) home!.existingPath!,
-        ...?home?.targets,
+        if (pathGrants == null) ...?home?.targets,
+        ...?pathGrants?.grants
+            .where((g) => g.write && g.covers(g.path, write: true))
+            .map((g) => g.path),
         ...?writeDirectories?.existingPaths,
       ];
 
@@ -395,6 +441,9 @@ class SandboxPlan {
         ...writableLayout(),
         ...kSandboxReadOnlyBinds,
         ...?readDirectories?.existingPaths,
+        ...?pathGrants?.grants
+            .where((g) => g.covers(g.path))
+            .map((g) => g.path),
         if (tinaDir != null) tinaDir!,
       ];
 }
@@ -482,7 +531,9 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
       return const CommandRefused(
           'Approved directories changed before execution');
     }
-    final plan = this.plan.withDirectoryAccess(access);
+    final plan = this
+        .plan
+        .withDirectoryAccess(access, environment: control?.approvedEnvironment);
     if (control?.outsideSandboxRequested == true &&
         (control?.outsideSandboxAllowed != true ||
             control?.networkAllowed != true)) {
@@ -504,22 +555,23 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
         command: request.command,
         arguments: request.arguments,
         workingDirectory: request.workingDirectory,
-        environment: control?.outsideSandboxRequested == true &&
-                control?.approvedHostEnvironment != null
-            ? {
-                // The gate snapshots these fields before human approval.
-                // Never inherit arbitrary environment variables here.
-                for (final key in [
-                  'PATH',
-                  'HOME',
-                  'TMPDIR',
-                  'LANG',
-                  'SSH_AUTH_SOCK'
-                ])
-                  if (control!.approvedHostEnvironment!.containsKey(key))
-                    key: control.approvedHostEnvironment![key]!,
-              }
-            : plan.outsideEnvironment,
+        environment: control?.approvedEnvironment ??
+            (control?.outsideSandboxRequested == true &&
+                    control?.approvedHostEnvironment != null
+                ? {
+                    // The gate snapshots these fields before human approval.
+                    // Never inherit arbitrary environment variables here.
+                    for (final key in [
+                      'PATH',
+                      'HOME',
+                      'TMPDIR',
+                      'LANG',
+                      'SSH_AUTH_SOCK'
+                    ])
+                      if (control!.approvedHostEnvironment!.containsKey(key))
+                        key: control.approvedHostEnvironment![key]!,
+                  }
+                : plan.outsideEnvironment),
         stdin: request.stdin,
         timeout: request.timeout,
       ), control: control);
@@ -538,7 +590,8 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
             command: request.command,
             arguments: request.arguments,
             workingDirectory: request.workingDirectory,
-            environment: plan.outsideEnvironment,
+            environment:
+                control?.approvedEnvironment ?? plan.outsideEnvironment,
             stdin: request.stdin,
             timeout: request.timeout
           ), control: control),
@@ -606,9 +659,10 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
                 : plan.extraWritablePaths,
             readOnlyPaths:
                 control?.readOnly == true ? plan.extraWritablePaths : const [],
-            readOnlyWorkspace: control?.readOnly == true,
-            isolateNetwork:
-                plan.isolateNetwork && !(control?.networkAllowed ?? false),
+            readOnlyWorkspace: control?.readOnly == true ||
+                control?.workspaceWriteAllowed == false,
+            isolateNetwork: (plan.pathGrants != null || plan.isolateNetwork) &&
+                !(control?.networkAllowed ?? false),
             childEnvironment: plan.childEnvironment,
           ),
         ),
@@ -620,12 +674,14 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
               writablePaths: control?.readOnly == true
                   ? _privateWritablePaths(plan)
                   : sandboxPathAliases(plan.writableLayout()),
-              readOnlyPaths: control?.readOnly == true
+              readOnlyPaths: control?.readOnly == true ||
+                      control?.workspaceWriteAllowed == false
                   ? sandboxPathAliases([
                       plan.workspaceRoot,
-                      ...plan.writablePaths,
-                      ...?plan.home?.targets,
-                      ...?plan.writeDirectories?.existingPaths
+                      if (control?.readOnly == true) ...plan.writablePaths,
+                      if (control?.readOnly == true) ...?plan.home?.targets,
+                      if (control?.readOnly == true)
+                        ...?plan.writeDirectories?.existingPaths
                     ])
                   : const [],
               outputDirectories: const [],
@@ -634,7 +690,8 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
               runtimeReadPaths: sandboxPathAliases(plan.runtimeReadPaths),
               readAllowPaths: sandboxPathAliases(plan.readAllowPaths),
               isolateNetwork:
-                  plan.isolateNetwork && !(control?.networkAllowed ?? false),
+                  (plan.pathGrants != null || plan.isolateNetwork) &&
+                      !(control?.networkAllowed ?? false),
             ),
           ],
         ),
@@ -650,7 +707,8 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
     ), control: control);
     return completed is CommandCompleted
         ? _decode(completed, mounted, request, plan,
-            readOnly: control?.readOnly == true)
+            readOnly: control?.readOnly == true,
+            workspaceReadOnly: control?.workspaceWriteAllowed == false)
         : completed;
   }
 
@@ -664,7 +722,7 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
   /// [CommandBlocked]; anything else stays an ordinary completed run.
   RunOutcome _decode(CommandCompleted completed, List<String> mounted,
       ProcessRequest request, SandboxPlan plan,
-      {required bool readOnly}) {
+      {required bool readOnly, bool workspaceReadOnly = false}) {
     if (completed.exitCode == 0 || completed.cancelled || completed.timedOut)
       return completed;
     final writablePaths =
@@ -673,11 +731,15 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
       completed,
       writablePaths: writablePaths,
       deniedPaths: plan.deniedPaths,
-      canWrite: (value) => readOnly
-          ? !plan.isProtected(value) &&
-              writablePaths
-                  .any((root) => _under(canonicalSandboxPath(value), root))
-          : plan.canWrite(value, linux: backend == SandboxBackend.bwrap),
+      canWrite: (value) => workspaceReadOnly &&
+              sandboxPathUnder(canonicalSandboxPath(value),
+                  canonicalSandboxPath(plan.workspaceRoot))
+          ? false
+          : readOnly
+              ? !plan.isProtected(value) &&
+                  writablePaths
+                      .any((root) => _under(canonicalSandboxPath(value), root))
+              : plan.canWrite(value, linux: backend == SandboxBackend.bwrap),
       accessIsWrite: {'touch', 'mkdir'}.contains(path.basename(request.command))
           ? true
           : {'cat', 'head', 'tail', 'ls', 'stat', 'grep'}
@@ -729,6 +791,9 @@ final class OsSandboxRunner implements ConfinedProcessRunner {
     return SandboxHostLayout(
       readOnlyDirectories: {
         ...base.readOnlyDirectories,
+        ...?plan.pathGrants?.grants
+            .where((g) => !g.write && g.covers(g.path))
+            .map((g) => g.path),
         ...?plan.readDirectories?.existingPaths.where((read) =>
             !plan.extraWritablePaths.any((write) => _under(read, write))),
       },

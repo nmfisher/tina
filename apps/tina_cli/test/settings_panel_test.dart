@@ -6,7 +6,8 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart' show SettingScope;
-import 'package:tina_mode/tina_mode.dart' show classifierModelSetting;
+import 'package:tina_mode/tina_mode.dart'
+    show classifierModelSetting, classifierTimeoutSetting;
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
@@ -119,15 +120,92 @@ enabled = []
     expect(loaded.model, 'original');
   });
 
-  test('settings selects a channel independently of feature plugins', () async {
+  test('confirmed model persists after Escape without selecting it', () async {
     final (saved, _) = await drive([
+      CharInput('Providers and models'), enter,
+      enter, // Edit Global providers.
+      ArrowKey(ArrowDirection.right),
+      for (var i = 0; i < 7; i++) down, // Add model after three existing models.
+      enter, CharInput('added|Added model'), enter,
+      escape, // Return from Providers with the confirmed addition.
+      escape, // Close Settings.
+    ], verify: (assembly) {
+      expect(assembly.host.model, 'custom/original');
+    });
+    expect(saved, isTrue);
+    final loaded = loadTinaConfig(path: config.path, descriptors: descriptors).config;
+    expect(loaded.model, 'original');
+    expect(loaded.providers['custom']!.models!['added']!.name, 'Added model');
+    final reopened = SessionAssembly.start(descriptors: descriptors,
+        options: AssemblyOptions(configPath: config.path));
+    final management = ConfigSettingsManagement(
+        scopedSettings: reopened.settings,
+        backend: reopened.settingsBackend,
+        descriptors: descriptors);
+    try {
+      expect(reopened.host.model, 'custom/original');
+      final draft = management.openDraft(SettingScope.global, providerCatalog: true);
+      try {
+        expect(modelChoices(draft, management.providers, reopened.host.model)!.refs,
+            contains('custom/added'));
+      } finally {
+        management.closeDraft(draft);
+      }
+    } finally {
+      management.close();
+      reopened.close();
+    }
+  });
+
+  test('adding a model preserves an implicitly configured default provider',
+      () async {
+    config.writeAsStringSync('''
+[default]
+provider = "custom"
+model = "original"
+[plugins]
+enabled = []
+''');
+    const builtin = ProviderDescriptor(
+        id: 'custom', name: 'Custom', wire: ProviderWire.openAiCompatible,
+        baseUrl: 'https://custom.example', keyEnvVar: 'CUSTOM_API_KEY',
+        keyStyle: ProviderKeyStyle.bearer,
+        models: {
+          'original': ModelInfo(id: 'original', name: 'Original',
+              contextWindow: 8192, supportsTools: true),
+          'next': ModelInfo(id: 'next', name: 'Next',
+              contextWindow: 8192, supportsTools: true),
+        });
+    final (saved, _) = await drive([
+      CharInput('Providers and models'), enter,
+      enter,
+      ArrowKey(ArrowDirection.right),
+      for (var i = 0; i < 6; i++) down,
+      enter, CharInput('added|Added model'), enter,
+      escape, escape,
+    ], providerDescriptors: const [builtin]);
+    expect(saved, isTrue);
+    final loaded = loadTinaConfig(path: config.path,
+        descriptors: const [builtin]).config;
+    expect(loaded.model, 'original');
+    expect(loaded.providers['custom']!.models, contains('added'));
+    expect(loaded.providers['custom']!.disabledModels,
+        isNot(contains('original')));
+  });
+
+  test('settings selects a channel independently of feature plugins', () async {
+    final (saved, output) = await drive([
       CharInput('Plugins'), enter, // plugins matrix
-      CharInput('Approval'), enter, // approval delivery row
-      CharInput('global'), enter, // delivery has no session scope
-      CharInput('approvals-stream'), enter, // choice
+      CharInput('Permission prompts'), enter,
+      CharInput('global'), enter, // prompt destination has no session scope
+      CharInput('External app'), enter,
       escape, escape, // close
     ]);
     expect(saved, true);
+    expect(output, contains('Permission prompts'));
+    expect(output, contains('This terminal'));
+    expect(output, contains('External app'));
+    expect(output, isNot(contains('Approval delivery')));
     final loaded =
         loadTinaConfig(path: config.path, descriptors: descriptors).config;
     expect(loaded.approvalChannel, 'tina/approvals-stream');
@@ -221,6 +299,36 @@ enabled = []
     expect(output, contains('Choose default model'));
     expect(output, contains('org/model'));
   });
+
+  test(
+    'classifier timeout edits through Settings and persists globally',
+    () async {
+      final (saved, output) = await drive(
+        [
+          ControlKey(ControlCode.tab),
+          ControlKey(ControlCode.tab), // global scope
+          CharInput('classifier timeout'), enter,
+          EditingKey(EditingAction.killToStart), CharInput('120'), enter,
+          escape,
+        ],
+        verify: (assembly) {
+          final state = assembly.settings.read(classifierTimeoutSetting);
+          expect(state.value, 120);
+          expect(state.source, SettingScope.global);
+          expect(
+            assembly.tools.modePolicy.classifier!.timeout,
+            const Duration(seconds: 120),
+          );
+        },
+      );
+      expect(saved, isTrue);
+      expect(output, contains('Auto-approval classifier timeout (seconds)'));
+      final section =
+          ConfigDocument.open(config.path).table('plugin_config')['tina/mode']
+              as Map;
+      expect(section['classifier_timeout_seconds'], 120);
+    },
+  );
 
   test('the classifier model setting opens the searchable model picker',
       () async {

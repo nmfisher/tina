@@ -149,6 +149,8 @@ abstract final class InputLog {
         FunctionKey(:final code) => 'fn(${code.name})',
         EscapeKey() => 'esc',
         ScrollEvent(:final up) => 'scroll(${up ? 'up' : 'down'})',
+        MouseEvent(:final action, :final row, :final col) =>
+          'mouse(${action.name},$row,$col)',
         UnknownEscape() => 'unknown-escape',
       };
 

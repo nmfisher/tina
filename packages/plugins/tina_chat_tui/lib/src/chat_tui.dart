@@ -8,21 +8,31 @@ import 'chat_transcript.dart';
 import 'markdown_renderer.dart';
 import 'prompt.dart';
 import 'timestamp_chat.dart';
+import 'clipboard_stub.dart' if (dart.library.io) 'clipboard_io.dart';
 
 /// Transcript presentation driven by the runtime's read-only observations.
 /// This view owns chat rows, folds, timestamps and the live model prompt.
 /// No UI state is written into the model's messages.
 final class ChatView implements ConsoleContribution, ConsoleTranscript {
-  ChatView(this.chat, {DateTime Function()? now})
+  ChatView(this.chat, {DateTime Function()? now, this.copyText})
       : _now = now ?? DateTime.now,
         renderer = TimestampChatRenderer(now: now ?? DateTime.now);
   final ChatObservation chat;
+  final Future<bool> Function(String text)? copyText;
+  MouseTextSelection? _mouseSelection;
+  void Function()? _unbindMouse,
+      _unbindMouseModal,
+      _unbindMouseShortcut,
+      _unbindMouseStatus;
   @override
   bool get observesSessionNotices => chat.includesSessionNotices;
   int _tokens = 0;
   GoalChangedEntry? _goal;
   void Function()? _unlisten;
   void Function()? _unlistenState;
+  SessionHistorySubscription? _history;
+  bool _replaying = false;
+  void Function()? _releaseHistory;
   final DateTime Function() _now;
   final TimestampChatRenderer renderer;
   final List<ChatBlock> _blocks = [];
@@ -39,6 +49,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   ConsoleContext? _console;
   void Function()? _unbindPrompt, _unbindKey, _unbindModal;
   void Function()? _unbindStatus;
+  void Function()? _unbindScrollHint;
   void Function()? _unbindAttention;
   Timer? _ticker;
   int _frame = 0, _width = -1, _height = -1;
@@ -68,6 +79,9 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   int _renderedRows = 0, _trailingBlankRows = 0;
   final _sources = Expando<String>('markdown-source');
   final _images = Expando<ConsoleImage>('chat-image');
+  final _blockIds = Expando<String>('history-block');
+  int? _entrySeq;
+  int _entryBlockIndex = 0;
   MarkdownStyle get _style => MarkdownStyle.fromChatTheme(
       _console?.screen.theme.chat ?? const Theme.defaults().chat);
 
@@ -78,10 +92,20 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _unbindAttention =
         context.bindAttentionPreference(() => chat.terminalAlertsEnabled);
     _unbindStatus = context.bindStatus(_statusLines);
-    for (final block in _blocks) {
-      final source = _sources[block];
-      if (source != null) block.body = renderMarkdown(_clean(source), _style);
-    }
+    final selection = _mouseSelection =
+        MouseTextSelection(context, copyText: copyText ?? copyChatText);
+    _unbindMouse = context.own(context.screen.bindMouseSelection());
+    _unbindMouseModal = context.addModal(selection);
+    _unbindMouseShortcut = context.bindPointer(selection.handleEvent);
+    _unbindMouseStatus = context.bindStatus(selection.status, priority: -20);
+    _unbindScrollHint = context.bindStatus(
+        () => [
+              RenderLine(runs: [
+                RenderRun('Drag to copy · Alt/Option+↑↓ line · PgUp/PgDn page',
+                    context.screen.theme.chat.dim)
+              ])
+            ],
+        priority: 1000);
     _unbindPrompt = context.bindPrompt(
         () => renderConversationPrompt(
             ConversationPrompt(
@@ -126,6 +150,18 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       return true;
     });
     _unbindModal = context.addModal(_TranscriptModal(this));
+    final previousHistoryRequest = context.chat.onHistoryRequested;
+    void requestHistory() {
+      if (!context.chat.historyAtCapacity && _history?.hasEarlier == true)
+        _history!.loadEarlier();
+      previousHistoryRequest?.call();
+    }
+
+    context.chat.onHistoryRequested = requestHistory;
+    _releaseHistory = () {
+      if (identical(context.chat.onHistoryRequested, requestHistory))
+        context.chat.onHistoryRequested = previousHistoryRequest;
+    };
     _ticker = Timer.periodic(const Duration(milliseconds: 160), (_) {
       if (!_busy) return;
       if (_thinkingDirty && _thinkingPreview != null) {
@@ -149,7 +185,6 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       _paintUsage();
       _console?.refreshInput();
     }));
-    _width = -1;
     repaintConsole();
   }
 
@@ -160,7 +195,8 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   void _observe() {
     _unlisten?.call();
     _unlisten = null;
-    _unlisten = _console?.own(chat.events.listen((event) {
+    _history = null;
+    void receive(SessionObservationEvent event) {
       switch (event) {
         case ObservedReset():
           _resetProjection();
@@ -171,10 +207,63 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
         case ObservedModel():
           watch(event.event);
       }
-    }));
+    }
+
+    final console = _console;
+    if (console == null) return;
+    final source = chat.events;
+    if (source is PagedSessionObservation) {
+      final history = source.listenRecent(receive,
+          limit: console.chat.usableHeight.clamp(16, 128),
+          batchReplay: _batchReplay);
+      _history = history;
+      _unlisten = console.own(history.close);
+      // Metadata-only tail pages may contain fewer than one screen of text.
+      // Fetch another page only until the visible window is filled.
+      for (var pages = 1;
+          pages < 4 &&
+              history.hasEarlier &&
+              console.chat.contentRows < console.chat.usableHeight;
+          pages++) {
+        history.loadEarlier();
+      }
+    } else {
+      _batchReplay(() => _unlisten = console.own(source.listen(receive)));
+    }
+  }
+
+  void _batchReplay(void Function() replay) {
+    final console = _console;
+    if (console == null) return;
+    final folds = <String, bool>{
+      for (final block in _blocks)
+        if (block.canFold && _blockIds[block] != null)
+          _blockIds[block]!: block.folded,
+    };
+    final selected = _selected == null ? null : _blockIds[_blocks[_selected!]];
+    console.screen.frame(() {
+      _replaying = true;
+      try {
+        replay();
+      } finally {
+        _replaying = false;
+      }
+      _selected = null;
+      for (var i = 0; i < _blocks.length; i++) {
+        final block = _blocks[i];
+        final id = _blockIds[block];
+        if (folds[id] case final folded?) block.folded = folded;
+        if (id != null && id == selected) _selected = i;
+      }
+      _busy = chat.events.running;
+      _rebuild();
+      _paintUsage();
+      console.refreshInput();
+    });
   }
 
   void _resetProjection() {
+    _selected = null;
     _blocks.clear();
     _rows.clear();
     _renderedRows = _trailingBlankRows = 0;
@@ -191,7 +280,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _markdown = null;
     _pendingSource = '';
     _previewDirty = _thinkingDirty = false;
-    _console?.chat.resetAfterClear();
+    if (!_replaying) _console?.chat.resetAfterClear();
   }
 
   /// Drop blocks whose rows can never be painted again.
@@ -343,6 +432,16 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   /// Authoritative completion reconciles transient deltas; replay takes the
   /// same path, including imported tool calls and reasoning.
   void entry(SessionEntry entry, LogEvent event) {
+    _entrySeq = entry.seq;
+    _entryBlockIndex = 0;
+    try {
+      _entry(entry, event);
+    } finally {
+      _entrySeq = null;
+    }
+  }
+
+  void _entry(SessionEntry entry, LogEvent event) {
     final at =
         DateTime.tryParse(entry.toJson()['at'] as String? ?? '')?.toLocal();
     if (entry is CutEntry) {
@@ -375,11 +474,20 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
       _previewDirty = false;
       _pendingSource = '';
       _markdown = null;
-      _console?.chat.resetAfterClear();
-      _console?.chat.repaint();
+      if (!_replaying) {
+        _console?.chat.resetAfterClear();
+        _console?.chat.repaint();
+      }
     } else if (entry is TurnStartedEntry) {
       _busy = event == LogEvent.appended;
     } else if (entry is InputRecordedEntry) {
+      if (!_replaying && event == LogEvent.appended) {
+        // A new submission returns to live conversation. Keep the viewport
+        // anchored only while browsing an existing response; otherwise the
+        // user's own message can be appended below an invisible live tail.
+        _mouseSelection?.cancel();
+        _console?.chat.scrollToTail();
+      }
       _recordedInputs.add(entry.turnId);
       _add(ChatBlock.user(_clean(entry.text)), at: at);
     } else if (entry is MessageAppendedEntry) {
@@ -469,7 +577,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
         _console?.requestAttention();
       }
     }
-    _console?.refreshInput();
+    if (!_replaying) _console?.refreshInput();
   }
 
   void observe(ToolActivity event) {
@@ -573,11 +681,13 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   }
 
   void _add(ChatBlock block, {DateTime? at}) {
+    if (_entrySeq != null)
+      _blockIds[block] = '$_entrySeq:${_entryBlockIndex++}';
     renderer.stamp(block, at ?? _now());
     renderer.follow(block, _blocks.lastOrNull);
     _blocks.add(block);
     final console = _console;
-    if (console != null) {
+    if (console != null && !_replaying) {
       console.screen.frame(() {
         final chat = console.chat;
         if (_blocks.length > 1) {
@@ -642,7 +752,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   }
 
   void _changed(ChatBlock block) {
-    if (_console == null) return;
+    if (_console == null || _replaying) return;
     if (_blocks.isNotEmpty &&
         identical(_blocks.last, block) &&
         _rows.length == _blocks.length) {
@@ -662,7 +772,7 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   }
 
   void _rebuild() {
-    if (_console == null) return;
+    if (_console == null || _replaying) return;
     final lines = <RegionLine>[];
     renderer.group(_blocks);
     _rows.clear();
@@ -674,6 +784,11 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _renderedRows = lines.length;
     _trailingBlankRows = _countTrailingBlanks(lines);
     _console!.chat.rewriteFrom(0, lines);
+    _width = _console!.chat.bounds.width;
+    _height = _console!.chat.usableHeight;
+    _cells = _console!.screen.imageCellSize;
+    _themeEpoch = _console!.screen.themeEpoch;
+    _pruneUnpaintableBlocks();
   }
 
   @override
@@ -702,6 +817,16 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   }
 
   void _paintUsage() {
+    if (_replaying) return;
+    final goal = chat.events.snapshot['goal'];
+    if (goal is Map) {
+      try {
+        _goal =
+            GoalChangedEntry.fromJson(Map<String, dynamic>.from(goal), '', 0);
+      } on FormatException {
+        _goal = null;
+      }
+    }
     _console?.refreshStatus();
   }
 
@@ -808,6 +933,9 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
 
   @override
   void detachConsole() {
+    _releaseHistory?.call();
+    _releaseHistory = null;
+    _history = null;
     _unlistenState?.call();
     _unlistenState = null;
     _unlisten?.call();
@@ -823,6 +951,18 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
     _selected = null;
     _unbindStatus?.call();
     _unbindStatus = null;
+    _mouseSelection?.close();
+    _mouseSelection = null;
+    _unbindMouse?.call();
+    _unbindMouse = null;
+    _unbindMouseModal?.call();
+    _unbindMouseModal = null;
+    _unbindMouseShortcut?.call();
+    _unbindMouseShortcut = null;
+    _unbindMouseStatus?.call();
+    _unbindMouseStatus = null;
+    _unbindScrollHint?.call();
+    _unbindScrollHint = null;
     _unbindAttention?.call();
     _unbindAttention = null;
     _console = null;

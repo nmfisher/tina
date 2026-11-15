@@ -80,10 +80,10 @@ before retrying a cancelled/timed-out edit.
 
 MCP connection/startup and every call pass through the shared mode policy.
 Connection approval precedes spawning a stdio process or contacting a remote
-server. Server annotations never authorize effects. Ask, allow-edits and auto
-require a human grant for external capabilities; the automatic judge cannot
-approve them. Read-only permits human-approved resource reads and prompts,
-while blocking unknown server startup and mutation/unknown tool effects.
+server. Server annotations never authorize effects. Uncovered external
+capabilities use the same reviewer selection as file/process access: human in
+`approve`, model in `auto`, with uncertain model judgments falling back to the
+human. Legacy mode names restore as `approve` without granting writes.
 
 Remember covers the exact server configuration, method, tool and canonical
 arguments at Session, Workspace or Global scope through the common trusted

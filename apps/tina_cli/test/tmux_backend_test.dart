@@ -75,7 +75,7 @@ void main() {
         },
       );
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(io.written.toString(), contains('mode: ask'),
+      expect(io.written.toString(), contains('mode: approve'),
           reason: 'the mode strip must be visible at 80 columns');
       io.feedBytes('/quit\r'.codeUnits);
       expect(await done, 0);

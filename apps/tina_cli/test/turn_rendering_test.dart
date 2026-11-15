@@ -270,7 +270,7 @@ enabled = ["tina/chat-tui"]
     io.feedBytes('write a file\r'.codeUnits);
     await waitFor(() => provider.requests.length == 1);
     io.feedBytes('\x1b[Z'.codeUnits);
-    await waitFor(() => session.assembly.tools.mode == PermissionMode.readOnly);
+    await waitFor(() => session.assembly.tools.mode == PermissionMode.auto);
     provider.requests.first
         .add(const ToolCallStart(id: 'write', name: 'write'));
     provider.requests.first.add(const MessageComplete(content: [
@@ -280,6 +280,14 @@ enabled = ["tina/chat-tui"]
           input: {'filePath': 'denied.txt', 'content': 'no'})
     ], stopReason: 'tool_use'));
     await provider.requests.first.close();
+      await waitFor(() => approvalUi(session).interaction.pending.isNotEmpty);
+      expect(
+        approvalUi(
+          session,
+        ).interaction.pending.single.details['workspace_write_grant'],
+        true,
+      );
+      io.feedBytes('n'.codeUnits);
     await waitFor(() => provider.requests.length == 2);
     expect(approvalUi(session).interaction.pending, isEmpty);
     expect(File('${directory.path}/denied.txt').existsSync(), false);
@@ -289,7 +297,7 @@ enabled = ["tina/chat-tui"]
         .whereType<ToolResultBlock>()
         .single;
     expect(result.isError, true);
-    expect(result.content, contains('read-only'));
+    expect(result.content, contains('denied'));
     expect(File('${directory.path}/denied.txt').existsSync(), false);
     provider.requests.last.add(const MessageComplete(
         content: [TextBlock('declined')], stopReason: 'end_turn'));

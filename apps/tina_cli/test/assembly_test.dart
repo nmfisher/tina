@@ -11,6 +11,7 @@ library;
 
 import 'package:tina_tools/tina_tools.dart' show Approval;
 import 'dart:convert';
+import 'support/human.dart';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -215,7 +216,7 @@ void main() {
       await env.assembly.handleCommand('/mode sideways');
       // The mode did not move — the enum stays behind the service; the
       // vocabulary names it.
-      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'ask');
+      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'approve');
       env.assembly.close();
     });
 
@@ -261,6 +262,7 @@ void main() {
         ]),
         scriptedReply('wrote hello.txt for you'),
       ]);
+      env.assembly.tools.modePolicy.approvals = TestHuman();
       await env.assembly.handleCommand('/mode allow-edits');
       final outcome = await env.assembly.host.send('make hello.txt');
       expect(env.provider.callCount, 2,
@@ -325,7 +327,7 @@ void main() {
       final block = resultMessage.content.whereType<ToolResultBlock>().single;
       expect(block.isError, isTrue,
           reason: 'the refusal reaches the model as an error result');
-      expect(block.content, contains('approval denied or cancelled'));
+      expect(block.content, contains('denied'));
       expect(File('/etc/tina-must-not-write').existsSync(), isFalse);
       env.assembly.close();
     });
@@ -346,7 +348,7 @@ void main() {
     });
   });
 
-  group('/mode read-only: the boundary refuses, then relents', () {
+  group('legacy modes require explicit workspace write approval', () {
     test(
         'a write is refused and the refusal reaches the model as that '
         'call\u2019s tool result', () async {
@@ -360,7 +362,7 @@ void main() {
         scriptedReply('acknowledged the refusal'),
       ]);
       await env.assembly.handleCommand('/mode read-only');
-      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'read-only');
+      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'approve');
 
       await env.assembly.host.send('write a file');
       final last = env.provider.requests.last;
@@ -368,7 +370,7 @@ void main() {
           last.messages.where((m) => m.role == Role.user).last;
       final block = resultMessage.content.whereType<ToolResultBlock>().single;
       expect(block.isError, isTrue);
-      expect(block.content, contains('read-only'));
+      expect(block.content, contains('denied'));
       expect(
           File('${env.assembly.host.config.workingDirectory}/blocked.txt')
               .existsSync(),
@@ -376,7 +378,7 @@ void main() {
       env.assembly.close();
     });
 
-    test('/mode allow-edits switches back; the same write then runs', () async {
+    test('a human workspace grant permits the write', () async {
       final env = _assembly([
         scriptedReply('', calls: [
           ToolUseBlock(
@@ -387,8 +389,9 @@ void main() {
         scriptedReply('done'),
       ]);
       await env.assembly.handleCommand('/mode read-only');
+      env.assembly.tools.modePolicy.approvals = TestHuman();
       await env.assembly.handleCommand('/mode allow-edits');
-      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'allow-edits');
+      expect(ModePlugin.wordFor(env.assembly.tools.mode), 'approve');
 
       await env.assembly.host.send('write it now');
       expect(

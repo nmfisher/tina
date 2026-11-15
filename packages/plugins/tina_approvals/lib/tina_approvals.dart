@@ -16,6 +16,10 @@ enum ApprovalDecision {
   allowAlways,
   allowWorkspace,
   allowGlobal,
+  allowPrefixInSession,
+  allowPrefixInWorkspace,
+  allowExactInSession,
+  allowExactInWorkspace,
   deny,
   allowReadsInDirectory,
   allowAlwaysAndReadsInDirectory,
@@ -192,7 +196,12 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       final writeGrant = decision == ApprovalDecision.allowWritesInDirectory ||
           decision == ApprovalDecision.allowAlwaysAndWritesInDirectory;
       final persistentGrant = decision == ApprovalDecision.allowWorkspace ||
-          decision == ApprovalDecision.allowGlobal;
+          decision == ApprovalDecision.allowGlobal ||
+          decision == ApprovalDecision.allowPrefixInWorkspace;
+      final prefixGrant = decision == ApprovalDecision.allowPrefixInSession ||
+          decision == ApprovalDecision.allowPrefixInWorkspace;
+      final exactGrant = decision == ApprovalDecision.allowExactInSession ||
+          decision == ApprovalDecision.allowExactInWorkspace;
       var invalidPattern = false;
       if (commandPattern != null) {
         try {
@@ -213,7 +222,23 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           invalidPattern = true;
         }
       }
-      final invalidScope = (persistentGrant &&
+      final prefixes = request.details['command_prefixes'];
+      final invalidScope = (exactGrant &&
+              (request.kind != ApprovalKind.permission ||
+                  request.details['permission_scope'] != 'command' ||
+                  request.details['exact_command_approval'] != true ||
+                  decision == ApprovalDecision.allowExactInWorkspace &&
+                      request.details['persistent_exact_command'] != true)) ||
+          (prefixGrant &&
+              (request.kind != ApprovalKind.permission ||
+                  request.details['permission_scope'] != 'command' ||
+                  decision == ApprovalDecision.allowPrefixInWorkspace &&
+                      request.details['persistent_command_prefix'] != true ||
+                  prefixes is! List ||
+                  prefixes.isEmpty ||
+                  prefixes
+                      .any((prefix) => prefix is! String || prefix.isEmpty))) ||
+          (persistentGrant &&
               (request.kind != ApprovalKind.permission ||
                   !(request.details['persistent_command_approval'] == true ||
                       commandPattern != null &&
@@ -271,7 +296,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
                   !offers.any((offer) =>
                       offer is Map &&
                       offer['path'] == grant.path &&
-                      offer['access'] == grant.access.name)));
+                      offer['access'] == grant.access.name &&
+                      (offer['recursive'] != false) == grant.recursive)));
       if (!invalid &&
           !invalidScope &&
           !invalidPattern &&

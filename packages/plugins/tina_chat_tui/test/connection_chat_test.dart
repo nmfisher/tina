@@ -116,6 +116,57 @@ void main() {
         'start${'!' * 200} detached');
   });
 
+  test('recent subscriptions page backwards and retain the live cursor', () async {
+    for (var i = 0; i < 1000; i++) {
+      host.session.loop.recordUsage(const UsageRecordedEntry(turnId: 'history'));
+    }
+    final events = <SessionObservationEvent>[];
+    final history = observation.listenRecent(events.add, limit: 16);
+    addTearDown(history.close);
+    List<int> seqs() => events.whereType<ObservedEntry>()
+        .map((event) => event.entry.seq).toList();
+    expect(seqs(), List.generate(16, (i) => 984 + i));
+    expect(history.hasEarlier, isTrue);
+    events.clear();
+    history.loadEarlier();
+    expect(events.first, isA<ObservedReset>());
+    expect(seqs(), List.generate(32, (i) => 968 + i));
+    events.clear();
+    host.session.loop.recordUsage(const UsageRecordedEntry(turnId: 'live'));
+    await tick();
+    expect(seqs(), [1000]);
+    events.clear();
+    history.loadEarlier();
+    expect(seqs(), List.generate(49, (i) => 952 + i));
+    history.close();
+    events.clear();
+    history.loadEarlier();
+    expect(events, isEmpty);
+    expect(connection.status.closed, isFalse);
+  });
+
+  test('paging stops at clear and does not resurrect cleared history', () async {
+    for (var i = 0; i < 40; i++) {
+      host.session.loop.recordUsage(const UsageRecordedEntry(turnId: 'old'));
+    }
+    host.session.loop.clearHistory();
+    for (var i = 0; i < 20; i++) {
+      host.session.loop.recordUsage(const UsageRecordedEntry(turnId: 'new'));
+    }
+    final events = <SessionObservationEvent>[];
+    final history = observation.listenRecent(events.add, limit: 16);
+    addTearDown(history.close);
+    expect(history.hasEarlier, isTrue);
+    events.clear();
+    history.loadEarlier();
+    expect(events.whereType<ObservedEntry>().map((e) => e.entry)
+        .whereType<ContextClearedEntry>(), hasLength(1));
+    expect(history.hasEarlier, isFalse);
+    events.clear();
+    history.loadEarlier();
+    expect(events, isEmpty);
+  });
+
   test('display settings and model changes arrive without a transcript entry',
       () async {
     final stop = observation.listen((_) {});

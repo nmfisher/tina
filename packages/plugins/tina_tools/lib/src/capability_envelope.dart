@@ -151,9 +151,9 @@ final class CapabilityEnvelope {
   /// uncertified command these are the only touchable paths the parse can
   /// see; the fast path checks them against approved scopes.
   late final List<String> argumentPaths = List.unmodifiable([
-        for (final argument in readerRequest.arguments)
-          if (argument.startsWith('/') || argument.contains('/')) argument,
-      ]);
+    for (final argument in readerRequest.arguments)
+      if (argument.startsWith('/') || argument.contains('/')) argument,
+  ]);
 
   /// Paths the command writes, creates, deletes or moves: verified
   /// write-classified operands plus declared write directories.
@@ -177,7 +177,24 @@ final class CapabilityEnvelope {
     String? searchPath,
     Map<String, String> trustedExecutables = const {},
     bool Function(String executable)? canWrite,
+    bool filteredEnvironment = false,
   }) {
+    // The gate freezes the sandbox's ordinary environment before review.
+    // That snapshot is not a custom tool environment. Reader certification
+    // still rejects extra variables that could change command behavior.
+    if (filteredEnvironment &&
+        request.environment != null &&
+        request.environment!.keys
+            .every({'PATH', 'HOME', 'TMPDIR', 'LANG'}.contains)) {
+      request = (
+        command: request.command,
+        arguments: request.arguments,
+        workingDirectory: request.workingDirectory,
+        environment: null,
+        stdin: request.stdin,
+        timeout: request.timeout
+      );
+    }
     final literal = literalShellRequest(request);
     final readerRequest = literal ?? request;
     final shellReader = readOnlyShellRequest(request,
@@ -195,22 +212,19 @@ final class CapabilityEnvelope {
       reader: reader,
       firstComponentResolved: readOnlyExecutable(readerRequest,
           searchPath: searchPath, candidateOnly: true),
-      certifiedArguments: reader != null
-          ? certifiedReaderArguments(readerRequest)
-          : const [],
+      certifiedArguments:
+          reader != null ? certifiedReaderArguments(readerRequest) : const [],
       verifiedAccesses: accesses,
       completeVerifiedAccesses: reader != null || shellReader != null
           ? hasCompleteReaderAccesses(request,
               searchPath: searchPath, trustedExecutables: trustedExecutables)
           : false,
       declaredReads: List.unmodifiable(control?.readDirectories ?? const []),
-      declaredWrites:
-          List.unmodifiable(control?.writeDirectories ?? const []),
+      declaredWrites: List.unmodifiable(control?.writeDirectories ?? const []),
       network: control?.networkRequested ?? false,
-      executions: _executions(readerRequest,
-          searchPath: searchPath, reader: reader),
-      destructiveBecause:
-          _destructiveBecause(readerRequest, reader: reader),
+      executions:
+          _executions(readerRequest, searchPath: searchPath, reader: reader),
+      destructiveBecause: _destructiveBecause(readerRequest, reader: reader),
     );
   }
 
@@ -269,6 +283,21 @@ final class CapabilityEnvelope {
     'git-clean': 'removes untracked files',
   };
 
+  /// The destructive-table verdict for one component (program + arguments),
+  /// public so other gates (the box sorter) can apply the same table to
+  /// every pipeline component. Destructive commands are never run silently
+  /// by any path.
+  static String? componentDestructiveBecause(
+          String program, List<String> arguments) =>
+      _destructiveBecause((
+        command: program,
+        arguments: arguments,
+        workingDirectory: null,
+        environment: null,
+        stdin: null,
+        timeout: null,
+      ), reader: null);
+
   static String? _destructiveBecause(ProcessRequest request,
       {required String? reader}) {
     if (reader != null) return null; // A pinned single reader never deletes.
@@ -296,8 +325,8 @@ final class CapabilityEnvelope {
       }
       if (arguments.isNotEmpty &&
           arguments.first == 'clean' &&
-          !arguments.any(
-              (argument) => argument == '-n' || argument == '--dry-run')) {
+          !arguments
+              .any((argument) => argument == '-n' || argument == '--dry-run')) {
         return 'removes untracked files (git clean)';
       }
     }

@@ -193,4 +193,21 @@ final class WasiStdio implements Stdio {
 
   @override
   Stream<ProcessSignal> watchSignal(ProcessSignal s) => const Stream.empty();
+
+  // The native TUI rounds widened Stdio with terminal mode and line
+  // reporting. A WASI component has no tty modes to switch and owns no
+  // real line count beyond the host-supplied size above; inert values.
+  @override
+  bool get echoMode => false;
+  @override
+  bool get lineMode => false;
+  @override
+  void setEchoMode(bool enabled) {}
+  @override
+  void setLineMode(bool enabled) {}
+  @override
+  bool get stdinHasTerminal =>
+      _imports.cliTerminalStdin.getTerminalStdin().hasValue;
+  @override
+  int get terminalLines => _rows;
 }

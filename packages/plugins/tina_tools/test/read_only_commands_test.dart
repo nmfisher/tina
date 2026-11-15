@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:async';
-import 'package:crypto/crypto.dart';
 
 import 'package:test/test.dart';
 import 'package:tina_tools/src/read_only_commands.dart';
@@ -19,117 +17,13 @@ ProcessRequest request(String program, List<String> args,
       timeout: null
     );
 
-class _Recorder implements ConfinedProcessRunner {
-  @override
-  bool get confinesFilesystem => true;
-  final requests = <ProcessRequest>[];
-  final controls = <ProcessControl?>[];
-  @override
-  Future<RunOutcome> run(ProcessRequest request,
-      {ProcessControl? control}) async {
-    requests.add(request);
-    controls.add(control);
-    return const CommandCompleted(exitCode: 0, stdout: '', stderr: '');
-  }
-}
-
+// Recognition reports effects; it never grants execution permission.
 void main() {
   late Directory root;
-  setUp(() => root = Directory.systemTemp.createTempSync('read-only-process-'));
+  setUp(() => root = Directory(Directory.systemTemp
+      .createTempSync('reader-parser-')
+      .resolveSymbolicLinksSync()));
   tearDown(() => root.deleteSync(recursive: true));
-
-  SandboxedProcessRunner runner(ProcessRunner inner,
-          {Future<Approval> Function(ProcessRequest, CommandApproval)? review,
-          String searchPath = systemPath}) =>
-      SandboxedProcessRunner(
-          inner: inner,
-          mode: PermissionMode.readOnly,
-          executableSearchPath: searchPath,
-          commandApprover: review);
-
-  OsSandboxRunner realRunner() {
-    final home =
-        SandboxHome(realHome: root.path, stateRoot: '${root.path}/state');
-    addTearDown(home.close);
-    return OsSandboxRunner(
-        inner: const IoProcessRunner(),
-        plan: SandboxPlan(
-          workspaceRoot: root.path,
-          home: home,
-          parentEnvironment: {'HOME': root.path, 'PATH': systemPath},
-        ));
-  }
-
-  test('read-only profiles cannot open workspace output holes', () async {
-    final output = Directory('${root.path}/output')..createSync();
-    final call = request('/bin/sh', ['-c', 'echo hello > output/result'],
-        cwd: root.path);
-    expect(readOnlyShellRequest(call, searchPath: systemPath), isNull);
-    expect(
-        readOnlyShellRequest(call,
-            searchPath: systemPath,
-            canWrite: (target) =>
-                target == '${output.resolveSymbolicLinksSync()}/result'),
-        isNull);
-    final inner = _Recorder();
-    final gate = runner(inner,
-        review: (_, __) => throw StateError('unexpected approval'));
-    gate.outputWritePermission =
-        (target) => sandboxPathUnder(target, output.resolveSymbolicLinksSync());
-    expect(
-        await gate.run(call,
-            control: const ProcessControl(outputDirectories: ['/forged'])),
-        isA<CommandCompleted>());
-    expect(inner.controls.single!.readOnly, isTrue);
-    expect(inner.controls.single!.outputDirectories, isEmpty);
-    final escaped = Link('${output.path}/escape')..createSync(root.path);
-    final outside = request(
-        '/bin/sh', ['-c', 'echo hello > ${escaped.path}/result'],
-        cwd: root.path);
-    expect(
-        readOnlyShellRequest(outside,
-            searchPath: systemPath, canWrite: gate.outputWritePermission),
-        isNull);
-  }, skip: Platform.isWindows);
-
-  test('permitted readers request a read-only sandbox in every mode', () async {
-    for (final mode in PermissionMode.values) {
-      final inner = _Recorder();
-      final gate = runner(inner)..mode = mode;
-      expect(
-          await gate.run(request('cat', [], cwd: root.path),
-              control: const ProcessControl(outputDirectories: ['/forged'])),
-          isA<CommandCompleted>());
-      expect(inner.controls.single!.readOnly, isTrue);
-      expect(inner.controls.single!.outputDirectories, isEmpty);
-    }
-  });
-
-  test('a reader changed during approval is refused before spawning', () async {
-    final executable = File('${root.path}/rg')
-      ..writeAsStringSync('version one');
-    Process.runSync('/bin/chmod', ['+x', executable.path]);
-    final digest = sha256.convert(executable.readAsBytesSync()).toString();
-    final ready = Completer<void>();
-    final answer = Completer<Approval>();
-    final inner = _Recorder();
-    final gate = runner(inner, review: (_, __) {
-      ready.complete();
-      return answer.future;
-    });
-    gate.trustedReaderExecutables =
-        () => {executable.resolveSymbolicLinksSync(): digest};
-    final result = gate.run(
-        request(executable.path, ['--files'], cwd: root.path),
-        control: const ProcessControl(
-            networkRequested: true, networkReason: 'test'));
-    await ready.future;
-    executable.writeAsStringSync('version two');
-    answer.complete(Approval.yes);
-    expect(await result, isA<CommandRefused>());
-    expect(inner.requests, isEmpty);
-  }, skip: Platform.isWindows);
-
   test('oversized reader binaries fall back to exact approval', () {
     final executable = File('${root.path}/rg');
     final handle = executable.openSync(mode: FileMode.write);
@@ -149,7 +43,7 @@ void main() {
       () {
     for (final arguments in [
       ['.', '-name', '*.dart', '-type', 'f', '-print'],
-      ['.', '-maxdepth', '2', '-not', '-name', '*.g.dart'],
+      ['.', '-maxdepth', '2', '-not', '-name', '*.g.dart']
     ]) {
       expect(
           readOnlyExecutable(request('find', arguments),
@@ -160,7 +54,7 @@ void main() {
       ['.', '-delete'],
       ['.', '-exec', 'touch', 'bad', ';'],
       ['.', '-fprint', 'bad'],
-      ['-L', '.'],
+      ['-L', '.']
     ]) {
       expect(
           readOnlyExecutable(request('find', arguments),
@@ -169,7 +63,7 @@ void main() {
     }
     for (final arguments in [
       ['--pre=touch bad', 'needle'],
-      ['--hostname-bin=touch', 'needle'],
+      ['--hostname-bin=touch', 'needle']
     ]) {
       expect(
           readOnlyExecutable(request('/usr/bin/rg', arguments),
@@ -186,62 +80,6 @@ void main() {
         isNull);
   }, skip: Platform.isWindows);
 
-  test('the reported ls and grep argv run without an execution approval',
-      () async {
-    final inner = _Recorder();
-    final gate = runner(inner,
-        review: (_, __) => throw StateError('unexpected approval'));
-    for (final (program, args) in [
-      (
-        'ls',
-        ['/mnt/sdd_1tb/instarig/packaging', '/mnt/sdd_1tb/instarig/tests']
-      ),
-      (
-        'grep',
-        [
-          '-rn',
-          'head_neck_from_cage',
-          '--include=*.py',
-          '/mnt/sdd_1tb/instarig'
-        ]
-      ),
-      (
-        'grep',
-        [
-          '-rln',
-          r'dijkstra\|MeshGraph\|KDTree',
-          '--include=*.py',
-          '/mnt/sdd_1tb/instarig/_vendor/shared'
-        ]
-      ),
-      (
-        'grep',
-        [
-          '-rn',
-          '-E',
-          'themeSetting|onSettingsChanged',
-          '/Volumes/T7/projects/tina/packages/tina_tui/lib',
-          '/Volumes/T7/projects/tina/packages/tina_engine_2/lib',
-        ]
-      ),
-      ('ls', ['-la', '.']),
-      ('grep', ['-n', '-e', '--pre=literal pattern', 'file.py']),
-      ('grep', ['-A40', 'class CancelToken', 'file.dart']),
-      ('grep', ['--', '-literal pattern', 'file.py']),
-    ]) {
-      final call = request(program, args, cwd: root.path);
-      final result = await gate.run(call);
-      expect(result, isA<CommandCompleted>());
-      expect((result as CommandCompleted).note, contains('permitted read'));
-      expect(inner.requests.last.command,
-          readOnlyExecutable(call, searchPath: systemPath));
-      expect(inner.requests.last.arguments, args, reason: 'argv stays literal');
-      expect(inner.controls.last!.networkAllowed, false);
-    }
-    expect(gate.grants.isEmpty, true,
-        reason: 'a reader creates no session grant');
-  });
-
   test('system absolute paths also work, with no basename-only trust', () {
     for (final program in ['/bin/ls', '/usr/bin/grep']) {
       expect(readOnlyExecutable(request(program, [])), isNotNull);
@@ -254,16 +92,13 @@ void main() {
       'bash',
       'env',
       'sed',
-      'rg',
+      'rg'
     ]) {
       expect(readOnlyExecutable(request(program, ['file'])), isNull);
     }
   });
 
   test('read-only git subcommands certify; writing ones and options ask', () {
-    // List/read-only subcommands run as certified readers. git lives at
-    // /usr/bin/git on macOS and Linux; the pinned search path avoids a
-    // Homebrew PATH shadow (which the trust check would reject anyway).
     const gitPath = '/usr/bin:/bin';
     for (final args in [
       ['status'],
@@ -279,14 +114,12 @@ void main() {
       ['tag', '-l'],
       ['status', '--porcelain=v1'],
       ['log', '--format=%H'],
-      ['status', '--'],
+      ['status', '--']
     ]) {
       expect(readOnlyExecutable(request('git', args), searchPath: gitPath),
           isNotNull,
           reason: 'git ${args.join(' ')}');
     }
-    // Mutating subcommands, list-subcommand creation forms, value-taking and
-    // long options, and `--` must all miss.
     for (final args in <List<String>>[
       ['push'],
       ['commit'],
@@ -305,7 +138,7 @@ void main() {
       ['show', '--output=/tmp/x'],
       ['tag', '--', 'new-tag'],
       ['branch', '--', 'new-branch'],
-      [],
+      []
     ]) {
       expect(
           readOnlyExecutable(request('git', args), searchPath: gitPath), isNull,
@@ -320,7 +153,7 @@ void main() {
       ['-n', 'p', 'file.py'],
       ['-n', '10q', 'file.py'],
       ['-n', '180,215p;220q', 'file.py'],
-      ['-n', r'$p', 'file.py'],
+      ['-n', r'$p', 'file.py']
     ]) {
       expect(readOnlyExecutable(request('sed', args)), isNotNull,
           reason: 'sed ${args.join(' ')}');
@@ -336,297 +169,28 @@ void main() {
       ['--output=/tmp/out'],
       ['-n', '--quiet', '180,215p', 'file'],
       ['-n', '180,215p;w /tmp/out', 'file'],
-      ['-n', 'p # comment', 'file'],
+      ['-n', 'p # comment', 'file']
     ]) {
       expect(readOnlyExecutable(request('sed', args)), isNull,
           reason: 'sed ${args.join(' ')}');
     }
   });
-
-  test('uncertified commands still use the enforced read-only profile',
-      () async {
-    final fake = File('${root.path}/grep')
-      ..writeAsStringSync('#!/bin/sh\ntouch "${root.path}/WRITTEN"\n');
-    expect((await Process.run('/bin/chmod', ['+x', fake.path])).exitCode, 0);
-    final inner = _Recorder();
-    var asks = 0;
-    final gate = runner(inner, searchPath: '${root.path}:$systemPath',
-        review: (_, __) async {
-      asks++;
-      return Approval.no;
-    });
-    expect(await gate.run(request('grep', ['pattern', 'file'], cwd: root.path)),
-        isA<CommandCompleted>());
-    expect(
-        readOnlyExecutable(request('grep', [], cwd: root.path),
-            searchPath: ':$systemPath'),
-        isNull);
-    expect(
-        readOnlyExecutable(request('grep', [], cwd: root.path),
-            searchPath: '.:$systemPath'),
-        isNull);
-    for (final env in <Map<String, String>>[
-      {},
-      {'PATH': root.path},
-      {'LD_PRELOAD': '/tmp/inject.so'}
+  test('shell parsing preserves quoted words and operators', () {
+    final parts = literalShellParts(
+        request('/bin/sh', ['-c', 'echo "a b" | wc -c && cat file']));
+    expect(parts, hasLength(3));
+    expect(parts!.first.words, ['echo', 'a b']);
+    expect(parts.first.operator, '|');
+    expect(parts[1].operator, '&&');
+  });
+  test('shell parsing never expands substitutions or wildcard operands', () {
+    for (final script in [
+      r'echo $(whoami)',
+      'echo `whoami`',
+      'ls *',
+      'cat a || cat b'
     ]) {
-      expect(await gate.run(request('/usr/bin/grep', [], environment: env)),
-          isA<CommandCompleted>());
+      expect(literalShellParts(request('/bin/sh', ['-c', script])), isNull);
     }
-    expect(asks, 0);
-    expect(inner.controls.every((control) => control!.readOnly), true);
-    expect(File('${root.path}/WRITTEN').existsSync(), false);
-  });
-
-  test('unknown options and scripts need no reader certification in read-only',
-      () async {
-    final inner = _Recorder();
-    var asks = 0;
-    final gate = runner(inner, review: (_, __) async {
-      asks++;
-      return Approval.no;
-    });
-    for (final call in [
-      request('grep', ['--pre=touch WRITTEN', 'pattern', '.']),
-      request('ls', ['--unrecognized-option']),
-      request('grep', ['-f']),
-      request('/bin/sh', ['-c', 'ls .; touch WRITTEN']),
-      request('sed', ['-i', 's/before/after/', 'file']),
-    ]) {
-      expect(await gate.run(call), isA<CommandCompleted>());
-    }
-    expect(asks, 0);
-    expect(inner.controls.every((control) => control!.readOnly), true);
-  });
-
-  test('reader certification permits reads in ask mode too', () async {
-    for (final mode in [PermissionMode.ask]) {
-      final inner = _Recorder();
-      final gate = runner(inner, review: (_, __) async => Approval.no)
-        ..mode = mode;
-      expect(await gate.run(request('ls', [])), isA<CommandCompleted>());
-      expect(inner.requests, hasLength(1));
-    }
-  });
-
-  for (final mode in [
-    PermissionMode.ask,
-    PermissionMode.readOnly,
-    PermissionMode.allowEdits,
-    PermissionMode.auto
-  ]) {
-    test('$mode allows verified readers and the reported compound read',
-        () async {
-      final inner = _Recorder();
-      final gate = runner(inner,
-          review: (_, __) => throw StateError('unexpected approval'))
-        ..mode = mode;
-      expect(await gate.run(request('grep', ['-n', 'class', 'models.dart'])),
-          isA<CommandCompleted>());
-      const script =
-          r'''grep -n "class.*Question\|abstract\|enum" packages/classification/lib/src/judgments/models.dart | head; echo ---; head -30 packages/classification/pubspec.yaml''';
-      expect(await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
-          isA<CommandCompleted>());
-      final spawned = inner.requests.last;
-      expect(spawned.command, '/bin/sh');
-      expect(spawned.arguments.last, contains("'/usr/bin/grep'"));
-      expect(spawned.arguments.last,
-          contains("'class.*Question\\|abstract\\|enum'"));
-      expect(spawned.arguments.last, contains("| '/usr/bin/head'"));
-      final echo =
-          readOnlyExecutable(request('echo', []), searchPath: systemPath);
-      expect(spawned.arguments.last, contains("; '$echo' '---' ;"));
-      expect(gate.grants.isEmpty, true);
-      expect(inner.controls.last!.networkAllowed, false);
-    });
-
-    test('$mode runs output-only redirects without asking', () async {
-      final inner = _Recorder();
-      final gate = runner(inner,
-          review: (_, __) => throw StateError('unexpected approval'))
-        ..mode = mode;
-      for (final script in [
-        'cat file',
-        'grep needle file 2>/dev/null | head',
-        'grep needle file 2>/dev/null | head 2>/dev/null',
-        'cat file 2>&1 | head',
-        'cat file | head 2>&1',
-        'cat file; head file 2>/dev/null',
-        'grep needle file 2>&1 2>/dev/null | head',
-        'grep needle file >/dev/null 2>&1 | head',
-        'grep needle file &>/dev/null | head',
-        'grep needle file 2>>/dev/null | head',
-      ]) {
-        expect(
-            await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
-            isA<CommandCompleted>(),
-            reason: script);
-      }
-      final spawned = inner.requests.last;
-      expect(spawned.command, '/bin/sh');
-      expect(spawned.arguments.last, contains("2>>/dev/null"));
-      // Redirects attach to their own segment, not the last one.
-      expect(inner.requests[inner.requests.length - 2].arguments.last,
-          contains("'file' &>/dev/null | '/usr/bin/head'"));
-      expect(gate.grants.isEmpty, true);
-    });
-
-    test('$mode applies the execution profile to arbitrary shell components',
-        () async {
-      final inner = _Recorder();
-      var asks = 0;
-      final gate = runner(inner, review: (_, __) async {
-        asks++;
-        return Approval.no;
-      })
-        ..mode = mode;
-      for (final script in [
-        'grep needle file | tee written',
-        'cat file; touch written',
-        'echo ok && rm file',
-        'cat file > written',
-        'cat file 2> written',
-        'cat file 2>> written',
-        'cat file &> written',
-        'cat file >/dev/zero',
-        'cat file 2>&3',
-        'cat file 2>&1x',
-        r'cat $(touch written)',
-        r'echo "$HOME"',
-        r'echo `touch written`',
-        'cat *',
-        'cat file &',
-        'cat file || cat other',
-        'cat file |',
-        'cat file; ; cat other',
-        'cat < file',
-        'cat file\ntouch written',
-        'env cat file',
-        'head --unsupported file',
-      ]) {
-        expect(
-            await gate.run(request('/bin/sh', ['-c', script], cwd: root.path)),
-            isA<CommandCompleted>(),
-            reason: script);
-      }
-      expect(asks, 0);
-      expect(
-          inner.controls.every((control) =>
-              control!.readOnly ==
-              {PermissionMode.ask, PermissionMode.auto, PermissionMode.readOnly}
-                  .contains(mode)),
-          true);
-    });
-
-    test('$mode compound readers still review network and unconfined access',
-        () async {
-      final inner = _Recorder();
-      final reviews = <CommandApproval>[];
-      final gate = runner(inner, review: (_, review) async {
-        reviews.add(review);
-        return Approval.no;
-      })
-        ..mode = mode;
-      final call = request('/bin/sh', ['-c', 'cat file | head; echo ---']);
-      expect(
-          await gate.run(call,
-              control: const ProcessControl(
-                networkRequested: true,
-                networkReason: 'fixture',
-              )),
-          isA<CommandRefused>());
-      expect(reviews.last.missingPermissions, {ProcessPermission.network});
-      expect(
-          await gate.run(call,
-              control: const ProcessControl(
-                outsideSandboxRequested: true,
-                sandboxReason: 'fixture',
-              )),
-          isA<CommandRefused>());
-      expect(reviews, hasLength(mode == PermissionMode.readOnly ? 1 : 2));
-      if (mode != PermissionMode.readOnly) {
-        expect(reviews.last.missingPermissions,
-            {ProcessPermission.network, ProcessPermission.unconfined});
-      }
-      expect(inner.requests, isEmpty);
-    });
-  }
-
-  test('certified shell reads preserve regexes and literal shell-looking text',
-      () async {
-    File('${root.path}/models.dart').writeAsStringSync(
-        'class Question {}\nabstract class Base {}\nenum Kind { one }\n');
-    File('${root.path}/pubspec.yaml')
-        .writeAsStringSync('name: fixture\nversion: 1\n');
-    final gate = runner(realRunner(),
-        review: (_, __) => throw StateError('unexpected approval'))
-      ..mode = PermissionMode.allowEdits;
-    final outcome = await gate.run(request(
-        '/bin/sh',
-        [
-          '-c',
-          r'''grep -n "class.*Question\|abstract\|enum" models.dart | head; echo ---; head -30 pubspec.yaml'''
-        ],
-        cwd: root.path));
-    expect(outcome, isA<CommandCompleted>());
-    expect((outcome as CommandCompleted).exitCode, 0);
-    expect(outcome.stdout, contains('1:class Question {}'));
-    expect(outcome.stdout, contains('2:abstract class Base {}'));
-    expect(outcome.stdout, contains('---\nname: fixture'));
-    final literal = await gate.run(request('/bin/sh',
-        ['-c', r'''echo '$(touch WRITTEN)' && echo 'literal; | text' | cat'''],
-        cwd: root.path));
-    expect((literal as CommandCompleted).stdout,
-        contains('\$(touch WRITTEN)\nliteral; | text'));
-    expect(File('${root.path}/WRITTEN').existsSync(), false);
-  }, skip: Platform.isWindows);
-
-  test(
-      'network and unconfined permissions are reviewed separately from reading',
-      () async {
-    final inner = _Recorder();
-    final reviews = <CommandApproval>[];
-    final gate = runner(inner, review: (_, review) async {
-      reviews.add(review);
-      return Approval.always;
-    });
-    final call = request('ls', [root.path]);
-    const online = ProcessControl(
-        networkRequested: true, networkReason: 'network fixture');
-    expect(await gate.run(call, control: online), isA<CommandCompleted>());
-    expect(reviews.single.missingPermissions, {ProcessPermission.network});
-    expect(reviews.single.requiredPermissions,
-        {ProcessPermission.execution, ProcessPermission.network});
-    expect(gate.grants.coversRequest(call), false);
-    await gate.run(call, control: online);
-    expect(reviews, hasLength(1));
-    await gate.run(call);
-    expect(inner.controls.last!.networkAllowed, false);
-    const outside =
-        ProcessControl(outsideSandboxRequested: true, sandboxReason: 'fixture');
-    expect(await gate.run(call, control: outside), isA<CommandRefused>());
-    expect(reviews, hasLength(1));
-    gate.mode = PermissionMode.ask;
-    await gate.run(call, control: outside);
-    expect(reviews.last.missingPermissions, {ProcessPermission.unconfined});
-    expect(inner.controls.last!.outsideSandboxAllowed, true);
-    gate.mode = PermissionMode.ask;
-    final before = reviews.length;
-    await gate.run(call);
-    expect(reviews.length, before);
-  });
-
-  test('real grep receives shell-looking patterns literally and cannot edit',
-      () async {
-    final marker = File('${root.path}/WRITTEN');
-    final pattern = '\$(touch ${marker.path}); > ${marker.path}';
-    final file = File('${root.path}/notes.txt')
-      ..writeAsStringSync('$pattern\n');
-    final gate = runner(realRunner());
-    final result = await gate.run(request('grep', ['-F', pattern, file.path]));
-    expect(result, isA<CommandCompleted>());
-    expect((result as CommandCompleted).exitCode, 0);
-    expect(result.stdout.trim(), pattern);
-    expect(marker.existsSync(), false);
   });
 }

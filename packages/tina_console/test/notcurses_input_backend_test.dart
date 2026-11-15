@@ -366,6 +366,22 @@ void main() {
       expect(OpCounters.instance.dartCallbackBatches, 1);
     });
 
+    test(
+        'native mouse records retain coordinates and releases through the pump',
+        () async {
+      backend.pumpedBatchForTest([
+        nc.PumpedInput(nc.NcKey.button1, 0, 0, 0, 4, 8, nc.EventType.press),
+        nc.PumpedInput(nc.NcKey.button1, 0, 0, 0, 19, 9, nc.EventType.press),
+        nc.PumpedInput(nc.NcKey.button1, 0, 0, 0, 19, 9, nc.EventType.release),
+      ]);
+      await pumpMicrotasks();
+      expect(emitted, [
+        MouseEvent(MouseAction.press, row: 4, col: 8),
+        MouseEvent(MouseAction.press, row: 19, col: 9),
+        MouseEvent(MouseAction.release, row: 19, col: 9)
+      ]);
+    });
+
     test('multi-record batch: one batch, N records', () async {
       final batch =
           'hello'.codeUnits.map((id) => nc.PumpedInput(id, 0, 0)).toList();
@@ -503,7 +519,9 @@ void main() {
         // head record's delivery — and it is drained immediately after.
         ...[
           for (var i = 0; i < tail.length; i++)
-            nc.PumpedInput(tail.codeUnitAt(i), 0,
+            nc.PumpedInput(
+                tail.codeUnitAt(i),
+                0,
                 (drainAt + 200 + i * 20) * 1000,
                 (drainAt + 450 + i * 20) * 1000)
         ],

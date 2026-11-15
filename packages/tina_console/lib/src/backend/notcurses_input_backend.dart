@@ -26,6 +26,7 @@ class NcKeyEvent {
   /// distinct backtab key — Shift+Tab arrives as id=`\t` with this flag set —
   /// so dropping it makes backtab indistinguishable from plain tab.
   final bool hasShift;
+  final int mouseRow, mouseCol, mouseType;
 
   const NcKeyEvent(
     this.id,
@@ -33,6 +34,9 @@ class NcKeyEvent {
     this.hasCtrl,
     this.isSynthesized, {
     this.hasShift = false,
+    this.mouseRow = -1,
+    this.mouseCol = -1,
+    this.mouseType = 0,
   });
 }
 
@@ -65,6 +69,9 @@ class _NotcursesKeySource implements KeySource {
       key.hasCtrl(),
       key.keySynthesizedP(),
       hasShift: key.hasShift(),
+      mouseRow: key.y,
+      mouseCol: key.x,
+      mouseType: key.evType,
     );
     // Destroy immediately; callers treat the returned event as plain data.
     key.destroy();
@@ -423,6 +430,18 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
     //    render stall has a LARGE delivery−capture and still splits: its
     //    capture gap is real, only its delivery was late.
     final captureMicros = input.monotonicNanos ~/ 1000;
+    if (input.mouseRow >= 0 && input.mouseCol >= 0) {
+      final event = _translateKey(NcKeyEvent(
+          input.id,
+          (input.modifiers & nc.KeyMod.alt) != 0,
+          (input.modifiers & nc.KeyMod.ctrl) != 0,
+          true,
+          mouseRow: input.mouseRow,
+          mouseCol: input.mouseCol,
+          mouseType: input.mouseType));
+      if (event != null) _handleEvent(event);
+      return;
+    }
     final deliveryMicros = input.timelineNanos ~/ 1000;
     final continuous = deliveryMicros != 0 &&
         deliveryMicros - captureMicros <= _decodeSlackMicros &&
@@ -707,6 +726,9 @@ class NotcursesInputBackend implements InputBackend, SynchronousInputBackend {
         hasCtrl: key.hasCtrl,
         hasShift: key.hasShift,
         isSynthesized: key.isSynthesized,
+        mouseRow: key.mouseRow,
+        mouseCol: key.mouseCol,
+        mouseType: key.mouseType,
       );
 
   @override
@@ -760,7 +782,23 @@ InputEvent? translateNcKey({
   required bool hasCtrl,
   required bool hasShift,
   required bool isSynthesized,
+  int mouseRow = -1,
+  int mouseCol = -1,
+  int mouseType = 0,
 }) {
+  if (id == nc.NcKey.motion && mouseRow >= 0 && mouseCol >= 0) {
+    return MouseEvent(MouseAction.hover, row: mouseRow, col: mouseCol);
+  }
+  if (id == nc.NcKey.button1 && mouseRow >= 0 && mouseCol >= 0) {
+    return MouseEvent(
+        mouseType == nc.EventType.release
+            ? MouseAction.release
+            : MouseAction.press,
+        row: mouseRow,
+        col: mouseCol);
+  }
+  if (mouseType == nc.EventType.release &&
+      (id == nc.NcKey.scrollUp || id == nc.NcKey.scrollDown)) return null;
   // Notcurses encodes keys with no legacy byte above the Unicode range
   // ("preterunicode", NCKEY_SYNTHESIZED_START and up): Enter, Backspace,
   // arrows, function keys, mouse. Such an id can never be a codepoint, so it
