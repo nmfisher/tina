@@ -14,6 +14,12 @@
 #
 # Each target runs on a native runner (no QEMU): linux-arm64 on the free
 # public arm64 Ubuntu runner.
+#
+# The wasm runner (tina-wasm-host) is a SEPARATE matrix: a single-file
+# Rust binary with the engine + TUI wasm components embedded and their
+# AOT-precompiled twins, built from this checkout's Dart sources via the
+# paired wasm.dart repo (checked out at WASM_DART_REF below — the repos
+# ship as a pair). macOS signing/notarization mirrors the CLI targets.
 
 name: release
 
@@ -50,6 +56,11 @@ env:
   # in install.sh and committed as minisign.pub). Empty → releases stay
   # checksum-only and install.sh says so.
   MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+  # The paired wasm.dart repo pinned by commit — the host crate source and
+  # the wasm_tools/wasm_components the component builds resolve against.
+  # Bump this ONLY together with a tina-side compat note; the repos ship
+  # as a pair (see docs/option2-wasm-tui.md).
+  WASM_DART_REF: 72d40fbfef490b0e7626f40972fc7634cbef3379
 
 # Least privilege: the default for every job is read-only; only the publish
 # job escalates to contents:write (it creates the Release). The build jobs
@@ -238,10 +249,165 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-wasm-runner:
+    if: ${{ !inputs.build_run_id }}
+    name: build wasm runner (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-latest
+          - target: linux-x64
+            runner: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules for the component builds)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+
+      # The paired wasm.dart repo, pinned by commit (env.WASM_DART_REF at
+      # the top of this file): the host crate AND the wasm_tools /
+      # wasm_components packages the engine/TUI component builds resolve
+      # against via the build script's path overrides.
+      - name: Checkout wasm.dart (paired pin)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: nmfisher/wasm.dart
+          ref: ${{ env.WASM_DART_REF }}
+          path: wasm.dart
+
+      # The component recipe pins the exact stable SDK (dart2wasm needs a
+      # 3.14-era wasm_tools; the pin is also what local replicas use).
+      - name: Set up Dart 3.14.0
+        uses: dart-lang/setup-dart@7654d458321ee25acccccfdb86cd48bd95768ff1 # v1.8.0
+        with:
+          sdk: 3.14.0
+
+      # Stable Rust builds the host; nightly (with rust-src for build-std)
+      # builds wasm_tools' untracked runtime_helpers.wasm asset on first
+      # use. Stable is installed LAST so it is the default toolchain; the
+      # helper script invokes `cargo +nightly` explicitly.
+      - name: Set up Rust (nightly + wasm32 build-std)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: nightly
+          components: rust-src
+          targets: wasm32-unknown-unknown
+      - name: Set up Rust (stable, default)
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+
+      - name: Build wasm runner (components rebuilt from release sources)
+        run: ./tool/build_wasm_runner.sh --wasm-dart "$GITHUB_WORKSPACE/wasm.dart"
+
+      # ── macOS signing + notarization (mirrors the CLI targets) ─────────
+      # Same conditions and mechanics as the build job above; the runner is
+      # a single Mach-O. Wasmtime generates machine code at runtime (JIT),
+      # so the hardened-runtime signature needs the same unsigned-executable-
+      # memory entitlement the Dart VM does.
+      - name: Import signing keychain (macOS)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          pass="$(uuidgen)"
+          security create-keychain -p "$pass" "$keychain"
+          security default-keychain -s "$keychain"
+          security unlock-keychain -p "$pass" "$keychain"
+          printf '%s' "$MACOS_SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain"             -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:             -k "$pass" "$keychain"
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Codesign wasm runner (macOS)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --timestamp --options runtime \
+            --entitlements tool/macos-entitlements.plist \
+            --sign "$MACOS_SIGNING_IDENTITY" build/wasm-host/tina-wasm-host
+          codesign --verify --strict --verbose=2 build/wasm-host/tina-wasm-host
+          echo "signed:"; codesign -dv build/wasm-host/tina-wasm-host 2>&1 | grep -E 'Authority|TeamIdentifier'
+
+      # The signed binary must actually RUN (the native job's lesson: a
+      # valid-on-disk signature the kernel kills at launch passes
+      # codesign -v). The boot smoke is the same one the build script ran,
+      # now against the signed binary: ready frame + deserialize trace.
+      - name: Smoke-test signed wasm runner (macOS)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
+        run: RUNNER_OUT=build/wasm-host ./tool/build_wasm_runner.sh --smoke-only
+
+      - name: Notarize wasm runner (macOS)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != '' && env.NOTARY_API_KEY != ''
+        env:
+          NOTARY_API_KEY: ${{ secrets.NOTARY_API_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          key="$RUNNER_TEMP/notary.p8"
+          printf '%s' "$NOTARY_API_KEY" | base64 --decode > "$key"
+          stage="$RUNNER_TEMP/wasm-host-stage/wasm-host"
+          mkdir -p "$stage"
+          cp build/wasm-host/tina-wasm-host "$stage/"
+          zip="tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}-notarize.zip"
+          ( cd "$RUNNER_TEMP/wasm-host-stage" && ditto -c -k --keepParent wasm-host "$GITHUB_WORKSPACE/$zip" )
+          auth=(--key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+          if ! xcrun notarytool submit "$zip" "${auth[@]}" --wait \
+              --output-format json | tee notary-result.json; then
+            id=$(jq -r '.id // empty' notary-result.json 2>/dev/null) || true
+            if [ -n "$id" ]; then
+              xcrun notarytool log "$id" "${auth[@]}" || true
+            fi
+            exit 1
+          fi
+          rm -f "$key" "$zip" notary-result.json
+
+      - name: Drop signing keychain (macOS)
+        if: always() && runner.os == 'macOS'
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          if [ -e "$keychain" ]; then
+            security delete-keychain "$keychain" || true
+          fi
+
+      - name: Package tarball
+        run: |
+          mkdir -p build/wasm-host/pkg/wasm-host
+          mv build/wasm-host/tina-wasm-host build/wasm-host/pkg/wasm-host/
+          tar -czf "tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}.tar.gz" \
+            -C build/wasm-host/pkg wasm-host
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}.tar.gz" \
+              > "tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}.tar.gz.sha256"
+          else
+            shasum -a 256 "tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}.tar.gz" \
+              > "tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}.tar.gz.sha256"
+          fi
+          ls -lh tina-wasm-host-*.tar.gz*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}
+          path: |
+            tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}.tar.gz
+            tina-wasm-host-${{ env.TAG }}-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: publish release
-    needs: build
-    if: ${{ always() && (needs.build.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.build_run_id != '')) }}
+    needs: [build, build-wasm-runner]
+    # Recovery (build_run_id) reuses artifacts from a prior run — both
+    # matrices' results are 'skipped' there, which the second arm covers.
+    if: ${{ always() && ((needs.build.result == 'success' && needs.build-wasm-runner.result == 'success') || (github.event_name == 'workflow_dispatch' && inputs.build_run_id != '')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
