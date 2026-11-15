@@ -301,6 +301,9 @@ jobs:
           toolchain: stable
 
       - name: Build wasm runner (components rebuilt from release sources)
+        # Bounds a hung build/smoke now that the smoke itself runs without
+        # GNU timeout (missing on macOS; see tool/build_wasm_runner.sh).
+        timeout-minutes: 60
         run: ./tool/build_wasm_runner.sh --wasm-dart "$GITHUB_WORKSPACE/wasm.dart"
 
       # ── macOS signing + notarization (mirrors the CLI targets) ─────────
@@ -341,6 +344,7 @@ jobs:
       # now against the signed binary: ready frame + deserialize trace.
       - name: Smoke-test signed wasm runner (macOS)
         if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
+        timeout-minutes: 10
         run: RUNNER_OUT=build/wasm-host ./tool/build_wasm_runner.sh --smoke-only
 
       - name: Notarize wasm runner (macOS)

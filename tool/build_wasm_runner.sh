@@ -32,7 +32,6 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 PKG="$ROOT/packages/libraries/tina_wasm"
 RUNNER_OUT="${RUNNER_OUT:-$ROOT/build/wasm-host}"
-SKIP_SMOKEx=""
 
 SKIP_SMOKE=0
 SMOKE_ONLY=0
@@ -105,7 +104,15 @@ base_url = "http://127.0.0.1:9/v1"
 models = ["main|Main model"]
 EOF
   echo "=== boot smoke: $bin --headless (expect ready frame, deserialize path)"
-  TINA_WASM_BOOT_TRACE=1 timeout 90 "$bin" --headless --no-stdin \
+  # No `timeout` wrapper: GNU coreutils' timeout does not exist on macOS
+  # runners (the macos-arm64 release dry-run died at this line before the
+  # binary ever launched). None is needed - `--no-stdin` leaves the guest
+  # with an immediate-EOF stdin and the pipes engine exits on EOF by
+  # design (verified: ready frame, snapshot, `bye` eof, exit 0), so the
+  # binary terminates on its own. The assertions below decide pass/fail
+  # from the logs; the workflow's step-level timeout-minutes is the
+  # backstop should exit-on-EOF ever regress into a hang.
+  TINA_WASM_BOOT_TRACE=1 "$bin" --headless --no-stdin \
       --preopen=workspace="$ws" --preopen=config="$cfg" \
       > "$cfg/out.log" 2> "$cfg/err.log" || true
   grep -q '"type":"ready"' "$cfg/out.log" || {
@@ -132,7 +139,7 @@ for line in open(sys.argv[1]):
     plugins = snap.get("plugins")
     skipped = snap.get("skippedPlugins")
     break
-assert plugins, "no snapshot with a plugins array before timeout"
+assert plugins, "no snapshot with a plugins array on stdout"
 assert skipped == [], f"unexpected skippedPlugins with the default config: {skipped}"
 print(f"boot snapshot: {len(plugins)} active plugins, skippedPlugins empty")
 print("plugins: " + ", ".join(plugins))
