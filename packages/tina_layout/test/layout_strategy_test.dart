@@ -15,13 +15,13 @@ void main() {
             id: 'info', column: TrackSpan.at(1), row: TrackSpan.at(0)),
       ]);
 
-  tearDown(() => LayoutStrategies.instance.uninstall());
+  tearDown(() => LayoutStrategies.uninstall());
 
   group('BuiltinLayoutStrategy', () {
     test('solves identically to the grid solver', () {
       final spec = twoColumnSpec();
       final viaStrategy = const BuiltinLayoutStrategy()
-          .solve(spec, columns: 120, rows: 30);
+          .solveSpec(spec, columns: 120, rows: 30);
       final direct =
           GridSolver.solve(spec, columns: 120, rows: 30);
       expect(viaStrategy.rectOf('chat'), direct.rectOf('chat'));
@@ -31,14 +31,15 @@ void main() {
     test('carries the default descriptor', () {
       const strategy = BuiltinLayoutStrategy();
       expect(strategy.id, 'default');
-      expect(strategy.version, isNotEmpty);
+      expect(strategy.describe().version, isNotEmpty);
+      expect(strategy.id, 'default');
     });
   });
 
   group('FocusLayoutStrategy', () {
     test('weighted tracks share equally: 65/35 becomes 50/50', () {
       final solution = const FocusLayoutStrategy()
-          .solve(twoColumnSpec(), columns: 120, rows: 30);
+          .solveSpec(twoColumnSpec(), columns: 120, rows: 30);
       expect(solution.rectOf('chat')!.width, 60);
       expect(solution.rectOf('info')!.width, 60);
     });
@@ -58,12 +59,12 @@ void main() {
                 row: TrackSpan.at(0)),
           ]);
       final solution =
-          const FocusLayoutStrategy().solve(spec, columns: 80, rows: 20);
+          const FocusLayoutStrategy().solveSpec(spec, columns: 80, rows: 20);
       expect(solution.rectOf('body')!.width, 78);
     });
 
     test('minimums survive equal sharing', () {
-      final solution = const FocusLayoutStrategy().solve(
+      final solution = const FocusLayoutStrategy().solveSpec(
           twoColumnSpec(left: 90, right: 10),
           columns: 55,
           rows: 30);
@@ -76,9 +77,10 @@ void main() {
   group('LayoutStrategies dispatcher', () {
     test('with nothing installed it is the built-in solver', () {
       final spec = twoColumnSpec();
-      expect(LayoutStrategies.instance.hasCustom, isFalse);
+      expect(LayoutStrategies.hasCustom, isFalse);
+      expect(LayoutStrategies.installed, isNull);
       final viaDispatcher =
-          LayoutStrategies.instance.solve(spec, columns: 100, rows: 24);
+          LayoutStrategies.solve(spec, columns: 100, rows: 24);
       final direct = GridSolver.solve(spec, columns: 100, rows: 24);
       expect(viaDispatcher.rectOf('chat'), direct.rectOf('chat'));
       expect(viaDispatcher.rectOf('info'), direct.rectOf('info'));
@@ -86,20 +88,20 @@ void main() {
 
     test('install and uninstall switch the active strategy', () {
       const focus = FocusLayoutStrategy();
-      LayoutStrategies.instance.install(focus);
-      expect(LayoutStrategies.instance.active, same(focus));
-      expect(LayoutStrategies.instance.hasCustom, isTrue);
+      LayoutStrategies.install(focus);
+      expect(LayoutStrategies.active, same(focus));
+      expect(LayoutStrategies.hasCustom, isTrue);
       final spec = twoColumnSpec();
       expect(
-          LayoutStrategies.instance
+          LayoutStrategies
               .solve(spec, columns: 120, rows: 30)
               .rectOf('chat')!
               .width,
           60);
-      LayoutStrategies.instance.uninstall();
-      expect(LayoutStrategies.instance.active.id, 'default');
+      LayoutStrategies.uninstall();
+      expect(LayoutStrategies.active.id, 'default');
       expect(
-          LayoutStrategies.instance
+          LayoutStrategies
               .solve(spec, columns: 120, rows: 30)
               .rectOf('chat')!
               .width,
@@ -109,33 +111,33 @@ void main() {
     test('a throwing strategy falls back to the built-in, noticed once',
         () {
       final notices = <String>[];
-      LayoutStrategies.instance.onFallbackNotice = notices.add;
-      addTearDown(() => LayoutStrategies.instance.onFallbackNotice = null);
-      LayoutStrategies.instance.install(_ThrowingStrategy());
+      LayoutStrategies.onFallbackNotice = notices.add;
+      addTearDown(() => LayoutStrategies.onFallbackNotice = null);
+      LayoutStrategies.install(_ThrowingStrategy());
       final spec = twoColumnSpec();
       final solution =
-          LayoutStrategies.instance.solve(spec, columns: 120, rows: 30);
+          LayoutStrategies.solve(spec, columns: 120, rows: 30);
       // The built-in solver's geometry, not a crash.
       expect(solution.rectOf('chat')!.width, 78);
-      LayoutStrategies.instance.solve(spec, columns: 100, rows: 24);
-      LayoutStrategies.instance.solve(spec, columns: 80, rows: 20);
+      LayoutStrategies.solve(spec, columns: 100, rows: 24);
+      LayoutStrategies.solve(spec, columns: 80, rows: 20);
       expect(notices, hasLength(1));
       expect(notices.single, contains('boom'));
       expect(notices.single, contains('built-in'));
       // A reinstall re-arms the notice.
-      LayoutStrategies.instance.install(_ThrowingStrategy());
-      LayoutStrategies.instance.solve(spec, columns: 120, rows: 30);
+      LayoutStrategies.install(_ThrowingStrategy());
+      LayoutStrategies.solve(spec, columns: 120, rows: 30);
       expect(notices, hasLength(2));
     });
 
     test('listeners hear installs and uninstalls', () {
       var changes = 0;
       void listener() => changes++;
-      LayoutStrategies.instance.addListener(listener);
-      addTearDown(() => LayoutStrategies.instance.removeListener(listener));
-      LayoutStrategies.instance.install(const FocusLayoutStrategy());
-      LayoutStrategies.instance.uninstall();
-      LayoutStrategies.instance.uninstall(); // idempotent, no event
+      LayoutStrategies.addListener(listener);
+      addTearDown(() => LayoutStrategies.removeListener(listener));
+      LayoutStrategies.install(const FocusLayoutStrategy());
+      LayoutStrategies.uninstall();
+      LayoutStrategies.uninstall(); // idempotent, no event
       expect(changes, 2);
     });
   });
@@ -146,11 +148,14 @@ final class _ThrowingStrategy implements LayoutStrategy {
   String get id => 'throwing/test';
 
   @override
-  String get version => '1.0.0';
+  StrategyDescriptor describe() => const StrategyDescriptor(
+      id: 'throwing/test', version: '1.0.0', description: 'throws');
 
   @override
-  GridSolution solve(GridSpec spec,
-      {required int columns, required int rows}) {
+  GridSolution solveSpec(GridSpec spec,
+      {required int columns,
+      required int rows,
+      CellMetrics metrics = CellMetrics.standard}) {
     throw StateError('boom');
   }
 }

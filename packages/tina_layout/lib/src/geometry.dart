@@ -19,6 +19,16 @@ final class CellMetrics {
 
   const CellMetrics._(this.rowsPerUnit);
 
+  /// Construct metrics from an explicit rows-per-unit ratio (the wire
+  /// form). Must be positive and finite.
+  factory CellMetrics.withRowsPerUnit(double rowsPerUnit) {
+    if (rowsPerUnit <= 0 || rowsPerUnit.isNaN || rowsPerUnit.isInfinite) {
+      throw ArgumentError.value(rowsPerUnit, 'rowsPerUnit',
+          'rows per unit must be positive and finite');
+    }
+    return CellMetrics._(rowsPerUnit);
+  }
+
   /// Metrics from real cell pixel dimensions. Both must be positive.
   factory CellMetrics.fromPixels(
       {required int cellWidthPx, required int cellHeightPx}) {

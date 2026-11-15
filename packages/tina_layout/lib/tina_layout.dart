@@ -31,3 +31,4 @@ export 'src/geometry.dart';
 export 'src/solver.dart';
 export 'src/spec.dart';
 export 'src/strategy.dart';
+export 'src/wire.dart';

@@ -57,6 +57,17 @@ final class WasiStdio implements Stdio {
   /// Every ordered write has reached the host sink.
   Future<void> drain() => _outbound;
 
+  /// A one-shot diagnostics write to stderr (never the render stream).
+  Future<void> stderrWrite(String s) async {
+    try {
+      await _imports.cliStderr.writeViaStream(
+        data: Stream.value(Uint8List.fromList(utf8.encode(s))),
+      );
+    } catch (_) {
+      // Diagnostics only; the render path never depends on stderr.
+    }
+  }
+
   @override
   int get terminalColumns => _columns;
 

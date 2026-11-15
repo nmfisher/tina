@@ -331,7 +331,7 @@ final class SessionAssembly {
     // The config's layout_strategy key selects the screen arrangement for
     // this session; /layout swaps it live. Unknown names keep the default
     // with one notice — a typo must never wedge the screen.
-    LayoutStrategies.instance.onFallbackNotice = writer.writeln;
+    LayoutStrategies.onFallbackNotice = writer.writeln;
     // Installing even the default would notify relayout listeners on every
     // session start; the dispatcher already IS the default when nothing is
     // installed, so only a non-default selection touches it.
@@ -342,7 +342,7 @@ final class SessionAssembly {
             'unknown layout strategy "${resolved.layoutStrategy}"; '
             'using the default (available: ${layoutStrategyFactories.keys.join(', ')})');
       } else {
-        LayoutStrategies.instance.install(strategyFactory());
+        LayoutStrategies.install(strategyFactory());
       }
     }
     final registry = options.registry ?? ScopedSettingsStack.defaultPluginRegistry();
@@ -672,7 +672,7 @@ final class SessionAssembly {
         final strategies = layoutStrategyFactories;
         if (argument.isEmpty) {
           report(
-              'layout strategy: ${LayoutStrategies.instance.active.id} '
+              'layout strategy: ${LayoutStrategies.active.id} '
               '(available: ${strategies.keys.join(', ')})');
           return;
         }
@@ -683,9 +683,9 @@ final class SessionAssembly {
               '(available: ${strategies.keys.join(', ')})');
           return;
         }
-        LayoutStrategies.instance.install(factory());
+        LayoutStrategies.install(factory());
         report(
-            'layout strategy: ${LayoutStrategies.instance.active.id} '
+            'layout strategy: ${LayoutStrategies.active.id} '
             '(persists for this session; set layout_strategy in config)');
       },
     ));

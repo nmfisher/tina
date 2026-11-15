@@ -30,8 +30,8 @@ external i2.WasmVoid _import2(i2.WasmI64 p0);
 @pragma("wasm:import", r"component._import3")
 external i2.WasmVoid _import3(i2.WasmI32 p0);
 
-final class _Imported$28 implements i1.ResultCollector {
-  const _Imported$28();
+final class _Imported$31 implements i1.ResultCollector {
+  const _Imported$31();
   @override
   void recordString({required String e}) {
     final tmp0 = i0.AllocatedString.allocateUtf16(e);
@@ -636,8 +636,8 @@ external i2.WasmI32 _import17(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import18")
 external i2.WasmVoid _import18(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
 
-final class _Imported$2 implements i5.Session {
-  const _Imported$2();
+final class _Imported$5 implements i5.Session {
+  const _Imported$5();
   @override
   i0.Result<String, i5.SessionError> open() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(12));
@@ -776,8 +776,8 @@ final class _Imported$2 implements i5.Session {
   }
 }
 
-final class _Imported$3 implements i6.Types {
-  const _Imported$3();
+final class _Imported$6 implements i6.Types {
+  const _Imported$6();
 }
 
 @pragma("wasm:import", r"component._import19")
@@ -785,8 +785,8 @@ external i2.WasmI32 _import19(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import20")
 external i2.WasmVoid _import20(i2.WasmI32 p0);
 
-final class _Imported$4 implements i6.Policy {
-  const _Imported$4();
+final class _Imported$7 implements i6.Policy {
+  const _Imported$7();
   @override
   Future<i0.Result<void, String>> widen({
     required i6.TypesCapabilityEntry entry,
@@ -1174,31 +1174,31 @@ final class _Imported$4 implements i6.Policy {
   }
 }
 
-final class _Imported$30 implements i7.Types {
-  const _Imported$30();
+final class _Imported$33 implements i7.Types {
+  const _Imported$33();
 }
 
-@pragma('wasm:import', 'component.stream157.new')
-external i2.WasmI64 _streamNew157();
-@pragma('wasm:import', 'component.stream157.read')
-external i2.WasmI32 _streamRead157(
+@pragma('wasm:import', 'component.stream187.new')
+external i2.WasmI64 _streamNew187();
+@pragma('wasm:import', 'component.stream187.read')
+external i2.WasmI32 _streamRead187(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream157.write')
-external i2.WasmI32 _streamWrite157(
+@pragma('wasm:import', 'component.stream187.write')
+external i2.WasmI32 _streamWrite187(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream157.drop-readable')
-external i2.WasmVoid _streamDropReadable157(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream157.drop-writable')
-external i2.WasmVoid _streamDropWritable157(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream187.drop-readable')
+external i2.WasmVoid _streamDropReadable187(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream187.drop-writable')
+external i2.WasmVoid _streamDropWritable187(i2.WasmI32 stream);
 
-final class _Vtable157 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable157();
+final class _Vtable187 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable187();
 
   @override
   int get elementSize => 1;
@@ -1244,20 +1244,20 @@ final class _Vtable157 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew157().toInt();
+  int newStream() => _streamNew187().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable157(i2.WasmI32.fromInt(stream));
+    _streamDropReadable187(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable157(i2.WasmI32.fromInt(stream));
+    _streamDropWritable187(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead157(
+    return _streamRead187(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1266,7 +1266,7 @@ final class _Vtable157 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite157(
+    return _streamWrite187(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1283,8 +1283,8 @@ external i2.WasmI32 _import28(i2.WasmI64 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import29")
 external i2.WasmI32 _import29(i2.WasmI64 p0, i2.WasmI32 p1);
 
-final class _Imported$31 implements i7.Process {
-  const _Imported$31();
+final class _Imported$34 implements i7.Process {
+  const _Imported$34();
   @override
   Future<i0.Result<i7.TypesOutcome, i7.TypesError>> spawn({
     required ({
@@ -1500,12 +1500,12 @@ final class _Imported$31 implements i7.Process {
           final tmp25 = i0.memory.loadInt32(tmp21.toIntUnsigned(), offset: 24);
           final tmp26 = i0.ReadableStream(
             tmp25.toIntUnsigned(),
-            const _Vtable157(),
+            const _Vtable187(),
           );
           final tmp27 = i0.memory.loadInt32(tmp21.toIntUnsigned(), offset: 28);
           final tmp28 = i0.ReadableStream(
             tmp27.toIntUnsigned(),
-            const _Vtable157(),
+            const _Vtable187(),
           );
           final tmp29 = (id: tmp24.toInt(), stdout: tmp26, stderr: tmp28);
 
@@ -1582,12 +1582,12 @@ final class _Imported$31 implements i7.Process {
           final tmp4 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 24);
           final tmp5 = i0.ReadableStream(
             tmp4.toIntUnsigned(),
-            const _Vtable157(),
+            const _Vtable187(),
           );
           final tmp6 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 28);
           final tmp7 = i0.ReadableStream(
             tmp6.toIntUnsigned(),
-            const _Vtable157(),
+            const _Vtable187(),
           );
           final tmp8 = (id: tmp3.toInt(), stdout: tmp5, stderr: tmp7);
 
@@ -1704,8 +1704,8 @@ external i2.WasmVoid _import31(i2.WasmI32 p0);
 @pragma("wasm:import", r"component._import32")
 external i2.WasmVoid _import32(i2.WasmI32 p0);
 
-final class _Imported$16 implements i8.Environment {
-  const _Imported$16();
+final class _Imported$19 implements i8.Environment {
+  const _Imported$19();
   @override
   List<(String, String)> getEnvironment() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
@@ -1777,8 +1777,8 @@ external i2.WasmVoid _import33(i2.WasmI32 p0);
 @pragma("wasm:import", r"component._import34")
 external i2.WasmVoid _import34(i2.WasmI32 p0);
 
-final class _Imported$17 implements i8.Exit {
-  const _Imported$17();
+final class _Imported$20 implements i8.Exit {
+  const _Imported$20();
   @override
   void exit({required i0.Result<void, void> status}) {
     i2.WasmI32 tmp0;
@@ -1798,31 +1798,31 @@ final class _Imported$17 implements i8.Exit {
   }
 }
 
-final class _Imported$19 implements i8.Types {
-  const _Imported$19();
+final class _Imported$22 implements i8.Types {
+  const _Imported$22();
 }
 
-@pragma('wasm:import', 'component.stream124.new')
-external i2.WasmI64 _streamNew124();
-@pragma('wasm:import', 'component.stream124.read')
-external i2.WasmI32 _streamRead124(
+@pragma('wasm:import', 'component.stream154.new')
+external i2.WasmI64 _streamNew154();
+@pragma('wasm:import', 'component.stream154.read')
+external i2.WasmI32 _streamRead154(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream124.write')
-external i2.WasmI32 _streamWrite124(
+@pragma('wasm:import', 'component.stream154.write')
+external i2.WasmI32 _streamWrite154(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream124.drop-readable')
-external i2.WasmVoid _streamDropReadable124(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream124.drop-writable')
-external i2.WasmVoid _streamDropWritable124(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream154.drop-readable')
+external i2.WasmVoid _streamDropReadable154(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream154.drop-writable')
+external i2.WasmVoid _streamDropWritable154(i2.WasmI32 stream);
 
-final class _Vtable124 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable124();
+final class _Vtable154 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable154();
 
   @override
   int get elementSize => 1;
@@ -1868,20 +1868,20 @@ final class _Vtable124 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew124().toInt();
+  int newStream() => _streamNew154().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable124(i2.WasmI32.fromInt(stream));
+    _streamDropReadable154(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable124(i2.WasmI32.fromInt(stream));
+    _streamDropWritable154(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead124(
+    return _streamRead154(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1890,7 +1890,7 @@ final class _Vtable124 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite124(
+    return _streamWrite154(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -1898,27 +1898,27 @@ final class _Vtable124 implements i0.StreamVtable<i4.Uint8List> {
   }
 }
 
-@pragma('wasm:import', 'component.future126.new')
-external i2.WasmI64 _futureNew126();
-@pragma('wasm:import', 'component.future126.write')
-external i2.WasmI32 _futureWrite126(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future126.read')
-external i2.WasmI32 _futureRead126(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future126.drop-readable')
-external i2.WasmVoid _futureDropReadable126(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future126.drop-writable')
-external i2.WasmVoid _futureDropWritable126(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future156.new')
+external i2.WasmI64 _futureNew156();
+@pragma('wasm:import', 'component.future156.write')
+external i2.WasmI32 _futureWrite156(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future156.read')
+external i2.WasmI32 _futureRead156(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future156.drop-readable')
+external i2.WasmVoid _futureDropReadable156(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future156.drop-writable')
+external i2.WasmVoid _futureDropWritable156(i2.WasmI32 future);
 
-final class _Vtable126
+final class _Vtable156
     implements i0.FutureVtable<i0.Result<void, i8.TypesErrorCode>> {
-  const _Vtable126();
+  const _Vtable156();
 
   @override
-  int newFuture() => _futureNew126().toInt();
+  int newFuture() => _futureNew156().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead126(
+    return _futureRead156(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -1926,7 +1926,7 @@ final class _Vtable126
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite126(
+    return _futureWrite156(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -1934,12 +1934,12 @@ final class _Vtable126
 
   @override
   void dropRead(int future) {
-    _futureDropReadable126(i2.WasmI32.fromInt(future));
+    _futureDropReadable156(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable126(i2.WasmI32.fromInt(future));
+    _futureDropWritable156(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -2001,44 +2001,44 @@ final class _Vtable126
 @pragma("wasm:import", r"component._import45")
 external i2.WasmVoid _import45(i2.WasmI32 p0);
 
-final class _Imported$20 implements i8.Stdin {
-  const _Imported$20();
+final class _Imported$23 implements i8.Stdin {
+  const _Imported$23();
   @override
   (Stream<i4.Uint8List>, Future<i0.Result<void, i8.TypesErrorCode>>)
   readViaStream() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
     _import45(tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable124());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable154());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable126(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable156(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
   }
 }
 
-@pragma('wasm:import', 'component.future130.new')
-external i2.WasmI64 _futureNew130();
-@pragma('wasm:import', 'component.future130.write')
-external i2.WasmI32 _futureWrite130(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future130.read')
-external i2.WasmI32 _futureRead130(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future130.drop-readable')
-external i2.WasmVoid _futureDropReadable130(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future130.drop-writable')
-external i2.WasmVoid _futureDropWritable130(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future160.new')
+external i2.WasmI64 _futureNew160();
+@pragma('wasm:import', 'component.future160.write')
+external i2.WasmI32 _futureWrite160(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future160.read')
+external i2.WasmI32 _futureRead160(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future160.drop-readable')
+external i2.WasmVoid _futureDropReadable160(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future160.drop-writable')
+external i2.WasmVoid _futureDropWritable160(i2.WasmI32 future);
 
-final class _Vtable130
+final class _Vtable160
     implements i0.FutureVtable<i0.Result<void, i8.TypesErrorCode>> {
-  const _Vtable130();
+  const _Vtable160();
 
   @override
-  int newFuture() => _futureNew130().toInt();
+  int newFuture() => _futureNew160().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead130(
+    return _futureRead160(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -2046,7 +2046,7 @@ final class _Vtable130
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite130(
+    return _futureWrite160(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -2054,12 +2054,12 @@ final class _Vtable130
 
   @override
   void dropRead(int future) {
-    _futureDropReadable130(i2.WasmI32.fromInt(future));
+    _futureDropReadable160(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable130(i2.WasmI32.fromInt(future));
+    _futureDropWritable160(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -2121,40 +2121,40 @@ final class _Vtable130
 @pragma("wasm:import", r"component._import51")
 external i2.WasmI32 _import51(i2.WasmI32 p0);
 
-final class _Imported$21 implements i8.Stdout {
-  const _Imported$21();
+final class _Imported$24 implements i8.Stdout {
+  const _Imported$24();
   @override
   Future<i0.Result<void, i8.TypesErrorCode>> writeViaStream({
     required Stream<i4.Uint8List> data,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable124(), data).toWasmI32();
+    final tmp0 = i0.newReadableStream(const _Vtable154(), data).toWasmI32();
     final tmp1 = _import51(tmp0);
-    final tmp2 = i0.readFuture(const _Vtable130(), tmp1.toIntUnsigned());
+    final tmp2 = i0.readFuture(const _Vtable160(), tmp1.toIntUnsigned());
     return tmp2;
   }
 }
 
-@pragma('wasm:import', 'component.future133.new')
-external i2.WasmI64 _futureNew133();
-@pragma('wasm:import', 'component.future133.write')
-external i2.WasmI32 _futureWrite133(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future133.read')
-external i2.WasmI32 _futureRead133(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future133.drop-readable')
-external i2.WasmVoid _futureDropReadable133(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future133.drop-writable')
-external i2.WasmVoid _futureDropWritable133(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future163.new')
+external i2.WasmI64 _futureNew163();
+@pragma('wasm:import', 'component.future163.write')
+external i2.WasmI32 _futureWrite163(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future163.read')
+external i2.WasmI32 _futureRead163(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future163.drop-readable')
+external i2.WasmVoid _futureDropReadable163(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future163.drop-writable')
+external i2.WasmVoid _futureDropWritable163(i2.WasmI32 future);
 
-final class _Vtable133
+final class _Vtable163
     implements i0.FutureVtable<i0.Result<void, i8.TypesErrorCode>> {
-  const _Vtable133();
+  const _Vtable163();
 
   @override
-  int newFuture() => _futureNew133().toInt();
+  int newFuture() => _futureNew163().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead133(
+    return _futureRead163(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -2162,7 +2162,7 @@ final class _Vtable133
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite133(
+    return _futureWrite163(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -2170,12 +2170,12 @@ final class _Vtable133
 
   @override
   void dropRead(int future) {
-    _futureDropReadable133(i2.WasmI32.fromInt(future));
+    _futureDropReadable163(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable133(i2.WasmI32.fromInt(future));
+    _futureDropWritable163(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -2237,39 +2237,39 @@ final class _Vtable133
 @pragma("wasm:import", r"component._import57")
 external i2.WasmI32 _import57(i2.WasmI32 p0);
 
-final class _Imported$22 implements i8.Stderr {
-  const _Imported$22();
+final class _Imported$25 implements i8.Stderr {
+  const _Imported$25();
   @override
   Future<i0.Result<void, i8.TypesErrorCode>> writeViaStream({
     required Stream<i4.Uint8List> data,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable124(), data).toWasmI32();
+    final tmp0 = i0.newReadableStream(const _Vtable154(), data).toWasmI32();
     final tmp1 = _import57(tmp0);
-    final tmp2 = i0.readFuture(const _Vtable133(), tmp1.toIntUnsigned());
+    final tmp2 = i0.readFuture(const _Vtable163(), tmp1.toIntUnsigned());
     return tmp2;
   }
 }
 
-final class _Imported$23 implements i8.TerminalInput {
-  const _Imported$23();
+final class _Imported$26 implements i8.TerminalInput {
+  const _Imported$26();
 }
 
-final class _Imported$24 implements i8.TerminalOutput {
-  const _Imported$24();
+final class _Imported$27 implements i8.TerminalOutput {
+  const _Imported$27();
 }
 
-@pragma('wasm:import', r'component._drop$136')
-external i2.WasmVoid _drop$136Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$166')
+external i2.WasmVoid _drop$166Raw(i2.WasmI32 handle);
 
-void _drop$136(int handle) {
-  _drop$136Raw(i2.WasmI32.fromInt(handle));
+void _drop$166(int handle) {
+  _drop$166Raw(i2.WasmI32.fromInt(handle));
 }
 
 @pragma("wasm:import", r"component._import58")
 external i2.WasmVoid _import58(i2.WasmI32 p0);
 
-final class _Imported$25 implements i8.TerminalStdin {
-  const _Imported$25();
+final class _Imported$28 implements i8.TerminalStdin {
+  const _Imported$28();
   @override
   i0.Option<i0.Owned<i8.TerminalInputTerminalInput>> getTerminalStdin() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
@@ -2280,7 +2280,7 @@ final class _Imported$25 implements i8.TerminalStdin {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
       final tmp3 = i0.Owned<i8.TerminalInputTerminalInput>(
         tmp2.toIntUnsigned(),
-        _drop$136,
+        _drop$166,
       );
       tmp4 = .some(tmp3);
     } else {
@@ -2292,18 +2292,18 @@ final class _Imported$25 implements i8.TerminalStdin {
   }
 }
 
-@pragma('wasm:import', r'component._drop$139')
-external i2.WasmVoid _drop$139Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$169')
+external i2.WasmVoid _drop$169Raw(i2.WasmI32 handle);
 
-void _drop$139(int handle) {
-  _drop$139Raw(i2.WasmI32.fromInt(handle));
+void _drop$169(int handle) {
+  _drop$169Raw(i2.WasmI32.fromInt(handle));
 }
 
 @pragma("wasm:import", r"component._import60")
 external i2.WasmVoid _import60(i2.WasmI32 p0);
 
-final class _Imported$26 implements i8.TerminalStdout {
-  const _Imported$26();
+final class _Imported$29 implements i8.TerminalStdout {
+  const _Imported$29();
   @override
   i0.Option<i0.Owned<i8.TerminalOutputTerminalOutput>> getTerminalStdout() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
@@ -2314,7 +2314,7 @@ final class _Imported$26 implements i8.TerminalStdout {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
       final tmp3 = i0.Owned<i8.TerminalOutputTerminalOutput>(
         tmp2.toIntUnsigned(),
-        _drop$139,
+        _drop$169,
       );
       tmp4 = .some(tmp3);
     } else {
@@ -2326,18 +2326,18 @@ final class _Imported$26 implements i8.TerminalStdout {
   }
 }
 
-@pragma('wasm:import', r'component._drop$142')
-external i2.WasmVoid _drop$142Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$172')
+external i2.WasmVoid _drop$172Raw(i2.WasmI32 handle);
 
-void _drop$142(int handle) {
-  _drop$142Raw(i2.WasmI32.fromInt(handle));
+void _drop$172(int handle) {
+  _drop$172Raw(i2.WasmI32.fromInt(handle));
 }
 
 @pragma("wasm:import", r"component._import62")
 external i2.WasmVoid _import62(i2.WasmI32 p0);
 
-final class _Imported$27 implements i8.TerminalStderr {
-  const _Imported$27();
+final class _Imported$30 implements i8.TerminalStderr {
+  const _Imported$30();
   @override
   i0.Option<i0.Owned<i8.TerminalOutputTerminalOutput>> getTerminalStderr() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
@@ -2348,7 +2348,7 @@ final class _Imported$27 implements i8.TerminalStderr {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
       final tmp3 = i0.Owned<i8.TerminalOutputTerminalOutput>(
         tmp2.toIntUnsigned(),
-        _drop$142,
+        _drop$172,
       );
       tmp4 = .some(tmp3);
     } else {
@@ -2360,8 +2360,8 @@ final class _Imported$27 implements i8.TerminalStderr {
   }
 }
 
-final class _Imported$5 implements i9.Types {
-  const _Imported$5();
+final class _Imported$8 implements i9.Types {
+  const _Imported$8();
 }
 
 @pragma("wasm:import", r"component._import64")
@@ -2373,8 +2373,8 @@ external i2.WasmI32 _import66(i2.WasmI64 p0);
 @pragma("wasm:import", r"component._import67")
 external i2.WasmI32 _import67(i2.WasmI64 p0);
 
-final class _Imported$6 implements i9.MonotonicClock {
-  const _Imported$6();
+final class _Imported$9 implements i9.MonotonicClock {
+  const _Imported$9();
   @override
   int now() {
     final tmp0 = _import64();
@@ -2403,8 +2403,8 @@ external i2.WasmVoid _import68(i2.WasmI32 p0);
 @pragma("wasm:import", r"component._import69")
 external i2.WasmI64 _import69();
 
-final class _Imported$7 implements i9.SystemClock {
-  const _Imported$7();
+final class _Imported$10 implements i9.SystemClock {
+  const _Imported$10();
   @override
   ({int seconds, int nanoseconds}) now() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(16));
@@ -2423,27 +2423,27 @@ final class _Imported$7 implements i9.SystemClock {
   }
 }
 
-@pragma('wasm:import', 'component.stream60.new')
-external i2.WasmI64 _streamNew60();
-@pragma('wasm:import', 'component.stream60.read')
-external i2.WasmI32 _streamRead60(
+@pragma('wasm:import', 'component.stream90.new')
+external i2.WasmI64 _streamNew90();
+@pragma('wasm:import', 'component.stream90.read')
+external i2.WasmI32 _streamRead90(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream60.write')
-external i2.WasmI32 _streamWrite60(
+@pragma('wasm:import', 'component.stream90.write')
+external i2.WasmI32 _streamWrite90(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream60.drop-readable')
-external i2.WasmVoid _streamDropReadable60(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream60.drop-writable')
-external i2.WasmVoid _streamDropWritable60(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream90.drop-readable')
+external i2.WasmVoid _streamDropReadable90(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream90.drop-writable')
+external i2.WasmVoid _streamDropWritable90(i2.WasmI32 stream);
 
-final class _Vtable60 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable60();
+final class _Vtable90 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable90();
 
   @override
   int get elementSize => 1;
@@ -2489,20 +2489,20 @@ final class _Vtable60 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew60().toInt();
+  int newStream() => _streamNew90().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable60(i2.WasmI32.fromInt(stream));
+    _streamDropReadable90(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable60(i2.WasmI32.fromInt(stream));
+    _streamDropWritable90(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead60(
+    return _streamRead90(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -2511,7 +2511,7 @@ final class _Vtable60 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite60(
+    return _streamWrite90(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -2519,27 +2519,27 @@ final class _Vtable60 implements i0.StreamVtable<i4.Uint8List> {
   }
 }
 
-@pragma('wasm:import', 'component.future62.new')
-external i2.WasmI64 _futureNew62();
-@pragma('wasm:import', 'component.future62.write')
-external i2.WasmI32 _futureWrite62(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future62.read')
-external i2.WasmI32 _futureRead62(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future62.drop-readable')
-external i2.WasmVoid _futureDropReadable62(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future62.drop-writable')
-external i2.WasmVoid _futureDropWritable62(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future92.new')
+external i2.WasmI64 _futureNew92();
+@pragma('wasm:import', 'component.future92.write')
+external i2.WasmI32 _futureWrite92(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future92.read')
+external i2.WasmI32 _futureRead92(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future92.drop-readable')
+external i2.WasmVoid _futureDropReadable92(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future92.drop-writable')
+external i2.WasmVoid _futureDropWritable92(i2.WasmI32 future);
 
-final class _Vtable62
+final class _Vtable92
     implements i0.FutureVtable<i0.Result<void, i10.TypesErrorCode>> {
-  const _Vtable62();
+  const _Vtable92();
 
   @override
-  int newFuture() => _futureNew62().toInt();
+  int newFuture() => _futureNew92().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead62(
+    return _futureRead92(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -2547,7 +2547,7 @@ final class _Vtable62
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite62(
+    return _futureWrite92(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -2555,12 +2555,12 @@ final class _Vtable62
 
   @override
   void dropRead(int future) {
-    _futureDropReadable62(i2.WasmI32.fromInt(future));
+    _futureDropReadable92(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable62(i2.WasmI32.fromInt(future));
+    _futureDropWritable92(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -3103,29 +3103,29 @@ final class _Vtable62
   }
 }
 
-@pragma('wasm:import', 'component.stream66.new')
-external i2.WasmI64 _streamNew66();
-@pragma('wasm:import', 'component.stream66.read')
-external i2.WasmI32 _streamRead66(
+@pragma('wasm:import', 'component.stream96.new')
+external i2.WasmI64 _streamNew96();
+@pragma('wasm:import', 'component.stream96.read')
+external i2.WasmI32 _streamRead96(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream66.write')
-external i2.WasmI32 _streamWrite66(
+@pragma('wasm:import', 'component.stream96.write')
+external i2.WasmI32 _streamWrite96(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream66.drop-readable')
-external i2.WasmVoid _streamDropReadable66(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream66.drop-writable')
-external i2.WasmVoid _streamDropWritable66(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream96.drop-readable')
+external i2.WasmVoid _streamDropReadable96(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream96.drop-writable')
+external i2.WasmVoid _streamDropWritable96(i2.WasmI32 stream);
 
-final class _Vtable66
+final class _Vtable96
     implements
         i0.StreamVtable<List<({i10.TypesDescriptorType type, String name})>> {
-  const _Vtable66();
+  const _Vtable96();
 
   @override
   int get elementSize => 24;
@@ -3332,20 +3332,20 @@ final class _Vtable66
   }
 
   @override
-  int newStream() => _streamNew66().toInt();
+  int newStream() => _streamNew96().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable66(i2.WasmI32.fromInt(stream));
+    _streamDropReadable96(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable66(i2.WasmI32.fromInt(stream));
+    _streamDropWritable96(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead66(
+    return _streamRead96(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -3354,7 +3354,7 @@ final class _Vtable66
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite66(
+    return _streamWrite96(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -3412,11 +3412,11 @@ external i2.WasmI32 _import99(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import100")
 external i2.WasmI32 _import100(i2.WasmI32 p0, i2.WasmI32 p1);
 
-@pragma('wasm:import', r'component._drop$58')
-external i2.WasmVoid _drop$58Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$88')
+external i2.WasmVoid _drop$88Raw(i2.WasmI32 handle);
 
-void _drop$58(int handle) {
-  _drop$58Raw(i2.WasmI32.fromInt(handle));
+void _drop$88(int handle) {
+  _drop$88Raw(i2.WasmI32.fromInt(handle));
 }
 
 @pragma("wasm:import", r"component._import101")
@@ -3459,8 +3459,8 @@ external i2.WasmI32 _import110(
   i2.WasmI32 p4,
 );
 
-final class _Imported$9 implements i10.Types {
-  const _Imported$9();
+final class _Imported$12 implements i10.Types {
+  const _Imported$12();
   @override
   (Stream<i4.Uint8List>, Future<i0.Result<void, i10.TypesErrorCode>>)
   methodDescriptorReadViaStream({
@@ -3474,9 +3474,9 @@ final class _Imported$9 implements i10.Types {
       tmp0,
     );
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable60());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable90());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable62(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable92(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
@@ -3488,13 +3488,13 @@ final class _Imported$9 implements i10.Types {
     required Stream<i4.Uint8List> data,
     required int offset,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable60(), data).toWasmI32();
+    final tmp0 = i0.newReadableStream(const _Vtable90(), data).toWasmI32();
     final tmp1 = _import86(
       i2.WasmI32.fromInt(self.handle),
       tmp0,
       i2.WasmI64.fromInt(offset),
     );
-    final tmp2 = i0.readFuture(const _Vtable62(), tmp1.toIntUnsigned());
+    final tmp2 = i0.readFuture(const _Vtable92(), tmp1.toIntUnsigned());
     return tmp2;
   }
 
@@ -3503,9 +3503,9 @@ final class _Imported$9 implements i10.Types {
     required i0.Borrowed<i10.TypesDescriptor> self,
     required Stream<i4.Uint8List> data,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable60(), data).toWasmI32();
+    final tmp0 = i0.newReadableStream(const _Vtable90(), data).toWasmI32();
     final tmp1 = _import87(i2.WasmI32.fromInt(self.handle), tmp0);
-    final tmp2 = i0.readFuture(const _Vtable62(), tmp1.toIntUnsigned());
+    final tmp2 = i0.readFuture(const _Vtable92(), tmp1.toIntUnsigned());
     return tmp2;
   }
 
@@ -4327,9 +4327,9 @@ final class _Imported$9 implements i10.Types {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
     _import94(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable66());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable96());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable62(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable92(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
@@ -5534,7 +5534,7 @@ final class _Imported$9 implements i10.Types {
       final tmp4 = i0.memory.loadInt32(tmp2.toIntUnsigned(), offset: 4);
       final tmp5 = i0.Owned<i10.TypesDescriptor>(
         tmp4.toIntUnsigned(),
-        _drop$58,
+        _drop$88,
       );
       tmp12 = .ok(tmp5);
     }
@@ -6472,18 +6472,18 @@ final class _Imported$9 implements i10.Types {
   }
 }
 
-@pragma('wasm:import', r'component._drop$73')
-external i2.WasmVoid _drop$73Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$103')
+external i2.WasmVoid _drop$103Raw(i2.WasmI32 handle);
 
-void _drop$73(int handle) {
-  _drop$73Raw(i2.WasmI32.fromInt(handle));
+void _drop$103(int handle) {
+  _drop$103Raw(i2.WasmI32.fromInt(handle));
 }
 
 @pragma("wasm:import", r"component._import111")
 external i2.WasmVoid _import111(i2.WasmI32 p0);
 
-final class _Imported$10 implements i10.Preopens {
-  const _Imported$10();
+final class _Imported$13 implements i10.Preopens {
+  const _Imported$13();
   @override
   List<(i0.Owned<i10.TypesDescriptor>, String)> getDirectories() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
@@ -6497,7 +6497,7 @@ final class _Imported$10 implements i10.Preopens {
       final tmp3 = i0.memory.loadInt32(elementPtr.toIntUnsigned(), offset: 0);
       final tmp4 = i0.Owned<i10.TypesDescriptor>(
         tmp3.toIntUnsigned(),
-        _drop$73,
+        _drop$103,
       );
       final tmp5 = i0.memory.loadInt32(elementPtr.toIntUnsigned(), offset: 4);
       final tmp6 = i0.memory.loadInt32(elementPtr.toIntUnsigned(), offset: 8);
@@ -6511,35 +6511,35 @@ final class _Imported$10 implements i10.Preopens {
   }
 }
 
-@pragma('wasm:import', r'component._drop$87')
-external i2.WasmVoid _drop$87Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$117')
+external i2.WasmVoid _drop$117Raw(i2.WasmI32 handle);
 
-void _drop$87(int handle) {
-  _drop$87Raw(i2.WasmI32.fromInt(handle));
+void _drop$117(int handle) {
+  _drop$117Raw(i2.WasmI32.fromInt(handle));
 }
 
-@pragma('wasm:import', 'component.stream93.new')
-external i2.WasmI64 _streamNew93();
-@pragma('wasm:import', 'component.stream93.read')
-external i2.WasmI32 _streamRead93(
+@pragma('wasm:import', 'component.stream123.new')
+external i2.WasmI64 _streamNew123();
+@pragma('wasm:import', 'component.stream123.read')
+external i2.WasmI32 _streamRead123(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream93.write')
-external i2.WasmI32 _streamWrite93(
+@pragma('wasm:import', 'component.stream123.write')
+external i2.WasmI32 _streamWrite123(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream93.drop-readable')
-external i2.WasmVoid _streamDropReadable93(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream93.drop-writable')
-external i2.WasmVoid _streamDropWritable93(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream123.drop-readable')
+external i2.WasmVoid _streamDropReadable123(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream123.drop-writable')
+external i2.WasmVoid _streamDropWritable123(i2.WasmI32 stream);
 
-final class _Vtable93
+final class _Vtable123
     implements i0.StreamVtable<List<i0.Owned<i11.TypesTcpSocket>>> {
-  const _Vtable93();
+  const _Vtable123();
 
   @override
   int get elementSize => 4;
@@ -6555,7 +6555,10 @@ final class _Vtable93
     for (var i = start; i < end; i++) {
       final ptr = i2.WasmI32.fromInt(address + i * 4);
       final tmp0 = i0.memory.loadInt32(ptr.toIntUnsigned(), offset: 0);
-      final tmp1 = i0.Owned<i11.TypesTcpSocket>(tmp0.toIntUnsigned(), _drop$87);
+      final tmp1 = i0.Owned<i11.TypesTcpSocket>(
+        tmp0.toIntUnsigned(),
+        _drop$117,
+      );
       tmp1.drop();
     }
 
@@ -6584,26 +6587,29 @@ final class _Vtable93
     return List.generate(count, (i) {
       final ptr = i2.WasmI32.fromInt(address + i * 4);
       final tmp0 = i0.memory.loadInt32(ptr.toIntUnsigned(), offset: 0);
-      final tmp1 = i0.Owned<i11.TypesTcpSocket>(tmp0.toIntUnsigned(), _drop$87);
+      final tmp1 = i0.Owned<i11.TypesTcpSocket>(
+        tmp0.toIntUnsigned(),
+        _drop$117,
+      );
       return tmp1;
     });
   }
 
   @override
-  int newStream() => _streamNew93().toInt();
+  int newStream() => _streamNew123().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable93(i2.WasmI32.fromInt(stream));
+    _streamDropReadable123(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable93(i2.WasmI32.fromInt(stream));
+    _streamDropWritable123(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead93(
+    return _streamRead123(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -6612,7 +6618,7 @@ final class _Vtable93
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite93(
+    return _streamWrite123(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -6620,27 +6626,27 @@ final class _Vtable93
   }
 }
 
-@pragma('wasm:import', 'component.stream95.new')
-external i2.WasmI64 _streamNew95();
-@pragma('wasm:import', 'component.stream95.read')
-external i2.WasmI32 _streamRead95(
+@pragma('wasm:import', 'component.stream125.new')
+external i2.WasmI64 _streamNew125();
+@pragma('wasm:import', 'component.stream125.read')
+external i2.WasmI32 _streamRead125(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream95.write')
-external i2.WasmI32 _streamWrite95(
+@pragma('wasm:import', 'component.stream125.write')
+external i2.WasmI32 _streamWrite125(
   i2.WasmI32 stream,
   i2.WasmI32 ptr,
   i2.WasmI32 n,
 );
-@pragma('wasm:import', 'component.stream95.drop-readable')
-external i2.WasmVoid _streamDropReadable95(i2.WasmI32 stream);
-@pragma('wasm:import', 'component.stream95.drop-writable')
-external i2.WasmVoid _streamDropWritable95(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream125.drop-readable')
+external i2.WasmVoid _streamDropReadable125(i2.WasmI32 stream);
+@pragma('wasm:import', 'component.stream125.drop-writable')
+external i2.WasmVoid _streamDropWritable125(i2.WasmI32 stream);
 
-final class _Vtable95 implements i0.StreamVtable<i4.Uint8List> {
-  const _Vtable95();
+final class _Vtable125 implements i0.StreamVtable<i4.Uint8List> {
+  const _Vtable125();
 
   @override
   int get elementSize => 1;
@@ -6686,20 +6692,20 @@ final class _Vtable95 implements i0.StreamVtable<i4.Uint8List> {
   }
 
   @override
-  int newStream() => _streamNew95().toInt();
+  int newStream() => _streamNew125().toInt();
   @override
   void dropReadable(int stream) {
-    _streamDropReadable95(i2.WasmI32.fromInt(stream));
+    _streamDropReadable125(i2.WasmI32.fromInt(stream));
   }
 
   @override
   void dropWritable(int stream) {
-    _streamDropWritable95(i2.WasmI32.fromInt(stream));
+    _streamDropWritable125(i2.WasmI32.fromInt(stream));
   }
 
   @override
   int read(int stream, int ptr, int n) {
-    return _streamRead95(
+    return _streamRead125(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -6708,7 +6714,7 @@ final class _Vtable95 implements i0.StreamVtable<i4.Uint8List> {
 
   @override
   int write(int stream, int ptr, int n) {
-    return _streamWrite95(
+    return _streamWrite125(
       i2.WasmI32.fromInt(stream),
       i2.WasmI32.fromInt(ptr),
       i2.WasmI32.fromInt(n),
@@ -6716,27 +6722,27 @@ final class _Vtable95 implements i0.StreamVtable<i4.Uint8List> {
   }
 }
 
-@pragma('wasm:import', 'component.future96.new')
-external i2.WasmI64 _futureNew96();
-@pragma('wasm:import', 'component.future96.write')
-external i2.WasmI32 _futureWrite96(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future96.read')
-external i2.WasmI32 _futureRead96(i2.WasmI32 future, i2.WasmI32 ptr);
-@pragma('wasm:import', 'component.future96.drop-readable')
-external i2.WasmVoid _futureDropReadable96(i2.WasmI32 future);
-@pragma('wasm:import', 'component.future96.drop-writable')
-external i2.WasmVoid _futureDropWritable96(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future126.new')
+external i2.WasmI64 _futureNew126();
+@pragma('wasm:import', 'component.future126.write')
+external i2.WasmI32 _futureWrite126(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future126.read')
+external i2.WasmI32 _futureRead126(i2.WasmI32 future, i2.WasmI32 ptr);
+@pragma('wasm:import', 'component.future126.drop-readable')
+external i2.WasmVoid _futureDropReadable126(i2.WasmI32 future);
+@pragma('wasm:import', 'component.future126.drop-writable')
+external i2.WasmVoid _futureDropWritable126(i2.WasmI32 future);
 
-final class _Vtable96
+final class _Vtable126
     implements i0.FutureVtable<i0.Result<void, i11.TypesErrorCode>> {
-  const _Vtable96();
+  const _Vtable126();
 
   @override
-  int newFuture() => _futureNew96().toInt();
+  int newFuture() => _futureNew126().toInt();
 
   @override
   int read(int future, int buffer) {
-    return _futureRead96(
+    return _futureRead126(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -6744,7 +6750,7 @@ final class _Vtable96
 
   @override
   int write(int future, int buffer) {
-    return _futureWrite96(
+    return _futureWrite126(
       i2.WasmI32.fromInt(future),
       i2.WasmI32.fromInt(buffer),
     ).toIntUnsigned();
@@ -6752,12 +6758,12 @@ final class _Vtable96
 
   @override
   void dropRead(int future) {
-    _futureDropReadable96(i2.WasmI32.fromInt(future));
+    _futureDropReadable126(i2.WasmI32.fromInt(future));
   }
 
   @override
   void dropWrite(int future) {
-    _futureDropWritable96(i2.WasmI32.fromInt(future));
+    _futureDropWritable126(i2.WasmI32.fromInt(future));
   }
 
   @override
@@ -7124,11 +7130,11 @@ external i2.WasmVoid _import152(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import153")
 external i2.WasmVoid _import153(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 
-@pragma('wasm:import', r'component._drop$88')
-external i2.WasmVoid _drop$88Raw(i2.WasmI32 handle);
+@pragma('wasm:import', r'component._drop$118')
+external i2.WasmVoid _drop$118Raw(i2.WasmI32 handle);
 
-void _drop$88(int handle) {
-  _drop$88Raw(i2.WasmI32.fromInt(handle));
+void _drop$118(int handle) {
+  _drop$118Raw(i2.WasmI32.fromInt(handle));
 }
 
 @pragma("wasm:import", r"component._import154")
@@ -7192,8 +7198,8 @@ external i2.WasmVoid _import168(i2.WasmI32 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import169")
 external i2.WasmVoid _import169(i2.WasmI32 p0, i2.WasmI64 p1, i2.WasmI32 p2);
 
-final class _Imported$11 implements i11.Types {
-  const _Imported$11();
+final class _Imported$14 implements i11.Types {
+  const _Imported$14();
   @override
   i0.Result<i0.Owned<i11.TypesTcpSocket>, i11.TypesErrorCode>
   staticTcpSocketCreate({required i11.TypesIpAddressFamily addressFamily}) {
@@ -7254,7 +7260,10 @@ final class _Imported$11 implements i11.Types {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.Owned<i11.TypesTcpSocket>(tmp2.toIntUnsigned(), _drop$87);
+      final tmp3 = i0.Owned<i11.TypesTcpSocket>(
+        tmp2.toIntUnsigned(),
+        _drop$117,
+      );
       tmp10 = .ok(tmp3);
     }
 
@@ -7626,7 +7635,7 @@ final class _Imported$11 implements i11.Types {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.ReadableStream(tmp2.toIntUnsigned(), const _Vtable93());
+      final tmp3 = i0.ReadableStream(tmp2.toIntUnsigned(), const _Vtable123());
 
       tmp10 = .ok(tmp3);
     }
@@ -7640,9 +7649,9 @@ final class _Imported$11 implements i11.Types {
     required i0.Borrowed<i11.TypesTcpSocket> self,
     required Stream<i4.Uint8List> data,
   }) {
-    final tmp0 = i0.newReadableStream(const _Vtable95(), data).toWasmI32();
+    final tmp0 = i0.newReadableStream(const _Vtable125(), data).toWasmI32();
     final tmp1 = _import133(i2.WasmI32.fromInt(self.handle), tmp0);
-    final tmp2 = i0.readFuture(const _Vtable96(), tmp1.toIntUnsigned());
+    final tmp2 = i0.readFuture(const _Vtable126(), tmp1.toIntUnsigned());
     return tmp2;
   }
 
@@ -7652,9 +7661,9 @@ final class _Imported$11 implements i11.Types {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
     _import134(i2.WasmI32.fromInt(self.handle), tmp0);
     final tmp1 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 0);
-    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable95());
+    final tmp2 = i0.ReadableStream(tmp1.toIntUnsigned(), const _Vtable125());
     final tmp3 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-    final tmp4 = i0.readFuture(const _Vtable96(), tmp3.toIntUnsigned());
+    final tmp4 = i0.readFuture(const _Vtable126(), tmp3.toIntUnsigned());
     final tmp5 = (tmp2, tmp4);
     i0.dartFree(tmp0, const i2.WasmI32(8), const i2.WasmI32(4));
     return tmp5;
@@ -9037,7 +9046,10 @@ final class _Imported$11 implements i11.Types {
       tmp10 = .error(tmp9);
     } else {
       final tmp2 = i0.memory.loadInt32(tmp0.toIntUnsigned(), offset: 4);
-      final tmp3 = i0.Owned<i11.TypesUdpSocket>(tmp2.toIntUnsigned(), _drop$88);
+      final tmp3 = i0.Owned<i11.TypesUdpSocket>(
+        tmp2.toIntUnsigned(),
+        _drop$118,
+      );
       tmp10 = .ok(tmp3);
     }
 
@@ -10396,8 +10408,8 @@ final class _Imported$11 implements i11.Types {
 @pragma("wasm:import", r"component._import170")
 external i2.WasmI32 _import170(i2.WasmI32 p0, i2.WasmI32 p1, i2.WasmI32 p2);
 
-final class _Imported$12 implements i11.IpNameLookup {
-  const _Imported$12();
+final class _Imported$15 implements i11.IpNameLookup {
+  const _Imported$15();
   @override
   Future<i0.Result<List<i11.TypesIpAddress>, i11.IpNameLookupErrorCode>>
   resolveAddresses({required String name}) async {
@@ -10542,8 +10554,8 @@ external i2.WasmVoid _import171(i2.WasmI64 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import172")
 external i2.WasmI64 _import172();
 
-final class _Imported$13 implements i12.Random {
-  const _Imported$13();
+final class _Imported$16 implements i12.Random {
+  const _Imported$16();
   @override
   List<int> getRandomBytes({required int maxLen}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
@@ -10575,8 +10587,8 @@ external i2.WasmVoid _import173(i2.WasmI64 p0, i2.WasmI32 p1);
 @pragma("wasm:import", r"component._import174")
 external i2.WasmI64 _import174();
 
-final class _Imported$14 implements i12.Insecure {
-  const _Imported$14();
+final class _Imported$17 implements i12.Insecure {
+  const _Imported$17();
   @override
   List<int> getInsecureRandomBytes({required int maxLen}) {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(4), const i2.WasmI32(8));
@@ -10606,8 +10618,8 @@ final class _Imported$14 implements i12.Insecure {
 @pragma("wasm:import", r"component._import175")
 external i2.WasmVoid _import175(i2.WasmI32 p0);
 
-final class _Imported$15 implements i12.InsecureSeed {
-  const _Imported$15();
+final class _Imported$18 implements i12.InsecureSeed {
+  const _Imported$18();
   @override
   (int, int) getInsecureSeed() {
     var tmp0 = i0.mallocAligned(const i2.WasmI32(8), const i2.WasmI32(16));
@@ -10620,51 +10632,51 @@ final class _Imported$15 implements i12.InsecureSeed {
   }
 }
 
-late i1.TestedModule _unnamedExport29;
-late i8.Run _unnamedExport18;
+late i1.TestedModule _unnamedExport32;
+late i8.Run _unnamedExport21;
 
 final class EngineProbeImports {
   const EngineProbeImports._();
 
-  i1.ResultCollector get testsResultCollector => const _Imported$28();
+  i1.ResultCollector get testsResultCollector => const _Imported$31();
   i3.Client get httpClient => const _Imported$1();
-  i5.Session get pluginHostSession => const _Imported$2();
-  i6.Policy get policyPolicy => const _Imported$4();
-  i7.Process get processProcess => const _Imported$31();
-  i8.Environment get cliEnvironment => const _Imported$16();
-  i8.Exit get cliExit => const _Imported$17();
-  i8.Stdin get cliStdin => const _Imported$20();
-  i8.Stdout get cliStdout => const _Imported$21();
-  i8.Stderr get cliStderr => const _Imported$22();
-  i8.TerminalStdin get cliTerminalStdin => const _Imported$25();
-  i8.TerminalStdout get cliTerminalStdout => const _Imported$26();
-  i8.TerminalStderr get cliTerminalStderr => const _Imported$27();
-  i9.MonotonicClock get clocksMonotonicClock => const _Imported$6();
-  i9.SystemClock get clocksSystemClock => const _Imported$7();
-  i10.Types get filesystemTypes => const _Imported$9();
-  i10.Preopens get filesystemPreopens => const _Imported$10();
-  i11.Types get socketsTypes => const _Imported$11();
-  i11.IpNameLookup get socketsIpNameLookup => const _Imported$12();
-  i12.Random get randomRandom => const _Imported$13();
-  i12.Insecure get randomInsecure => const _Imported$14();
-  i12.InsecureSeed get randomInsecureSeed => const _Imported$15();
+  i5.Session get pluginHostSession => const _Imported$5();
+  i6.Policy get policyPolicy => const _Imported$7();
+  i7.Process get processProcess => const _Imported$34();
+  i8.Environment get cliEnvironment => const _Imported$19();
+  i8.Exit get cliExit => const _Imported$20();
+  i8.Stdin get cliStdin => const _Imported$23();
+  i8.Stdout get cliStdout => const _Imported$24();
+  i8.Stderr get cliStderr => const _Imported$25();
+  i8.TerminalStdin get cliTerminalStdin => const _Imported$28();
+  i8.TerminalStdout get cliTerminalStdout => const _Imported$29();
+  i8.TerminalStderr get cliTerminalStderr => const _Imported$30();
+  i9.MonotonicClock get clocksMonotonicClock => const _Imported$9();
+  i9.SystemClock get clocksSystemClock => const _Imported$10();
+  i10.Types get filesystemTypes => const _Imported$12();
+  i10.Preopens get filesystemPreopens => const _Imported$13();
+  i11.Types get socketsTypes => const _Imported$14();
+  i11.IpNameLookup get socketsIpNameLookup => const _Imported$15();
+  i12.Random get randomRandom => const _Imported$16();
+  i12.Insecure get randomInsecure => const _Imported$17();
+  i12.InsecureSeed get randomInsecureSeed => const _Imported$18();
 }
 
 @i13.RecordUse()
 void engineProbeComponent(
-  ({i1.TestedModule unnamedExport29, i8.Run unnamedExport18}) Function(
+  ({i1.TestedModule unnamedExport32, i8.Run unnamedExport21}) Function(
     EngineProbeImports,
   )
   defineComponent,
 ) {
   final res = defineComponent(const EngineProbeImports._());
-  _unnamedExport29 = res.unnamedExport29;
-  _unnamedExport18 = res.unnamedExport18;
+  _unnamedExport32 = res.unnamedExport32;
+  _unnamedExport21 = res.unnamedExport21;
 }
 
 @pragma('wasm:export', r'component_0')
 i2.WasmI32 _component_0() {
-  final tmp0 = _unnamedExport29.countTests();
+  final tmp0 = _unnamedExport32.countTests();
   return i2.WasmI32.fromInt(tmp0);
 }
 
@@ -10672,7 +10684,7 @@ i2.WasmI32 _component_0() {
 i2.WasmI32 _component_1(i2.WasmI32 p0) {
   final asyncExitCode = i0.spawnTask(
     run: () async {
-      await _unnamedExport29.invokeTest(number: p0.toIntUnsigned());
+      await _unnamedExport32.invokeTest(number: p0.toIntUnsigned());
       _component_1taskReturn();
     },
     debugName: 'invoke-test',
@@ -10686,7 +10698,7 @@ external i2.WasmVoid _component_1taskReturn();
 i2.WasmI32 _component_2() {
   final asyncExitCode = i0.spawnTask(
     run: () async {
-      final tmp0 = await _unnamedExport18.run();
+      final tmp0 = await _unnamedExport21.run();
       i2.WasmI32 tmp1;
       switch (tmp0) {
         case i0.OkResult(:final value):

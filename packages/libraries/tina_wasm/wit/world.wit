@@ -23,6 +23,7 @@ world tui-app {
   include wasi:cli/command@0.3.0;
   import tina:term/tty@0.1.0;
   import tina:term/crash@0.1.0;
+  import tina:layout/bridge@1.0.0;
   import tina:http/client@1.1.0;
   import tina:plugin-host/session@0.1.0;
   import tina:policy/policy@1.0.0;

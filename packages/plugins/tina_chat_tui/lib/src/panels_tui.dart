@@ -199,7 +199,7 @@ final class _Workspace implements ConsolePanels, ImagePanelOpener {
       final count = imagePanels.length;
       // Equal shares of the body below the chat box's top border row.
       final shareUnits = metrics.rowsToUnits(bodyHeight - 1) / count;
-      final solution = GridSolver.solve(
+      final solution = LayoutStrategies.solve(
           GridSpec(
               columns: const [
                 GridTrack.weighted(3),

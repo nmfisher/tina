@@ -26,7 +26,7 @@ final class CapturedWriter implements AssemblyWriter {
 /// config key. The strategies themselves are golden-tested in
 /// tina_console (screen_layout_strategy_test.dart).
 void main() {
-  tearDown(() => LayoutStrategies.instance.uninstall());
+  tearDown(() => LayoutStrategies.uninstall());
 
   ({SessionAssembly assembly, CapturedWriter writer}) start() {
     final ws = Directory.systemTemp.createTempSync('tina_layout_ws_');
@@ -74,14 +74,14 @@ void main() {
       () async {
     final env = start();
     await env.assembly.handleCommand('/layout focus');
-    expect(LayoutStrategies.instance.active.id, 'focus');
+    expect(LayoutStrategies.active.id, 'focus');
     expect(env.writer.lines.last, startsWith('layout strategy: focus'));
     final swapped = ScreenLayout.fromSize(120, 30, split: false);
     expect(swapped.isSplit, isTrue);
     expect(swapped.chatRightCol, 59);
 
     await env.assembly.handleCommand('/layout default');
-    expect(LayoutStrategies.instance.active.id, 'default');
+    expect(LayoutStrategies.active.id, 'default');
     final restored = ScreenLayout.fromSize(120, 30, split: false);
     expect(restored.isSplit, isFalse);
   });
@@ -92,10 +92,10 @@ void main() {
     await env.assembly.handleCommand('/layout focus');
     await env.assembly.handleCommand('/layoutSideways');
     expect(env.writer.lines.last, startsWith('unknown command: /layoutSideways'));
-    expect(LayoutStrategies.instance.active.id, 'focus');
+    expect(LayoutStrategies.active.id, 'focus');
     await env.assembly.handleCommand('/layout sideways');
     expect(env.writer.lines.last, startsWith('unknown layout strategy'));
-    expect(LayoutStrategies.instance.active.id, 'focus');
+    expect(LayoutStrategies.active.id, 'focus');
   });
 
   test('layout_strategy in config selects the strategy at boot', () async {
@@ -116,7 +116,7 @@ layout_strategy = "two-column"
           interactive: false),
     );
     addTearDown(assembly.close);
-    expect(LayoutStrategies.instance.active.id, 'two-column');
+    expect(LayoutStrategies.active.id, 'two-column');
     final layout = ScreenLayout.fromSize(120, 30, split: false);
     expect(layout.infoLeftCol, 0); // mirrored
     expect(writer.text, isNot(contains('unknown layout strategy')));
@@ -141,7 +141,7 @@ layout_strategy = "nope"
           interactive: false),
     );
     addTearDown(assembly.close);
-    expect(LayoutStrategies.instance.active.id, 'default');
+    expect(LayoutStrategies.active.id, 'default');
     expect(writer.text, contains('unknown layout strategy "nope"'));
   });
 
@@ -176,11 +176,14 @@ final class FocusScreenTestShim implements LayoutStrategy {
   String get id => 'acme/wide';
 
   @override
-  String get version => '1.0.0';
+  StrategyDescriptor describe() => const StrategyDescriptor(
+      id: 'acme/wide', version: '1.0.0', description: 'workspace strategy');
 
   @override
-  GridSolution solve(GridSpec spec,
-      {required int columns, required int rows}) {
+  GridSolution solveSpec(GridSpec spec,
+      {required int columns,
+      required int rows,
+      CellMetrics metrics = CellMetrics.standard}) {
     throw UnimplementedError();
   }
 }

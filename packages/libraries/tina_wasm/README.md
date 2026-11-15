@@ -33,6 +33,24 @@ packages never know which one they hold.
   `git status` through the host, stdin/env on approved spawns, a denial
   blocked before any process exists.
 
+## Opt-in layout strategy plugin
+
+The TUI leg accepts a layout-strategy component (`tina:layout@1.0.0`,
+see `docs/layout-plugin.md` in the tina repository):
+
+```text
+--layout-plugin=/path/to/layout_solver.wasm   mount a strategy
+--layout-plugin-watch                         re-read the artifact per call
+--layout-plugin-deadline-ms=N                 per-solve budget (default 250)
+```
+
+With a plugin mounted, every `ScreenLayout` solve routes TUI Store ->
+host bridge -> the plugin's own Store (zero capabilities; the host
+admits no imports beyond WASI and the contract's types). On absent,
+erroring or epoch-killed plugins the bridge reports the fallback and
+the guest uses its compiled-in solver - one stderr notice per install.
+The artifacts live in `packages/plugins/tina_layout_plugins`.
+
 ## Regenerating bindings
 
     ./tool/generate.sh

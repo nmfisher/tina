@@ -72,7 +72,12 @@ final class FocusScreenStrategy implements ScreenLayoutStrategy {
   String get id => 'focus';
 
   @override
-  String get version => '1.0.0';
+  StrategyDescriptor describe() => const StrategyDescriptor(
+        id: 'focus',
+        version: '1.0.0',
+        description: 'Equal halves: 50/50 chat/info from 80 columns '
+            '(the native form of tina/layout-focus).',
+      );
 
   @override
   ScreenPolicy? policyFor(
@@ -87,8 +92,12 @@ final class FocusScreenStrategy implements ScreenLayoutStrategy {
           infoWeight: 50);
 
   @override
-  GridSolution solve(GridSpec spec, {required int columns, required int rows}) =>
-      const FocusLayoutStrategy().solve(spec, columns: columns, rows: rows);
+  GridSolution solveSpec(GridSpec spec,
+          {required int columns,
+          required int rows,
+          CellMetrics metrics = CellMetrics.standard}) =>
+      const FocusLayoutStrategy().solveSpec(spec,
+          columns: columns, rows: rows, metrics: metrics);
 }
 
 /// `two-column` — the mirrored screen: the info column moves to the
@@ -103,7 +112,12 @@ final class TwoColumnScreenStrategy implements ScreenLayoutStrategy {
   String get id => 'two-column';
 
   @override
-  String get version => '1.0.0';
+  StrategyDescriptor describe() => const StrategyDescriptor(
+        id: 'two-column',
+        version: '1.0.0',
+        description: 'Info panel left (38%), transcript right (62%), '
+            'split from 80 columns.',
+      );
 
   @override
   ScreenPolicy? policyFor(
@@ -119,6 +133,10 @@ final class TwoColumnScreenStrategy implements ScreenLayoutStrategy {
           mirror: true);
 
   @override
-  GridSolution solve(GridSpec spec, {required int columns, required int rows}) =>
-      const BuiltinLayoutStrategy().solve(spec, columns: columns, rows: rows);
+  GridSolution solveSpec(GridSpec spec,
+          {required int columns,
+          required int rows,
+          CellMetrics metrics = CellMetrics.standard}) =>
+      const BuiltinLayoutStrategy().solveSpec(spec,
+          columns: columns, rows: rows, metrics: metrics);
 }
