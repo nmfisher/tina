@@ -203,10 +203,19 @@ final class PreloadedAppIo implements AppIo {
               }
             } else if (type is fs.TypesDescriptorTypeRegularFile) {
               // Size first, via the parent descriptor: oversized files
-              // are never opened, let alone read.
+              // are never opened, let alone read. Boot-critical caches
+              // (the host's models.dev provider-catalog snapshot under
+              // config/.tina/cache/) get their own, larger-but-bounded
+              // cap: configuredDescriptors reads that file through this
+              // snapshot, and a provider whose descriptor only exists in
+              // the catalog would otherwise lose its endpoint at boot.
+              final bootCritical = guest.startsWith('config/.tina/cache/');
+              final fileCap = bootCritical
+                  ? PreloadBudget.bootCriticalFileBytes
+                  : null;
               final size = await sizeOf(dir, name);
               if (size == null) continue;
-              if (!budget.admitStatSize(size)) {
+              if (!budget.admitStatSize(size, maxFileBytes: fileCap)) {
                 skipped.add(guest);
                 continue;
               }
@@ -233,7 +242,8 @@ final class PreloadedAppIo implements AppIo {
                   value.drop();
                   // The file may have grown between stat and read; the
                   // read-time size is authoritative for the caps.
-                  if (!budget.admitReadBytes(data.length)) {
+                  if (!budget.admitReadBytes(data.length,
+                      maxFileBytes: fileCap)) {
                     skipped.add(guest);
                     continue;
                   }

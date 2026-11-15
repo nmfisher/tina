@@ -113,4 +113,32 @@ void main() {
     // default per-file cap, allowed again now that the bytes came back).
     expect(budget.admitStatSize(2 * 1024 * 1024), isTrue);
   });
+
+  test('boot-critical caches admit past the per-file cap, still bounded',
+      () {
+    // The regression: the host snapshots the models.dev provider catalog
+    // (a >2MB JSON) into config/.tina/cache/; configuredDescriptors reads
+    // it through the preload snapshot, so the default per-file cap must
+    // not drop it or config providers lose their builtin descriptor.
+    final budget = PreloadBudget();
+    const cacheCap = PreloadBudget.bootCriticalFileBytes;
+    const catalog = 3 * 1024 * 1024; // > 2MB default, < 16MB carve-out
+    expect(budget.admitStatSize(catalog, maxFileBytes: cacheCap), isTrue);
+    expect(budget.admitReadBytes(catalog, maxFileBytes: cacheCap), isTrue);
+    expect(budget.preloadedBytes, catalog);
+    expect(budget.exhausted, isFalse);
+    // The carve-out is a bigger cap, not an unbounded one.
+    expect(budget.admitStatSize(cacheCap + 1, maxFileBytes: cacheCap),
+        isFalse);
+    // The total budget still applies to caches.
+    final tight = PreloadBudget(maxTotalBytes: 4 * 1024 * 1024);
+    expect(
+        tight.admitStatSize(3 * 1024 * 1024, maxFileBytes: cacheCap), isTrue);
+    expect(
+        tight.admitReadBytes(3 * 1024 * 1024, maxFileBytes: cacheCap), isTrue);
+    expect(tight.admitStatSize(2 * 1024 * 1024, maxFileBytes: cacheCap),
+        isFalse,
+        reason: '3MB recorded + 2MB > the 4MB total budget');
+    expect(tight.exhausted, isTrue);
+  });
 }

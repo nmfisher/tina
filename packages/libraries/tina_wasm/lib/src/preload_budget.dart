@@ -28,6 +28,15 @@ final class PreloadBudget {
   /// while covering every sane config tree many times over.
   static const int defaultMaxTotalBytes = 64 * 1024 * 1024;
 
+  /// Per-file cap for boot-critical cache files the host snapshots into
+  /// the config mount (the models.dev provider catalog at
+  /// `config/.tina/cache/models.dev.providers.json` — see the host's
+  /// discover_config_mount: without it, config providers that rely on the
+  /// catalog lose their descriptor and the engine refuses them at boot).
+  /// The catalog is machine-written model metadata (~3MB today); 16MB
+  /// bounds it with years of headroom while still refusing bulk data.
+  static const int bootCriticalFileBytes = 16 * 1024 * 1024;
+
   /// Binary sniff window: a NUL byte anywhere in the first 8KB marks the
   /// file binary — Latin1 string conversion of binary data is pure
   /// memory waste. (A NUL past the window does not count: the sniff is a
@@ -59,10 +68,12 @@ final class PreloadBudget {
 
   /// The stat-time decision: may the walk open and read this file of
   /// [size] bytes? False means skip it (oversized, already exhausted, or
-  /// it would push the total past the budget).
-  bool admitStatSize(int size) {
+  /// it would push the total past the budget). [maxFileBytes] overrides
+  /// the per-file cap for this call only (boot-critical caches).
+  bool admitStatSize(int size, {int? maxFileBytes}) {
+    final fileCap = maxFileBytes ?? this.maxFileBytes;
     if (_exhausted) return false;
-    if (size > maxFileBytes) return false;
+    if (size > fileCap) return false;
     if (_preloadedBytes + size > maxTotalBytes) {
       _exhausted = true;
       return false;
@@ -72,10 +83,12 @@ final class PreloadBudget {
 
   /// The read-time decision (the file may have grown between stat and
   /// read; the read size is authoritative). On true the [length] bytes
-  /// are recorded against the budget.
-  bool admitReadBytes(int length) {
+  /// are recorded against the budget. [maxFileBytes] overrides the
+  /// per-file cap for this call only (boot-critical caches).
+  bool admitReadBytes(int length, {int? maxFileBytes}) {
+    final fileCap = maxFileBytes ?? this.maxFileBytes;
     if (_exhausted) return false;
-    if (length > maxFileBytes) return false;
+    if (length > fileCap) return false;
     if (_preloadedBytes + length > maxTotalBytes) {
       _exhausted = true;
       return false;
