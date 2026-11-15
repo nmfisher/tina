@@ -12,12 +12,26 @@ tina --configure
 tina --cwd /path/to/project
 ```
 
+```sh
+# wasm variant — the whole agent in one sandboxed binary:
+curl -fsSL https://raw.githubusercontent.com/nmfisher/tina/main/install.sh | sh -s -- --wasm
+tina-wasm-host --cwd /path/to/project
+```
+
 The installer downloads the latest **published** release; a checkout's cutover
 changes become available there only after a release is published. It verifies
 the release manifest with minisign (install `minisign`, or explicitly choose
 `--insecure-checksum-only`). Supported bundles: macOS arm64, Linux x64 and arm64.
 The private bundle is `${XDG_DATA_HOME:-~/.local/share}/tina`, with a launcher
 symlink at `~/.local/bin/tina`. `--dir` and `--bundle-dir` override these locations.
+
+`--wasm` installs the wasm runner instead: the whole agent — engine, TUI,
+plugins — compiled to WebAssembly inside a single sandboxed host binary, with
+no native code on your machine. It ships for macOS arm64 and Linux x64,
+installs to `${XDG_DATA_HOME:-~/.local/share}/tina-wasm-host` with a
+`tina-wasm-host` launcher (the native install above is untouched, and either
+variant can be reinstalled without disturbing the other), and reads the same
+`~/.tina` config — the first-launch settings guidance below applies to it too.
 
 The first launch without config opens settings. Choose a provider and model,
 supply credentials in settings or the provider's environment variable, then
