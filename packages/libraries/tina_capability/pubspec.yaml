@@ -1,0 +1,16 @@
+name: tina_capability
+description: >
+  The capability document: the one compiled list of what the engine may
+  do (directory read/write grants, network domains, command rules, plugin
+  grants, protected paths, derived preopens). The engine compiles it from
+  tina_mode and tool policy; the wasm.dart host validates and enforces it
+  at its mediators; native enforcement is generated from the same
+  document. Pure Dart - no dart:io - so both builds consume it.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dev_dependencies:
+  test: ^1.25.0

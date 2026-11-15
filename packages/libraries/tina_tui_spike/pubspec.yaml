@@ -1,0 +1,27 @@
+name: tina_tui_spike
+description: >-
+  Option 2 spike (issue #85): the tina console's ANSI backend compiled to a
+  wasm component, driven over WASI stdio by the host's --tui mode. Not
+  production: the demo imports the console src libraries directly because the
+  package barrel still drags dart:io/fuzzy_ranker (see the spike report).
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.0
+dependencies:
+  hooks: ">=1.0.0 <3.0.0"
+  tina_console:
+    path: ../../tina_console
+  wasm_components:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      path: pkg/wasm_components
+      ref: c3c8f3230605033df01d637f2bfd635dad106125
+dev_dependencies:
+  wasm_tools:
+    git:
+      url: https://github.com/nmfisher/wasm.dart.git
+      path: pkg/wasm_tools
+      ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
+dependency_overrides:
+  hooks: 2.2.0

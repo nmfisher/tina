@@ -8,8 +8,10 @@ import 'tui_session.dart';
 
 /// The embedded CLI owns its root and child sessions. The reusable renderer
 /// invokes these callbacks but has no access to their hosts or configuration.
+/// [session] is the [TuiSessionHandle] contract: the in-process wrapper or
+/// the remote pipes session.
 Future<int> runTui(
-  TuiSession session, {
+  TuiSessionHandle session, {
   Screen? screen,
   LineEditor Function(Screen)? editorFor,
   ConsoleContext Function(Screen, LineEditor)? consoleContextFor,
@@ -18,7 +20,7 @@ Future<int> runTui(
   StartupTerminal? startup,
   Map<String, String>? environment,
 }) async {
-  final owned = <ConsoleSessionView, TuiSession>{};
+  final owned = <ConsoleSessionView, TuiSessionHandle>{};
   Future<void>? shutdownResult;
   Future<void> shutdown() => shutdownResult ??= Future.wait(
     {session, ...owned.values}.map((owner) => owner.shutdown()),

@@ -2,6 +2,15 @@
 /// host import (see this package's `wit/deps/tina-http`), the interface the
 /// Rust host in wasm.dart serves with reqwest.
 ///
+/// The host enforces the capability document's network domain allowlist
+/// (docs/engine2-capability-merger.md): an allowed domain sends; an
+/// unknown domain returns an approval request, routed through the
+/// optional [DomainApprover] (the engine's approval flow) and answered
+/// with `respond`. An approved remember-answer widens the host policy
+/// through `tina:policy.widen` so later calls to the same domain do not
+/// re-ask; persistence stays with the engine's stores. Without an
+/// approver an unknown domain fails closed.
+///
 /// One port instance per provider, like `tina_io`'s `IoHttpEndpoint`: the
 /// base URL is constructor state, [path] hangs off it, and the response
 /// body is whatever stream the host hands back - chunks arrive as the
@@ -12,17 +21,41 @@ import 'package:tina_core/tina_core.dart';
 import 'package:wasm_components/wasm_components.dart' as cm;
 
 import 'package:tina_wasm/src/components/tina_http.dart' as tina_http;
+import 'package:tina_wasm/src/components/tina_policy.dart' as tina_policy;
+
+/// The answer a [DomainApprover] gives for a parked domain approval.
+final class DomainApprovalAnswer {
+  const DomainApprovalAnswer({required this.allow, this.remember = false});
+
+  final bool allow;
+
+  /// True when the approval flow granted more than this call (an
+  /// "always" answer): the host policy widens with the domain.
+  final bool remember;
+}
+
+/// Routs a parked domain approval through the engine's approval flow.
+typedef DomainApprover =
+    Future<DomainApprovalAnswer> Function(String url, String reason);
 
 /// [HttpClientPort] over `tina:http`.
 final class WasmHttpEndpoint implements HttpClientPort {
-  WasmHttpEndpoint({required this.endpoint, required tina_http.Client client})
-      : _client = client;
+  WasmHttpEndpoint({
+    required this.endpoint,
+    required tina_http.Client client,
+    tina_policy.Policy? policy,
+    DomainApprover? domainApprover,
+  }) : _client = client,
+       _policy = policy,
+       _domainApprover = domainApprover;
 
   /// The absolute base every [path] hangs off - see `IoHttpEndpoint` for
   /// why the gateway prefix is the endpoint and how paths resolve.
   final String endpoint;
 
   final tina_http.Client _client;
+  final tina_policy.Policy? _policy;
+  final DomainApprover? _domainApprover;
 
   @override
   Future<HttpClientResponse> post(
@@ -49,7 +82,7 @@ final class WasmHttpEndpoint implements HttpClientPort {
     Map<String, String> headers,
     List<int>? body,
   ) async {
-    final result = await _client.send(
+    var outcome = await _client.send(
       req: (
         method: method,
         url: _resolve(endpoint, path).toString(),
@@ -60,22 +93,69 @@ final class WasmHttpEndpoint implements HttpClientPort {
       ),
     );
 
-    switch (result) {
-      case cm.OkResult(:final value):
-        final (:status, :headers) = value.$1;
-        final headerMap = <String, String>{
-          for (final (name, headerValue) in headers) name: headerValue,
-        };
-        return HttpClientResponse(
-          statusCode: status,
-          headers: headerMap,
-          body: value.$2,
-        );
-      case cm.ErrorResult(:final value):
-        throw HttpException._(
-          'tina:http request failed: ${_message(value)}',
-        );
+    // Ride the approval round-trip: an unknown domain parks behind the
+    // approver until the host reports sent or denied.
+    while (true) {
+      switch (outcome) {
+        case cm.OkResult(:final value):
+          switch (value) {
+            case tina_http.TypesOutcomeSent(:final payload):
+              final head = payload.head;
+              final headerMap = <String, String>{
+                for (final (name, headerValue) in head.headers)
+                  name: headerValue,
+              };
+              return HttpClientResponse(
+                statusCode: head.status,
+                headers: headerMap,
+                body: payload.body,
+              );
+            case tina_http.TypesOutcomeApproval(:final payload):
+              final answer = await _ask(payload.url, payload.reason);
+              if (answer.remember) {
+                await _widen(payload.url);
+              }
+              outcome = await _client.respond(
+                approval: payload.id,
+                allow: answer.allow,
+              );
+            case tina_http.TypesOutcomeDenied(:final payload):
+              throw HttpException._('tina:http denied: $payload');
+          }
+        case cm.ErrorResult(:final value):
+          throw HttpException._(
+            'tina:http request failed: ${_message(value)}',
+          );
+      }
     }
+  }
+
+  Future<DomainApprovalAnswer> _ask(String url, String reason) async {
+    final approver = _domainApprover;
+    if (approver == null) {
+      // Fail closed: no approval flow, no network.
+      return const DomainApprovalAnswer(allow: false);
+    }
+    return approver(url, reason);
+  }
+
+  /// Widens the host policy with the approved domain so later calls do
+  /// not re-ask this run. Persistence stays with the engine's stores;
+  /// a widening failure cannot retroactively deny the call that was
+  /// already approved, so it is reported, not thrown.
+  Future<void> _widen(String url) async {
+    final policy = _policy;
+    if (policy == null) return;
+    final uri = Uri.parse(url);
+    final domain = uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
+    await policy.widen(
+      entry: tina_policy.TypesCapabilityEntry.domain(
+        (
+          domain: domain,
+          origin: 'escalation',
+        ),
+      ),
+    );
   }
 
   static String _message(tina_http.TypesError error) {

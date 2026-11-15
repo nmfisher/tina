@@ -1,6 +1,9 @@
 #!/bin/sh
 # Startup + RSS measurement for the wasm engine under the runner.
 # Usage: measure_startup.sh <runner-binary> <label>
+# The runner takes the engine component as its single positional: use
+# tina-case-runner (the packaged tina-wasm-host is embedded-only and
+# takes no engine path).
 set -e
 RUNNER="$1"
 LABEL="$2"

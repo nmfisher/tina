@@ -27,6 +27,10 @@ export 'src/tool_descriptions.dart';
 export 'src/tool_file_system.dart';
 export 'src/tool_boundary.dart';
 export 'src/tools_plugin_surface.dart';
+// The session-source interface the native catalog's context plugin
+// consumes; portable implementations (the wasm engine's tools plugin)
+// declare it so the capability resolves unchanged.
+export 'src/tools_plugin.dart' show ToolSessionSource;
 export 'src/process_runner.dart'
     show
         ProcessCommandApprover,

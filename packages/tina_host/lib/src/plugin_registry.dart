@@ -39,8 +39,16 @@ final class PluginRegistry<C> {
   }
 
   Iterable<String> get ids => _definitions.keys;
+
+  /// The [PluginDefinition.alwaysSelected] ids: part of every ordered
+  /// selection, whatever the config named.
+  Iterable<String> get structuralIds => [
+        for (final definition in _definitions.values)
+          if (definition.alwaysSelected) definition.id,
+      ];
   PluginDefinition<C> definition(String id) =>
-      _definitions[id] ?? (throw ArgumentError('unknown plugin: $id'));
+      _definitions[id] ??
+          (throw ArgumentError('unknown plugin (registry-def): $id'));
   List<String> orderedIds(Iterable<String> ids) =>
       _ordered(ids).map((d) => d.id).toList();
 
@@ -100,6 +108,28 @@ final class PluginRegistry<C> {
   }
 
   List<PluginDefinition<C>> _ordered(Iterable<String> ids) {
+    // Structural plugins ride every selection (see
+    // [PluginDefinition.alwaysSelected]) - unless the selection already
+    // provides one of their capabilities: a config may substitute its own
+    // provider for a structural one, and the substitution wins.
+    // Explicit ids keep their order and duplicates (a duplicate must
+    // still fail closed below); structural ids append once, skipping
+    // capability conflicts and ids the selection already names.
+    final explicit = List<String>.of(ids);
+    final named = explicit.toSet();
+    final providedByExplicit = <String>{
+      for (final id in named)
+        ...?_definitions[id]?.provides.map((capability) => capability.name),
+    };
+    final structural = [
+      for (final id in structuralIds)
+        if (!named.contains(id) &&
+            !_definitions[id]!
+                .provides
+                .any((capability) => providedByExplicit.contains(capability.name)))
+          id,
+    ];
+    ids = [...explicit, ...structural];
     final selected = <String, PluginDefinition<C>>{};
     final providers = <String, PluginDefinition<C>>{};
     for (final id in ids) {
@@ -107,7 +137,9 @@ final class PluginRegistry<C> {
       if (selected.containsKey(id))
         throw ArgumentError('duplicate plugin id: $id');
       final definition = _definitions[id];
-      if (definition == null) throw ArgumentError('unknown plugin: $id');
+      if (definition == null) {
+        throw ArgumentError('unknown plugin (registry-ordered): $id');
+      }
       selected[id] = definition;
       for (final capability in definition.provides) {
         if (providers.containsKey(capability.name)) {

@@ -19,13 +19,15 @@ final class PluginDefinition<C> {
       this.settings = const [],
       this.cli,
       this.operations = const {},
-      this.live = false})
+      this.live = false,
+      this.alwaysSelected = false})
       : description = _description(description),
         requires = const [],
         _create = ((context, _) => create(context));
 
   PluginDefinition._(this.id, String description, this.requires, this.provides,
-      this._create, this.live, this.settings, this.cli, this.operations)
+      this._create, this.live, this.settings, this.cli, this.operations,
+      {this.alwaysSelected = false})
       : description = _description(description);
 
   static PluginDefinition<C> dependingOn<C, D extends Object>(String id,
@@ -36,7 +38,8 @@ final class PluginDefinition<C> {
           List<SettingDefinition<Object>> settings = const [],
           PluginCli? cli,
           Map<String, SessionOperation> operations = const {},
-          bool live = false}) =>
+          bool live = false,
+          bool alwaysSelected = false}) =>
       PluginDefinition._(
           id,
           description,
@@ -73,6 +76,12 @@ final class PluginDefinition<C> {
 
   /// Opt-in: resources and background work support between-turn detach/reload.
   final bool live;
+
+  /// A structural plugin: mounted for every selection, even a config
+  /// that never names it (and one that only names unknown plugins). A
+  /// packaged session engine cannot serve a session without its
+  /// provider, so the engine's catalog marks exactly that plugin.
+  final bool alwaysSelected;
   final String id;
 
   /// User-facing explanation available without constructing the plugin.

@@ -21,10 +21,20 @@ import 'dart:collection';
 
 import 'package:meta/meta.dart';
 
-import 'package:dart_notcurses/dart_notcurses.dart' as nc;
 
 import 'input_latency.dart';
 import 'term_width.dart';
+
+/// Style bits the SGR parser tracks — the same values the notcurses C API
+/// (and dart_notcurses's `nc.Style`) uses: NCSTYLE_BOLD=2, NCSTYLE_ITALIC=16,
+/// NCSTYLE_UNDERLINE=8. Kept local so the ANSI path's compile closure has no
+/// FFI dependency (dart:ffi cannot compile to wasm); dart_notcurses itself
+/// is untouched and still owns the canonical constants for its users.
+abstract final class _NcStyleBits {
+  static const int bold = 2;
+  static const int italic = 16;
+  static const int underline = 8;
+}
 
 /// Bump this whenever [applySgrCode]'s semantics change so stale cached runs
 /// (computed against the old rules) are never reused.
@@ -177,7 +187,7 @@ void applySgrCode(List<String> parts, StyledStyleSink sink, SgrState acc) {
         sink.setBgDefault();
         break;
       case 1:
-        acc.stylebits |= nc.Style.bold;
+        acc.stylebits |= _NcStyleBits.bold;
         acc.styleTouched = true;
         break;
       case 2:
@@ -187,11 +197,11 @@ void applySgrCode(List<String> parts, StyledStyleSink sink, SgrState acc) {
         sink.setFgRGB(0x808080);
         break;
       case 3:
-        acc.stylebits |= nc.Style.italic;
+        acc.stylebits |= _NcStyleBits.italic;
         acc.styleTouched = true;
         break;
       case 4:
-        acc.stylebits |= nc.Style.underline;
+        acc.stylebits |= _NcStyleBits.underline;
         acc.styleTouched = true;
         break;
       case 22:
@@ -462,9 +472,9 @@ String renderStyledRuns(List<StyledRun> runs) {
     // (1/3/4); struck/undercurl have no standard SGR code and are never set, so
     // they're omitted here.
     final bits = <String>[];
-    if (style.stylebits & nc.Style.bold != 0) bits.add('1');
-    if (style.stylebits & nc.Style.italic != 0) bits.add('3');
-    if (style.stylebits & nc.Style.underline != 0) bits.add('4');
+    if (style.stylebits & _NcStyleBits.bold != 0) bits.add('1');
+    if (style.stylebits & _NcStyleBits.italic != 0) bits.add('3');
+    if (style.stylebits & _NcStyleBits.underline != 0) bits.add('4');
     if (bits.isNotEmpty) sb.write('\x1b[${bits.join(';')}m');
     if (style.fg != null) {
       final rgb = style.fg!;

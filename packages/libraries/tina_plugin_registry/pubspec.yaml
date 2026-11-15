@@ -1,0 +1,19 @@
+name: tina_plugin_registry
+description: >-
+  Client for the static-first Tina plugin registry: fetch, verify
+  (sha256, detached ed25519, ABI stamps), manifest consent, cache and
+  config.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  crypto: ^3.0.3
+  ed25519_edwards: ^0.3.0
+
+dev_dependencies:
+  # No test framework beyond the SDK's; keep the client dependency-light.
+  test: ^1.25.0
+  lints: ^4.0.0

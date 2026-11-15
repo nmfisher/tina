@@ -26,6 +26,19 @@ class FakeStdio implements Stdio {
   bool get hasTerminal => hasTerminalValue;
 
   @override
+  int get terminalLines => 24;
+  @override
+  bool get stdinHasTerminal => hasTerminalValue;
+  @override
+  bool get echoMode => true;
+  @override
+  bool get lineMode => true;
+  @override
+  void setEchoMode(bool value) {}
+  @override
+  void setLineMode(bool value) {}
+
+  @override
   Stream<ProcessSignal> watchSignal(ProcessSignal s) {
     watchedSignals.add(s);
     return const Stream.empty();

@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'platform_env.dart';
 
 /// Immutable record of whether ANSI escape sequences should be emitted.
 /// Separated from raw-mode concerns (which control `\r\n` translation).
@@ -13,18 +13,14 @@ class AnsiCapable {
   /// Detect from the real environment. Checks `NO_COLOR`, `TERM=dumb`, and
   /// `stdout.supportsAnsiEscapes`.
   factory AnsiCapable.detect() {
-    if (Platform.environment.containsKey('NO_COLOR')) {
+    if (platformEnvHas('NO_COLOR')) {
       return const AnsiCapable._(false);
     }
-    final term = Platform.environment['TERM'];
+    final term = platformEnv('TERM');
     if (term == 'dumb') {
       return const AnsiCapable._(false);
     }
-    try {
-      if (!stdout.supportsAnsiEscapes) {
-        return const AnsiCapable._(false);
-      }
-    } catch (_) {
+    if (!platformStdoutSupportsAnsi()) {
       return const AnsiCapable._(false);
     }
     return const AnsiCapable._(true);

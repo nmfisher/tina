@@ -243,6 +243,10 @@ void main() {
       builds++;
       return const NamedPlugin('acme/review');
     }, description: 'Test plugin registration.');
+    // Structural (alwaysSelected) definitions would ride every
+    // selection; this registry has none, so the unknown-id case still
+    // fails closed here. Catalogs that mark a structural plugin (the
+    // engines' provider) select it unconditionally and validate instead.
     for (final ids in [
       ['acme/review', 'unknown/plugin'],
       ['acme/review', 'acme/review'],

@@ -45,7 +45,7 @@ final class SessionQuestions {
           .padLeft(8, '0')).join();
   final _scopeKey = Object();
   final _pending = <String, _PendingQuestion>{};
-  final _clients = <QuestionClient>{};
+  final _clients = <InProcessQuestionClient>{};
   final _listeners = <Object, void Function()>{};
   int _nextId = 0;
   bool _closed = false, _notificationQueued = false;
@@ -53,9 +53,9 @@ final class SessionQuestions {
   List<SessionQuestion> get pending =>
       List.unmodifiable(_pending.values.map((item) => item.question));
 
-  QuestionClient connect({ClientAccess access = const ClientAccess()}) {
+  InProcessQuestionClient connect({ClientAccess access = const ClientAccess()}) {
     if (_closed) throw StateError('questions are closed');
-    final client = QuestionClient._(this, access);
+    final client = InProcessQuestionClient._(this, access);
     _clients.add(client);
     return client;
   }
@@ -162,8 +162,21 @@ final class QuestionScope {
 /// A disposable in-process client: immutable pending snapshots and responses
 /// by question ID. Closing it releases observers, leaving requests with their
 /// session. Cancellation is an explicit user action, separate from detach.
-final class QuestionClient {
-  QuestionClient._(this._questions, this._access);
+/// The client side of the session's question surface: what is pending,
+/// and answering or dismissing it. In-process this wraps the host's
+/// questions; over pipes the front end answers through the protocol's
+/// `answer`/`dismiss` ops.
+abstract interface class QuestionClient {
+  bool get canAnswer;
+  List<SessionQuestion> get pending;
+  bool answer(String id, String text);
+  bool dismiss(String id);
+  void Function() listen(void Function(List<SessionQuestion>) listener);
+  void close();
+}
+
+final class InProcessQuestionClient implements QuestionClient {
+  InProcessQuestionClient._(this._questions, this._access);
   final SessionQuestions _questions;
   final ClientAccess _access;
   bool get canAnswer => !_closed && _access.canControl;

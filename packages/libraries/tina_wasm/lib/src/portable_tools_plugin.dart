@@ -26,7 +26,7 @@ import 'package:tina_tools/portable_tools.dart' as tt;
 
 /// `tina/tools` over the portable file tools and the asking boundary.
 final class PortableToolsPlugin extends AgentPlugin
-    implements ModePolicySource, tt.ToolsPluginSurface {
+    implements ModePolicySource, tt.ToolSessionSource, tt.ToolsPluginSurface {
   PortableToolsPlugin({
     required tt.FileSystem fileSystem,
     required String workspaceRoot,

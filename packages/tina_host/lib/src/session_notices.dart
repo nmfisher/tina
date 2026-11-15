@@ -5,6 +5,14 @@ part of 'host.dart';
 final class SessionNotice {
   const SessionNotice._(this.seq, this.afterHistorySeq, this.text,
       {this.truncated = false});
+
+  /// A notice assembled from received wire data — the pipes front end
+  /// materializes pushed `notice` events.
+  const SessionNotice.of(
+      {required this.seq,
+      required this.afterHistorySeq,
+      required this.text,
+      this.truncated = false});
   final int seq, afterHistorySeq;
   final String text;
   final bool truncated;
@@ -13,6 +21,16 @@ final class SessionNotice {
 final class SessionNoticePage {
   SessionNoticePage._(Iterable<SessionNotice> entries, this.nextAfterSeq,
       this.hasMore, this.omittedThroughSeq, this.omittedAfterHistorySeq)
+      : entries = List.unmodifiable(entries);
+
+  /// A page assembled from received wire data — the pipes front end pages
+  /// its own cache of pushed notices.
+  SessionNoticePage.of(
+      {required Iterable<SessionNotice> entries,
+      required this.nextAfterSeq,
+      required this.hasMore,
+      this.omittedThroughSeq,
+      this.omittedAfterHistorySeq})
       : entries = List.unmodifiable(entries);
   final List<SessionNotice> entries;
   final int nextAfterSeq;
@@ -24,7 +42,7 @@ final class SessionNoticePage {
 }
 
 /// Owner-side notice writer. The host takes ownership at startup; clients read
-/// through SessionConnection and cannot publish session-wide output.
+/// through InProcessSessionConnection and cannot publish session-wide output.
 final class SessionNotices {
   SessionNotices(
       {this.maxEntries = 256,

@@ -16,8 +16,33 @@ export 'assembly.dart';
 export 'assembly_config.dart';
 export 'session_terminal.dart';
 
+/// The session surface [runTui] drives: the in-process wrapper
+/// ([TuiSession]) and the remote pipes session ([`RemoteTuiSession`])
+/// both implement it. Nothing here exposes an assembly or a host.
+abstract interface class TuiSessionHandle {
+  /// The session's terminal — the text sink for plugin lines and the
+  /// adapter for ordinary questions answered by request ID.
+  Terminal get terminal;
+
+  /// A disposable front end over the session.
+  SessionView createView(
+      {bool showConfig = false, SessionRole role = SessionRole.controller});
+
+  /// The console workspace plugin, when the session carries one.
+  ConsoleWorkspace? createWorkspace();
+
+  /// A new conversation on the same engine.
+  TuiSessionHandle spawn([String? model]);
+
+  bool get canCancel;
+  void cancel();
+
+  /// Owner-only cleanup after cancelling and awaiting active work.
+  Future<void> shutdown();
+}
+
 /// One TUI session: the assembly with the TUI's terminal in the slot.
-final class TuiSession {
+final class TuiSession implements TuiSessionHandle {
   TuiSession._({
     required this.assembly,
     required this.terminal,
@@ -37,6 +62,7 @@ final class TuiSession {
   /// for ordinary questions answered by request ID. A [SessionTerminal]
   /// when this wrapper created it; whatever the assembly was handed when
   /// it was built with one.
+  @override
   final Terminal terminal;
 
   /// The registry the command plugins published into.
@@ -48,6 +74,7 @@ final class TuiSession {
   late final presentation = presentationForAssembly(assembly,
       connection: _connection, viewFactory: _viewFactory);
 
+  @override
   SessionView createView(
       {bool showConfig = false, SessionRole role = SessionRole.controller}) {
     final connection = host.connect(role: role);
@@ -61,13 +88,16 @@ final class TuiSession {
   TuiSession spawn([String? model]) =>
       TuiSession.wrap(assembly.newSession(model), viewFactory: _viewFactory);
 
+  @override
   ConsoleWorkspace? createWorkspace() => assembly.host.plugins
       .map((plugin) => _viewFactory(plugin, connection: _connection))
       .whereType<ConsoleWorkspace>()
       .firstOrNull;
 
+  @override
   bool get canCancel => !_closed && _connection.status.canCancel;
 
+  @override
   void cancel() {
     if (_closed) return;
     _connection.cancel(
@@ -143,6 +173,7 @@ final class TuiSession {
         if (result.notice case final notice?) terminal.writeln(notice);
       });
 
+  @override
   Future<void> shutdown() async {
     try {
       await assembly.shutdown();

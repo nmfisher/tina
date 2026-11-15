@@ -27,6 +27,14 @@ final class PluginSettings<C> {
   final String? channelOverride;
   final _session = <String, bool>{};
   Map<String, bool> get sessionOverrides => Map.unmodifiable(_session);
+
+  /// Config-enabled plugin ids this binary's registry does not know.
+  /// Boot records and skips them - a packaged binary meeting the real
+  /// world degrades gracefully instead of refusing a working session.
+  /// The interactive toggles below still fail loudly, so a typo surfaces
+  /// where the user is acting on it.
+  List<String> _skipped = const [];
+  List<String> get skippedPluginIds => _skipped;
   void restoreSessionOverrides(Map<String, bool> values) {
     _validate(_global, _workspace, values);
     _session
@@ -289,7 +297,11 @@ final class PluginSettings<C> {
           {PluginScope scope = PluginScope.session}) =>
       [
         ...{
-          _channel(global, workspace),
+          // An unknown channel id is recorded as skipped by _validate;
+          // the selection carries only channels the registry knows (the
+          // registry falls back to its first registered channel).
+          if (registry.ids.contains(_channel(global, workspace)))
+            _channel(global, workspace),
           for (final id in registry.ids)
             if (_state(id, global, workspace, session, scope: scope).enabled) id
         },
@@ -301,6 +313,11 @@ final class PluginSettings<C> {
       Map<String, bool> session) {
     global.validate(descriptors: descriptors);
     validateWorkspacePlugins(workspace.values);
+    // Unknown enabled plugins degrade gracefully at boot: recorded in
+    // [skippedPluginIds], never selected, never fatal - the registry a
+    // packaged binary ships is a subset of what a native checkout may
+    // know. The interactive toggles (applyAll/change) keep throwing.
+    final skipped = <String>{};
     for (final layer in [
       parsePluginOverrides(global.values['plugins']),
       parsePluginOverrides(workspace.values['plugins']),
@@ -309,8 +326,10 @@ final class PluginSettings<C> {
       for (final id in layer.keys) {
         if (retiredPluginIds.contains(id))
           continue; // Retired UI-only registration.
-        if (!registry.ids.contains(id))
-          throw ArgumentError('unknown plugin: $id');
+        if (!registry.ids.contains(id)) {
+          skipped.add(id);
+          continue;
+        }
         if (id == _channel(global, workspace) && layer[id] == false)
           throw ArgumentError('$id is the selected approval channel');
       }
@@ -325,9 +344,14 @@ final class PluginSettings<C> {
       ...?sessionBaseline
     ]) {
       if (retiredPluginIds.contains(id)) continue;
-      if (!registry.ids.contains(id))
-        throw ArgumentError('unknown plugin: $id');
+      if (!registry.ids.contains(id)) skipped.add(id);
     }
+    // The configured approval channel is config-driven like the rest: an
+    // unknown channel id records and drops (the registry falls back to
+    // its first registered channel), it does not fatal the boot.
+    final channel = _channel(global, workspace);
+    if (!registry.ids.contains(channel)) skipped.add(channel);
+    _skipped = List.unmodifiable(skipped);
     final emptyWorkspace = ConfigDocument.empty(workspace.path);
     registry.validate(_selection(global, emptyWorkspace, const {},
         scope: PluginScope.global));

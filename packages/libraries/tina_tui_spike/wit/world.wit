@@ -1,0 +1,11 @@
+// Option 2 spike: the TUI-in-the-sandbox world. WASI stdio + environment +
+// clocks (dart Timers lower to wasi:clocks waits), the host-owned tty size
+// authority (tina:term/tty), and the standard run export the host's --tui
+// mode drives.
+package tina:tui@0.1.0;
+
+world tui-spike {
+  include wasi:cli/command@0.3.0;
+  import tina:term/tty@0.1.0;
+  export wasi:cli/run@0.3.0;
+}

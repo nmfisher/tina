@@ -34,6 +34,7 @@ final class HostConfig {
     this.details,
     this.questions,
     this.notices,
+    this.skippedPlugins = const [],
     this.snapshotFeatureFor,
     this.operationsFor,
     this.requestHistoryLimit = 256,
@@ -49,6 +50,11 @@ final class HostConfig {
   /// The random source for opaque epoch ids. Defaults to the system
   /// secure random (dart:math).
   final RandomPort? random;
+
+  /// Config-enabled plugin ids this binary's registry does not know:
+  /// recorded verbatim in every snapshot's [skippedPlugins] so the front
+  /// end can show what the config asked for and the binary skipped.
+  final List<String> skippedPlugins;
 
   /// Builds the provider for **one** session. Called once per
   /// [Host.start]; two hosts from one config never share an instance.

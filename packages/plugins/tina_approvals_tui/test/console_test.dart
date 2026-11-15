@@ -20,6 +20,20 @@ class Io implements Stdio {
   bool get hasTerminal => false;
   @override
   Stream<ProcessSignal> watchSignal(ProcessSignal s) => const Stream.empty();
+
+  // The stack widened Stdio for the native TUI; inert defaults here.
+  @override
+  bool get echoMode => false;
+  @override
+  bool get lineMode => false;
+  @override
+  void setEchoMode(bool enabled) {}
+  @override
+  void setLineMode(bool enabled) {}
+  @override
+  bool get stdinHasTerminal => false;
+  @override
+  int get terminalLines => 24;
 }
 
 Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));

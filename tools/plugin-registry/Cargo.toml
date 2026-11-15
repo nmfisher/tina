@@ -1,0 +1,26 @@
+[package]
+name = "tina-plugin-registry"
+version = "0.1.0"
+edition = "2021"
+description = "Static-first Tina plugin registry: publisher and reference server"
+
+[[bin]]
+name = "registry-publish"
+path = "src/bin/publish.rs"
+
+[[bin]]
+name = "registry-server"
+path = "src/bin/server.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["rt", "macros", "signal", "fs"] }
+ed25519-dalek = { version = "2", features = ["std"] }
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# tower-service oneshot testing of the axum router without extra surface
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

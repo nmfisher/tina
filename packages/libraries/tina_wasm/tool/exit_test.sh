@@ -4,14 +4,15 @@
 #
 # Usage: exit_test.sh [workspace_dir]
 # Requires: the fake provider (tool/fake_anthropic_server.py) on
-# 127.0.0.1:8730, the pinned Dart SDK on PATH, the wasm.dart test_runner
-# built at <wasm.dart>/target/debug/test_runner, and wasm_tools resolvable
-# (path overrides) for the compile.
+# 127.0.0.1:8730, the pinned Dart SDK on PATH, the wasm.dart case runner
+# built at <wasm.dart>/target/debug/tina-case-runner (the packaged host
+# is embedded-only; case components belong to tina-case-runner), and
+# wasm_tools resolvable (path overrides) for the compile.
 set -e
 cd "$(dirname "$0")/.."
 PKG="$PWD"
 WS="${1:-/tmp/probe-ws}"
-RUNNER="${RUNNER:-/workspace/target/debug/test_runner}"
+RUNNER="${RUNNER:-/workspace/target/debug/tina-case-runner}"
 NATIVE_OUT=/tmp/exit_native.txt
 WASM_OUT=/tmp/exit_wasm.txt
 

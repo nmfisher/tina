@@ -1,17 +1,22 @@
 import 'dart:io';
 import 'dart:async';
+import 'package:path/path.dart' as p;
+import 'package:tina_capability/tina_capability.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_tools/tina_tools.dart' show noSandboxOption;
 import 'cli_options.dart';
+import 'engine_launcher.dart';
 import 'pipes.dart';
 import 'plugin_catalog.dart';
+import 'plugin_commands.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/tui.dart';
 import 'shell_completion.dart';
 import 'restart.dart';
 import 'session_selection.dart';
+import 'tui_remote.dart';
 
 String get cliHelp => applicationCliSchema().help;
 
@@ -23,6 +28,18 @@ Future<int> runCli(
   Future<String> Function()? readStdin,
   String? Function() locateTerminalDevice = terminalDevicePath,
 }) async {
+  // The `tina plugin` subcommand tree routes before the main flag schema:
+  // its arguments are a different grammar (design doc section 6).
+  final globalTinaDir = Platform.environment['HOME'] != null
+      ? '${Platform.environment['HOME']}/.tina'
+      : Directory.current.path;
+  final pluginExit = await runPluginSubcommand(
+    args,
+    globalConfigPath: '$globalTinaDir/config',
+  );
+  if (pluginExit != null) {
+    return pluginExit;
+  }
   final registry = firstPartyPlugins();
   registerPlugins?.call(registry);
   final schema = applicationCliSchema(registry: registry);
@@ -67,6 +84,25 @@ Future<int> runCli(
   final command = selected?.command;
   final pipes = parsed.contains(pipesOption);
   final headless = command != null || pipes;
+  final engineSpec = parsed[engineOption];
+  final remoteEngine = engineSpec != null && engineSpec != 'native';
+  if (remoteEngine) {
+    final conflicts = [
+      if (pipes) '--pipes',
+      if (command != null) command.option.flag,
+      if (configure) '--configure',
+      if (legacySource != null) '--import-sessions',
+      if (listModels) '--models',
+      if (dryRun) '--dry-run',
+      if (model != null) '--model',
+    ];
+    if (conflicts.isNotEmpty) {
+      stderr.writeln(
+        'tina: --engine cannot be combined with ${conflicts.join(', ')}',
+      );
+      return 64;
+    }
+  }
   if (!Directory(workingDirectory).existsSync()) {
     stderr.writeln('tina: workspace does not exist: $workingDirectory');
     return 66;
@@ -244,6 +280,41 @@ Future<int> runCli(
       );
       return 0;
     }
+
+    // The TUI over a spawned engine process (Option 1 Phase B): the
+    // engine speaks pipes on stdio; the renderer stays native. Everything
+    // below this branch assembles the in-process native engine.
+    if (remoteEngine) {
+      final resolvedStore =
+          storePath ?? defaultSessionStorePath(workingDirectory);
+      final engine = await startRemoteEngine(
+        spec: engineSpec,
+        hostOverride: parsed[engineHostOption],
+        extraArgs: parsed[engineArgOption],
+        workingDirectory: workingDirectory,
+        configPath: path,
+        storePath: resolvedStore,
+        resumeSessionId: sessionId,
+        yolo: yolo,
+      );
+      final session = await RemoteTuiSession.start(engine);
+      final int result;
+      try {
+        result = await runTui(session, backend: backend, startup: startup);
+      } finally {
+        await session.shutdown();
+      }
+      stdout.writeln(_remoteResumeHint(
+        sessionId: session.sessionId,
+        store: resolvedStore,
+        workingDirectory: workingDirectory,
+        configPath: configPath,
+        storePath: storePath,
+        backend: parsed[backendOption],
+        engine: engineSpec,
+      ));
+      return result;
+    }
     // Assemble the session with a buffered terminal shared by its plugins.
     String? restartRoot;
     String? restartSession;
@@ -401,4 +472,103 @@ Future<int> runCli(
   } finally {
     startup?.close();
   }
+}
+
+/// Resolves `--engine` to a spawned engine process: `wasm` picks the host
+/// binary (--engine-host, then TINA_WASM_HOST, then PATH), anything else
+/// is a path to a pipes-speaking engine. Args after the binary follow the
+/// wasm-host convention (preopens + TINA_ENGINE_* environment).
+Future<EngineProcess> startRemoteEngine({
+  required String spec,
+  String? hostOverride,
+  String? extraArgs,
+  required String workingDirectory,
+  required String configPath,
+  required String storePath,
+  String? resumeSessionId,
+  required bool yolo,
+}) async {
+  final host = switch ((spec, hostOverride)) {
+    (_, final override?) => override,
+    ('wasm', null) when Platform.environment['TINA_WASM_HOST']?.isNotEmpty ==
+        true =>
+      Platform.environment['TINA_WASM_HOST']!,
+    ('wasm', null) => 'tina-wasm-host',
+    _ => spec,
+  };
+  if (host != 'tina-wasm-host' && !File(host).existsSync()) {
+    throw StateError('engine host not found: $host');
+  }
+  // The active registry plugin mounts through the existing
+  // --plugin-component path; grants are the host-accepted subset of what
+  // the installer recorded (plugin_commands.dart consent).
+  final plugin = await activeRegistryPlugin(
+      globalConfigPath: globalPluginRegistryConfigPath());
+  // The capability document: compiled from the launch mode, the launch
+  // surface, and the standing grants, written for the host to ingest, and
+  // passed instead of the legacy --preopen flags. Only the wasm-host
+  // contract understands it; any other engine spec keeps the flags.
+  String? capabilitiesPath;
+  if (spec == 'wasm') {
+    final configDir = p.dirname(p.normalize(p.absolute(configPath)));
+    final document = compileCapabilities(readCapabilityInputs(
+      workspace: workingDirectory,
+      configDir: configDir,
+      yolo: yolo,
+    ));
+    capabilitiesPath = p.join(configDir, 'capabilities.json');
+    final staging =
+        File('${capabilitiesPath}.${p.basename(File(configPath).path)}.tmp');
+    staging.writeAsStringSync('${document.encode()}\n');
+    try {
+      staging.renameSync(capabilitiesPath);
+    } on FileSystemException {
+      staging.deleteSync();
+      rethrow;
+    }
+  }
+  final argv = wasmEngineArgv(
+    hostPath: host,
+    workingDirectory: workingDirectory,
+    configPath: configPath,
+    storePath: storePath,
+    resumeSessionId: resumeSessionId,
+    yolo: yolo,
+    extraArgs: (extraArgs ?? '')
+        .split(RegExp(r'\s+'))
+        .where((argument) => argument.isNotEmpty)
+        .toList(),
+    pluginComponent: plugin?.componentPath,
+    pluginGrants: plugin?.grants
+            .where((g) => !g.contains(':'))
+            .toList() ??
+        const [],
+    capabilitiesPath: capabilitiesPath,
+  );
+  return EngineProcess.start(argv, workingDirectory: workingDirectory);
+}
+
+/// The resume hint for a remote-engine session: the same command, plus the
+/// engine selection that makes the next start find it again.
+String _remoteResumeHint({
+  required String sessionId,
+  required String store,
+  required String workingDirectory,
+  String? configPath,
+  String? storePath,
+  String? backend,
+  required String engine,
+}) {
+  if (!File(store).existsSync() ||
+      !resumableSessions(store).any((saved) => saved.id == sessionId)) {
+    return '';
+  }
+  final command = sessionResumeCommand(
+    sessionId: sessionId,
+    workingDirectory: workingDirectory,
+    configPath: configPath,
+    storePath: storePath,
+    backend: backend,
+  );
+  return '\nResume this session:\n  $command --engine $engine';
 }

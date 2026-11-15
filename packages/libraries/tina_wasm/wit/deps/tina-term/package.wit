@@ -1,0 +1,17 @@
+package tina:term@0.1.0;
+
+/// The host's tty authority: it owns the real terminal, so window size is a
+/// live answer (re-supplied on resize), not an env snapshot.
+interface tty {
+  get-size: func() -> tuple<u32, u32>;
+}
+
+/// The guest-to-host failure channel (spike finding 4): a guest Dart
+/// exception that would otherwise kill the guest task and park the host's
+/// `run` call forever calls `fail` first (from the top-level zone guard),
+/// then invokes the WASI `exit` import as the structural backstop. The host
+/// records the message, stops waiting, restores the terminal and reports
+/// `guest crashed: <message>` with a non-zero exit.
+interface crash {
+  fail: func(message: string);
+}

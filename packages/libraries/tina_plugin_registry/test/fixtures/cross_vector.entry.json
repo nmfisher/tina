@@ -1,0 +1,56 @@
+{
+  "abi": {
+    "embedder_abi": 1,
+    "exports": [
+      "tina:plugin-probe/plugin@0.1.0"
+    ],
+    "imports": [
+      "tina:plugin-probe/engine-service@0.1.0"
+    ],
+    "world": "tina:plugin-probe/plugin@0.1.0"
+  },
+  "artifact": {
+    "path": "blobs/d825dca8ba65c36ad7f2b4e841908b3ca6e732e10fcaaad8097e1ebbad18045e.wasm",
+    "sha256": "d825dca8ba65c36ad7f2b4e841908b3ca6e732e10fcaaad8097e1ebbad18045e",
+    "size": 391526
+  },
+  "capabilities": [
+    {
+      "id": "session.read-context",
+      "required": true,
+      "summary": "Read the current session id and model name."
+    },
+    {
+      "access": "redacted-read",
+      "id": "session-store",
+      "required": false,
+      "summary": "Read redacted history."
+    },
+    {
+      "id": "filesystem",
+      "mode": "ro",
+      "paths": [
+        "workspace"
+      ],
+      "required": false,
+      "summary": "Read workspace files."
+    },
+    {
+      "domains": [
+        "api.example.test"
+      ],
+      "id": "network",
+      "required": false,
+      "summary": "Call the demo API."
+    }
+  ],
+  "description": "Cross-implementation verification vector.",
+  "name": "vector/consent-demo",
+  "published": "2026-11-12T01:32:37Z",
+  "signature": {
+    "keyid": "592e3331049acc47",
+    "scheme": "ed25519-v1",
+    "signature": "tcXigoRU3FWKN1Rfn1Nm7LY2NjNKo0RzPyhmTAuFKr3r5EyFVKJssU30uWmkB/IV9mACP0YYv6C0FBgpo2oTDQ=="
+  },
+  "version": "1.2.3"
+}

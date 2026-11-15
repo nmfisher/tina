@@ -30,6 +30,21 @@ final class _Io implements Stdio {
   @override
   Stream<ProcessSignal> watchSignal(ProcessSignal signal) =>
       const Stream.empty();
+
+  // The stack widened Stdio for the native TUI (real echo/line modes and
+  // a line count); this headless fake reports the inert defaults.
+  @override
+  bool get echoMode => false;
+  @override
+  bool get lineMode => false;
+  @override
+  void setEchoMode(bool enabled) {}
+  @override
+  void setLineMode(bool enabled) {}
+  @override
+  bool get stdinHasTerminal => false;
+  @override
+  int get terminalLines => 24;
 }
 
 List<SessionEntry> history(int turns) => [

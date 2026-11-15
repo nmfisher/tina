@@ -343,6 +343,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_capability:
+    dependency: "direct main"
+    description:
+      path: "../../libraries/tina_capability"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_core:
     dependency: "direct main"
     description:

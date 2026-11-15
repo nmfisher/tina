@@ -1,10 +1,11 @@
 library;
 
 import 'dart:async';
-import 'dart:io' as io;
 
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/notcurses.dart';
+import 'package:tina_console/src/platform_env.dart';
+import 'app_stdio.dart';
 
 import 'settings_panel.dart';
 import 'settings_management.dart';
@@ -40,7 +41,7 @@ Future<int> runApp(
   var stopping = false;
   void Function()? releaseQueueStatus, releaseBackendStatus, releaseActivity;
   StreamSubscription<ScreenLayout>? resizeSubscription;
-  StreamSubscription<io.ProcessSignal>? interruptSubscription;
+  StreamSubscription<ProcessSignal>? interruptSubscription;
   Screen? terminalScreen;
   LineEditor? terminalEditor;
   var ownsTty = false;
@@ -77,10 +78,10 @@ Future<int> runApp(
         s.backend is! NotcursesBackend;
     if (ownsTty) {
       try {
-        previousEchoMode = io.stdin.echoMode;
-        previousLineMode = io.stdin.lineMode;
-        io.stdin.echoMode = false;
-        io.stdin.lineMode = false;
+        previousEchoMode = s.io.echoMode;
+        previousLineMode = s.io.lineMode;
+        s.io.setEchoMode(false);
+        s.io.setLineMode(false);
       } catch (_) {}
     }
     if (!s.passthrough) s.enterAltScreen();
@@ -96,13 +97,13 @@ Future<int> runApp(
         priority: -20);
     if (s.backend is NotcursesBackend) await editor.input.ready;
     interruptSubscription = s.io
-        .watchSignal(io.ProcessSignal.sigint)
+        .watchSignal(ProcessSignal.sigint)
         .listen((_) => editor.inject(ControlKey(ControlCode.ctrlC)));
     resizeSubscription = (resizes ??
             (screen == null
-                ? s.io.watchSignal(io.ProcessSignal.sigwinch).map((_) =>
+                ? s.io.watchSignal(ProcessSignal.sigwinch).map((_) =>
                     ScreenLayout.fromSize(
-                        io.stdout.terminalColumns, io.stdout.terminalLines,
+                        s.io.terminalColumns, s.io.terminalLines,
                         split: false))
                 : const Stream<ScreenLayout>.empty()))
         .listen((layout) {
@@ -188,8 +189,12 @@ Future<int> runApp(
       await resizeSubscription?.cancel();
       if (ownsTty) {
         try {
-          if (previousEchoMode != null) io.stdin.echoMode = previousEchoMode;
-          if (previousLineMode != null) io.stdin.lineMode = previousLineMode;
+          if (s != null && previousEchoMode != null) {
+            s.io.setEchoMode(previousEchoMode);
+          }
+          if (s != null && previousLineMode != null) {
+            s.io.setLineMode(previousLineMode);
+          }
         } catch (_) {}
       }
       if (startup != null)
@@ -217,7 +222,8 @@ Future<int> runApp(
     {Map<String, String>? environment}) {
   if (backend != 'auto') return (backend: backend, tmuxNotice: null);
   final insideTmux =
-      ((environment ?? io.Platform.environment)['TMUX'] ?? '').isNotEmpty;
+      ((environment != null ? environment['TMUX'] : platformEnv('TMUX')) ?? '')
+          .isNotEmpty;
   if (!insideTmux) return (backend: backend, tmuxNotice: null);
   return (
     backend: 'ansi',
@@ -232,14 +238,15 @@ Future<int> runApp(
 /// caller resolves the selection first ([resolveBackendSelection]); this
 /// constructor only honours the name it is given.
 Screen _newScreen({Theme? theme, required String backend}) {
+  const appIo = AppStdio();
   var columns = 80;
   var lines = 24;
-  if (io.stdout.hasTerminal) {
-    columns = io.stdout.terminalColumns;
-    lines = io.stdout.terminalLines;
+  if (appIo.hasTerminal) {
+    columns = appIo.terminalColumns;
+    lines = appIo.terminalLines;
   }
   final layout = ScreenLayout.fromSize(columns, lines, split: false);
-  final interactive = io.stdout.hasTerminal && io.stdin.hasTerminal;
+  final interactive = appIo.hasTerminal && appIo.stdinHasTerminal;
   if (backend == 'notcurses' && !interactive) {
     throw StateError('--backend notcurses requires a terminal');
   }
@@ -248,10 +255,10 @@ Screen _newScreen({Theme? theme, required String backend}) {
     NotcursesBackend? native;
     try {
       snapshot = TerminalStartupSnapshot.capture();
-      native = NotcursesBackend.create(io: const _AppStdio());
+      native = NotcursesBackend.create(io: const AppStdio());
       return Screen.withBackend(
           backend: native,
-          io: const _AppStdio(),
+          io: const AppStdio(),
           theme: theme ?? const Theme.defaults(),
           layout: layout);
     } catch (_) {
@@ -267,20 +274,10 @@ Screen _newScreen({Theme? theme, required String backend}) {
     }
   }
   return Screen(
-    io: const _AppStdio(),
+    io: const AppStdio(),
     theme: theme ?? const Theme.defaults(),
     layout: layout,
   );
-}
-
-/// ANSI input reads the process stream directly, so disposing its input
-/// backend releases that subscription. Notcurses owns its capability queries
-/// and input queue; its paired input backend is the sole reader on that path.
-class _AppStdio extends LiveStdio {
-  const _AppStdio();
-
-  @override
-  Stream<List<int>> get stdin => io.stdin;
 }
 
 /// One terminal owner from the startup picker through the resumed app. The
@@ -306,8 +303,8 @@ final class StartupTerminal {
 
   factory StartupTerminal.open(
       {String backend = 'auto', Map<String, String>? environment}) {
-    final selection = resolveBackendSelection(backend,
-        environment: environment ?? io.Platform.environment);
+    final selection =
+        resolveBackendSelection(backend, environment: environment);
     final screen = _newScreen(backend: selection.backend);
     final native = screen.backend is NotcursesBackend;
     final editor = LineEditor(
@@ -316,12 +313,13 @@ final class StartupTerminal {
             ? (screen.backend as NotcursesBackend).createInputBackend()
             : null);
     final terminal = StartupTerminal._(screen, editor,
-        native ? null : io.stdin.echoMode, native ? null : io.stdin.lineMode,
+        native ? null : screen.io.echoMode,
+        native ? null : screen.io.lineMode,
         tmuxNotice: selection.tmuxNotice);
     try {
       if (!native) {
-        io.stdin.echoMode = false;
-        io.stdin.lineMode = false;
+        screen.io.setEchoMode(false);
+        screen.io.setLineMode(false);
       }
       screen.enterAltScreen();
       return terminal;
@@ -334,9 +332,9 @@ final class StartupTerminal {
   Future<String?> pickSession(List<SessionChoice> sessions) async {
     await editor.input.ready;
     final picker = SessionPicker(screen, editor, sessions);
-    final resize = io.ProcessSignal.sigwinch.watch().listen((_) {
+    final resize = screen.io.watchSignal(ProcessSignal.sigwinch).listen((_) {
       screen.resize(ScreenLayout.fromSize(
-          io.stdout.terminalColumns, io.stdout.terminalLines,
+          screen.io.terminalColumns, screen.io.terminalLines,
           split: false));
       picker.repaint();
     });
@@ -351,8 +349,8 @@ final class StartupTerminal {
     if (_closed) return;
     _closed = true;
     // Restoring modes precedes closing stdin; Dart can release its descriptor.
-    if (_echo != null) io.stdin.echoMode = _echo;
-    if (_line != null) io.stdin.lineMode = _line;
+    if (_echo != null) screen.io.setEchoMode(_echo);
+    if (_line != null) screen.io.setLineMode(_line);
     editor.close(reportLatency: false);
     screen.dispose();
     screen.leaveAltScreen();
@@ -367,12 +365,12 @@ Future<bool> runSettingsEditor(SettingsManagement management,
   final screen = terminal.screen;
   final editor = terminal.editor;
   final panel = SettingsPanel(screen, editor);
-  StreamSubscription<io.ProcessSignal>? resize;
+  StreamSubscription<ProcessSignal>? resize;
   try {
     await editor.input.ready;
-    resize = io.ProcessSignal.sigwinch.watch().listen((_) {
+    resize = screen.io.watchSignal(ProcessSignal.sigwinch).listen((_) {
       screen.resize(ScreenLayout.fromSize(
-          io.stdout.terminalColumns, io.stdout.terminalLines,
+          screen.io.terminalColumns, screen.io.terminalLines,
           split: false));
       panel.repaint();
     });

@@ -20,6 +20,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:path/path.dart' as path;
 
+import 'package:tina_capability/tina_capability.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 import 'package:tina_settings/tina_settings.dart';
@@ -56,6 +57,7 @@ final class ToolsPlugin extends AgentPlugin
     Directory? sandboxState,
     CommandApprovalStore? approvalStore,
     List<String> protectedPaths = const [],
+    CapabilityDocument? this.capabilities,
   })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
         sandbox = SandboxedFileSystem(
           const IoFileSystem(),
@@ -114,6 +116,7 @@ final class ToolsPlugin extends AgentPlugin
       home: home,
       protectedPaths: [
         ...protectedPaths,
+        ...?capabilities?.protectedPaths,
         if (commandApprovals.file != null) commandApprovals.file!.parent.path
       ],
       isolateNetwork: osIsolateNetwork,
@@ -207,27 +210,50 @@ final class ToolsPlugin extends AgentPlugin
         enabled: () => enableSpeculative && !_closed);
     var migratedDirectories = false;
     void applyDirectories() {
-      List<String> granted(SettingDefinition<List<String>> definition) => [
-            for (final scope in SettingScope.values)
-              ...((settings?.override(definition, scope) as List?)
-                      ?.cast<String>() ??
-                  const <String>[]),
-          ];
-      if (!migratedDirectories && pathGrants.file?.existsSync() != true) {
-        for (final directory in granted(readOnlyDirectoriesSetting)) {
-          pathGrants.remember(directory, write: false, recursive: true);
+      if (capabilities != null) {
+        // The compiled capability document is the standing-grant source:
+        // its setting-origin directory grants seed the tables the sandbox
+        // consults live. Seeding is ADDITIVE to pathGrants (the tables
+        // union their replaced entries with the store-backed source), so
+        // prompt-earned grants stay authoritative exactly as in main's
+        // model, and the settings->pathGrants migration below is
+        // unnecessary here - the document already compiles those values.
+        // Exact grants (commands.json / access grants) keep their live
+        // store rereads.
+        readDirectories.replace([
+          for (final dir in capabilities!.readDirectories)
+            if (dir.origin.startsWith('setting:')) dir.path,
+        ]);
+        writeDirectories.replace([
+          for (final dir in capabilities!.writeDirectories)
+            if (dir.origin.startsWith('setting:')) dir.path,
+        ]);
+        migratedDirectories = true;
+      } else {
+        List<String> granted(SettingDefinition<List<String>> definition) => [
+              for (final scope in SettingScope.values)
+                ...((settings?.override(definition, scope) as List?)
+                        ?.cast<String>() ??
+                    const <String>[]),
+            ];
+        if (!migratedDirectories && pathGrants.file?.existsSync() != true) {
+          for (final directory in granted(readOnlyDirectoriesSetting)) {
+            pathGrants.remember(directory, write: false, recursive: true);
+          }
+          for (final directory in granted(writeDirectoriesSetting)) {
+            pathGrants.remember(directory, write: true, recursive: true);
+          }
         }
-        for (final directory in granted(writeDirectoriesSetting)) {
-          pathGrants.remember(directory, write: true, recursive: true);
-        }
+        migratedDirectories = true;
+        readDirectories.replace(const []);
+        writeDirectories.replace(const []);
       }
-      migratedDirectories = true;
-      readDirectories.replace(const []);
-      writeDirectories.replace(const []);
       writable.replace(osPlan.writableLayout());
     }
 
-    if (settings != null) {
+    if (capabilities != null) {
+      applyDirectories();
+    } else if (settings != null) {
       _stopReadSettings = settings!.listen(applyDirectories);
       applyDirectories();
     }
@@ -279,6 +305,13 @@ final class ToolsPlugin extends AgentPlugin
   final ScopedSettings? settings;
   late final ReadOnlyDirectories readDirectories;
   late final WriteDirectories writeDirectories;
+
+  /// The compiled capability document, when the launcher provided one:
+  /// its directory grants seed the tables above additively (pathGrants
+  /// stays authoritative for prompt-earned grants); its protected
+  /// paths joined the OS plan. Without it, settings feed pathGrants
+  /// exactly as in main.
+  CapabilityDocument? capabilities;
   void Function()? _stopReadSettings;
   late final SandboxedProcessRunner processRunner;
   late final ProcessJobs processJobs;

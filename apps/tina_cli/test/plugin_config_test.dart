@@ -137,12 +137,11 @@ enabled = [
     expect(File(defaultSessionStorePath(workspace.path)).existsSync(), isFalse);
   });
 
-  test('bad plugin selections fail without creating a store or provider', () {
+  test('malformed plugin selections fail without creating a store or provider',
+      () {
     for (final setting in [
       'enabled=["plans"]',
       'enabled=["tina/plans", "tina/plans"]',
-      'enabled=["acme/missing"]',
-      'enabled=["tina/workflows"]',
       'enabled=true',
       'enabled=[42]',
       'enabld=[]',
@@ -164,6 +163,39 @@ enabled = [
       expect(built, isFalse);
       expect(
           File(defaultSessionStorePath(workspace.path)).existsSync(), isFalse);
+    }
+  });
+
+  // Unknown plugin IDS are not malformed selections: a packaged binary's
+  // registry is a subset of what a native checkout may know, so boot
+  // degrades gracefully - the id is skipped, recorded on the settings and
+  // the snapshot, and the session still builds. Malformed SHAPES above
+  // keep failing closed.
+  test('unknown plugin ids skip and boot without a store', () {
+    for (final setting in [
+      'enabled=["acme/missing"]',
+      'enabled=["tina/workflows"]',
+    ]) {
+      config
+          .writeAsStringSync('[default]\nmodel="test"\n[plugins]\n$setting\n');
+      var built = false;
+      final assembly = SessionAssembly.start(
+        options: AssemblyOptions(
+            configPath: config.path, workingDirectory: workspace.path),
+        providerFactory: (_) {
+          built = true;
+          return ScriptedProvider([]);
+        },
+      );
+      addTearDown(assembly.close);
+      expect(built, isTrue, reason: '$setting degrades gracefully');
+      expect(assembly.pluginSettings.skippedPluginIds, isNotEmpty,
+          reason: setting);
+      expect(assembly.host.config.skippedPlugins,
+          assembly.pluginSettings.skippedPluginIds);
+      expect(
+          File(defaultSessionStorePath(workspace.path)).existsSync(), isFalse,
+          reason: 'persistence was never enabled');
     }
   });
 

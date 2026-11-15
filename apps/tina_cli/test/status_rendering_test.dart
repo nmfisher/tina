@@ -15,6 +15,19 @@ class _Io implements Stdio {
   final int terminalColumns;
   @override
   bool get hasTerminal => true;
+
+  @override
+  int get terminalLines => 24;
+  @override
+  bool get stdinHasTerminal => true;
+  @override
+  bool get echoMode => true;
+  @override
+  bool get lineMode => true;
+  @override
+  void setEchoMode(bool value) {}
+  @override
+  void setLineMode(bool value) {}
   @override
   Stream<List<int>> get stdin => const Stream.empty();
   @override

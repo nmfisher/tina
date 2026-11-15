@@ -29,29 +29,28 @@ final _viewFactories =
       _ClientUpdateStatus(
           (plugin as PresentationPlugin<UpdateStatusSource>).source, access),
       checkOnAttach: access.canControl),
-  'tina/status-strip-tui': (_, access) => StatusStripView(),
   'tina/cwd-tui': (plugin, access) =>
       CwdView((plugin as PresentationPlugin<String>).source),
-  'tina/panels-tui': (_, access) => PanelsView(),
   'tina/mcp': (plugin, access) {
     final management = (plugin as McpPlugin).management;
     return management == null ? null : McpView(management.forClient(access));
   },
 };
 
-/// Only registered factories provide presentation. Runtime-only plugins have
-/// no console view; a runtime plugin is never itself used as a view.
-ConsoleContribution? createConsoleView(AgentPlugin plugin,
-        {required SessionConnection connection}) =>
-    switch (plugin.id) {
+/// The view set buildable from the connection alone: every catalog entry
+/// the console serves without a plugin instance. The native attachment
+/// path and the remote (pipes) front end share this mapping — the same
+/// view code over the same interface, whatever holds the other end.
+ConsoleContribution? connectionViewFor(
+        String pluginId, SessionConnection connection) =>
+    switch (pluginId) {
       'tina/chat-tui' => ChatView(ConnectionChatObservation(connection)),
       'tina/activity-tui' => ActivityView(connection),
       'tina/bg-tui' => BgView(connection),
       'tina/plans' => PlansView(ConnectionPlanObservation(connection)),
       'tina/classification' =>
         ClassificationView(ConnectionClassificationObservation(connection)),
-      'tina/tasks' =>
-        TaskOverviewView(ConnectionTaskObservation(connection)),
+      'tina/tasks' => TaskOverviewView(ConnectionTaskObservation(connection)),
       'tina/context-tui' =>
         ContextView(context: ConnectionContextObservation(connection)),
       'tina/mode' => ModeView(mode: ConnectionModeObservation(connection)),
@@ -59,8 +58,17 @@ ConsoleContribution? createConsoleView(AgentPlugin plugin,
         SessionControlsView(ConnectionSessionControls(connection)),
       'tina/token-rate-tui' =>
         TokenRateGaugeView(ConnectionChatObservation(connection)),
-      _ => _viewFactories[plugin.id]?.call(plugin, connection.access),
+      'tina/status-strip-tui' => StatusStripView(),
+      'tina/panels-tui' => PanelsView(),
+      _ => null,
     };
+
+/// Only registered factories provide presentation. Runtime-only plugins have
+/// no console view; a runtime plugin is never itself used as a view.
+ConsoleContribution? createConsoleView(AgentPlugin plugin,
+        {required SessionConnection connection}) =>
+    connectionViewFor(plugin.id, connection) ??
+    _viewFactories[plugin.id]?.call(plugin, connection.access);
 
 final class _ClientUpdateStatus implements UpdateStatusSource {
   _ClientUpdateStatus(this._source, this._access);

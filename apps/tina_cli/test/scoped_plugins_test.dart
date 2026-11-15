@@ -177,7 +177,6 @@ void main() {
     local.parent.createSync();
     for (final text in [
       '[plugins.overrides]\n"tina/goals"="yes"\n',
-      '[plugins.overrides]\n"unknown/plugin"=false\n',
       '[plugins]\nenabled=[]\n',
       '[plugins.overrides]\n"tina/tools"=false\n',
     ]) {
@@ -194,5 +193,28 @@ void main() {
           throwsA(anyOf(isA<FormatException>(), isA<ArgumentError>())));
       expect(opened, false);
     }
+  });
+
+  // Unknown plugin IDS degrade gracefully (a packaged binary's registry
+  // is a subset of what a native checkout may know): the override is
+  // skipped and recorded, the session still builds. Malformed SHAPES
+  // above keep failing closed. Supersedes the old throw-on-unknown
+  // expectation per the packaged-binary degradation directive.
+  test('an unknown plugin override skips, records, and boots', () {
+    local.parent.createSync();
+    local.writeAsStringSync('[plugins.overrides]\n"unknown/plugin"=false\n');
+    var opened = false;
+    final app = SessionAssembly.start(
+        options: AssemblyOptions(
+            configPath: global.path, workingDirectory: workspace.path),
+        providerFactory: (_) {
+          opened = true;
+          return ScriptedProvider([]);
+        });
+    addTearDown(app.close);
+    expect(opened, isTrue, reason: 'graceful degradation boots the session');
+    expect(app.pluginSettings.skippedPluginIds, ['unknown/plugin']);
+    expect(app.host.config.skippedPlugins, ['unknown/plugin']);
+    expect(app.host.plugins.map((p) => p.id), isNot(contains('unknown/plugin')));
   });
 }

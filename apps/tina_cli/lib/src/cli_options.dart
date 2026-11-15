@@ -94,6 +94,29 @@ const pipesOption = CliOption(
       'commands, --configure, --import-sessions, --models, --resume or --continue.',
   value: CliValue.none,
 );
+const engineOption = CliOption(
+  'engine',
+  description:
+      'Session engine: native (in-process; default), wasm (spawn '
+      'tina-wasm-host), or a path to any command speaking the pipes protocol '
+      'on stdio. Interactive only; the model comes from the config file.',
+  valueName: 'ENGINE',
+);
+const engineHostOption = CliOption(
+  'engine-host',
+  description:
+      'Engine binary for --engine wasm (default: TINA_WASM_HOST, then '
+      'tina-wasm-host on PATH).',
+  valueName: 'PATH',
+  completion: CliCompletion.file,
+);
+const engineArgOption = CliOption(
+  'engine-arg',
+  description:
+      'Extra arguments for the spawned engine, whitespace-separated (for '
+      'example: --engine-arg "--plugin-component=p.wasm --plugin-watch").',
+  valueName: 'ARGS',
+);
 
 CliSchema applicationCliSchema({
   PluginRegistry<SessionPluginContext>? registry,
@@ -115,6 +138,9 @@ CliSchema applicationCliSchema({
       dryRunOption,
       yoloOption,
       pipesOption,
+      engineOption,
+      engineHostOption,
+      engineArgOption,
     ],
     plugins: {
       for (final id in registry.ids)

@@ -3,10 +3,17 @@
 /// (`tina_core.ProcessPort`) served by the host, because WASI has no
 /// process spawn. Spec: docs/tina_process.md.
 ///
-/// The access profile travels with every request; the host evaluates it
-/// before any process exists and is the only side that can spawn. An
-/// `ask` verdict returns to the engine as an approval request it answers
-/// with `respond` - the host cannot call back into a blocked guest.
+/// The host enforces the capability document it was launched with
+/// (`docs/capability_merger.md`): the command rules are host-held, so an
+/// engine compiled from a different policy cannot widen itself by editing
+/// what travels with the request. A request may still carry an access
+/// profile as a fail-closed backstop assertion: deny beats ask beats
+/// allow. An `ask` verdict returns to the engine as an approval request it
+/// answers with `respond` - the host cannot call back into a blocked
+/// guest.
+///
+/// 1.1.0: the per-request profile became optional (the host-held capability
+/// rules are the authority); the verdict semantics are unchanged.
 library;
 
 import r'package:wasm_components/wasm_components.dart' as i0;
@@ -78,16 +85,18 @@ final class TypesExitSignal extends TypesExit {
 }
 
 abstract interface class Process {
-  /// Ask the host to run `req`. The profile is evaluated first: allow
-  /// starts the child, deny refuses with the rule, ask (or no match)
-  /// returns an approval request the engine must answer.
+  /// Ask the host to run `req`. The host evaluates its capability rules
+  /// (and the optional backstop profile) before any process exists:
+  /// allow starts the child, deny refuses with the rule, ask (or no
+  /// match) returns an approval request the engine must answer.
   Future<i0.Result<TypesOutcome, TypesError>> spawn({
     required ({
       List<String> argv,
       i0.Option<String> cwd,
       List<(String, String)> env,
       i0.Option<List<int>> stdin,
-      ({List<({String pattern, TypesVerdict verdict})> rules}) profile,
+      i0.Option<({List<({String pattern, TypesVerdict verdict})> rules})>
+      profile,
     })
     req,
   });
