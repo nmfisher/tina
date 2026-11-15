@@ -5,6 +5,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/nmfisher/tina/main/install.sh | sh
 #   # or download first, read it, then run:
 #   sh install.sh [--dir DIR] [--insecure-checksum-only] [--version vX.Y.Z]
+#   # wasm runner instead of the native bundle:
+#   sh install.sh --wasm
 #
 # Trust model (be honest about it): this script arrives over the same channel
 # as the artifacts, so it cannot bootstrap trust from nothing. What the
@@ -16,9 +18,14 @@
 # Flags:
 #   --dir DIR                  launcher directory (default: ~/.local/bin)
 #   --bundle-dir DIR           private bundle (default: $XDG_DATA_HOME/tina,
-#                              or ~/.local/share/tina)
+#                              or ~/.local/share/tina; the wasm variant uses
+#                              .../tina-wasm-host so both can coexist)
 #   --version vX.Y.Z           install a specific tag instead of latest
 #   --insecure-checksum-only   skip signature verification (checksum only)
+#   --wasm                     install the wasm runner (single sandboxed
+#                              binary; launcher tina-wasm-host) instead of
+#                              the native bundle. Ships for macos-arm64 and
+#                              linux-x64 only.
 set -eu
 
 REPO='nmfisher/tina'
@@ -28,9 +35,10 @@ PUBKEY_COMMENT='minisign public key 998FE64CB07F896A'
 PUBKEY='RWRqiX+wTOaPmS7+JVz0pccep+0NBr6xDpLrf37v054BXCPDnGbpma92'
 
 INSTALL_DIR="${TINA_INSTALL_DIR:-$HOME/.local/bin}"
-BUNDLE_DIR="${TINA_BUNDLE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/tina}"
+BUNDLE_DIR="${TINA_BUNDLE_DIR:-}"
 VERSION=''
 VERIFY_SIG=1
+WASM=0
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'install.sh: %s\n' "$*" >&2; exit 1; }
@@ -41,9 +49,23 @@ while [ $# -gt 0 ]; do
     --bundle-dir) [ $# -ge 2 ] || die '--bundle-dir needs a value'; BUNDLE_DIR=$2; shift 2 ;;
     --version) [ $# -ge 2 ] || die '--version needs a value'; VERSION=$2; shift 2 ;;
     --insecure-checksum-only) VERIFY_SIG=0; shift ;;
+    --wasm) WASM=1; shift ;;
     *) die "unknown flag: $1 (see --help usage in the header)" ;;
   esac
 done
+
+# --- variant: native tina (default) or the wasm runner -------------------------
+# Everything variant-dependent hangs off VARIANT so the default path stays
+# exactly the pre-wasm behavior: asset prefix, bundle dir name, launcher
+# name, archive layout. The two installs never touch each other's files.
+if [ "$WASM" = 1 ]; then
+  VARIANT='tina-wasm-host'
+else
+  VARIANT='tina'
+fi
+if [ -z "$BUNDLE_DIR" ]; then
+  BUNDLE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/$VARIANT"
+fi
 
 command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 ||
   die 'need curl or wget to download'
@@ -111,7 +133,15 @@ case "$ARCH" in
   aarch64|arm64) ARCH_PART='arm64' ;;
   *) die "unsupported architecture: $ARCH" ;;
 esac
-ASSET="tina-${TAG}-${OS_PART}-${ARCH_PART}.tar.gz"
+if [ "$WASM" = 1 ]; then
+  # The wasm-runner release matrix builds exactly these two targets
+  # (see .github/workflows/release.yml, build-wasm-runner).
+  case "${OS_PART}-${ARCH_PART}" in
+    macos-arm64|linux-x64) ;;
+    *) die "no wasm-host bundle for ${OS_PART}-${ARCH_PART} (wasm builds cover macos-arm64 and linux-x64; the native bundle covers ${OS_PART}-${ARCH_PART})" ;;
+  esac
+fi
+ASSET="${VARIANT}-${TAG}-${OS_PART}-${ARCH_PART}.tar.gz"
 say "asset: $ASSET"
 
 # --- download ----------------------------------------------------------------
@@ -186,6 +216,35 @@ owned_bundle() {
   done
 }
 
+# The wasm runner's bundle: same ownership discipline, much simpler shape —
+# the marker, bin/ with exactly one binary, nothing else. (The archive ships
+# a flat wasm-host/tina-wasm-host; the installer normalizes it to bin/.)
+owned_wasm_bundle() {
+  [ -d "$1" ] && [ ! -L "$1" ] || return 1
+  [ -f "$1/.tina-bundle" ] && [ ! -L "$1/.tina-bundle" ] || return 1
+  [ -f "$1/bin/tina-wasm-host" ] && [ ! -L "$1/bin/tina-wasm-host" ] || return 1
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ ! -L "$entry" ] || return 1
+    case "$(basename "$entry")" in
+      bin)
+        [ -d "$entry" ] || return 1
+        for f in "$entry"/* "$entry"/.[!.]* "$entry"/..?*; do
+          [ -e "$f" ] || [ -L "$f" ] || continue
+          [ -f "$f" ] && [ ! -L "$f" ] || return 1
+          [ "$(basename "$f")" = tina-wasm-host ] || return 1
+        done
+        ;;
+      .*) [ -f "$entry" ] || return 1 ;;
+      *) return 1 ;;
+    esac
+  done
+}
+
+bundle_ok() {
+  if [ "$WASM" = 1 ]; then owned_wasm_bundle "$1"; else owned_bundle "$1"; fi
+}
+
 # --- install -----------------------------------------------------------------
 # Canonicalize parent directories so launcher targets are absolute, including
 # --dir/--bundle-dir arguments containing spaces or relative paths.
@@ -198,28 +257,52 @@ esac
 case "$INSTALL_DIR/" in
   "$BUNDLE_DIR/"*) die 'launcher directory must be outside the private bundle' ;;
 esac
-[ ! -d "$INSTALL_DIR/tina" ] || die "$INSTALL_DIR/tina is a directory"
+[ ! -d "$INSTALL_DIR/$VARIANT" ] || die "$INSTALL_DIR/$VARIANT is a directory"
 if [ -e "$BUNDLE_DIR" ] || [ -L "$BUNDLE_DIR" ]; then
-  owned_bundle "$BUNDLE_DIR" || die "$BUNDLE_DIR is not an exclusively-tina bundle; leaving it untouched"
+  bundle_ok "$BUNDLE_DIR" || die "$BUNDLE_DIR is not an exclusively-tina bundle; leaving it untouched"
 fi
 if [ -e "$BUNDLE_DIR.old" ] || [ -L "$BUNDLE_DIR.old" ]; then
-  owned_bundle "$BUNDLE_DIR.old" || die "$BUNDLE_DIR.old is not an exclusively-tina bundle; leaving it untouched"
+  bundle_ok "$BUNDLE_DIR.old" || die "$BUNDLE_DIR.old is not an exclusively-tina bundle; leaving it untouched"
 fi
 
 tar -xzf "$TMP/$ASSET" -C "$TMP"
-SOURCE="$TMP/bundle"
-[ -f "$SOURCE/bin/tina" ] || die 'bundle/bin/tina not found in the archive'
-[ ! -L "$SOURCE/.tina-bundle" ] || die 'archive has a linked bundle marker'
-printf 'tina bundle root\n' > "$SOURCE/.tina-bundle"
-owned_bundle "$SOURCE" || die 'archive is not a tina-only bundle'
-chmod +x "$SOURCE/bin/tina"
+if [ "$WASM" = 1 ]; then
+  # The wasm tarball is flat: one wasm-host/ directory holding the single
+  # host binary (embedded engine + TUI components). Validate that shape
+  # strictly — nothing but the binary may hide in there.
+  SOURCE="$TMP/wasm-host"
+  [ -f "$SOURCE/tina-wasm-host" ] && [ ! -L "$SOURCE/tina-wasm-host" ] ||
+    die 'wasm-host/tina-wasm-host not found in the archive'
+  for entry in "$SOURCE"/* "$SOURCE"/.[!.]* "$SOURCE"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ ! -L "$entry" ] || die 'wasm-host archive contains a symlink'
+    [ "$(basename "$entry")" = tina-wasm-host ] ||
+      die "unexpected file in wasm-host archive: $entry"
+  done
+  chmod +x "$SOURCE/tina-wasm-host"
+else
+  SOURCE="$TMP/bundle"
+  [ -f "$SOURCE/bin/tina" ] || die 'bundle/bin/tina not found in the archive'
+  [ ! -L "$SOURCE/.tina-bundle" ] || die 'archive has a linked bundle marker'
+  printf 'tina bundle root\n' > "$SOURCE/.tina-bundle"
+  owned_bundle "$SOURCE" || die 'archive is not a tina-only bundle'
+  chmod +x "$SOURCE/bin/tina"
+fi
 
 # Stage on the destination filesystem before moving the live bundle. Keep bin/
 # and lib/ together: Dart resolves native assets relative to the real executable.
 STAGE=$(mktemp -d "$(dirname "$BUNDLE_DIR")/.tina-install.XXXXXX")
-cp -R "$SOURCE" "$STAGE/bundle"
+if [ "$WASM" = 1 ]; then
+  # Normalize the flat archive layout to the bundle shape (bin/ + marker).
+  mkdir -p "$STAGE/bundle/bin"
+  cp "$SOURCE/tina-wasm-host" "$STAGE/bundle/bin/tina-wasm-host"
+  printf 'tina bundle root\n' > "$STAGE/bundle/.tina-bundle"
+  owned_wasm_bundle "$STAGE/bundle" || die 'staged wasm bundle failed its own ownership check'
+else
+  cp -R "$SOURCE" "$STAGE/bundle"
+fi
 LAUNCH_STAGE=$(mktemp -d "$INSTALL_DIR/.tina-launcher.XXXXXX")
-ln -s "$BUNDLE_DIR/bin/tina" "$LAUNCH_STAGE/tina"
+ln -s "$BUNDLE_DIR/bin/$VARIANT" "$LAUNCH_STAGE/$VARIANT"
 if [ -d "$BUNDLE_DIR.old" ]; then
   rm -rf "$BUNDLE_DIR.old"
 fi
@@ -231,14 +314,18 @@ mv "$STAGE/bundle" "$BUNDLE_DIR"
 INSTALLED=1
 # Rename the link over the old binary/link, never copy through an existing link.
 # Legacy libraries in the shared ../lib directory remain untouched.
-mv -f "$LAUNCH_STAGE/tina" "$INSTALL_DIR/tina"
+mv -f "$LAUNCH_STAGE/$VARIANT" "$INSTALL_DIR/$VARIANT"
 DONE=1
 
 say "installed bundle: $BUNDLE_DIR"
-say "launcher: $INSTALL_DIR/tina -> $BUNDLE_DIR/bin/tina"
-say 'Future updates: run /update in tina, then restart.'
+say "launcher: $INSTALL_DIR/$VARIANT -> $BUNDLE_DIR/bin/$VARIANT"
+if [ "$WASM" = 1 ]; then
+  say 'Future updates: re-run this installer with --wasm (the sandboxed host does not self-update).'
+else
+  say 'Future updates: run /update in tina, then restart.'
+fi
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *) say "NOTE: $INSTALL_DIR is not on your PATH — add it to your shell profile." ;;
 esac
-"$INSTALL_DIR/tina" --version 2>/dev/null || true
+"$INSTALL_DIR/$VARIANT" --version 2>/dev/null || true
