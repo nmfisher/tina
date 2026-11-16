@@ -1,0 +1,11 @@
+name: tina_layout
+description: >-
+  Declarative square-grid auto-layout for tina's terminal UIs. Pure Dart:
+  no renderer, no I/O, no notcurses. Consumed unchanged by the native
+  (notcurses/ANSI) TUI and the wasm cell-buffer TUI.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.6.0
+dev_dependencies:
+  test: ^1.25.0

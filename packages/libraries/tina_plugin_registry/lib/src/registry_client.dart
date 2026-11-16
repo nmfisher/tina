@@ -10,9 +10,29 @@ import 'entry.dart';
 
 typedef FetchBytes = Future<Uint8List> Function(String url);
 
+/// The default transport: dart:io HttpClient, one connection per fetch,
+/// non-200 is an error. Shared by RegistryClient and SiteRegistry.
+Future<Uint8List> defaultFetchBytes(String url) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(Uri.parse(url));
+    final response = await request.close();
+    if (response.statusCode != 200) {
+      throw RegistryClientError('HTTP ${response.statusCode} for $url');
+    }
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in response) {
+      builder.add(chunk);
+    }
+    return builder.takeBytes();
+  } finally {
+    client.close(force: true);
+  }
+}
+
 class RegistryClient {
   RegistryClient({required this.url, FetchBytes? fetch})
-      : _fetch = fetch ?? _defaultFetch;
+      : _fetch = fetch ?? defaultFetchBytes;
 
   final String url;
   final FetchBytes _fetch;
@@ -53,24 +73,6 @@ class RegistryClient {
   String _join(String base, String path) =>
       base.endsWith('/') ? '$base$path' : '$base/$path';
 
-  static Future<Uint8List> _defaultFetch(String url) async {
-    final client = HttpClient();
-    try {
-      final request = await client.getUrl(Uri.parse(url));
-      final response = await request.close();
-      if (response.statusCode != 200) {
-        throw RegistryClientError(
-            'GET $url failed: HTTP ${response.statusCode}');
-      }
-      final builder = BytesBuilder(copy: false);
-      await for (final chunk in response) {
-        builder.add(chunk);
-      }
-      return builder.takeBytes();
-    } finally {
-      client.close(force: true);
-    }
-  }
 }
 
 class RegistryIndex {

@@ -1,0 +1,22 @@
+{
+  "comment": "The static registry site catalog (tool/build_registry_site.sh merges this with the compiled distributable plugins). source: 'included' entries are documentation for plugins compiled into the tina binary - no artifact, not installable; 'planned' entries document what is coming.",
+  "included": [
+    {"name": "tina/providers", "description": "Provider policy and model selection: settings, model catalog, endpoint wiring."},
+    {"name": "tina/approvals", "description": "The asking boundary for tool commands: approvals, prefix/exact rules, directory grants."},
+    {"name": "tina/system-instruction", "description": "Assembles the system instruction from mode, workspace context and policy."},
+    {"name": "tina/mode", "description": "Agent modes (chat / plan / yolo semantics) and mode switching."},
+    {"name": "tina/tools", "description": "The portable tool set: read, write, glob, grep, bash, exec with the sandbox boundary."},
+    {"name": "tina/tasks", "description": "The task queue: follow-up tasks, current/pending/done/skipped states."},
+    {"name": "tina/activity-tui", "description": "Activity stream projection for the TUI (tool runs, results, lifecycle)."},
+    {"name": "tina/approvals-stream", "description": "Streams approval requests to attached front ends over the pipes protocol."},
+    {"name": "tina/chat-tui", "description": "The chat surface: transcript, streaming replies, input line."},
+    {"name": "tina/context-tui", "description": "Working-context projection for the TUI."},
+    {"name": "tina/grok-guard", "description": "Reply guardrails: refusal detection and safety policy enforcement."},
+    {"name": "tina/session-controls", "description": "Session lifecycle commands: resume, fork, rewind, list."},
+    {"name": "tina/token-rate-tui", "description": "Token usage and rate telemetry panel."},
+    {"name": "tina/context", "description": "Working context assembly for prompts: file mirror summaries, focus files."}
+  ],
+  "planned": [
+    {"name": "tina/update-tui", "description": "Self-update UI for the TUI. Planned: requires the host update interface (separate thread); will ship here when the host side lands.", "tracking": "host interface pending"}
+  ]
+}

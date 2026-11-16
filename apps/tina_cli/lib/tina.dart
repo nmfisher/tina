@@ -2,5 +2,6 @@
 library;
 
 export 'src/cli.dart';
+export 'src/registry_commands.dart' show runRegistrySubcommand;
 export 'src/process_launcher.dart' show initializeProcessLauncher;
 export 'src/shell_completion.dart';

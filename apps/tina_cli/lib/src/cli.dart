@@ -10,6 +10,7 @@ import 'engine_launcher.dart';
 import 'pipes.dart';
 import 'plugin_catalog.dart';
 import 'plugin_commands.dart';
+import 'registry_commands.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/tui.dart';
@@ -39,6 +40,13 @@ Future<int> runCli(
   );
   if (pluginExit != null) {
     return pluginExit;
+  }
+  final registryExit = await runRegistrySubcommand(
+    args,
+    globalConfigPath: '$globalTinaDir/config',
+  );
+  if (registryExit != null) {
+    return registryExit;
   }
   final registry = firstPartyPlugins();
   registerPlugins?.call(registry);

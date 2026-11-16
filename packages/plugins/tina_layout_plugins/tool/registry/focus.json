@@ -1,0 +1,12 @@
+{
+  "name": "tina/layout-focus",
+  "version": "0.1.0",
+  "description": "Focus-mode layout strategy (tina:layout@1.0.0): weighted tracks split the remaining space equally, so the chat screen's 65/35 split becomes 50/50. Installing it visibly changes the arrangement; uninstalling returns the default.",
+  "abi": {
+    "embedder_abi": 1,
+    "world": "tina:layout-app/layout-plugin@1.0.0",
+    "imports": ["tina:layout/types@1.0.0"],
+    "exports": ["tina:layout/strategy@1.0.0"]
+  },
+  "capabilities": []
+}

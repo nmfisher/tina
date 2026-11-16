@@ -15,3 +15,5 @@ export 'src/install.dart';
 export 'src/plugin_cache.dart';
 export 'src/registry_client.dart';
 export 'src/signature.dart';
+export 'src/minisign.dart';
+export 'src/site_registry.dart';

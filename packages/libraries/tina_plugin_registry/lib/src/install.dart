@@ -21,9 +21,20 @@ VerifyResult verifyArtifact({
   required Map<String, Object?> entry,
   required Uint8List artifactBytes,
   required Uint8List pinnedPublicKey,
+  bool indexSignatureVerified = false,
 }) {
-  // 1. Signature over the canonical entry against the pinned key.
-  verifyEntrySignature(entry, pinnedPublicKey);
+  // 1. Signature over the canonical entry against the pinned key. The
+  // static-site fetch path sets [indexSignatureVerified] instead: the
+  // whole registry.json is minisign-signed against a pinned key, which
+  // authenticates every entry inside it (a per-entry signature, when
+  // present, is still verified below).
+  if (entry.containsKey('signature')) {
+    verifyEntrySignature(entry, pinnedPublicKey);
+  } else if (!indexSignatureVerified) {
+    throw const VerificationError(
+        'entry has no signature field and the index it came from is not '
+        'index-signature verified');
+  }
   final parsed = parseEntry(entry);
 
   // 2. Integrity: sha256 over the bytes equals the declared digest.
@@ -60,10 +71,12 @@ VerifyResult verifyArtifact({
 }
 
 /// The worlds the engine's loader accepts today (plugin_loader.rs
-/// `PLUGIN_WORLD_VERSION` + the production prompt adapter's import).
+/// `PLUGIN_WORLD_VERSION` + the production prompt adapter's import, plus
+/// the layout-strategy world the wasm host's tina_layout bridge loads).
 const Set<String> _knownWorlds = {
   'tina:plugin-probe/plugin@0.1.0',
   'tina:plugin-host/session@0.1.0',
+  'tina:layout-app/layout-plugin@1.0.0',
 };
 
 class VerifyResult {
@@ -82,9 +95,13 @@ Future<InstallOutcome> installVerified({
   required RegistryConfig config,
   required ConsentFlow consent,
   required bool activate,
+  bool indexSignatureVerified = false,
 }) async {
-  final verified =
-      verifyArtifact(entry: entry, artifactBytes: artifactBytes, pinnedPublicKey: pinnedPublicKey);
+  final verified = verifyArtifact(
+      entry: entry,
+      artifactBytes: artifactBytes,
+      pinnedPublicKey: pinnedPublicKey,
+      indexSignatureVerified: indexSignatureVerified);
   final parsed = verified.parsed;
 
   final outcome = consent(parsed);

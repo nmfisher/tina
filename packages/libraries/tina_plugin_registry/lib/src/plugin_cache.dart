@@ -145,6 +145,10 @@ class RegistryConfig {
           data.active = _unquote(value);
         case 'installed':
           data.installed = _parseStringArray(value);
+        case 'site_url':
+          data.siteUrl = _unquote(value);
+        case 'minisign_key':
+          data.minisignKey = _unquote(value);
       }
     }
     return data;
@@ -206,6 +210,10 @@ class RegistryConfig {
       lines.add(
           'installed = [${data.installed.map(_quote).join(', ')}]');
     }
+    if (data.siteUrl != null) lines.add('site_url = ${_quote(data.siteUrl!)}');
+    if (data.minisignKey != null) {
+      lines.add('minisign_key = ${_quote(data.minisignKey!)}');
+    }
     return lines;
   }
 }
@@ -217,6 +225,15 @@ class RegistryConfigData {
   String? key;
   String? active;
   List<String> installed = [];
+
+  /// The static-site index (registry.json + minisign), used by the
+  /// `tina registry` flow; `url`/`key` above serve the legacy
+  /// content-addressed flow.
+  String? siteUrl;
+
+  /// The pinned minisign public key for the static-site index (defaults
+  /// to the tina release key compiled into the CLI).
+  String? minisignKey;
 
   bool get isConfigured => url != null && key != null;
 }
