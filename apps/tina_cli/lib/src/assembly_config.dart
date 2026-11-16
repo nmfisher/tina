@@ -57,6 +57,7 @@ const defaultPluginIds = <String>[
   'tina/mcp',
   'tina/persistence',
   'tina/channel',
+  'tina/channel-tui',
   'tina/plans',
   'tina/goals',
   'tina/tasks',

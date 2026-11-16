@@ -419,6 +419,16 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           'workspace.',
       live: true,
     ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/channel-tui',
+      (c) => ChannelPanePlugin(
+        openStore: () => openDefaultChannelStore(c.workingDirectory),
+      ),
+      description:
+          'Shows the workspace\'s group channels in the console: channel '
+          'list with unread badges and recent messages, read-only.',
+      live: true,
+    ),
     PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
       'tina/plans',
       dependency: approvalRequester,

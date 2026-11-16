@@ -1117,6 +1117,26 @@ jobs:
         working-directory: packages/plugins/tina_channel
         run: dart test -j 4
 
+  tina_channel_tui:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_channel_tui')
+    name: tina_channel_tui (packages/plugins/tina_channel_tui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_channel_tui)
+        working-directory: packages/plugins/tina_channel_tui
+        run: dart pub get
+      - name: analyze (tina_channel_tui)
+        working-directory: packages/plugins/tina_channel_tui
+        run: dart analyze
+      - name: test (tina_channel_tui)
+        working-directory: packages/plugins/tina_channel_tui
+        run: dart test -j 4
+
   tina_approvals:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'tina_approvals')

@@ -50,6 +50,7 @@
     "tina_session_controls",
     "tina_rewind",
     "tina_channel",
+    "tina_channel_tui",
     "tina_io",
     "tina_wasm"
   ],
@@ -71,6 +72,7 @@
     "tina_plans_tui",
     "tina_classification_tui",
     "tina_mcp_tui",
+    "tina_channel_tui",
     "tina_wasm"
   ],
   "sourceRoots": {
@@ -288,6 +290,10 @@
       "lib",
       "test"
     ],
+    "tina_channel_tui": [
+      "lib",
+      "test"
+    ],
     "tina_repository_tools": [
       "bin",
       "lib",
@@ -399,6 +405,7 @@
     "tina_session_controls": "packages/plugins/tina_session_controls",
     "tina_rewind": "packages/plugins/tina_rewind",
     "tina_channel": "packages/plugins/tina_channel",
+    "tina_channel_tui": "packages/plugins/tina_channel_tui",
     "tina_repository_tools": "tool/repository"
   },
   "runtimeDependencies": {
@@ -552,6 +559,7 @@
       "tina_tasks",
       "tina_tasks_tui",
       "tina_channel",
+      "tina_channel_tui",
       "tina_token_rate_tui",
       "tina_tools",
       "tina_tui",
@@ -577,6 +585,16 @@
       "tina_mcp",
       "tina_console",
       "tina_settings"
+    ],
+    "tina_channel": [
+      "tina_core",
+      "tina_engine_2",
+      "tina_sqlite"
+    ],
+    "tina_channel_tui": [
+      "tina_channel",
+      "tina_console",
+      "tina_engine_2"
     ],
     "tina_chat": [
       "tina_engine_2",
