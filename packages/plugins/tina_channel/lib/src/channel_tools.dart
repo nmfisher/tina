@@ -237,18 +237,8 @@ final class ChannelTools {
     }
     final messages =
         _store.read(channel, sinceId: sinceId, sinceTime: sinceTime, limit: limit);
-    final members = _store.members(channel);
-    final buffer = StringBuffer()
-      ..writeln('$channel — ${messages.length} message(s)'
-          '${sinceId != null ? ' after id $sinceId' : ''}'
-          '${sinceTime != null ? ' after ${sinceTime.toIso8601String()}' : ''}');
-    for (final message in messages) {
-      buffer.writeln(formatChannelLine(message));
-    }
-    buffer.write(members.isEmpty
-        ? 'nobody present'
-        : 'present: ${members.map((m) => m.toString()).join(', ')}');
-    return ToolResult(buffer.toString());
+    return ToolResult(renderChannelRead(_store, channel,
+        messages: messages, sinceId: sinceId, sinceTime: sinceTime));
   }
 
   ToolResult _status(Map<String, Object?> input) {
@@ -312,6 +302,28 @@ String formatChannelLine(ChannelMessage message) {
       message.createdAt.toLocal().toString().substring(11, 19);
   return '${message.id} $time $marker${message.sender} '
       '$reply${truncated(message.text, 2000)}';
+}
+
+/// Renders a channel window — header, one line per message, presence
+/// footer — exactly the way `channel_read` and `tina channel read`
+/// present it. Pass [messages] when the caller has already read them;
+/// otherwise the store is queried. The cursor suffix ([sinceId] /
+/// [sinceTime]) tells the reader where the window starts.
+String renderChannelRead(ChannelStoreApi store, String channel,
+    {List<ChannelMessage>? messages, int? sinceId, DateTime? sinceTime}) {
+  final window = messages ?? store.read(channel);
+  final members = store.members(channel);
+  final buffer = StringBuffer()
+    ..writeln('$channel — ${window.length} message(s)'
+        '${sinceId != null ? ' after id $sinceId' : ''}'
+        '${sinceTime != null ? ' after ${sinceTime.toIso8601String()}' : ''}');
+  for (final message in window) {
+    buffer.writeln(formatChannelLine(message));
+  }
+  buffer.write(members.isEmpty
+      ? 'nobody present'
+      : 'present: ${members.map((m) => m.toString()).join(', ')}');
+  return buffer.toString();
 }
 
 /// Clips [text] to [max] characters with an ellipsis.

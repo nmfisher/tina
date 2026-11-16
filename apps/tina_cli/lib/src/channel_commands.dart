@@ -135,7 +135,9 @@ int _read(ChannelStoreApi Function() open, String channel,
     }
     stdout.writeln(renderChannelRead(store, normalized,
         messages: store.read(normalized,
-            sinceId: sinceId, sinceTime: sinceTime, limit: limit)));
+            sinceId: sinceId, sinceTime: sinceTime, limit: limit),
+        sinceId: sinceId,
+        sinceTime: sinceTime));
     return 0;
   } on Object catch (e) {
     stderr.writeln('tina channel: $e');
