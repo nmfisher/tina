@@ -9,15 +9,31 @@ import 'channel_pane.dart';
 /// a modal browser (F5 cycles to the pill, Enter opens) that lists the
 /// channels with unread badges and renders the selected channel's
 /// recent messages — sender labels, status lines, presence footer.
-/// Read-only: viewing is the only effect.
+///
+/// Interactive: with the pane open, typing composes a message on the
+/// input line and Enter posts it as the human identity ([humanName],
+/// decided at the composition seam) through the store interface — a
+/// member row (`human`) joins the channel, `@mentions` parse as in the
+/// tools. Esc leaves input mode (draft kept), Esc again closes the
+/// pane, and a closed pane consumes nothing. When [humanName] is null
+/// (no writable identity in this context) the input line renders
+/// disabled with a hint instead.
 ///
 /// The store is polled (the log has no push channel yet — a Phase 3
 /// watcher will add the event seam). Polling happens on a timer, and
-/// the pane reads through [ChannelStoreApi] only.
+/// the pane reads and posts through [ChannelStoreApi] only.
 final class ChannelPaneView implements ConsoleContribution {
-  ChannelPaneView(this._store);
+  ChannelPaneView(this._store, {String? humanName})
+      : _humanName = humanName;
 
   final ChannelStoreApi _store;
+
+  /// The identity the input line posts under; null disables input.
+  final String? _humanName;
+
+  /// Channels this session already joined (announced) as the human.
+  final Set<String> _joined = <String>{};
+
   final ChannelUnread _unread = ChannelUnread();
   bool _seeded = false;
 
@@ -34,8 +50,28 @@ final class ChannelPaneView implements ConsoleContribution {
   /// Whether the channel browser is open. Public for tests.
   bool get isOpen => _browser?.isOpen == true;
 
+  /// Whether the input line has focus (composing). Public for tests.
+  bool get inputActive => _browser?.composer.isActive == true;
+
   /// The browser's current visible lines. Public for tests.
   List<String> get visibleLines => _browser?.visibleLines ?? const [];
+
+  /// Opens the pane. The status pill's Enter lands here too; public so
+  /// tests (and future callers) open it without the status cycle.
+  void openPane() => _browser?.open();
+
+  /// The human joins [channel] if this session hasn't yet. A borrowed
+  /// or flaky store must not take the pane down; a failed join surfaces
+  /// on the next post instead.
+  void _humanJoin(String channel) {
+    final name = _humanName;
+    if (name == null) return;
+    try {
+      humanJoin(_store, channel, name, _joined);
+    } on Object {
+      // Presence is best-effort; posting reports its own errors.
+    }
+  }
 
   List<RenderLine> _lines() {
     final console = _console;
@@ -88,7 +124,7 @@ final class ChannelPaneView implements ConsoleContribution {
     });
     _removeBrowserModal = context.addModal(_browser!);
     _unbindStatus = context.bindStatus(_lines, priority: 59);
-    context.statusSelection.register('tina/channel', _browser!.open);
+    context.statusSelection.register('tina/channel', openPane);
 
     _poll();
     _ticker =
@@ -123,11 +159,13 @@ final class ChannelPaneView implements ConsoleContribution {
 }
 
 /// The browser modal: channel list with unread badges; the selected
-/// channel's recent messages below; read-only.
+/// channel's recent messages below; the input line when composing.
 final class _ChannelBrowser implements ModalSurface {
-  _ChannelBrowser(this.view);
+  _ChannelBrowser(this.view)
+      : composer = ChannelComposer(canPost: view._humanName != null);
 
   final ChannelPaneView view;
+  final ChannelComposer composer;
 
   OverlayRegion? _overlay;
   void Function()? _releaseCursor;
@@ -147,6 +185,10 @@ final class _ChannelBrowser implements ModalSurface {
       _selected = channels.first.name;
     }
     _scroll = 0;
+    // Opening the pane is joining the conversation: presence first,
+    // then the input line ready for typing (chat-first).
+    view._humanJoin(_selected);
+    composer.activate();
     repaint();
   }
 
@@ -184,6 +226,12 @@ final class _ChannelBrowser implements ModalSurface {
 
     final messages = store.read(_selected, limit: 50);
     final members = store.members(_selected);
+    final input = !composer.canPost
+        ? const ChannelInputLine(
+            disabledHint: 'input unavailable — use tina channel say')
+        : composer.isActive
+            ? ChannelInputLine(draft: composer.draft, error: composer.error)
+            : null;
     final body = renderChannelPane(
       channels: channels,
       unread: view._unreadCounts,
@@ -192,6 +240,8 @@ final class _ChannelBrowser implements ModalSurface {
       members: members,
       width: area.width,
       height: (area.height - 1).clamp(3, 10000),
+      self: view._humanName,
+      input: input,
     );
     final room = (area.height - 2).clamp(1, 10000);
     _scroll = _scroll.clamp(0, (body.length - room).clamp(0, body.length));
@@ -204,8 +254,26 @@ final class _ChannelBrowser implements ModalSurface {
     _overlay!.update(bounds: area, lines: visibleLines);
   }
 
+  /// Posts one message as the human through the store interface.
+  /// Returns an error message, or null on success.
+  String? _post(String text) {
+    final name = view._humanName;
+    if (name == null) return 'input unavailable';
+    final failure = humanPost(view._store,
+        channel: _selected, name: name, text: text, joined: view._joined);
+    if (failure == null) view._poll();
+    return failure;
+  }
+
   bool handleEvent(InputEvent event) {
     if (!isActive) return false;
+    // The input line claims typing first: a composing pane is a chat
+    // surface. Declined events (arrows, scrolling) fall through to the
+    // browse handling below.
+    if (composer.handle(event, post: _post)) {
+      repaint();
+      return true;
+    }
     switch (event) {
       case EscapeKey():
       case FunctionKey(code: FunctionKeyCode.f5):
@@ -230,7 +298,7 @@ final class _ChannelBrowser implements ModalSurface {
         repaint();
         return true;
       default:
-        return true;
+        return true; // modal while open: nothing leaks to the editor
     }
   }
 
@@ -240,7 +308,11 @@ final class _ChannelBrowser implements ModalSurface {
     var index = channels.indexWhere((c) => c.name == _selected);
     if (index < 0) index = 0;
     index = (index + delta).clamp(0, channels.length - 1);
-    _selected = channels[index].name;
+    final next = channels[index].name;
+    if (next != _selected) {
+      _selected = next;
+      view._humanJoin(_selected); // viewing a channel joins it
+    }
     _scroll = 0;
     repaint();
   }

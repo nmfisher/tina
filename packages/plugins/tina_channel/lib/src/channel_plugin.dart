@@ -51,9 +51,9 @@ final class ChannelPlugin extends AgentPlugin {
   /// verbatim, or the generated shortcode); null before.
   String? get name => _effectiveName;
 
-  /// The store the TUI pane may borrow (read-only by convention); null
-  /// before the session opens. The pane must read through the
-  /// interface and never close this store.
+  /// The store a UI may borrow for reads; null before the session
+  /// opens. A borrower reads through the interface and never closes
+  /// this store.
   ChannelStoreApi? get storeForUi => _store;
 
   @override

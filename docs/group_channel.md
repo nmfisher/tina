@@ -2,9 +2,9 @@
 
 Design note for issue #95's first two build phases: the shared agent
 message log with persistence, tools, CLI, multi-process sharing,
-presence and a read-only TUI pane. Phases 3 (passive mention delivery)
-and 4 (retention/compaction into memory) are deliberately not built;
-their seams are marked below.
+presence and an interactive TUI pane. Phases 3 (passive mention
+delivery) and 4 (retention/compaction into memory) are deliberately
+not built; their seams are marked below.
 
 ## Schema
 
@@ -37,8 +37,8 @@ CREATE INDEX messages_channel_id ON messages(channel, id);
 CREATE TABLE members (            -- the one upsertable corner: presence
   channel TEXT NOT NULL REFERENCES channels(name),
   name TEXT NOT NULL,
-  role TEXT NOT NULL,             -- agent | user | subagent (display)
-  status TEXT NOT NULL,           -- working | idle | done (display)
+  role TEXT NOT NULL,             -- agent | human | user | subagent (display)
+  status TEXT NOT NULL,           -- working | idle | done | joined | left (display)
   summary TEXT,
   last_seen TEXT NOT NULL,
   PRIMARY KEY (channel, name)
@@ -64,20 +64,24 @@ packages/plugins/tina_channel/
   lib/src/default_store*.dart       workspace location (.tina/channel.db),
                                     io split behind a conditional export
   lib/src/channel_tools.dart        the three tools + shared rendering
+  lib/src/human_identity.dart       the human sender name: env override,
+                                    OS username sanitized, `user` floor
   lib/src/channel_plugin.dart       tina/channel — opens the store, joins
                                     #lobby, contributes tools + prompt rule
-  lib/src/channel_pane_plugin.dart  tina/channel-tui — store owner for the
-                                    pane's own WAL connection
+  lib/src/channel_pane_plugin.dart  tina/channel-tui — store owner + human
+                                    identity for the pane's own connection
   test/channel_store_test.dart      contract tests run against BOTH
                                     implementations (the seam, both sides)
   test/mention_test.dart            @mention parsing, name normalization
   test/channel_tools_test.dart      tool validation + round-trips
+  test/human_identity_test.dart     override, sanitization, fallback
   test/channel_concurrency_test.dart two real dart processes on one db
   test/concurrency_writer.dart      the subprocess the test spawns
 packages/plugins/tina_channel_tui/
-  lib/src/channel_pane.dart         unread tracker + pure line renderer
+  lib/src/channel_pane.dart         unread tracker, input composer,
+                                    human join/post, pure line renderer
   lib/src/channel_pane_view.dart    console contribution, status pill,
-                                    modal browser
+                                    modal browser with input line
 apps/tina_cli/lib/src/channel_commands.dart   tina channel subcommands
 ```
 
@@ -112,14 +116,68 @@ there get reported, not obeyed).
 
 The CLI mirrors the same operations (`tina channel list|read|say|status`,
 `--as` for the sender name, default `user`), sharing one renderer with
-the tool.
+the tool. Since the pane became interactive, the CLI is the fallback
+path — scripting, remote sessions, and pipes — not the primary way a
+person talks.
+
+## The pane is interactive
+
+Selecting the channel panel (F5 → status pill → Enter, or however the
+status cycle reaches it) opens the browser modal **in input mode**: an
+input line sits at the bottom of the pane with a block cursor, and
+keystrokes go into it. Enter posts the draft as the human identity —
+one Enter, one message, the chat-app model (pastes flatten onto one
+line). Backspace edits, Ctrl+U clears, ↑/↓ still switch channels while
+composing.
+
+Focus follows the console's modal convention: while the pane is open it
+is offered every event ahead of the editor (`ModalSurface`), so typing
+never leaks into the chat draft; a closed pane is offered nothing and
+the app's global keys flow unchanged. Esc walks back out one rung at a
+time — input mode → browse (the input line disappears; the draft is
+kept and resumes on the next keystroke) → pane closed. Two Escapes
+inside the app's 450 ms double-Esc window remain the global
+force-cancel gesture (it closes active modals too); Esc while agent
+work is running still cancels the work first — the pane inherits the
+same Esc ladder as every other view.
+
+Where the pane is absent (remote/pipes front ends — the store is
+process-local), it stays absent. If a composition ever attaches the
+pane without a writable identity (`ChannelPanePlugin(humanName: null)`),
+the input line renders disabled with a one-line hint pointing at
+`tina channel say` instead of erroring.
+
+## Human identity
+
+Human posts carry a human name, derived once per session at the
+composition seam (`defaultHumanName` in `tina_channel`):
+
+1. `TINA_HUMAN_NAME` verbatim when set (trimmed, nonempty) — the
+   settings/env override, mirroring `TINA_AGENT_NAME` for agents
+   (a settings key can join the same seam later);
+2. otherwise the OS username (`USER`, `LOGNAME`, `USERNAME` — first
+   hit) sanitized into a mention-safe name: lowercase, `[a-z0-9_.-]`
+   kept, every other run collapsed to `-`, edges trimmed, capped at 32;
+3. `user` when nothing survives — the CLI's historic default.
+
+The derivation is a pure function of the environment, so it is stable
+within a session by construction. The human joins a channel the way
+agents do — a `members` row with role `human`, announced once per
+channel per session as `* <name> joined`, silently refreshed after
+that — when the pane first views the channel. Presence footers render
+the session's own human as `<name> (you)`; the `human` role is what
+lets renders and future delivery rules tell a person from a process.
+Posting writes through the same store interface as the tools: one
+message row, `@shortcode` mentions parsed from the text.
 
 ## Presence
 
 Joining = a member row plus a status announce; the channel plugin does
-it at session start for `#lobby`. Every reader (`channel_read`, CLI,
-pane) sees member rows through the same interface. `tina channel status
-[CHANNEL]` lists who is in each channel and what they report.
+it at session start for `#lobby`, and the pane does it for the human on
+first view of each channel (role `human`, status `joined`). Every
+reader (`channel_read`, CLI, pane) sees member rows through the same
+interface. `tina channel status [CHANNEL]` lists who is in each channel
+and what they report.
 
 ## Identity
 
@@ -186,9 +244,10 @@ both presence rows intact).
   (`ChannelUnread`), not as a store column. A store-side read cursor
   needs per-agent rows — deferred to Phase 3, where a watcher owns
   cursors and delivery.
-- The TUI pane is read-only; posting from the console was allowed to
-  drop and it did (the pane's only state change is marking a channel
-  read). Users post via the CLI; agents via the tools.
+- The TUI pane started read-only (posting from the console was allowed
+  to drop); owner review reversed that — the pane is now the primary
+  human input path (see "The pane is interactive" above), and the CLI
+  `say` is the fallback for scripting and remote use.
 - The pane plugin (store ownership) sits in `tina_channel`, not
   `tina_channel_tui`: repository policy forbids runtime construction
   (plugin_catalog) from importing presentation packages. The tui

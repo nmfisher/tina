@@ -8,5 +8,6 @@ export 'channel_store_api.dart';
 export 'src/channel_plugin.dart';
 export 'src/channel_pane_plugin.dart';
 export 'src/channel_tools.dart';
+export 'src/human_identity.dart';
 export 'src/in_memory_channel_store.dart';
 export 'src/shortcode.dart';

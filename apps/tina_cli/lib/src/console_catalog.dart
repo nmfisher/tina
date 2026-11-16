@@ -39,8 +39,13 @@ final _viewFactories =
     return management == null ? null : McpView(management.forClient(access));
   },
   'tina/channel-tui': (plugin, access) {
-    final store = (plugin as ChannelPanePlugin).storeForView;
-    return store == null ? null : ChannelPaneView(store);
+    final pane = plugin as ChannelPanePlugin;
+    final store = pane.storeForView;
+    // A null human name renders the input line disabled (a read-only
+    // composition); locally the name is always derived.
+    return store == null
+        ? null
+        : ChannelPaneView(store, humanName: pane.humanName);
   },
 };
 

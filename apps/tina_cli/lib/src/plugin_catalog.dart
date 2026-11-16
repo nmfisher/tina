@@ -428,10 +428,15 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       'tina/channel-tui',
       (c) => ChannelPanePlugin(
         openStore: () => openDefaultChannelStore(c.workingDirectory),
+        // The human identity is decided at the assembly root like the
+        // agent's: an explicit TINA_HUMAN_NAME wins verbatim, else the
+        // OS username sanitized (see human_identity.dart).
+        humanName: defaultHumanName(Platform.environment),
       ),
       description:
           'Shows the workspace\'s group channels in the console: channel '
-          'list with unread badges and recent messages, read-only.',
+          'list with unread badges, recent messages, and an input line — '
+          'typing posts to the channel as the human.',
       live: true,
     ),
     PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
