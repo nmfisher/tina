@@ -6,6 +6,7 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_tools/tina_tools.dart' show noSandboxOption;
 import 'cli_options.dart';
+import 'channel_commands.dart';
 import 'engine_launcher.dart';
 import 'pipes.dart';
 import 'plugin_catalog.dart';
@@ -39,6 +40,10 @@ Future<int> runCli(
   );
   if (pluginExit != null) {
     return pluginExit;
+  }
+  final channelExit = await runChannelSubcommand(args);
+  if (channelExit != null) {
+    return channelExit;
   }
   final registry = firstPartyPlugins();
   registerPlugins?.call(registry);
