@@ -49,6 +49,7 @@
     "tina_activity",
     "tina_session_controls",
     "tina_rewind",
+    "tina_channel",
     "tina_io",
     "tina_wasm"
   ],
@@ -283,6 +284,10 @@
       "lib",
       "test"
     ],
+    "tina_channel": [
+      "lib",
+      "test"
+    ],
     "tina_repository_tools": [
       "bin",
       "lib",
@@ -393,6 +398,7 @@
     "tina_activity": "packages/plugins/tina_activity",
     "tina_session_controls": "packages/plugins/tina_session_controls",
     "tina_rewind": "packages/plugins/tina_rewind",
+    "tina_channel": "packages/plugins/tina_channel",
     "tina_repository_tools": "tool/repository"
   },
   "runtimeDependencies": {
