@@ -89,6 +89,15 @@ Stream<StreamEvent> pumpSse(
   final queue = StreamController<StreamEvent>(sync: true);
   final completions = StreamController<StreamEvent>(sync: true);
 
+  // The only way events enter the queue. Once the queue is closed a
+  // terminal error has already been delivered, so a late writer (the
+  // catch below after the watchdog fired, a final frame after a stall)
+  // drops its event instead of throwing into an unawaited closure.
+  // This is what keeps the pump's "nothing throws" contract true.
+  void emit(StreamEvent e) {
+    if (!queue.isClosed) queue.add(e);
+  }
+
   Timer? watchdog;
   void resetWatchdog() {
     watchdog?.cancel();
@@ -96,7 +105,7 @@ Stream<StreamEvent> pumpSse(
       if (flag.value) return;
       flag.value = true;
       flag.stalled = true;
-      queue.add(StreamError('stream stalled: no bytes for $stallTimeout',
+      emit(StreamError('stream stalled: no bytes for $stallTimeout',
           transient: true));
       queue.close();
       completions.close();
@@ -115,7 +124,7 @@ Stream<StreamEvent> pumpSse(
         resetWatchdog();
         parser.add(chunk);
         for (final e in mapped) {
-          queue.add(e);
+          emit(e);
         }
         mapped.clear();
         if (flag.value) break; // end-of-response seen inside onFrame
@@ -123,12 +132,12 @@ Stream<StreamEvent> pumpSse(
       // A final frame can flip the end flag during finish(); map its
       // events before deciding how the body ended.
       for (final e in mapped) {
-        queue.add(e);
+        emit(e);
       }
       mapped.clear();
       parser.finish();
       for (final e in mapped) {
-        queue.add(e);
+        emit(e);
       }
       mapped.clear();
       watchdog?.cancel();
@@ -141,17 +150,22 @@ Stream<StreamEvent> pumpSse(
       if (b.badFrame != null) {
         // A bad frame surfaces no matter how the body ended — a clean
         // end followed by junk still gets reported.
-        queue.add(StreamError('bad frame in stream: ${b.badFrame}'));
+        emit(StreamError('bad frame in stream: ${b.badFrame}'));
         return;
       }
       if (flag.sawStop && !b.errored) {
         final error = protocol.endError?.call(builder);
         if (error != null) {
-          queue.add(error);
+          emit(error);
           return;
         }
         final completion = protocol.build(builder);
-        if (completion != null) completions.add(completion);
+        // Reached only on the no-stall path (flag.stalled returned
+        // above), so the watchdog has not closed this controller; the
+        // guard keeps that true even if an await sneaks in above.
+        if (completion != null && !completions.isClosed) {
+          completions.add(completion);
+        }
         return;
       }
       if (b.errored) {
@@ -160,10 +174,14 @@ Stream<StreamEvent> pumpSse(
         return;
       }
       // The transport closed without an end: not a completion.
-      queue.add(StreamError('stream ended before the wire finished',
+      emit(StreamError('stream ended before the wire finished',
           transient: true));
     } catch (e) {
-      queue.add(StreamError('stream failed: $e', transient: true));
+      // The watchdog may have already closed the queue with the stall
+      // error; a late transport failure must not throw into this
+      // unawaited closure. emit drops it; the stall already told the
+      // consumer why the stream died.
+      emit(StreamError('stream failed: $e', transient: true));
     } finally {
       watchdog?.cancel();
       await queue.close();
