@@ -92,6 +92,26 @@ jobs:
         with:
           submodules: recursive
 
+      # v0.10.0 shipped binaries reporting 0.9.118: the tag was pushed without
+      # bumping apps/tina_cli/pubspec.yaml, build_bundle.sh faithfully baked the
+      # stale version in, and /update then offered the "new" release forever.
+      # version_test.dart only guards pubspec ↔ version.g.dart consistency —
+      # this guards tag ↔ pubspec. Real v* tags must match; dev/dispatch tags
+      # (0.0.0-dev.<run>) skip.
+      - name: Verify pubspec version matches the release tag
+        run: |
+          case "$TAG" in
+            v*) ;;
+            *) echo "non-release tag '$TAG' — skipping version check"; exit 0 ;;
+          esac
+          want="${TAG#v}"
+          got="$(sed -n 's/^version:[[:space:]]*//p' apps/tina_cli/pubspec.yaml | head -1)"
+          if [ "$got" != "$want" ]; then
+            echo "pubspec version '$got' != release tag '$TAG'." >&2
+            echo "Bump apps/tina_cli/pubspec.yaml, run 'dart run apps/tina_cli/tool/generate_version.dart', commit, then re-tag." >&2
+            exit 1
+          fi
+
       # Only macOS builds natively on the host and needs a local Dart SDK
       # (>=3.12, per pubspec). Linux builds run inside the dart:3.12 Docker
       # image, so no host Dart is required there.
@@ -278,6 +298,22 @@ jobs:
           ref: ${{ env.WASM_DART_REF }}
           path: wasm.dart
 
+      # Same tag ↔ pubspec guard as the CLI build job (the wasm runner embeds
+      # this checkout's Dart sources, so a stale version mislabels it too).
+      - name: Verify pubspec version matches the release tag
+        run: |
+          case "$TAG" in
+            v*) ;;
+            *) echo "non-release tag '$TAG' — skipping version check"; exit 0 ;;
+          esac
+          want="${TAG#v}"
+          got="$(sed -n 's/^version:[[:space:]]*//p' apps/tina_cli/pubspec.yaml | head -1)"
+          if [ "$got" != "$want" ]; then
+            echo "pubspec version '$got' != release tag '$TAG'." >&2
+            echo "Bump apps/tina_cli/pubspec.yaml, run 'dart run apps/tina_cli/tool/generate_version.dart', commit, then re-tag." >&2
+            exit 1
+          fi
+
       # The component recipe pins the exact stable SDK (dart2wasm needs a
       # 3.14-era wasm_tools; the pin is also what local replicas use).
       - name: Set up Dart 3.14.0
@@ -420,6 +456,22 @@ jobs:
       - name: Checkout release tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      # Last line of defense: also covers recovery dispatches (build_run_id),
+      # which skip the build jobs and their guards entirely.
+      - name: Verify pubspec version matches the release tag
+        run: |
+          case "$TAG" in
+            v*) ;;
+            *) echo "non-release tag '$TAG' — skipping version check"; exit 0 ;;
+          esac
+          want="${TAG#v}"
+          got="$(sed -n 's/^version:[[:space:]]*//p' apps/tina_cli/pubspec.yaml | head -1)"
+          if [ "$got" != "$want" ]; then
+            echo "pubspec version '$got' != release tag '$TAG'." >&2
+            echo "Bump apps/tina_cli/pubspec.yaml, run 'dart run apps/tina_cli/tool/generate_version.dart', commit, then re-tag." >&2
+            exit 1
+          fi
+
       - name: Validate recovered builds against release tag
         if: inputs.build_run_id != ''
         env:
@@ -542,4 +594,14 @@ jobs:
             echo "installed bundle is missing libnotcurses_merged at $bundle/lib" >&2
             exit 1
           }
-          "$dir/tina" --version
+          # The installed binary must report the tag's version, not just run:
+          # v0.10.0 shipped a binary saying 0.9.118 and this check passed.
+          version_out="$("$dir/tina" --version)"
+          echo "$version_out"
+          case "$version_out" in
+            *" ${TAG#v} "*) ;;
+            *)
+              echo "installed binary reports '$version_out', expected version ${TAG#v}" >&2
+              exit 1
+              ;;
+          esac
