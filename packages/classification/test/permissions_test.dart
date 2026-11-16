@@ -109,6 +109,32 @@ void main() {
       expect(system, contains('does not delete files outside the workspace'));
     },
   );
+  test(
+    'instructs the judge that read-only and non-destructive commands are OK',
+    () async {
+      final provider = Provider(
+        (_) => completed('{"decision":"ALLOW","reason":""}'),
+      );
+      await PermissionClassifier(() => provider).classify({
+        'command': 'git fetch origin',
+        'required_permissions': ['execution', 'network'],
+      });
+      final system = provider.systems.single;
+      expect(
+        system,
+        contains('Read-only commands in the workspace (git log, git status,'),
+      );
+      expect(
+        system,
+        contains('Non-destructive commands that only fetch data or update'),
+      );
+      expect(system, contains('git fetch origin, dart pub get'));
+      expect(system, contains('without overwriting working files'));
+      // Destructive operations still face the external-deletion condition.
+      expect(system, contains('does not delete files outside the workspace'));
+      expect(system, contains('DENY known secret access or external deletion'));
+    },
+  );
   for (final answer in [
     '{"decision":"ALLOW","reason":""}',
     ' { "decision": "DENY", "reason": "Force pushing can overwrite remote history." }\n',
