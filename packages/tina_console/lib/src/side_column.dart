@@ -36,16 +36,22 @@ final class SideColumnLayout {
         _setReservation = setReservation;
 
   /// Below this terminal width the column is not applied and panels
-  /// fall back to the stacked layout. At [minimumScreenWidth] the
-  /// column is 36 wide and the conversation keeps
-  /// [minConversationWidth] — the two constants meet exactly there.
+  /// fall back to the stacked layout. With the column floor at 40 the
+  /// binding constraint is the conversation: the column applies from
+  /// 100 columns up, where a 40-wide column leaves the conversation
+  /// exactly [minConversationWidth]. (96–99 columns fall back to the
+  /// stacked layout: the 36-wide column that used to fit there left
+  /// the inspector 32 interior columns — too narrow for its rows.)
   static const int minimumScreenWidth = 96;
 
   /// The conversation must always keep at least this many columns.
   static const int minConversationWidth = 60;
 
   /// Narrowest usable column (chat lines wrap but stay readable).
-  static const int minColumnWidth = 36;
+  /// 40 keeps the classifier inspector's rows — its border and padding
+  /// leave `width - 4` interior columns — wide enough for a full
+  /// `Request type: <label>` row at the floor.
+  static const int minColumnWidth = 40;
 
   /// Widest the column grows on very wide terminals.
   static const int maxColumnWidth = 52;
@@ -203,6 +209,12 @@ final class SideColumnPanel {
       _proxy = _column._fallback().register(_repaint, priority: _stackPriority);
     }
     _proxy!.requestSize(height: h, width: w, focused: focused);
+    // Re-evaluate the reservation against the CURRENT terminal width
+    // even when the request is unchanged: a resize across the
+    // threshold (column no longer fits) must release the strip here,
+    // or the conversation stays narrowed below its floor until some
+    // panel happens to change its request.
+    _column._applyReservation();
     if (_height == h && _width == w && _focused == focused) return;
     _height = h;
     _width = w;

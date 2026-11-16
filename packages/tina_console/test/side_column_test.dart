@@ -22,16 +22,20 @@ void main() {
   }
 
   test('width constants: a third of the screen, clamped, with a floor', () {
-    expect(SideColumnLayout.panelWidthFor(96), 36);
-    expect(SideColumnLayout.panelWidthFor(108), 36);
+    expect(SideColumnLayout.panelWidthFor(96), 40);
+    expect(SideColumnLayout.panelWidthFor(108), 40);
     expect(SideColumnLayout.panelWidthFor(120), 40);
     expect(SideColumnLayout.panelWidthFor(156), 52);
     expect(SideColumnLayout.panelWidthFor(200), 52);
-    // The threshold: below it the column is not applied at all.
+    // The threshold: below 100 the column is not applied at all (96-99
+    // would leave the conversation under its 60-column floor; 95 and
+    // down fail the minimum width outright).
     expect(SideColumnLayout.fits(95), isFalse);
-    expect(SideColumnLayout.fits(96), isTrue);
+    expect(SideColumnLayout.fits(96), isFalse);
+    expect(SideColumnLayout.fits(99), isFalse);
+    expect(SideColumnLayout.fits(100), isTrue);
     // At the threshold the conversation keeps its minimum.
-    expect(96 - SideColumnLayout.panelWidthFor(96),
+    expect(100 - SideColumnLayout.panelWidthFor(100),
         greaterThanOrEqualTo(SideColumnLayout.minConversationWidth));
   });
 
@@ -203,6 +207,32 @@ void main() {
     expect(plans.bounds.height, 6);
   });
 
+  // A panel re-request after a threshold-crossing resize releases
+  // the strip: the conversation is whole again.
+  test('a resize across the threshold releases the column', () async {
+    var layout = ScreenLayout.fromSize(100, 24, split: false);
+    final column = SideColumnLayout(
+        layout: () => layout,
+        setReservation: (width) {
+          layout = ScreenLayout.fromSize(layout.width, layout.height,
+              split: layout.isSplit, rightColumnWidth: width);
+        });
+    final classifier =
+        column.register(() {}, rank: SideColumnRank.classifier);
+    classifier.requestSize(height: 8);
+    await pumpEventQueue();
+    expect(layout.rightColumn.width, 40);
+
+    // The terminal shrinks below what the column needs. The same
+    // panel request re-evaluates against the new width: no column,
+    // no reservation, full-width conversation.
+    layout = ScreenLayout.fromSize(40, 10, split: false);
+    classifier.requestSize(height: 8); // unchanged request, new width
+    await pumpEventQueue();
+    expect(layout.rightColumn, isEmpty);
+    expect(layout.chat.width, 38);
+  });
+
   test('Screen.setRightColumn narrows the conversation and survives resizes',
       () {
     final io = _Io();
@@ -223,6 +253,16 @@ void main() {
     screen.setRightColumn(0);
     expect(screen.layout.rightColumn, isEmpty);
     expect(screen.layout.chat.width, 98);
+    // A shrink below what the reservation can carry degrades to none
+    // (it used to throw from the width clamp) instead of killing the
+    // resize handler.
+    screen.setRightColumn(40);
+    screen.resize(ScreenLayout.fromSize(40, 10, split: false));
+    expect(screen.layout.rightColumn, isEmpty);
+    expect(screen.layout.chat.width, 38);
+    screen.setRightColumn(0);
+    screen.resize(ScreenLayout.fromSize(120, 30, split: false));
+    expect(screen.layout.chat.width, 118);
     screen.dispose();
   });
 }

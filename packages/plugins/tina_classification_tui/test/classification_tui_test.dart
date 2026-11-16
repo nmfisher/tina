@@ -148,17 +148,17 @@ void main() {
         },
         'usage': {},
       });
-      // Column mode at 100 cols: the compact preview clips at the
-      // column width (interior 32) with an ellipsis; the result label
-      // is present up to the clip.
+      // Column mode at 100 cols: the column floor is 40, so the
+      // compact preview's widest row ('▸ Request type: ? <label>') fits
+      // whole (interior 36); only the confidence suffix clips.
       expect(visible(), contains('Request type: ?'));
-      expect(visible(), contains('Request to'));
+      expect(visible(), contains('Request to do work'));
       attachment.dispose();
       expect(view.panel, isNull);
       view = ClassificationView(plugin.observation);
       attachment = ConsoleAttachment.attach(view, context);
       expect(visible(), contains('Request type: ?'));
-      expect(visible(), contains('Request to'));
+      expect(visible(), contains('Request to do work'));
       view.panel!.show(hierarchy: true);
       final labels = classificationPanelRows(
         plugin.observation.trace,
@@ -568,9 +568,9 @@ void main() {
       await key;
       modal.dispose();
       view.repaintConsole();
-      // Column width clips the choice label; '? Project' proves the
-      // completed answer rendered.
-      expect(visible(), contains('? Project'));
+      // Column mode at 100 cols (column floor 40, interior 36): the
+      // completed answer renders with its full label.
+      expect(visible(), contains('? Project question'));
       await pumpEventQueue();
       io.output.clear();
       await Future<void>.delayed(const Duration(milliseconds: 180));
@@ -611,6 +611,19 @@ void main() {
       plansView.repaintConsole();
       await pumpEventQueue();
       view.repaintConsole();
+      expect(view.panel!.bounds.bottom, lessThan(screen.layout.inputRow));
+      expect(visible(), contains('classification'));
+      // 40x10 crosses OUT of the column while it is reserved: the
+      // resize used to throw from the reservation's width clamp
+      // (killing the SIGWINCH handler) and the reservation must
+      // release so the panel falls back to the stacked geometry.
+      screen.resize(ScreenLayout.fromSize(40, 10, split: false));
+      home.setOuter(screen.chat.bounds);
+      await pumpEventQueue();
+      view.repaintConsole();
+      plansView.repaintConsole();
+      expect(screen.layout.rightColumn, isEmpty);
+      expect(screen.layout.chat.width, 38);
       expect(view.panel!.bounds.bottom, lessThan(screen.layout.inputRow));
       expect(visible(), contains('classification'));
       active = false;

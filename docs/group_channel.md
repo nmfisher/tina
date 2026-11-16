@@ -201,15 +201,17 @@ work is running still cancels the work first — the pane inherits the
 same Esc ladder as every other view.
 
 Where the pane renders follows the side column (the owner layout
-directive): on terminals at least 96 columns wide, an open pane takes a
-strip on the RIGHT of the conversation — a third of the terminal width,
-clamped to 36–52 columns — stacked under the classifier inspector and
-the plans tree in that fixed order, and it takes the majority of the
-column's height (the conversation narrows by the strip; closing the
-pane releases it). On narrower terminals the pane keeps today's
-geometry: the full-screen browser modal over the conversation. Same
-interaction in both — typing, posting, browsing and the Esc ladder are
-identical; only the rectangle differs.
+directive): on wide terminals (from 100 columns — where a 40-wide
+column still leaves the conversation its 60-column floor), an open
+pane takes a strip on the RIGHT of the conversation — a third of the
+terminal width, clamped to 40–52 columns — stacked under the
+classifier inspector and the plans tree in that fixed order, and it
+takes the majority of the column's height (the conversation narrows
+by the strip; closing the pane releases it). On narrower terminals
+the pane keeps today's geometry: the full-screen browser modal over
+the conversation. Same interaction in both — typing, posting,
+browsing and the Esc ladder are identical; only the rectangle
+differs.
 
 Where the pane is absent (remote/pipes front ends — the store is
 process-local), it stays absent. If a composition ever attaches the

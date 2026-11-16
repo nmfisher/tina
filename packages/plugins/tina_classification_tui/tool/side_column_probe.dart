@@ -11,7 +11,7 @@ import 'package:tina_console/tina_console.dart';
 ///
 ///     dart run tool/side_column_probe.dart
 Future<void> main() async {
-  for (final width in [140, 100, 80]) {    final screen = Screen(
+  for (final width in [140, 100, 96, 80]) {    final screen = Screen(
       io: _Io(width),
       ansi: AnsiCapable.yes,
       layout: ScreenLayout.fromSize(width, 40, split: false),

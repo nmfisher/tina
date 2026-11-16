@@ -236,6 +236,10 @@ final class _ChannelBrowser implements ModalSurface {
   void repaint() {
     final console = view._console;
     if (!_open || console == null || !console.isActive) return;
+    // A resize may have crossed the column threshold either way; the
+    // claim follows the CURRENT width (open + fits), not the width at
+    // open time.
+    _syncColumnSlot();
     if (console.isReadingKey) {
       _overlay?.hide();
       _releaseCursor?.call();

@@ -252,15 +252,18 @@ every attached view (one column per screen). The classifier inspector
 group-channel pane (`SideColumnRank.channel`) render there, top to bottom in
 that order regardless of when they were opened or attached.
 
-- **Width.** While any column panel is open on a terminal at least
-  `SideColumnLayout.minimumScreenWidth` (96) columns wide, the conversation
-  narrows and the column takes `panelWidthFor(width)` = one third of the
-  terminal, clamped to 36–52 columns (`minColumnWidth`/`maxColumnWidth`); the
-  conversation always keeps at least 60 (`minConversationWidth`). The
-  reservation is a screen-level layout fact (`Screen.setRightColumn`): the
-  chat, input and info regions shrink around it, and it survives terminal
-  resizes. Only `height` matters inside the column — the panel renders in
-  `bounds`, full column width.
+- **Width.** While any column panel is open on a terminal wide enough
+  for the split, the conversation narrows and the column takes
+  `panelWidthFor(width)` = one third of the terminal, clamped to 40–52
+  columns (`minColumnWidth`/`maxColumnWidth`); the conversation always
+  keeps at least 60 (`minConversationWidth`). The two constraints meet
+  at 100 columns — below that the column never engages. The 40-column
+  floor keeps the classifier inspector's rows readable: its border and
+  padding leave `width - 4` interior columns. The reservation is a
+  screen-level layout fact (`Screen.setRightColumn`): the chat, input
+  and info regions shrink around it, and it survives terminal
+  resizes. Only `height` matters inside the column — the panel renders
+  in `bounds`, full column width.
 - **Vertical distribution.** Each open panel gets its requested height, capped
   so every later panel keeps its minimum (4 rows; the channel pane's minimum
   is 8). The channel pane asks for everything left, so it takes the remainder
@@ -268,11 +271,12 @@ that order regardless of when they were opened or attached.
   hold its own minimum collapses (renders nowhere) and releases its rows to
   the panels after it. A focused panel asking for a very large height is the
   column's analog of maximize: later panels drop to their minimums.
-- **Fallback.** Below 96 columns the column never engages: panels render
-  through the stacked sidebar geometry instead (exactly `bindSidebarPanel`'s
-  layout, priorities preserved), and the conversation keeps the full width.
-  The channel pane — a modal, not a stacked panel — falls back to the
-  full-screen `dialogArea` modal.
+- **Fallback.** Below 100 columns (including everything under
+  `SideColumnLayout.minimumScreenWidth`) the column never engages: panels
+  render through the stacked sidebar geometry instead (exactly
+  `bindSidebarPanel`'s layout, priorities preserved), and the conversation
+  keeps the full width. The channel pane — a modal, not a stacked panel —
+  falls back to the full-screen `dialogArea` modal.
 - Panels that are not conversation inspectors (the tasks overview) keep using
   `bindSidebarPanel` directly, unchanged.
 

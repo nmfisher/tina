@@ -154,8 +154,11 @@ class ScreenLayout {
         ? 0
         : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
     // The side column takes the right edge; it needs its own minimum
-    // and must leave the conversation a readable remainder.
-    final rightWidth = rightColumnWidth <= 0 || w < 40
+    // and must leave the conversation a readable remainder. A
+    // reservation the terminal cannot carry (a resize down to fewer
+    // than 60 columns) degrades to none rather than throwing — the
+    // owning layout re-claims once panels re-request.
+    final rightWidth = rightColumnWidth <= 0 || w < 60
         ? 0
         : rightColumnWidth.clamp(20, w - 40);
     // The strip owns the LAST row in every layout, and the panel boxes stop
