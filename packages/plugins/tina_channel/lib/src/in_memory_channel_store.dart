@@ -89,6 +89,15 @@ final class InMemoryChannelStore implements ChannelStoreApi {
   }
 
   @override
+  ChannelMessage? message(String channel, int id) {
+    final normalized = normalizeChannelName(channel);
+    for (final m in _messages) {
+      if (m.channel == normalized && m.id == id) return m;
+    }
+    return null;
+  }
+
+  @override
   void setMember(String channel, String member,
       {required String status,
       String? role,
@@ -108,11 +117,13 @@ final class InMemoryChannelStore implements ChannelStoreApi {
       lastSeen: DateTime.now().toUtc(),
     );
     if (announce) {
+      // The sender column carries the name; the text stays name-less so
+      // rendered lines read `* nick working — …`.
       post(normalized,
           sender: member,
           text: summary == null || summary.isEmpty
-              ? '$member is $status'
-              : '$member is $status — $summary',
+              ? status
+              : '$status — $summary',
           type: ChannelMessageType.status);
     }
   }

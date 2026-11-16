@@ -213,6 +213,10 @@ abstract interface class ChannelStoreApi {
   List<ChannelMessage> read(String channel,
       {int? sinceId, DateTime? sinceTime, int limit = 50});
 
+  /// One message by id, when it sits in [channel]; null otherwise.
+  /// Reply validation and rendering use this.
+  ChannelMessage? message(String channel, int id);
+
   /// Upsert a member's presence. With [announce] (the default) the
   /// change is also appended as a `status` message so scrollback shows
   /// joins and status changes in place.

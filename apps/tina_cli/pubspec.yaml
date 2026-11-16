@@ -67,6 +67,8 @@ dependencies:
     path: ../../packages/plugins/tina_mode
   tina_persistence:
     path: ../../packages/plugins/tina_persistence
+  tina_channel:
+    path: ../../packages/plugins/tina_channel
   tina_plans:
     path: ../../packages/plugins/tina_plans
   tina_plans_tui:

@@ -232,6 +232,31 @@ final class SqliteChannelStore implements ChannelStoreApi {
   }
 
   @override
+  ChannelMessage? message(String channel, int id) {
+    final normalized = normalizeChannelName(channel);
+    try {
+      final rows = _db.select(
+          'SELECT id, channel, sender, text, type, mentions, reply_to, '
+          'created_at FROM messages WHERE channel = ? AND id = ?',
+          [normalized, id]);
+      if (rows.isEmpty) return null;
+      final row = rows.single;
+      return ChannelMessage(
+        id: row['id'] as int,
+        channel: row['channel'] as String,
+        sender: row['sender'] as String,
+        text: row['text'] as String,
+        type: ChannelMessageType.parse(row['type'] as String),
+        createdAt: DateTime.parse(row['created_at'] as String),
+        mentions: _decodeMentions(row['mentions'] as String?),
+        replyTo: row['reply_to'] as int?,
+      );
+    } on Object catch (e) {
+      _fail('reading message $id of $normalized', e);
+    }
+  }
+
+  @override
   void setMember(String channel, String member,
       {required String status,
       String? role,
@@ -262,9 +287,11 @@ final class SqliteChannelStore implements ChannelStoreApi {
               _now(),
             ]);
         if (announce) {
+          // The sender column carries the name; the text stays
+          // name-less so rendered lines read `* nick working — …`.
           final text = summary == null || summary.isEmpty
-              ? '$member is $status'
-              : '$member is $status — $summary';
+              ? status
+              : '$status — $summary';
           _db.execute(
               'INSERT INTO messages '
               '(channel, sender, text, type, mentions, reply_to, created_at) '

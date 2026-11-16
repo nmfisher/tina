@@ -56,6 +56,7 @@ const defaultPluginIds = <String>[
   'tina/bg-tui',
   'tina/mcp',
   'tina/persistence',
+  'tina/channel',
   'tina/plans',
   'tina/goals',
   'tina/tasks',

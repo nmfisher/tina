@@ -497,6 +497,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_channel:
+    dependency: "direct main"
+    description:
+      path: "../../packages/plugins/tina_channel"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_chat:
     dependency: "direct main"
     description:

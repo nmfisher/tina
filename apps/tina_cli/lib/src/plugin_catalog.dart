@@ -19,6 +19,8 @@ export 'session_context.dart';
 import 'package:tina_shell/tina_shell.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_channel/tina_channel.dart';
+import 'package:tina_channel/tina_channel_sqlite.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_context/tina_context.dart';
@@ -404,6 +406,18 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       description:
           'Saves conversations in SQLite, resumes sessions, and provides workspace-first history search with recent sessions first.',
       live: false,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/channel',
+      (c) => ChannelPlugin(
+        openStore: () => openDefaultChannelStore(c.workingDirectory),
+        agentName: 'tina-main',
+      ),
+      description:
+          'Shared agent message channels: post, read scrollback and set '
+          'presence in #lobby and per-task channels, persisted in the '
+          'workspace.',
+      live: true,
     ),
     PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
       'tina/plans',

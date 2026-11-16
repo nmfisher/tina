@@ -165,7 +165,7 @@ void main() {
       first.close();
       final second = SqliteChannelStore.open(path);
       expect(second.read('#lobby').map((m) => m.text),
-          containsAll(['tina-main is working', 'durable']));
+          containsAll(['working', 'durable']));
       expect(second.members('#lobby').single.status, 'working');
       second.close();
     });

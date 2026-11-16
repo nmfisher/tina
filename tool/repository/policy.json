@@ -551,6 +551,7 @@
       "tina_system_instruction",
       "tina_tasks",
       "tina_tasks_tui",
+      "tina_channel",
       "tina_token_rate_tui",
       "tina_tools",
       "tina_tui",
