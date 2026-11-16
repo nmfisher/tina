@@ -12,7 +12,7 @@ without granting writes. The explicit launch-only `--yolo` override is retained.
 | First workspace write | Human approval for the entire workspace | Human approval for the entire workspace |
 | Later workspace writes in this session | Allow | Allow |
 | External read/write covered by a saved path grant | Allow | Allow |
-| Other external read/write/execute | Human review | Model review |
+| Other external read/write/execute | Human review | Model review; denials and uncertainty go to the human |
 
 Workspace write approval includes creation, overwriting, renaming, and deletion.
 It is session-only, shared by file tools, commands, and child agents, and survives
@@ -92,8 +92,12 @@ access and while another approval for the command is pending.
 
 The model receives the command/script, requested access, workspace, and task context.
 It approves when both conditions hold: the action accesses no secrets/credentials,
-and it deletes no files outside the workspace. Known violations are denied.
-Uncertain results, model errors, and missing configuration go to the human.
+and it deletes no files outside the workspace. A denial is a recommendation, not
+a decision: known violations, uncertain results, model errors, and missing
+configuration all go to the human, with the classifier's reason shown in the
+approval dialog so the user can override or refuse. Only the malformed-tool-call
+format review stays model-only — it tells the model to rewrite the call and
+never prompts.
 Auto approvals apply once and create no standing grants. Explicit human path
 grants are checked before auto review. Unconfined host execution also goes to the
 classifier in Auto mode and to the user in Approve mode. Explicit confirmation
