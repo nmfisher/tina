@@ -66,6 +66,16 @@ abstract interface class AppIo {
   /// Renames (moves) [from] to [to].
   void rename(String from, String to);
 
+  /// Runs [body] while holding this process's exclusive advisory lock on
+  /// the sidecar lock file of [path] (`path.lock`). Concurrent processes
+  /// serialize on it — each waits for the holder — and the kernel
+  /// releases a dead holder's lock, so a crashed session never blocks
+  /// the file forever. Re-entrant within the process: nested calls on
+  /// the same path compose, so a caller may hold a file's lock across a
+  /// batch whose members lock it again. The zero-byte lock file may be
+  /// left behind; take locks only through this method.
+  T lockExclusive<T>(String path, T Function() body);
+
   /// A fresh temporary directory under [near], like
   /// `Directory.createTempSync` scoped to a parent.
   String createTempDirectory(String near, String prefix);

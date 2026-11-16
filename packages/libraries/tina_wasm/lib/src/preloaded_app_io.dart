@@ -79,6 +79,13 @@ final class PreloadedAppIo implements AppIo {
   }
 
   @override
+  T lockExclusive<T>(String path, T Function() body) {
+    // The snapshot has no other process to serialize against: the whole
+    // snapshot is read once, before boot, and writes stay in memory.
+    return body();
+  }
+
+  @override
   String createTempDirectory(String near, String prefix) {
     final dir = '$near/.tina-staging-${DateTime.now().microsecondsSinceEpoch}';
     _directories.add(_normalize(dir));

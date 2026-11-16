@@ -31,6 +31,9 @@ final class UnsupportedAppIo implements AppIo {
 
   @override
   void rename(String from, String to) => _fail();
+
+  @override
+  T lockExclusive<T>(String path, T Function() body) => _fail();
   @override
   String createTempDirectory(String near, String prefix) => _fail();
   @override
