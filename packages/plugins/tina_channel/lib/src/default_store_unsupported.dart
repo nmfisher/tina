@@ -1,4 +1,4 @@
-/// Platforms without `dart:io` have no default store location; the
-/// composition root injects an implementation instead.
-Never openDefaultChannelStore(String workspace) => throw UnsupportedError(
-    'no default channel store on this platform; inject one');
+Never openDefaultChannelStore(String workspace, String sessionId) =>
+    throw UnsupportedError(
+        'channel stores need dart:io; a wasm composition root injects '
+        'its own implementation through the opener seam');

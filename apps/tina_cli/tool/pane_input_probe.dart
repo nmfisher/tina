@@ -54,8 +54,10 @@ Future<void> main(List<String> args) async {
       '(TINA_HUMAN_NAME=${Platform.environment['TINA_HUMAN_NAME'] ?? '-'})');
 
   // Wrapped like plugin_catalog's opener (a bare top-level call lets
-  // flow analysis pick the conditional export's Never variant).
-  ChannelStoreApi open() => openDefaultChannelStore(workspace);
+  // flow analysis pick the conditional export's Never variant). The
+  // probe simulates one session's chat scope.
+  const chatScope = 'probe-session';
+  ChannelStoreApi open() => openDefaultChannelStore(workspace, chatScope);
   final store = open();
   // A stand-in agent, as a live session's channel plugin would join.
   store.setMember('#lobby', 'tacit-narwhal',
@@ -115,5 +117,4 @@ Future<void> main(List<String> args) async {
   screen.dispose();
   await io.input.close();
   store.close();
-  print('rows in store: ${open().read('#lobby').length}');
-}
+  print('rows in store: ${open().read('#lobby').length}');}

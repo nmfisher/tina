@@ -171,35 +171,6 @@ String _appendPaste(String draft, String paste) {
   return draft.isEmpty ? flat : '$draft $flat';
 }
 
-/// The human joins a channel like agents do: a member row plus a
-/// `status` announce (`* sam joined`). [joined] is the session's set
-/// of already-joined channels — the first view of a channel announces,
-/// later touches refresh `last_seen` silently.
-void humanJoin(
-    ChannelStoreApi store, String channel, String name, Set<String> joined) {
-  final first = joined.add(channel);
-  store.setMember(channel, name,
-      status: 'joined', role: 'human', announce: first);
-}
-
-/// One human post through the store interface: presence touch, then an
-/// appended message with `@mentions` parsed from the text. Returns an
-/// error message on failure, null on success.
-String? humanPost(ChannelStoreApi store,
-    {required String channel,
-    required String name,
-    required String text,
-    required Set<String> joined}) {
-  try {
-    humanJoin(store, channel, name, joined);
-    store.post(channel,
-        sender: name, text: text, mentions: parseMentions(text));
-    return null;
-  } on Object catch (cause) {
-    return cause is ChannelStoreException ? cause.message : 'failed to post';
-  }
-}
-
 /// Renders the pane body: the channel list (selected marker, unread
 /// badge, counts), the selected channel's recent messages with sender
 /// labels and status markers, a presence footer, and — when [input] is

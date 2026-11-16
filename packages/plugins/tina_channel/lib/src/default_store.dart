@@ -1,7 +1,7 @@
-/// Opens the workspace's default channel store. Natively that is the
-/// sqlite implementation at `.tina/channel.db` (parents created);
-/// platforms without `dart:io` throw — a wasm composition root
-/// injects its own implementation through the opener seam instead.
+/// Opens a session's chat store. Natively that is the sqlite
+/// implementation at `.tina/channels/<session-id>.db` (parents
+/// created); platforms without `dart:io` throw — a wasm composition
+/// root injects its own implementation through the opener seam instead.
 library;
 
 export 'default_store_unsupported.dart'

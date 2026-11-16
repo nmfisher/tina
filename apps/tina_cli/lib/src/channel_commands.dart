@@ -1,16 +1,21 @@
 /// The `tina channel` subcommands: list / read / say / status.
 ///
 /// Routed from `runCli` before the main flag schema (the channel
-/// surface is a subcommand tree, like `tina plugin`). This is the
-/// Phase 1 acceptance path: a human inspects the workspace's shared
-/// agent channels and posts from a terminal. It opens its own store
-/// connection to `.tina/channel.db` under the workspace.
+/// surface is a subcommand tree, like `tina plugin`). A group chat
+/// belongs to one session, so the commands default to the CURRENT
+/// session's chat (the workspace's most recently active session); an
+/// explicit `--session ID` inspects another session's chat, read-only.
+/// This is the fallback path for a human at a terminal — in-session,
+/// the channel pane is the primary input — and for scripting (`--db`
+/// points at a store file directly).
 library;
 
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:tina_channel/tina_channel.dart';
 import 'package:tina_channel/tina_channel_sqlite.dart';
+import 'package:tina_persistence/tina_persistence.dart';
 
 const _usage = 'usage: tina channel <list|read|say|status> [args]\n'
     '  tina channel list\n'
@@ -18,7 +23,9 @@ const _usage = 'usage: tina channel <list|read|say|status> [args]\n'
     '  tina channel say CHANNEL TEXT... [--as NAME]\n'
     '  tina channel status [CHANNEL] [--as NAME] \\\n'
     '      [--set working|idle|done] [--summary TEXT]\n'
-    'options: --cwd DIR (workspace, default .), --db FILE (store override)';
+    'options: --cwd DIR (workspace, default .),\n'
+    '         --session ID (another session\'s chat, read-only),\n'
+    '         --db FILE (store file override)';
 
 /// Routes a `tina channel ...` invocation. Returns null when [args] is
 /// not a channel subcommand (the caller falls through to the main CLI).
@@ -47,13 +54,30 @@ Future<int?> runChannelSubcommand(List<String> args) async {
   }
 
   final workspace = flags['cwd'] ?? Directory.current.path;
-  final dbFlag = flags['db'];
-  final storePath = dbFlag ?? defaultChannelStorePath(workspace);
+
+  // Help needs no store; everything else resolves a session chat.
+  if (command == 'help' || command == '--help' || command == '-h') {
+    stdout.writeln(_usage);
+    return 0;
+  }
+  final resolution = _resolveStore(workspace, flags['db'], flags['session']);
+  if (resolution is _UsageFailure) {
+    stderr.writeln('tina channel: ${resolution.message}');
+    stderr.writeln(_usage);
+    return 64;
+  }
+  final scope = resolution as _StoreScope;
+  final storePath = scope.path;
 
   ChannelStoreApi openStore() {
     File(storePath).parent.createSync(recursive: true);
     return SqliteChannelStore.open(storePath);
   }
+
+  String? refuseReadOnly() => scope.readOnly
+      ? 'session "${flags['session']}" is not the current session — '
+          'its chat is read-only here (read and list only)'
+      : null;
 
   switch (command) {
     case 'list':
@@ -65,9 +89,14 @@ Future<int?> runChannelSubcommand(List<String> args) async {
       if (positional.length < 2) {
         return _usageError('say needs a channel and a message');
       }
+      final refused = refuseReadOnly();
+      if (refused != null) return _usageError(refused);
       return _say(openStore, positional.first, positional.skip(1).join(' '),
           flags['as'] ?? 'user');
     case 'status':
+      // Only --set writes; a status listing is always allowed.
+      final refused = flags['set'] != null ? refuseReadOnly() : null;
+      if (refused != null) return _usageError(refused);
       return _status(openStore,
           channel: positional.isEmpty ? null : positional.first,
           asName: flags['as'] ?? 'user',
@@ -76,13 +105,65 @@ Future<int?> runChannelSubcommand(List<String> args) async {
     case 'help':
     case '--help':
     case '-h':
-      stdout.writeln(_usage);
-      return 0;
+      return 0; // handled before store resolution
     default:
       stderr.writeln('tina channel: unknown subcommand "$command"');
       stderr.writeln(_usage);
       return 64;
   }
+}
+
+/// The store file a command should talk to. `--db` wins (raw override,
+/// writable — scripting); otherwise the session chat files under
+/// `.tina/channels/`: `--session` picks one (read-only unless it is
+/// also the current session), no flag means the workspace's current
+/// (most recently active) session, writable.
+Object _resolveStore(String workspace, String? dbFlag, String? sessionFlag) {
+  if (dbFlag != null && dbFlag.isNotEmpty) return _StoreScope(dbFlag, false);
+  final sessionsPath = p.join(workspace, '.tina', 'sessions.db');
+  if (!File(sessionsPath).existsSync()) {
+    return _UsageFailure('a chat belongs to a session, and this workspace '
+        'has no session store ($sessionsPath). Start a session, or pass '
+        '--session ID or --db FILE.');
+  }
+  final sessions = SessionStore.open(sessionsPath);
+  final List<StoredSession> listed;
+  try {
+    listed = sessions.list();
+  } finally {
+    sessions.close();
+  }
+  if (listed.isEmpty) {
+    return _UsageFailure('no sessions recorded in $sessionsPath');
+  }
+  StoredSession latest = listed.first;
+  for (final candidate in listed.skip(1)) {
+    if (candidate.lastActivityKey > latest.lastActivityKey ||
+        (candidate.lastActivityKey == latest.lastActivityKey &&
+            candidate.registryKey > latest.registryKey)) {
+      latest = candidate;
+    }
+  }
+  if (sessionFlag != null && sessionFlag.isNotEmpty) {
+    final known = listed.any((s) => s.id == sessionFlag);
+    if (!known) {
+      return _UsageFailure('unknown session id "$sessionFlag"');
+    }
+    return _StoreScope(defaultChannelStorePath(workspace, sessionFlag),
+        sessionFlag != latest.id);
+  }
+  return _StoreScope(defaultChannelStorePath(workspace, latest.id), false);
+}
+
+final class _StoreScope {
+  const _StoreScope(this.path, this.readOnly);
+  final String path;
+  final bool readOnly;
+}
+
+final class _UsageFailure {
+  const _UsageFailure(this.message);
+  final String message;
 }
 
 int _usageError(String problem) {

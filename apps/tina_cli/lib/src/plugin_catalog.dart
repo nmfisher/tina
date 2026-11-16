@@ -410,32 +410,37 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
     PluginDefinition<SessionPluginContext>(
       'tina/channel',
       (c) => ChannelPlugin(
-        openStore: () => openDefaultChannelStore(c.workingDirectory),
+        // A chat belongs to one session: the opener receives the
+        // session id (the host's own identity) and opens that
+        // session's chat file. Resuming reopens the same chat.
+        openStore: (scope) =>
+            openDefaultChannelStore(c.workingDirectory, scope),
         // Identity is decided at the assembly root: an explicit
         // TINA_AGENT_NAME wins verbatim; otherwise the plugin draws a
-        // per-session shortcode, collision-checked against the store.
+        // per-session shortcode, collision-checked against the chat.
         agentName:
             agentNameFromEnvironment(Platform.environment),
         role: 'main',
       ),
       description:
-          'Shared agent message channels: post, read scrollback and set '
-          'presence in #lobby and per-task channels, persisted in the '
-          'workspace.',
+          'The session\'s group chat: the main agent, its subagents and '
+          'the human share channels with scrollback and presence, '
+          'persisted with the session in the workspace.',
       live: true,
     ),
     PluginDefinition<SessionPluginContext>(
       'tina/channel-tui',
       (c) => ChannelPanePlugin(
-        openStore: () => openDefaultChannelStore(c.workingDirectory),
+        openStore: (scope) =>
+            openDefaultChannelStore(c.workingDirectory, scope),
         // The human identity is decided at the assembly root like the
         // agent's: an explicit TINA_HUMAN_NAME wins verbatim, else the
         // OS username sanitized (see human_identity.dart).
         humanName: defaultHumanName(Platform.environment),
       ),
       description:
-          'Shows the workspace\'s group channels in the console: channel '
-          'list with unread badges, recent messages, and an input line — '
+          'Shows the session\'s group chat in the console: channel list '
+          'with unread badges, recent messages, and an input line — '
           'typing posts to the channel as the human.',
       live: true,
     ),
@@ -552,10 +557,21 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           providerFactory: models.childProvider,
           model: c.model,
           currentModel: c.currentModel,
-          childPlugins: () => [
+          // The child plugin set receives the subagents plugin, so
+          // session-scoped extras can read the parent session: the
+          // channel plugin joins the child to the PARENT's chat (the
+          // session's group chat) as role `subagent` — a child never
+          // spawns, so the chat's member tree is one level deep.
+          childPlugins: (plugin) => [
             const SystemInstructionPlugin(),
             if (c.openStore != null)
               PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
+            ChannelPlugin(
+              openStore: (scope) =>
+                  openDefaultChannelStore(c.workingDirectory, scope),
+              chatSessionId: plugin.parent.id,
+              role: 'subagent',
+            ),
           ],
         ),
         history: c.openStore != null

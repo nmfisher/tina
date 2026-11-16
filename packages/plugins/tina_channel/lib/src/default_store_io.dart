@@ -2,9 +2,10 @@ import 'dart:io';
 
 import 'sqlite_channel_store.dart';
 
-/// Opens (creating parents) `.tina/channel.db` under [workspace].
-ChannelStoreApi openDefaultChannelStore(String workspace) {
-  final path = defaultChannelStorePath(workspace);
+/// Opens (creating parents) this session's chat store:
+/// `.tina/channels/<session-id>.db` under [workspace].
+ChannelStoreApi openDefaultChannelStore(String workspace, String sessionId) {
+  final path = defaultChannelStorePath(workspace, sessionId);
   try {
     File(path).parent.createSync(recursive: true);
   } on Object catch (e) {

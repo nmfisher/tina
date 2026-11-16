@@ -90,7 +90,7 @@ import 'package:tina_tools/tina_tools.dart';
         return p;
       },
       model: 'scripted',
-      childPlugins: () => [
+      childPlugins: (plugin) => [
         if (storePath != null)
           PersistencePlugin(openStore: () => SessionStore.open(storePath))
       ],

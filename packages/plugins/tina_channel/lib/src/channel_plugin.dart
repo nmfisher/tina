@@ -7,29 +7,40 @@ import 'channel_tools.dart';
 import 'shortcode.dart';
 
 /// Owns the channel store and contributes the channel tools. The
-/// application assembly supplies the opener (workspace sqlite natively,
-/// an injected implementation under wasm); the plugin opens at session
-/// start, settles the agent identity, joins `#lobby` so the workspace
-/// sees the agent, and closes with the session. Joining writes the
-/// member row and announces a status message — presence from the first
-/// second of the session.
+/// application assembly supplies the opener (per-session sqlite
+/// natively, an injected implementation under wasm); the plugin opens
+/// at session start — scoped to [chatSessionId] (the session's own id
+/// by default; a subagent child passes its PARENT's id, so the child
+/// joins the session's chat rather than getting a private one) —
+/// settles the agent identity, joins `#lobby` (the session's own room:
+/// main agent + its subagents + the human) so the session sees its
+/// agents, and closes with the session. Joining writes the member row
+/// and announces a status message — presence from the first second of
+/// the session. Resuming a session reopens the same chat file with its
+/// full history.
 ///
 /// Identity: [agentName] is the explicit override (used verbatim);
 /// null — the assembly default — generates a shortcode
 /// (`calm-heron`) once per session, collision-checked against the
-/// store's active members. The role (main/subagent/task label) rides
-/// the members table, never the name. The identity is decided here at
-/// the composition seam, never inside the tools.
+/// chat's active members (parent and siblings). The role
+/// (main/subagent/task label) rides the members table, never the name.
+/// The identity is decided here at the composition seam, never inside
+/// the tools.
 final class ChannelPlugin extends AgentPlugin {
   ChannelPlugin({
     required this.openStore,
+    this.chatSessionId,
     this.agentName,
     this.role = 'agent',
     this.random,
   });
 
-  /// Opens the store this plugin owns.
+  /// Opens the chat store for a session id.
   final ChannelStoreOpener openStore;
+
+  /// The session whose chat this plugin talks in: the session's own id
+  /// when null; a subagent child sets its parent's id.
+  final String? chatSessionId;
 
   /// The agent identity messages self-attribute with: an explicit
   /// override, or null to generate a per-session shortcode.
@@ -64,7 +75,7 @@ final class ChannelPlugin extends AgentPlugin {
 
   @override
   SessionSeed? openSession(PluginSession session) {
-    final store = openStore();
+    final store = openStore(chatSessionId ?? session.id);
     final String identity;
     try {
       identity = agentName ?? settleAgentName(store, random);

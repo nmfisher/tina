@@ -11,6 +11,8 @@ import 'support/console_fixture.dart';
 /// an in-memory store (the wasm seam twin), so nothing here links
 /// sqlite. The composer and renderer are pure; the view test attaches
 /// a real LineEditor/Screen pair headlessly to prove key routing.
+/// humanJoin/humanPost live in tina_channel (join/post semantics for
+/// the human identity) and are exercised there too.
 void main() {
   group('ChannelUnread', () {
     test('seeding baselines; refresh counts new rows only', () {

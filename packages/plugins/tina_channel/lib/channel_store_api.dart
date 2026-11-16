@@ -235,11 +235,21 @@ abstract interface class ChannelStoreApi {
   void close();
 }
 
-/// Opens a store: the injection point an assembly passes to the tools
-/// plugin and the TUI pane.
-typedef ChannelStoreOpener = ChannelStoreApi Function();
+/// Opens a session's chat store: the injection point an assembly
+/// passes to the tools plugin and the TUI pane. A chat belongs to one
+/// session — the id the host already gave it — so the opener receives
+/// that id and returns the store scoped to it. Subagent children open
+/// their parent's scope, never their own session id.
+typedef ChannelStoreOpener = ChannelStoreApi Function(String chatSessionId);
 
-/// The default store location for a workspace: `.tina/channel.db`
-/// (that directory is already gitignored).
-String defaultChannelStorePath(String workspace) =>
-    p.join(workspace, '.tina', 'channel.db');
+/// The store file for one session's chat:
+/// `.tina/channels/<session-id>.db` (that directory is already
+/// gitignored). Session ids are filesystem-safe by construction;
+/// anything exotic maps onto `[A-Za-z0-9._-]`.
+String defaultChannelStorePath(String workspace, String sessionId) =>
+    p.join(workspace, '.tina', 'channels', '${_chatScopeName(sessionId)}.db');
+
+String _chatScopeName(String sessionId) {
+  final cleaned = sessionId.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-');
+  return cleaned.isEmpty ? 'session' : cleaned;
+}

@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_channel/tina_channel_sqlite.dart';
 
-/// Phase 2's core property: two REAL dart processes open the same
-/// database, interleave writes, and each reads the other's messages —
-/// no corruption, no lost writes. The writers are
+/// Phase 2's core property, rescope-prescribed: two REAL dart
+/// processes open one SESSION's chat database — a main agent and a
+/// subagent share the room — interleave writes, and each reads the
+/// other's messages: no corruption, no lost writes. The writers are
 /// [concurrency_writer.dart] subprocesses, not mocks; the test process
 /// only sets the stage and audits the log afterwards.
 void main() {

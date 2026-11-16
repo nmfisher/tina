@@ -113,16 +113,17 @@ void main() {
       expect(settled, isNot(drawn));
     });
 
-    test('two store-backed sessions settle on distinct names', () {
+    test('two members of one chat settle on distinct names', () {
       final db = '${dir.path}/pair.db';
       final first = SqliteChannelStore.open(db);
       final second = SqliteChannelStore.open(db);
       addTearDown(first.close);
       addTearDown(second.close);
 
+      // One chat (one session's store file), two connections — a
+      // parent agent and a subagent child settling through their own
+      // links. The child must not land on the parent's name.
       final nameA = settleAgentName(first, Random(1));
-      // Session A joins for real; session B settles afterwards through
-      // its own connection and must not land on A's name.
       first.setMember('#lobby', nameA, status: 'working', announce: false);
       final nameB = settleAgentName(second, Random(1));
       expect(nameB, isNot(nameA));

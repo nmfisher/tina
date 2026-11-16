@@ -1,12 +1,14 @@
 /// Human identity for the channel pane: the name the person at the
-/// terminal posts under. Agent identity is a generated shortcode; the
-/// human's name comes from configuration — an explicit environment
-/// override first, otherwise the OS username, sanitized into something
-/// a sender label and an `@mention` can carry. Like agent identity,
-/// the derivation is pure (the assembly passes the environment map)
-/// and decided at the composition seam, never inside the tools or the
-/// store.
+/// terminal posts under, plus the join/post semantics that carry it.
+/// Agent identity is a generated shortcode; the human's name comes
+/// from configuration — an explicit environment override first,
+/// otherwise the OS username, sanitized into something a sender label
+/// and an `@mention` can carry. Like agent identity, the derivation
+/// is pure (the assembly passes the environment map) and decided at
+/// the composition seam, never inside the tools or the store.
 library;
+
+import '../channel_store_api.dart';
 
 /// The explicit-identity override from an environment mapping (the
 /// composition root passes `Platform.environment`): a nonempty
@@ -39,3 +41,32 @@ String defaultHumanName(Map<String, String> environment) =>
         environment['LOGNAME'] ??
         environment['USERNAME'] ??
         '');
+
+/// The human joins a chat like agents do: a member row with role
+/// `human` plus a `status` announce (`* sam joined`). [joined] is the
+/// session's set of already-joined channels — the first view of a
+/// channel announces, later touches refresh `last_seen` silently.
+void humanJoin(
+    ChannelStoreApi store, String channel, String name, Set<String> joined) {
+  final first = joined.add(channel);
+  store.setMember(channel, name,
+      status: 'joined', role: 'human', announce: first);
+}
+
+/// One human post through the store interface: presence touch, then an
+/// appended message with `@mentions` parsed from the text. Returns an
+/// error message on failure, null on success.
+String? humanPost(ChannelStoreApi store,
+    {required String channel,
+    required String name,
+    required String text,
+    required Set<String> joined}) {
+  try {
+    humanJoin(store, channel, name, joined);
+    store.post(channel,
+        sender: name, text: text, mentions: parseMentions(text));
+    return null;
+  } on Object catch (cause) {
+    return cause is ChannelStoreException ? cause.message : 'failed to post';
+  }
+}

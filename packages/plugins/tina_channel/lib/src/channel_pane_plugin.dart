@@ -2,10 +2,12 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 
 import '../channel_store_api.dart';
 
-/// The presentation-side plugin: opens a second store connection for
-/// the pane (WAL readers never block the writer), owns its lifetime
-/// with the session, and hands the store to the console view through
-/// the interface — the pane never touches sqlite.
+/// The presentation-side plugin: opens a second connection to the
+/// session's own chat store (WAL readers never block the writer),
+/// owns its lifetime with the session, and hands the store to the
+/// console view through the interface — the pane never touches
+/// sqlite. The pane shows this session's chat; other sessions' chats
+/// are other files it never sees.
 ///
 /// [humanName] is the identity the pane's input line posts under
 /// (decided at the composition seam; null means the pane renders
@@ -32,7 +34,7 @@ final class ChannelPanePlugin extends AgentPlugin {
 
   @override
   SessionSeed? openSession(PluginSession session) {
-    _store = openStore();
+    _store = openStore(session.id);
     return null;
   }
 
