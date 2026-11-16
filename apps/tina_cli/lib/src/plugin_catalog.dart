@@ -411,7 +411,12 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       'tina/channel',
       (c) => ChannelPlugin(
         openStore: () => openDefaultChannelStore(c.workingDirectory),
-        agentName: 'tina-main',
+        // Identity is decided at the assembly root: an explicit
+        // TINA_AGENT_NAME wins verbatim; otherwise the plugin draws a
+        // per-session shortcode, collision-checked against the store.
+        agentName:
+            agentNameFromEnvironment(Platform.environment),
+        role: 'main',
       ),
       description:
           'Shared agent message channels: post, read scrollback and set '

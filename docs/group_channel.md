@@ -121,6 +121,37 @@ it at session start for `#lobby`. Every reader (`channel_read`, CLI,
 pane) sees member rows through the same interface. `tina channel status
 [CHANNEL]` lists who is in each channel and what they report.
 
+## Identity
+
+Every agent gets a generated shortcode name — `adjective-noun`, drawn
+uniformly from two hand-curated lists in
+`tina_channel/lib/src/shortcode.dart` (hygiene-checked: unique, plain
+lowercase words, no word a prefix of another in either list, nothing
+shared across lists). A name is drawn once at session open and is
+stable for the session.
+
+- **Collision avoidance:** before settling, the draw is checked against
+  the store's ACTIVE member rows (status other than `left`) across all
+  channels — one database, one identity namespace. Up to 8 redraws,
+  then a short numeric suffix (`calm-heron-2`). Two tina processes
+  started side by side end up with distinct names (tested against one
+  sqlite database, and shown live).
+- **The name IS the sender identity:** the channel sender is the bare
+  shortcode; the role (`main`, `subagent`, a task label) lives in the
+  members table's role column and status announces — never in the name.
+  The identity is decided at the composition seam (the plugin's session
+  open, fed by the assembly), never inside the tools.
+- **Override:** a nonempty `TINA_AGENT_NAME` in the environment wins
+  verbatim and skips generation. Generation is the default, not the
+  only path (`agentNameFromEnvironment` is the seam; a settings key can
+  join it later).
+- Mentions work against shortcodes unchanged: `@calm-heron` parses into
+  the mentions column (the mention grammar already includes hyphens).
+
+This resolves the group-channel report's open item about per-checkout
+names (`tina-main` was a placeholder): identity is now generated per
+session by default, overridable per environment.
+
 ## Multi-process
 
 Each process (agent plugin, pane, CLI invocation, subagent) opens its
