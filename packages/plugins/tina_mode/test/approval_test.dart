@@ -535,7 +535,8 @@ void main() {
     'auto fallback reason travels with the approval instead of only chat',
     () async {
       for (final entry in {
-        // A denial is final; only failures ask.
+        // Failures ask with the failure as the fallback reason; denials ask
+        // with 'classifier recommends denial' (covered by the denial tests).
         const PermissionJudgment(null, 'timed out'): 'classifier timed out',
         const PermissionJudgment(null, 'provider error'):
             'classifier provider error',
@@ -592,10 +593,10 @@ void main() {
   );
 
   test(
-    'a classifier denial is final, explains the risk, and never asks',
+    'a classifier denial reaches the human with its reason; the human decides',
     () async {
       const risk = 'Force pushing can overwrite remote history.';
-      final human = Human()..answer = ApprovalDecision.allow;
+      final human = Human()..answer = ApprovalDecision.deny;
       final terminal = _Terminal();
       final mode = ModePlugin(
         mode: PermissionMode.auto,
@@ -604,13 +605,23 @@ void main() {
         classifier: Judge(Future.value(const PermissionJudgment.denied(risk))),
       );
       addTearDown(mode.closeSession);
+      // The classifier recommends; only the user decides. The denial reason
+      // travels in the dialog details, not just a passive transcript notice.
       expect(await request(mode), ApprovalDecision.deny);
-      expect(human.calls, 0, reason: 'the classifier stands in for the user');
-      expect(terminal.lines.join('\n'), contains('auto mode denied'));
+      expect(human.calls, 1, reason: 'a denial must surface to the user');
+      expect(human.lastReason, contains('classifier recommends denial'));
+      expect(human.lastReason, contains(risk));
+      expect(human.lastDetails['auto_approval_denial_reason'], risk);
+      expect(
+        human.lastDetails['approval_reason_codes'],
+        contains('classifier_denial'),
+      );
       expect(terminal.lines.join('\n'), contains(risk));
-      // The refusal is final for this call; a later decision stands on its own.
-      expect(await request(mode), ApprovalDecision.deny);
-      expect(human.calls, 0);
+      expect(terminal.lines.join('\n'), contains('asking you'));
+      // The user may override the recommendation.
+      human.answer = ApprovalDecision.allow;
+      expect(await request(mode), ApprovalDecision.allow);
+      expect(human.calls, 2);
     },
   );
 
@@ -725,7 +736,7 @@ void main() {
   );
 
   test(
-    'auto allows once; denials are final, errors and no judge ask the human',
+    'auto allows once; denials, errors and no judge ask the human',
     () async {
       final human = Human();
       final mode = ModePlugin(mode: PermissionMode.auto, approvals: human);
@@ -733,20 +744,23 @@ void main() {
       mode.classifier = Judge(Future.value(const PermissionJudgment(true)));
       expect(await request(mode), ApprovalDecision.allow);
       expect(human.calls, 0);
-      // A denial never reaches the human: it is final.
+      // A denial is a recommendation: the human sees it and decides.
       mode.classifier = Judge(Future.value(const PermissionJudgment(false)));
-      human.answer = ApprovalDecision.allow;
+      human.answer = ApprovalDecision.deny;
       expect(await request(mode), ApprovalDecision.deny);
-      expect(human.calls, 0);
+      expect(human.calls, 1);
+      human.answer = ApprovalDecision.allow;
+      expect(await request(mode), ApprovalDecision.allow);
+      expect(human.calls, 2);
       // A classifier failure or a missing judge still asks the human.
+      human.answer = ApprovalDecision.deny;
       for (final judgment in [const PermissionJudgment(null, 'timeout')]) {
         mode.classifier = Judge(Future.value(judgment));
-        human.answer = ApprovalDecision.deny;
         expect(await request(mode), ApprovalDecision.deny);
       }
       mode.classifier = null;
       expect(await request(mode), ApprovalDecision.deny);
-      expect(human.calls, 2);
+      expect(human.calls, 4);
     },
   );
 
@@ -797,9 +811,17 @@ void main() {
         expect(judge.calls, 1);
         expect(judge.requests.single['required_permissions'],
             contains('unconfined'));
-        expect(decision, judgment.allow == false
-            ? ApprovalDecision.deny : ApprovalDecision.allow);
-        expect(human.calls, judgment.allow == null ? 1 : 0);
+        // ALLOW runs without a dialog; DENY and UNCERTAIN both reach the
+        // human (the Human default answer is allow), with the denial reason
+        // attached when the classifier recommended refusal.
+        expect(decision, ApprovalDecision.allow);
+        expect(human.calls, judgment.allow == true ? 0 : 1);
+        if (judgment.allow == false) {
+          expect(
+            human.lastDetails['auto_approval_denial_reason'],
+            'Deletes files outside the workspace.',
+          );
+        }
       });
     }
   }

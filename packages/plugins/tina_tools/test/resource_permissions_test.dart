@@ -196,17 +196,26 @@ void main() {
     expect(plugin.pathGrants.file!.existsSync(), isFalse);
   });
 
-  test('auto denial blocks access; uncertainty asks the human', () async {
+  test('auto denial and uncertainty both ask the human; the human decides',
+      () async {
     plugin.mode = PermissionMode.auto;
     final target = File('${external.path}/secret')
       ..writeAsStringSync('private');
     judge.answer = const PermissionJudgment.denied('accesses a secret');
+    // The denial reaches the human with its reason; refusing blocks access.
+    decision = ApprovalDecision.deny;
     await expectLater(plugin.sandbox.readFileString(target.path),
         throwsA(isA<SandboxViolation>()));
-    expect(asks, isEmpty);
+    expect(asks, hasLength(1));
+    expect(asks.single.details['auto_approval_denial_reason'],
+        'accesses a secret');
+    // The human may override the recommendation.
+    decision = ApprovalDecision.allow;
+    expect(await plugin.sandbox.readFileString(target.path), 'private');
+    expect(asks, hasLength(2));
     judge.answer = const PermissionJudgment(null, 'uncertain');
     expect(await plugin.sandbox.readFileString(target.path), 'private');
-    expect(asks, hasLength(1));
+    expect(asks, hasLength(3));
   });
 
   test('symlinks escaping workspace request external approval', () async {
@@ -488,14 +497,23 @@ void main() {
         containsAll(['execution', 'network', 'unconfined']));
     expect(inner.controls.single!.outsideSandboxAllowed, isTrue);
     expect(inner.controls.single!.networkAllowed, isTrue);
+    // A denial is a recommendation: the human is asked with the reason and
+    // may refuse (nothing runs) or override.
     judge.answer = const PermissionJudgment.denied('Accesses a secret.');
+    decision = ApprovalDecision.deny;
     expect(await value.run(request, control: control), isA<CommandRefused>());
     expect(inner.requests, hasLength(1));
-    expect(asks, isEmpty);
+    expect(asks, hasLength(1));
+    expect(asks.single.details['auto_approval_denial_reason'],
+        'Accesses a secret.');
     expect(judge.requests, hasLength(2));
+    decision = ApprovalDecision.allow;
+    expect(await value.run(request, control: control), isA<CommandCompleted>());
+    expect(inner.requests, hasLength(2));
+    expect(asks, hasLength(2));
     judge.answer = const PermissionJudgment(null, 'timed out');
     expect(await value.run(request, control: control), isA<CommandCompleted>());
-    expect(asks, hasLength(1));
+    expect(asks, hasLength(3));
     expect(plugin.pathGrants.grants, isEmpty);
   });
 

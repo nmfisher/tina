@@ -201,30 +201,59 @@ final class ConfigDocument {
 
   /// Preflight every file, then roll back completed writes if a later save
   /// fails. Application callbacks run only after the caller commits the batch.
+  ///
+  /// The batch holds every target file's lock for the whole commit, acquired
+  /// in sorted path order so two concurrent batches cannot deadlock: another
+  /// session sees either the entire previous state or the entire new one.
+  /// Members re-entering their own file's lock in [_write] compose — the
+  /// [AppIo] seam counts hold depth per process.
   static void saveScopedBatch(List<ConfigDocument> documents) {
+    // Fast fail before any lock: a stale member rejects the batch without
+    // waiting on other writers.
     for (final document in documents) {
       document._checkUnchanged();
     }
-    final originals = {for (final d in documents) d: d._original};
-    final saved = <ConfigDocument>[];
-    try {
-      for (final document in documents) {
-        document.saveScoped();
-        saved.add(document);
-      }
-    } catch (error) {
-      for (final document in saved.reversed) {
-        final original = originals[document];
-        document._checkUnchanged();
-        if (original == null) {
-          defaultAppIo().deleteFile(document.path);
-          document._original = null;
-        } else {
-          document._write(encodedOverride: original);
+    void commitAll() {
+      final originals = {for (final d in documents) d: d._original};
+      final saved = <ConfigDocument>[];
+      try {
+        for (final document in documents) {
+          document.saveScoped();
+          saved.add(document);
         }
+      } catch (error) {
+        for (final document in saved.reversed) {
+          final original = originals[document];
+          document._checkUnchanged();
+          if (original == null) {
+            defaultAppIo().deleteFile(document.path);
+            document._original = null;
+          } else {
+            document._write(encodedOverride: original);
+          }
+        }
+        rethrow;
       }
-      rethrow;
     }
+
+    // Drafts commit through their owner's lock; only file-backed members
+    // need one here. The canonical target is the lock key, matching [_write].
+    final targets = <String>{
+      for (final document in documents)
+        if (document._saveDraft == null) document._writeTarget(),
+    }.toList()
+      ..sort();
+    if (targets.isEmpty) return commitAll();
+    void guarded(List<String> remaining) {
+      if (remaining.isEmpty) {
+        commitAll();
+        return;
+      }
+      defaultAppIo()
+          .lockExclusive<void>(remaining.first, () => guarded(remaining.sublist(1)));
+    }
+
+    guarded(targets);
   }
 
   void save(
@@ -246,6 +275,21 @@ final class ConfigDocument {
       throw StateError('Config changed on disk; close settings and reopen it.');
   }
 
+  /// The path whose bytes [_write] replaces: the symlink-resolved target
+  /// when the file exists, its absolute form when it does not yet. This
+  /// is the lock key, so two documents naming one file through different
+  /// paths or symlinks serialize on the same lock file.
+  String _writeTarget() {
+    final io = defaultAppIo();
+    final file = io.exists(path) ? io.canonical(path) : io.absolute(path);
+    return file;
+  }
+
+  /// One atomic, exclusive commit: the check → stage → secure → rename
+  /// sequence runs under the target file's advisory lock, so two sessions
+  /// serialize instead of racing between the last check and the rename.
+  /// A draft whose baseline predates another session's save still fails
+  /// inside the lock — the lock orders writers, it does not rebase.
   void _write({String? encodedOverride}) {
     final encoded = encodedOverride ?? TomlDocument.fromMap(values).toString();
     if (_saveDraft != null) {
@@ -254,27 +298,29 @@ final class ConfigDocument {
       return;
     }
     final io = defaultAppIo();
-    final file = io.exists(path) ? io.canonical(path) : path;
-    _checkUnchanged();
-    final parent = p.dirname(file);
-    io.createDirectory(parent, recursive: true);
-    if (io.canSecureFilePermissions) {
-      // The atomic native write: stage, secure, verify, rename.
-      final staging = io.createTempDirectory(parent, '.tina-config-');
-      final pending = p.join(staging, 'config');
-      try {
-        io.writeText(pending, encoded);
-        io.secureFilePermissions(pending);
-        _checkUnchanged();
-        io.rename(pending, file);
+    final file = _writeTarget();
+    io.lockExclusive<void>(file, () {
+      _checkUnchanged();
+      final parent = p.dirname(file);
+      io.createDirectory(parent, recursive: true);
+      if (io.canSecureFilePermissions) {
+        // The atomic native write: stage, secure, verify, rename.
+        final staging = io.createTempDirectory(parent, '.tina-config-');
+        final pending = p.join(staging, 'config');
+        try {
+          io.writeText(pending, encoded);
+          io.secureFilePermissions(pending);
+          _checkUnchanged();
+          io.rename(pending, file);
+          _original = encoded;
+        } finally {
+          io.deleteTree(staging);
+        }
+      } else {
+        // No staging/permissions support (wasm preloads): a plain write.
+        io.writeText(file, encoded);
         _original = encoded;
-      } finally {
-        io.deleteTree(staging);
       }
-    } else {
-      // No staging/permissions support (wasm preloads): a plain write.
-      io.writeText(file, encoded);
-      _original = encoded;
-    }
+    });
   }
 }

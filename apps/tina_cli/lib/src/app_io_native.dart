@@ -50,6 +50,37 @@ final class NativeAppIo implements AppIo {
   @override
   void rename(String from, String to) => io.File(from).renameSync(to);
 
+  /// Hold counts per lock path. POSIX advisory locks belong to the whole
+  /// process, so a nested `lockSync` on the same file would succeed
+  /// silently and the inner `unlockSync` would drop the outer hold.
+  /// Counting depth here makes [lockExclusive] genuinely re-entrant:
+  /// only the outermost call locks and unlocks the kernel lock.
+  static final _holds = <String, int>{};
+
+  @override
+  T lockExclusive<T>(String path, T Function() body) {
+    final holds = _holds[path] ?? 0;
+    io.RandomAccessFile? handle;
+    if (holds == 0) {
+      final lock = io.File('$path.lock')..parent.createSync(recursive: true);
+      handle = lock.openSync(mode: io.FileMode.append);
+      handle.lockSync(io.FileLock.blockingExclusive);
+    }
+    _holds[path] = holds + 1;
+    try {
+      return body();
+    } finally {
+      if (holds == 0) {
+        _holds.remove(path);
+        handle!
+          ..unlockSync()
+          ..closeSync();
+      } else {
+        _holds[path] = holds;
+      }
+    }
+  }
+
   @override
   String createTempDirectory(String near, String prefix) =>
       io.Directory(near).createTempSync(prefix).path;

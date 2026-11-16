@@ -256,6 +256,14 @@ final class AnthropicProvider extends LlmProvider
     final queue = StreamController<StreamEvent>(sync: true);
     final completions = StreamController<StreamEvent>(sync: true);
 
+    // The only way events enter the queue; see pumpSse for why. Once
+    // the queue is closed a terminal error already went out, and a
+    // late writer drops its event instead of throwing into this
+    // unawaited closure.
+    void emit(StreamEvent e) {
+      if (!queue.isClosed) queue.add(e);
+    }
+
     Timer? watchdog;
     void resetWatchdog() {
       watchdog?.cancel();
@@ -263,7 +271,7 @@ final class AnthropicProvider extends LlmProvider
         if (done.value) return;
         done.value = true;
         done.stalled = true;
-        queue.add(StreamError('stream stalled: no bytes for $stallTimeout'));
+        emit(StreamError('stream stalled: no bytes for $stallTimeout'));
         queue.close();
         completions.close();
       });
@@ -282,7 +290,7 @@ final class AnthropicProvider extends LlmProvider
           events.clear();
           parser.add(chunk);
           for (final e in events) {
-            queue.add(e);
+            emit(e);
           }
           if (done.value) break; // message_stop seen inside onFrame
         }
@@ -296,12 +304,14 @@ final class AnthropicProvider extends LlmProvider
         if (builder.badFrame != null) {
           // A bad frame surfaces no matter how the body ended — a clean
           // message_stop followed by junk still gets reported.
-          queue.add(StreamError('bad frame in stream: ${builder.badFrame}'));
+          emit(StreamError('bad frame in stream: ${builder.badFrame}'));
           return;
         }
         if (done.sawStop && !builder.errored) {
           final completion = builder.build();
-          if (completion != null) completions.add(completion);
+          if (completion != null && !completions.isClosed) {
+            completions.add(completion);
+          }
           return;
         }
         if (builder.errored) {
@@ -310,9 +320,12 @@ final class AnthropicProvider extends LlmProvider
           return;
         }
         // The transport closed without an end: not a completion.
-        queue.add(StreamError('stream ended before message_stop'));
+        emit(StreamError('stream ended before message_stop'));
       } catch (e) {
-        queue.add(StreamError('stream failed: $e'));
+        // The watchdog may already have closed the queue with the stall
+        // error; a late transport failure must not throw into this
+        // unawaited closure.
+        emit(StreamError('stream failed: $e'));
       } finally {
         watchdog?.cancel();
         await queue.close();

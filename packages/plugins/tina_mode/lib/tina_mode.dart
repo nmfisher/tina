@@ -448,16 +448,19 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         return ApprovalDecision.allow;
       }
       if (mode == PermissionMode.auto && result.allow == false) {
-        // A classifier denial is final. Do not run the command. Keep the
-        // turn going and report the reason once; no dialog interrupts the run.
-        final denial =
+        // A classifier denial is a recommendation, not a decision: only the
+        // user may refuse a request on their own machine. Surface the ask
+        // with the classifier's reason attached (the dialog renders
+        // auto_approval_denial_reason) instead of a silent tool error the
+        // user never sees. The malformed-tool-call format reviewer is a
+        // separate pre-check that keeps its model-only rewrite loop.
+        autoFallback =
             'classifier recommends denial${autoDenialReason == null ? '' : ': $autoDenialReason'}';
-        terminal?.writeln('auto mode denied: $target — $denial');
-        return ApprovalDecision.deny;
+      } else {
+        autoFallback = mode != PermissionMode.auto
+            ? 'mode changed to ${mode.label}'
+            : 'classifier ${result.failure ?? 'unavailable'}';
       }
-      autoFallback = mode != PermissionMode.auto
-          ? 'mode changed to ${mode.label}'
-          : 'classifier ${result.failure ?? 'unavailable'}';
       if (autoDiagnostics['model'] is String) {
         autoFallback = '$autoFallback (${autoDiagnostics['model']})';
       }

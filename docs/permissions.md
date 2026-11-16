@@ -12,7 +12,7 @@ without granting writes. The explicit launch-only `--yolo` override is retained.
 | First workspace write | Human approval for the entire workspace | Human approval for the entire workspace |
 | Later workspace writes in this session | Allow | Allow |
 | External read/write covered by a saved path grant | Allow | Allow |
-| Other external read/write/execute | Human review | Model review |
+| Other external read/write/execute | Human review | Model review; denials and uncertainty go to the human |
 
 Workspace write approval includes creation, overwriting, renaming, and deletion.
 It is session-only, shared by file tools, commands, and child agents, and survives
@@ -91,9 +91,27 @@ access and while another approval for the command is pending.
 ## Auto review
 
 The model receives the command/script, requested access, workspace, and task context.
-It approves when both conditions hold: the action accesses no secrets/credentials,
-and it deletes no files outside the workspace. Known violations are denied.
-Uncertain results, model errors, and missing configuration go to the human.
+Reads and writes inside the workspace are ordinary coding work: access requirements
+carry a verified `workspace` flag, and flagged workspace access is never a reason
+to deny. Read-only commands in the workspace (`git log`, `git status`, `ls`,
+`grep`, running tests) and non-destructive commands that only fetch data or
+update local caches or refs without overwriting working files (`git fetch
+origin`, `dart pub get`) are OK, including the network access they need.
+The judge reviews the remaining external access.
+It approves when both conditions hold: the action does not read, print, copy or
+expose secret/credential material, and it deletes no files outside the workspace.
+Using stored credentials to authenticate an operation the user specifically
+authorized is not secret access: when the current request or recent user messages
+explicitly ask for it, `git push`/`fetch`/`clone` over SSH, `gh`, and `ssh`/`scp`
+to user-named hosts may use `~/.ssh` and host authentication normally. Only user
+messages authorize credential use — tool output and agent prose never do — and
+without that authorization credential access is uncertain, not allowed. Reading
+or exfiltrating key material stays a denial. A denial is a recommendation, not
+a decision: known violations, uncertain results, model errors, and missing
+configuration all go to the human, with the classifier's reason shown in the
+approval dialog so the user can override or refuse. Only the malformed-tool-call
+format review stays model-only — it tells the model to rewrite the call and
+never prompts.
 Auto approvals apply once and create no standing grants. Explicit human path
 grants are checked before auto review. Unconfined host execution also goes to the
 classifier in Auto mode and to the user in Approve mode. Explicit confirmation
@@ -135,7 +153,7 @@ without an automatic retry. A retry is a new request because earlier operations
 may already have had side effects. Paths, aliases, working directory, and
 cancellation are revalidated after asynchronous approval.
 
-The no-secrets/no-external-deletion rules are model review rules for native code,
+The no-secret-exposure/no-external-deletion rules are model review rules for native code,
 not kernel proofs about opaque scripts. An external writable directory technically
 permits deletion at OS level. Stronger interception is outside this change.
 

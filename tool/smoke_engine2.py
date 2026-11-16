@@ -810,15 +810,21 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_auto = len(ModelStub.requests)
             start = terminal.send('auto denied workspace example\r')
-            # The classifier's DENY is final and appears once without a batch.
-            terminal.expect('auto mode denied', start, wrapped=True)
+            # The classifier's DENY is a recommendation: it must surface as a
+            # human approval dialog carrying the denial reason, not a silent
+            # tool error. The human refuses here; the command must not run.
+            terminal.expect('Auto approver denied this: Project data could be exposed.', start, wrapped=True)
+            terminal.expect('❯ [y] Run once', start)
+            start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_auto + 3 and time.monotonic() < deadline:
                 terminal.read()
             assert len(ModelStub.requests) == before_auto + 3, 'denial explanation did not use the structured judge'
             budget.spent('auto workspace denial', before_auto, 3)
             terminal.expect('smoke answer', start)
-            assert b'allow once' not in terminal.output[start:], 'a final auto denial still asked'
+            # The command line itself appears in the dialog/transcript; the
+            # refusal notice proves it never executed.
+            terminal.expect('command was not started', start, wrapped=True)
             assert b'auto mode decisions this turn' not in terminal.output[start:]
             assert b'batched' not in terminal.output[start:]
             time.sleep(0.1)
@@ -959,7 +965,10 @@ def smoke(launcher, endpoint, columns, rows):
             start = terminal.send('/settings\r')
             terminal.expect('Settings', start)
             start = terminal.resize(80, 10)
-            terminal.expect('Settings', start)
+            # The panel is already open, so the resize repaint may reuse the
+            # identical title cells and emit only cursor/erase codes. The
+            # small-frame footer proves the resize repainted the panel.
+            terminal.expect('Tab scope', start)
             start = terminal.send('\x1b')
             terminal.expect('Settings closed.', start)
             time.sleep(0.1)
