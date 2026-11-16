@@ -68,6 +68,7 @@ export 'src/term_width.dart'
 export 'src/console_contribution.dart';
 export 'src/status_selection.dart';
 export 'src/sidebar.dart';
+export 'src/side_column.dart';
 export 'src/console_workspace.dart';
 export 'src/settings_contribution.dart';
 export 'src/dialog_layout.dart';

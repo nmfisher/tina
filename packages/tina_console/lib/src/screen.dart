@@ -173,6 +173,7 @@ class Screen {
   })  : ansi = ansi ?? AnsiCapable.detect(),
         _theme = theme ?? const Theme.defaults(),
         _layout = layout,
+        _baseLayout = layout,
         _backend = passthrough
             ? null
             : backend ??
@@ -271,6 +272,25 @@ class Screen {
   }
 
   ScreenLayout get layout => _layout;
+
+  /// The last layout handed to [resize], before any side-column
+  /// reservation was applied. Reservations are re-derived from it so a
+  /// terminal resize never silently drops the column.
+  ScreenLayout? _baseLayout;
+
+  /// Columns reserved on the right for the side column (0 = none).
+  int _rightColumnWidth = 0;
+
+  /// Reserve [width] columns on the right of the conversation for the
+  /// side column (classifier, plans, channel). 0 releases. Relayouts
+  /// synchronously; the conversation reflows into the narrowed width.
+  void setRightColumn(int width) {
+    final w = width < 0 ? 0 : width;
+    if (w == _rightColumnWidth) return;
+    _rightColumnWidth = w;
+    final base = _baseLayout;
+    if (base != null) resize(base);
+  }
 
   /// The chat region currently bound to the terminal.
   ScrollingTextRegion get chat => _activeChat;
@@ -594,8 +614,19 @@ class Screen {
   }
 
   /// Resize to a new layout. Repaints the frame and gives each region a
-  /// chance to re-render its content within the new bounds.
+  /// chance to re-render its content within the new bounds. A side-column
+  /// reservation is re-applied on top of the incoming layout, so terminal
+  /// resizes keep the column until it is released.
   void resize(ScreenLayout layout) {
+    _baseLayout = layout;
+    if (_rightColumnWidth > 0) {
+      layout = ScreenLayout.fromSize(layout.width, layout.height,
+          hasMenuBar: layout.hasMenuBar,
+          split: layout.isSplit,
+          drawInfoFrame: layout.drawInfoFrame,
+          sidebarWidth: layout.sidebar.isEmpty ? 0 : layout.sidebar.width,
+          rightColumnWidth: _rightColumnWidth);
+    }
     frame(() {
       _layout = layout;
       if (_canvasConfigured) _canvasNeedsPaint = true;

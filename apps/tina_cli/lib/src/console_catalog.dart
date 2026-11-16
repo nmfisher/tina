@@ -1,5 +1,8 @@
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_approvals_tui/tina_approvals_tui.dart';
+import 'package:tina_channel/tina_channel.dart' show ChannelPanePlugin;
+import 'package:tina_channel_tui/tina_channel_tui.dart'
+    show ChannelPaneView;
 import 'package:tina_classification_tui/tina_classification_tui.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_cwd_tui/tina_cwd_tui.dart';
@@ -34,6 +37,15 @@ final _viewFactories =
   'tina/mcp': (plugin, access) {
     final management = (plugin as McpPlugin).management;
     return management == null ? null : McpView(management.forClient(access));
+  },
+  'tina/channel-tui': (plugin, access) {
+    final pane = plugin as ChannelPanePlugin;
+    final store = pane.storeForView;
+    // A null human name renders the input line disabled (a read-only
+    // composition); locally the name is always derived.
+    return store == null
+        ? null
+        : ChannelPaneView(store, humanName: pane.humanName);
   },
 };
 

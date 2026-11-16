@@ -45,6 +45,13 @@ class ScreenLayout {
   /// Border-inclusive conversation sidebar; empty when not requested.
   final Rect sidebar;
 
+  /// The side column strip on the RIGHT (classifier, plans, channel —
+  /// see `SideColumnLayout`): the area the conversation gives up when
+  /// the column is reserved. Empty when no reservation is active.
+  /// Rows match the chat content rows; the column's panels draw their
+  /// own chrome inside it. `width` stays the FULL terminal width.
+  final Rect rightColumn;
+
   /// Alias for [info] — kept because callers still say `screen.status`.
   Rect get status => info;
 
@@ -108,6 +115,7 @@ class ScreenLayout {
     required this.input,
     required this.info,
     required this.sidebar,
+    required this.rightColumn,
     required this.chatLeftCol,
     required this.chatRightCol,
     required this.infoLeftCol,
@@ -127,12 +135,14 @@ class ScreenLayout {
   /// Reserves a 3-row bordered menu box at the top (rows 0–2, when
   /// [hasMenuBar]), the chat/info top border row below it, one input row
   /// inside the chat box just above the bottom border, and the bottom border
-  /// row.
+  /// row. [rightColumnWidth] reserves a borderless strip on the right for
+  /// the side column; the conversation (and the info split) shrink by it.
   factory ScreenLayout.fromSize(int width, int height,
       {bool hasMenuBar = false,
       bool? split,
       bool drawInfoFrame = true,
-      int sidebarWidth = 0}) {
+      int sidebarWidth = 0,
+      int rightColumnWidth = 0}) {
     final w = width < 1 ? 1 : width;
     final minH = hasMenuBar ? 8 : 6;
     final h = height < minH ? minH : height;
@@ -143,6 +153,11 @@ class ScreenLayout {
     final sideWidth = sidebarWidth <= 0 || w < 30
         ? 0
         : sidebarWidth.clamp(10, (w ~/ 3).clamp(10, w - 20));
+    // The side column takes the right edge; it needs its own minimum
+    // and must leave the conversation a readable remainder.
+    final rightWidth = rightColumnWidth <= 0 || w < 40
+        ? 0
+        : rightColumnWidth.clamp(20, w - 40);
     // The strip owns the LAST row in every layout, and the panel boxes stop
     // one row above it. The primary panel's input row is the bottom INTERIOR
     // row of its box (box bottom - 1); with the box ending at h-2 that input
@@ -158,7 +173,7 @@ class ScreenLayout {
     final menuContent = hasMenuBar ? 1 : -1;
     final menuBottom = hasMenuBar ? 2 : -1;
 
-    final available = w - sideWidth;
+    final available = w - sideWidth - rightWidth;
     final isSplit = (split ?? available >= splitThreshold) && available >= 50;
     final chatWidth = isSplit
         ? (available * 0.65).round().clamp(30, available - 20)
@@ -168,7 +183,7 @@ class ScreenLayout {
     final chatLeftCol = sideWidth;
     final chatRightCol = sideWidth + chatWidth - 1;
     final infoLeftCol = isSplit ? sideWidth + chatWidth : -1;
-    final infoRightCol = isSplit ? w - 1 : -1;
+    final infoRightCol = isSplit ? w - rightWidth - 1 : -1;
 
     // Chat scrollback: rows between top border and input row, inside the
     // vertical borders. Height is inputRow - (topBorder+1), which can be
@@ -219,6 +234,14 @@ class ScreenLayout {
               col: 0,
               width: sideWidth,
               height: bottomBorder - topBorder + 1,
+            ),
+      rightColumn: rightWidth == 0 || chatContentHeight <= 0
+          ? Rect.empty
+          : Rect(
+              row: chatContentTop,
+              col: w - rightWidth,
+              width: rightWidth,
+              height: chatContentHeight,
             ),
       chatLeftCol: chatLeftCol,
       chatRightCol: chatRightCol,

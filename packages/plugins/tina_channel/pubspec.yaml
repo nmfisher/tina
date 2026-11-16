@@ -1,0 +1,32 @@
+name: tina_channel
+description: >-
+  The in-tina group channel: an append-only shared message log behind a
+  store-interface seam, with tools for agents, presence, and a SQLite
+  implementation designed for concurrent multi-process access.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  path: ^1.9.0
+  sqlite3: ^3.5.2
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_sqlite:
+    path: ../../tina_sqlite
+
+# Compile SQLite from the vendored amalgamation (see
+# packages/tina_sqlite/native/sqlite3.c) instead of downloading a prebuilt
+# library at test time — keeps `dart test` offline and CI deterministic.
+hooks:
+  user_defines:
+    sqlite3:
+      source: source
+      path: ../../tina_sqlite/native/sqlite3.c
+
+dev_dependencies:
+  test: ^1.25.0

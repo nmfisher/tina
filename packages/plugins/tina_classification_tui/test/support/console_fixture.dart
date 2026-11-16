@@ -15,7 +15,19 @@ final class Io implements Stdio {
   @override
   int get terminalColumns => 80;
   @override
+  int get terminalLines => 24;
+  @override
   bool get hasTerminal => false;
+  @override
+  bool get stdinHasTerminal => false;
+  @override
+  bool get echoMode => false;
+  @override
+  bool get lineMode => false;
+  @override
+  void setEchoMode(bool value) {}
+  @override
+  void setLineMode(bool value) {}
   @override
   Stream<ProcessSignal> watchSignal(ProcessSignal signal) =>
       const Stream.empty();

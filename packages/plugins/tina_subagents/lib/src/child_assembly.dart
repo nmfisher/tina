@@ -11,6 +11,11 @@
 /// persistence plugin (the child's own log is its persistence; it writes
 /// to the same store file as its own session, or nowhere).
 ///
+/// [childPlugins] receives the plugin (so it can read the parent
+/// session) — the assembly mounts session-scoped extras there, e.g. the
+/// channel plugin pointed at the PARENT's chat scope so the child joins
+/// the session's group chat as a subagent.
+///
 /// The parent's plugin must already be mounted — the closure reads the
 /// boundary from it. Given a read-only parent, the child's boundary is
 /// built read-only: a write in the child is denied by its own sandbox,
@@ -30,7 +35,7 @@ ChildSessionFactory standardChildFactory({
   required ProviderFactory providerFactory,
   String model = 'scripted',
   String Function()? currentModel,
-  List<AgentPlugin> Function()? childPlugins,
+  List<AgentPlugin> Function(SubagentsPlugin plugin)? childPlugins,
   List<AgentPlugin> extraPlugins = const [],
 }) {
   return (SubagentsPlugin plugin) {
@@ -73,7 +78,7 @@ ChildSessionFactory standardChildFactory({
               ? Directory(parentTools.home!.stateRoot)
               : null,
         ),
-        ...?childPlugins?.call(),
+        ...?childPlugins?.call(plugin),
         ...extraPlugins,
       ],
     );

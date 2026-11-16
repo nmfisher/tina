@@ -258,7 +258,7 @@ final class ClassificationPanel implements PanelInputTarget {
   final ConsoleContext context;
   Screen get screen => context.screen;
   FocusManager? focusManager;
-  SidebarPanel? _slot;
+  SideColumnPanel? _slot;
   OverlayRegion? _region;
   ScreenCursor? _cursor;
   bool _started = false,
@@ -292,7 +292,10 @@ final class ClassificationPanel implements PanelInputTarget {
   void start() {
     _started = true;
     focusManager = context.input.focusManager;
-    _slot = context.bindSidebarPanel(refresh, priority: 20);
+    // The side column (classifier, plans, channel — fixed order, right
+    // of the conversation); falls back to the stacked sidebar geometry
+    // on terminals too narrow for the split.
+    _slot = context.bindSideColumnPanel(refresh, rank: SideColumnRank.classifier);
     focusManager?.register(this);
     refresh();
   }

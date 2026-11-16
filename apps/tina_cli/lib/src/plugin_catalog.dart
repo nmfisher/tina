@@ -19,6 +19,8 @@ export 'session_context.dart';
 import 'package:tina_shell/tina_shell.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_channel/tina_channel.dart';
+import 'package:tina_channel/tina_channel_sqlite.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_context/tina_context.dart';
@@ -405,6 +407,43 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           'Saves conversations in SQLite, resumes sessions, and provides workspace-first history search with recent sessions first.',
       live: false,
     ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/channel',
+      (c) => ChannelPlugin(
+        // A chat belongs to one session: the opener receives the
+        // session id (the host's own identity) and opens that
+        // session's chat file. Resuming reopens the same chat.
+        openStore: (scope) =>
+            openDefaultChannelStore(c.workingDirectory, scope),
+        // Identity is decided at the assembly root: an explicit
+        // TINA_AGENT_NAME wins verbatim; otherwise the plugin draws a
+        // per-session shortcode, collision-checked against the chat.
+        agentName:
+            agentNameFromEnvironment(Platform.environment),
+        role: 'main',
+      ),
+      description:
+          'The session\'s group chat: the main agent, its subagents and '
+          'the human share channels with scrollback and presence, '
+          'persisted with the session in the workspace.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
+      'tina/channel-tui',
+      (c) => ChannelPanePlugin(
+        openStore: (scope) =>
+            openDefaultChannelStore(c.workingDirectory, scope),
+        // The human identity is decided at the assembly root like the
+        // agent's: an explicit TINA_HUMAN_NAME wins verbatim, else the
+        // OS username sanitized (see human_identity.dart).
+        humanName: defaultHumanName(Platform.environment),
+      ),
+      description:
+          'Shows the session\'s group chat in the console: channel list '
+          'with unread badges, recent messages, and an input line — '
+          'typing posts to the channel as the human.',
+      live: true,
+    ),
     PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
       'tina/plans',
       dependency: approvalRequester,
@@ -518,10 +557,21 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           providerFactory: models.childProvider,
           model: c.model,
           currentModel: c.currentModel,
-          childPlugins: () => [
+          // The child plugin set receives the subagents plugin, so
+          // session-scoped extras can read the parent session: the
+          // channel plugin joins the child to the PARENT's chat (the
+          // session's group chat) as role `subagent` — a child never
+          // spawns, so the chat's member tree is one level deep.
+          childPlugins: (plugin) => [
             const SystemInstructionPlugin(),
             if (c.openStore != null)
               PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
+            ChannelPlugin(
+              openStore: (scope) =>
+                  openDefaultChannelStore(c.workingDirectory, scope),
+              chatSessionId: plugin.parent.id,
+              role: 'subagent',
+            ),
           ],
         ),
         history: c.openStore != null

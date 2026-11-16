@@ -1,0 +1,21 @@
+name: tina_channel_tui
+description: >-
+  Read-only group-channel pane for the tina console: channel list with
+  unread indicators, recent messages with sender labels and statuses.
+  Reads through the channel store interface only — never sqlite.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  tina_channel:
+    path: ../tina_channel
+  tina_console:
+    path: ../../tina_console
+  tina_engine_2:
+    path: ../../tina_engine_2
+
+dev_dependencies:
+  test: ^1.25.0
