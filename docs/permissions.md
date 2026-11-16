@@ -91,6 +91,9 @@ access and while another approval for the command is pending.
 ## Auto review
 
 The model receives the command/script, requested access, workspace, and task context.
+Reads and writes inside the workspace are ordinary coding work: access requirements
+carry a verified `workspace` flag, and flagged workspace access is never a reason
+to deny. The judge reviews the remaining external access.
 It approves when both conditions hold: the action accesses no secrets/credentials,
 and it deletes no files outside the workspace. A denial is a recommendation, not
 a decision: known violations, uncertain results, model errors, and missing

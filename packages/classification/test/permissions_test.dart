@@ -85,6 +85,30 @@ void main() {
       }
     },
   );
+  test(
+    'instructs the judge that workspace reads and writes are OK',
+    () async {
+      final provider = Provider(
+        (_) => completed('{"decision":"ALLOW","reason":""}'),
+      );
+      await PermissionClassifier(() => provider).classify({
+        'command': 'dart test',
+        'access_requirements': [
+          {'capability': 'write', 'target': '/ws/out', 'workspace': true},
+        ],
+      });
+      final system = provider.systems.single;
+      expect(
+        system,
+        contains('Reads and writes inside the workspace are ordinary coding'),
+      );
+      expect(system, contains('workspace flag from the enforcement boundary'));
+      expect(system, contains('never a reason to deny or hesitate'));
+      // The external safeguards stay in force alongside the workspace rule.
+      expect(system, contains('does not access secrets'));
+      expect(system, contains('does not delete files outside the workspace'));
+    },
+  );
   for (final answer in [
     '{"decision":"ALLOW","reason":""}',
     ' { "decision": "DENY", "reason": "Force pushing can overwrite remote history." }\n',
