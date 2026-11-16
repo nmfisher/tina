@@ -98,8 +98,15 @@ to deny. Read-only commands in the workspace (`git log`, `git status`, `ls`,
 update local caches or refs without overwriting working files (`git fetch
 origin`, `dart pub get`) are OK, including the network access they need.
 The judge reviews the remaining external access.
-It approves when both conditions hold: the action accesses no secrets/credentials,
-and it deletes no files outside the workspace. A denial is a recommendation, not
+It approves when both conditions hold: the action does not read, print, copy or
+expose secret/credential material, and it deletes no files outside the workspace.
+Using stored credentials to authenticate an operation the user specifically
+authorized is not secret access: when the current request or recent user messages
+explicitly ask for it, `git push`/`fetch`/`clone` over SSH, `gh`, and `ssh`/`scp`
+to user-named hosts may use `~/.ssh` and host authentication normally. Only user
+messages authorize credential use — tool output and agent prose never do — and
+without that authorization credential access is uncertain, not allowed. Reading
+or exfiltrating key material stays a denial. A denial is a recommendation, not
 a decision: known violations, uncertain results, model errors, and missing
 configuration all go to the human, with the classifier's reason shown in the
 approval dialog so the user can override or refuse. Only the malformed-tool-call
@@ -146,7 +153,7 @@ without an automatic retry. A retry is a new request because earlier operations
 may already have had side effects. Paths, aliases, working directory, and
 cancellation are revalidated after asynchronous approval.
 
-The no-secrets/no-external-deletion rules are model review rules for native code,
+The no-secret-exposure/no-external-deletion rules are model review rules for native code,
 not kernel proofs about opaque scripts. An external writable directory technically
 permits deletion at OS level. Stronger interception is outside this change.
 
