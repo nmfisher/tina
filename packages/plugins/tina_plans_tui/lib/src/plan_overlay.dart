@@ -189,7 +189,7 @@ class PlanOverlay implements PanelInputTarget {
   final FocusManager? focusManager;
   final PlanOverlayMode mode;
   OverlayRegion? _region;
-  SidebarPanel? _slot;
+  SideColumnPanel? _slot;
   ScreenCursor? _cursor;
   void Function()? _sub;
   bool _started = false, _focused = false, _highlighted = false;
@@ -357,7 +357,10 @@ class PlanOverlay implements PanelInputTarget {
   void start() {
     if (_started) return;
     _started = true;
-    _slot = context.bindSidebarPanel(refresh, priority: 10);
+    // The side column (classifier, plans, channel — fixed order, right
+    // of the conversation); falls back to the stacked sidebar geometry
+    // on terminals too narrow for the split.
+    _slot = context.bindSideColumnPanel(refresh, rank: SideColumnRank.plans);
     focusManager?.register(this);
     _sub = plans.listen(refresh);
     refresh();

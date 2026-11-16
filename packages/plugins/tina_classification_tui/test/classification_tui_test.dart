@@ -148,12 +148,17 @@ void main() {
         },
         'usage': {},
       });
-      expect(visible(), contains('Request to do work'));
+      // Column mode at 100 cols: the compact preview clips at the
+      // column width (interior 32) with an ellipsis; the result label
+      // is present up to the clip.
+      expect(visible(), contains('Request type: ?'));
+      expect(visible(), contains('Request to'));
       attachment.dispose();
       expect(view.panel, isNull);
       view = ClassificationView(plugin.observation);
       attachment = ConsoleAttachment.attach(view, context);
-      expect(visible(), contains('Request to do work'));
+      expect(visible(), contains('Request type: ?'));
+      expect(visible(), contains('Request to'));
       view.panel!.show(hierarchy: true);
       final labels = classificationPanelRows(
         plugin.observation.trace,
@@ -563,7 +568,9 @@ void main() {
       await key;
       modal.dispose();
       view.repaintConsole();
-      expect(visible(), contains('Project question'));
+      // Column width clips the choice label; '? Project' proves the
+      // completed answer rendered.
+      expect(visible(), contains('? Project'));
       await pumpEventQueue();
       io.output.clear();
       await Future<void>.delayed(const Duration(milliseconds: 180));
@@ -572,7 +579,7 @@ void main() {
   );
 
   test(
-    'shares sidebar with plan, fits a small terminal, switches views, and unloads focused',
+    'shares the side column with plan (classifier above), fits a small terminal, switches views, and unloads focused',
     () async {
       final plans = PlansPlugin();
       final loop = AgentLoop(provider: ScriptedProvider([]), plugins: [plans]);
@@ -588,10 +595,13 @@ void main() {
       await pumpEventQueue();
       view.repaintConsole();
       plansView.repaintConsole();
+      // Column mode: fixed order — classifier above plans, regardless
+      // of registration order here (plans attached second).
       expect(
-        plansView.overlay!.bounds.bottom,
-        lessThan(view.panel!.bounds.row),
+        view.panel!.bounds.bottom,
+        lessThan(plansView.overlay!.bounds.row),
       );
+      expect(view.panel!.bounds.col, plansView.overlay!.bounds.col);
       expect(visible(), contains('current step'));
       expect(visible(), contains('classification'));
       screen.resize(ScreenLayout.fromSize(30, 8, split: false));

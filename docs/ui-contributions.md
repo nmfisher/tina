@@ -243,6 +243,39 @@ keeps the plan and classification panels independent, including during runtime
 loading and unloading. The attachment owns registration cleanup; panels still
 register with the generic focus manager and own their overlay/cursor resources.
 
+### The side column
+
+`context.bindSideColumnPanel(repaint, rank: ...)` registers a panel in the
+side column: a fixed-order strip on the RIGHT of the conversation, shared by
+every attached view (one column per screen). The classifier inspector
+(`SideColumnRank.classifier`), the plans tree (`SideColumnRank.plans`) and the
+group-channel pane (`SideColumnRank.channel`) render there, top to bottom in
+that order regardless of when they were opened or attached.
+
+- **Width.** While any column panel is open on a terminal at least
+  `SideColumnLayout.minimumScreenWidth` (96) columns wide, the conversation
+  narrows and the column takes `panelWidthFor(width)` = one third of the
+  terminal, clamped to 36–52 columns (`minColumnWidth`/`maxColumnWidth`); the
+  conversation always keeps at least 60 (`minConversationWidth`). The
+  reservation is a screen-level layout fact (`Screen.setRightColumn`): the
+  chat, input and info regions shrink around it, and it survives terminal
+  resizes. Only `height` matters inside the column — the panel renders in
+  `bounds`, full column width.
+- **Vertical distribution.** Each open panel gets its requested height, capped
+  so every later panel keeps its minimum (4 rows; the channel pane's minimum
+  is 8). The channel pane asks for everything left, so it takes the remainder
+  — the majority of the column on realistic terminals. A panel that cannot
+  hold its own minimum collapses (renders nowhere) and releases its rows to
+  the panels after it. A focused panel asking for a very large height is the
+  column's analog of maximize: later panels drop to their minimums.
+- **Fallback.** Below 96 columns the column never engages: panels render
+  through the stacked sidebar geometry instead (exactly `bindSidebarPanel`'s
+  layout, priorities preserved), and the conversation keeps the full width.
+  The channel pane — a modal, not a stacked panel — falls back to the
+  full-screen `dialogArea` modal.
+- Panels that are not conversation inspectors (the tasks overview) keep using
+  `bindSidebarPanel` directly, unchanged.
+
 Panel bounds are allocated before painting; text is clipped or scrolled inside
 them. Settings menus use `dialogBounds` with a preferred width of 80 cells and
 height of 22 rows, shrinking for smaller terminals. Search, descriptions and

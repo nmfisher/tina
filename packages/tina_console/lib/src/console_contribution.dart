@@ -9,6 +9,7 @@ import 'region.dart';
 import 'console_workspace.dart';
 import 'settings_contribution.dart';
 import 'sidebar.dart';
+import 'side_column.dart';
 import 'rect.dart';
 import 'status_selection.dart';
 
@@ -225,6 +226,28 @@ final class ConsoleContext {
     return panel;
   }
 
+  /// Register a panel in the side column (classifier, plans, group
+  /// chat — the column on the RIGHT of the conversation, in fixed
+  /// [SideColumnRank] order). Falls back to the stacked sidebar
+  /// geometry on terminals too narrow for the split. One column per
+  /// screen: panels from every attached view share it.
+  SideColumnPanel bindSideColumnPanel(void Function() repaint,
+      {required int rank}) {
+    _checkOpen();
+    final screen = this.screen;
+    final column = _shared.sideColumns.putIfAbsent(
+        screen,
+        () => SideColumnLayout(
+            layout: () => screen.layout,
+            setReservation: screen.setRightColumn));
+    final panel = column.register(repaint, rank: rank);
+    own(() {
+      panel.dispose();
+      if (column.isEmpty) _shared.sideColumns.remove(screen);
+    });
+    return panel;
+  }
+
   /// Each contribution owns only its own lines. Lower priorities appear first
   /// and survive width pressure longer; right-aligned lines retain their slot.
   void Function() bindStatus(List<RenderLine> Function() read,
@@ -341,6 +364,7 @@ final class _ConsoleBindings {
   final status = <Object, ({int priority, List<RenderLine> Function() read})>{};
   final statusSelection = StatusSelection();
   final sidebars = <ScrollingTextRegion, SidebarLayout>{};
+  final sideColumns = <Screen, SideColumnLayout>{};
   final attentionPreferences = <Object, bool Function()>{};
   Future<void> interactions = Future.value();
   String prompt() {

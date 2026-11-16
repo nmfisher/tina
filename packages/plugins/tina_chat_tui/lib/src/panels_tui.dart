@@ -283,8 +283,13 @@ final class _Workspace implements ConsolePanels {
         final layout = screen.layout;
         width = layout.width;
         height = layout.height;
+        chatWidth = layout.chat.width;
+        // The side column (classifier/plans/channel) owns the right
+        // strip when reserved; conversation panels share what's left.
+        final extent =
+            layout.rightColumn.isEmpty ? layout.width : layout.rightColumn.col;
         final shown = views.where((v) => !v.minimized).toList();
-        final slots = shown.length > 1 && width >= 100 && !maximized ? 2 : 1;
+        final slots = shown.length > 1 && extent >= 100 && !maximized ? 2 : 1;
         final preview = views[visibleIndex.clamp(0, views.length - 1)];
         final first =
             shown.indexOf(preview).clamp(0, shown.length) ~/ slots * slots;
@@ -301,7 +306,7 @@ final class _Workspace implements ConsolePanels {
           final view = views[i];
           final slot = shown.indexOf(view);
           final visible = slot >= first && slot < first + slots;
-          final columnWidth = width ~/ slots;
+          final columnWidth = extent ~/ slots;
           final rect = views.length == 1
               ? Rect(
                   row: layout.chat.row,
@@ -312,7 +317,7 @@ final class _Workspace implements ConsolePanels {
                   row: layout.chat.row,
                   col: (slot - first) * columnWidth,
                   width: slot == first + slots - 1
-                      ? width - columnWidth * (slots - 1)
+                      ? extent - columnWidth * (slots - 1)
                       : columnWidth,
                   height: layout.stripRow - layout.chat.row);
           view.frame.setBorder(views.length > 1 && height >= 8);
@@ -353,7 +358,12 @@ final class _Workspace implements ConsolePanels {
     }
     if (width != screen.layout.width || height != screen.layout.height)
       _layout();
+    else if (chatWidth != screen.layout.chat.width) _layout();
   }
+
+  /// Conversation width last laid out — a side-column reservation
+  /// changes it without changing the terminal size.
+  int chatWidth = -1;
 
   void _minimize(int index) {
     final view = views[index];

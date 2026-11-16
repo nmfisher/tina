@@ -417,5 +417,111 @@ void main() {
       expect(readonly.visibleLines.join('\n'),
           contains('input unavailable'));
     });
+
+    test('below the column threshold the pane is the full-screen dialog',
+        () async {
+      // 80 cols is under the side column's 96-col threshold: opening
+      // the pane reserves nothing and the browser keeps today's
+      // geometry — the conversation's dialog area.
+      view.openPane();
+      await pumpEventQueue();
+      expect(screen.layout.rightColumn, isEmpty);
+      expect(screen.layout.chat.width, 78);
+      expect(dialogArea(screen.layout).width, 78);
+      expect(view.visibleLines, isNotEmpty);
+      await key(EscapeKey()); // exit input mode
+      await key(EscapeKey()); // close the pane
+      expect(view.isOpen, isFalse);
+    });
+  });
+
+  group('ChannelPaneView side column (120-col terminal)', () {
+    late Io io;
+    late Screen screen;
+    late LineEditor editor;
+    late InMemoryChannelStore store;
+    late ChannelPaneView view;
+    late ConsoleAttachment attachment;
+
+    setUp(() {
+      io = Io();
+      // 120 cols: the side column applies (threshold 96) and claims
+      // a third of the width — 40 columns — at the right edge.
+      screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(120, 30, split: false),
+      );
+      editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+      LineEditor.debugDoubleEscWindow = Duration.zero;
+      unawaited(editor.readLine('> '));
+      store = InMemoryChannelStore();
+      view = ChannelPaneView(store, humanName: 'sam');
+      attachment = ConsoleAttachment.attach(
+        view,
+        ConsoleContext(screen: screen, editor: editor).forView(
+          chat: screen.chat,
+          isActive: () => true,
+          activate: () {},
+          panels: Panels(),
+        ),
+      );
+    });
+
+    tearDown(() {
+      LineEditor.debugDoubleEscWindow = null;
+      attachment.dispose();
+      editor.close(reportLatency: false);
+      screen.dispose();
+      unawaited(io.input.close());
+    });
+
+    Future<void> key(InputEvent event) async {
+      editor.inject(event);
+      await pumpEventQueue();
+    }
+
+    test('an open pane renders inside the column; the input line works '
+        'at column width; closing releases the reservation', () async {
+      // Closed pane: no reservation.
+      expect(screen.layout.rightColumn, isEmpty);
+
+      view.openPane();
+      await pumpEventQueue();
+      // The conversation narrows by the column: 40 cols at the right.
+      expect(screen.layout.rightColumn.width, 40);
+      expect(screen.layout.rightColumn.col, 80);
+      expect(screen.layout.chat.width, 78);
+
+      // The pane's lines render inside the column width — even a
+      // long message wraps/clips at 40, never reaching the dialog
+      // area's 78.
+      store.post('#lobby', sender: 'a', text: 'x' * 200);
+      view.repaintConsole();
+      await pumpEventQueue();
+      expect(view.visibleLines, isNotEmpty);
+      for (final line in view.visibleLines) {
+        expect(plainWidth(line), lessThanOrEqualTo(40),
+            reason: 'pane lines stay inside the 40-col column');
+      }
+
+      // The input line is usable at column width: typing composes and
+      // Enter posts, all within the strip.
+      await key(CharInput('hi @calm-heron'));
+      expect(view.visibleLines.join('\n'), contains('❯ hi @calm-heron▌'));
+      await key(ControlKey(ControlCode.enter));
+      expect(store.read('#lobby').last.text, 'hi @calm-heron');
+      for (final line in view.visibleLines) {
+        expect(plainWidth(line), lessThanOrEqualTo(40));
+      }
+
+      // Esc drops out of input mode; Esc again closes the pane and the
+      // reservation goes with it — the conversation is whole again.
+      await key(EscapeKey());
+      await key(EscapeKey());
+      expect(view.isOpen, isFalse);
+      await pumpEventQueue();
+      expect(screen.layout.rightColumn, isEmpty);
+      expect(screen.layout.chat.width, 118);
+    });
   });
 }

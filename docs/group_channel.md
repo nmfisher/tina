@@ -131,7 +131,8 @@ packages/plugins/tina_channel_tui/
   lib/src/channel_pane.dart         unread tracker, input composer,
                                     pure line renderer
   lib/src/channel_pane_view.dart    console contribution, status pill,
-                                    modal browser with input line
+                                    browser with input line (side-column
+                                    slot on wide terminals, modal below)
 apps/tina_cli/lib/src/channel_commands.dart   tina channel subcommands
 apps/tina_cli/lib/src/plugin_catalog.dart     child factory wiring: the
                                     channel plugin on subagent children,
@@ -198,6 +199,17 @@ inside the app's 450 ms double-Esc window remain the global
 force-cancel gesture (it closes active modals too); Esc while agent
 work is running still cancels the work first — the pane inherits the
 same Esc ladder as every other view.
+
+Where the pane renders follows the side column (the owner layout
+directive): on terminals at least 96 columns wide, an open pane takes a
+strip on the RIGHT of the conversation — a third of the terminal width,
+clamped to 36–52 columns — stacked under the classifier inspector and
+the plans tree in that fixed order, and it takes the majority of the
+column's height (the conversation narrows by the strip; closing the
+pane releases it). On narrower terminals the pane keeps today's
+geometry: the full-screen browser modal over the conversation. Same
+interaction in both — typing, posting, browsing and the Esc ladder are
+identical; only the rectangle differs.
 
 Where the pane is absent (remote/pipes front ends — the store is
 process-local), it stays absent. If a composition ever attaches the

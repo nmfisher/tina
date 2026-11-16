@@ -6,9 +6,16 @@ import 'package:tina_console/tina_console.dart';
 import 'channel_pane.dart';
 
 /// The group-channel pane: a status-bar pill with the unread count and
-/// a modal browser (F5 cycles to the pill, Enter opens) that lists the
+/// a browser (F5 cycles to the pill, Enter opens) that lists the
 /// channels with unread badges and renders the selected channel's
 /// recent messages — sender labels, status lines, presence footer.
+///
+/// Where it renders follows the side column (owner layout directive):
+/// classifier, plans and this pane stack in a fixed column on the
+/// right of the conversation, with the channel pane taking the
+/// majority of the column height. On terminals too narrow for the
+/// column, the browser is today's full-screen modal — same
+/// interaction, different geometry.
 ///
 /// Interactive: with the pane open, typing composes a message on the
 /// input line and Enter posts it as the human identity ([humanName],
@@ -40,6 +47,7 @@ final class ChannelPaneView implements ConsoleContribution {
   ConsoleContext? _console;
   StatusCycleController? _cycle;
   _ChannelBrowser? _browser;
+  SideColumnPanel? _column;
   void Function()? _removeBrowserModal, _removeModal, _removeEngage,
       _unbindStatus;
   Timer? _ticker;
@@ -115,6 +123,8 @@ final class ChannelPaneView implements ConsoleContribution {
 
     _cycle = StatusCycleController(context);
     _removeModal = context.addModal(_cycle!);
+    _column =
+        context.bindSideColumnPanel(_browser!.repaint, rank: SideColumnRank.channel);
     _removeEngage = context.bindShortcut((event) {
       if (event is FunctionKey && event.code == FunctionKeyCode.f5) {
         _cycle!.toggle();
@@ -144,6 +154,8 @@ final class ChannelPaneView implements ConsoleContribution {
     _ticker = null;
     _browser?.close();
     _browser = null;
+    _column?.dispose();
+    _column = null;
     _removeBrowserModal?.call();
     _removeBrowserModal = null;
     _removeEngage?.call();
@@ -189,7 +201,26 @@ final class _ChannelBrowser implements ModalSurface {
     // then the input line ready for typing (chat-first).
     view._humanJoin(_selected);
     composer.activate();
+    _syncColumnSlot();
     repaint();
+  }
+
+  /// Keeps the side-column slot in step: open on a terminal wide
+  /// enough for the column claims the remainder of the column (the
+  /// majority of its height); otherwise no footprint — a closed pane
+  /// renders nowhere, and on narrow terminals the browser is the
+  /// full-screen modal instead. The gate is [SideColumnLayout.fits],
+  /// not the column's current active state: the column only becomes
+  /// active once some panel claims, so an open pane must claim on
+  /// wide terminals to make it true.
+  void _syncColumnSlot() {
+    final slot = view._column;
+    final console = view._console;
+    if (slot == null || console == null) return;
+    final claim = _open &&
+        console.isActive &&
+        SideColumnLayout.fits(console.screen.layout.width);
+    slot.requestSize(height: claim ? 10000 : 0);
   }
 
   void close() {
@@ -199,6 +230,7 @@ final class _ChannelBrowser implements ModalSurface {
     _releaseCursor?.call();
     _releaseCursor = null;
     visibleLines = const [];
+    _syncColumnSlot();
   }
 
   void repaint() {
@@ -210,8 +242,17 @@ final class _ChannelBrowser implements ModalSurface {
       _releaseCursor = null;
       return;
     }
-    final area = dialogArea(console.screen.layout);
-    if (area.width < 1 || area.height < 1) return;
+    // Geometry: the side column's slot when the column is active
+    // (right of the conversation, majority of the column height);
+    // today's full-screen dialog area otherwise.
+    final column = view._column;
+    final area = column != null && column.columnActive
+        ? column.bounds
+        : dialogArea(console.screen.layout);
+    if (area.width < 1 || area.height < 1) {
+      _overlay?.hide();
+      return;
+    }
     _releaseCursor ??= console.own(console.screen.claimCursor().release);
 
     final store = view._store;
