@@ -20,7 +20,12 @@ import 'package:tina_shell/tina_shell.dart';
 import 'package:tina_system_instruction/tina_system_instruction.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina_channel/tina_channel.dart';
-import 'package:tina_channel/tina_channel_sqlite.dart';
+// The CONDITIONAL store seam, not `tina_channel_sqlite.dart`: this
+// catalog's graph also compiles to Wasm (the TUI component reaches it
+// through tui_presentation), where dart:ffi cannot go — the release
+// wasm build broke on exactly that import. Natively this resolves to
+// the same sqlite implementation.
+import 'package:tina_channel/default_store.dart';
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_context/tina_context.dart';
