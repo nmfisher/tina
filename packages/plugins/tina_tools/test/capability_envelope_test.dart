@@ -10,7 +10,12 @@ import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 import 'package:tina_tools/tina_tools.dart';
 
-const searchPath = '/usr/bin:/bin';
+import 'support/reader_fixtures.dart';
+
+// Fixture readers come first; real system dirs remain for tools whose
+// tests only need resolution, not certification (git, dd, rm…).
+late String searchPath;
+late ReaderFixtures readers;
 
 ProcessRequest req(String command, List<String> arguments, [String? cwd]) => (
       command: command,
@@ -23,6 +28,11 @@ ProcessRequest req(String command, List<String> arguments, [String? cwd]) => (
 
 void main() {
   late Directory root;
+  setUpAll(() async {
+    readers = await ReaderFixtures.create(['cat', 'grep', 'head', 'ls']);
+    searchPath = '${readers.searchPath}:/usr/bin:/bin';
+  });
+  tearDownAll(() => readers.directory.deleteSync(recursive: true));
   setUp(() async {
     root = Directory((await Directory.systemTemp.createTemp('tina_envelope_'))
         .resolveSymbolicLinksSync());
@@ -32,7 +42,7 @@ void main() {
   test('a certified single reader reports its read and provenance', () {
     final target = File('${root.path}/notes.txt')..writeAsStringSync('x\n');
     final envelope = CapabilityEnvelope.parse(req('cat', [target.path]),
-        searchPath: searchPath);
+        searchPath: searchPath, trustedExecutables: readers.trusted);
     expect(envelope.certifiedReadOnly, isTrue);
     // /bin may symlink to /usr/bin; the envelope resolves through PATH.
     expect(path.basename(envelope.reader!), 'cat');
@@ -52,7 +62,7 @@ void main() {
     final source = File('${root.path}/payload')..writeAsStringSync('data');
     final envelope = CapabilityEnvelope.parse(
         req('/bin/sh', ['-c', 'grep needle ${source.path} | head -5']),
-        searchPath: searchPath);
+        searchPath: searchPath, trustedExecutables: readers.trusted);
     expect(envelope.certifiedReadOnly, isTrue);
     expect(envelope.shellReader, isNotNull,
         reason: 'the pipeline pinned a certified reader script');
@@ -64,7 +74,7 @@ void main() {
   test('unknown commands are not certified and carry named provenance', () {
     final envelope = CapabilityEnvelope.parse(
         req('definitely-not-a-tool', ['x']),
-        searchPath: searchPath);
+        searchPath: searchPath, trustedExecutables: readers.trusted);
     expect(envelope.certifiedReadOnly, isFalse);
     expect(envelope.verifiedAccesses, isEmpty);
     expect(envelope.completeVerifiedAccesses, isFalse);
@@ -78,14 +88,14 @@ void main() {
             networkRequested: true,
             readDirectories: ['/etc'],
             writeDirectories: ['/tmp/out']),
-        searchPath: searchPath);
+        searchPath: searchPath, trustedExecutables: readers.trusted);
     expect(envelope.network, isTrue);
     expect(envelope.declaredReads, ['/etc']);
     expect(envelope.declaredWrites, ['/tmp/out']);
     expect(envelope.reads, contains('/etc'));
     expect(envelope.writes, contains('/tmp/out'));
     final quiet = CapabilityEnvelope.parse(req('echo', ['hi']),
-        control: const ProcessControl(), searchPath: searchPath);
+        control: const ProcessControl(), searchPath: searchPath, trustedExecutables: readers.trusted);
     expect(quiet.network, isFalse);
     expect(quiet.declaredReads, isEmpty);
   });
@@ -137,8 +147,8 @@ void main() {
   test('parsing is pure: the same request yields the same facts', () {
     final target = File('${root.path}/a.txt')..writeAsStringSync('a');
     final request = req('grep', ['needle', target.path]);
-    final first = CapabilityEnvelope.parse(request, searchPath: searchPath);
-    final second = CapabilityEnvelope.parse(request, searchPath: searchPath);
+    final first = CapabilityEnvelope.parse(request, searchPath: searchPath, trustedExecutables: readers.trusted);
+    final second = CapabilityEnvelope.parse(request, searchPath: searchPath, trustedExecutables: readers.trusted);
     expect(first.reads, second.reads);
     expect(first.reader, second.reader);
     expect(first.certifiedReadOnly, second.certifiedReadOnly);

@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 import 'package:tina_tools/src/read_only_commands.dart';
 import 'package:tina_tools/tina_tools.dart';
 
-const systemPath = '/usr/bin:/bin';
+import 'support/reader_fixtures.dart';
 
 ProcessRequest request(String program, List<String> args,
         {String? cwd, Map<String, String>? environment}) =>
@@ -20,6 +20,19 @@ ProcessRequest request(String program, List<String> args,
 // Recognition reports effects; it never grants execution permission.
 void main() {
   late Directory root;
+  late ReaderFixtures readers;
+  setUpAll(() async {
+    // Certification only trusts binaries that resolve to /bin|/usr/bin
+    // names; runner images that resolve coreutils through renamed
+    // multi-call files (rm → …/gnurm) make real-system certification
+    // null BY DESIGN. Tests here assert the recognition logic, not the
+    // host's /usr/bin topology, so they pin fixture binaries through the
+    // same version-pinned hash table production supports.
+    readers = await ReaderFixtures.create([
+      'find', 'git', 'sed', 'ls', 'grep', 'cat', 'echo', 'head'
+    ]);
+  });
+  tearDownAll(() => readers.directory.deleteSync(recursive: true));
   setUp(() => root = Directory(Directory.systemTemp
       .createTempSync('reader-parser-')
       .resolveSymbolicLinksSync()));
@@ -47,7 +60,8 @@ void main() {
     ]) {
       expect(
           readOnlyExecutable(request('find', arguments),
-              searchPath: systemPath),
+              searchPath: readers.searchPath,
+              trustedExecutables: readers.trusted),
           isNotNull);
     }
     for (final arguments in [
@@ -58,7 +72,8 @@ void main() {
     ]) {
       expect(
           readOnlyExecutable(request('find', arguments),
-              searchPath: systemPath),
+              searchPath: readers.searchPath,
+              trustedExecutables: readers.trusted),
           isNull);
     }
     for (final arguments in [
@@ -67,22 +82,26 @@ void main() {
     ]) {
       expect(
           readOnlyExecutable(request('/usr/bin/rg', arguments),
-              searchPath: systemPath, candidateOnly: true),
+              searchPath: readers.searchPath, candidateOnly: true),
           isNull);
     }
     final protected =
         request('/bin/sh', ['-c', 'echo data > protected'], cwd: root.path);
     expect(
         readOnlyShellRequest(protected,
-            searchPath: systemPath,
+            searchPath: readers.searchPath,
+            trustedExecutables: readers.trusted,
             canWrite: (target) =>
                 target != '${root.resolveSymbolicLinksSync()}/protected'),
         isNull);
   }, skip: Platform.isWindows);
 
   test('system absolute paths also work, with no basename-only trust', () {
-    for (final program in ['/bin/ls', '/usr/bin/grep']) {
-      expect(readOnlyExecutable(request(program, [])), isNotNull);
+    for (final program in [readers.path('ls'), readers.path('grep')]) {
+      expect(
+          readOnlyExecutable(request(program, []),
+              trustedExecutables: readers.trusted),
+          isNotNull);
     }
     for (final program in [
       '${root.path}/ls',
@@ -99,7 +118,6 @@ void main() {
   });
 
   test('read-only git subcommands certify; writing ones and options ask', () {
-    const gitPath = '/usr/bin:/bin';
     for (final args in [
       ['status'],
       ['status', '-sb'],
@@ -116,7 +134,10 @@ void main() {
       ['log', '--format=%H'],
       ['status', '--']
     ]) {
-      expect(readOnlyExecutable(request('git', args), searchPath: gitPath),
+      expect(
+          readOnlyExecutable(request('git', args),
+              searchPath: readers.searchPath,
+              trustedExecutables: readers.trusted),
           isNotNull,
           reason: 'git ${args.join(' ')}');
     }
@@ -141,7 +162,10 @@ void main() {
       []
     ]) {
       expect(
-          readOnlyExecutable(request('git', args), searchPath: gitPath), isNull,
+          readOnlyExecutable(request('git', args),
+              searchPath: readers.searchPath,
+              trustedExecutables: readers.trusted),
+          isNull,
           reason: 'git ${args.join(' ')}');
     }
   });
@@ -155,7 +179,11 @@ void main() {
       ['-n', '180,215p;220q', 'file.py'],
       ['-n', r'$p', 'file.py']
     ]) {
-      expect(readOnlyExecutable(request('sed', args)), isNotNull,
+      expect(
+          readOnlyExecutable(request('sed', args),
+              searchPath: readers.searchPath,
+              trustedExecutables: readers.trusted),
+          isNotNull,
           reason: 'sed ${args.join(' ')}');
     }
     for (final args in [
@@ -171,7 +199,11 @@ void main() {
       ['-n', '180,215p;w /tmp/out', 'file'],
       ['-n', 'p # comment', 'file']
     ]) {
-      expect(readOnlyExecutable(request('sed', args)), isNull,
+      expect(
+          readOnlyExecutable(request('sed', args),
+              searchPath: readers.searchPath,
+              trustedExecutables: readers.trusted),
+          isNull,
           reason: 'sed ${args.join(' ')}');
     }
   });

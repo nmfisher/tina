@@ -5,7 +5,14 @@ import 'package:tina_tools/src/access_review.dart';
 import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_tools/src/read_only_commands.dart';
 
+import 'support/reader_fixtures.dart';
+
 void main() {
+  late ReaderFixtures readers;
+  setUpAll(() async {
+    readers = await ReaderFixtures.create(['cat', 'grep', 'head']);
+  });
+  tearDownAll(() => readers.directory.deleteSync(recursive: true));
   late Directory root, workspace, external, hidden;
   late SandboxPlan plan;
   setUp(() {
@@ -33,16 +40,21 @@ void main() {
           timeout: null,
         );
     expect(
-        verifiedReaderAccesses(request('/bin/cat', [file.path, other.path]))
-            .map((access) => access.path),
+        verifiedReaderAccesses(
+            request(readers.path('cat'), [file.path, other.path]),
+            trustedExecutables: readers.trusted).map((access) => access.path),
         [file.path, other.path]);
     expect(
         verifiedReaderAccesses(request('/bin/sh', [
           '-c',
-          '/usr/bin/grep needle ${file.path} | /usr/bin/head -30'
-        ])).map((access) => access.path),
+          '${readers.path('grep')} needle ${file.path} | '
+              '${readers.path('head')} -30'
+        ]), trustedExecutables: readers.trusted)
+            .map((access) => access.path),
         [file.path]);
-    expect(verifiedReaderAccesses(request('/usr/bin/grep', ['-e', 'word'])),
+    expect(
+        verifiedReaderAccesses(request(readers.path('grep'), ['-e', 'word']),
+            trustedExecutables: readers.trusted),
         isEmpty);
   }, skip: Platform.isWindows);
 
