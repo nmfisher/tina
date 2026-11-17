@@ -61,11 +61,17 @@ typedef TinaMigration = void Function(Database db);
 /// version. Creation and the version stamp happen in one transaction; an
 /// existing current-version database is returned untouched. The caller
 /// owns the returned handle ([Database.close] it).
+///
+/// Concurrent first opens are safe: the version is re-read under the
+/// write lock, so the loser of the create race adopts the winner's
+/// migration instead of re-running it. [afterFreshRead] lets a test run
+/// as that winning process between the fresh read and the lock.
 Database openTinaDatabase(
   String file, {
   required int schemaVersion,
   required TinaMigration migrate,
   bool create = true,
+  void Function()? afterFreshRead,
 }) {
   final db = sqlite3.open(file,
       mode: create ? OpenMode.readWriteCreate : OpenMode.readWrite);
@@ -83,8 +89,23 @@ Database openTinaDatabase(
     if (!create) {
       throw UnsupportedDatabaseVersion(file, version, schemaVersion);
     }
+    // Test seam for the concurrent-first-open race: invoked while this
+    // opener holds a stale fresh-file read, before it takes the lock.
+    afterFreshRead?.call();
     db.execute('BEGIN IMMEDIATE');
     try {
+      // Re-read under the write lock: a second opener can have read
+      // version 0 before the first committed, and must not re-run the
+      // migration after waiting for that commit (CREATE TABLE would
+      // collide). The lock-holder that migrated first is authoritative.
+      final locked = db.userVersion;
+      if (locked == schemaVersion) {
+        db.execute('COMMIT');
+        return db;
+      }
+      if (locked != 0) {
+        throw UnsupportedDatabaseVersion(file, locked, schemaVersion);
+      }
       migrate(db);
       db.userVersion = schemaVersion;
       db.execute('COMMIT');

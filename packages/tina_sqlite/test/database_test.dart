@@ -58,6 +58,42 @@ void main() {
       ).close();
     });
 
+    // Regression (CI run 43998943385): two processes opening one fresh
+    // file. The loser reads user_version 0 before the winner commits,
+    // then takes the write lock after that commit — and must adopt the
+    // winner's migration, not re-run it (CREATE TABLE would collide and
+    // crash the process with an unhandled SqliteException, exit 255).
+    test('a concurrent first open adopts the winner\'s migration', () {
+      final p = path();
+      var migrations = 0;
+      final db = openTinaDatabase(
+        p,
+        schemaVersion: 1,
+        migrate: (db) {
+          migrations++;
+          db.execute('CREATE TABLE probe (x TEXT)');
+        },
+        // Play the winning process while this opener holds its stale
+        // fresh-file read: full migration + stamp, committed from a
+        // second connection before BEGIN IMMEDIATE is attempted.
+        afterFreshRead: () {
+          final winner = sqlite3.open(p);
+          winner.execute('PRAGMA busy_timeout=5000');
+          winner.execute('BEGIN IMMEDIATE');
+          winner.execute('CREATE TABLE probe (x TEXT)');
+          winner.userVersion = 1;
+          winner.execute('COMMIT');
+          winner.close();
+        },
+      );
+      addTearDown(db.close);
+      expect(migrations, 0, reason: 'the winner already migrated');
+      expect(db.userVersion, 1);
+      // The adopted schema is usable through this connection.
+      db.execute("INSERT INTO probe VALUES ('adopted')");
+      expect(db.select('SELECT x FROM probe').single['x'], 'adopted');
+    });
+
     test('a migration that throws leaves the file unmigrated', () {
       final p = path();
       expect(
