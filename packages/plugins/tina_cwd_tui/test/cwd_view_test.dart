@@ -4,6 +4,18 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_cwd_tui/tina_cwd_tui.dart';
 
 class _Io implements Stdio {
+  @override
+  int get terminalLines => 24;
+  @override
+  bool get stdinHasTerminal => false;
+  @override
+  bool get echoMode => true;
+  @override
+  bool get lineMode => true;
+  @override
+  void setEchoMode(bool value) {}
+  @override
+  void setLineMode(bool value) {}
   final output = StringBuffer();
   @override
   int get terminalColumns => 120;

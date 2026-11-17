@@ -18,7 +18,13 @@ final class NotcursesBackend extends TerminalBackend {
 
   /// Never succeeds under wasm: the host owns the terminal and the guest
   /// runs the ANSI backend. Reaching this is a wiring bug.
-  static Never create({required Stdio io, bool mouseWheel = false}) =>
+  ///
+  /// Typed to return the class (not `Never`) even though it always throws:
+  /// the analyzer resolves this stub whenever `dart.library.io` is not the
+  /// analysis platform, and a `Never` return makes every statement after a
+  /// `create` call in shared code dead — an unfixable `dead_code` warning
+  /// for native-only paths (tina_tui app.dart, seen with Dart 3.13).
+  static NotcursesBackend create({required Stdio io, bool mouseWheel = false}) =>
       throw UnsupportedError(
           'notcurses is a native-only backend; the wasm guest runs ANSI');
 

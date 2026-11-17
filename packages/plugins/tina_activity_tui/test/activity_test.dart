@@ -6,6 +6,18 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_activity_tui/tina_activity_tui.dart';
 
 class Io implements Stdio {
+  @override
+  int get terminalLines => 24;
+  @override
+  bool get stdinHasTerminal => false;
+  @override
+  bool get echoMode => true;
+  @override
+  bool get lineMode => true;
+  @override
+  void setEchoMode(bool value) {}
+  @override
+  void setLineMode(bool value) {}
   final input = StreamController<List<int>>(sync: true);
   final output = StringBuffer();
   void feed(String value) => input.add(value.codeUnits);
