@@ -8,15 +8,41 @@ Signed-By keys are preserved, so APT still authenticates the same packages.
 import argparse
 from pathlib import Path
 import re
+import socket
 import subprocess
 
 
+def first_reachable(mirrors):
+    """The first candidate whose host accepts a TCP connection on 443.
+
+    Runners have no outbound IPv6, and mirrors with broken IPv4 are
+    useless to apt even when DNS resolves. A three-second connect is
+    cheap insurance against picking a dead mirror again.
+    """
+    for mirror in mirrors:
+        host = re.match(r'https?://([^/]+)', mirror).group(1)
+        try:
+            socket.create_connection((host, 443), timeout=3).close()
+            return mirror
+        except OSError:
+            print(f'mirror unreachable: {host}')
+    return None
+
+
 def configure(apt_root: Path, architecture: str) -> int:
-    mirrors = {
-        'amd64': 'https://mirrors.edge.kernel.org/ubuntu',
-        'arm64': 'https://mirrors.mit.edu/ubuntu-ports',
+    candidates = {
+        'amd64': [
+            'https://mirrors.edge.kernel.org/ubuntu',
+            'https://mirror.math.princeton.edu/pub/ubuntu',
+            'https://mirrors.ocf.berkeley.edu/ubuntu',
+        ],
+        'arm64': ['https://mirrors.mit.edu/ubuntu-ports'],
     }
-    mirror = mirrors[architecture]
+    mirror = first_reachable(candidates[architecture])
+    if mirror is None:
+        print('Ubuntu mirror: no candidate reachable; keeping the '
+              'runner default sources')
+        return 0
     # Hosted images can retain a binary package cache that does not reflect
     # a changed source URI. Read the freshly fetched lists for installation.
     config = apt_root / 'apt.conf.d' / '99-tina-package-cache'
