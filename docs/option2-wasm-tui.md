@@ -190,7 +190,7 @@ Verified wasm-clean already (grep evidence, merged tree):
    (the stage-5 harness), so the default switch regresses nothing for
    agents/scripts.
 7. **Suites**: tina_console (1170), tina_tui (52), tina_chat_tui (126),
-   fuzzy_ranker, tina_wasm, tina_capability, app-suite baselines, host
+   fuzzy_ranker, tina_wasm, app-suite baselines, host
    crate 54/54 + new tests: tty/crash host imports, failure-channel
    end-to-end, TUI-guest boots-to-ready smoke, `--headless` dispatch unit
    tests. No test weakened; any superseded assertion updated with notes.

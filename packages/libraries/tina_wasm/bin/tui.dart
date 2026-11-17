@@ -211,10 +211,6 @@ final class _TuiRun implements wasi_cli.Run {
         ),
         settingsBackend: backend,
         // The host owns the capability document on wasm (it ingests the
-        // launcher's --capabilities file or derives discovery itself); the
-        // guest compiles nothing - the compiler inputs read the process's
-        // own files, which a component cannot.
-        compileCapabilities: false,
         plugins: [
           'tina/system-instruction',
           'tina/providers',

@@ -490,13 +490,6 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_capability:
-    dependency: "direct main"
-    description:
-      path: "../../packages/libraries/tina_capability"
-      relative: true
-    source: path
-    version: "0.1.0"
   tina_channel:
     dependency: "direct main"
     description:

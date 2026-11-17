@@ -356,7 +356,7 @@ path. Production report: `docs/option2-wasm-tui.md` (tina
   wasm via `--headless` — the harness passes the new selector explicitly;
   the dispatch changed, the protocol did not).
 - Suites at baselines: tina_console 1170, tina_tui 52, tina_chat_tui 126,
-  fuzzy_ranker 11, tina_wasm 19, tina_capability 21, host crate 57,
+  fuzzy_ranker 11, tina_wasm 19, host crate 57,
   discovery_boot 4; the app-suite failure set is IDENTICAL to the merge
   base (the tip even fixes two headless tests that fail at the base).
 - Host-side additions (wasm.dart `codex/issue85-wasm-tui`): wasmtime's

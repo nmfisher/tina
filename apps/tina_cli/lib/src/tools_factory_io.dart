@@ -13,5 +13,4 @@ ToolsPluginFactory get nativeToolsPluginFactory => (wiring) => ToolsPlugin(
       osSandbox: wiring.osSandbox,
       settings: wiring.settings,
       mode: wiring.mode,
-      capabilities: wiring.capabilities,
     );

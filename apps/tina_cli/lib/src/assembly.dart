@@ -12,9 +12,6 @@ import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
 
 import 'app_io.dart';
-import 'engine_launcher.dart' show readCapabilityInputs;
-import 'package:tina_capability/tina_capability.dart'
-    show compileCapabilities;
 import 'native_kinds.dart';
 import 'app_stdout.dart';
 import 'assembly_config.dart';
@@ -91,15 +88,7 @@ final class AssemblyOptions {
     this.interactive = true,
     this.registry,
     this.settingsBackend,
-    this.compileCapabilities = true,
   });
-
-  /// Whether the assembly compiles the capability document from the
-  /// launch inputs (the native site). The wasm composition root sets
-  /// false: there the HOST ingests the launcher's document and the
-  /// engine compiles nothing - the compiler inputs read the process's
-  /// own files (dart:io), which a component cannot.
-  final bool compileCapabilities;
 
   /// Explicit config file, else `~/.tina/config`.
   final String? configPath;
@@ -368,14 +357,6 @@ final class SessionAssembly {
       osSandbox: options.osSandbox,
       settings: settings,
       mode: options.yolo ? PermissionMode.yolo : PermissionMode.approve,
-      capabilities: options.compileCapabilities
-          ? compileCapabilities(readCapabilityInputs(
-              workspace: workingDirectory,
-              configDir:
-                  p.dirname(options.configPath ?? defaultConfigPath()),
-              yolo: options.yolo,
-            ))
-          : null,
     ));
     diagnostics?.stage?.call('settings-and-tools-ready');
     final policy = configuredPolicy(resolved,

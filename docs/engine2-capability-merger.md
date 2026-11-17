@@ -1,4 +1,5 @@
-# Capability merger: one capability list, host-enforced, approvals as runtime grants
+# Capability merger design (HISTORICAL — the Dart capability-compiler package was removed 2026-11-17 by owner decision; the wasm host derives discovery itself. Retained as the design record for the wasm-host side, which still exists.)
+
 
 Design doc for issue #85 (sandbox merger). Branches: `codex/issue85-capability-merger`
 (tina, off `codex/issue85-plugin-management` @ 51cec2f) and `codex/issue85-capability-merger`
@@ -127,7 +128,7 @@ Schema rules:
 
 ## 4. The compiler (engine side, one implementation)
 
-New pure-Dart package `packages/libraries/tina_capability/` — **no `dart:io`** (wasm-safe),
+A pure-Dart compiler package (removed 2026-11-17) — was **no `dart:io`** (wasm-safe),
 so the same compiler runs in the tina CLI process for both enforcement sites.
 
 Inputs → entries:
@@ -252,10 +253,10 @@ truth.
 
 ## 7. Engine side (tina)
 
-- **Compile**: the launcher (wasm) and the engine assembly (native) call the same
-  `tina_capability` compiler; tina_mode + tool policy + preopen derivation go in, one
-  document comes out (§4). The launcher writes it and passes `--capabilities=<path>`;
-  native keeps it in memory.
+- **Compile**: (historical) the launcher (wasm) and the engine assembly (native)
+  called the same compiler package (removed 2026-11-17); tina_mode + tool policy +
+  preopen derivation went in, one document came out (§4). The launcher no longer
+  writes a document; the host derives discovery itself.
 - **Native enforcement generated from the document**: `SandboxPlan`
   (read/writeDirectories, writablePaths, isolateNetwork), `SandboxedFileSystem`
   (workspace + protected + grants walls) and the process runner's command rules are
@@ -313,7 +314,7 @@ carry equal-or-stronger assertions); branches only, no merges, no PRs; identitie
 
 ## 9. Implementation order
 
-1. tina: `tina_capability` package (model, compiler, JSON codec) + legacy-compile goldens.
+1. tina: the capability-compiler package (removed 2026-11-17; model, compiler, JSON codec).
 2. wasm.dart: `policy.rs` (parse/validate/fold/derive) + unit tests.
 3. wasm.dart: preopen derivation behind the policy module + `tina:process@1.1.0` on
    host-held policy (`profile` optional) + tests.

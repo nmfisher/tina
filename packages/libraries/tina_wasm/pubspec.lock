@@ -500,7 +500,7 @@ packages:
       path: "../../../apps/tina_cli"
       relative: true
     source: path
-    version: "0.9.118"
+    version: "0.10.3"
   tina_activity:
     dependency: "direct main"
     description:
@@ -529,10 +529,17 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
-  tina_capability:
+  tina_channel:
     dependency: transitive
     description:
-      path: "../tina_capability"
+      path: "../../plugins/tina_channel"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_channel_tui:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_channel_tui"
       relative: true
     source: path
     version: "0.1.0"
