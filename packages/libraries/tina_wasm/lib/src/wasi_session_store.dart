@@ -252,6 +252,19 @@ final class WasiSessionStore implements SessionStoreApi {
     return SessionDetails.fromJson(const {});
   }
 
+  /// Legacy import is a native-CLI flow; the wasm guest never imports
+  /// legacy transcripts into its store (the interface documents this).
+  @override
+  Never importSnapshot(String id,
+      {required String fingerprint,
+      required Map<String, Object?> provenance,
+      required List<SessionEntry> entries,
+      String? title}) {
+    throw UnsupportedError(
+        'legacy import is native-only; the wasm store is injected, '
+        'never imported into');
+  }
+
   @override
   void close() {
     _closed = true;
