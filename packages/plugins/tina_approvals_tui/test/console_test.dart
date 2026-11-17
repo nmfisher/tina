@@ -38,6 +38,21 @@ class Io implements Stdio {
 
 Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));
 
+/// Pump ticks until [ready] holds, failing after [limit]. A fixed sleep
+/// guesses how long a render takes; on a cold CI JIT the first pass
+/// through a view can outrun 30ms, so waits for rendered state settle
+/// here instead (the assertions that follow are unchanged).
+Future<void> pumpUntil(bool Function() ready,
+    {Duration limit = const Duration(seconds: 5)}) async {
+  final deadline = DateTime.now().add(limit);
+  while (!ready()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('condition not reached within $limit');
+    }
+    await tick();
+  }
+}
+
 class RecordingChannel implements ApprovalChannel {
   RecordingChannel(this.inner);
   final ApprovalChannel inner;
@@ -182,6 +197,10 @@ void main() {
     await tick();
     expect(suggestions, 1);
     expect(ui.asker!.currentPatternReview!.input.buffer, pattern);
+    // The cursor bytes land with the review input's first settled frame —
+    // wait for them instead of assuming one tick is enough (CI run
+    // 43998943385 failed exactly here on a cold runner).
+    await pumpUntil(() => visible().cursorVisible);
     expect(visible().cursorVisible, true);
     io.feed(
         '\x15\x1b[200~$pattern\x1b[201~'); // Clear and paste into regex field.
@@ -191,6 +210,7 @@ void main() {
     io.feed('\r');
     await tick();
     expect(all(), contains('Review always-approve regex'));
+    await pumpUntil(() => !visible().cursorVisible);
     expect(visible().cursorVisible, false);
     expect(saved, isNull);
     expect(answered, false);
