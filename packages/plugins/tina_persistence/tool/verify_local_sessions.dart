@@ -4,7 +4,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:tina_core/tina_core.dart';
-import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_persistence/tina_persistence.dart' hide SessionStore;
+// Native-only tool (sqlite + local files): bind the real store directly so
+// readLog resolves under analyzers that serve the wasm stub leg.
+import 'package:tina_persistence/src/store_io.dart';
 
 void check(bool condition, String message) {
   if (!condition) throw StateError(message);

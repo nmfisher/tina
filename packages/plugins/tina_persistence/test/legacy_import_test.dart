@@ -4,7 +4,11 @@ import 'package:test/test.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
-import 'package:tina_persistence/tina_persistence.dart';
+import 'package:tina_persistence/tina_persistence.dart' hide SessionStore;
+// The sqlite store is native-only; binding it directly (not through the
+// conditional barrel) keeps readLog visible under analyzers that resolve
+// the wasm stub leg — the barrel's SessionStore has no raw-row reader.
+import 'package:tina_persistence/src/store_io.dart';
 
 const question = Message(role: Role.user, content: [TextBlock('hello')]);
 const answer = Message(

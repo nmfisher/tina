@@ -10,7 +10,10 @@ import 'dart:io';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
 import 'package:tina_core/tina_core.dart';
-import 'package:tina_persistence/tina_persistence.dart';
+// Native-only suite (sqlite): the real store is bound directly so the
+// raw-row readLog API resolves even when the analyzer serves the wasm
+// stub leg of the conditional barrel.
+import 'package:tina_persistence/src/store_io.dart';
 import 'package:tina_sqlite/tina_sqlite.dart';
 
 /// A tiny finished turn as a store client would hand it over: start,

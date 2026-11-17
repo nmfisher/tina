@@ -129,6 +129,16 @@ abstract interface class SessionStoreApi {
   /// The session's stored details.
   SessionDetails readDetails(String sessionId);
 
+  /// Import a legacy snapshot as a new session. Returns true when the rows
+  /// were written, false when the same fingerprint was already imported
+  /// (idempotent re-run). Native sqlite does the write; a wasm stub store
+  /// refuses — the wasm session store is injected, never imported into.
+  bool importSnapshot(String id,
+      {required String fingerprint,
+      required Map<String, Object?> provenance,
+      required List<SessionEntry> entries,
+      String? title});
+
   /// Release the store's resources.
   void close();
 }

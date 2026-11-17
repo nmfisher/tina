@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:tina_core/tina_core.dart';
-import 'store.dart';
+import '../session_store_api.dart';
 
 enum LegacyImportStatus { imported, skipped, ready, failed }
 
@@ -26,7 +26,7 @@ final class LegacyImportResult {
 final class LegacySessionImporter {
   const LegacySessionImporter();
 
-  List<LegacyImportResult> importPath(String path, {SessionStore? store}) {
+  List<LegacyImportResult> importPath(String path, {SessionStoreApi? store}) {
     final type = FileSystemEntity.typeSync(path);
     if (type == FileSystemEntityType.file) return _file(File(path), store);
     if (type != FileSystemEntityType.directory) {
@@ -50,7 +50,7 @@ final class LegacySessionImporter {
     return out;
   }
 
-  List<LegacyImportResult> _file(File file, SessionStore? store) {
+  List<LegacyImportResult> _file(File file, SessionStoreApi? store) {
     try {
       if (file.path.endsWith('.jsonl')) {
         final name = file.uri.pathSegments.last;
@@ -109,7 +109,7 @@ final class LegacySessionImporter {
       Map<String, dynamic> conversation,
       File? manifestFile,
       List<int>? manifestBytes,
-      SessionStore? store) {
+      SessionStoreApi? store) {
     final id = 'legacy:${_id(manifest['id'])}:${_id(conversation['id'])}';
     final active = manifest['activeConversationId'] == conversation['id'] ||
         manifestFile == null;

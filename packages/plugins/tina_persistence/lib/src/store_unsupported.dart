@@ -6,7 +6,6 @@
 library;
 
 import 'package:tina_core/tina_core.dart';
-import 'package:tina_settings/tina_settings.dart';
 
 import '../session_store_api.dart';
 
@@ -47,8 +46,8 @@ final class SessionStore implements SessionStoreApi {
           {String? model}) =>
       _refuse();
 
-  /// Mirrors the real store's legacy-import entry point (native-only on
-  /// wasm; legacy_import compiles against the shape).
+  /// Legacy import is native-only: wasm refuses loudly (see the interface).
+  @override
   bool importSnapshot(
     String id, {
     required String fingerprint,

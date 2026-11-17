@@ -111,6 +111,7 @@ final class SessionStore implements SessionStoreApi {
   /// Atomically add a converted snapshot. A repeat of the same source is a
   /// no-op, including after the imported session has accumulated newer turns.
   /// A different snapshot never overwrites or appends to an existing session.
+  @override
   bool importSnapshot(
     String id, {
     required String fingerprint,
