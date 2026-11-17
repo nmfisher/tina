@@ -6,7 +6,7 @@ Prepared for PR #87's integration merge on `codex/integration-main-118`
 - **Stack side**: `18d210d1` (engine artifact + six catalog plugins ported
   to the wasm engine). The stack forked from main at `f2c84da0`; it
   changed **210 files** since the fork — almost all of them NEW
-  libraries (`tina_plugin_registry`, `tina_tui_spike`,
+  libraries (`tina_plugin_registry` (since promoted to owned), `tina_tui_spike` (since moved to spikes/),
   `tina_wasm` growth, `tools/plugin-registry` in Rust) plus seams in
   `apps/tina_cli`, `tina_console`, `tina_tools`, `tina_host`.
 - **Main side**: `6cb9b6aa` (v0.9.111) → `5c4ec7d4` (v0.9.118), 17

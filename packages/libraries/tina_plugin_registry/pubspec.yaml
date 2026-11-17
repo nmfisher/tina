@@ -16,4 +16,4 @@ dependencies:
 dev_dependencies:
   # No test framework beyond the SDK's; keep the client dependency-light.
   test: ^1.25.0
-  lints: ^4.0.0
+  lints: ^5.0.0

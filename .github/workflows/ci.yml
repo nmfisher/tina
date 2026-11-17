@@ -358,6 +358,26 @@ jobs:
   # the package ships probes and the engine composition root, no test/
   # suite; the scenario and dogfood transcripts under tool/records are
   # driven by its own scripts.
+  tina_plugin_registry:
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.packages), 'tina_plugin_registry')
+    name: tina_plugin_registry (packages/libraries/tina_plugin_registry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: pub get (tina_plugin_registry)
+        working-directory: packages/libraries/tina_plugin_registry
+        run: dart pub get
+      - name: analyze (tina_plugin_registry)
+        working-directory: packages/libraries/tina_plugin_registry
+        run: dart analyze
+      - name: test (tina_plugin_registry)
+        working-directory: packages/libraries/tina_plugin_registry
+        run: dart test -j 4
+
   tina_wasm:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.packages), 'tina_wasm')

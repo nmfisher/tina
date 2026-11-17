@@ -52,6 +52,7 @@
     "tina_channel",
     "tina_channel_tui",
     "tina_io",
+    "tina_plugin_registry",
     "tina_wasm"
   ],
   "vendoredPackages": [
@@ -184,7 +185,8 @@
     ],
     "tina_classification_tui": [
       "lib",
-      "test"
+      "test",
+      "tool"
     ],
     "tina_goals": [
       "lib",
@@ -247,6 +249,10 @@
       "lib",
       "test"
     ],
+    "tina_plugin_registry": [
+      "lib",
+      "test"
+    ],
     "tina_wasm": [
       "lib",
       "bin",
@@ -288,7 +294,8 @@
     ],
     "tina_channel": [
       "lib",
-      "test"
+      "test",
+      "tool"
     ],
     "tina_channel_tui": [
       "lib",
@@ -406,7 +413,8 @@
     "tina_rewind": "packages/plugins/tina_rewind",
     "tina_channel": "packages/plugins/tina_channel",
     "tina_channel_tui": "packages/plugins/tina_channel_tui",
-    "tina_repository_tools": "tool/repository"
+    "tina_repository_tools": "tool/repository",
+    "tina_plugin_registry": "packages/libraries/tina_plugin_registry"
   },
   "runtimeDependencies": {
     "tina_context": [
@@ -519,6 +527,7 @@
     ],
     "tina": [
       "classification",
+      "crypto",
       "ffi",
       "path",
       "tina_activity",
@@ -547,6 +556,7 @@
       "tina_persistence",
       "tina_plans",
       "tina_plans_tui",
+      "tina_plugin_registry",
       "tina_providers",
       "tina_self_update",
       "tina_session_controls",
@@ -587,6 +597,8 @@
       "tina_settings"
     ],
     "tina_channel": [
+      "path",
+      "sqlite3",
       "tina_core",
       "tina_engine_2",
       "tina_sqlite"
@@ -620,6 +632,7 @@
     ],
     "tina_tui": [
       "ffi",
+      "fuzzy_ranker",
       "path",
       "tina_console",
       "tina_core",

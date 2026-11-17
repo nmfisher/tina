@@ -163,5 +163,120 @@
     "key": "public-api|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_surface.dart",
     "reason": "A09: the wasm engine composition root deliberately reuses the CLI application's headless assembly internals (the same session code path as `tina --pipes`); the app's src tree is its API by design.",
     "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/assembly.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/persistence_seam.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/tools_factory.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/tui_session.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/lib/src/engine_registry.dart|apps/tina_cli/lib/src/session_context.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/config_document.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_catalog.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_stack.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_surface.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/assembly.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/persistence_seam.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/tools_factory.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|apps/tina_cli/lib/src/tui_session.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/bin/tui.dart|packages/tina_console/lib/src/backend/ansi_input_backend.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/engine_registry.dart|packages/libraries/tina_wasm/lib/src/engine_registry.dart|packages/tina_core/lib/src/command.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/lib/src/wasi_stdio.dart|packages/libraries/tina_wasm/lib/src/wasi_stdio.dart|packages/tina_console/lib/src/stdio.dart",
+    "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/tina_tui/lib/src/app.dart|packages/tina_tui/lib/src/app.dart|packages/tina_console/lib/src/platform_env.dart",
+    "reason": "A09-seam: native/unsupported seam legs import their counterpart legs directly (re-exporting through the public barrel would drag dart:ffi into the wasm component graph); same src-is-API policy as the engine entries.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/tina_tui/lib/src/app_stdio_io.dart|packages/tina_tui/lib/src/app_stdio_io.dart|packages/tina_console/lib/src/stdio_io.dart",
+    "reason": "A09-seam: native/unsupported seam legs import their counterpart legs directly (re-exporting through the public barrel would drag dart:ffi into the wasm component graph); same src-is-API policy as the engine entries.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/tina_tui/lib/src/app_stdio_unsupported.dart|packages/tina_tui/lib/src/app_stdio_unsupported.dart|packages/tina_console/lib/src/stdio_unsupported.dart",
+    "reason": "A09-seam: native/unsupported seam legs import their counterpart legs directly (re-exporting through the public barrel would drag dart:ffi into the wasm component graph); same src-is-API policy as the engine entries.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/tina_tui/lib/src/terminal_startup_io.dart|packages/tina_tui/lib/src/terminal_startup_io.dart|packages/tina_console/lib/src/backend/terminal_modes.dart",
+    "reason": "A09-seam: native/unsupported seam legs import their counterpart legs directly (re-exporting through the public barrel would drag dart:ffi into the wasm component graph); same src-is-API policy as the engine entries.",
+    "owner": "A09"
   }
 ]
