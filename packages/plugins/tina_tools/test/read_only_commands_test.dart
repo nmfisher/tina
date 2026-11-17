@@ -207,6 +207,37 @@ void main() {
           reason: 'sed ${args.join(' ')}');
     }
   });
+  test('relocated system readers certify; writable redirects stay refused',
+      () {
+    // Runner images migrating coreutils to renamed multi-call files
+    // resolve `/usr/bin/cat` to `…/gnucat`. Certification must follow the
+    // target as long as it still lives inside the (root-owned) system
+    // trees, while a system-name symlink into a writable directory keeps
+    // being refused. CI run 44026685951: the Remember/invocation-access
+    // family failed exactly through the empty reader-access lists this
+    // gate produced on such hosts.
+    final system = Directory('${root.path}/system')..createSync();
+    final writable = Directory('${root.path}/writable')..createSync();
+    final target = File('${system.path}/gnucat')
+      ..writeAsStringSync('#!/bin/sh\nexit 0\n');
+    final chmod = Process.runSync('/bin/chmod', ['+x', target.path]);
+    expect(chmod.exitCode, 0, reason: chmod.stderr.toString());
+    Link('${system.path}/cat').createSync(target.path);
+    File('${writable.path}/evil').writeAsStringSync('#!/bin/sh\nexit 0\n');
+    Process.runSync('/bin/chmod', ['+x', '${writable.path}/evil']);
+    Link('${system.path}/grep').createSync('${writable.path}/evil');
+    // The relocated reader certifies through its system-resident target.
+    expect(
+        readOnlyExecutable(request('${system.path}/cat', ['a', 'b']),
+            systemDirectories: [system.path]),
+        target.path);
+    // A system-name symlink that leaves the system trees is refused.
+    expect(
+        readOnlyExecutable(request('${system.path}/grep', ['needle']),
+            systemDirectories: [system.path]),
+        isNull);
+  });
+
   test('shell parsing preserves quoted words and operators', () {
     final parts = literalShellParts(
         request('/bin/sh', ['-c', 'echo "a b" | wc -c && cat file']));

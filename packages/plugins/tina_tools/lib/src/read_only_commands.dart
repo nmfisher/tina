@@ -482,7 +482,8 @@ ProcessRequest? readOnlyShellRequest(ProcessRequest request,
 String? readOnlyExecutable(ProcessRequest request,
     {String? searchPath,
     Map<String, String> trustedExecutables = const {},
-    bool candidateOnly = false}) {
+    bool candidateOnly = false,
+    List<String> systemDirectories = const ['/bin', '/usr/bin']}) {
   if (request.environment != null || Platform.isWindows) return null;
   final name = path.basename(request.command);
   final options = _readers[name];
@@ -495,7 +496,17 @@ String? readOnlyExecutable(ProcessRequest request,
           sedPrint ||
           name == 'find' && _acceptsFind(request.arguments);
   if (!accepted) return null;
+  // Exact system names, plus — on images that resolve coreutils through
+  // renamed multi-call files (`/usr/bin/rm` → `…/gnurm`, the uutils
+  // migration) — any target that still lives inside the root-owned
+  // system bin directories. Relocation inside /bin|/usr/bin preserves
+  // the property this check exists for: a system-name symlink cannot
+  // redirect certification at a script or executable in a WRITABLE
+  // directory, because planting anything inside those trees already
+  // requires root.
   final trusted = {'/bin/$name', '/usr/bin/$name'};
+  bool systemResident(String resolved) => trusted.contains(resolved) ||
+      systemDirectories.any((dir) => path.isWithin(dir, resolved));
   String? candidate;
   if (request.command == name) {
     for (final directory
@@ -525,10 +536,11 @@ String? readOnlyExecutable(ProcessRequest request,
     final stat = File(resolved).statSync();
     if (stat.type != FileSystemEntityType.file || stat.mode & 0x49 == 0)
       return null;
-    if (!trusted.contains(resolved) && stat.size > 64 * 1024 * 1024) return null;
-    // Comparing against literal system paths also rejects a system-name
-    // symlink that points to a script or executable in a writable directory.
-    return trusted.contains(resolved) ||
+    if (!systemResident(resolved) && stat.size > 64 * 1024 * 1024) return null;
+    // Residence inside the root-owned system trees (see systemResident)
+    // rejects a system-name symlink that points to a script or executable
+    // in a writable directory.
+    return systemResident(resolved) ||
             candidateOnly ||
             trustedExecutables[resolved] ==
                 sha256.convert(File(resolved).readAsBytesSync()).toString()
