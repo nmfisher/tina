@@ -42,15 +42,37 @@ Future<void> tick() => Future<void>.delayed(const Duration(milliseconds: 30));
 /// guesses how long a render takes; on a cold CI JIT the first pass
 /// through a view can outrun 30ms, so waits for rendered state settle
 /// here instead (the assertions that follow are unchanged).
+///
+/// [describe] feeds the failure message: this failure has reproduced in
+/// three consecutive CI runs while passing every local configuration
+/// (orderings, scrubbed env, CPU load — see ticket commit 14), so the
+/// dump is the diagnostic instrument: it names the state the next CI
+/// log needs to explain.
 Future<void> pumpUntil(bool Function() ready,
-    {Duration limit = const Duration(seconds: 5)}) async {
+    {Duration limit = const Duration(seconds: 5),
+    String Function()? describe}) async {
   final deadline = DateTime.now().add(limit);
   while (!ready()) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('condition not reached within $limit');
+      fail('condition not reached within $limit'
+          '${describe == null ? '' : ' — ${describe()}'}');
     }
     await tick();
   }
+}
+
+String _cursorDiagnostics(ApprovalView ui, Io io) {
+  final review = ui.asker?.currentPatternReview;
+  final output = io.output.toString();
+  final shows = '\x1b[?25h'.allMatches(output).length;
+  final hides = '\x1b[?25l'.allMatches(output).length;
+  final state = review == null
+      ? 'none'
+      : 'open reviewing=${review.reviewing} '
+          'buffer=${review.input.buffer}';
+  return 'review=$state '
+      'cursor-bytes(show=$shows hide=$hides) '
+      'output-length=${output.length}';
 }
 
 class RecordingChannel implements ApprovalChannel {
@@ -200,7 +222,8 @@ void main() {
     // The cursor bytes land with the review input's first settled frame —
     // wait for them instead of assuming one tick is enough (CI run
     // 43998943385 failed exactly here on a cold runner).
-    await pumpUntil(() => visible().cursorVisible);
+    await pumpUntil(() => visible().cursorVisible,
+        describe: () => _cursorDiagnostics(ui, io));
     expect(visible().cursorVisible, true);
     io.feed(
         '\x15\x1b[200~$pattern\x1b[201~'); // Clear and paste into regex field.
@@ -210,7 +233,8 @@ void main() {
     io.feed('\r');
     await tick();
     expect(all(), contains('Review always-approve regex'));
-    await pumpUntil(() => !visible().cursorVisible);
+    await pumpUntil(() => !visible().cursorVisible,
+        describe: () => _cursorDiagnostics(ui, io));
     expect(visible().cursorVisible, false);
     expect(saved, isNull);
     expect(answered, false);
