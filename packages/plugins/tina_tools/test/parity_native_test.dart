@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:tina_capability/tina_capability.dart';
 import 'package:tina_mode/tina_mode.dart'
     show
         AccessCapability,
