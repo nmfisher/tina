@@ -546,7 +546,7 @@ jobs:
         run: dart analyze
       - name: analyze native legs (tina_tools)
         working-directory: packages/plugins/tina_tools
-        run: dart run ../../tool/repository/bin/analyze_native_legs.dart .
+        run: dart run ../../../tool/repository/bin/analyze_native_legs.dart .
       - name: test (tina_tools)
         working-directory: packages/plugins/tina_tools
         run: dart test -j 4
@@ -1110,7 +1110,7 @@ jobs:
         run: dart analyze
       - name: analyze native legs (tina_persistence)
         working-directory: packages/plugins/tina_persistence
-        run: dart run ../../tool/repository/bin/analyze_native_legs.dart .
+        run: dart run ../../../tool/repository/bin/analyze_native_legs.dart .
       - name: test (tina_persistence)
         working-directory: packages/plugins/tina_persistence
         run: dart test -j 4
@@ -1133,7 +1133,7 @@ jobs:
         run: dart analyze
       - name: analyze native legs (tina_channel)
         working-directory: packages/plugins/tina_channel
-        run: dart run ../../tool/repository/bin/analyze_native_legs.dart .
+        run: dart run ../../../tool/repository/bin/analyze_native_legs.dart .
       - name: test (tina_channel)
         working-directory: packages/plugins/tina_channel
         run: dart test -j 4
@@ -1163,7 +1163,7 @@ jobs:
         run: dart analyze
       - name: analyze native legs (tina_channel_tui)
         working-directory: packages/plugins/tina_channel_tui
-        run: dart run ../../tool/repository/bin/analyze_native_legs.dart .
+        run: dart run ../../../tool/repository/bin/analyze_native_legs.dart .
       - name: test (tina_channel_tui)
         working-directory: packages/plugins/tina_channel_tui
         run: dart test -j 4
@@ -1324,7 +1324,7 @@ jobs:
         run: dart analyze
       - name: analyze native legs (tina_chat_tui)
         working-directory: packages/plugins/tina_chat_tui
-        run: dart run ../../tool/repository/bin/analyze_native_legs.dart .
+        run: dart run ../../../tool/repository/bin/analyze_native_legs.dart .
       - name: test (tina_chat_tui)
         working-directory: packages/plugins/tina_chat_tui
         run: dart test -j 4
