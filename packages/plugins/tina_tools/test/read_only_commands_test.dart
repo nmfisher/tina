@@ -207,6 +207,41 @@ void main() {
           reason: 'sed ${args.join(' ')}');
     }
   });
+  test('uutils-style multi-call layouts certify the classic names', () {
+    // Fake Ubuntu-26/uutils layout inferred from the Debian-family
+    // packaging convention (multi-call binary homed under a
+    // /usr/libexec-style prefix; classic /bin names are symlinks to it)
+    // and the GitHub runner-images ubuntu26 readme (runner-images
+    // #14748): the container cannot reproduce the real layout, so the
+    // prefixes are injected through the systemDirectories seam.
+    final prefix = Directory('${root.path}/uusr')..createSync();
+    final bin = Directory('${prefix.path}/bin')..createSync();
+    final libexec = Directory('${prefix.path}/libexec')..createSync();
+    final multicall = File('${libexec.path}/coreutils')
+      ..writeAsStringSync('#!/bin/sh\nexit 0\n');
+    final chmod = Process.runSync('/bin/chmod', ['+x', multicall.path]);
+    expect(chmod.exitCode, 0, reason: chmod.stderr.toString());
+    for (final name in ['cat', 'grep', 'head']) {
+      Link('${bin.path}/$name').createSync(multicall.path);
+    }
+    final homes = [bin.path, libexec.path];
+    // Classic names reached through a search path resolve to the
+    // multi-call binary outside the bin tree — still certified.
+    expect(
+        readOnlyExecutable(request('cat', ['a']),
+            searchPath: bin.path, systemDirectories: homes),
+        multicall.path);
+    expect(
+        readOnlyExecutable(request('grep', ['needle', 'file']),
+            searchPath: bin.path, systemDirectories: homes),
+        multicall.path);
+    // Absolute classic-name paths resolve through the symlink too.
+    expect(
+        readOnlyExecutable(request('${bin.path}/head', ['file']),
+            systemDirectories: homes),
+        multicall.path);
+  });
+
   test('relocated system readers certify; writable redirects stay refused',
       () {
     // Runner images migrating coreutils to renamed multi-call files

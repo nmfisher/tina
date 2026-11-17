@@ -4,3 +4,7 @@ analyzer:
   exclude:
     - packages/dart_notcurses/**
     - build/**
+    # Spikes are out-of-scope scratch: historical experiments, not owned
+    # packages (repositoryExcludedRoots), never pub-resolved by CI's
+    # owned-package step — analyzing them only produces resolution noise.
+    - spikes/**

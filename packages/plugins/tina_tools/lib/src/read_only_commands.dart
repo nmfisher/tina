@@ -473,6 +473,25 @@ ProcessRequest? readOnlyShellRequest(ProcessRequest request,
   );
 }
 
+/// Root-administered prefixes a resolved reader may live in and still be
+/// certified as a system reader (see [readOnlyExecutable]).
+///
+/// The bin trees cover the GNU layout directly. The lib/libexec and sbin
+/// trees cover relocated multi-call layouts: Ubuntu 26 ships uutils
+/// coreutils with the classic `/bin|/usr/bin` names as symlinks to a
+/// root-owned multi-call binary homed under `/usr/lib*` (Debian-family
+/// uutils packaging; busybox precedent). Everything listed is writable
+/// only by root. Deliberately NOT included: `/usr/local/*` and any user
+/// path — those are locally administered.
+const defaultReaderSystemDirectories = [
+  '/bin',
+  '/usr/bin',
+  '/sbin',
+  '/usr/sbin',
+  '/usr/libexec',
+  '/usr/lib',
+];
+
 /// Certifies system readers and explicitly trusted, version-pinned readers.
 /// Unknown options, custom environments and replacement programs use the
 /// invocation's execution profile without reader-specific hardening. An
@@ -483,7 +502,7 @@ String? readOnlyExecutable(ProcessRequest request,
     {String? searchPath,
     Map<String, String> trustedExecutables = const {},
     bool candidateOnly = false,
-    List<String> systemDirectories = const ['/bin', '/usr/bin']}) {
+    List<String> systemDirectories = defaultReaderSystemDirectories}) {
   if (request.environment != null || Platform.isWindows) return null;
   final name = path.basename(request.command);
   final options = _readers[name];
@@ -496,14 +515,18 @@ String? readOnlyExecutable(ProcessRequest request,
           sedPrint ||
           name == 'find' && _acceptsFind(request.arguments);
   if (!accepted) return null;
-  // Exact system names, plus — on images that resolve coreutils through
-  // renamed multi-call files (`/usr/bin/rm` → `…/gnurm`, the uutils
-  // migration) — any target that still lives inside the root-owned
-  // system bin directories. Relocation inside /bin|/usr/bin preserves
-  // the property this check exists for: a system-name symlink cannot
-  // redirect certification at a script or executable in a WRITABLE
-  // directory, because planting anything inside those trees already
-  // requires root.
+  // Exact system names, plus any target that still lives inside a
+  // root-administered system prefix. GNU layouts keep the readers at
+  // /bin|/usr/bin names directly; Ubuntu 26 (GitHub's ubuntu-latest
+  // since 2026-10-19, runner-images #14748) ships uutils coreutils,
+  // where the classic names are symlinks to a root-owned multi-call
+  // binary OUTSIDE the bin trees (Debian-family packaging homes it
+  // under /usr/lib*/…, busybox-style). Trusting the system prefixes —
+  // not two specific directories — makes certification
+  // layout-independent while preserving the property the check exists
+  // for: a system-name symlink cannot redirect certification at a
+  // script or executable in a writable location, because planting
+  // anything inside these prefixes already requires root.
   final trusted = {'/bin/$name', '/usr/bin/$name'};
   bool systemResident(String resolved) => trusted.contains(resolved) ||
       systemDirectories.any((dir) => path.isWithin(dir, resolved));
