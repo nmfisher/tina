@@ -654,6 +654,13 @@ void main() {
       final spawn = ScriptedRunner([
         const CommandCompleted(exitCode: 0, stdout: 'ok', stderr: ''),
       ]);
+      // Hermetic search path: resolving 'rm' must not depend on what the
+      // host's /usr/bin:/bin symlinks point at (a runner image where rm
+      // resolves through a suffixed coreutils made this assertion read
+      // 'gnurm'). An empty directory makes the resolver throw, which is
+      // the gate's documented fallback: forward the command verbatim.
+      final search = Directory.systemTemp.createTempSync('tina-empty-path');
+      addTearDown(() => search.deleteSync());
       // The wiring yolo produces: only the gate's mode differs from any
       // other session. The jail beneath it is constructed exactly the same
       // (tools_plugin passes enabled: osSandbox; the mode is not an input).
@@ -670,6 +677,7 @@ void main() {
         mode: PermissionMode.yolo,
         writableDirectories:
             WritableDirectories(['/work/proj', '/tmp', '/var/tmp']),
+        executableSearchPath: search.path,
         // Yolo's approver says yes to everything without asking anyone.
         commandApprover: (_, __) async => Approval.yes,
       );
