@@ -32,9 +32,9 @@ def first_reachable(mirrors):
 def configure(apt_root: Path, architecture: str) -> int:
     candidates = {
         'amd64': [
-            'https://mirrors.edge.kernel.org/ubuntu',
             'https://mirror.math.princeton.edu/pub/ubuntu',
             'https://mirrors.ocf.berkeley.edu/ubuntu',
+            'https://mirrors.edge.kernel.org/ubuntu',
         ],
         'arm64': ['https://mirrors.mit.edu/ubuntu-ports'],
     }
