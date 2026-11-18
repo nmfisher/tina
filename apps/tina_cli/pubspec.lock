@@ -630,6 +630,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  tina_memory:
+    dependency: "direct main"
+    description:
+      path: "../../packages/plugins/tina_memory"
+      relative: true
+    source: path
+    version: "0.1.0"
   tina_mode:
     dependency: "direct main"
     description:

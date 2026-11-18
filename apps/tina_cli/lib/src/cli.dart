@@ -5,6 +5,7 @@ import 'package:tina_providers/tina_providers.dart';
 import 'package:tina_tools/tina_tools.dart' show noSandboxOption;
 import 'cli_options.dart';
 import 'channel_commands.dart';
+import 'memory_commands.dart';
 import 'engine_launcher.dart';
 import 'pipes.dart';
 import 'plugin_catalog.dart';
@@ -26,11 +27,13 @@ Future<int> runCli(
   void Function(PluginRegistry<SessionPluginContext>)? registerPlugins,
   Future<String> Function()? readStdin,
   String? Function() locateTerminalDevice = terminalDevicePath,
+  Map<String, String> environment = const {},
 }) async {
+  final env = environment.isEmpty ? Platform.environment : environment;
   // The `tina plugin` subcommand tree routes before the main flag schema:
   // its arguments are a different grammar (design doc section 6).
-  final globalTinaDir = Platform.environment['HOME'] != null
-      ? '${Platform.environment['HOME']}/.tina'
+  final globalTinaDir = env['HOME'] != null
+      ? '${env['HOME']}/.tina'
       : Directory.current.path;
   final pluginExit = await runPluginSubcommand(
     args,
@@ -42,6 +45,10 @@ Future<int> runCli(
   final channelExit = await runChannelSubcommand(args);
   if (channelExit != null) {
     return channelExit;
+  }
+  final memoryExit = await runMemorySubcommand(args, environment: env);
+  if (memoryExit != null) {
+    return memoryExit;
   }
   final registry = firstPartyPlugins();
   registerPlugins?.call(registry);
