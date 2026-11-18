@@ -570,25 +570,43 @@ final class SessionAssembly {
           sessionProvider: resolved.providerId ?? 'anthropic'),
       profiles: profileList,
       switchProfile: switchSessionProfile,
-      modelCatalog: () => ModelCatalog(models: [
-        for (final descriptor in resolved.descriptors)
-          if (resolved.providers.containsKey(descriptor.id) ||
-              descriptor.id == resolved.providerId ||
-              (resolved.providers.isEmpty && descriptor.id == 'anthropic') ||
-              (assembled?.host.model ?? model).startsWith('${descriptor.id}/'))
-            for (final name in descriptor.models.keys)
-              if (!(resolved.providers[descriptor.id]?.disabledModels
-                      .contains(name) ??
-                  false))
-                '${descriptor.id}/$name'
-      ], providerNames: {
-        for (final descriptor in resolved.descriptors)
-          descriptor.id: descriptor.name,
-      }, modelNames: {
-        for (final descriptor in resolved.descriptors)
-          for (final entry in descriptor.models.entries)
-            '${descriptor.id}/${entry.key}': entry.value.name,
-      }),
+      // The connection-controls catalog rides the shared modelCatalogChoices
+      // rule (the settings editor's picker list) over the resolved config:
+      // configured providers plus the active provider, the anthropic
+      // default for provider-less configs, the conversation model's
+      // provider, and the current ref kept pickable.
+      modelCatalog: () {
+        final current = assembled?.host.model ?? model;
+        final choices = modelCatalogChoices(
+            entries: [
+              for (final descriptor in resolved.descriptors)
+                if (resolved.providers.containsKey(descriptor.id) ||
+                    descriptor.id == resolved.providerId ||
+                    (resolved.providers.isEmpty &&
+                        descriptor.id == 'anthropic') ||
+                    current.startsWith('${descriptor.id}/'))
+                  ModelCatalogEntry(
+                      id: descriptor.id,
+                      name: descriptor.name,
+                      models: {
+                        for (final model in descriptor.models.values)
+                          model.id: model.name,
+                      }),
+            ],
+            providerNames: {
+              for (final descriptor in resolved.descriptors)
+                descriptor.id: descriptor.name,
+            },
+            disabled: {
+              for (final entry in resolved.providers.entries)
+                entry.key: entry.value.disabledModels,
+            },
+            current: current);
+        return ModelCatalog(
+            models: choices?.refs ?? const [],
+            providerNames: choices?.providerNames ?? const {},
+            modelNames: choices?.modelNames ?? const {});
+      },
       openStore: persists ? openStore : null,
       contextLoaded: () =>
           assembled?.host.plugins

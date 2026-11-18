@@ -82,6 +82,18 @@ In Settings → Models → Providers and models, confirm a new model ID with Ent
 Esc then saves the confirmed addition and returns to Settings. Esc while typing
 an unfinished model cancels that entry. Adding a model does not switch to it.
 
+**Model profiles** bundle three legs — main (conversation), subagent
+(`launch_subagent` children) and approver (the permission classifier and
+command-pattern suggester) — as named presets in the config's `[profiles]`
+table with a top-level `profile = "name"` key. `/profile` lists them and
+marks the active one; `/profile NAME` (or the picker behind a bare
+`/profile`) switches, copying the profile's legs into the conversation like
+a preset — `/model` still overrides the main leg per session. `--profile
+NAME` launches under a profile for one run; `--models` appends the preset
+listing. Configs without a `[profiles]` table keep working unchanged on a
+synthesized `default` profile. See
+[model profiles](docs/engine2-config.md#model-profiles).
+
 In `/settings` → **Permissions** → **Mode and auto approval**, edit **Auto-approval classifier
 instruction** to supply permission preferences. The default Session scope saves
 that instruction with the conversation and prepends it to each classifier request.

@@ -178,6 +178,49 @@ larger interval. 429/503 Retry-After adds a cooldown capped at 60 seconds.
 Cancellation removes queued requests and releases active slots. There is no
 unbounded retry ladder and no cross-process scheduler.
 
+## Model profiles
+
+A profile bundles three model legs, each a `provider` + `model` pair:
+**main** (the conversation), **subagent** (what `launch_subagent` children
+use) and **approver** (the permission classifier and the command-pattern
+suggester). The top-level `profile` key picks the active one; `--profile
+NAME` overrides it for one launch.
+
+```toml
+profile = "work"
+
+[profiles.work]
+main = "local/org/model"
+subagent = { provider = "other", model = "fallback-model" }
+approver = "local/cheap-model"   # a bare model inherits the session provider
+
+[profiles.budget]
+main = "local/cheap-model"
+```
+
+A one-line profile (`budget = "local/cheap-model"` under `[profiles]`) is
+its main leg. Omitted legs are **not** inherited from main: an unset
+subagent leg keeps the long-standing behavior (children inherit the
+parent's current model at spawn), an unset approver leg falls back through
+the deprecated classifier model to the conversation's model. A leg without
+a provider inherits the session's provider. `judge` is accepted as the
+deprecated spelling of `approver`.
+
+Profiles are presets: switching with `/profile NAME` (or the profile picker
+behind `/profile`) copies the profile's legs into the conversation's
+current values — the subagent and approver legs as session settings, the
+main leg re-pointing future requests exactly like `/model`. A profile that
+omits the main leg keeps the conversation's model. A switch survives
+resume. `/profile` with no argument lists the presets and marks the active
+one; `--models` appends the same listing for scripts.
+
+A config without a `[profiles]` table synthesizes a `default` profile from
+the `[default] provider`/`model` lines — legacy configs behave identically
+and nothing nags. Per-leg validation runs at load; failures name the
+profile and the leg. Settings → Models → **Model presets (Global only)**
+edits the table and the active profile; **Model profiles** edits the
+current conversation's copied legs.
+
 ## Web search
 
 Two independent mechanisms, both named web search:

@@ -11,7 +11,6 @@ export 'authorization.dart';
 export 'mode.dart';
 export 'observation.dart';
 export 'operations.dart';
-export 'settings.dart';
 export 'package:classification/permissions.dart';
 
 /// Owns permission mode and approval routing. Tools enforce its decisions;

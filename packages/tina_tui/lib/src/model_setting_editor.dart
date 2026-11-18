@@ -54,47 +54,45 @@ final class ModelSettingEditor implements ScopedSettingEditor {
 /// honoring `disabled_models`, plus [current] (`provider/model`, empty when
 /// unset) when it is not already listed — the current value stays pickable
 /// even when the catalog does not carry it. Null when no provider supplies
-/// any model, so callers can fall back to another editor.
+/// any model, so callers can fall back to another editor. The list itself
+/// is the shared `modelCatalogChoices` rule; only the draft-merging of
+/// provider tables is editor-local.
 ModelChoices? modelChoices(
     ProviderDraft document, List<ProviderOption> descriptors, String current) {
   final providers = document.table('providers');
-  final slash = current.indexOf('/');
-  final currentId = slash > 0 ? current.substring(0, slash) : '';
-  final currentModel = slash > 0 ? current.substring(slash + 1) : '';
-  final ids = providers.isEmpty
-      ? {
-          ...descriptors.map((d) => d.id),
-          if (currentId.isNotEmpty) currentId
-        }.toList()
-      : {
-          ...providers.keys,
-          if (currentId.isNotEmpty) currentId
-        }.toList();
-  final refs = <String>[];
-  final names = <String, String>{};
-  final modelNames = <String, String>{};
-  for (final id in ids) {
-    final descriptor = descriptors.where((d) => d.id == id).firstOrNull;
-    final values = providers[id];
-    final fields =
-        (values as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    final disabled =
-        (fields['disabled_models'] as List? ?? const []).cast<String>();
-    names[id] = fields['name'] as String? ?? descriptor?.name ?? id;
-    final models = providerModels(descriptor, fields);
-    for (final model in models.entries) {
-      if (disabled.contains(model.key)) continue;
-      refs.add('$id/${model.key}');
-      modelNames['$id/${model.key}'] = model.value;
+  // An empty providers table means the descriptor catalog as-is; a
+  // configured table decides which providers exist.
+  final configured = providers.isEmpty
+      ? descriptors.map((d) => d.id).toList()
+      : providers.keys.cast<String>().toList();
+  ModelCatalogEntry entry(String id) {
+    ProviderOption? descriptor;
+    for (final candidate in descriptors) {
+      if (candidate.id == id) descriptor = candidate;
     }
-    if (id == currentId &&
-        currentModel.isNotEmpty &&
-        !disabled.contains(currentModel) &&
-        !refs.contains(current)) refs.add(current);
+    final values = (providers[id] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    return ModelCatalogEntry(
+        id: id,
+        name: descriptor?.name ?? id,
+        models: providerModels(descriptor, values));
   }
-  return refs.isEmpty
-      ? null
-      : (refs: refs, providerNames: names, modelNames: modelNames);
+
+  return modelCatalogChoices(
+      entries: [for (final id in configured) entry(id)],
+      providerNames: {
+        for (final id in configured)
+          if (((providers[id] as Map?)?['name'] as String?) case final name?)
+            id: name,
+      },
+      disabled: {
+        for (final id in configured)
+          id: (((providers[id] as Map?)?['disabled_models'] as List?)
+                      ?.cast<String>() ??
+                  const [])
+              .toSet(),
+      },
+      current: current);
 }
 
 /// The one shared [ModelSearchPicker] construction, used by the

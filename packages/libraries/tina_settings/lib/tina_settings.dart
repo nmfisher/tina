@@ -286,3 +286,59 @@ final class ScopedSettings {
     _listeners.clear();
   }
 }
+
+/// One provider's public face for model pickers: its id, display name and
+/// model id → display name. Pure data — every surface (the settings
+/// editors, the connection controls) converts its own provider shapes
+/// into this and shares the catalog rule below.
+final class ModelCatalogEntry {
+  const ModelCatalogEntry(
+      {required this.id, required this.name, this.models = const {}});
+  final String id, name;
+  final Map<String, String> models;
+}
+
+/// The one model-catalog rule every surface shares: entries in order, one
+/// `provider/model` ref per model, disabled refs excluded, [extra]
+/// provider ids included even without an entry, and [current] kept
+/// pickable when its provider is listed. Null when nothing is offerable.
+({List<String> refs, Map<String, String> providerNames, Map<String, String> modelNames})?
+    modelCatalogChoices(
+        {required List<ModelCatalogEntry> entries,
+        Map<String, Set<String>> disabled = const {},
+        Map<String, String> providerNames = const {},
+        Iterable<String> extra = const [],
+        String current = ''}) {
+  final slash = current.indexOf('/');
+  final currentId = slash > 0 ? current.substring(0, slash) : '';
+  final currentModel = slash > 0 ? current.substring(slash + 1) : '';
+  final refs = <String>[];
+  final names = <String, String>{};
+  final modelNames = <String, String>{};
+  for (final id in {
+    ...entries.map((entry) => entry.id),
+    ...extra,
+    if (currentId.isNotEmpty) currentId,
+  }) {
+    ModelCatalogEntry? entry;
+    for (final candidate in entries) {
+      if (candidate.id == id) entry = candidate;
+    }
+    names[id] = providerNames[id] ?? entry?.name ?? id;
+    final hidden = disabled[id] ?? const <String>{};
+    for (final model in (entry?.models ?? const {}).entries) {
+      if (hidden.contains(model.key)) continue;
+      refs.add('$id/${model.key}');
+      modelNames['$id/${model.key}'] = model.value;
+    }
+    if (id == currentId &&
+        currentModel.isNotEmpty &&
+        !hidden.contains(currentModel) &&
+        !refs.contains(current)) {
+      refs.add(current);
+    }
+  }
+  return refs.isEmpty
+      ? null
+      : (refs: refs, providerNames: names, modelNames: modelNames);
+}

@@ -120,3 +120,37 @@ Layers (one commit each): 21 config+resolution+migration+tests,
   model completion; saves write `[profiles]` plus the top-level
   `profile` key (a new key serializes before the first table header),
   and a bad leg names the profile and leg at save.
+- Layer 7: cruft sweep. SettingDefinition inventory (every definition,
+  references checked in production code and tests):
+  - REMOVED: `tina/mode/precedents` (`precedentSetting`,
+    tina_mode/settings.dart) — declared but never registered on any
+    plugin definition, never read by id, referenced nowhere including
+    tests; the precedents feature runs on ModePlugin's
+    precedentStore/precedentScope seams, which production never wires.
+    File deleted with its export.
+  - KEPT, DEPRECATED (one more release, then dies): `classifierModelSetting`
+    — description already says DEPRECATED; it is the last override before
+    the conversation model in `_classifierModel`.
+  - KEPT, live (registered and read): terminalAlerts + theme (tina_chat);
+    contextBudget + contextResponseReserve (tina_context); the
+    providerLimitSettings group and per-provider generation settings;
+    the four profile settings + classifierInstruction + classifierTimeout
+    (tina_providers); reasoning + defaultModel (session-controls);
+    stepLimit; subagentSettings (depth/concurrency); the tina_tools
+    execution/read/write/sandbox settings; webSearch + toolCallFormat×2
+    (registered and read in the catalog); the generated `$id/enabled`
+    toggles and `tina/approvals/channel`.
+  - NOTED, kept: the literal `'tina/tools/permission_boxes'` in
+    config_settings_management filters legacy permission-store rows; no
+    such setting exists — defensive for old stored data.
+  Model lists deduped: `modelCatalogChoices` + `ModelCatalogEntry` now
+  live in tina_settings (the contract package both sides may import);
+  tina_tui's `modelChoices` and the assembly's connection-controls
+  catalog both compute through it, so the editor picker and the
+  connection list can no longer drift (behavior note: the connection
+  catalog now keeps the conversation's current ref pickable, matching
+  the editor). Docs: README profiles paragraph; a Model profiles
+  section in docs/engine2-config.md (legs, presets-are-presets,
+  migration, --profile, /profile, --models). Tests: tina_settings 18
+  (4 new), tina_mode 65, tina_tui 52, tina_cli 509 (restart_terminal
+  notcurses failure pre-exists), architecture 1081 files, repository 62.
