@@ -69,6 +69,28 @@ void main() {
       expect(result.config.profile, 'default');
       expect(result.config.mainModelReference, 'anthropic/scripted');
     });
+
+    test('the profiles-table flag distinguishes authored from synthesized',
+        () async {
+      final legacy = await writeConfig('version = 1\n'
+          '[default]\n'
+          'provider = "provA"\n'
+          'model = "qwen-3"\n');
+      expect(loadTinaConfig(path: legacy, descriptors: testDescriptors)
+          .config
+          .profilesTable, isFalse,
+          reason: 'legacy configs keep their quiet model surface');
+      final authored = await writeConfig('version = 1\n'
+          '[default]\n'
+          'provider = "provA"\n'
+          'model = "qwen-3"\n'
+          '\n'
+          '[profiles]\n'
+          'budget = "provB/model-x"\n');
+      expect(loadTinaConfig(path: authored, descriptors: testDescriptors)
+          .config
+          .profilesTable, isTrue);
+    });
   });
 
   group('the profiles table', () {

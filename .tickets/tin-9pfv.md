@@ -107,3 +107,16 @@ Layers (one commit each): 21 config+resolution+migration+tests,
   13, tina_chat_tui 133, tina_tui 52, tina_cli 501 (restart_terminal
   notcurses failure pre-exists on clean tree), architecture guard 1081
   files, repository 62.
+- Layer 6: the CLI surface. `--profile NAME` (tina_providers option)
+  launches under a named profile: it outranks the config key and the
+  resumed model for the run, is never persisted, and an unknown name
+  refuses to start naming the choices; `--engine` rejects it (the remote
+  engine reads the config). `--models` appends a `profiles:` section
+  listing the presets with the active one marked — only when the config
+  authors a `[profiles]` table (new `profilesTable` flag), so legacy
+  configs keep their clean listing. `--configure` (and Settings →
+  Models) gains 'Model presets (Global only)': set the active profile,
+  add/delete presets, edit each leg as a provider/model reference with
+  model completion; saves write `[profiles]` plus the top-level
+  `profile` key (a new key serializes before the first table header),
+  and a bad leg names the profile and leg at save.

@@ -67,6 +67,10 @@ void main() {
       expect(await runCli(['-c', '--configure']), 64);
       expect(await runCli(['--resume', '--import-sessions', 'x']), 64);
       expect(await runCli(['--completion', 'unsupported']), 64);
+      // A remote engine reads the model from the config file, so a launch
+      // profile cannot ride along.
+      expect(await runCli(['--engine', 'wasm', '--profile', 'work']), 64);
+      expect(await runCli(['--engine', 'wasm', '--model', 'a/b']), 64);
     },
   );
   test('resume and continue do not create absent history', () async {

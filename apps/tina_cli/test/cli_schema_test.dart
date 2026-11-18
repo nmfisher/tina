@@ -64,6 +64,9 @@ void main() {
       expect(args[goalOption], '-');
       expect(args.contains(continueOption), true);
       expect(schema.parse(['--models', 'local'])[modelsOption], 'local');
+      expect(schema.parse(['--profile', 'budget'])[profileOption], 'budget');
+      expect(schema.parse(['--profile=budget'])[profileOption], 'budget');
+      expect(schema.parse(['--models']).contains(profileOption), isFalse);
       expect(
         schema.parse(['--goal=--leading-dashes'])[goalOption],
         '--leading-dashes',

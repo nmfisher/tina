@@ -85,6 +85,7 @@ final class TinaConfig {
     required this.model,
     this.profile = 'default',
     this.profiles = const {},
+    this.profilesTable = false,
     this.plugins = defaultPluginIds,
     this.approvalChannel = defaultApprovalChannel,
     this.providers = const {},
@@ -105,6 +106,11 @@ final class TinaConfig {
   /// the synthesized `default` profile (from `model` + `providerId`), so
   /// fresh checkouts and legacy configs behave identically.
   final Map<String, ModelProfile> profiles;
+
+  /// True when the config file declared a `[profiles]` table itself — the
+  /// presets are authored config, not the synthesized `default`. Surfaces
+  /// like `--models` stay quiet for legacy configs.
+  final bool profilesTable;
 
   /// The active profile. The synthesized `default` profile covers configs
   /// that declare none (including problem fallbacks).
@@ -511,6 +517,7 @@ TinaConfigResult parseTinaConfig(
       model: modelId,
       profile: activeProfile,
       profiles: Map.unmodifiable(resolvedProfiles),
+      profilesTable: profiles.isNotEmpty,
       plugins: plugins,
       approvalChannel: approvalChannel,
       providers: Map.unmodifiable(providers),

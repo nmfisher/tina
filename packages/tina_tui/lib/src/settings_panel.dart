@@ -264,6 +264,29 @@ final class SettingsPanel {
         ),
         (
           category: 'Models',
+          label: 'Model presets (Global only)',
+          open: () async {
+            if (_scope != SettingScope.global) {
+              final enter = await _menu('Profile presets are Global only',
+                  ['Edit Global presets', 'Back']);
+              if (enter != 0) return;
+              _scope = SettingScope.global;
+            }
+            final draft = _management.openDraft(SettingScope.global,
+                providerCatalog: true);
+            try {
+              await _presets(draft);
+              if (draft.hasChanges) {
+                _management.saveDraft(draft);
+                _savedSection = true;
+              }
+            } finally {
+              _management.closeDraft(draft);
+            }
+          }
+        ),
+        (
+          category: 'Models',
           label: 'Generation settings',
           open: () async {
             final providers = _state.catalog.definitions
@@ -930,6 +953,144 @@ final class SettingsPanel {
           }
       }
     }
+  }
+
+  /// The config's profile presets: pick the active name, edit each
+  /// profile's legs, add or delete presets. Saved as `[profiles]` plus the
+  /// top-level `profile` key when the draft changes; Escape keeps the file
+  /// as it was.
+  Future<void> _presets(ProviderDraft draft) async {
+    while (!_cancelled) {
+      final names = _presetNames(draft);
+      final active = draft.values['profile'] as String? ?? 'default';
+      String rowFor() =>
+          'Active profile: ${draft.values['profile'] as String? ?? 'default'}';
+      final choice = await _menu('Model presets · Global', [
+        rowFor(),
+        for (final name in names) name,
+        '+ Add profile',
+        'Back',
+      ], itemsNow: () {
+        final current = _presetNames(draft);
+        return [
+          rowFor(),
+          for (final name in current) name,
+          '+ Add profile',
+          'Back',
+        ];
+      }, detailFor: (index) => index == 0 || index > names.length
+          ? ''
+          : _presetSummary(draft, names[index - 1]), descriptionFor: (_) =>
+              'Presets are named bundles of model legs. Switching copies them '
+              'into a conversation; the config keeps the presets. Enter edit · '
+              'Esc finish');
+      // Escape finishes the editor; Back is the last row.
+      if (choice == null || choice == names.length + 2) return;
+      if (choice == 0) {
+        final options = {...names, 'default'}.toList()..sort();
+        final current = options.indexOf(active);
+        final picked = await _menu('Active profile', options,
+            initialSelected: current < 0 ? 0 : current);
+        if (picked != null) draft.values['profile'] = options[picked];
+      } else if (choice == names.length + 1) {
+        final entered = await _edit('New profile name', '');
+        final name = entered?.trim() ?? '';
+        if (name.isEmpty) continue;
+        if (_presetNames(draft).contains(name) || name == 'default') {
+          await _menu('Could not add profile',
+              ['"$name" already exists', 'Back']);
+          continue;
+        }
+        _preset(draft, name);
+        await _presetLegs(draft, name);
+      } else {
+        await _presetLegs(draft, names[choice - 1]);
+      }
+    }
+  }
+
+  /// One profile's legs. Values are `provider/model` references (a bare
+  /// model inherits the session's provider); clearing a line unsets the leg.
+  Future<void> _presetLegs(ProviderDraft draft, String name) async {
+    // A one-line profile is its main leg; editing any leg works on a table.
+    if ((draft.values['profiles'] as Map? ?? const {})[name]
+        case final String oneLine) {
+      _preset(draft, name)
+        ..clear()
+        ..['main'] = oneLine;
+    }
+    while (!_cancelled) {
+      String rowFor(String leg) =>
+          '${leg.padRight(10)} ${_presetLegValue(draft, name, leg) ?? '(unset)'}';
+      final rows = [
+        for (final leg in _presetLegNames) rowFor(leg),
+        'Delete profile $name',
+        'Back',
+      ];
+      final choice = await _menu('Profile $name', rows, itemsNow: () => [
+            for (final leg in _presetLegNames) rowFor(leg),
+            'Delete profile $name',
+            'Back',
+          ], descriptionFor: (_) =>
+              'Type provider/model (a bare model inherits the session '
+              'provider). Ctrl-U clears the line.');
+      if (choice == null || choice == rows.length - 1) return;
+      if (choice == rows.length - 2) {
+        final confirmed =
+            await _menu('Delete profile $name?', ['Delete', 'Keep']);
+        if (confirmed == 0) {
+          draft.table('profiles').remove(name);
+          if ((draft.values['profile'] as String?) == name) {
+            draft.values.remove('profile');
+          }
+          return;
+        }
+        continue;
+      }
+      final leg = _presetLegNames[choice];
+      final entered = await _edit('$name · $leg',
+          _presetLegValue(draft, name, leg) ?? '',
+          suggestions: [
+            for (final provider in _management.providers)
+              for (final model in provider.models.keys)
+                '${provider.id}/$model',
+          ]);
+      if (entered == null) continue;
+      final value = entered.trim();
+      if (value.isEmpty) {
+        _preset(draft, name).remove(leg);
+      } else {
+        _preset(draft, name)[leg] = value;
+      }
+    }
+  }
+
+  static const _presetLegNames = ['main', 'subagent', 'approver'];
+  List<String> _presetNames(ProviderDraft draft) {
+    final names = draft.table('profiles').keys.cast<String>().toList();
+    return names..sort();
+  }
+
+  Map<String, dynamic> _preset(ProviderDraft draft, String name) =>
+      draft.table('profiles').putIfAbsent(
+          name, () => <String, dynamic>{}) as Map<String, dynamic>;
+
+  String? _presetLegValue(ProviderDraft draft, String name, String leg) =>
+      switch (_preset(draft, name)[leg]) {
+        null => null,
+        String value => value.isEmpty ? null : value,
+        Map table => table['provider'] == null || table['provider'] == ''
+            ? '${table['model']}'
+            : '${table['provider']}/${table['model']}',
+        final other => other.toString(),
+      };
+
+  String _presetSummary(ProviderDraft draft, String name) {
+    final parts = [
+      for (final leg in _presetLegNames)
+        if (_presetLegValue(draft, name, leg) case final ref?) '$leg $ref',
+    ];
+    return parts.isEmpty ? 'no legs set' : parts.join(' · ');
   }
 
   /// One level of controls inside a settings section: rows, space toggles,

@@ -358,6 +358,14 @@ final class SessionAssembly {
     resolved = ConfigDocument.validateValues(
         stack.effectiveDocument(),
         descriptors: descriptors);
+    // A launch profile is a run override: it must name a preset the config
+    // defines (the config's own key is validated at load).
+    if (options.profile != null &&
+        !resolved.profiles.containsKey(options.profile)) {
+      final names = resolved.profiles.keys.toList()..sort();
+      throw FormatException('no profile named "${options.profile}"'
+          '${names.isEmpty ? '' : ' — choices: ${names.join(', ')}'}');
+    }
     // The run's active profile: --profile wins for the run, then a profile
     // switched in this conversation (restored on resume), then the config
     // file's key. Read through a closure: saved configuration can change it.
@@ -483,7 +491,7 @@ final class SessionAssembly {
                 case final bool enabled)
               id: enabled,
         });
-        if (options.model == null)
+        if (options.model == null && options.profile == null)
           model = storedSessionModel(stored, options.sessionId!) ?? model;
       } finally {
         closeStore(stored);
@@ -615,7 +623,7 @@ final class SessionAssembly {
         };
       }, diagnostics?.modelEvent),
       model: model,
-      restoreModel: options.model == null,
+      restoreModel: options.model == null && options.profile == null,
       workingDirectory: workingDirectory,
       plugins: plugins,
     );

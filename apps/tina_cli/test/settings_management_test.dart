@@ -9,6 +9,8 @@ import 'package:tina/src/settings_stack.dart';
 import 'package:tina/src/config_document.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
+import 'package:tina_providers/tina_providers.dart' show ProfileLeg;
+import 'package:tina/session.dart' show TinaConfigOk, loadTinaConfig;
 import 'package:tina_tools/tina_tools.dart';
 
 const descriptors = [
@@ -261,5 +263,52 @@ token = "unknown-secret"
     expect(File(stack.backend.workspacePath).existsSync(), isFalse);
     expect(stack.settings.layer(SettingScope.session)['tina/goals/enabled'],
         false);
+  });
+
+  test('profile presets round-trip through the global draft', () {
+    final draft = first.openDraft(SettingScope.global, providerCatalog: true);
+    expect(draft.values.containsKey('profile'), isFalse,
+        reason: 'the config declares no active profile');
+    draft.table('profiles')['budget'] = {
+      'main': 'example/model-b',
+      'subagent': 'model-a',
+    };
+    draft.values['profile'] = 'budget';
+    first.saveDraft(draft);
+    first.closeDraft(draft);
+    // The saved file stays valid TOML — the new top-level key must land
+    // before the first table header.
+    final loaded = loadTinaConfig(path: global.path, descriptors: descriptors);
+    expect(loaded, isA<TinaConfigOk>());
+    expect(loaded.config.profile, 'budget');
+    expect(loaded.config.profilesTable, isTrue);
+    final budget = loaded.config.profiles['budget']!;
+    expect(budget.legReference(ProfileLeg.main), 'example/model-b');
+    expect(budget.legReference(ProfileLeg.subagent,
+        sessionProvider: 'example'), 'example/model-a',
+        reason: 'a bare model inherits the session provider');
+    expect(budget.approver, isNull);
+
+    // Removing the preset and the active key restores a quiet config.
+    final edit = first.openDraft(SettingScope.global, providerCatalog: true);
+    expect(edit.values['profile'], 'budget');
+    expect((edit.values['profiles'] as Map).keys, ['budget']);
+    edit.table('profiles').remove('budget');
+    edit.values.remove('profile');
+    first.saveDraft(edit);
+    first.closeDraft(edit);
+    final reverted =
+        loadTinaConfig(path: global.path, descriptors: descriptors);
+    expect(reverted.config.profile, 'default');
+    expect(reverted.config.profilesTable, isFalse);
+
+    // A bad leg reference names the profile and leg at save.
+    final bad = first.openDraft(SettingScope.global, providerCatalog: true);
+    bad.table('profiles')['odd'] = {'main': 'nope/model-x'};
+    expect(
+        () => first.saveDraft(bad),
+        throwsA(isA<FormatException>().having((e) => e.message, 'message',
+            allOf(contains('odd'), contains('main'), contains('nope')))));
+    first.closeDraft(bad);
   });
 }

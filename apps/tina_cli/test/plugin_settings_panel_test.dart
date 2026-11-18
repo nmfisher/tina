@@ -370,6 +370,7 @@ void main() {
       ArrowKey(ArrowDirection.right), down, stable, // inline credential
       escape, stable,
       down, enter, stable, escape, stable, // model profiles submenu
+      down, enter, stable, escape, stable, // model presets (Global only)
       down, enter, stable, enter, stable, escape,
       stable, // provider + generation editor
       escape, stable, // root retains Models selection
@@ -400,8 +401,30 @@ void main() {
     expect(output, contains('Choose default model'));
     expect(output, contains('Providers & models'));
     expect(output, contains('Model profiles'));
+    expect(output, contains('Model presets'));
     expect(output, contains('Generation · anthropic'));
     expect(output, contains('About acme/notes'));
+  });
+
+  test('the presets editor writes [profiles] to the config', () async {
+    final output = await drive([
+      CharInput('presets'), enter, // Models → Model presets (Global only)
+      down, enter, // + Add profile
+      CharInput('budget'), enter, // name → legs editor
+      enter, // main leg
+      CharInput('anthropic/mini'), enter,
+      escape, // legs editor done
+      escape, // presets list done → save on change
+      escape, // settings root
+    ], resizeEachKey: false);
+    expect(output, contains('Model presets'));
+    final saved = config.readAsStringSync();
+    expect(saved, contains('[profiles.budget]'));
+    expect(saved, contains('anthropic/mini'));
+    final loaded = loadTinaConfig(path: config.path);
+    expect(loaded, isA<TinaConfigOk>());
+    expect(loaded.config.profiles['budget']!.main!.model, 'mini');
+    expect(loaded.config.profilesTable, isTrue);
   });
 
   test(

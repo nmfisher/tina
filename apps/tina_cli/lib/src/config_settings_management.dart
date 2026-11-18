@@ -259,6 +259,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
     _edits[id] = edit;
     final values = document.values;
     final providers = values['providers'] as Map? ?? const {};
+    final profiles = values['profiles'] as Map? ?? const {};
     return ProviderDraft(
         id: id,
         revision: revision,
@@ -276,6 +277,17 @@ final class ConfigSettingsManagement implements SettingsManagement {
                   if ((entry.value as Map).containsKey(key))
                     key: (entry.value as Map)[key],
               },
+          },
+          // The profile presets: the active name plus the `[profiles]`
+          // table (legs as written — strings or provider/model tables).
+          if (values['profile'] case final String? active when active != null)
+            'profile': active,
+          'profiles': {
+            for (final entry in profiles.entries)
+              entry.key as String: entry.value is Map || entry.value is String
+                  ? jsonDecode(jsonEncode(entry.value))
+                  : throw const FormatException(
+                      'profiles entries must be tables or references'),
           },
         },
         secrets: [
@@ -299,7 +311,8 @@ final class ConfigSettingsManagement implements SettingsManagement {
   }
 
   ConfigDocument _candidate(ProviderDraft draft, _Edit edit) {
-    if (draft.values.keys.any((key) => !['providers', 'default'].contains(key)))
+    if (draft.values.keys
+        .any((key) => !['providers', 'default', 'profile', 'profiles'].contains(key)))
       throw ArgumentError('Unknown settings draft field');
     final candidate = edit.document.fork();
     final current = candidate.table('providers');
@@ -333,6 +346,37 @@ final class ConfigSettingsManagement implements SettingsManagement {
     final defaults = candidate.table('default');
     for (final key in ['provider', 'model']) defaults.remove(key);
     defaults.addAll(draft.table('default'));
+    // The profile presets: replace each named preset wholesale (a one-line
+    // reference string or a leg table), dropping names the draft dropped.
+    // Validation runs at save — parseTinaConfig names the profile and leg.
+    final presets = candidate.table('profiles');
+    final nextPresets = draft.table('profiles');
+    presets.removeWhere((name, _) => !nextPresets.containsKey(name));
+    for (final entry in nextPresets.entries) {
+      final value = entry.value is Map
+          ? (jsonDecode(jsonEncode(entry.value)) as Map)
+              .cast<String, dynamic>()
+          : entry.value;
+      if (value is! Map && value is! String) {
+        throw ArgumentError('Profile presets must be tables or references');
+      }
+      presets[entry.key] = value;
+    }
+    // The active profile is a top-level key: a NEW key must serialize
+    // before the first table header, so it lands at the map's front. An
+    // existing key keeps its place; an emptied one is removed.
+    final active = draft.values['profile'] as String?;
+    if (active == null || active.isEmpty) {
+      candidate.values.remove('profile');
+    } else if (candidate.values.containsKey('profile')) {
+      candidate.values['profile'] = active;
+    } else {
+      final withProfile = <String, dynamic>{'profile': active};
+      withProfile.addAll(candidate.values);
+      candidate.values
+        ..clear()
+        ..addAll(withProfile);
+    }
     return candidate;
   }
 

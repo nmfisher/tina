@@ -167,4 +167,55 @@ void main() {
     expect(judgment.diagnostics['model'], 'local/judge',
         reason: 'the approver leg is restored, not just the name');
   });
+
+  group('the --profile launch switch', () {
+    // No provider factory: the assembly resolves the model exactly as a
+    // real launch does, through the active profile's legs.
+    SessionAssembly launch({String? profile, String? resume}) =>
+        SessionAssembly.start(
+            options: AssemblyOptions(
+                configPath: config.path,
+                workingDirectory: root.path,
+                profile: profile,
+                sessionId: resume));
+
+    test('a named profile overrides the config key for the run', () {
+      final app = launch(profile: 'budget');
+      addTearDown(app.close);
+      expect(app.host.model, 'local/cheap');
+      expect(app.settings.layer(SettingScope.session), isEmpty,
+          reason: 'a launch override is never persisted');
+    });
+
+    test('a profile without a main leg falls back to the config default',
+        () {
+      final app = launch(profile: 'spawn');
+      addTearDown(app.close);
+      expect(app.host.model, 'local/main');
+    });
+
+    test('an unknown launch profile refuses to start', () {
+      expect(() => launch(profile: 'ghost'),
+          throwsA(isA<FormatException>().having((e) => e.message, 'message',
+              allOf(contains('ghost'), contains('work')))));
+    });
+
+    test('a launch profile outranks the resumed model', () async {
+      final first = open();
+      await first.host.send('first');
+      await first.handleCommand('/profile work');
+      await first.host.send('second');
+      final id = first.host.session.id;
+      await first.shutdown();
+      final resumed = launch(profile: 'budget', resume: id);
+      addTearDown(resumed.close);
+      expect(resumed.host.model, 'local/cheap',
+          reason: 'the run override wins; the stored local/main does not');
+      expect(resumed.settings.layer(SettingScope.session), {
+        activeProfileSetting.id: 'work',
+        profileSubagentModelSetting.id: 'local/mini',
+        profileApproverModelSetting.id: 'local/judge',
+      }, reason: 'the session copy is restored untouched — and outranked');
+    });
+  });
 }

@@ -78,6 +78,7 @@ Future<int> runCli(
   }
   final configPath = parsed[configOption];
   final model = parsed[modelOption];
+  final profile = parsed[profileOption];
   final backend = parsed[backendOption] ?? 'auto';
   final osSandbox = !parsed.contains(noSandboxOption);
   final yolo = parsed.contains(yoloOption);
@@ -105,6 +106,7 @@ Future<int> runCli(
       if (listModels) '--models',
       if (dryRun) '--dry-run',
       if (model != null) '--model',
+      if (profile != null) '--profile',
     ];
     if (conflicts.isNotEmpty) {
       stderr.writeln(
@@ -271,6 +273,26 @@ Future<int> runCli(
           }
         }
       }
+      // The config's profile presets follow the model list — authored
+      // configs only, so legacy configs keep their clean model listing.
+      if (listProvider == null && loaded.config.profilesTable) {
+        stdout.writeln('profiles:');
+        final names = loaded.config.profiles.keys.toList()..sort();
+        for (final name in names) {
+          final preset = loaded.config.profiles[name]!;
+          final legs = [
+            for (final leg in ProfileLeg.values)
+              if (preset.legReference(leg,
+                      sessionProvider:
+                          loaded.config.providerId ?? 'anthropic')
+                  case final ref?)
+                '${leg.name} $ref',
+          ];
+          stdout.writeln(
+              '${name == loaded.config.profile ? '*' : ' '} $name'
+              '${legs.isEmpty ? '' : ' — ${legs.join(' · ')}'}');
+        }
+      }
       return 0;
     }
     if (configure || !File(path).existsSync()) {
@@ -344,6 +366,7 @@ Future<int> runCli(
         storePath: storePath,
         sessionId: sessionId,
         model: model,
+        profile: profile,
         osSandbox: osSandbox,
         yolo: yolo,
         interactive: !headless,
