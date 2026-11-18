@@ -610,6 +610,9 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           providerFactory: models.childProvider,
           model: c.model,
           currentModel: c.currentModel,
+          // The active profile's subagent leg, read at spawn: children run
+          // on it when set, otherwise on the parent's current model.
+          subagentModel: c.subagentModel,
           // The child plugin set receives the subagents plugin, so
           // session-scoped extras can read the parent session: the
           // channel plugin joins the child to the PARENT's chat (the

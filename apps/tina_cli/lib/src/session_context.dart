@@ -35,6 +35,7 @@ final class SessionPluginContext {
     this.currentReasoning,
     this.setReasoning,
     this.reasoningChoices,
+    this.subagentModel,
     this.openStore,
     this.sessionStorePath,
     this.version = '0.0.0',
@@ -73,6 +74,11 @@ final class SessionPluginContext {
 
   /// Effort words the current model accepts. Null means the canonical set.
   final List<String> Function()? reasoningChoices;
+
+  /// The active profile's effective subagent leg (`provider/model`), or
+  /// null when children inherit the parent's current model at spawn.
+  /// Read at spawn; null keeps the long-standing behavior.
+  final String? Function()? subagentModel;
   /// The persistence opener (a `SessionStore Function()`), untyped here so
   /// this file compiles without the store's sqlite dependency; the
   /// persistence plugin's factory casts it.

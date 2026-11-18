@@ -13,7 +13,8 @@ import 'package:tina_providers/tina_providers.dart'
         ProfileLeg,
         effectiveProfileLeg,
         effectiveProfileName,
-        profileMainModelSetting;
+        profileMainModelSetting,
+        profileSubagentModelSetting;
 import 'session_terminal.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
@@ -486,6 +487,12 @@ final class SessionAssembly {
         final choices = thinkingChoicesFor(wireModel);
         return choices;
       },
+      subagentModel: () => effectiveProfileLeg(
+          profileSubagentModelSetting,
+          settings,
+          activeProfile(),
+          ProfileLeg.subagent,
+          sessionProvider: resolved.providerId ?? 'anthropic'),
       modelCatalog: () => ModelCatalog(models: [
         for (final descriptor in resolved.descriptors)
           if (resolved.providers.containsKey(descriptor.id) ||

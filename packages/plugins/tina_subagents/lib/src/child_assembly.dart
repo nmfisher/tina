@@ -6,7 +6,10 @@
 /// is read **from the parent's own assembly** — the parent's `ToolsPlugin`
 /// (its mode and workspace root), the parent's provider factory and
 /// model, the parent's store path — so a child cannot receive values its
-/// parent does not have. The restricted plugin set is explicit here: the
+/// parent does not have. One exception by design: [subagentModel], the
+/// active profile's subagent leg, names a model the parent itself may
+/// not be running on. It is read at spawn; a running child keeps the
+/// model it started with. The restricted plugin set is explicit here: the
 /// tools, **not** the sub-agents plugin (a child never spawns), and no
 /// persistence plugin (the child's own log is its persistence; it writes
 /// to the same store file as its own session, or nowhere).
@@ -35,6 +38,12 @@ ChildSessionFactory standardChildFactory({
   required ProviderFactory providerFactory,
   String model = 'scripted',
   String Function()? currentModel,
+
+  /// The active profile's subagent leg, read at spawn: the child runs on
+  /// it when set, otherwise on the parent's current model. Null or empty
+  /// keeps the long-standing inherit-at-spawn behavior; an already-running
+  /// child keeps the model it started with.
+  String? Function()? subagentModel,
   List<AgentPlugin> Function(SubagentsPlugin plugin)? childPlugins,
   List<AgentPlugin> extraPlugins = const [],
 }) {
@@ -53,12 +62,14 @@ ChildSessionFactory standardChildFactory({
       classifier: parentTools.modePolicy.classifier,
       terminal: parentTools.modePolicy.terminal,
     )..inheritPolicy(parentTools.modePolicy);
+    final leg = subagentModel?.call()?.trim();
     return Host.child(
       depth: plugin.childDepth,
       sessionId: plugin.nextChildId(),
       workingDirectory: parentTools.workingDirectory,
       providerFactory: providerFactory,
-      model: currentModel?.call() ?? model,
+      model: (leg == null || leg.isEmpty ? currentModel?.call() : leg) ??
+          model,
       plugins: [
         ToolsPlugin(
           workspaceRoot: parentTools.workingDirectory,

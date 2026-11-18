@@ -831,4 +831,100 @@ void main() {
     resumed.close();
     h.dir.deleteSync(recursive: true);
   });
+
+  group('the profile subagent leg (standardChildFactory)', () {
+    ToolUseBlock launch(String id) => ToolUseBlock(
+        id: id, name: 'launch_subagent', input: {'prompt': 'small task'});
+
+    test('a set leg overrides the parent model at spawn', () async {
+      final ws = workspace();
+      final h = harness(
+        dir: ws.dir,
+        // One parent provider, one turn: the launch, then the empty
+        // follow-up after the tool result ends the turn.
+        scripts: [
+          [
+            scriptedReply('', calls: [launch('c1')]),
+            scriptedReply('done'),
+          ]
+        ],
+        childScripts: [
+          [scriptedReply('child done')],
+        ],
+        subagentModel: () => 'glm-local/glm-5.3',
+        currentModel: () => 'anthropic/claude-sonnet-4',
+      );
+      await h.host.send('go');
+      await h.host.whenIdle();
+      expect(h.childModels, ['glm-local/glm-5.3'],
+          reason: 'the profile leg wins over the parent\'s current model');
+      h.plugin.closeSession();
+      h.host.close();
+      h.dir.deleteSync(recursive: true);
+    });
+
+    test('an empty or null leg keeps inherit-at-spawn', () async {
+      final ws = workspace();
+      final h = harness(
+        dir: ws.dir,
+        scripts: [
+          [
+            scriptedReply('', calls: [launch('c1')]),
+            scriptedReply('done'),
+          ]
+        ],
+        childScripts: [
+          [scriptedReply('child done')],
+        ],
+        subagentModel: () => '  ',
+        currentModel: () => 'anthropic/claude-sonnet-4',
+      );
+      await h.host.send('go');
+      await h.host.whenIdle();
+      expect(h.childModels, ['anthropic/claude-sonnet-4'],
+          reason: 'whitespace-only legs fall through to the parent model');
+      h.plugin.closeSession();
+      h.host.close();
+      h.dir.deleteSync(recursive: true);
+    });
+
+    test('the leg is read at each spawn; a running child keeps its model',
+        () async {
+      final ws = workspace();
+      var leg = 'glm-local/glm-5.3';
+      final h = harness(
+        dir: ws.dir,
+        // One parent provider serves both turns; stalling children never
+        // finish, so no "child settled" parent turn fires between them.
+        scripts: [
+          [
+            scriptedReply('', calls: [launch('c1')]),
+            scriptedReply('ok'),
+            scriptedReply('', calls: [launch('c2')]),
+            scriptedReply('ok'),
+          ]
+        ],
+        childProvider: StallingProvider(),
+        subagentModel: () => leg,
+        currentModel: () => 'anthropic/claude-sonnet-4',
+      );
+      await h.host.send('go');
+      await h.host.whenIdle();
+      expect(h.childModels, ['glm-local/glm-5.3']);
+      leg = 'glm-local/glm-5.3-flashx';
+      await h.host.send('again');
+      await h.host.whenIdle();
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (h.childModels.length < 2) {
+        if (DateTime.now().isAfter(deadline)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(h.childModels,
+          ['glm-local/glm-5.3', 'glm-local/glm-5.3-flashx'],
+          reason: 'each spawn reads the leg; the first child keeps its model');
+      h.plugin.closeSession();
+      h.host.close();
+      h.dir.deleteSync(recursive: true);
+    });
+  });
 }

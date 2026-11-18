@@ -35,6 +35,7 @@ import 'package:tina_tools/tina_tools.dart';
   SubagentsPlugin plugin,
   ToolsPlugin tools,
   List<ScriptedProvider> providers,
+  List<String> childModels,
   Directory dir,
 }) harness({
   required List<List<List<StreamEvent>>> scripts,
@@ -44,9 +45,12 @@ import 'package:tina_tools/tina_tools.dart';
   PermissionMode mode = PermissionMode.approve,
   Directory? dir,
   LlmProvider? childProvider,
+  String? Function()? subagentModel,
+  String Function()? currentModel,
 }) {
   final ws = dir ?? workspace().dir;
   final providers = <ScriptedProvider>[];
+  final childModels = <String>[];
   var i = 0;
   var ci = 0;
   // Parent turns draw from [scripts], child turns from [childScripts], one
@@ -84,12 +88,15 @@ import 'package:tina_tools/tina_tools.dart';
     sessionFactory: standardChildFactory(
       parentTools: tools,
       providerFactory: (model) {
+        childModels.add(model);
         if (childProvider != null) return childProvider;
         final p = ScriptedProvider(nextChild());
         providers.add(p);
         return p;
       },
       model: 'scripted',
+      currentModel: currentModel,
+      subagentModel: subagentModel,
       childPlugins: (plugin) => [
         if (storePath != null)
           PersistencePlugin(openStore: () => SessionStore.open(storePath))
@@ -106,6 +113,7 @@ import 'package:tina_tools/tina_tools.dart';
     plugin: plugin,
     tools: tools,
     providers: providers,
+    childModels: childModels,
     dir: ws
   );
 }
