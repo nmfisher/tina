@@ -29,7 +29,7 @@ final class SqliteChannelStore implements ChannelStoreApi {
 
   /// The store file's schema version. Bump when the layout changes;
   /// the open step refuses anything newer than this code knows.
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
 
   /// The channel every workspace starts with.
   static const lobbyChannel = '#lobby';
@@ -60,7 +60,8 @@ final class SqliteChannelStore implements ChannelStoreApi {
   static void _migrate(Database db) {
     db.execute('CREATE TABLE channels ('
         'name TEXT PRIMARY KEY, '
-        'created_at TEXT NOT NULL)');
+        'created_at TEXT NOT NULL, '
+        'compaction_id INTEGER NOT NULL DEFAULT 0)');
     db.execute('CREATE TABLE messages ('
         'id INTEGER PRIMARY KEY, '
         'channel TEXT NOT NULL REFERENCES channels(name), '
@@ -81,6 +82,20 @@ final class SqliteChannelStore implements ChannelStoreApi {
         'last_seen TEXT NOT NULL, '
         'PRIMARY KEY (channel, name))');
   }
+
+  static ChannelMessage _rowToMessage(dynamic row) => ChannelMessage(
+        id: row['id'] as int,
+        channel: row['channel'] as String,
+        sender: row['sender'] as String,
+        text: row['text'] as String,
+        type: ChannelMessageType.parse(row['type'] as String),
+        createdAt: DateTime.parse(row['created_at'] as String),
+        mentions: _decodeMentions(row['mentions'] as String?),
+        replyTo: row['reply_to'] as int?,
+      );
+
+  List<ChannelMessage> _selectMessages(String sql, List<Object?> params) =>
+      [for (final row in _db.select(sql, params)) _rowToMessage(row)];
 
   Never _fail(String doing, Object e) =>
       throw ChannelStoreException('channel store $file failed while $doing', e);
@@ -104,10 +119,13 @@ final class SqliteChannelStore implements ChannelStoreApi {
     try {
       final rows = _db.select(
           'SELECT c.name AS name, '
-          '(SELECT COUNT(*) FROM messages m WHERE m.channel = c.name) AS messages, '
+          '(SELECT COUNT(*) FROM messages m '
+          ' WHERE m.channel = c.name AND m.id > c.compaction_id) AS messages, '
           '(SELECT COUNT(*) FROM members k WHERE k.channel = c.name) AS members, '
-          '(SELECT COALESCE(MAX(m.id), 0) FROM messages m WHERE m.channel = c.name) AS last_id, '
-          '(SELECT MAX(m.created_at) FROM messages m WHERE m.channel = c.name) AS last_at '
+          '(SELECT COALESCE(MAX(m.id), 0) FROM messages m '
+          ' WHERE m.channel = c.name AND m.id > c.compaction_id) AS last_id, '
+          '(SELECT MAX(m.created_at) FROM messages m '
+          ' WHERE m.channel = c.name AND m.id > c.compaction_id) AS last_at '
           'FROM channels c ORDER BY c.name');
       return [
         for (final row in rows)
@@ -191,11 +209,16 @@ final class SqliteChannelStore implements ChannelStoreApi {
     final normalized = normalizeChannelName(channel);
     final sinceAt = sinceTime?.toUtc().toIso8601String();
     try {
+      // The view starts at the compaction point: superseded rows stay
+      // in the table (the audit trail) but no read returns them.
+      final point = compactionPoint(normalized);
+      final effectiveSince =
+          sinceId == null ? point : sinceId > point ? sinceId : point;
       var where = 'WHERE channel = ?';
       final params = <Object?>[normalized];
-      if (sinceId != null) {
+      if (effectiveSince > 0) {
         where += ' AND id > ?';
-        params.add(sinceId);
+        params.add(effectiveSince);
       }
       if (sinceAt != null) {
         where += ' AND created_at > ?';
@@ -206,20 +229,7 @@ final class SqliteChannelStore implements ChannelStoreApi {
           'created_at FROM messages $where '
           'ORDER BY id DESC LIMIT ?',
           [...params, limit]);
-      final messages = <ChannelMessage>[];
-      for (final row in rows) {
-        messages.add(ChannelMessage(
-          id: row['id'] as int,
-          channel: row['channel'] as String,
-          sender: row['sender'] as String,
-          text: row['text'] as String,
-          type: ChannelMessageType.parse(row['type'] as String),
-          createdAt: DateTime.parse(row['created_at'] as String),
-          mentions: _decodeMentions(row['mentions'] as String?),
-          replyTo: row['reply_to'] as int?,
-        ));
-      }
-      return messages.reversed.toList();
+      return [for (final row in rows) _rowToMessage(row)].reversed.toList();
     } on Object catch (e) {
       _fail('reading $normalized', e);
     }
@@ -342,6 +352,97 @@ final class SqliteChannelStore implements ChannelStoreApi {
       return row['m'] as int;
     } on Object catch (e) {
       _fail('reading last message id of $normalized', e);
+    }
+  }
+
+  @override
+  int compactionPoint(String channel) {
+    final normalized = normalizeChannelName(channel);
+    try {
+      final rows = _db.select(
+          'SELECT compaction_id FROM channels WHERE name = ?', [normalized]);
+      if (rows.isEmpty) return 0;
+      return rows.single['compaction_id'] as int;
+    } on Object catch (e) {
+      _fail('reading compaction point of $normalized', e);
+    }
+  }
+
+  @override
+  ChannelCompaction compact(String channel,
+      {required String actor,
+      int keep = compactDefaultKeep,
+      bool clear = false}) {
+    if (keep < 0) throw const FormatException('keep must not be negative');
+    final normalized = normalizeChannelName(channel);
+    try {
+      _db.execute('BEGIN IMMEDIATE');
+      try {
+        final prior = compactionPoint(normalized);
+        final newest = lastMessageId(normalized);
+        // The retained tail: the most recent `keep` rows of the current
+        // view. A clear retains nothing. An already-compacted room
+        // never resurrects superseded rows (the prior point floors the
+        // scan).
+        final tail = clear
+            ? const <int>[]
+            : _db
+                .select(
+                    'SELECT id FROM messages WHERE channel = ? '
+                    'AND id > ? ORDER BY id DESC LIMIT ?',
+                    [normalized, prior, keep])
+                .map((row) => row['id'] as int)
+                .toList();
+        // The view is ids STRICTLY past the point, so the point sits
+        // one below the oldest retained row (or at the newest row for
+        // a clear, hiding everything).
+        final point = tail.isEmpty ? newest : tail.last - 1;
+        // What THIS compaction hides: everything from the prior point
+        // up to the new one (for a clear, that is the whole view).
+        final digested = _db.select(
+            'SELECT COUNT(*) AS n FROM messages WHERE channel = ? '
+            'AND id > ? AND id <= ?',
+            [normalized, prior, point]).single['n'] as int;
+        final superseded = _selectMessages(
+            'SELECT id, channel, sender, text, type, mentions, reply_to, '
+            'created_at FROM messages WHERE channel = ? '
+            'AND id > ? AND id <= ? ORDER BY id ASC',
+            [normalized, prior, point]);
+        _db.execute('UPDATE channels SET compaction_id = ? WHERE name = ?',
+            [point, normalized]);
+        _db.execute('COMMIT');
+        var digestId = 0;
+        if (!clear) {
+          // Posted after the point transaction: post() runs its own
+          // guarded write, and the digest belongs AFTER everything the
+          // point kept — it lands at the newest id and heads the view.
+          final digest = post(
+            normalized,
+            sender: actor,
+            text: 'Compacted $normalized: superseded $digested '
+                'message${digested == 1 ? '' : 's'}'
+                '${digested == 0 ? '' : ' (ids ${prior + 1}\u{2013}$point)'}; '
+                '${tail.length} recent message${tail.length == 1 ? '' : 's'} '
+                'retained. Full history stays in the database.',
+            type: ChannelMessageType.system,
+          );
+          digestId = digest.id;
+        }
+        return ChannelCompaction(
+          channel: normalized,
+          point: point,
+          digested: digested,
+          digestId: digestId,
+          superseded: superseded,
+        );
+      } on Object {
+        _db.execute('ROLLBACK');
+        rethrow;
+      }
+    } on ChannelStoreException {
+      rethrow;
+    } on Object catch (e) {
+      _fail('compacting $normalized', e);
     }
   }
 

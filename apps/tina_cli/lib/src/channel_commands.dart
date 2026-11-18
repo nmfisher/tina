@@ -17,12 +17,13 @@ import 'package:tina_channel/tina_channel.dart';
 import 'package:tina_channel/tina_channel_sqlite.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 
-const _usage = 'usage: tina channel <list|read|say|status> [args]\n'
+const _usage = 'usage: tina channel <list|read|say|status|compact> [args]\n'
     '  tina channel list\n'
     '  tina channel read CHANNEL [--limit N] [--since ID|TIMESTAMP]\n'
     '  tina channel say CHANNEL TEXT... [--as NAME]\n'
     '  tina channel status [CHANNEL] [--as NAME] \\\n'
     '      [--set working|idle|done] [--summary TEXT]\n'
+    '  tina channel compact CHANNEL [--clear] [--keep N] [--as NAME]\n'
     'options: --cwd DIR (workspace, default .),\n'
     '         --session ID (another session\'s chat, read-only),\n'
     '         --db FILE (store file override)';
@@ -93,6 +94,16 @@ Future<int?> runChannelSubcommand(List<String> args) async {
       if (refused != null) return _usageError(refused);
       return _say(openStore, positional.first, positional.skip(1).join(' '),
           flags['as'] ?? 'user');
+    case 'compact':
+      if (positional.isEmpty) {
+        return _usageError('compact needs a channel');
+      }
+      final refused = refuseReadOnly();
+      if (refused != null) return _usageError(refused);
+      return _compact(openStore, positional.first,
+          asName: flags['as'] ?? 'user',
+          clear: flags.containsKey('clear'),
+          keep: int.tryParse(flags['keep'] ?? '') ?? 20);
     case 'status':
       // Only --set writes; a status listing is always allowed.
       final refused = flags['set'] != null ? refuseReadOnly() : null;
@@ -170,6 +181,21 @@ int _usageError(String problem) {
   stderr.writeln('tina channel: $problem');
   stderr.writeln(_usage);
   return 64;
+}
+
+int _compact(ChannelStoreApi Function() open, String channel,
+    {required String asName, required bool clear, required int keep}) {
+  final store = open();
+  final result = store.compact(channel,
+      actor: asName, keep: keep, clear: clear);
+  stdout.writeln(clear
+      ? '${result.channel} cleared (view starts fresh; the audit log '
+          'and membership are kept)'
+      : '${result.channel} compacted: ${result.digested} message'
+          '${result.digested == 1 ? '' : 's'} superseded, digest '
+          '#${result.digestId} written, ${keep} kept; full history '
+          'stays in the database');
+  return 0;
 }
 
 int _list(ChannelStoreApi Function() open) {

@@ -13,6 +13,57 @@ final class InMemoryChannelStore implements ChannelStoreApi {
 
   static DateTime _now() => DateTime.now().toUtc();
 
+  /// The channel's current view: every message past its compaction
+  /// point, oldest first.
+  List<ChannelMessage> _view(String channel) => _messages
+      .where((m) => m.channel == channel && m.id > (_compaction[channel] ?? 0))
+      .toList();
+
+  @override
+  int compactionPoint(String channel) =>
+      _compaction[normalizeChannelName(channel)] ?? 0;
+
+  @override
+  ChannelCompaction compact(String channel,
+      {required String actor,
+      int keep = compactDefaultKeep,
+      bool clear = false}) {
+    if (keep < 0) throw const FormatException('keep must not be negative');
+    final normalized = normalizeChannelName(channel);
+    // _view already floors at the prior compaction point: a compacted
+    // room never resurrects superseded rows.
+    final prior = _compaction[normalized] ?? 0;
+    final view = _view(normalized);
+    final newest = view.isEmpty ? 0 : view.last.id;
+    final retained = clear ? 0 : keep;
+    final tail = view.length <= retained ? view : view.sublist(view.length - retained);
+    final point = tail.isEmpty ? newest : tail.first.id - 1;
+    final superseded = _messages
+        .where((m) => m.channel == normalized && m.id > prior && m.id <= point)
+        .toList();
+    final digested = superseded.length;
+    var digestId = 0;
+    if (!clear) {
+      final digest = post(normalized,
+          sender: actor,
+          text: 'Compacted $normalized: superseded $digested '
+              'message${digested == 1 ? '' : 's'} '
+              '(ids ${prior + 1}\u{2013}$point); '
+              '${tail.length} recent message${tail.length == 1 ? '' : 's'} '
+              'retained. Full history stays in the database.',
+          type: ChannelMessageType.system);
+      digestId = digest.id;
+    }
+    _compaction[normalized] = point;
+    return ChannelCompaction(
+      channel: normalized,
+      point: point,
+      digested: digested,
+      digestId: digestId,
+      superseded: superseded,
+    );
+  }
+
   static ChannelMessage? _last(List<ChannelMessage> rows, String channel) {
     ChannelMessage? found;
     for (final m in rows) {
@@ -24,6 +75,7 @@ final class InMemoryChannelStore implements ChannelStoreApi {
   final _channels = <String, DateTime>{};
   final _messages = <ChannelMessage>[];
   final _members = <String, Map<String, ChannelMember>>{};
+  final _compaction = <String, int>{};
   var _nextId = 1;
 
   @override
@@ -41,10 +93,12 @@ final class InMemoryChannelStore implements ChannelStoreApi {
       for (final name in names)
         ChannelSummary(
           name: name,
-          messages: _messages.where((m) => m.channel == name).length,
+          messages: _view(name).length,
           members: _members[name]?.length ?? 0,
-          lastMessageId: lastMessageId(name),
-          lastMessageAt: _last(_messages, name)?.createdAt,
+          lastMessageId: _view(name).isEmpty
+              ? 0
+              : _view(name).last.id,
+          lastMessageAt: _last(_view(name), name)?.createdAt,
         )
     ];
   }
@@ -78,10 +132,16 @@ final class InMemoryChannelStore implements ChannelStoreApi {
       {int? sinceId, DateTime? sinceTime, int limit = 50}) {
     if (limit < 1) throw const FormatException('limit must be at least 1');
     final normalized = normalizeChannelName(channel);
+    final point = _compaction[normalized] ?? 0;
+    final since = sinceId == null
+        ? point
+        : sinceId > point
+            ? sinceId
+            : point;
     final matched = _messages
         .where((m) =>
             m.channel == normalized &&
-            (sinceId == null || m.id > sinceId) &&
+            (since == 0 || m.id > since) &&
             (sinceTime == null || m.createdAt.isAfter(sinceTime)))
         .toList();
     if (matched.length <= limit) return matched;

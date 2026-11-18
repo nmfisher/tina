@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:sqlite3/sqlite3.dart' as sqlite3;
 import 'package:tina_channel/tina_channel_sqlite.dart';
 import 'package:tina_persistence/tina_persistence.dart';
 import 'package:tina/tina.dart' show runCli;
@@ -163,5 +164,47 @@ void main() {
   test('the session chat database lives under .tina/channels', () async {
     expect(await channel(['list']), 0);
     expect(File(latestDb).existsSync(), isTrue);
+  });
+
+/// Phase 4: the human's CLI compact path — digest + kept tail in the
+/// view, rows retained in the database, --clear wipes the view.
+/// Verified through the store, the way this file's other tests do.
+group('compact', () {
+
+
+  test('compact keeps recent messages and writes a digest', () async {
+    for (var i = 1; i <= 30; i++) {
+      await channel(['say', '#work', 'message $i', '--as', 'nick']);
+    }
+    expect(await channel(['compact', '#work', '--keep', '10']), 0);
+
+    final store = SqliteChannelStore.open(latestDb);
+    addTearDown(store.close);
+    final view = store.read('#work', limit: 100);
+    // digest + 10 kept: the view shrank...
+    expect(view.length, 11);
+    expect(view.last.type, ChannelMessageType.system);
+    expect(view.last.text, contains('superseded 20 messages'));
+    expect(view.any((m) => m.text == 'message 30'), isTrue);
+    expect(view.any((m) => m.text == 'message 5'), isFalse);
+    // ...while the database kept every row.
+    final raw = sqlite3.sqlite3.open(latestDb);
+    addTearDown(raw.close);
+    final rows = raw
+        .select(
+            'SELECT COUNT(*) AS n FROM messages WHERE channel = ?', ['#work'])
+        .single['n'] as int;
+    expect(rows, 31); // 30 messages + digest; nothing deleted
+  });
+
+  test('clear gives a fresh view and keeps identity', () async {
+    await channel(['say', '#lobby', 'hello', '--as', 'nick']);
+    expect(await channel(['compact', '#lobby', '--clear']), 0);
+    final store = SqliteChannelStore.open(latestDb);
+    addTearDown(store.close);
+    expect(store.read('#lobby', limit: 10), isEmpty);
+    await channel(['say', '#lobby', 'again', '--as', 'nick']);
+    expect(store.read('#lobby').single.text, 'again');
+  });
   });
 }

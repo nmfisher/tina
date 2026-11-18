@@ -153,6 +153,11 @@ final class ChannelSummary {
   final DateTime? lastMessageAt;
 }
 
+/// How many recent messages `channel_compact` retains by default.
+/// Enough for immediate context after a compaction; everything older
+/// is summarized by the digest entry.
+const int compactDefaultKeep = 20;
+
 /// Normalizes user or tool input into a stored channel name: trim,
 /// lowercase, ensure the leading `#`. Empty input is a format error.
 String normalizeChannelName(String input) {
@@ -182,10 +187,51 @@ List<String> parseMentions(String text) {
   return mentions;
 }
 
+/// The result of a compaction: what the room's view now starts from.
+final class ChannelCompaction {
+  const ChannelCompaction({
+    required this.channel,
+    required this.point,
+    required this.digested,
+    required this.digestId,
+    this.superseded = const [],
+  });
+
+  /// The compacted channel.
+  final String channel;
+
+  /// The compaction point: reads return only rows with ids past it.
+  /// Zero means no compaction.
+  final int point;
+
+  /// How many messages the compaction superseded (cleared channels
+  /// report every prior message).
+  final int digested;
+
+  /// The digest system message's id, zero when [clear] produced no
+  /// digest row.
+  final int digestId;
+
+  /// The superseded rows, oldest first — everything the compaction
+  /// removed from the view. The database keeps them; this copy exists
+  /// for the future memory-extraction hook (issue 94), which will
+  /// distill durable lessons from exactly this span.
+  final List<ChannelMessage> superseded;
+
+  @override
+  String toString() =>
+      'compaction($channel point=$point digested=$digested '
+      'digest=#$digestId)';
+}
+
 /// The store surface the channel tools, CLI and TUI pane use. One
 /// store owns one file. Messages are append-only; [setMember] is the
-/// only mutating operation and it also announces itself as a `status`
-/// message so history explains presence changes.
+/// only mutating presence operation and it also announces itself as a
+/// `status` message so history explains presence changes. [compact]
+/// is the one view-shaping operation: it never edits or deletes rows —
+/// it records a compaction point (and, for `compact`, appends a digest
+/// system message) and every read simply stops returning superseded
+/// messages. The database stays a complete audit trail.
 abstract interface class ChannelStoreApi {
   /// The store file's path (store-native string; `:memory:` in tests).
   String get file;
@@ -230,6 +276,24 @@ abstract interface class ChannelStoreApi {
   /// The channel's highest message id, 0 when empty — the unread
   /// cursor for polling readers.
   int lastMessageId(String channel);
+
+  /// Compact the channel's VIEW: keep the most recent [keep] messages
+  /// plus (unless [clear]) one `system` digest message authored by
+  /// [actor] that names the superseded span and its key points; every
+  /// read from then on returns only the digest and the retained tail.
+  /// Rows are never deleted — the log stays auditable, the room's view
+  /// is what shrinks. [clear] keeps nothing and writes no digest: a
+  /// compaction point at the newest id. The channel keeps its identity,
+  /// membership and name either way.
+  ///
+  /// Returns what the compaction did, for the caller's bookkeeping
+  /// (and for the future memory-extraction hook: issue 94).
+  ChannelCompaction compact(String channel,
+      {required String actor, int keep = compactDefaultKeep, bool clear = false});
+
+  /// The channel's compaction point: 0 when the view was never
+  /// compacted. Reads return only rows past it.
+  int compactionPoint(String channel);
 
   /// Release the store's resources.
   void close();

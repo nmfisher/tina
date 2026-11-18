@@ -10,12 +10,26 @@ import '../channel_store_api.dart';
 /// Output is bounded text: the log is evidence, and tool results must
 /// stay small enough to feed back into a turn. Status messages render
 /// with a `*` marker, system rows with `!`.
+/// The future memory-extraction hook (issue 94): called after every
+/// successful compaction with everything the room's view just lost.
+/// The durable-lesson store does not exist yet — the hook defaults to
+/// absent and compaction is complete without it. When #94 lands, the
+/// assembly wires the extractor here and nothing else changes.
+typedef ChannelMemoryExtractor = void Function(
+    ChannelCompaction compaction);
+
 final class ChannelTools {
   ChannelTools({
     required ChannelStoreApi store,
     required this.agentName,
     this.role = 'agent',
+    this.onCompacted,
   }) : _store = store;
+
+  /// Issue 94's seam: receives each compaction (its [ChannelCompaction
+  /// .superseded] carries the distilled span). Unwired until the
+  /// memory store exists.
+  final ChannelMemoryExtractor? onCompacted;
 
   final ChannelStoreApi _store;
 
@@ -106,6 +120,42 @@ final class ChannelTools {
           ),
         ),
         ToolSchema(
+          name: 'channel_compact',
+          description: 'Control a channel\'s retention: `compact` '
+              'summarizes older history (keeps the most recent '
+              'messages plus one digest entry; the full log stays in '
+              'the database for audit), `clear` gives the room a fresh '
+              'start (history wiped from view, identity/members kept). '
+              'The room stays open either way — retention is the main '
+              'agent\'s call. Only the main agent may use this.',
+          inputSchema: const {
+            'type': 'object',
+            'properties': {
+              'channel': {'type': 'string'},
+              'mode': {
+                'type': 'string',
+                'enum': ['compact', 'clear'],
+                'description': 'compact: digest + keep recent; '
+                    'clear: empty the view.'
+              },
+              'keep': {
+                'type': 'integer',
+                'minimum': 0,
+                'maximum': 500,
+                'default': 20,
+                'description': 'compact only: how many recent messages '
+                    'to retain.'
+              }
+            },
+            'required': ['channel', 'mode']
+          },
+          describe: (input) => ToolDescription(
+            title: 'Compact channel',
+            target: '${input['channel'] ?? ''}',
+            fields: {'Mode': '${input['mode'] ?? ''}'},
+          ),
+        ),
+        ToolSchema(
           name: 'channel_status',
           description: 'Set your presence in a channel (working, idle or '
               'done, plus a one-line summary). The change is visible to '
@@ -141,6 +191,8 @@ final class ChannelTools {
         (input, context) => execute('channel_read', input, context: context));
     loop.registerContextExecutor('channel_status',
         (input, context) => execute('channel_status', input, context: context));
+    loop.registerContextExecutor('channel_compact',
+        (input, context) => execute('channel_compact', input, context: context));
   }
 
   /// The prompt-section rules. What the chat is (this session's own —
@@ -154,10 +206,12 @@ final class ChannelTools {
     context.promptSections.add('<group-channel>Coordination channels are '
         'available: channel_say posts, channel_read catches up (pass a '
         'since id or timestamp — read deltas, not everything), '
-        'channel_status reports presence. This chat is your session\'s '
-        'own: it is shared with the session\'s other agents (main and '
-        'subagents) and the human, and it survives restarts with full '
-        'history.\n'
+        'channel_status reports presence; the main agent may also '
+        'channel_compact to distill old history (the room stays open — '
+        'retention is the main agent\'s call). This chat is your '
+        'session\'s own: it is shared with the session\'s other agents '
+        '(main and subagents) and the human, and it survives restarts '
+        'with full history.\n'
         '\n'
         'Delivery is passive: messages that mention @your-name, reply '
         'to yours, or come from the human are injected at your next '
@@ -207,12 +261,45 @@ final class ChannelTools {
           return _read(input);
         case 'channel_status':
           return _status(input);
+        case 'channel_compact':
+          return _compact(input);
         default:
           throw FormatException('unknown tool $name');
       }
     } on Object catch (e) {
       return ToolResult.error('$e');
     }
+  }
+
+  ToolResult _compact(Map<String, Object?> input) {
+    // Retention is the main agent's call (and the human's, via the
+    // CLI): a subagent shrinking the shared room's history is exactly
+    // the overreach this refuses.
+    if (role != 'main') {
+      return ToolResult.error('channel_compact is limited to the main '
+          'agent and the human; subagents cannot compact or clear a '
+          'channel.');
+    }
+    final channel = normalizeChannelName(
+        _string(input, 'channel', max: 64, required: true)!);
+    final mode = _string(input, 'mode', required: true)!;
+    if (mode != 'compact' && mode != 'clear') {
+      throw const FormatException('mode must be compact or clear');
+    }
+    final keep = _integer(input, 'keep', 20, 0, 500);
+    final compaction = _store.compact(channel,
+        actor: agentName, keep: keep, clear: mode == 'clear');
+    // Issue 94's hook: the extraction point for durable lessons. The
+    // store does not exist yet; when it does, this call (already
+    // carrying the superseded span) is the whole integration.
+    onCompacted?.call(compaction);
+    return ToolResult(mode == 'clear'
+        ? '$channel cleared: the view starts fresh '
+            '(identity, membership and the audit log kept).'
+        : '$channel compacted: ${compaction.digested} message'
+            '${compaction.digested == 1 ? '' : 's'} superseded, '
+            'digest #${compaction.digestId} written, full history '
+            'retained in the database.');
   }
 
   ToolResult _say(Map<String, Object?> input) {

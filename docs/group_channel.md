@@ -333,20 +333,61 @@ posting a burst and polling until it has read the other's rows; a
 third connection audits the log afterwards (counts attributed, rowids
 unique and increasing, both presence rows intact).
 
-## Phase 3/4 seams (not built)
+## Phase 3 — passive delivery (implemented)
 
-- **Passive delivery (Phase 3):** the watcher needs exactly
-  `read(sinceId:)` + `lastMessageId()` — poll per turn boundary, filter
-  by the `mentions` column against the local agent's name, deliver
-  through the existing turn seam (the channel plugin's `onPrompt` /
-  `TurnContext` is the natural injection point) with byte caps around
-  `formatChannelLine`/`truncated`. The tools already render bounded
-  lines, so delivery reuses the same shaping.
-- **Compaction (Phase 4):** `messages` per channel is the extraction
-  input; the memory program keeps its own store (same substrate,
-  separate tables per the issue). Trimming/archiving a channel would be
-  the first delete path — it needs a new store method, a schema version
-  bump, and must never run ahead of the memory extraction.
+`ChannelWatcher` (tina_channel, pure store-contract — no direct I/O,
+no timers) tails the session's chat and the channel plugin delivers at
+each agent's turn boundary through the existing prompt-section seam:
+one `<group-channel-delivery>` section per turn, then the cursor is
+marked. The engine grew no new event surface.
+
+- **Routing is mention-only by default:** a message delivers when it
+  mentions the agent's shortcode (case-insensitive; stored mentions or
+  re-parsed from raw text), replies to one of its messages, or comes
+  from the session's human — the owner is never filtered and reaches
+  every agent. Everything else stays pull-only (`channel_read`). An
+  agent never receives its own messages.
+- **Per-agent, per-channel read cursors:** every message a delivery
+  pass EXAMINES advances the cursor, delivered or not — nothing is
+  delivered twice, nothing is rescanned, and `channel_read` keeps its
+  independent explicit catch-up role. Pre-session history pins the
+  cursor at open (pull-only).
+- **Hard cap:** `channelDeliveryByteCap` (2048 bytes) over the whole
+  rendered section; overflow drops oldest-first with a leading
+  `… and N more` line, and a single oversized message is truncated in
+  place so a mention still delivers, bounded.
+- The prompt etiquette tells agents delivery is automatic and forbids
+  polling `channel_read` in a loop.
+- Lifecycle: the watcher owns no timers or subscriptions;
+  `closeSession` releases it, and posts arriving after a close deliver
+  to nobody.
+
+## Phase 4 — channel_compact (implemented)
+
+Retention is the main agent's (and the human's) call; the room stays
+open for the whole session.
+
+- **The tool:** `channel_compact(channel, mode)` with `mode`:
+  `compact` — keep the most recent messages (`compactDefaultKeep` = 20
+  by default) plus one `system` digest entry naming the superseded span
+  and what it retained; `clear` — the view starts fresh. The channel
+  keeps its identity, membership and name either way. The human's CLI:
+  `tina channel compact <channel> [--clear] [--keep N]`.
+- **Access control:** only role `main` (and the human through the
+  CLI). Subagent calls are refused with a normal tool error naming the
+  limit.
+- **Append-only discipline:** compaction never edits or deletes rows.
+  It records a per-channel compaction point (schema v2:
+  `channels.compaction_id`) and every read, listing and summary simply
+  returns only rows past the point; `clear` is a point at the newest
+  id with no digest. The database stays a complete audit trail — the
+  room's VIEW is what shrinks.
+- **The issue-94 hook:** `ChannelTools.onCompacted`
+  (`ChannelMemoryExtractor`) is the memory-extraction seam — it
+  receives every compaction with its full superseded span
+  (`ChannelCompaction.superseded`). The memory store does not exist
+  yet; the hook defaults to absent and compaction is complete without
+  it. When #94 lands, wiring the extractor is the whole integration.
 
 ## Disagreements / deviations from the brief
 
