@@ -102,9 +102,11 @@ def smoke(launcher, endpoint, backend, columns, rows):
                 timeout=30)
             terminal.expect_idle()
             before = grid().splitlines()[:-3]
-            for query in ['/', '/sp']:
+            for query in ['/', '/pr']:
                 terminal.send(query)
-                visible('/clear' if query == '/' else '/spawn')
+                # '/' lists commands ('/clear' among them); '/pr' narrows to
+                # /profile — the command palette probe, with /spawn gone.
+                visible('/clear' if query == '/' else '/profile')
                 terminal.send('\x1b')
                 # Escape can sit in a starved runner's input queue past
                 # the idle gate. Poll for the transcript's return instead
@@ -167,13 +169,15 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.expect_idle()
             assert not any('┌' in text for text in grid().splitlines())
 
-            for panel in [2, 3]:
-                line('/spawn local/smoke')
-                # Require the panel frame: bare '2:' can match a timestamp
-                # while the preceding Enter has yet to reach native input.
-                visible(f'┌{panel}:')
-                terminal.expect_idle()
-            visible('3 panels (2 hidden)')
+            # /spawn is gone (owner ruling): conversations multiply by
+            # launching tina or --resume/--continue, not from inside the
+            # TUI. The refusal is now part of the contract. The panels
+            # dialog keeps its coverage listing this lone panel; the
+            # minimize/restore/maximize dance rode on /spawn's extra
+            # panels and left with it.
+            start = line('/spawn local/smoke')
+            visible('unknown command: /spawn')
+            terminal.expect_idle()
             terminal.send('panel draft')
             terminal.expect_idle()
             # Spatial focus reaches the status bar independently of panel count.
@@ -182,18 +186,11 @@ def smoke(launcher, endpoint, backend, columns, rows):
             terminal.expect_cursor(False)
             terminal.send('\r')
             visible('Panels')
+            visible('1: local/smoke')
             visible('M minimize')
-            terminal.send('m')
-            visible('minimized')
-            terminal.send('\r')
+            terminal.send('\x1b')
             terminal.expect_idle()
-            assert 'Panels' not in grid(), 'restoring a panel left stale controls'
-            visible('┌1:')
-            terminal.send('\x07\x1b[B\r\r')
-            visible('Panels')
-            terminal.send('\x1b[B\x1b[Bx')
-            visible('maximized')
-            terminal.send('\r')
+            assert 'Panels' not in grid(), 'closing the panels dialog left stale controls'
             visible('panel draft')
             terminal.expect_cursor(True)
             terminal.send('\x15')

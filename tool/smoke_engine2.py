@@ -1061,22 +1061,11 @@ def smoke(launcher, endpoint, columns, rows):
             assert len(ModelStub.requests) == before_guard + 2, 'unguarded input did not reach provider'
             budget.spent('unguarded message', before_unguarded, 1)
             time.sleep(0.1)
-            # A new interactive panel owns a separate session and request log.
-            start = terminal.send('/spawn\r')
-            terminal.expect('2: local-smoke/smoke', start)
-            time.sleep(0.1)
-            before_child = len(ModelStub.requests)
-            start = terminal.send('child panel message\r')
-            deadline = time.monotonic() + 10
-            while len(ModelStub.requests) == before_child and time.monotonic() < deadline:
-                terminal.read()
-            terminal.expect('smoke answer', start)
-            child_request = json.dumps(ModelStub.requests[-1]['messages'])
-            assert 'child panel message' in child_request and 'terminal smoke' not in child_request
-            budget.spent('child panel message', before_child, 1)
-            time.sleep(0.1)
-            terminal.send('\x07\t\t\r')  # Skip status controls and focus the root.
-            time.sleep(0.1)
+            # /spawn is gone (owner ruling): new conversations start by
+            # launching tina or --resume/--continue, not from inside the
+            # TUI. The bracketed-paste and history-recall coverage stays on
+            # this panel; the second-session isolation this block used to
+            # prove via /spawn lives in the channel/multi-session suites.
             before_root = len(ModelStub.requests)
             pasted_root = 'root panel message\npaste second\npaste third'
             start = terminal.send('\x1b[200~' + pasted_root + '\x1b[201~\r')
@@ -1085,16 +1074,13 @@ def smoke(launcher, endpoint, columns, rows):
                 terminal.read()
             terminal.expect('smoke answer', start)
             root_request = json.dumps(ModelStub.requests[-1]['messages'])
-            assert 'root panel message' in root_request and 'child panel message' not in root_request
-            budget.spent('root panel paste', before_root, 1)
+            assert 'root panel message' in root_request and 'paste second' in root_request
+            budget.spent('panel paste', before_root, 1)
             time.sleep(0.1)
             start = terminal.send('\x1b[A')
             terminal.expect('paste second paste third', start)
             assert b'\n' not in terminal.output[start:], 'recalled paste escaped the input row'
             terminal.send('\x15')
-            terminal.send('\x17\t\r')  # Ctrl+W also cycles.
-            time.sleep(0.1)
-            terminal.send('\x18')  # Ctrl+X closes the child and returns home.
             time.sleep(0.1)
             before_plan = len(ModelStub.requests)
             start = terminal.send('start plan example\r')
