@@ -4,6 +4,11 @@ import 'panels_status.dart';
 import 'prompt.dart';
 
 /// UI-only workspace: session creation/execution is supplied by the app.
+/// Opening additional conversations from inside a running TUI was removed
+/// with `/spawn` (owner directive): the workspace renders the panel the
+/// app hands it, and new conversations start by launching tina (or
+/// `--resume`/`--continue`). The panel machinery — focus, minimize,
+/// maximize, `/close` — stays.
 final class PanelsView
     implements ConsoleContribution, ConsoleWorkspace, ConsoleCommandHandler {
   PanelsView();
@@ -14,8 +19,6 @@ final class PanelsView
     final panels = _console?.panels;
     if (panels == null) return null;
     return switch (name) {
-      'spawn' =>
-        panels.spawn(arguments.trim().isEmpty ? null : arguments.trim()),
       'close' => panels.closeFocused(),
       _ => null,
     };
@@ -37,7 +40,10 @@ final class PanelsView
   Future<int> runConsole(ConsoleContext context, ConsoleSessionView initial,
       Future<ConsoleSessionView> Function(String? model) createSession,
       {ConsoleViewClosed? onViewClosed}) async {
-    final workspace = _Workspace(context, initial, createSession, onViewClosed);
+    // [createSession] stays part of the workspace contract (the app's
+    // initial-session path); the panels workspace no longer opens
+    // conversations itself since /spawn was removed.
+    final workspace = _Workspace(context, initial, onViewClosed);
     _workspace = workspace;
     try {
       return await workspace.run();
@@ -60,16 +66,14 @@ final class _View {
 }
 
 final class _Workspace implements ConsolePanels {
-  _Workspace(this.context, this.initial, this.createSession, this.onViewClosed);
+  _Workspace(this.context, this.initial, this.onViewClosed);
   final ConsoleContext context;
   final ConsoleSessionView initial;
-  final Future<ConsoleSessionView> Function(String? model) createSession;
   final ConsoleViewClosed? onViewClosed;
   final focus = FocusManager();
   final views = <_View>[];
   final done = Completer<void>();
   final closing = <Future<void>>[];
-  Future<void> _spawns = Future.value();
   _View? active;
   bool painting = false, stopped = false, maximized = false;
   int width = -1, height = -1, visibleIndex = 0;
@@ -136,7 +140,6 @@ final class _Workspace implements ConsolePanels {
       screen.input.setBoundsOverride(null);
       // Late creations also release their view and notify its application
       // owner. Borrowed sessions never hold workspace teardown open.
-      await _spawns;
       await Future.wait(closing);
     }
   }
@@ -149,8 +152,6 @@ final class _Workspace implements ConsolePanels {
     target.history.add(line);
     final parts = line.trim().split(RegExp(r'\s+'));
     switch (parts.first) {
-      case '/spawn':
-        unawaited(spawn(parts.length > 1 ? parts.skip(1).join(' ') : null));
       case '/close':
         unawaited(closeFocused());
       default:
@@ -410,33 +411,6 @@ final class _Workspace implements ConsolePanels {
     }
     if (focus.isCycling) return false;
     return false;
-  }
-
-  @override
-  Future<void> spawn([String? model]) {
-    final source = active;
-    final operation = _spawns.then((_) async {
-      if (stopped) return;
-      try {
-        final session = await createSession(model);
-        if (stopped) {
-          await _releaseSession(session, Future.value());
-          return;
-        }
-        final chat = ScrollingTextRegion(screen)..detach();
-        try {
-          _add(session, chat);
-        } catch (_) {
-          await _releaseSession(session, Future.value());
-          rethrow;
-        }
-      } catch (error) {
-        if (!stopped && source?.closed == false)
-          source!.session.notice('Could not open panel: $error');
-      }
-    });
-    _spawns = operation;
-    return operation;
   }
 
   @override

@@ -6,8 +6,6 @@ import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart' show VirtualTerminal;
 import 'package:tina_engine_2/tina_engine_2.dart';
-import 'package:tina_approvals/tina_approvals.dart';
-import 'package:tina_persistence/tina_persistence.dart';
 import 'app_test.dart' show FakeIo, approvalUi;
 import 'turn_rendering_test.dart' show waitFor;
 
@@ -144,15 +142,6 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await Future<void>.delayed(const Duration(milliseconds: 35));
   }
 
-  Future<void> spawn(String model) async {
-    await checkViews
-        .firstWhere((view) => view.console != null)
-        .console!
-        .panels!
-        .spawn(model);
-    await Future<void>.delayed(const Duration(milliseconds: 35));
-  }
-
   PanelFrame getFrame() => editor.focusManager!.focused as PanelFrame;
 
   Future<void> panelControls() async {
@@ -160,43 +149,6 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await keys('\r'); // open the panel controls
   }
 
-  test('panel controls replace the slash command and preserve drafts',
-      () async {
-    expect(session.commands['panels'], isNull);
-    final main = getFrame();
-    await keys('main draft');
-    await spawn('other');
-    await keys('child draft');
-    await spawn('main');
-    final third = getFrame();
-    final terminal = VirtualTerminal(width: 120, height: 24)
-      ..feed(io.written.toString());
-    io.written.clear();
-    expect(terminal.rowText(screen.layout.stripRow),
-        contains('3 panels (2 hidden)'));
-    await panelControls();
-    terminal.feed(io.written.toString());
-    io.written.clear();
-    expect(terminal.rowText(screen.layout.stripRow), contains('Enter panels'));
-    expect(terminal.cursorVisible, false);
-    await keys('m'); // minimize the first conversation
-    expect(main.canFocus, false);
-    expect(editor.focusManager!.focused, isNot(isA<PanelFrame>()));
-    await keys('\r'); // restore the first conversation and focus its draft
-    expect(getFrame(), same(main));
-    expect(main.canFocus, true);
-    expect(editor.editState.buffer, 'main draft');
-    await panelControls();
-    await keys('\x1b[B\x1b[Bx'); // maximize the third (currently hidden) panel
-    expect(screen.chat.bounds.width, greaterThan(100));
-    await keys('x'); // toggle back to split
-    expect(screen.chat.bounds.width, lessThan(70));
-    await keys('\r');
-    expect(getFrame(), same(third));
-    expect(editor.editState.buffer, isEmpty);
-    expect(providers.every((p) => p.requests.isEmpty), true,
-        reason: 'status/panel selection must never submit chat input');
-  });
 
   test('minimizing the last panel can be undone from status controls',
       () async {
@@ -212,19 +164,6 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     expect(editor.editState.buffer, 'saved draft');
   });
 
-  test('minimizing the active split panel preserves both drafts', () async {
-    await keys('main draft');
-    await spawn('other');
-    final child = getFrame();
-    await keys('child draft');
-    await panelControls();
-    await keys('\x1b[Bm');
-    expect(child.canFocus, false);
-    expect(editor.editState.buffer, 'main draft');
-    await keys('\r');
-    expect(getFrame(), same(child));
-    expect(editor.editState.buffer, 'child draft');
-  });
 
   test('Escape in status controls cancels work and restores the chat draft',
       () async {
@@ -626,9 +565,8 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
   });
 
   test(
-      'pasted multiline input survives recall and panel restore without stray cells',
+      'pasted multiline input survives recall without stray cells',
       () async {
-    final terminal = VirtualTerminal(width: 120, height: 24);
     final text =
         List.generate(8, (i) => 'Line $i\nSecond $i\rAnother $i').join('\n');
     await keys('\x1b[200~$text\x1b[201~');
@@ -646,287 +584,28 @@ enabled = ["tina/chat-tui", "tina/panels-tui", "tina/tools", "tina/mode-tui", "t
     await waitFor(() => !session.host.session.loop.running);
     await keys('\x1b[A');
     expect(editor.editState.buffer, text);
-    await spawn('other');
-    await keys('\x07\t\t\r');
-    expect(editor.editState.buffer, text);
-    terminal.feed(io.written.toString());
-    // The root panel has a border while split. Its left rail must survive;
-    // a raw newline from the restored draft used to overwrite column zero.
-    final frame = getFrame();
-    for (var row = frame.bounds.row + 1; row < frame.bounds.bottom; row++) {
-      expect(terminal.charAt(row, frame.bounds.col), '│', reason: 'row $row');
-    }
     await keys('\x15');
     expect(editor.editState.buffer, isEmpty);
   });
 
-  test('shell draft has one prompt marker across panel focus changes',
-      () async {
-    await keys('!echo hello');
-    final mainFrame = getFrame();
-    expect(screen.input.buffer, 'echo hello');
-    expect(screen.input.prompt, contains(' ! '));
-    await spawn('other');
-    await keys('normal draft!');
-    expect(screen.input.buffer, 'normal draft!');
-    expect(screen.input.prompt, contains(' > '));
-
-    final terminal = VirtualTerminal(width: 120, height: 24)
-      ..feed(io.written.toString());
-    final row = terminal.rowText(mainFrame.inputRect.row);
-    expect(row, contains('main ! echo hello'));
-    expect(row, isNot(contains('! !echo')));
-    expect(mainFrame.inputBuffer, '!echo hello');
-
-    await keys('\x07\t\t\r');
-    expect(editor.editState.buffer, '!echo hello');
-    expect(screen.input.buffer, 'echo hello');
-    expect(screen.input.cursor, 'echo hello'.length);
-    expect(screen.input.prompt, contains(' ! '));
-  });
-
-  test('closing a spawned panel clears the complete bottom rail', () async {
-    final terminal = VirtualTerminal(width: 120, height: 24);
-    await spawn('other');
-    terminal.feed(io.written.toString());
-    io.written.clear();
-    final railRow = screen.layout.stripRow - 1;
-    expect(terminal.charAt(railRow, 119), '┘');
-    await keys('\x18');
-    terminal.feed(io.written.toString());
-    for (var col = 0; col < 120; col++) {
-      expect(terminal.charAt(railRow, col), ' ', reason: 'column $col');
-    }
-    expect(getFrame().border, false);
-    expect(screen.input.bounds.isEmpty, false);
-  });
-
-  test(
-      'spawn, cycle, resize and close preserve independent drafts and sessions',
-      () async {
-    final mainId = session.host.session.id;
-    await keys('main draft');
-    await spawn('other');
-    final otherId = getFrame().conversationId;
-    expect(otherId, isNot(mainId));
-    expect(getFrame().label, contains('other'));
-    expect(screen.input.bounds.col, greaterThan(50));
-    await keys('other draft');
-    await keys('\x07\t\t\r'); // skip status controls to reach the root
-    expect(getFrame().conversationId, mainId);
-    expect(editor.editState.buffer, 'main draft');
-    await keys('\x17\t\r'); // Ctrl+W follows the same focus ring
-    expect(getFrame().conversationId, otherId);
-    expect(editor.editState.buffer, 'other draft');
-    sizes.add(ScreenLayout.fromSize(40, 8, split: false));
+  test('/close on the only panel keeps it open and points at /quit', () async {
+    final frame = getFrame();
+    await keys('/close\r');
     await Future<void>.delayed(const Duration(milliseconds: 35));
-    expect(screen.input.bounds.col, lessThan(3));
-    expect(editor.editState.buffer, 'other draft');
-    await keys('\x07\t\t\r');
-    expect(editor.editState.buffer, 'main draft');
-    await keys('\x07\t\r');
-    await keys('\r');
-    await waitFor(() => providers.last.requests.isNotEmpty);
-    expect(providers.first.requests, isEmpty);
-    await keys('\x18'); // Ctrl+X cancels/closes the running child
-    await waitFor(() => providers.last.closed);
-    expect(getFrame().conversationId, mainId);
-    expect(editor.editState.buffer, 'main draft');
-    final store = SessionStore.open(defaultSessionStorePath(dir.path));
-    try {
-      expect(store.list().map((s) => s.id), contains(otherId));
-      expect(store.list().map((s) => s.id), isNot(contains(mainId)),
-          reason: 'the main panel only had an unsent draft');
-      expect(
-          store
-              .readEntries(otherId)
-              .whereType<InputRecordedEntry>()
-              .single
-              .text,
-          'other draft');
-      expect(
-          store.readEntries(otherId).whereType<TurnEndedEntry>(), hasLength(1),
-          reason: 'the owner drains cancellation before closing persistence');
-    } finally {
-      store.close();
-    }
-  });
-
-  test('closing the initial panel retains application ownership until exit',
-      () async {
-    await spawn('other');
-    await keys('\x07\t\t\r'); // focus the initial panel
-    expect(getFrame().conversationId, session.host.session.id);
-    await keys('\x18');
-    expect(providers.first.closed, isFalse,
-        reason:
-            'the initial assembly still supplies new sessions and settings');
-    await spawn('third');
-    expect(getFrame().label, contains('third'));
-    await keys('\x03');
-    expect(await app.timeout(const Duration(seconds: 3)), 0);
-    expect(providers.every((provider) => provider.closed), isTrue);
-  });
-
-  test(
-      'line scrolling targets the focused conversation and preserves both drafts',
-      () async {
-    for (var i = 0; i < 40; i++)
-      session.terminal.writeln('main history row $i');
-    final mainChat = screen.chat;
-    await waitFor(() =>
-        mainChat.snapshotLines().join('\n').contains('main history row 39'));
-    await keys('main draft\x1b[1;3A');
-    expect(mainChat.debugScrollOffset, 1);
-    await spawn('other');
-    final otherChat = screen.chat;
-    await keys('child transcript\r');
-    await waitFor(() => providers.last.requests.length == 1);
-    providers.last.answer(
-        0, List.generate(40, (i) => 'child history row $i').join('\n\n'));
-    await waitFor(() => !getFrame().busy);
-    await keys('other draft\x1b[1;9A');
-    expect(otherChat.debugScrollOffset, 1);
-    expect(mainChat.debugScrollOffset, 1);
-    expect(editor.editState.buffer, 'other draft');
-    await keys('\x07');
-    await keys('\x1b[1;9A');
-    expect(otherChat.debugScrollOffset, 1,
-        reason: 'the focus ring owns arrows while cycling');
-    await keys('\t\t\r');
-    expect(screen.chat, same(mainChat));
-    expect(editor.editState.buffer, 'main draft');
-    await keys('\x1b\x1b[B');
-    expect(mainChat.debugScrollOffset, 0);
-    expect(otherChat.debugScrollOffset, 1);
-    expect(editor.editState.buffer, 'main draft');
-    await keys('\x07\t\r');
-    expect(screen.chat, same(otherChat));
-    expect(editor.editState.buffer, 'other draft');
-    await keys('\x1b[1;9B');
-    expect(otherChat.debugScrollOffset, 0);
-  });
-
-  test('new input steers only the submitting session while another panel runs',
-      () async {
-    await keys('first\r');
-    await waitFor(() => providers.first.requests.length == 1);
-    await keys('second\rmain draft');
-    await waitFor(() => providers.first.requests.length == 2);
-    await spawn('other');
-    await keys('independent\rchild draft');
-    await waitFor(() => providers.last.requests.length == 1);
-    expect(
-        screen.chat.snapshotLines().join('\n'), isNot(contains('main answer')));
-    expect(editor.editState.buffer, 'child draft');
-    providers.last.answer(0, 'child answer');
-    providers.first.answer(1, 'main second answer');
-    await keys('\x07\t\t\r');
-    expect(editor.editState.buffer, 'main draft');
-    expect(
-        screen.chat.snapshotLines().join('\n'), contains('main second answer'));
+    expect(getFrame(), same(frame),
+        reason: 'the last panel never closes; the conversation survives');
     expect(screen.chat.snapshotLines().join('\n'),
-        isNot(contains('child answer')));
-    expect(
-        session.host.session.loop.log
-            .whereType<InputRecordedEntry>()
-            .map((e) => e.text),
-        ['first', 'second']);
+        contains('This is the last panel. Use /quit to exit.'));
   });
 
-  test('Escape cancels only the active conversation and preserves both drafts',
+  test('opening conversations from inside the TUI is gone: /spawn refused',
       () async {
-    await keys('main request\r');
-    await waitFor(() => providers.first.requests.length == 1);
-    await keys('main draft');
-    await spawn('other');
-    await keys('child request\rchild draft');
-    await waitFor(() => providers.last.requests.length == 1);
-    final child = getFrame();
-    await keys('\x1b');
-    await waitFor(() => !child.busy);
-    expect(editor.editState.buffer, 'child draft');
-    expect(providers.last.streams.single.hasListener, false);
-    expect(providers.first.streams.single.hasListener, true);
-    expect(session.host.session.loop.running, true);
-    await keys('\x07\t\t\r');
-    expect(editor.editState.buffer, 'main draft');
-    providers.first.answer(0, 'main finished');
-    await waitFor(() => !session.host.session.loop.running);
-    expect(session.host.session.turns.single.stopReason, StopReason.complete);
-  });
-
-  test('cross-panel approvals serialize and keep focus until answered',
-      () async {
-    final mainId = session.host.session.id;
-    await keys('saved main draft');
-    await spawn('other');
-    await keys('grok\r');
-    await waitFor(() => editor.isReadingKey);
-    final other = screen.chat;
-    final service = session.host.plugins.whereType<ApprovalsPlugin>().single;
-    final decision = service.request(
-        operation: 'Root question',
-        target: '',
-        reason: 'Confirm the root action',
-        kind: ApprovalKind.confirmation);
-    await keys('\x07'); // cannot cycle focus away from a pending approval
-    expect(screen.chat, same(other));
-    await keys('\x1b[B\r'); // No to grok
-    await waitFor(() => !identical(screen.chat, other) && editor.isReadingKey);
-    expect(screen.input.buffer, 'saved main draft');
-    await keys('\r'); // Yes to the queued root question
-    expect(await decision, ApprovalDecision.allow);
-    await waitFor(() => !editor.isReadingKey);
-    expect(getFrame().conversationId, mainId);
-    expect(editor.editState.buffer, 'saved main draft');
-    expect(providers.every((p) => p.requests.isEmpty), true);
-  });
-
-  test(
-      'parked panels remain reachable and cancelling navigation restores input',
-      () async {
-    final mainId = session.host.session.id;
-    await keys('main draft');
-    await spawn('second');
-    await keys('second draft');
-    await spawn('third');
-    final thirdId = getFrame().conversationId;
-    await keys('third draft');
-    await keys('\x07\t\t'); // skip status and preview the offscreen first panel
-    expect(screen.input.bounds.isEmpty, true);
-    await keys('\x1b'); // cancel the preview
-    expect(getFrame().conversationId, thirdId);
-    expect(screen.input.bounds.isEmpty, false);
-    expect(editor.editState.buffer, 'third draft');
-    await keys('\x07\t\t\r');
-    expect(getFrame().conversationId, mainId);
-    expect(editor.editState.buffer, 'main draft');
-    await keys('\x07\t\r');
-    expect(editor.editState.buffer, 'second draft');
-    await keys('\x0f'); // maximize
-    expect(screen.input.bounds.width, greaterThan(100));
-    await keys('\x18'); // close second, focus third
-    expect(getFrame().conversationId, thirdId);
-    expect(editor.editState.buffer, 'third draft');
-    await spawn('fourth');
-    expect(getFrame().label, '4: fourth');
-  });
-
-  test('failed panel attachment leaves the original panel usable', () async {
-    final mainId = session.host.session.id;
-    await keys('saved draft');
-    await spawn('bad');
-    expect(providers.last.closed, true);
-    expect(getFrame().conversationId, mainId);
-    expect(editor.editState.buffer, 'saved draft');
-    expect(screen.input.bounds.isEmpty, false);
+    await keys('/spawn\r');
+    await Future<void>.delayed(const Duration(milliseconds: 35));
     expect(screen.chat.snapshotLines().join('\n'),
-        contains('Could not open panel'));
-    await spawn('other');
-    await keys('/spawn\r'); // use the current configured conversation default
-    expect(getFrame().label, endsWith(': main'));
-    expect(providers.last.model, 'main');
-    expect(providers, hasLength(4));
+        contains('unknown command: /spawn'));
+    // The published panel commands are exactly /close now.
+    expect(session.commands['close'], isNotNull);
+    expect(session.commands['spawn'], isNull);
   });
 }

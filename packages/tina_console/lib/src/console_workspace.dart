@@ -56,7 +56,6 @@ typedef ConsoleViewClosed = Future<void> Function(
     ConsoleSessionView view, Future<void> pendingWork);
 
 abstract interface class ConsolePanels {
-  Future<void> spawn([String? model]);
   Future<void> closeFocused();
   List<String> describe();
 }

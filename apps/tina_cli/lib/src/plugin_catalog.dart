@@ -348,12 +348,6 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         source: null,
         commands: [
           Command(
-            name: 'spawn',
-            description: 'open a conversation panel [/spawn provider/model]',
-            handler: (_) =>
-                c.terminal.writeln('Panels require the interactive console.'),
-          ),
-          Command(
             name: 'close',
             description: 'close the focused panel (Ctrl+X)',
             handler: (_) =>
@@ -362,7 +356,10 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         ],
       ),
       description:
-          'Opens multiple conversations in terminal panels and lets you switch between them.',
+          'Renders conversations in terminal panels with focus, minimize and '
+          'close controls. Opening additional conversations from inside a '
+          'running TUI was removed; start one by launching tina (or '
+          '--resume/--continue).',
       live: false,
     ),
     PluginDefinition<SessionPluginContext>(

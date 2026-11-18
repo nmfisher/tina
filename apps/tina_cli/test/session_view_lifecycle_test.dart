@@ -256,7 +256,7 @@ void main() {
   }
 
   test(
-      'borrowed workspace closes panels and exits without waiting for shared work',
+      'borrowed workspace exits without waiting for shared work',
       () async {
     final provider = _TrackedProvider();
     final session = TuiSession.wrap(SessionAssembly.start(
@@ -272,11 +272,10 @@ void main() {
     final panelScreen = _Presentation();
     final panels = PanelsView();
     final initial = session.createView();
-    final spawned = <SessionView>[];
+    // createSession stays part of the workspace contract; opening panels
+    // from inside the TUI left with /spawn, so it is never called.
     final app = panels.runConsole(panelScreen.context, initial, (_) async {
-      final view = session.createView();
-      spawned.add(view);
-      return view;
+      fail('the panels workspace no longer opens conversations');
     });
     addTearDown(() async {
       panelScreen.editor.inject(ControlKey(ControlCode.ctrlC));
@@ -289,12 +288,8 @@ void main() {
       panelScreen.dispose();
     });
     await waitFor(() => panelScreen.editor.isEditing);
-    panelScreen.io.feedBytes('/spawn\r'.codeUnits);
-    await waitFor(() => spawned.length == 1 && panelScreen.editor.isEditing);
     panelScreen.io.feedBytes('shared input\r'.codeUnits);
     await waitFor(() => provider.requests.length == 1);
-    panelScreen.io.feedBytes('/close\r'.codeUnits);
-    await waitFor(() => spawned.single.contributions.isEmpty);
     expect(provider.closes, 0);
     expect(session.host.session.loop.running, isTrue);
     provider.requests.single

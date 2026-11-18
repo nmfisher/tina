@@ -144,11 +144,12 @@ file writes there run without prompting, and sandboxed commands can write there
 after their execution is approved. Unchecking the box or denying the request
 saves nothing. Remove a grant in Tools settings under **Writable directories**.
 
-`/spawn` opens an independent conversation panel using the configured default model;
-`/spawn provider/model` selects a different model. Each panel keeps its own
-draft, input history, queued messages and saved session. Panels can run turns
-concurrently. Wide terminals show two panels side by side; narrow terminals
-show the selected panel.
+Conversation panels render in the workspace the app hands the TUI: each
+panel keeps its own draft, input history and queued messages, and wide
+terminals can show two panels side by side. Opening additional
+conversation panels from inside a running TUI was removed with `/spawn`:
+start a new conversation by launching tina again (or `--resume`/
+`--continue` to reopen a saved one).
 
 - Ctrl+G or Ctrl+W enters panel navigation: arrows/Tab select, Enter focuses,
   Escape cancels navigation.
