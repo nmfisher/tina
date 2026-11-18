@@ -1,0 +1,32 @@
+name: tina_memory
+description: >-
+  Rolling memory for issue 94: a shared fact store keyed by repo
+  origin (plus a global tier), agent tools, a session-start hot tier,
+  and an answer cache that stops agents re-running searches — all
+  behind a store-interface seam with a sqlite-native implementation.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  path: ^1.9.0
+  sqlite3: ^3.5.2
+  tina_core:
+    path: ../../tina_core
+  tina_engine_2:
+    path: ../../tina_engine_2
+  tina_sqlite:
+    path: ../../tina_sqlite
+
+# Compile SQLite from the vendored amalgamation (the tina_channel
+# pattern) so `dart test` stays offline and CI deterministic.
+hooks:
+  user_defines:
+    sqlite3:
+      source: source
+      path: ../../tina_sqlite/native/sqlite3.c
+
+dev_dependencies:
+  test: ^1.25.0
