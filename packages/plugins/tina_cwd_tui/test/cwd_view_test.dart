@@ -32,8 +32,6 @@ class _Io implements Stdio {
 
 class _Panels implements ConsolePanels {
   @override
-  Future<void> spawn([String? model]) async {}
-  @override
   Future<void> closeFocused() async {}
   @override
   List<String> describe() => [];
