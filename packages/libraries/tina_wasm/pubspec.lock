@@ -500,7 +500,7 @@ packages:
       path: "../../../apps/tina_cli"
       relative: true
     source: path
-    version: "0.10.3"
+    version: "0.10.4"
   tina_activity:
     dependency: "direct main"
     description:
@@ -666,6 +666,13 @@ packages:
     dependency: transitive
     description:
       path: "../../plugins/tina_mcp_tui"
+      relative: true
+    source: path
+    version: "0.1.0"
+  tina_memory:
+    dependency: transitive
+    description:
+      path: "../../plugins/tina_memory"
       relative: true
     source: path
     version: "0.1.0"

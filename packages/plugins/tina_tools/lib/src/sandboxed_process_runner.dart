@@ -186,6 +186,20 @@ final class SandboxedProcessRunner
   /// Reviews the whole command once for all missing permissions.
   ProcessCommandApprover? commandApprover;
 
+  /// The answer-cache SERVE seam (issue 94 phase 2): called before an
+  /// uncertified-mode read-only exploratory search runs; a non-null
+  /// string is returned to the agent INSTEAD of running the command
+  /// (the injection block, paths verified by the cache). Absent by
+  /// default — nothing changes until the assembly wires it.
+  String? Function(String program, List<String> arguments)?
+      readOnlySearchResolver;
+
+  /// The answer-cache CAPTURE seam: called after a certified
+  /// read-only search completes successfully, with the verified read
+  /// operands as the resolved paths.
+  void Function(String program, List<String> arguments, List<String> files)?
+      onReadOnlySearchCompleted;
+
   /// Session grants remembered from "always" answers.
   final CommandGrants grants;
 
@@ -505,6 +519,23 @@ final class SandboxedProcessRunner
         canonicalSandboxPath(executable) != executable) {
       return const CommandRefused('Executable changed during approval.');
     }
+    // The answer-cache seams (issue 94 phase 2): certified read-only
+    // exploratory searches can be served from (and captured into) an
+    // external cache. Serve happens BEFORE approval/spawn — a cached
+    // answer skips the whole run; capture happens AFTER a successful
+    // read-only completion, with the verified read operands as the
+    // resolved paths. Both default to absent: nothing changes unless
+    // the assembly wires them.
+    if (envelope.certifiedReadOnly && !readOnly) {
+      final cached = readOnlySearchResolver?.call(
+          path.basenameWithoutExtension(executable), request.arguments);
+      if (cached != null) {
+        return _completed(
+            CommandCompleted(
+                exitCode: 0, stdout: cached, stderr: ''),
+            'answered from rolling memory (search skipped)');
+      }
+    }
     final authorized = (control ?? const ProcessControl()).copyWith(
       readOnly: readOnly,
       workspaceWriteAllowed:
@@ -526,6 +557,15 @@ final class SandboxedProcessRunner
     ), control: authorized);
     // An undeclared access remains a blocked result. Retrying is a new tool
     // request: a command may already have produced side effects.
+    if (envelope.certifiedReadOnly &&
+        !readOnly &&
+        outcome is CommandCompleted &&
+        outcome.exitCode == 0) {
+      onReadOnlySearchCompleted?.call(
+          path.basenameWithoutExtension(executable),
+          request.arguments,
+          envelope.reads);
+    }
     return _completed(
         outcome, 'Allowed by resource grants and invocation approval');
   }

@@ -26,6 +26,11 @@ import 'package:tina_channel/tina_channel.dart';
 // wasm build broke on exactly that import. Natively this resolves to
 // the same sqlite implementation.
 import 'package:tina_channel/default_store.dart';
+// Same conditional-seam discipline as the channel store: the catalog's
+// graph compiles to Wasm; the memory opener resolves natively to the
+// same sqlite implementation without dart:ffi in this graph.
+import 'package:tina_memory/default_store.dart';
+import 'package:tina_memory/tina_memory.dart' show MemoryPlugin;
 import 'package:tina_goals/tina_goals.dart';
 import 'package:tina_compaction/tina_compaction.dart';
 import 'package:tina_context/tina_context.dart';
@@ -437,6 +442,46 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       live: true,
     ),
     PluginDefinition<SessionPluginContext>(
+      'tina/memory',
+      (c) {
+        final plugin = MemoryPlugin(
+          // Rolling memory is keyed by repo ORIGIN (cross-checkout
+          // learning, issue 94): the opener resolves the git remote
+          // and opens ~/.tina/memory/<origin>.db plus the global
+          // tier — never a workspace path, so every checkout shares
+          // one memory.
+          openStores: () =>
+              openDefaultMemoryStores(c.workingDirectory),
+        );
+        // The answer cache rides the session's process runner: serve
+        // before a certified read-only search runs, capture after it
+        // succeeds. The closures dereference lazily — the cache
+        // exists once the session opens (before that, the seams are
+        // inert by design).
+        final runner = (c.tools as ToolsPlugin).processRunner;
+        runner.readOnlySearchResolver =
+            (String program, List<String> arguments) {
+          final cache = plugin.answerCache;
+          if (cache == null) return null;
+          final served = cache.serve(_query(program, arguments));
+          return served == null ? null : cache.injectionBlock(served);
+        };
+        runner.onReadOnlySearchCompleted =
+            (String program, List<String> arguments,
+                List<String> files) {
+              plugin.answerCache?.capture(
+                  _query(program, arguments), files);
+            };
+        return plugin;
+      },
+      description:
+          'Rolling memory: durable facts about this repository shared '
+          'across its checkouts (origin-keyed), with remember/recall/'
+          'forget tools, a session-start hot tier and an answer cache '
+          'that serves repeated searches from verified pointers.',
+      live: true,
+    ),
+    PluginDefinition<SessionPluginContext>(
       'tina/channel-tui',
       (c) => ChannelPanePlugin(
         openStore: (scope) =>
@@ -682,3 +727,11 @@ final class _StoreHistory implements SubagentHistorySource {
     return last;
   }
 }
+
+
+/// The answer cache's query string for a process-runner search: the
+/// program name plus its arguments — the terms the cache matches over
+/// (content words; stop words dropped inside the cache).
+String _query(String program, List<String> arguments) =>
+    '$program ${arguments.join(' ')}';
+
