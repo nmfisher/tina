@@ -4,6 +4,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 
 import '../channel_store_api.dart';
 import 'channel_tools.dart';
+import 'channel_watcher.dart';
 import 'shortcode.dart';
 
 /// Owns the channel store and contributes the channel tools. The
@@ -32,6 +33,7 @@ final class ChannelPlugin extends AgentPlugin {
     this.chatSessionId,
     this.agentName,
     this.role = 'agent',
+    this.humanName = 'user',
     this.random,
   });
 
@@ -50,12 +52,17 @@ final class ChannelPlugin extends AgentPlugin {
   /// task label).
   final String role;
 
+  /// The name the session's human posts under. The watcher never
+  /// filters the human: messages with this sender always deliver.
+  final String humanName;
+
   /// The randomness source for shortcode generation (tests inject a
   /// scripted one; sessions pass nothing).
   final Random? random;
 
   ChannelStoreApi? _store;
   ChannelTools? _tools;
+  ChannelWatcher? _watcher;
   String? _effectiveName;
 
   /// The settled identity once the session has opened (the override
@@ -89,6 +96,8 @@ final class ChannelPlugin extends AgentPlugin {
     _effectiveName = identity;
     _tools =
         ChannelTools(store: store, agentName: identity, role: role);
+    _watcher = ChannelWatcher.start(
+        store: store, agent: identity, human: humanName);
     return null;
   }
 
@@ -96,10 +105,20 @@ final class ChannelPlugin extends AgentPlugin {
   void mountOn(AgentLoop loop) => _tools?.mountOn(loop);
 
   @override
-  void onPrompt(TurnContext context) => _tools?.onPrompt(context);
+  void onPrompt(TurnContext context) {
+    _tools?.onPrompt(context);
+    // Turn-boundary delivery: everything routed to this agent since
+    // its previous turn rides one prompt section, then the cursor is
+    // marked. The section is rebuilt per turn, so a delivered batch is
+    // visible for exactly the turn that consumed it.
+    final section = _watcher?.deliverPending();
+    if (section != null) context.promptSections.add(section);
+  }
 
   @override
   void closeSession() {
+    _watcher?.close();
+    _watcher = null;
     _tools = null;
     _store?.close();
     _store = null;

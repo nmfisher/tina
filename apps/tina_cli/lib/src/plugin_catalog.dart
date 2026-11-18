@@ -426,6 +426,9 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         agentName:
             agentNameFromEnvironment(Platform.environment),
         role: 'main',
+        // The watcher never filters the human: it must know the name
+        // the person at this terminal posts under.
+        humanName: defaultHumanName(Platform.environment),
       ),
       description:
           'The session\'s group chat: the main agent, its subagents and '
@@ -576,6 +579,7 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                   openDefaultChannelStore(c.workingDirectory, scope),
               chatSessionId: plugin.parent.id,
               role: 'subagent',
+              humanName: defaultHumanName(Platform.environment),
             ),
           ],
         ),

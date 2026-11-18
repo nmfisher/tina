@@ -6,6 +6,7 @@ library;
 
 export 'channel_store_api.dart';
 export 'src/channel_plugin.dart';
+export 'src/channel_watcher.dart';
 export 'src/channel_pane_plugin.dart';
 export 'src/channel_tools.dart';
 export 'src/human_identity.dart';

@@ -2,6 +2,16 @@ import 'package:test/test.dart';
 import 'package:tina_channel/tina_channel.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
+InMemoryChannelStore openMemory() => InMemoryChannelStore();
+
+TurnContext _turn() => TurnContext(
+      CancelToken(),
+      input: const Input('test', id: 'i'),
+      messages: const [],
+      promptSections: [],
+      pinnedTools: const [],
+    );
+
 /// The identity and scoping wiring: the plugin settles the sender
 /// identity at session open — generated shortcode by default, explicit
 /// override verbatim — opens the chat scoped to the SESSION (a
@@ -147,5 +157,50 @@ void main() {
     expect(members, contains(('parent-agent', 'main')));
     expect(members, contains(('child-agent', 'subagent')));
     expect(members, contains(('the-human', 'human')));
+  });
+
+/// Phase 3 wiring: the plugin delivers at its turn boundary through the
+/// prompt-section seam, and closing the session releases the watcher.
+group('passive delivery', () {
+
+
+  test('mention rides the next turn as a prompt section', () async {
+    final other = openMemory();
+    addTearDown(other.close);
+    final plugin = ChannelPlugin(
+      openStore: (_) => other,
+      agentName: 'calm-heron',
+      role: 'main',
+    );
+    final session0 = session('delivery-test');
+    plugin.openSession(session0);
+    addTearDown(plugin.closeSession);
+    other.post('#lobby',
+        sender: 'busy-ox', text: '@calm-heron the build is green');
+    final context = _turn();
+    plugin.onPrompt(context);
+    expect(context.promptSections.join('\n'), contains('build is green'));
+    // Delivered once: the next turn carries nothing.
+    final next = _turn();
+    plugin.onPrompt(next);
+    expect(
+        next.promptSections.join('\n'), isNot(contains('build is green')));
+  });
+
+  test('closeSession releases the watcher (no delivery after close)',
+      () async {
+    final store = openMemory();
+    final plugin = ChannelPlugin(openStore: (_) => store, agentName: 'a');
+    plugin.openSession(session('close-test'));
+    plugin.closeSession();
+    // The watcher is gone with the session: posts that arrive after
+    // the close deliver to nobody — plugin hooks are inert, and the
+    // watcher holds no timer or subscription of its own to leak.
+    store.post('#lobby', sender: 'late', text: '@a too late');
+    final context = _turn();
+    plugin.onPrompt(context);
+    expect(context.promptSections.join('\n'),
+        isNot(contains('too late')));
+  });
   });
 }
