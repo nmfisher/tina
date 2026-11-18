@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'package:sqlite3/sqlite3.dart' as sqlite3;
 import 'package:test/test.dart';
-import 'package:tina_memory/tina_memory.dart' hide openDefaultMemoryStores;
+import 'package:tina_memory/tina_memory.dart'
+    hide openDefaultMemoryStores;
 import 'package:tina_memory/tina_memory_sqlite.dart';
 import 'package:tina_sqlite/tina_sqlite.dart';
 

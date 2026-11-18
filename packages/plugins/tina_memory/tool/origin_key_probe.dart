@@ -2,7 +2,6 @@
 // memory file; a different origin does not. Transcript for the ticket.
 import 'dart:io';
 
-import 'package:tina_memory/tina_memory.dart';
 import 'package:tina_memory/tina_memory_sqlite.dart';
 
 String checkout(Directory parent, String name, String url) {
