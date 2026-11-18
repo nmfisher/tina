@@ -1,0 +1,161 @@
+import 'package:tina_settings/tina_settings.dart';
+
+/// One leg of a model profile: a provider+model pair. The provider may be
+/// omitted — the leg then inherits the session's provider (the active
+/// profile's main-leg provider).
+final class ModelLeg {
+  const ModelLeg({this.provider, required this.model});
+
+  /// Null (or empty) inherits the session's provider.
+  final String? provider;
+  final String model;
+
+  /// The leg as a `provider/model` reference. A bare model keeps the
+  /// session provider's prefix when one is named, mirroring how the
+  /// `[default] model` line reads.
+  String reference(String? sessionProvider) => provider == null ||
+          provider!.isEmpty
+      ? (sessionProvider == null || sessionProvider.isEmpty
+          ? model
+          : '$sessionProvider/$model')
+      : '$provider/$model';
+
+  @override
+  bool operator ==(Object other) =>
+      other is ModelLeg &&
+      other.provider == provider &&
+      other.model == model;
+
+  @override
+  int get hashCode => Object.hash(provider, model);
+}
+
+/// The three legs a profile bundles. The conversation (`main`), the model
+/// `launch_subagent` children use (`subagent`), and the shared permission
+/// classifier / command-pattern suggester model (`approver`).
+enum ProfileLeg { main, subagent, approver }
+
+/// A named bundle of model legs — a preset, not live state. Switching to a
+/// profile copies its legs into the current values; the legs are the truth.
+final class ModelProfile {
+  const ModelProfile(
+      {required this.name, this.main, this.subagent, this.approver});
+
+  final String name;
+  final ModelLeg? main;
+  final ModelLeg? subagent;
+  final ModelLeg? approver;
+
+  ModelLeg? leg(ProfileLeg which) => switch (which) {
+        ProfileLeg.main => main,
+        ProfileLeg.subagent => subagent,
+        ProfileLeg.approver => approver,
+      };
+
+  /// The leg as a `provider/model` reference, or null when the profile
+  /// omits it. Omitted legs are NOT inherited from main: each leg follows
+  /// its own fallback (subagent → the parent's current model at spawn,
+  /// approver → the legacy classifier chain). Only the PROVIDER is
+  /// inherited, from [sessionProvider].
+  String? legReference(ProfileLeg which, {String? sessionProvider}) =>
+      leg(which)?.reference(sessionProvider);
+}
+
+/// The active profile's name as a session-scoped setting, so a `/profile`
+/// switch survives resume like a `/model` switch does.
+final activeProfileSetting = SettingDefinition<String>(
+  id: 'tina/providers/profile',
+  label: 'Active model profile',
+  description:
+      'The named profile this conversation runs under. Empty follows the '
+      'config file\'s profile. Switching copies the profile\'s model legs '
+      'into this conversation; the config file keeps the presets.',
+  defaultValue: '',
+  kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
+/// The main conversation model as a `provider/model` reference. Empty
+/// follows the active profile's main leg (or the config's default model).
+final profileMainModelSetting = SettingDefinition<String>(
+  id: 'tina/providers/main_model',
+  label: 'Main model',
+  description:
+      'The conversation model as a provider/model reference, for example '
+      '"anthropic/claude-sonnet-4". Empty follows the active profile\'s '
+      'main leg. /model overrides it for this conversation without '
+      'changing the profile.',
+  defaultValue: '',
+  kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
+/// The subagent leg. Empty follows the active profile; a profile without a
+/// subagent leg keeps the long-standing behavior of children inheriting
+/// the parent's current model and provider at spawn.
+final profileSubagentModelSetting = SettingDefinition<String>(
+  id: 'tina/providers/subagent_model',
+  label: 'Subagent model',
+  description:
+      'The model launch_subagent children use, as a provider/model '
+      'reference. Empty follows the active profile\'s subagent leg; when '
+      'neither is set, children inherit the parent\'s current model at '
+      'spawn. Running children keep the model they started with.',
+  defaultValue: '',
+  kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
+/// The approver leg: one model for BOTH judgment consumers — the
+/// permission classifier and the command-pattern suggester.
+final profileApproverModelSetting = SettingDefinition<String>(
+  id: 'tina/providers/approver_model',
+  label: 'Approver model',
+  description:
+      'The model for auto-approval judgments and command-pattern '
+      'suggestions, as a provider/model reference. Empty follows the '
+      'active profile\'s approver leg, then the legacy classifier model, '
+      'then this conversation\'s model. The provider must support '
+      'structured output.',
+  defaultValue: '',
+  kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
+/// The profile module's settings, registered on the providers plugin.
+final profileSettings = <SettingDefinition<Object>>[
+  activeProfileSetting,
+  profileMainModelSetting,
+  profileSubagentModelSetting,
+  profileApproverModelSetting,
+];
+
+/// The profile this run is under: an explicit launch profile (`--profile`)
+/// wins for the run without being persisted; otherwise a profile switched
+/// in this conversation (session scope, restored on resume); otherwise the
+/// config file's `profile` key.
+String effectiveProfileName({
+  String? launchProfile,
+  ScopedSettings? settings,
+  required String configProfile,
+}) {
+  if (launchProfile != null && launchProfile.isNotEmpty) return launchProfile;
+  final saved = (settings?.read(activeProfileSetting).value ?? '').trim();
+  if (saved.isNotEmpty) return saved;
+  return configProfile;
+}
+
+/// A leg's effective value: the current leg setting first (the legs are
+/// the truth), then the active profile's leg, then null for the caller's
+/// leg-specific fallback.
+String? effectiveProfileLeg(
+  SettingDefinition<String> legSetting,
+  ScopedSettings? settings,
+  ModelProfile? profile,
+  ProfileLeg which, {
+  String? sessionProvider,
+}) {
+  final current = (settings?.read(legSetting).value ?? '').trim();
+  if (current.isNotEmpty) return current;
+  return profile?.legReference(which, sessionProvider: sessionProvider);
+}

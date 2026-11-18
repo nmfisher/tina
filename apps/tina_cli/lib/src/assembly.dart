@@ -7,6 +7,13 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_session_controls/tina_session_controls.dart'
     show ModelCatalog, reasoningSetting;
+import 'package:tina_providers/tina_providers.dart'
+    show
+        ModelProfile,
+        ProfileLeg,
+        effectiveProfileLeg,
+        effectiveProfileName,
+        profileMainModelSetting;
 import 'session_terminal.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
@@ -83,6 +90,7 @@ final class AssemblyOptions {
     this.approvalChannel,
     this.version = '0.0.0',
     this.model,
+    this.profile,
     this.osSandbox = true,
     this.yolo = false,
     this.interactive = true,
@@ -113,6 +121,11 @@ final class AssemblyOptions {
   final String? approvalChannel;
   final String version;
   final String? model;
+
+  /// Run under this named profile (the `--profile` launch switch).
+  /// Null follows the config's `profile` key (or the session's saved
+  /// profile on resume). Like [model], a launch override is not persisted.
+  final String? profile;
 
   /// Per-launch OS confinement. Permission policy remains active when false.
   final bool osSandbox;
@@ -305,7 +318,7 @@ final class SessionAssembly {
     var resolved = config.config;
     var model = options.model ??
         (providerFactory == null
-            ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
+            ? resolved.mainModelReference
             : resolved.model);
     if (providerFactory == null && options.model != null) {
       model = canonicalModelReference(resolved, model);
@@ -339,9 +352,22 @@ final class SessionAssembly {
     resolved = ConfigDocument.validateValues(
         stack.effectiveDocument(),
         descriptors: descriptors);
+    // The run's active profile: --profile wins for the run, then a profile
+    // switched in this conversation (restored on resume), then the config
+    // file's key. Read through a closure: saved configuration can change it.
+    ModelProfile? activeProfile() => resolved.profiles[effectiveProfileName(
+        launchProfile: options.profile,
+        settings: settings,
+        configProfile: resolved.profile)];
     model = options.model ??
         (providerFactory == null
-            ? '${resolved.providerId ?? 'anthropic'}/${resolved.model}'
+            ? (effectiveProfileLeg(
+                        profileMainModelSetting,
+                        settings,
+                        activeProfile(),
+                        ProfileLeg.main,
+                        sessionProvider: resolved.providerId ?? 'anthropic') ??
+                    resolved.mainModelReference)
             : resolved.model);
     if (providerFactory == null && options.model != null) {
       model = canonicalModelReference(resolved, model);
@@ -604,7 +630,8 @@ final class SessionAssembly {
               plugins: options.plugins,
               approvalChannel: options.approvalChannel,
               version: options.version,
-              model: model)),
+              model: model,
+              profile: options.profile)),
     );
     assembled = assembly;
     // Built-ins are the assembly's, registered by the assembly — the

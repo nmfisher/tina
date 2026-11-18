@@ -10,7 +10,6 @@ import 'package:tina_mcp/tina_mcp.dart' show McpServerConfig;
 import 'provider_config.dart';
 import 'legacy_provider_cache.dart';
 import 'package:tina_providers/tina_providers.dart';
-
 export 'provider_config.dart';
 
 /// The schema version this reader understands. The file declares its
@@ -84,6 +83,8 @@ final class TinaConfig {
     this.maxOutputTokens = 8192,
     this.providerId,
     required this.model,
+    this.profile = 'default',
+    this.profiles = const {},
     this.plugins = defaultPluginIds,
     this.approvalChannel = defaultApprovalChannel,
     this.providers = const {},
@@ -96,6 +97,31 @@ final class TinaConfig {
 
   /// The model label the provider will be built with.
   final String model;
+
+  /// The active profile's name.
+  final String profile;
+
+  /// Named model-leg bundles. A config without a `profiles` table carries
+  /// the synthesized `default` profile (from `model` + `providerId`), so
+  /// fresh checkouts and legacy configs behave identically.
+  final Map<String, ModelProfile> profiles;
+
+  /// The active profile. The synthesized `default` profile covers configs
+  /// that declare none (including problem fallbacks).
+  ModelProfile get activeProfile =>
+      profiles[profile] ??
+      ModelProfile(
+          name: profile,
+          main: ModelLeg(provider: providerId, model: model));
+
+  /// The active profile's main leg as a `provider/model` reference,
+  /// falling back to the `[default] provider`/`model` lines — the model
+  /// the session starts with.
+  String get mainModelReference =>
+      activeProfile.legReference(ProfileLeg.main,
+          sessionProvider: providerId ?? 'anthropic') ??
+      (providerId == null ? 'anthropic/$model' : '$providerId/$model');
+
   final RequestLimits limits;
   final Map<String, dynamic> theme;
   final String? reasoningEffort;
@@ -136,12 +162,13 @@ final class TinaConfigOk extends TinaConfigResult {
 
   /// One status line for the front end's banner, e.g.
   /// `config: ~/.tina/config — glm/glm-5.3-flashx`. Null when defaults
-  /// were used.
+  /// were used. Names the active profile's main model — for a legacy
+  /// config that is exactly the `[default] provider`/`model` pair, and
+  /// no profile is appended (nothing nags).
   String? get note => path == null
       ? null
-      : 'config: $path — '
-            '${config.providerId == null ? 'anthropic wire' : config.providerId}'
-            '/${config.model}';
+      : 'config: $path — ${config.mainModelReference}'
+        '${config.profile == 'default' ? '' : ' · profile ${config.profile}'}';
 }
 
 /// The file exists but cannot be honored: bad syntax, wrong version, or
@@ -401,6 +428,19 @@ TinaConfigResult parseTinaConfig(
       ),
     );
   }
+  final profiles = parseProfilesConfig(parsed,
+      descriptors: resolvedDescriptors.keys.toSet());
+  final profileName = parsed['profile'];
+  if (profileName != null && profileName is! String) {
+    throw const FormatException('profile must be a profile name');
+  }
+  final activeProfile = profileName as String? ?? 'default';
+  // `default` is always resolvable (synthesized from [default] below);
+  // any other name must exist in the profiles table.
+  if (activeProfile != 'default' && !profiles.containsKey(activeProfile)) {
+    throw FormatException(
+        'profile "$activeProfile" is not defined in [profiles]');
+  }
   Map<String, dynamic> table(String key) {
     final value = parsed[key];
     if (value == null) return {};
@@ -449,6 +489,17 @@ TinaConfigResult parseTinaConfig(
   }
 
   validateTheme(theme);
+  // A config without a profiles table synthesizes `default` from the
+  // `[default] provider`/`model` lines — migration without migration:
+  // legacy configs and fresh checkouts behave identically, nothing nags.
+  final resolvedProfiles = profiles.containsKey(activeProfile)
+      ? profiles
+      : {
+          ...profiles,
+          'default': ModelProfile(
+              name: 'default',
+              main: ModelLeg(provider: providerId, model: modelId)),
+        };
   return TinaConfigOk(
     TinaConfig(
       limits: RequestLimits.fromMap(table('limits')),
@@ -458,6 +509,8 @@ TinaConfigResult parseTinaConfig(
       maxOutputTokens: maxOutput,
       providerId: providerId,
       model: modelId,
+      profile: activeProfile,
+      profiles: Map.unmodifiable(resolvedProfiles),
       plugins: plugins,
       approvalChannel: approvalChannel,
       providers: Map.unmodifiable(providers),
@@ -465,6 +518,103 @@ TinaConfigResult parseTinaConfig(
     ),
     path: path,
   );
+}
+
+/// Parse the `profiles` table: each profile a named bundle of model legs.
+/// A profile value is either a one-line `"provider/model"` string (the
+/// main leg) or a table with `main`, `subagent` and `approver` legs
+/// (`judge` is the deprecated spelling of `approver`). A leg is a
+/// `"provider/model"` string or a `{ provider, model }` table; omitting
+/// the provider inherits the session's provider. Validation is per leg
+/// and names the profile and leg.
+Map<String, ModelProfile> parseProfilesConfig(Map<String, dynamic> parsed,
+    {required Set<String> descriptors}) {
+  final raw = parsed['profiles'];
+  if (raw == null) return {};
+  if (raw is! Map) throw const FormatException('[profiles] must be a table');
+  final profiles = <String, ModelProfile>{};
+  for (final entry in raw.entries) {
+    final name = entry.key as String;
+    final legs = <ProfileLeg, ModelLeg>{};
+    if (entry.value is String || entry.value is Map) {
+      if (entry.value is String) {
+        legs[ProfileLeg.main] =
+            _parseProfileLeg('profiles.$name.main', entry.value, descriptors);
+      } else {
+        final table = Map<String, dynamic>.from(entry.value as Map);
+        for (final leg in table.entries) {
+          final ProfileLeg which;
+          switch (leg.key) {
+            case 'main':
+              which = ProfileLeg.main;
+            case 'subagent':
+              which = ProfileLeg.subagent;
+            case 'approver':
+              which = ProfileLeg.approver;
+            case 'judge':
+              // `judge` is the deprecated spelling from the design draft;
+              // an explicit `approver` key wins over it.
+              if (table.containsKey('approver')) continue;
+              which = ProfileLeg.approver;
+            case _:
+              throw FormatException(
+                  'profiles.$name.${leg.key} is not a model leg '
+                  '(main, subagent, approver)');
+          }
+          legs[which] = _parseProfileLeg(
+              'profiles.$name.${leg.key}', leg.value, descriptors);
+        }
+      }
+    } else {
+      throw FormatException(
+          'profiles.$name must be a "provider/model" string or a table of '
+          'model legs');
+    }
+    profiles[name] = ModelProfile(
+      name: name,
+      main: legs[ProfileLeg.main],
+      subagent: legs[ProfileLeg.subagent],
+      approver: legs[ProfileLeg.approver],
+    );
+  }
+  return profiles;
+}
+
+ModelLeg _parseProfileLeg(
+    String where, Object? value, Set<String> descriptors) {
+  ModelLeg leg(String? provider, String model) {
+    if (model.trim().isEmpty) {
+      throw FormatException('$where has an empty model ID');
+    }
+    if (provider != null && !descriptors.contains(provider)) {
+      throw FormatException('$where names unknown provider "$provider"');
+    }
+    return ModelLeg(provider: provider, model: model);
+  }
+
+  if (value is String) {
+    final slash = value.indexOf('/');
+    if (slash > 0) {
+      return leg(value.substring(0, slash), value.substring(slash + 1));
+    }
+    return leg(null, value);
+  }
+  if (value is Map) {
+    if (value.keys.any((key) => key != 'provider' && key != 'model')) {
+      throw FormatException('$where must be a table with provider and model');
+    }
+    final provider = value['provider'];
+    final model = value['model'];
+    if (provider != null && provider is! String) {
+      throw FormatException('$where: provider must be a string');
+    }
+    if (model is! String) {
+      throw FormatException('$where: model is required');
+    }
+    return leg(provider as String?, model);
+  }
+  throw FormatException(
+      '$where must be a "provider/model" string or a table with provider and model');
 }
 
 /// The model reference the way the old engine prints it: `provider/model`

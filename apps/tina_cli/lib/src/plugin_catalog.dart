@@ -101,7 +101,7 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
     'tina/providers',
     (c) => c.providerPolicy!,
     cli: providersCli,
-    settings: providerLimitSettings,
+    settings: [...providerLimitSettings, ...profileSettings],
     provides: [modelAccess],
     // Structural: a session engine cannot serve a session without its
     // provider, even when the config names only unknown plugins (those
