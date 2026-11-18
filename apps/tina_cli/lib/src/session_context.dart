@@ -36,6 +36,7 @@ final class SessionPluginContext {
     this.setReasoning,
     this.reasoningChoices,
     this.subagentModel,
+    this.approverModel,
     this.openStore,
     this.sessionStorePath,
     this.version = '0.0.0',
@@ -79,6 +80,11 @@ final class SessionPluginContext {
   /// null when children inherit the parent's current model at spawn.
   /// Read at spawn; null keeps the long-standing behavior.
   final String? Function()? subagentModel;
+
+  /// The active profile's effective approver leg (`provider/model`), or
+  /// null when the legacy classifier chain applies (the deprecated
+  /// classifier model override, then the conversation's model).
+  final String? Function()? approverModel;
   /// The persistence opener (a `SessionStore Function()`), untyped here so
   /// this file compiles without the store's sqlite dependency; the
   /// persistence plugin's factory casts it.

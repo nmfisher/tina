@@ -6,7 +6,6 @@ import 'package:test/test.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';
 import 'package:tina_providers/tina_providers.dart';
-import 'package:tina_mode/tina_mode.dart';
 import 'package:tina_step_limit/tina_step_limit.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
@@ -367,6 +366,54 @@ write_directories = ["/untrusted/writable"]
     app.settings.removeOverride(classifierModelSetting, SettingScope.workspace);
     await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
     expect(judges.last.model, 'fixture');
+  });
+
+  test('the profile approver leg outranks the deprecated classifier model',
+      () async {
+    // `profile` is a top-level key: it must precede the first table header.
+    global.writeAsStringSync('''
+profile = "work"
+[default]
+model = "fixture"
+[profiles.work]
+main = "fixture"
+approver = "anthropic/judge-leg"
+[plugins]
+enabled = ["tina/persistence", "tina/chat-tui", "tina/session-controls"]
+[limits]
+requests_per_minute = 0
+[legacy_extension]
+unknown = "preserve me"
+''');
+    final workspace = Directory('${directory.path}/approver')..createSync();
+    final profiled = SessionAssembly.start(
+        providerFactory: (model) {
+          final judge = Judge(model);
+          judges.add(judge);
+          return judge;
+        },
+        options: AssemblyOptions(
+            configPath: global.path, workingDirectory: workspace.path));
+    addTearDown(profiled.close);
+    // The deprecated override still beats the conversation model…
+    profiled.settings.set(
+        classifierModelSetting, 'anthropic/deprecated', SettingScope.session);
+    await profiled.tools.modePolicy.classifier!.classify({'operation': 'x'});
+    expect(judges.last.model, 'anthropic/judge-leg',
+        reason: 'the approver leg outranks the deprecated override');
+    // …and the approver-model setting outranks the profile leg.
+    profiled.settings.set(profileApproverModelSetting, 'anthropic/pinned',
+        SettingScope.session);
+    await profiled.tools.modePolicy.classifier!.classify({'operation': 'x'});
+    expect(judges.last.model, 'anthropic/pinned',
+        reason: 'the legs are the truth; profiles are presets');
+  });
+
+  test('the approver leg with no profile falls through to the legacy chain',
+      () async {
+    await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
+    expect(judges.last.model, 'fixture',
+        reason: 'no profile, no override: the conversation model judges');
   });
   test('classifier timeout follows scoped settings without rebuilding', () {
     final classifier = app.tools.modePolicy.classifier!;

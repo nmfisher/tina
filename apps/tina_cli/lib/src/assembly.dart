@@ -14,7 +14,8 @@ import 'package:tina_providers/tina_providers.dart'
         effectiveProfileLeg,
         effectiveProfileName,
         profileMainModelSetting,
-        profileSubagentModelSetting;
+        profileSubagentModelSetting,
+        profileApproverModelSetting;
 import 'session_terminal.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
@@ -492,6 +493,12 @@ final class SessionAssembly {
           settings,
           activeProfile(),
           ProfileLeg.subagent,
+          sessionProvider: resolved.providerId ?? 'anthropic'),
+      approverModel: () => effectiveProfileLeg(
+          profileApproverModelSetting,
+          settings,
+          activeProfile(),
+          ProfileLeg.approver,
           sessionProvider: resolved.providerId ?? 'anthropic'),
       modelCatalog: () => ModelCatalog(models: [
         for (final descriptor in resolved.descriptors)

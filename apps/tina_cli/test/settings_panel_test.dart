@@ -6,7 +6,7 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart' show SettingScope;
-import 'package:tina_mode/tina_mode.dart'
+import 'package:tina_providers/tina_providers.dart'
     show classifierModelSetting, classifierTimeoutSetting;
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';

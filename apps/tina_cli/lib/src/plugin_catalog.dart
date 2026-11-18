@@ -82,11 +82,18 @@ final toolCallFormatTimeoutSetting = SettingDefinition<int>(
 
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
-/// The model for permission-side judgments: the configured classifier model,
-/// or the conversation's current model when the setting is empty.
+/// The model for permission-side judgments, shared by BOTH consumers:
+/// the permission classifier and the command-pattern suggester. The
+/// active profile's approver leg (or the Approver model setting) first,
+/// then the deprecated classifier model override for one more release,
+/// then this conversation's current model.
 String _classifierModel(SessionPluginContext c) {
-  final value = (c.settings?.read(classifierModelSetting).value ?? '').trim();
-  return value.isEmpty ? c.currentModel() : value;
+  final leg = c.approverModel?.call()?.trim();
+  if (leg != null && leg.isNotEmpty) return leg;
+  final deprecated =
+      (c.settings?.read(classifierModelSetting).value ?? '').trim();
+  if (deprecated.isNotEmpty) return deprecated;
+  return c.currentModel();
 }
 
 /// Required host plugins also carry metadata, without becoming optional features.
@@ -113,11 +120,7 @@ List<PluginDefinition<SessionPluginContext>> basePluginDefinitions() => [
   ),
   PluginDefinition.dependingOn<SessionPluginContext, ModePolicySource>(
     'tina/mode',
-    settings: [
-      classifierInstructionSetting,
-      classifierModelSetting,
-      classifierTimeoutSetting,
-    ],
+    settings: classifierSettings,
     operations: modeOperations,
     dependency: modePolicySource,
     create: (c, source) => ModeControlsPlugin(source.modePolicy),

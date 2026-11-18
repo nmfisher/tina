@@ -130,6 +130,63 @@ final profileSettings = <SettingDefinition<Object>>[
   profileApproverModelSetting,
 ];
 
+/// The classifier instruction, consolidated into the profiles module with
+/// the approver leg it tunes. Same id and storage path as when it lived in
+/// tina_mode, so stored values read unchanged.
+final classifierInstructionSetting = SettingDefinition<String>(
+  id: 'tina/mode/classifier_instruction',
+  label: 'Auto-approval classifier instruction',
+  description:
+      'Optional additional permission preferences. Blank uses the built-in '
+      'approval policy. Your preferences are prepended to every classification '
+      'request; session overrides are saved with this conversation. Approvals '
+      'and the OS sandbox still enforce execution permissions.',
+  defaultValue: '',
+  kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
+/// The DEPRECATED classifier model override. Superseded by the approver
+/// leg (profile or `tina/providers/approver_model`); honored for one
+/// release as the last override before the conversation model, then
+/// removed. No longer presented as the way to pick the judge model.
+final classifierModelSetting = SettingDefinition<String>(
+  id: 'tina/mode/classifier_model',
+  label: 'Auto-approval classifier model (deprecated)',
+  description:
+      'DEPRECATED: superseded by a profile\'s approver leg or the Approver '
+      'model setting; honored for one more release, then removed. When set, '
+      'it overrides the conversation model for auto-approval judgments, for '
+      'example "anthropic/claude-haiku".',
+  defaultValue: '',
+  kind: SettingKind.text,
+  applyAt: ApplyAt.nextRequest,
+);
+
+/// The classifier timeout, consolidated into the profiles module. Same id
+/// and storage path as when it lived in tina_mode.
+final classifierTimeoutSetting = SettingDefinition<int>(
+  id: 'tina/mode/classifier_timeout_seconds',
+  label: 'Auto-approval classifier timeout (seconds)',
+  description:
+      'Maximum time for each permission classification request, including its '
+      'retry. Positive whole seconds; changes apply to the next request.',
+  defaultValue: 60,
+  kind: SettingKind.integer,
+  minimum: 1,
+  applyAt: ApplyAt.nextRequest,
+);
+
+/// The classifier settings that moved from tina_mode into the profiles
+/// module — registered on the tina/mode plugin so their ids, storage
+/// paths and settings section stay put for the release they live
+/// through.
+final classifierSettings = <SettingDefinition<Object>>[
+  classifierInstructionSetting,
+  classifierModelSetting,
+  classifierTimeoutSetting,
+];
+
 /// The profile this run is under: an explicit launch profile (`--profile`)
 /// wins for the run without being persisted; otherwise a profile switched
 /// in this conversation (session scope, restored on resume); otherwise the

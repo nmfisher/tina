@@ -5,7 +5,7 @@ import 'assembly.dart';
 import 'config_settings_management.dart';
 import 'console_catalog.dart';
 import 'plugin_catalog.dart';
-import 'package:tina_mode/tina_mode.dart' show classifierModelSetting;
+import 'package:tina_providers/tina_providers.dart' show classifierModelSetting;
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_host/tina_host.dart';
 
