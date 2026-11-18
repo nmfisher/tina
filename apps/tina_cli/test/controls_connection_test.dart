@@ -20,7 +20,7 @@ class _Terminal implements Terminal {
 }
 
 class _Session {
-  _Session({LlmProvider? provider}) {
+  _Session({LlmProvider? provider, this.withProfiles = false}) {
     mode = ModePlugin();
     controls = newControls();
     host = Host.start(
@@ -44,6 +44,16 @@ class _Session {
   late final ModePlugin mode;
   late final SessionControlsPlugin controls;
   final models = ['acme/one', 'acme/two', 'acme/three', 'acme/bad'];
+  final bool withProfiles;
+
+  /// Profile presets for the profile-controls tests: `work` is main-only,
+  /// `budget` also carries a subagent leg.
+  static const profileLegs = <String, Map<String, String>>{
+    'work': {'main': 'acme/one'},
+    'budget': {'main': 'acme/two', 'subagent': 'acme/mini'},
+  };
+  String activeProfile = 'work';
+
   SessionControlsPlugin newControls() => SessionControlsPlugin(
     terminal: _Terminal(),
     currentModel: () => host.model,
@@ -53,6 +63,20 @@ class _Session {
       providerNames: const {'acme': 'Acme'},
       modelNames: const {'acme/two': 'Second model'},
     ),
+    readProfiles: withProfiles
+        ? () => ProfileList(
+              active: activeProfile,
+              names: const ['work', 'budget'],
+              legs: profileLegs,
+            )
+        : null,
+    switchProfile: withProfiles
+        ? (name) {
+            activeProfile = name;
+            final main = profileLegs[name]?['main'];
+            if (main != null) host.switchModel(main);
+          }
+        : null,
   );
 }
 
@@ -487,4 +511,75 @@ enabled = ["tina/session-controls", "tina/mode", "tina/persistence"]
       expect(session.host.model, 'acme/one');
     },
   );
+
+  test(
+    'profile presets publish through snapshots and switch with stale guards',
+    () async {
+      final session = _Session(withProfiles: true);
+      final first = _Views(session), second = _Views(session);
+      final profiles = first.models.controls.profiles!;
+      expect(profiles.active, 'work');
+      expect(profiles.names, ['work', 'budget']);
+      expect(profiles.legs['budget'],
+          {'main': 'acme/two', 'subagent': 'acme/mini'});
+
+      await first.models.controls.selectProfile('budget',
+          expectedProfile: 'work');
+      await waitFor(() => second.models.controls.profiles?.active == 'budget');
+      expect(session.host.model, 'acme/two',
+          reason: 'the main leg switched the conversation');
+      expect(second.models.controls.profiles?.legs['budget']?['subagent'],
+          'acme/mini');
+
+      // A stale picker and a vanished name cannot switch again.
+      await expectLater(
+        second.models.controls.selectProfile('work', expectedProfile: 'work'),
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('Profile changed in another client'),
+        )),
+      );
+      await expectLater(
+        second.models.controls
+            .selectProfile('ghost', expectedProfile: 'budget'),
+        throwsA(isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('no longer available'),
+        )),
+      );
+      expect(session.host.model, 'acme/two');
+
+      // The empty-argument /profile opens the picker instead of listing.
+      final pick = first.models.handleConsoleCommand('profile', '')!;
+      await waitFor(() => first.editor.isReadingKey);
+      first.editor.inject(EscapeKey());
+      await pick;
+      expect(session.activeProfile, 'budget',
+          reason: 'a cancelled picker switched nothing');
+
+      final snapshot = second.connection.attach();
+      expect(
+        snapshot.initial.features.toString(),
+        allOf(contains('budget'), contains('acme/mini')),
+        reason: 'the snapshot feature publishes the presets',
+      );
+      snapshot.close();
+    },
+  );
+
+  test('without a profile surface the picker stays hidden', () async {
+    final session = _Session();
+    final view = _Views(session);
+    expect(view.models.controls.profiles, isNull,
+        reason: 'no profiles published: the connection reports none');
+    expect(view.models.handleConsoleCommand('profile', ''), isNull,
+        reason: 'without presets, /profile falls through to the command');
+    expect(
+      session.controls.observation.profiles,
+      isNull,
+      reason: 'an assembly without the providers module has no surface',
+    );
+  });
 }

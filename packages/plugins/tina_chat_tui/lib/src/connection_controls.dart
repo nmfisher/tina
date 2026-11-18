@@ -66,6 +66,12 @@ final class ConnectionSessionControls implements SessionControlsObservation {
   List<String> get recentModels => _recentModels;
   List<String> _recentModels = const [];
 
+  /// The config's profile presets and the active name, or null when this
+  /// engine does not publish them.
+  @override
+  ProfileList? get profiles => _profiles;
+  ProfileList? _profiles;
+
   /// Rewind rides its own plugin and its own snapshot feature, so it works
   /// (and reports "unavailable") independently of the model controls.
   bool get rewindAvailable => _rewindAvailable;
@@ -100,6 +106,20 @@ final class ConnectionSessionControls implements SessionControlsObservation {
       _currentModel = model;
       _recentModels = recent;
       _available = true;
+      if (data['profiles'] case final List published?) {
+        final names = <String>[];
+        final legs = <String, Map<String, String>>{};
+        for (final entry in published.cast<Map>()) {
+          final name = entry['name'] as String;
+          names.add(name);
+          legs[name] = Map<String, String>.unmodifiable(
+              (entry['legs'] as Map? ?? const {}).cast<String, String>());
+        }
+        _profiles = ProfileList(
+            active: (data['profile'] as String?) ?? '', names: names, legs: legs);
+      } else {
+        _profiles = null;
+      }
     } catch (_) {
       _resetModels();
     }
@@ -130,6 +150,7 @@ final class ConnectionSessionControls implements SessionControlsObservation {
     _currentModel = '';
     _catalog = const ModelCatalog();
     _recentModels = const [];
+    _profiles = null;
   }
 
   void _resetRewind() {
@@ -150,6 +171,20 @@ final class ConnectionSessionControls implements SessionControlsObservation {
         'tina/session-controls', 'select-model',
         arguments: {'model': model, 'expected_model': expectedModel},
         id: _connection.requestWindow.id('model-${++_nextRequest}'));
+    _requireCompleted(await request.completed);
+  }
+
+  /// Switch the conversation to [profile], refusing when it moved since
+  /// the picker read [expectedProfile].
+  Future<void> selectProfile(String profile,
+      {required String expectedProfile}) async {
+    refresh();
+    _connection.access.requireControl();
+    if (_profiles == null) throw StateError('Profile controls unavailable.');
+    final request = _connection.submitOperation(
+        'tina/session-controls', 'select-profile',
+        arguments: {'profile': profile, 'expected_profile': expectedProfile},
+        id: _connection.requestWindow.id('profile-${++_nextRequest}'));
     _requireCompleted(await request.completed);
   }
 

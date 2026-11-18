@@ -37,4 +37,47 @@ final sessionControlsOperations = <String, SessionOperation>{
     controls.selectModel(model, expectedModel: expected);
     return const SessionResult();
   }, allowWhileRunning: true, requiresIdleTurn: true),
+  'select-profile': SessionOperation.control((plugin, arguments) {
+    final profile = arguments['profile'];
+    final expected = arguments['expected_profile'];
+    if (arguments.length != 2 ||
+        profile is! String ||
+        expected is! String ||
+        profile.isEmpty ||
+        expected.isEmpty) {
+      return const SessionResult(
+        stopReason: StopReason.error,
+        detail: 'Invalid profile selection.',
+      );
+    }
+    final controls = plugin as SessionControlsPlugin;
+    final profiles = controls.readProfiles?.call();
+    if (profiles == null) {
+      return const SessionResult(
+        stopReason: StopReason.error,
+        detail: 'Profile controls unavailable.',
+      );
+    }
+    if (profiles.active != expected) {
+      return const SessionResult(
+        stopReason: StopReason.error,
+        detail: 'Profile changed in another client. Open the picker again.',
+      );
+    }
+    if (!profiles.names.contains(profile)) {
+      return const SessionResult(
+        stopReason: StopReason.error,
+        detail: 'Selected profile is no longer available. Open the picker again.',
+      );
+    }
+    try {
+      controls.switchProfile!(profile);
+    } on ArgumentError catch (error) {
+      return SessionResult(
+        stopReason: StopReason.error,
+        detail: error.message?.toString() ?? 'Invalid profile selection.',
+      );
+    }
+    return const SessionResult();
+  }, allowWhileRunning: true, requiresIdleTurn: true),
 };

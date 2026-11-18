@@ -68,8 +68,6 @@ final class _View {
 
 final class _Panels implements ConsolePanels {
   @override
-  Future<void> spawn([String? model]) async {}
-  @override
   Future<void> closeFocused() async {}
   @override
   List<String> describe() => [];

@@ -9,7 +9,6 @@ import 'package:tina_chat_tui/tina_chat_tui.dart' show PanelsView;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_persistence/tina_persistence.dart';
-import 'package:tina_tui/tina_tui.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
 import 'turn_rendering_test.dart' show ControlledProvider, waitFor;
 

@@ -6,16 +6,17 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_session_controls/tina_session_controls.dart'
-    show ModelCatalog, reasoningSetting;
+    show ModelCatalog, ProfileList, reasoningSetting;
 import 'package:tina_providers/tina_providers.dart'
     show
         ModelProfile,
         ProfileLeg,
+        activeProfileSetting,
         effectiveProfileLeg,
         effectiveProfileName,
+        profileApproverModelSetting,
         profileMainModelSetting,
-        profileSubagentModelSetting,
-        profileApproverModelSetting;
+        profileSubagentModelSetting;
 import 'session_terminal.dart';
 import 'package:tina_mode/mode.dart' show PermissionMode;
 import 'package:path/path.dart' as p;
@@ -351,6 +352,9 @@ final class SessionAssembly {
     final catalog = stack.catalog;
     final settingsBackend = stack.backend;
     final settings = stack.settings;
+    // Declared before the profile helpers below: switching a profile
+    // re-points this assembly's future requests.
+    SessionAssembly? assembled;
     resolved = ConfigDocument.validateValues(
         stack.effectiveDocument(),
         descriptors: descriptors);
@@ -361,6 +365,63 @@ final class SessionAssembly {
         launchProfile: options.profile,
         settings: settings,
         configProfile: resolved.profile)];
+    ProfileList profileList() {
+      final names = resolved.profiles.keys.toList()..sort();
+      return ProfileList(
+        active: effectiveProfileName(
+            launchProfile: options.profile,
+            settings: settings,
+            configProfile: resolved.profile),
+        names: names,
+        legs: {
+          for (final name in names)
+            name: {
+              for (final leg in ProfileLeg.values)
+                if (resolved.profiles[name]!
+                        .legReference(leg,
+                            sessionProvider:
+                                resolved.providerId ?? 'anthropic')
+                    case final ref?)
+                  leg.name: ref,
+            },
+        },
+      );
+    }
+
+    /// Switching copies the profile's legs into the current values —
+    /// profiles are presets, the legs are the truth. Subagent/approver
+    /// legs land as session-scoped settings (cleared when the profile
+    /// leaves the leg unset), the main leg re-points future requests like
+    /// /model. A profile that omits the main leg keeps the conversation's
+    /// current model.
+    void switchSessionProfile(String name) {
+      final profile = resolved.profiles[name];
+      if (profile == null) throw ArgumentError('no profile named "$name"');
+      final provider = resolved.providerId ?? 'anthropic';
+      final values = <String, Object?>{activeProfileSetting.id: name};
+      final remove = <String>{};
+      void copy(SettingDefinition<String> setting, ProfileLeg leg) {
+        final ref =
+            profile.legReference(leg, sessionProvider: provider)?.trim();
+        if (ref == null || ref.isEmpty) {
+          remove.add(setting.id);
+        } else {
+          values[setting.id] = ref;
+        }
+      }
+
+      copy(profileSubagentModelSetting, ProfileLeg.subagent);
+      copy(profileApproverModelSetting, ProfileLeg.approver);
+      settings.update(SettingScope.session, values, remove: remove);
+      final main =
+          profile.legReference(ProfileLeg.main, sessionProvider: provider);
+      if (main != null) {
+        assembled?.host.switchModel(providerFactory == null
+            ? canonicalModelReference(resolved, main)
+            : main);
+      }
+    }
+
     model = options.model ??
         (providerFactory == null
             ? (effectiveProfileLeg(
@@ -405,7 +466,6 @@ final class SessionAssembly {
       return store;
     }
 
-    SessionAssembly? assembled;
     if (options.sessionId != null) {
       final stored = openStore();
       try {
@@ -500,6 +560,8 @@ final class SessionAssembly {
           activeProfile(),
           ProfileLeg.approver,
           sessionProvider: resolved.providerId ?? 'anthropic'),
+      profiles: profileList,
+      switchProfile: switchSessionProfile,
       modelCatalog: () => ModelCatalog(models: [
         for (final descriptor in resolved.descriptors)
           if (resolved.providers.containsKey(descriptor.id) ||

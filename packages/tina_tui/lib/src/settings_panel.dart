@@ -252,6 +252,18 @@ final class SettingsPanel {
         ),
         (
           category: 'Models',
+          label: 'Model profiles',
+          open: () => _definitions(
+              'Model profiles',
+              () => [
+                    _state.catalog['tina/providers/profile'],
+                    _state.catalog['tina/providers/main_model'],
+                    _state.catalog['tina/providers/subagent_model'],
+                    _state.catalog['tina/providers/approver_model'],
+                  ].whereType<SettingInfo>().toList())
+        ),
+        (
+          category: 'Models',
           label: 'Generation settings',
           open: () async {
             final providers = _state.catalog.definitions

@@ -369,6 +369,7 @@ void main() {
       down, enter, stable, // provider tree
       ArrowKey(ArrowDirection.right), down, stable, // inline credential
       escape, stable,
+      down, enter, stable, escape, stable, // model profiles submenu
       down, enter, stable, enter, stable, escape,
       stable, // provider + generation editor
       escape, stable, // root retains Models selection
@@ -398,6 +399,7 @@ void main() {
     expect(output, contains('Settings › Models'));
     expect(output, contains('Choose default model'));
     expect(output, contains('Providers & models'));
+    expect(output, contains('Model profiles'));
     expect(output, contains('Generation · anthropic'));
     expect(output, contains('About acme/notes'));
   });

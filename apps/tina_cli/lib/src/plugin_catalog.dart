@@ -164,6 +164,8 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         currentReasoning: c.currentReasoning,
         setReasoning: c.setReasoning,
         reasoningChoices: c.reasoningChoices,
+        readProfiles: c.profiles,
+        switchProfile: c.switchProfile,
       ),
       settings: [defaultModelSetting, reasoningSetting],
       operations: sessionControlsOperations,

@@ -28,7 +28,107 @@ void main() {
       plugin.commands.map((command) => command.name),
       isNot(contains('rewind')),
     );
-    expect(sessionControlsOperations.keys, ['select-model']);
+    expect(sessionControlsOperations.keys,
+        allOf(contains('select-model'), contains('select-profile')));
+  });
+
+  test('/profile lists the presets and marks the active one', () async {
+    final terminal = _Terminal();
+    final plugin = SessionControlsPlugin(
+      terminal: terminal,
+      currentModel: () => 'acme/one',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(),
+      readProfiles: () => const ProfileList(
+        active: 'work',
+        names: ['work', 'budget'],
+        legs: {
+          'work': {'main': 'acme/one', 'subagent': 'acme/mini'},
+          'budget': {'main': 'acme/cheap'},
+        },
+      ),
+      switchProfile: (_) {},
+    );
+    final profile = plugin.commands.singleWhere((c) => c.name == 'profile');
+    await profile.handler('');
+    expect(terminal.lines, [
+      'Profile: work',
+      '* work — main acme/one · subagent acme/mini',
+      '  budget — main acme/cheap',
+    ]);
+    expect(profile.complete!('bu'), ['budget']);
+  });
+
+  test('/profile switches by name and refuses unknown names', () async {
+    final terminal = _Terminal();
+    var active = 'work';
+    final plugin = SessionControlsPlugin(
+      terminal: terminal,
+      currentModel: () => 'acme/one',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(),
+      readProfiles: () => ProfileList(
+          active: active,
+          names: const ['work', 'budget'],
+          legs: const {
+            'work': {'main': 'acme/one'},
+          }),
+      switchProfile: (name) => active = name,
+    );
+    final profile = plugin.commands.singleWhere((c) => c.name == 'profile');
+    await profile.handler('budget');
+    expect(active, 'budget');
+    expect(terminal.lines.last, 'Profile: budget');
+    terminal.lines.clear();
+    await profile.handler('ghost');
+    expect(active, 'budget');
+    expect(terminal.lines.single,
+        'no profile named ghost — choices: work, budget');
+  });
+
+  test('/profile reports unavailable without the profile surface', () async {
+    final terminal = _Terminal();
+    final plugin = SessionControlsPlugin(
+      terminal: terminal,
+      currentModel: () => 'm',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(),
+    );
+    final profile = plugin.commands.singleWhere((c) => c.name == 'profile');
+    await profile.handler('');
+    expect(terminal.lines.single, 'Profiles are unavailable in this session.');
+  });
+
+  test('select-profile validates the expected profile and the name', () async {
+    final terminal = _Terminal();
+    var active = 'work';
+    final plugin = SessionControlsPlugin(
+      terminal: terminal,
+      currentModel: () => 'acme/one',
+      switchModel: (_) {},
+      modelCatalog: () => const ModelCatalog(),
+      readProfiles: () => ProfileList(active: active, names: const [
+        'work',
+        'budget',
+        'boom'
+      ]),
+      switchProfile: (name) {
+        if (name == 'boom') throw ArgumentError('no profile named "boom"');
+        active = name;
+      },
+    );
+    SessionResult run(Map<String, Object?> arguments) =>
+        sessionControlsOperations['select-profile']!.control!(
+            plugin, arguments);
+    expect(run({'profile': 'budget', 'expected_profile': 'work'}).detail,
+        isEmpty, reason: 'a control reports no detail on success');
+    expect(active, 'budget');
+    expect(run({'profile': 'work', 'expected_profile': 'work'}).detail,
+        'Profile changed in another client. Open the picker again.');
+    expect(run({'profile': 'ghost', 'expected_profile': 'budget'}).detail,
+        'Selected profile is no longer available. Open the picker again.');
+    expect(run({'profile': 'boom', 'expected_profile': 'budget'}).detail,
+        'no profile named "boom"');
   });
 
   test(
@@ -108,7 +208,7 @@ void main() {
       setReasoning: (value) => effort = value,
       reasoningChoices: () => const ['auto', 'none', 'low', 'medium', 'high'],
     );
-    final reasoning = plugin.commands[1];
+    final reasoning = plugin.commands[2];
     await reasoning.handler('');
     expect(terminal.lines.last, 'Reasoning: medium');
     await reasoning.handler('high');
@@ -139,7 +239,7 @@ void main() {
       currentReasoning: () => effort ?? 'auto',
       setReasoning: (value) => effort = value == 'auto' ? null : value,
     );
-    final reasoning = plugin.commands[1];
+    final reasoning = plugin.commands[2];
     await reasoning.handler('');
     expect(terminal.lines.last, 'Reasoning: automatic (provider default)');
     await reasoning.handler('HIGH');
@@ -160,7 +260,7 @@ void main() {
       switchModel: (_) {},
       modelCatalog: () => const ModelCatalog(),
     );
-    await plugin.commands[1].handler('high');
+    await plugin.commands[2].handler('high');
     expect(
       terminal.lines.last,
       'Reasoning control is unavailable in this session.',

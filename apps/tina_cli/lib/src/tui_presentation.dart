@@ -5,7 +5,11 @@ import 'assembly.dart';
 import 'config_settings_management.dart';
 import 'console_catalog.dart';
 import 'plugin_catalog.dart';
-import 'package:tina_providers/tina_providers.dart' show classifierModelSetting;
+import 'package:tina_providers/tina_providers.dart'
+    show
+        profileApproverModelSetting,
+        profileMainModelSetting,
+        profileSubagentModelSetting;
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina_host/tina_host.dart';
 
@@ -17,8 +21,15 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
   // Settings whose text value is a `provider/model` ref, so they open the
   // searchable model picker instead of a free-form line. Wired once here;
   // every settings panel consults this list by setting identity before its
-  // built-in editors.
-  final modelRefEditors = [ModelSettingEditor([classifierModelSetting])];
+  // built-in editors. The three profile legs are the current values;
+  // the deprecated classifier model stays on the plain text editor.
+  final modelRefEditors = [
+    ModelSettingEditor([
+      profileMainModelSetting,
+      profileSubagentModelSetting,
+      profileApproverModelSetting,
+    ])
+  ];
   return SessionPresentation(
       theme: () => resolveTheme(assembly.theme),
       configNote: assembly.configNote,

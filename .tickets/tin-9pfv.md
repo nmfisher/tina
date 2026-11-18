@@ -77,3 +77,33 @@ Layers (one commit each): 21 config+resolution+migration+tests,
 - Prep: merged origin/main (up to date at 3ec52eb3); submodule
   dart_notcurses initialized; repository pub-get flow green; ticket
   filed.
+- Layer 1 (c9929c3f): config `[profiles]` + top-level `profile`,
+  per-leg validation, silent legacy migration, profiles module with
+  leg settings and effective-name/effective-leg resolution.
+- Layer 2 (bdffd103): the subagent leg reaches the child factory —
+  `standardChildFactory(subagentModel:)` read at spawn, empty inherits
+  the parent.
+- Layer 3 (f6328d6d): the approver leg takes over the judge model —
+  classifier/suggester chain is approver leg → deprecated classifier
+  model → conversation model; classifier instruction/model/timeout
+  settings moved into the profiles module under their existing
+  `tina/mode/*` ids.
+- Layer 4 (90fa3975): `/spawn` removed (panels submit, console
+  command, ConsolePanels interface, catalog entry, README paragraph);
+  `/close`, panel inventory and `createSession` kept; last-panel guard
+  and refused-/spawn tests added.
+- Layer 5: TUI wiring. `ProfileList` observation; `/profile` command
+  (empty lists with `*` marker, arg switches, completion over names);
+  `select-profile` operation with expected-profile guard; connection
+  adapter parses + switches profiles; no-arg `/profile` opens a picker
+  overlay with leg summaries; settings panel gains a Model profiles
+  submenu (catalog ids, so tina_tui stays provider-free) and the three
+  legs use ModelSettingEditor; snapshot feature publishes profile +
+  presets. Switching copies legs into session-scoped settings (unset
+  legs cleared), main leg re-points via host.switchModel, omitted main
+  keeps the conversation model; a switch survives resume. Composition
+  roots without the profile surface (wasm engine) degrade: picker
+  hidden, command reports unavailable. Tests: tina_session_controls
+  13, tina_chat_tui 133, tina_tui 52, tina_cli 501 (restart_terminal
+  notcurses failure pre-exists on clean tree), architecture guard 1081
+  files, repository 62.

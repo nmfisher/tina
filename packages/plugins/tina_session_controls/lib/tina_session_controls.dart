@@ -15,12 +15,22 @@ final class SessionControlsPlugin extends AgentPlugin {
     this.currentReasoning,
     this.setReasoning,
     this.reasoningChoices,
+    this.readProfiles,
+    this.switchProfile,
   });
   final Terminal terminal;
   final String Function() currentModel;
   final void Function(String) switchModel;
   // Read at use, including when this plugin is enabled after a settings save.
   final ModelCatalog Function() modelCatalog;
+
+  /// The config's profile presets and the active name. Null disables
+  /// /profile (compositions without the providers module).
+  final ProfileList Function()? readProfiles;
+
+  /// Copy a named profile's legs into this conversation's current values.
+  /// Throws on an unknown name; the command layer reports it.
+  final void Function(String profile)? switchProfile;
 
   /// The conversation's effective reasoning effort, or null when the host
   /// has no settings stack (headless with no config). Null disables /reasoning.
@@ -65,6 +75,45 @@ final class SessionControlsPlugin extends AgentPlugin {
           terminal.writeln('Model: ${currentModel()}');
         } catch (error) {
           terminal.writeln('Could not switch model: $error');
+        }
+      },
+    ),
+    Command(
+      name: 'profile',
+      description: 'switch model profiles (empty lists them)',
+      // Switching copies the profile's legs into the current values; the
+      // main leg re-points future requests exactly like /model.
+      allowWhileRunning: true,
+      complete: (prefix) => (readProfiles?.call().names ?? const [])
+          .where((name) => name.startsWith(prefix))
+          .toList(),
+      handler: (argument) async {
+        if (_closed) return;
+        final profiles = readProfiles?.call();
+        if (profiles == null) {
+          terminal.writeln('Profiles are unavailable in this session.');
+          return;
+        }
+        final name = argument.trim();
+        if (name.isEmpty) {
+          terminal.writeln('Profile: ${profiles.active}');
+          for (final candidate in profiles.names) {
+            terminal.writeln(
+                '${candidate == profiles.active ? '*' : ' '} $candidate'
+                '${_describeLegs(profiles, candidate)}');
+          }
+          return;
+        }
+        if (!profiles.names.contains(name)) {
+          terminal.writeln('no profile named $name — choices: '
+              '${profiles.names.join(', ')}');
+          return;
+        }
+        try {
+          switchProfile!(name);
+          terminal.writeln('Profile: ${readProfiles!().active}');
+        } catch (error) {
+          terminal.writeln('Could not switch profile: $error');
         }
       },
     ),
@@ -122,6 +171,17 @@ final class SessionControlsPlugin extends AgentPlugin {
   ];
   final _recentModels = <String>[];
 
+  /// One profile's legs for the listing: `main · subagent · approver`
+  /// refs, omitting legs the profile leaves to their own fallbacks.
+  static String _describeLegs(ProfileList profiles, String name) {
+    final legs = profiles.legs[name] ?? const {};
+    final parts = [
+      for (final leg in const ['main', 'subagent', 'approver'])
+        if (legs[leg] case final ref?) '$leg $ref',
+    ];
+    return parts.isEmpty ? '' : ' — ${parts.join(' · ')}';
+  }
+
   /// Commands may use aliases resolved by the provider owner. Picker operations
   /// additionally validate the captured model and the current public catalog.
   void selectModel(String model, {String? expectedModel}) {
@@ -160,6 +220,9 @@ final class _SessionControlsObservation implements SessionControlsObservation {
       modelNames: Map.unmodifiable(value.modelNames),
     );
   }
+
+  @override
+  ProfileList? get profiles => _plugin.readProfiles?.call();
 
   @override
   List<String> get recentModels => List.unmodifiable(_plugin._recentModels);

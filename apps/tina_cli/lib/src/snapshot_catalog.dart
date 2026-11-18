@@ -174,6 +174,17 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
         'models': controls.catalog.models,
         'provider_names': controls.catalog.providerNames,
         'model_names': controls.catalog.modelNames,
+        if (controls.profiles case final profiles?)
+          'profile': profiles.active,
+        if (controls.profiles case final profiles?)
+          'profiles': [
+            for (final name in profiles.names)
+              {
+                'name': name,
+                'active': name == profiles.active,
+                'legs': profiles.legs[name] ?? const {},
+              },
+          ],
       },
     );
   }

@@ -1,5 +1,6 @@
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_rewind/tina_rewind.dart';
+import 'package:tina_session_controls/observation.dart' show ProfileList;
 import 'connection_controls.dart';
 export 'package:tina_session_controls/observation.dart';
 
@@ -42,6 +43,26 @@ final class SessionControlsView
         }
       });
     }
+    // The profile picker in the connection controls: `/profile` with no
+    // argument opens it instead of printing the list when the engine
+    // publishes profiles; headless runs fall through to the listing.
+    if (name == 'profile' && arguments.trim().isEmpty) {
+      if (controls.profiles
+          case final profiles? when profiles.names.isNotEmpty) {
+        return console.interact(() async {
+          if (!console.isActive) return;
+          controls.refresh();
+          final profiles = controls.profiles;
+          if (profiles == null || profiles.names.isEmpty) return;
+          final expected = profiles.active;
+          final selected = await _pickProfile(console, profiles);
+          if (selected != null && _console == console && console.isActive) {
+            await controls.selectProfile(selected, expectedProfile: expected);
+            console.refreshInput();
+          }
+        });
+      }
+    }
     if (name != 'model' || arguments.trim().isNotEmpty) return null;
     return console.interact(() async {
       if (!console.isActive) return;
@@ -54,6 +75,46 @@ final class SessionControlsView
         console.refreshInput();
       }
     });
+  }
+
+  Future<String?> _pickProfile(ConsoleContext console, ProfileList profiles) {
+    final input = console.openInputSession();
+    Future<String?> run() async {
+      final index = await runListPickerOverlay(
+        screen: console.screen,
+        title: 'Switch profile',
+        items: [
+          for (final name in profiles.names)
+            ListPickerItem(
+              name == profiles.active ? '$name  [active]' : name,
+              detail: _legSummary(profiles, name),
+            ),
+        ],
+        contextLine:
+            'Switching copies the profile\'s model legs into this conversation.',
+        footer: '↑↓ move · Enter switch · Esc cancel',
+        readEvent: input.read,
+        accent: console.screen.theme.border.focus,
+      );
+      return index == null ? null : profiles.names[index];
+    }
+
+    return run().whenComplete(() {
+      input.dispose();
+      if (identical(_console, console) && console.isActive) {
+        console.chat.repaint();
+        console.refreshInput();
+      }
+    });
+  }
+
+  static String _legSummary(ProfileList profiles, String name) {
+    final legs = profiles.legs[name] ?? const {};
+    final parts = [
+      for (final leg in const ['main', 'subagent', 'approver'])
+        if (legs[leg] case final ref?) '${leg}: $ref',
+    ];
+    return parts.isEmpty ? 'no legs set' : parts.join(' · ');
   }
 
   void _notice(ConsoleContext console, String text) {

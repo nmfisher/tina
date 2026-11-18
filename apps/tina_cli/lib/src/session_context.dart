@@ -7,7 +7,7 @@ library;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart' show ProviderFactory;
 import 'package:tina_session_controls/tina_session_controls.dart'
-    show ModelCatalog;
+    show ModelCatalog, ProfileList;
 import 'package:tina_providers/tina_providers.dart'
     show ProviderPolicyPlugin, RequestLimits;
 import 'package:tina_settings/tina_settings.dart';
@@ -37,6 +37,8 @@ final class SessionPluginContext {
     this.reasoningChoices,
     this.subagentModel,
     this.approverModel,
+    this.profiles,
+    this.switchProfile,
     this.openStore,
     this.sessionStorePath,
     this.version = '0.0.0',
@@ -85,6 +87,15 @@ final class SessionPluginContext {
   /// null when the legacy classifier chain applies (the deprecated
   /// classifier model override, then the conversation's model).
   final String? Function()? approverModel;
+
+  /// The config's profile presets and the active name, for /profile, the
+  /// connection picker and snapshot publication. Null when this
+  /// composition has no profile surface.
+  final ProfileList Function()? profiles;
+
+  /// Copy a named profile's legs into this conversation's current values.
+  /// Throws on an unknown name.
+  final void Function(String profile)? switchProfile;
   /// The persistence opener (a `SessionStore Function()`), untyped here so
   /// this file compiles without the store's sqlite dependency; the
   /// persistence plugin's factory casts it.
