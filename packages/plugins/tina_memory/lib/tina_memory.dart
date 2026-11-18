@@ -8,3 +8,4 @@ export 'memory_store_api.dart';
 export 'src/in_memory_memory_store.dart';
 export 'src/default_store.dart';
 export 'src/memory_tools.dart';
+export 'src/hot_tier.dart';
