@@ -222,4 +222,156 @@ void main() {
         throwsStateError);
     expect(migrated, isFalse);
   });
+
+  group('the migration ladder', () {
+    // A hand-built v1 file: one table, real rows, stamped 1.
+    Database buildV1(String p) {
+      final db = sqlite3.open(p);
+      db.execute('CREATE TABLE things (id INTEGER PRIMARY KEY, name TEXT)');
+      db.execute("INSERT INTO things (name) VALUES ('kept-a'), ('kept-b')");
+      db.userVersion = 1;
+      db.close();
+      return db;
+    }
+
+    test('an outdated file migrates stepwise with rows preserved', () {
+      final p = path();
+      buildV1(p);
+      final steps = <int>[];
+      final db = openTinaDatabase(
+        p,
+        schemaVersion: 3,
+        migrate: (_) => throw StateError('fresh create must not run'),
+        migrations: {
+          1: (db) {
+            steps.add(1);
+            db.execute('ALTER TABLE things ADD COLUMN note TEXT');
+          },
+          2: (db) {
+            steps.add(2);
+            db.execute("UPDATE things SET note = 'migrated' WHERE id = 1");
+          },
+        },
+      );
+      addTearDown(db.close);
+      expect(steps, [1, 2]);
+      expect(db.userVersion, 3);
+      expect(db.select('SELECT name, note FROM things ORDER BY id'), [
+        {'name': 'kept-a', 'note': 'migrated'},
+        {'name': 'kept-b', 'note': null},
+      ]);
+    });
+
+    test('a current-version file is untouched by the ladder', () {
+      final p = path();
+      buildV1(p);
+      final raw = sqlite3.open(p);
+      raw.userVersion = 3;
+      raw.close();
+      final db = openTinaDatabase(p,
+          schemaVersion: 3,
+          migrate: (_) => throw StateError('fresh create must not run'),
+          migrations: {
+            1: (_) => throw StateError('step must not run'),
+            2: (_) => throw StateError('step must not run'),
+          });
+      addTearDown(db.close);
+      expect(db.userVersion, 3);
+    });
+
+    test('a future version is still refused', () {
+      final p = path();
+      buildV1(p);
+      final raw = sqlite3.open(p);
+      raw.userVersion = 4;
+      raw.close();
+      expect(
+          () => openTinaDatabase(p,
+              schemaVersion: 3,
+              migrate: (_) {},
+              migrations: {1: (_) {}, 2: (_) {}}),
+          throwsA(isA<UnsupportedDatabaseVersion>()));
+    });
+
+    test('a ladder hole keeps the old refusal, file unchanged', () {
+      final p = path();
+      buildV1(p);
+      expect(
+          () => openTinaDatabase(p,
+              schemaVersion: 3, migrate: (_) {}, migrations: {2: (_) {}}),
+          throwsA(isA<UnsupportedDatabaseVersion>()));
+      final raw = sqlite3.open(p);
+      expect(raw.userVersion, 1);
+      expect(raw.select('SELECT COUNT(*) c FROM things').single['c'], 2);
+      raw.close();
+    });
+
+    test('a throwing step rolls back and leaves the version unstamped',
+        () {
+      final p = path();
+      buildV1(p);
+      expect(
+          () => openTinaDatabase(p,
+              schemaVersion: 2,
+              migrate: (_) {},
+              migrations: {
+                1: (db) {
+                  db.execute('ALTER TABLE things ADD COLUMN note TEXT');
+                  throw StateError('step failed midway');
+                }
+              }),
+          throwsStateError);
+      // All-or-nothing: no half-added column, no stamp — the data is
+      // exactly as it was, and a fixed step can run later.
+      final raw = sqlite3.open(p);
+      expect(raw.userVersion, 1);
+      expect(
+          raw.select('PRAGMA table_info(things)').map((r) => r['name']),
+          ['id', 'name']);
+      raw.close();
+    });
+
+    test('a concurrent outdated open adopts the winner\'s migration', () {
+      final p = path();
+      buildV1(p);
+      var steps = 0;
+      final db = openTinaDatabase(
+        p,
+        schemaVersion: 2,
+        migrate: (_) => throw StateError('fresh create must not run'),
+        migrations: {
+          1: (db) {
+            steps++;
+            db.execute('ALTER TABLE things ADD COLUMN note TEXT');
+          },
+        },
+        // The winning process migrates v1→2 while this opener holds
+        // its stale v1 read; under the lock the winner's outcome is
+        // adopted and the step never re-runs.
+        afterFreshRead: () {
+          final winner = sqlite3.open(p);
+          winner.execute('PRAGMA busy_timeout=5000');
+          winner.execute('BEGIN IMMEDIATE');
+          winner.execute('ALTER TABLE things ADD COLUMN note TEXT');
+          winner.userVersion = 2;
+          winner.execute('COMMIT');
+          winner.close();
+        },
+      );
+      addTearDown(db.close);
+      expect(steps, 0, reason: 'the winner already migrated');
+      expect(db.userVersion, 2);
+      db.execute("INSERT INTO things (name, note) VALUES ('after', 'ok')");
+      expect(db.select("SELECT note FROM things WHERE name = 'after'").single,
+          {'note': 'ok'});
+    });
+
+    test('a ladder without a fresh-create migration refuses a fresh file',
+        () {
+      expect(
+          () => openTinaDatabase(path(),
+              schemaVersion: 2, migrations: {1: (_) {}}),
+          throwsA(isA<UnsupportedDatabaseVersion>()));
+    });
+  });
 }

@@ -34,8 +34,10 @@ final class SqliteChannelStore implements ChannelStoreApi {
   /// The channel every workspace starts with.
   static const lobbyChannel = '#lobby';
 
-  /// Open (or create) the store at [path]. Never silently degrades: a
-  /// file from a newer schema throws before anything is written.
+  /// Open (or create) the store at [path]. A v1 file (pre-compaction)
+  /// migrates in place inside the open transaction — every existing
+  /// row survives. Never silently degrades: a file from a newer schema
+  /// throws before anything is written.
   static SqliteChannelStore open(String path) {
     final Database db;
     try {
@@ -43,6 +45,7 @@ final class SqliteChannelStore implements ChannelStoreApi {
         path,
         schemaVersion: schemaVersion,
         migrate: _migrate,
+        migrations: const {1: _migrateV1ToV2},
       );
     } on Object catch (e) {
       throw ChannelStoreException('cannot open channel store $path', e);
@@ -55,6 +58,14 @@ final class SqliteChannelStore implements ChannelStoreApi {
       db.close();
       throw ChannelStoreException('cannot create $lobbyChannel in $path', e);
     }
+  }
+
+  /// The 1→2 step (the compaction release): every channel gains its
+  /// compaction point, defaulting to 0 — no compaction, exactly v1's
+  /// behavior. `ALTER TABLE` keeps every existing row untouched.
+  static void _migrateV1ToV2(Database db) {
+    db.execute('ALTER TABLE channels '
+        'ADD COLUMN compaction_id INTEGER NOT NULL DEFAULT 0');
   }
 
   static void _migrate(Database db) {

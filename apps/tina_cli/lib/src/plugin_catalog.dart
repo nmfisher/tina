@@ -458,6 +458,9 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         // The watcher never filters the human: it must know the name
         // the person at this terminal posts under.
         humanName: defaultHumanName(Platform.environment),
+        // A chat store that cannot open must not abort the session:
+        // the notice names it, the session starts chatless.
+        terminal: c.terminal,
         // channel_start is a proposal the USER decides: a Yes/No
         // confirmation showing what would be created. Declined (or
         // cancelled, or timed out) creates nothing.
@@ -696,6 +699,8 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
               chatSessionId: plugin.parent.id,
               role: 'subagent',
               humanName: defaultHumanName(Platform.environment),
+              // Same non-fatal rule as the main agent's chat.
+              terminal: c.terminal,
             ),
           ],
         ),
