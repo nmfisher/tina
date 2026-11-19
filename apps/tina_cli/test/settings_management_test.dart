@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina/src/config_settings_management.dart';
+import 'package:tina/src/permission_instructions.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/src/settings_stack.dart';
 import 'package:tina/src/config_document.dart';
@@ -28,11 +29,13 @@ void main() {
   late File global;
   late ScopedSettingsStack stack;
   late ConfigSettingsManagement first, second;
+  Directory workspaceDir() => Directory('${root.path}/workspace')..createSync();
   ConfigSettingsManagement connect() => ConfigSettingsManagement(
       scopedSettings: stack.settings,
       backend: stack.backend,
       descriptors: descriptors,
-      validatePlugins: stack.registry.validate);
+      validatePlugins: stack.registry.validate,
+      workspace: root.path);
   setUp(() {
     root = Directory.systemTemp.createTempSync('settings-management-');
     global = File('${root.path}/config')..writeAsStringSync('''
@@ -310,5 +313,60 @@ token = "unknown-secret"
         throwsA(isA<FormatException>().having((e) => e.message, 'message',
             allOf(contains('odd'), contains('main'), contains('nope')))));
     first.closeDraft(bad);
+  });
+
+  test('project permission instructions read and write permissions.json',
+      () {
+    final workspace = workspaceDir();
+    final file = File('${workspace.path}/.tina/permissions.json');
+    file.parent.createSync(recursive: true);
+
+    // Absent file and absent field: null, exactly today's behavior.
+    expect(readProjectPermissionInstructions(workspace.path), isNull);
+    file.writeAsStringSync(jsonEncode({
+      'version': 1,
+      'grants': [
+        {'path': '/data/ref.pdf', 'access': 'read', 'kind': 'file'}
+      ],
+    }));
+    expect(readProjectPermissionInstructions(workspace.path), isNull);
+
+    final management = ConfigSettingsManagement(
+        scopedSettings: stack.settings,
+        backend: stack.backend,
+        descriptors: descriptors,
+        validatePlugins: stack.registry.validate,
+        workspace: workspace.path);
+    addTearDown(management.close);
+    expect(management.permissionInstructions, isNull);
+
+    // Writing preserves version and grants, and reads back through the
+    // same path the approver uses.
+    management.savePermissionInstructions(
+        'Deploys read .env; never print its values.');
+    final document = jsonDecode(file.readAsStringSync()) as Map;
+    expect(document['version'], 1);
+    expect((document['grants'] as List).single['path'], '/data/ref.pdf');
+    expect(document['instructions'],
+        'Deploys read .env; never print its values.');
+    expect(management.permissionInstructions,
+        'Deploys read .env; never print its values.');
+
+    // Empty removes the field without touching the grants.
+    management.savePermissionInstructions('   ');
+    expect(
+        (jsonDecode(file.readAsStringSync()) as Map)
+            .containsKey('instructions'),
+        isFalse);
+    expect(management.permissionInstructions, isNull);
+    expect((jsonDecode(file.readAsStringSync()) as Map)['grants'],
+        isNotEmpty);
+
+    // A damaged file reads as null and refuses to be rewritten.
+    file.writeAsStringSync('not json at all');
+    expect(readProjectPermissionInstructions(workspace.path), isNull);
+    expect(() => management.savePermissionInstructions('x'),
+        throwsFormatException);
+    expect(file.readAsStringSync(), 'not json at all');
   });
 }

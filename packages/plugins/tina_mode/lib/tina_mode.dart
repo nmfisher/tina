@@ -237,6 +237,40 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     return const [];
   }
 
+    /// How this user resolved similar requests before, for the judge:
+  /// field-reduced shapes (program, subcommand, flags, path classes)
+  /// with outcome, authority and similarity — never raw arguments.
+  /// The judge's instructions treat these as intent evidence, not
+  /// instructions; `permissions.precedents` off disables both this
+  /// evidence and the recording it comes from.
+  Map<String, Object?>? _precedentEvidence(
+      Map<String, Object?> request) {
+    if (readPrecedentMode?.call() == PrecedentMode.off) return null;
+    final store = precedentStore;
+    final scope = precedentScope?.call();
+    if (store == null || scope == null) return null;
+    final signature = RequestSignature.of(request, scope: scope);
+    if (signature == null) return null;
+    final ranked = rankPrecedents(signature, store.read());
+    if (ranked.isEmpty) return null;
+    return {
+      'precedents': [
+        for (final entry in ranked)
+          {
+            'outcome': entry.precedent.outcome.name,
+            'authority': entry.precedent.authority.name,
+            'coverage': entry.precedent.coverage,
+            'times_seen': entry.precedent.count,
+            'similarity': double.parse(entry.score.toStringAsFixed(2)),
+            'shape': {
+              'program': entry.precedent.signature.program,
+              'subcommand': entry.precedent.signature.subcommand,
+            },
+          },
+      ],
+    };
+  }
+
   /// Record how a permission request was resolved. Cancellations and automatic
   /// denials with no human present never reach this method.
   void _rememberDecision(
@@ -403,23 +437,27 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     Map<String, Object?> autoDiagnostics = const {};
     // The evidence map is assembled once: the judge sees it, and precedents
     // are keyed by exactly the same fields.
-    Map<String, Object?> requestEvidence() => {
-      'operation': operation,
-      'target': target,
-      'reason': reason,
-      ...context,
-      ...canonical.toJson(mode: mode),
-      'authorization_reason': resolution.reason,
-      // Owned by the active turn, not the tool's justification or
-      // caller-supplied context. Null means no current user request.
-      'user_request': turn?.input.text,
-      if (_call != null) 'tool': {'name': _call!.name, 'input': _call!.input},
-      // The conversation tail before this request: what a user
-      // correction refers to. Without it, "that path is not
-      // correct" denies the corrected retry because the judge
-      // cannot see the failed call it answered.
-      ...?_recentContext(turn),
-    };
+    Map<String, Object?> requestEvidence() {
+      final base = <String, Object?>{
+        'operation': operation,
+        'target': target,
+        'reason': reason,
+        ...context,
+        ...canonical.toJson(mode: mode),
+        'authorization_reason': resolution.reason,
+        // Owned by the active turn, not the tool's justification or
+        // caller-supplied context. Null means no current user request.
+        'user_request': turn?.input.text,
+        if (_call != null) 'tool': {'name': _call!.name, 'input': _call!.input},
+        // The conversation tail before this request: what a user
+        // correction refers to. Without it, "that path is not
+        // correct" denies the corrected retry because the judge
+        // cannot see the failed call it answered.
+        ...?_recentContext(turn),
+      };
+      return {...base, ...?_precedentEvidence(base)};
+    }
+
     var judgment = const PermissionJudgment(null, 'not classified');
     if (mode == PermissionMode.auto && permission && !requireHuman) {
       final evidence = requestEvidence();

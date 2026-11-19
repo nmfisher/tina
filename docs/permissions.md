@@ -31,12 +31,23 @@ deletion request. Permissions are held in `.tina/permissions.json` per workspace
 ```json
 {
   "version": 1,
+  "instructions": "Deploys read .env; never print its values.",
   "grants": [
     {"path": "/data/reference.pdf", "access": "read", "kind": "file"},
     {"path": "/data/outputs", "access": "read-write", "kind": "directory"}
   ]
 }
 ```
+
+The optional top-level `instructions` string is the project's
+**permission preferences**: it is prepended to every auto-approval
+classification as "User permission preferences" evidence (it cannot
+override the no-secret-exposure and no-external-deletion conditions).
+An absent or empty field is exactly the default behavior. Edit it in
+Settings → Permissions → Remembered permissions (Project permission
+instructions); the file's version and grants are preserved, and a
+damaged file is never rewritten. The session-scoped classifier
+instruction setting is the fallback when the file has none.
 
 Paths are canonical, with symlinks resolved. A saved file never becomes a parent
 directory grant. Replacing a saved directory with a symlink does not redirect its

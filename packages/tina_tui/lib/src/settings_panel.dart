@@ -168,14 +168,28 @@ final class SettingsPanel {
   Future<void> _manageCommandApprovals() async {
     while (true) {
       final entries = _management.commandApprovals;
+      final instructions = _management.permissionInstructions;
       final selected = await _menu('Remembered permissions', [
+        'Project permission instructions: '
+            '${instructions == null ? '(none)' : clipDialogText(instructions, 48)}',
         for (final entry in entries)
           '${entry['scope']}${entry['decided_by'] == 'auto' ? ' (auto)' : ''}: '
           '${entry['pattern'] == null ? entry['command'] : 'regex: ${entry['pattern']}'} (${entry['directory']})',
         entries.isEmpty ? 'No remembered approvals — Back' : 'Back',
       ]);
-      if (selected == null || selected >= entries.length) return;
-      final entry = entries[selected];
+      if (selected == null) return;
+      if (selected == 0) {
+        // The project's `.tina/permissions.json` instructions field:
+        // what the approver reads as "User permission preferences".
+        final edited = await _edit(
+            'Permission instructions (project permissions.json)',
+            instructions ?? '');
+        if (edited == null) continue;
+        _management.savePermissionInstructions(edited);
+        continue;
+      }
+      if (selected >= entries.length + 1) return;
+      final entry = entries[selected - 1];
       final revoke = await _menu('Revoke ${entry['scope']} approval?', [
         'Revoke: ${entry['pattern'] ?? entry['command']}',
         'Keep approval',
