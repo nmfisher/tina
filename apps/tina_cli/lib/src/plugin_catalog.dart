@@ -82,6 +82,13 @@ final toolCallFormatTimeoutSetting = SettingDefinition<int>(
 
 const _workingContext = PluginCapability<ContextPlugin>('tina/working-context');
 
+/// The session's chat lifecycle, provided by tina/channel (the channel
+/// plugin itself is the value): the pane plugin receives it so the
+/// pane can appear when the user approves a chat (opt-in start) —
+/// mid-session, without a restart.
+const _sessionChat =
+    PluginCapability<SessionChatLifecycle>('tina/session-chat');
+
 /// The model for permission-side judgments, shared by BOTH consumers:
 /// the permission classifier and the command-pattern suggester. The
 /// active profile's approver leg (or the Approver model setting) first,
@@ -419,14 +426,21 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           'Saves conversations in SQLite, resumes sessions, and provides workspace-first history search with recent sessions first.',
       live: false,
     ),
-    PluginDefinition<SessionPluginContext>(
+    PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
       'tina/channel',
-      (c) => ChannelPlugin(
+      dependency: approvalRequester,
+      provides: [_sessionChat],
+      create: (c, approvals) => ChannelPlugin(
         // A chat belongs to one session: the opener receives the
         // session id (the host's own identity) and opens that
         // session's chat file. Resuming reopens the same chat.
         openStore: (scope) =>
             openDefaultChannelStore(c.workingDirectory, scope),
+        // Opt-in/resume probe: a chat that already exists (an earlier
+        // run of this session started one) reattaches at open; a
+        // fresh session starts dormant.
+        chatExists: (scope) =>
+            defaultChannelStoreExists(c.workingDirectory, scope),
         // Identity is decided at the assembly root: an explicit
         // TINA_AGENT_NAME wins verbatim; otherwise the plugin draws a
         // per-session shortcode, collision-checked against the chat.
@@ -436,11 +450,39 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         // The watcher never filters the human: it must know the name
         // the person at this terminal posts under.
         humanName: defaultHumanName(Platform.environment),
+        // channel_start is a proposal the USER decides: a Yes/No
+        // confirmation showing what would be created. Declined (or
+        // cancelled, or timed out) creates nothing.
+        approveStart:
+            ({required String channel, String? purpose, required String members}) async {
+          final decision = await approvals.request(
+            operation: 'start group channel',
+            target: channel,
+            reason: 'Create this session\'s group chat $channel?'
+                '${purpose == null ? '' : ' Purpose: $purpose.'}'
+                ' Members: $members. Messages persist with the session '
+                'in this workspace and the channel pane opens for you.',
+            kind: ApprovalKind.confirmation,
+            details: {
+              'channel': channel,
+              if (purpose != null) 'purpose': purpose,
+              'members': members,
+            },
+          );
+          return switch (decision) {
+            ApprovalDecision.allow ||
+            ApprovalDecision.allowAlways ||
+            ApprovalDecision.allowWorkspace ||
+            ApprovalDecision.allowGlobal => true,
+            _ => false,
+          };
+        },
       ),
       description:
-          'The session\'s group chat: the main agent, its subagents and '
-          'the human share channels with scrollback and presence, '
-          'persisted with the session in the workspace.',
+          'The session\'s opt-in group chat: the main agent proposes one '
+          '(channel_start) and the user approves; then the main agent, its '
+          'subagents and the human share channels with scrollback and '
+          'presence, persisted with the session in the workspace.',
       live: true,
     ),
     PluginDefinition<SessionPluginContext>(
@@ -483,20 +525,26 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           'that serves repeated searches from verified pointers.',
       live: true,
     ),
-    PluginDefinition<SessionPluginContext>(
+    PluginDefinition.dependingOn<SessionPluginContext, SessionChatLifecycle>(
       'tina/channel-tui',
-      (c) => ChannelPanePlugin(
+      dependency: _sessionChat,
+      create: (c, chat) => ChannelPanePlugin(
         openStore: (scope) =>
             openDefaultChannelStore(c.workingDirectory, scope),
+        // The shared chat lifecycle: the pane stays absent until a
+        // chat is started, then goes live mid-session.
+        chat: chat,
         // The human identity is decided at the assembly root like the
         // agent's: an explicit TINA_HUMAN_NAME wins verbatim, else the
         // OS username sanitized (see human_identity.dart).
         humanName: defaultHumanName(Platform.environment),
       ),
       description:
-          'Shows the session\'s group chat in the console: channel list '
-          'with unread badges, recent messages, and an input line — '
-          'typing posts to the channel as the human.',
+          'Shows the session\'s group chat in the console — once the user '
+          'approved one (channel_start): channel list with unread badges, '
+          'recent messages, and an input line — typing posts to the channel '
+          'as the human. Appears live in the side column when the chat is '
+          'created.',
       live: true,
     ),
     PluginDefinition.dependingOn<SessionPluginContext, ApprovalRequester>(
@@ -627,6 +675,8 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             ChannelPlugin(
               openStore: (scope) =>
                   openDefaultChannelStore(c.workingDirectory, scope),
+              chatExists: (scope) =>
+                  defaultChannelStoreExists(c.workingDirectory, scope),
               chatSessionId: plugin.parent.id,
               role: 'subagent',
               humanName: defaultHumanName(Platform.environment),

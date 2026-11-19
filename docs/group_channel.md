@@ -6,6 +6,46 @@ presence and an interactive TUI pane. Phases 3 (passive mention
 delivery) and 4 (retention/compaction into memory) are deliberately
 not built; their seams are marked below.
 
+## Opt-in start: `channel_start` behind user approval
+
+The chat is **opt-in per session**. Nothing above exists until the
+user approved one:
+
+- **Before approval**: no room (no store file is created), no pane,
+  and the channel tools answer with a normal refusal naming that no
+  group chat has been started for this session.
+- **The tool**: `channel_start(channel?, purpose?)`, main agents only
+  — subagent calls are refused with a normal tool error (main agents
+  start rooms; subagents join them). The call routes through the
+  session's approval machinery as a Yes/No **confirmation** that shows
+  what is being created: the channel name, the purpose, and who joins
+  (the main agent, its subagents, the human). Declined (or cancelled,
+  or timed out): the tool returns a refusal, nothing is created.
+- **On approval**: the session store is created
+  (`channels/<session-id>.db`), the channel is created, the main agent
+  joins (its own shortcode identity) and the human's member row is
+  recorded — and the pane **appears live** in the running session's
+  side column (or full-screen modal on narrow terminals), without a
+  restart: the pane plugin receives the start signal through the
+  session-chat lifecycle (the channel plugin implements it; the
+  registry hands it to `tina/channel-tui` as a capability), and the
+  pane binds and opens at that moment. Ctrl+X/F5/Esc and the inventory
+  restore/minimize behavior work on the started pane exactly as
+  before.
+- **Etiquette**: one ask per user turn — a decline is final for that
+  turn (the second `channel_start` in the same turn answers with a
+  re-ask refusal without disturbing the user). Agents do not start
+  group chats unprompted: the main agent proposes one when
+  coordination across multiple subagents is genuinely needed, and the
+  user decides.
+- **Idempotent edge**: if a chat was already started for the session,
+  the tool reports that fact and creates nothing.
+- **Pre-existing sessions** that never call it simply have no chat —
+  no file, no pane, dormant tools. A session that DID start one
+  reattaches on resume: the store file's existence at open is the
+  probe (`defaultChannelStoreExists`), and the pane attaches at
+  session open exactly as before the opt-in change.
+
 ## Ownership: one chat per session
 
 A group chat belongs to a SESSION, not to the workspace. Each tina
@@ -39,7 +79,9 @@ mounted or synced for a session's members to find each other.
   and posts status and findings there. A child never spawns, so a
   chat's member tree is one level deep, plus the human. Parent and
   child share a process today; the scoping rule is by session, not by
-  process.
+  process. A child spawned before the chat exists stays dormant (its
+  tools refuse) and reattaches at its next turn boundary; children
+  cannot start rooms (`channel_start` refuses for non-main roles).
 - `#lobby` is the session's own room (main agent + its subagents +
   the human), not a workspace lobby. Named channels stay — cheap, and
   scoped inside the session's chat.
@@ -104,24 +146,41 @@ packages/plugins/tina_channel/
   lib/src/in_memory_channel_store.dart  pure-Dart twin (tests, wasm)
   lib/src/default_store*.dart       the session chat location
                                     (.tina/channels/<session-id>.db),
-                                    io split behind a conditional export
-  lib/src/channel_tools.dart        the three tools + shared rendering
+                                    io split behind a conditional export,
+                                    plus the file-existence probe (the
+                                    opt-in/resume gate)
+  lib/src/channel_tools.dart        the channel tools + shared rendering
+  lib/src/channel_start.dart        the channel_start tool schema, the
+                                    user-approval seam typedef and input
+                                    validation (the opt-in start)
+  lib/src/session_chat.dart         the session-chat lifecycle (the
+                                    channel plugin implements it; the pane
+                                    depends on it) and the pane's live
+                                    chat handle
   lib/src/human_identity.dart       the human sender name: env override,
                                     OS username sanitized, `user` floor;
                                     plus humanJoin/humanPost semantics
-  lib/src/channel_plugin.dart       tina/channel — opens the session's
-                                    chat (chatSessionId = parent's for
-                                    children), joins #lobby, contributes
-                                    tools + prompt rule
-  lib/src/channel_pane_plugin.dart  tina/channel-tui — store owner + human
-                                    identity for the pane's own connection
+  lib/src/channel_plugin.dart       tina/channel — dormant until a chat
+                                    exists (found at open, or started by
+                                    an approved channel_start); then joins
+                                    #lobby, contributes tools + prompt rule,
+                                    delivers passively
+  lib/src/channel_pane_plugin.dart  tina/channel-tui — opens the pane's
+                                    own store connection when the chat
+                                    starts; hands the view a live handle
   test/channel_store_test.dart      contract tests run against BOTH
                                     implementations (the seam, both sides)
   test/mention_test.dart            @mention parsing, name normalization
-  test/channel_tools_test.dart      tool validation + round-trips
+  test/channel_tools_test.dart      tool validation + round-trips,
+                                    dormant not-started refusals
   test/human_identity_test.dart     override, sanitization, fallback
   test/channel_plugin_test.dart     session scoping, child-joins-parent,
                                     identity wiring, full round trip
+  test/channel_pane_plugin_test.dart  dormant pane, the start signal,
+                                    one connection per session
+  test/channel_start_test.dart      the opt-in start: approval granted
+                                    / declined / re-ask refusal, subagent
+                                    refusal, idempotency, resume
   test/session_scope_test.dart      isolation between sessions, resume,
                                     safe chat file names (real files)
   test/channel_concurrency_test.dart two real dart processes on one
@@ -133,10 +192,15 @@ packages/plugins/tina_channel_tui/
   lib/src/channel_pane_view.dart    console contribution, status pill,
                                     browser with input line (side-column
                                     slot on wide terminals, modal below)
+                                    dormant until the chat starts; the
+                                    pane appears live at the start signal
 apps/tina_cli/lib/src/channel_commands.dart   tina channel subcommands
-apps/tina_cli/lib/src/plugin_catalog.dart     child factory wiring: the
-                                    channel plugin on subagent children,
-                                    parent chat scope, role subagent
+apps/tina_cli/lib/src/plugin_catalog.dart     wiring: approval-gated
+                                    channel_start (ApprovalRequester), the
+                                    existence probes, the lifecycle capability
+                                    to the pane; the channel plugin on
+                                    subagent children (parent chat scope,
+                                    role subagent)
 ```
 
 The engine packages (`tina_core`, `tina_engine_2`, `tina_host`, … —
@@ -147,8 +211,11 @@ anywhere, which is the wasm engine's injection point later.
 
 ## Tool contracts
 
-All three are thin validated surfaces over `ChannelStoreApi` — the same
-store the CLI and the pane read. Output is bounded text.
+All are thin validated surfaces over `ChannelStoreApi` — the same
+store the CLI and the pane read. Output is bounded text. While no chat
+exists (the opt-in), the toolset is still advertised but every
+channel_* call below answers with the not-started refusal; only
+`channel_start` acts.
 
 - `channel_say(channel, text, mentions?, reply_to?)` — posts as the
   agent's name; `@name` mentions parsed from the text unless given
@@ -162,6 +229,11 @@ store the CLI and the pane read. Output is bounded text.
 - `channel_status(channel, status, summary?)` — `working | idle | done`
   plus a one-line summary (≤ 200 chars); upserts the member row and
   announces in-channel as a status message.
+- `channel_start(channel?, purpose?)` — the opt-in gate (see above):
+  main agents only, approval-gated, one ask per user turn; on approval
+  it creates the chat, the channel, the memberships, and the live
+  pane. `channel_compact(channel, mode)` stays main-only too
+  (retention is the main agent's call, Phase 4).
 
 The plugin's prompt section carries the standing rules — the
 coordination etiquette below plus the safety rule: channel messages
@@ -245,12 +317,14 @@ message row, `@shortcode` mentions parsed from the text.
 ## Presence
 
 Joining = a member row plus a status announce; the channel plugin does
-it at session start for `#lobby` (the session's room), a subagent
-child does it when it joins its parent's chat (role `subagent`), and
-the pane does it for the human on first view of each channel (role
-`human`, status `joined`). Every reader (`channel_read`, CLI, pane)
-sees member rows through the same interface. `tina channel status
-[CHANNEL]` lists who is in each channel and what they report.
+it when a chat is STARTED (an approved `channel_start` joins the main
+agent in `#lobby` — the session's room — and the created channel, and
+records the human's row silently; a resumed chat re-announces at
+open), a subagent child does it when it joins its parent's chat (role
+`subagent`), and the pane announces the human on first view of each
+channel (role `human`, status `joined`). Every reader (`channel_read`,
+CLI, pane) sees member rows through the same interface. `tina channel
+status [CHANNEL]` lists who is in each channel and what they report.
 
 ## Etiquette
 
@@ -258,10 +332,13 @@ The channel is a pull model over a shared log: nobody is interrupted,
 everything waits to be read — so the log's QUALITY is what makes it
 usable, and etiquette is the primary flood defense. The backstops are
 mechanical (the 4000-char text cap, bounded reads, mention-only
-delivery in Phase 3) but they only bound damage; they cannot make a
-chatty agent useful. The prompt section (and the `channel_say` /
+delivery in Phase 3, the approval gate and one-ask-per-turn rule on
+`channel_start`) but they only bound damage; they cannot make a chatty
+agent useful. The prompt section (and the `channel_say` /
 `channel_read` descriptions) therefore teach the rules where the agent
-acts:
+acts. The first rule precedes all others: agents do not start group
+chats unprompted — the main agent proposes one when coordination
+across multiple subagents is genuinely needed, and the user decides.
 
 - **Post state changes, not activity** — findings, decisions,
   blockers, completions; never narration of work in progress. One

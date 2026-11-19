@@ -40,12 +40,12 @@ final _viewFactories =
   },
   'tina/channel-tui': (plugin, access) {
     final pane = plugin as ChannelPanePlugin;
-    final store = pane.storeForView;
-    // A null human name renders the input line disabled (a read-only
+    // The pane is opt-in: the view exists from attach but binds
+    // nothing while no chat exists; when the user approves one
+    // (channel_start) the handle fires and the pane goes live. A null
+    // human name renders the input line disabled (a read-only
     // composition); locally the name is always derived.
-    return store == null
-        ? null
-        : ChannelPaneView(store, humanName: pane.humanName);
+    return ChannelPaneView(pane.chatForView, humanName: pane.humanName);
   },
 };
 

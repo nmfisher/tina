@@ -13,10 +13,13 @@ TurnContext _turn() => TurnContext(
     );
 
 /// The identity and scoping wiring: the plugin settles the sender
-/// identity at session open — generated shortcode by default, explicit
-/// override verbatim — opens the chat scoped to the SESSION (a
-/// subagent child passes its parent's id), and the tools speak with
-/// exactly that name.
+/// identity when the chat opens — generated shortcode by default,
+/// explicit override verbatim — opens the chat scoped to the SESSION
+/// (a subagent child passes its parent's id), and the tools speak with
+/// exactly that name. A chat is OPT-IN now: these tests model a chat
+/// that already exists (chatExists answers true, as a resumed session
+/// would); the start/decline/dormant flows live in
+/// channel_start_test.dart.
 void main() {
   PluginSession session(String id) => PluginSession(
         id: id,
@@ -26,7 +29,8 @@ void main() {
 
   test('default: the sender identity is the generated shortcode', () {
     final store = InMemoryChannelStore();
-    final plugin = ChannelPlugin(openStore: (_) => store, role: 'main');
+    final plugin = ChannelPlugin(
+        openStore: (_) => store, chatExists: (_) => true, role: 'main');
     expect(plugin.name, isNull); // nothing generated before open
     plugin.openSession(session('identity-test'));
     addTearDown(plugin.closeSession);
@@ -49,7 +53,10 @@ void main() {
   test('explicit agentName is used verbatim, generation skipped', () {
     final store = InMemoryChannelStore();
     final plugin = ChannelPlugin(
-        openStore: (_) => store, agentName: 'checkout-7', role: 'main');
+        openStore: (_) => store,
+        chatExists: (_) => true,
+        agentName: 'checkout-7',
+        role: 'main');
     plugin.openSession(session('identity-test'));
     addTearDown(plugin.closeSession);
 
@@ -59,12 +66,18 @@ void main() {
 
   test('tool schemas appear once the session opens', () {
     final store = InMemoryChannelStore();
-    final plugin = ChannelPlugin(openStore: (_) => store);
+    final plugin = ChannelPlugin(
+        openStore: (_) => store, chatExists: (_) => true);
     expect(plugin.tools, isEmpty); // tools exist only with a session
     plugin.openSession(session('identity-test'));
     addTearDown(plugin.closeSession);
-    expect(plugin.tools.map((t) => t.name),
-        containsAll(['channel_say', 'channel_read', 'channel_status']));
+    expect(plugin.tools.map((t) => t.name), containsAll([
+      'channel_start',
+      'channel_say',
+      'channel_read',
+      'channel_status',
+      'channel_compact'
+    ]));
     // The join announce above already proved the store-facing identity;
     // the tools receive the same name at construction.
     expect(store.members('#lobby').single.name, plugin.name);
@@ -72,7 +85,8 @@ void main() {
 
   test('closing the session clears the identity', () {
     final store = InMemoryChannelStore();
-    final plugin = ChannelPlugin(openStore: (_) => store);
+    final plugin = ChannelPlugin(
+        openStore: (_) => store, chatExists: (_) => true);
     plugin.openSession(session('identity-test'));
     expect(plugin.name, isNotNull);
     plugin.closeSession();
@@ -87,6 +101,7 @@ void main() {
           openedScope = scope;
           return store;
         },
+        chatExists: (_) => true,
         role: 'main');
     plugin.openSession(session('s-17'));
     addTearDown(plugin.closeSession);
@@ -97,7 +112,10 @@ void main() {
     // The parent session's chat, already holding the main agent.
     final chat = InMemoryChannelStore();
     final parent = ChannelPlugin(
-        openStore: (_) => chat, agentName: 'calm-heron', role: 'main');
+        openStore: (_) => chat,
+        chatExists: (_) => true,
+        agentName: 'calm-heron',
+        role: 'main');
     parent.openSession(session('parent-1'));
     addTearDown(parent.closeSession);
 
@@ -110,6 +128,7 @@ void main() {
               reason: 'a child opens the parent session\'s chat');
           return chat;
         },
+        chatExists: (_) => true,
         chatSessionId: 'parent-1',
         role: 'subagent');
     child.openSession(session('parent-1-9182-child1'));
@@ -132,11 +151,15 @@ void main() {
   test('human + parent + child round trip in one chat', () {
     final chat = InMemoryChannelStore();
     final parent = ChannelPlugin(
-        openStore: (_) => chat, agentName: 'parent-agent', role: 'main');
+        openStore: (_) => chat,
+        chatExists: (_) => true,
+        agentName: 'parent-agent',
+        role: 'main');
     parent.openSession(session('roundtrip'));
     addTearDown(parent.closeSession);
     final child = ChannelPlugin(
         openStore: (_) => chat,
+        chatExists: (_) => true,
         chatSessionId: 'roundtrip',
         agentName: 'child-agent',
         role: 'subagent');
@@ -169,6 +192,7 @@ group('passive delivery', () {
     addTearDown(other.close);
     final plugin = ChannelPlugin(
       openStore: (_) => other,
+      chatExists: (_) => true,
       agentName: 'calm-heron',
       role: 'main',
     );
@@ -190,7 +214,8 @@ group('passive delivery', () {
   test('closeSession releases the watcher (no delivery after close)',
       () async {
     final store = openMemory();
-    final plugin = ChannelPlugin(openStore: (_) => store, agentName: 'a');
+    final plugin = ChannelPlugin(
+        openStore: (_) => store, chatExists: (_) => true, agentName: 'a');
     plugin.openSession(session('close-test'));
     plugin.closeSession();
     // The watcher is gone with the session: posts that arrive after

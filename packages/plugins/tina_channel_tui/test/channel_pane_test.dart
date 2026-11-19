@@ -333,7 +333,7 @@ void main() {
       // A pending read arms the editor's input path, as in a live app.
       unawaited(editor.readLine('> '));
       store = InMemoryChannelStore();
-      view = ChannelPaneView(store, humanName: 'sam');
+      view = ChannelPaneView(LivePaneChat.started(store), humanName: 'sam');
       attachment = ConsoleAttachment.attach(
         view,
         ConsoleContext(screen: screen, editor: editor).forView(
@@ -402,7 +402,8 @@ void main() {
     });
 
     test('a null human identity renders the input line disabled', () {
-      final readonly = ChannelPaneView(InMemoryChannelStore());
+      final readonly =
+          ChannelPaneView(LivePaneChat.started(InMemoryChannelStore()));
       addTearDown(readonly.detachConsole);
       readonly.attachConsole(
         ConsoleContext(screen: screen, editor: editor).forView(
@@ -455,7 +456,7 @@ void main() {
       LineEditor.debugDoubleEscWindow = Duration.zero;
       unawaited(editor.readLine('> '));
       store = InMemoryChannelStore();
-      view = ChannelPaneView(store, humanName: 'sam');
+      view = ChannelPaneView(LivePaneChat.started(store), humanName: 'sam');
       attachment = ConsoleAttachment.attach(
         view,
         ConsoleContext(screen: screen, editor: editor).forView(
@@ -522,6 +523,126 @@ void main() {
       await pumpEventQueue();
       expect(screen.layout.rightColumn, isEmpty);
       expect(screen.layout.chat.width, 118);
+    });
+  });
+
+  group('ChannelPaneView opt-in start (dormant pane, live appearance)',
+      () {
+    late Io io;
+    late Screen screen;
+    late LineEditor editor;
+    late ConsoleAttachment Function(ChannelPaneView) attach;
+
+    setUp(() {
+      io = Io();
+      screen = Screen(
+        io: io,
+        layout: ScreenLayout.fromSize(120, 30, split: false),
+      );
+      editor = LineEditor(screen: screen, escapeTimeout: Duration.zero);
+      LineEditor.debugDoubleEscWindow = Duration.zero;
+      unawaited(editor.readLine('> '));
+      attach = (view) => ConsoleAttachment.attach(
+            view,
+            ConsoleContext(screen: screen, editor: editor).forView(
+              chat: screen.chat,
+              isActive: () => true,
+              activate: () {},
+              panels: Panels(),
+            ),
+          );
+    });
+
+    tearDown(() {
+      LineEditor.debugDoubleEscWindow = null;
+      editor.close(reportLatency: false);
+      screen.dispose();
+      unawaited(io.input.close());
+    });
+
+    Future<void> key(InputEvent event) async {
+      editor.inject(event);
+      await pumpEventQueue();
+    }
+
+    test('before a chat is started the pane binds nothing', () async {
+      final view = ChannelPaneView(LivePaneChat(), humanName: 'sam');
+      final attachment = attach(view);
+      addTearDown(attachment.dispose);
+
+      expect(view.isLive, isFalse);
+      expect(view.isOpen, isFalse);
+      // No side column, no pill: nothing claims anything.
+      expect(screen.layout.rightColumn, isEmpty);
+
+      // openPane is a no-op and typing is the app's, not the pane's.
+      view.openPane();
+      expect(view.isOpen, isFalse);
+      await key(CharInput('z'));
+      expect(editor.draftText, 'z');
+    });
+
+    test('a chat started mid-session makes the pane appear live', () async {
+      final handle = LivePaneChat();
+      final store = InMemoryChannelStore();
+      final view = ChannelPaneView(handle, humanName: 'sam');
+      final attachment = attach(view);
+      addTearDown(attachment.dispose);
+
+      expect(view.isLive, isFalse);
+      // The user approves a channel_start: the pane plugin opens the
+      // store and publishes the handle.
+      store.setMember('#lobby', 'calm-heron',
+          status: 'working', role: 'main');
+      handle.attach(store);
+      await pumpEventQueue();
+
+      // Live and OPEN, immediately — the pane is in the side column
+      // without any restart or keystroke.
+      expect(view.isLive, isTrue);
+      expect(view.isOpen, isTrue);
+      expect(view.inputActive, isTrue);
+      expect(screen.layout.rightColumn.width, 40);
+      expect(view.visibleLines, isNotEmpty);
+
+      // The pane consumes typing (modal), posts as the human, and the
+      // lifecycle keys keep working exactly as before the start.
+      await key(CharInput('hello room'));
+      await key(ControlKey(ControlCode.enter));
+      expect(store.read('#lobby').last.sender, 'sam');
+      expect(store.read('#lobby').last.text, 'hello room');
+      await key(EscapeKey()); // exit input mode
+      expect(view.inputActive, isFalse);
+      await key(EscapeKey()); // close the pane
+      expect(view.isOpen, isFalse);
+      await pumpEventQueue();
+      expect(screen.layout.rightColumn, isEmpty);
+
+      // The pane's own open path still works after the start: opening
+      // claims the column again, and the Esc ladder closes it —
+      // pre-existing behavior preserved after start.
+      view.openPane();
+      expect(view.isOpen, isTrue);
+      expect(screen.layout.rightColumn.width, 40);
+      await key(EscapeKey());
+      await key(EscapeKey());
+      expect(view.isOpen, isFalse);
+      await pumpEventQueue();
+      expect(screen.layout.rightColumn, isEmpty);
+    });
+
+    test('a chat that predates the view attaches live but closed', () {
+      // Resume: the chat exists at attach, and the pane behaves as it
+      // always did — present, but opened by the user.
+      final store = InMemoryChannelStore();
+      final view = ChannelPaneView(LivePaneChat.started(store),
+          humanName: 'sam');
+      final attachment = attach(view);
+      addTearDown(attachment.dispose);
+
+      expect(view.isLive, isTrue);
+      expect(view.isOpen, isFalse);
+      expect(screen.layout.rightColumn, isEmpty);
     });
   });
 }

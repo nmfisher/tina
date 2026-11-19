@@ -21,6 +21,7 @@ void main() {
     }
   });
 
+
   TurnContext section() => TurnContext(
         CancelToken(),
         input: Input('x', id: 'x'),
@@ -29,6 +30,27 @@ void main() {
         pinnedTools: [],
       );
 
+
+  test('without a store (no chat started) every tool refuses', () async {
+    // The dormant instance exists so the toolset is stable while the
+    // session has no chat; the calls name what is missing.
+    final dormant = ChannelTools(agentName: 'tina-main', role: 'main');
+    for (final entry in [
+      ('channel_say', {'channel': '#lobby', 'text': 'hi'}),
+      ('channel_read', {'channel': '#lobby'}),
+      ('channel_status', {'channel': '#lobby', 'status': 'working'}),
+      ('channel_compact', {'channel': '#lobby', 'mode': 'compact'}),
+    ]) {
+      final result = await dormant.execute(entry.$1, entry.$2);
+      expect(result.isError, isTrue, reason: entry.$1);
+      expect(result.content, contains('No group chat has been started'));
+    }
+
+    final context = section();
+    dormant.onPrompt(context);
+    expect(context.promptSections.single,
+        contains('No group chat exists for this session yet'));
+  });
   test('prompt section carries the coordination etiquette', () {
     final context = section();
     tools.onPrompt(context);

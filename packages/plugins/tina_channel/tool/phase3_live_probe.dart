@@ -31,13 +31,13 @@ void main() {
   // One session's chat: the main agent and a subagent child both open
   // the SAME scope (the session id); the child passes chatSessionId.
   final a = ChannelPlugin(
-      openStore: open, agentName: 'amber-lynx', role: 'main',
-      humanName: 'nick');
+      openStore: open, chatExists: (_) => true, agentName: 'amber-lynx',
+      role: 'main', humanName: 'nick');
   a.openSession(session('shared'));
 
   final b = ChannelPlugin(
-      openStore: open, agentName: 'bold-moth', role: 'subagent',
-      humanName: 'nick', chatSessionId: 'shared');
+      openStore: open, chatExists: (_) => true, agentName: 'bold-moth',
+      role: 'subagent', humanName: 'nick', chatSessionId: 'shared');
   b.openSession(session('child-of-shared'));
 
   print('members of #lobby: '

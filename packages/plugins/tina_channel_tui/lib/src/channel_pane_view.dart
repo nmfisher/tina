@@ -10,6 +10,14 @@ import 'channel_pane.dart';
 /// channels with unread badges and renders the selected channel's
 /// recent messages — sender labels, status lines, presence footer.
 ///
+/// The pane is OPT-IN: it binds nothing while the session's chat has
+/// not been started. The view is constructed with the pane's
+/// [ChannelPaneChat] handle; when the chat appears (the user approved
+/// a `channel_start`), the pane goes LIVE mid-session — bindings
+/// attach and the browser opens immediately in the side column, no
+/// restart. A chat that predates the view (resume) attaches the same
+/// bindings at console attach, closed until opened.
+///
 /// Where it renders follows the side column (owner layout directive):
 /// classifier, plans and this pane stack in a fixed column on the
 /// right of the conversation, with the channel pane taking the
@@ -30,10 +38,11 @@ import 'channel_pane.dart';
 /// watcher will add the event seam). Polling happens on a timer, and
 /// the pane reads and posts through [ChannelStoreApi] only.
 final class ChannelPaneView implements ConsoleContribution {
-  ChannelPaneView(this._store, {String? humanName})
-      : _humanName = humanName;
+  ChannelPaneView(this._chat, {String? humanName}) : _humanName = humanName;
 
-  final ChannelStoreApi _store;
+  /// The pane's live chat handle: the store once the session's chat
+  /// has been started, and the signal when it appears.
+  final ChannelPaneChat _chat;
 
   /// The identity the input line posts under; null disables input.
   final String? _humanName;
@@ -50,10 +59,15 @@ final class ChannelPaneView implements ConsoleContribution {
   SideColumnPanel? _column;
   void Function()? _removeBrowserModal, _removeModal, _removeEngage,
       _unbindStatus;
+  StreamSubscription<void>? _chatChanges;
   Timer? _ticker;
+  bool _active = false;
 
   List<ChannelSummary> _channels = const [];
   final Map<String, int> _unreadCounts = {};
+
+  /// Whether the session's chat has started and the pane is live.
+  bool get isLive => _active;
 
   /// Whether the channel browser is open. Public for tests.
   bool get isOpen => _browser?.isOpen == true;
@@ -75,7 +89,7 @@ final class ChannelPaneView implements ConsoleContribution {
     final name = _humanName;
     if (name == null) return;
     try {
-      humanJoin(_store, channel, name, _joined);
+      humanJoin(_chat.store!, channel, name, _joined);
     } on Object {
       // Presence is best-effort; posting reports its own errors.
     }
@@ -97,7 +111,9 @@ final class ChannelPaneView implements ConsoleContribution {
 
   void _poll() {
     try {
-      _channels = _store.listChannels();
+      final store = _chat.store;
+      if (store == null) return;
+      _channels = store.listChannels();
       if (!_seeded) {
         _unread.seed(_channels);
         _seeded = true;
@@ -119,30 +135,51 @@ final class ChannelPaneView implements ConsoleContribution {
   void attachConsole(ConsoleContext context) {
     detachConsole();
     _console = context;
+    // Subscribe before checking, so a chat started between the two
+    // lines still fires the event.
+    _chatChanges = _chat.changes.listen((_) => _chatChanged());
+    if (_chat.isStarted) _activate(open: false);
+  }
+
+  /// The session's chat appeared: go live and open the pane, so the
+  /// room shows up in the side column the moment the user approved it.
+  void _chatChanged() {
+    if (_chat.isStarted) _activate(open: true);
+  }
+
+  /// Binds everything the pane needs (pill, cycle, browser, side
+  /// column slot) — once, when the chat exists. [open] controls
+  /// whether the browser opens with it (a live start does; a resumed
+  /// chat attaches closed, as before).
+  void _activate({required bool open}) {
+    if (_active || !_chat.isStarted) return;
+    _active = true;
+    final console = _console!;
     _browser = _ChannelBrowser(this);
 
-    _cycle = StatusCycleController(context);
-    _removeModal = context.addModal(_cycle!);
-    _column =
-        context.bindSideColumnPanel(_browser!.repaint, rank: SideColumnRank.channel);
-    _removeEngage = context.bindShortcut((event) {
+    _cycle = StatusCycleController(console);
+    _removeModal = console.addModal(_cycle!);
+    _column = console.bindSideColumnPanel(_browser!.repaint,
+        rank: SideColumnRank.channel);
+    _removeEngage = console.bindShortcut((event) {
       if (event is FunctionKey && event.code == FunctionKeyCode.f5) {
         _cycle!.toggle();
         return true;
       }
       return false;
     });
-    _removeBrowserModal = context.addModal(_browser!);
-    _unbindStatus = context.bindStatus(_lines, priority: 59);
-    context.statusSelection.register('tina/channel', openPane);
+    _removeBrowserModal = console.addModal(_browser!);
+    _unbindStatus = console.bindStatus(_lines, priority: 59);
+    console.statusSelection.register('tina/channel', openPane);
 
     _poll();
-    _ticker =
-        Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+    _ticker = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+    if (open) _browser!.open();
   }
 
   @override
   void repaintConsole() {
+    if (!_active) return;
     _poll();
     _browser?.repaint();
     _console?.refreshStatus();
@@ -150,6 +187,8 @@ final class ChannelPaneView implements ConsoleContribution {
 
   @override
   void detachConsole() {
+    _chatChanges?.cancel();
+    _chatChanges = null;
     _ticker?.cancel();
     _ticker = null;
     _browser?.close();
@@ -166,6 +205,7 @@ final class ChannelPaneView implements ConsoleContribution {
     _removeModal?.call();
     _removeModal = null;
     _cycle = null;
+    _active = false;
     _console = null;
   }
 }
@@ -236,6 +276,8 @@ final class _ChannelBrowser implements ModalSurface {
   void repaint() {
     final console = view._console;
     if (!_open || console == null || !console.isActive) return;
+    final store = view._chat.store;
+    if (store == null) return;
     // A resize may have crossed the column threshold either way; the
     // claim follows the CURRENT width (open + fits), not the width at
     // open time.
@@ -259,7 +301,6 @@ final class _ChannelBrowser implements ModalSurface {
     }
     _releaseCursor ??= console.own(console.screen.claimCursor().release);
 
-    final store = view._store;
     final channels = view._channels;
     if (channels.isNotEmpty &&
         channels.every((c) => c.name != _selected)) {
@@ -304,7 +345,9 @@ final class _ChannelBrowser implements ModalSurface {
   String? _post(String text) {
     final name = view._humanName;
     if (name == null) return 'input unavailable';
-    final failure = humanPost(view._store,
+    final store = view._chat.store;
+    if (store == null) return 'input unavailable';
+    final failure = humanPost(store,
         channel: _selected, name: name, text: text, joined: view._joined);
     if (failure == null) view._poll();
     return failure;

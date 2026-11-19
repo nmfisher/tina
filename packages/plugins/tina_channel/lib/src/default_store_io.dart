@@ -13,3 +13,8 @@ ChannelStoreApi openDefaultChannelStore(String workspace, String sessionId) {
   }
   return SqliteChannelStore.open(path);
 }
+
+/// Whether this session's chat store file already exists — the
+/// opt-in/resume probe. Never creates anything.
+bool defaultChannelStoreExists(String workspace, String sessionId) =>
+    File(defaultChannelStorePath(workspace, sessionId)).existsSync();

@@ -67,7 +67,8 @@ Future<void> main(List<String> args) async {
   LineEditor.debugDoubleEscWindow = Duration.zero;
   unawaited(editor.readLine('> '));
 
-  final view = ChannelPaneView(store, humanName: humanName);
+  final view = ChannelPaneView(LivePaneChat.started(store),
+      humanName: humanName);
   final attachment = ConsoleAttachment.attach(view,
       ConsoleContext(screen: screen, editor: editor).forView(
           chat: screen.chat,
