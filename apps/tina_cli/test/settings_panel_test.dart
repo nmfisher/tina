@@ -968,4 +968,125 @@ enabled = []
       io.closeInput();
     }
   });
+
+
+  group('the presets table', () {
+    final left = ArrowKey(ArrowDirection.left);
+    final right = ArrowKey(ArrowDirection.right);
+
+    test('renders four columns, the synthesized default row and '
+        'fallback markers', () async {
+      final (_, output) = await drive([
+        CharInput('Model presets'), enter,
+        enter, // Profile presets are Global only → Edit Global presets
+        escape, // leave the table
+        escape, // settings root
+      ]);
+      // Four columns with the right headers.
+      expect(output, contains('NAME'));
+      expect(output, contains('MAIN'));
+      expect(output, contains('SUBAGENT'));
+      expect(output, contains('APPROVER'));
+      // The synthesized default row (legacy model/provider lines, no
+      // [profiles] table) shows as `default` with its resolved main
+      // and fallback markers for the legs it omits.
+      expect(output, contains('default'));
+      expect(output, contains('custom/original'));
+      expect(output, contains('inherits main'));
+      // Narrow frames (the harness alternates 40 cols) stay intact.
+      expect(output, isNot(contains('Exception')));
+    });
+
+    test('activating the three model cells writes through the picker; '
+        'x clears back to the fallback', () async {
+      final (_, output) = await drive([
+        CharInput('Model presets'), enter,
+        enter, // Global
+        CharInput('a'), // add
+        CharInput('budget'), enter, // name
+        enter, // main cell → picker
+        CharInput('next'), enter, // custom/next
+        right, enter, // subagent cell → picker
+        CharInput('original'), enter, // custom/original
+        right, enter, // approver cell → picker
+        CharInput('next'), enter, // custom/next
+        left, // back to the subagent cell
+        CharInput('x'), // clear it to its fallback
+        escape, escape,
+      ]);
+      final loaded =
+          loadTinaConfig(path: config.path, descriptors: descriptors).config;
+      expect(loaded.profilesTable, isTrue);
+      expect(loaded.profiles['budget']!.main!.model, 'next');
+      expect(loaded.profiles['budget']!.approver!.model, 'next');
+      expect(loaded.profiles['budget']!.subagent, isNull,
+          reason: 'the cleared leg follows its own fallback');
+      // The cleared cell renders its marker.
+      expect(output, contains('inherits main'));
+      expect(output, isNot(contains('inherits default')),
+          reason: 'main and approver are set on this profile');
+    });
+
+    test('rename: success persists with legs untouched', () async {
+      final (_, output) = await drive([
+        CharInput('Model presets'), enter,
+        enter,
+        CharInput('a'),
+        CharInput('budget'), enter,
+        enter, // main → picker
+        CharInput('next'), enter,
+        left, // name cell
+        enter, // start the inline rename
+        EditingKey(EditingAction.killToStart),
+        CharInput('budget2'), enter,
+        escape, escape,
+      ]);
+      final loaded =
+          loadTinaConfig(path: config.path, descriptors: descriptors).config;
+      expect(loaded.profiles.containsKey('budget'), isFalse);
+      expect(loaded.profiles['budget2']!.main!.model, 'next',
+          reason: 'the legs carry over untouched');
+      expect(output, contains('budget2'));
+    });
+
+    test('rename to a taken name is refused inline; default counts',
+        () async {
+      final (_, output) = await drive([
+        CharInput('Model presets'), enter,
+        enter,
+        CharInput('a'),
+        CharInput('budget'), enter,
+        left, // name cell
+        enter, // rename
+        EditingKey(EditingAction.killToStart),
+        CharInput('default'), enter, // taken: the synthesized row
+        escape, // cancel the rename
+        escape, escape,
+      ]);
+      expect(output, contains('A profile named "default" already exists.'));
+      final loaded =
+          loadTinaConfig(path: config.path, descriptors: descriptors).config;
+      expect(loaded.profiles.containsKey('budget'), isTrue,
+          reason: 'the refused rename changed nothing');
+      // The loader always synthesizes a resolvable `default`; the
+      // refusal is about the AUTHORED table staying untouched.
+      expect(config.readAsStringSync(), isNot(contains('[profiles.default]')));
+    });
+
+    test('rename to the own current name is a no-op success', () async {
+      final (_, _) = await drive([
+        CharInput('Model presets'), enter,
+        enter,
+        CharInput('a'),
+        CharInput('budget'), enter,
+        left, // name cell
+        enter, // rename (buffer starts as 'budget')
+        enter, // commit unchanged
+        escape, escape,
+      ]);
+      final loaded =
+          loadTinaConfig(path: config.path, descriptors: descriptors).config;
+      expect(loaded.profiles['budget'], isNotNull);
+    });
+  });
 }

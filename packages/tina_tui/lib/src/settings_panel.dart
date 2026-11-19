@@ -969,128 +969,287 @@ final class SettingsPanel {
     }
   }
 
-  /// The config's profile presets: pick the active name, edit each
-  /// profile's legs, add or delete presets. Saved as `[profiles]` plus the
-  /// top-level `profile` key when the draft changes; Escape keeps the file
-  /// as it was.
+  /// The config's profile presets, as a four-column table — name, main,
+  /// subagent, approver — one row per profile (the synthesized
+  /// `default` from the legacy `model`/`provider` keys included when
+  /// the config declares no `[profiles]` table). Enter on a model cell
+  /// opens the searchable model picker and writes the leg; Enter on
+  /// the name cell edits it in place (a duplicate name is refused with
+  /// an inline error; the synthesized `default` counts as taken); `x`
+  /// clears a leg back to its fallback; `a` adds a profile, `d`
+  /// deletes the selected one, `s` sets the selected profile active. Saved as `[profiles]` plus the top-level
+  /// `profile` key when the draft changes; Escape keeps the file as it
+  /// was.
   Future<void> _presets(ProviderDraft draft) async {
-    while (!_cancelled) {
-      final names = _presetNames(draft);
-      final active = draft.values['profile'] as String? ?? 'default';
-      String rowFor() =>
-          'Active profile: ${draft.values['profile'] as String? ?? 'default'}';
-      final choice = await _menu('Model presets · Global', [
-        rowFor(),
-        for (final name in names) name,
-        '+ Add profile',
-        'Back',
-      ], itemsNow: () {
-        final current = _presetNames(draft);
-        return [
-          rowFor(),
-          for (final name in current) name,
-          '+ Add profile',
-          'Back',
-        ];
-      }, detailFor: (index) => index == 0 || index > names.length
-          ? ''
-          : _presetSummary(draft, names[index - 1]), descriptionFor: (_) =>
-              'Presets are named bundles of model legs. Switching copies them '
-              'into a conversation; the config keeps the presets. Enter edit · '
-              'Esc finish');
-      // Escape finishes the editor; Back is the last row.
-      if (choice == null || choice == names.length + 2) return;
-      if (choice == 0) {
-        final options = {...names, 'default'}.toList()..sort();
-        final current = options.indexOf(active);
-        final picked = await _menu('Active profile', options,
-            initialSelected: current < 0 ? 0 : current);
-        if (picked != null) draft.values['profile'] = options[picked];
-      } else if (choice == names.length + 1) {
-        final entered = await _edit('New profile name', '');
-        final name = entered?.trim() ?? '';
-        if (name.isEmpty) continue;
-        if (_presetNames(draft).contains(name) || name == 'default') {
-          await _menu('Could not add profile',
-              ['"$name" already exists', 'Back']);
-          continue;
-        }
-        _preset(draft, name);
-        await _presetLegs(draft, name);
-      } else {
-        await _presetLegs(draft, names[choice - 1]);
-      }
-    }
-  }
+    const legs = ['main', 'subagent', 'approver'];
+    const fallbacks = {
+      'main': 'inherits default',
+      'subagent': 'inherits main',
+      'approver': 'inherits main',
+    };
+    var row = 0;
+    var column = 1; // 0 = name, 1..3 = legs
+    var renaming = false;
+    TextLineInput nameInput = const TextLineInput();
+    String? error;
+    final table = draft.table('profiles');
 
-  /// One profile's legs. Values are `provider/model` references (a bare
-  /// model inherits the session's provider); clearing a line unsets the leg.
-  Future<void> _presetLegs(ProviderDraft draft, String name) async {
-    // A one-line profile is its main leg; editing any leg works on a table.
-    if ((draft.values['profiles'] as Map? ?? const {})[name]
-        case final String oneLine) {
-      _preset(draft, name)
-        ..clear()
-        ..['main'] = oneLine;
+    bool synthesized(String rawName) => table.isEmpty && rawName == 'default';
+    String displayName(String rawName) => rawName.isEmpty ? 'default' : rawName;
+    String rawFor(String rawName) => rawName.isEmpty ? 'default' : rawName;
+
+    // The legacy default lines, shown as the synthesized row's main.
+    String legacyDefault() {
+      final defaults = draft.table('default');
+      final provider = defaults['provider'] as String? ?? '';
+      final model = defaults['model'] as String? ?? '';
+      if (model.isEmpty) return '';
+      return provider.isEmpty ? model : '$provider/$model';
     }
-    while (!_cancelled) {
-      String rowFor(String leg) =>
-          '${leg.padRight(10)} ${_presetLegValue(draft, name, leg) ?? '(unset)'}';
-      final rows = [
-        for (final leg in _presetLegNames) rowFor(leg),
-        'Delete profile $name',
-        'Back',
+
+    String cellFor(String rawName, String leg) {
+      if (synthesized(rawName)) {
+        return leg == 'main' ? legacyDefault() : fallbacks[leg]!;
+      }
+      return _presetLegValue(draft, rawName, leg) ?? fallbacks[leg]!;
+    }
+
+    List<String> takenNames() =>
+        table.keys.map(displayName).where((n) => n.isNotEmpty).toList();
+
+    String clipCell(String text, int columns) {
+      final clipped = clipDialogText(text, columns);
+      return '$clipped${' ' * (columns - visibleWidth(clipped)).clamp(0, columns)}';
+    }
+
+    String rowCell(String text, int columns, bool focused) =>
+        focused ? clipCell('[$text]', columns) : clipCell(text, columns);
+
+    void paint() {
+      final names = table.isEmpty
+          ? ['default']
+          : table.keys.cast<String>().toList()..sort();
+      final active = draft.values['profile'] as String? ?? 'default';
+      final width = _contentWidth;
+      final nameWidth =
+          (width >= 72 ? 16 : width >= 52 ? 12 : 8).clamp(4, width);
+      final legWidth = ((width - nameWidth - 5) / 3).floor().clamp(4, width);
+      final bodyHeight = (_frame.height - 7).clamp(1, 40);
+      final first =
+          (row - bodyHeight + 1).clamp(0, names.isEmpty ? 0 : names.length - 1);
+      final lines = <String>[
+        '   NAME'.padRight(nameWidth + 5) +
+            'MAIN'.padRight(legWidth + 2) +
+            'SUBAGENT'.padRight(legWidth + 2) +
+            'APPROVER',
+        for (var i = first; i < names.length && i < first + bodyHeight; i++)
+          () {
+            final rawName = names[i];
+            final selectedRow = i == row;
+            final name = displayName(rawName);
+            final activeMark = name == active ? '*' : ' ';
+            final focusMark = selectedRow ? '>' : ' ';
+            final nameText = selectedRow && renaming
+                ? textFieldView(nameInput, width: nameWidth - 2).text
+                : name;
+            return '$focusMark$activeMark '
+                '${rowCell(nameText, nameWidth, selectedRow && column == 0)} '
+                '${rowCell(cellFor(rawName, legs[0]), legWidth, selectedRow && column == 1)} '
+                '${rowCell(cellFor(rawName, legs[1]), legWidth, selectedRow && column == 2)} '
+                '${rowCell(cellFor(rawName, legs[2]), legWidth, selectedRow && column == 3)}';
+          }(),
       ];
-      final choice = await _menu('Profile $name', rows, itemsNow: () => [
-            for (final leg in _presetLegNames) rowFor(leg),
-            'Delete profile $name',
-            'Back',
-          ], descriptionFor: (_) =>
-              'Type provider/model (a bare model inherits the session '
-              'provider). Ctrl-U clears the line.');
-      if (choice == null || choice == rows.length - 1) return;
-      if (choice == rows.length - 2) {
-        final confirmed =
-            await _menu('Delete profile $name?', ['Delete', 'Keep']);
-        if (confirmed == 0) {
-          draft.table('profiles').remove(name);
-          if ((draft.values['profile'] as String?) == name) {
-            draft.values.remove('profile');
-          }
-          return;
+      final view = renaming ? textFieldView(nameInput, width: nameWidth - 2) : null;
+      _show([
+        'Model presets · Global',
+        ...lines,
+        error ??
+            'enter edit · x clear leg · a add · d delete · s set active · '
+            'esc back'
+      ], cursor: view == null
+          ? null
+          : (1 + (row - first), 4 + view.cursorColumn));
+    }
+
+    while (!_cancelled) {
+      final names = table.isEmpty
+          ? ['default']
+          : table.keys.cast<String>().toList()..sort();
+      row = row.clamp(0, names.length - 1);
+      column = column.clamp(0, 3);
+      _paint = paint;
+      repaint();
+      final event = await _nextEvent();
+      if (event == null || _cancelled) continue;
+      // An inline error lasts until the next key (the repaint above
+      // is what shows it); the handlers may set a fresh one.
+      error = null;
+
+      if (renaming) {
+        switch (event) {
+          case EscapeKey():
+          case ControlKey(code: ControlCode.ctrlC):
+            renaming = false;
+          case ControlKey(code: ControlCode.enter):
+            final text = nameInput.buffer.trim();
+            final rawName = names[row];
+            final current = displayName(rawName);
+            if (text.isEmpty) {
+              error = 'A profile name must not be empty.';
+            } else if (text == current) {
+              renaming = false; // rename to itself: a no-op success
+            } else if (takenNames().contains(text) || text == 'default') {
+              // 'default' is always taken: authored, or the
+              // synthesized row every config carries.
+              error = 'A profile named "$text" already exists.';
+            } else {
+              // Rename in place: the legs carry over untouched. The
+              // synthesized row materializes with the legacy default
+              // it displayed as its main leg.
+              final carried = table[rawFor(rawName)] ??
+                  (synthesized(rawName) && legacyDefault().isNotEmpty
+                      ? <String, dynamic>{'main': legacyDefault()}
+                      : <String, dynamic>{});
+              table[text] = carried;
+              table.remove(rawFor(rawName));
+              if ((draft.values['profile'] as String?) == current ||
+                  (draft.values['profile'] == null && synthesized(rawName))) {
+                draft.values['profile'] = text;
+              }
+              renaming = false;
+            }
+          case CharInput(:final text):
+          case PasteInput(:final text):
+            nameInput = nameInput
+                .insert(text.replaceAll(RegExp(r'[\r\n]'), ''));
+          default:
+            nameInput = _editKey(nameInput, event) ?? nameInput;
         }
         continue;
       }
-      final leg = _presetLegNames[choice];
-      final entered = await _edit('$name · $leg',
-          _presetLegValue(draft, name, leg) ?? '',
-          suggestions: [
-            for (final provider in _management.providers)
-              for (final model in provider.models.keys)
-                '${provider.id}/$model',
-          ]);
-      if (entered == null) continue;
-      final value = entered.trim();
-      if (value.isEmpty) {
-        _preset(draft, name).remove(leg);
-      } else {
-        _preset(draft, name)[leg] = value;
+
+      switch (event) {
+        case EscapeKey():
+          return;
+        case ArrowKey(:final direction):
+          switch (direction) {
+            case ArrowDirection.up:
+            case ArrowDirection.pageUp:
+              row = (row - (direction == ArrowDirection.up ? 1 : 5))
+                  .clamp(0, names.length - 1);
+            case ArrowDirection.down:
+            case ArrowDirection.pageDown:
+              row = (row + (direction == ArrowDirection.down ? 1 : 5))
+                  .clamp(0, names.length - 1);
+            case ArrowDirection.left:
+              column = (column - 1).clamp(0, 3);
+            case ArrowDirection.right:
+              column = (column + 1).clamp(0, 3);
+          }
+        case ControlKey(code: ControlCode.enter):
+          if (column == 0) {
+            // Enter on the name cell: edit the name in place.
+            renaming = true;
+            final current = displayName(names[row]);
+            nameInput =
+                TextLineInput(buffer: current, cursor: current.length);
+          } else {
+            final rawName = names[row];
+            final leg = legs[column - 1];
+            final picked = await _pickPresetModel(
+                draft, displayName(rawName), leg,
+                _presetLegValue(draft, rawFor(rawName), leg) ??
+                    (synthesized(rawName) && leg == 'main'
+                        ? legacyDefault()
+                        : ''));
+            if (picked != null && picked.trim().isNotEmpty) {
+              _preset(draft, rawFor(rawName))[leg] = picked.trim();
+            }
+          }
+        case CharInput(:final text):
+          switch (text.toLowerCase()) {
+            case 'a':
+              final entered = await _edit('New profile name', '');
+              final name = entered?.trim() ?? '';
+              if (name.isEmpty) break;
+              if (takenNames().contains(name) || name == 'default') {
+                error = 'A profile named "$name" already exists.';
+                break;
+              }
+              _preset(draft, name);
+            case 'd':
+              final rawName = names[row];
+              if (synthesized(rawName) || table.isEmpty) break;
+              final confirmed = await _menu(
+                  'Delete profile ${displayName(rawName)}?',
+                  ['Delete', 'Keep']);
+              if (confirmed == 0) {
+                table.remove(rawFor(rawName));
+                if ((draft.values['profile'] as String?) ==
+                    displayName(rawName)) {
+                  draft.values.remove('profile');
+                }
+                row = row.clamp(0, names.length - 2);
+              }
+            case 'x':
+              if (column > 0) {
+                final rawName = names[row];
+                if (!synthesized(rawName)) {
+                  _preset(draft, rawFor(rawName)).remove(legs[column - 1]);
+                }
+              }
+            case 's':
+              if (names.isNotEmpty) {
+                draft.values['profile'] = displayName(names[row]);
+              }
+            default:
+              break;
+          }
+        default:
+          break;
       }
     }
   }
 
-  static const _presetLegNames = ['main', 'subagent', 'approver'];
-  List<String> _presetNames(ProviderDraft draft) {
-    final names = draft.table('profiles').keys.cast<String>().toList();
-    return names..sort();
+  /// The searchable model picker for one profile leg, over the same
+  /// draft the table edits (the picker's list reflects the in-progress
+  /// provider configuration). Falls back to the text editor when no
+  /// provider offers models.
+  Future<String?> _pickPresetModel(
+      ProviderDraft draft, String name, String leg, String current) async {
+    final choices = modelChoices(draft, _management.providers, current);
+    if (choices == null) {
+      return _edit('$name · $leg', current, suggestions: [
+        for (final provider in _management.providers)
+          for (final model in provider.models.keys) '${provider.id}/$model',
+      ]);
+    }
+    return searchModelPicker(
+        screen: screen,
+        title: _title('Profile $name · $leg'),
+        choices: choices,
+        bounds: () => _frame,
+        contextLine: () => _scopeLine,
+        readEvent: _formEvent,
+        hideOverlay: _overlay.hide,
+        setRepaint: (paint) => _paint = paint);
   }
 
-  Map<String, dynamic> _preset(ProviderDraft draft, String name) =>
-      draft.table('profiles').putIfAbsent(
-          name, () => <String, dynamic>{}) as Map<String, dynamic>;
+  Map<String, dynamic> _preset(ProviderDraft draft, String name) {
+    final table = draft.table('profiles');
+    final existing = table[name];
+    if (existing is Map) return existing as Map<String, dynamic>;
+    // A one-line profile (a bare main value) becomes its table on the
+    // first write; nothing is materialized by a read.
+    final created = <String, dynamic>{
+      if (existing is String && existing.isNotEmpty) 'main': existing,
+    };
+    table[name] = created;
+    return created;
+  }
 
   String? _presetLegValue(ProviderDraft draft, String name, String leg) =>
-      switch (_preset(draft, name)[leg]) {
+      switch (draft.table('profiles')[name]) {
         null => null,
         String value => value.isEmpty ? null : value,
         Map table => table['provider'] == null || table['provider'] == ''
@@ -1098,14 +1257,6 @@ final class SettingsPanel {
             : '${table['provider']}/${table['model']}',
         final other => other.toString(),
       };
-
-  String _presetSummary(ProviderDraft draft, String name) {
-    final parts = [
-      for (final leg in _presetLegNames)
-        if (_presetLegValue(draft, name, leg) case final ref?) '$leg $ref',
-    ];
-    return parts.isEmpty ? 'no legs set' : parts.join(' · ');
-  }
 
   /// One level of controls inside a settings section: rows, space toggles,
   /// Enter-to-edit. A [SettingGroup] row opens this same list one level
