@@ -93,14 +93,12 @@ const _sessionChat =
 /// The model for permission-side judgments, shared by BOTH consumers:
 /// the permission classifier and the command-pattern suggester. The
 /// active profile's approver leg (or the Approver model setting) first,
-/// then the deprecated classifier model override for one more release,
-/// then this conversation's current model.
+/// then this conversation's current model. (The deprecated
+/// tina/mode/classifier_model override was removed with v0.10.9;
+/// configs still carrying the key load cleanly and ignore it.)
 String _classifierModel(SessionPluginContext c) {
   final leg = c.approverModel?.call()?.trim();
   if (leg != null && leg.isNotEmpty) return leg;
-  final deprecated =
-      (c.settings?.read(classifierModelSetting).value ?? '').trim();
-  if (deprecated.isNotEmpty) return deprecated;
   return c.currentModel();
 }
 

@@ -156,23 +156,6 @@ final classifierInstructionSetting = SettingDefinition<String>(
   applyAt: ApplyAt.nextRequest,
 );
 
-/// The DEPRECATED classifier model override. Superseded by the approver
-/// leg (profile or `tina/providers/approver_model`); honored for one
-/// release as the last override before the conversation model, then
-/// removed. No longer presented as the way to pick the judge model.
-final classifierModelSetting = SettingDefinition<String>(
-  id: 'tina/mode/classifier_model',
-  label: 'Auto-approval classifier model (deprecated)',
-  description:
-      'DEPRECATED: superseded by a profile\'s approver leg or the Approver '
-      'model setting; honored for one more release, then removed. When set, '
-      'it overrides the conversation model for auto-approval judgments, for '
-      'example "anthropic/claude-haiku".',
-  defaultValue: '',
-  kind: SettingKind.text,
-  applyAt: ApplyAt.nextRequest,
-);
-
 /// The classifier timeout, consolidated into the profiles module. Same id
 /// and storage path as when it lived in tina_mode.
 final classifierTimeoutSetting = SettingDefinition<int>(
@@ -193,7 +176,6 @@ final classifierTimeoutSetting = SettingDefinition<int>(
 /// through.
 final classifierSettings = <SettingDefinition<Object>>[
   classifierInstructionSetting,
-  classifierModelSetting,
   classifierTimeoutSetting,
 ];
 

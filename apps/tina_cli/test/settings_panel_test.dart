@@ -7,7 +7,7 @@ import 'package:tina_console/testing.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart' show SettingScope;
 import 'package:tina_providers/tina_providers.dart'
-    show classifierModelSetting, classifierTimeoutSetting;
+    show classifierTimeoutSetting, profileApproverModelSetting;
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';
 import 'app_test.dart' show FakeIo, fakeScreen;
@@ -23,9 +23,10 @@ const descriptors = [
       keyStyle: ProviderKeyStyle.bearer)
 ];
 
-/// The app wiring under test: the classifier model edits through the
-/// contributed model picker.
-final _classifierModelEditor = [ModelSettingEditor([classifierModelSetting])];
+/// The app wiring under test: a model-ref setting (the approver leg)
+/// edits through the contributed model picker.
+final _approverModelEditor =
+    [ModelSettingEditor([profileApproverModelSetting])];
 
 void main() {
   late Directory directory;
@@ -61,7 +62,7 @@ enabled = []
     var index = 0;
     late final SettingsPanel panel;
     panel = SettingsPanel(screen, editor,
-        editors: editors ?? _classifierModelEditor,
+        editors: editors ?? _approverModelEditor,
         readEvent: () async {
       if (index >= keys.length)
         fail('settings consumed more keys than expected');
@@ -331,44 +332,43 @@ enabled = []
     },
   );
 
-  test('the classifier model setting opens the searchable model picker',
+  test('a model-ref setting opens the searchable model picker',
       () async {
     final (saved, output) = await drive([
-      CharInput('classifier model'), enter, // search finds the setting
+      CharInput('approver model'), enter, // search finds the setting
       CharInput('Next'), enter, // filter and choose custom/next
       escape, // close settings
     ], verify: (assembly) {
-      final state = assembly.settings.read(classifierModelSetting);
+      final state = assembly.settings.read(profileApproverModelSetting);
       expect(state.value, 'custom/next');
       expect(state.source, SettingScope.session);
     });
     expect(saved, isTrue);
-    expect(output, contains('Auto-approval classifier model'));
+    expect(output, contains('Approver model'));
     expect(output, isNot(contains('Hidden')));
   });
 
-  test('the chosen classifier model lands in the selected scope', () async {
+  test('the chosen model-ref lands in the selected scope', () async {
     final (saved, _) = await drive([
       ControlKey(ControlCode.tab),
       ControlKey(ControlCode.tab), // global scope
-      CharInput('classifier model'), enter,
+      CharInput('approver model'), enter,
       CharInput('next'), enter,
       escape,
     ], verify: (assembly) {
-      final state = assembly.settings.read(classifierModelSetting);
+      final state = assembly.settings.read(profileApproverModelSetting);
       expect(state.value, 'custom/next');
       expect(state.source, SettingScope.global);
     });
     expect(saved, isTrue);
-    final section =
-        ConfigDocument.open(config.path).table('plugin_config')['tina/mode']
-            as Map;
-    expect(section['classifier_model'], 'custom/next');
+    final section = ConfigDocument.open(config.path)
+        .table('plugin_config')['tina/providers'] as Map;
+    expect(section['approver_model'], 'custom/next');
   });
 
-  test('the classifier picker omits disabled models', () async {
+  test('the model picker omits disabled models', () async {
     final (saved, output) = await drive([
-      CharInput('classifier model'), enter,
+      CharInput('approver model'), enter,
       CharInput('hidden'), // the disabled model matches nothing
       escape, // cancel the picker
       escape, // close settings
@@ -377,19 +377,19 @@ enabled = []
     expect(output, contains('no models match'));
     expect(output, isNot(contains('custom/hidden')));
     expect(output, isNot(contains('Hidden')));
-    expect(config.readAsStringSync(), isNot(contains('classifier_model')));
+    expect(config.readAsStringSync(), isNot(contains('approver_model')));
   });
 
-  test('the current classifier model stays pickable when unlisted', () async {
+  test('the current model stays pickable when unlisted', () async {
     config.writeAsStringSync(
-        '${config.readAsStringSync()}\n[plugin_config."tina/mode"]\n'
-        'classifier_model = "custom/mystery"\n');
+        '${config.readAsStringSync()}\n[plugin_config."tina/providers"]\n'
+        'approver_model = "custom/mystery"\n');
     final (saved, output) = await drive([
-      CharInput('classifier model'), enter,
+      CharInput('approver model'), enter,
       CharInput('mystery'), enter, // the unlisted current value still matches
       escape,
     ], verify: (assembly) {
-      final state = assembly.settings.read(classifierModelSetting);
+      final state = assembly.settings.read(profileApproverModelSetting);
       expect(state.value, 'custom/mystery');
       expect(state.source, SettingScope.session);
     });
@@ -397,7 +397,7 @@ enabled = []
     expect(output, contains('mystery'));
   });
 
-  test('without a model catalog the classifier model falls back to text',
+  test('without a model catalog the model-ref falls back to text',
       () async {
     // The provider exists but lists no models, and the descriptor carries
     // none either: the picker has nothing to offer.
@@ -413,12 +413,12 @@ api_key = "original-secret"
 enabled = []
 ''');
     final (saved, output) = await drive([
-      CharInput('classifier model'), enter,
+      CharInput('approver model'), enter,
       CharInput('anthropic/claude-haiku'), // the raw text editor
       enter,
       escape,
     ], providerDescriptors: const [], verify: (assembly) {
-      final state = assembly.settings.read(classifierModelSetting);
+      final state = assembly.settings.read(profileApproverModelSetting);
       expect(state.value, 'anthropic/claude-haiku');
       expect(state.source, SettingScope.session);
     });
@@ -427,15 +427,15 @@ enabled = []
     expect(output, contains('anthropic/claude-haiku'));
   });
 
-  test('without contributed editors the classifier model stays plain text',
+  test('without contributed editors the model-ref stays plain text',
       () async {
     final (saved, output) = await drive([
-      CharInput('classifier model'), enter,
+      CharInput('approver model'), enter,
       CharInput('custom/next'), // the built-in text editor
       enter,
       escape,
     ], editors: const [], verify: (assembly) {
-      final state = assembly.settings.read(classifierModelSetting);
+      final state = assembly.settings.read(profileApproverModelSetting);
       expect(state.value, 'custom/next');
       expect(state.source, SettingScope.session);
     });

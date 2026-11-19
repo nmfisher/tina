@@ -202,7 +202,7 @@ A one-line profile (`budget = "local/cheap-model"` under `[profiles]`) is
 its main leg. Omitted legs are **not** inherited from main: an unset
 subagent leg keeps the long-standing behavior (children inherit the
 parent's current model at spawn), an unset approver leg falls back through
-the deprecated classifier model to the conversation's model. A leg without
+the conversation's model. A leg without
 a provider inherits the session's provider. `judge` is accepted as the
 deprecated spelling of `approver`.
 

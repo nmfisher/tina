@@ -44,7 +44,6 @@ their counters into a process-wide or cross-process quota.
 |---|---|---|
 | Request/token limits, output/thinking, step limit, subagent limits | All | Next request/spawn |
 | Auto-approval classifier instruction | All | Next classification request |
-| Auto-approval classifier model | All | Next classification request |
 | Auto-approval classifier timeout (seconds) | All | Next classification request |
 | Plugin enablement | All | When idle if live; otherwise restart |
 | Default provider/model | Global, Workspace | New conversations; `/model` changes the current one |
@@ -137,13 +136,16 @@ The classifier can authorize explicitly requested invocation-only directory
 access; persistent folder grants still require a human selection.
 Input intent classification is separate from this permission classifier.
 
-**Auto-approval classifier model** in the same section routes permission
-judgments — and the command-pattern suggestion offered after approving a
-command — to a different model, for example a small fast one. Empty follows the
-conversation's model. The provider must support structured output; an
-unsupported model fails the judgment with a diagnostics error rather than
-falling back silently. Like the instruction, it is read again per request and
-supports all scopes.
+**Approver model** (Settings → Models, or a profile's approver leg) routes
+permission judgments — and the command-pattern suggestion offered after
+approving a command — to a different model, for example a small fast one.
+Empty follows the active profile's approver leg, then the conversation's
+model. The provider must support structured output; an unsupported model
+fails the judgment with a diagnostics error rather than falling back
+silently. It is read again per request and supports all scopes. (The old
+per-section `classifier_model` setting was removed with v0.10.9; configs
+still carrying the key load cleanly and ignore it — set the approver leg
+or the Approver model instead.)
 
 **Auto-approval classifier timeout (seconds)** defaults to **60**. Enter a
 positive whole number of seconds in the same section. The deadline covers the

@@ -354,22 +354,22 @@ write_directories = ["/untrusted/writable"]
     expect(judges.last.systems.single, contains(instruction));
     expect(global.readAsStringSync(), isNot(contains(instruction)));
   });
-  test('classifier model setting reroutes judgments and clears back', () async {
+  test('approver model setting reroutes judgments and clears back', () async {
     await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
     expect(judges.last.model, 'fixture');
     app.settings.set(
-        classifierModelSetting, 'anthropic/haiku', SettingScope.workspace);
+        profileApproverModelSetting, 'anthropic/haiku', SettingScope.workspace);
     final judgment =
         await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
     expect(judgment.allow, true);
     expect(judges.last.model, 'anthropic/haiku');
-    app.settings.removeOverride(classifierModelSetting, SettingScope.workspace);
+    app.settings.removeOverride(
+        profileApproverModelSetting, SettingScope.workspace);
     await app.tools.modePolicy.classifier!.classify({'operation': 'write'});
     expect(judges.last.model, 'fixture');
   });
 
-  test('the profile approver leg outranks the deprecated classifier model',
-      () async {
+  test('the profile approver leg outranks the conversation model', () async {
     // `profile` is a top-level key: it must precede the first table header.
     global.writeAsStringSync('''
 profile = "work"
@@ -395,18 +395,47 @@ unknown = "preserve me"
         options: AssemblyOptions(
             configPath: global.path, workingDirectory: workspace.path));
     addTearDown(profiled.close);
-    // The deprecated override still beats the conversation model…
-    profiled.settings.set(
-        classifierModelSetting, 'anthropic/deprecated', SettingScope.session);
+    // The approver leg beats the conversation model…
     await profiled.tools.modePolicy.classifier!.classify({'operation': 'x'});
     expect(judges.last.model, 'anthropic/judge-leg',
-        reason: 'the approver leg outranks the deprecated override');
+        reason: 'the approver leg outranks the conversation model');
     // …and the approver-model setting outranks the profile leg.
     profiled.settings.set(profileApproverModelSetting, 'anthropic/pinned',
         SettingScope.session);
     await profiled.tools.modePolicy.classifier!.classify({'operation': 'x'});
     expect(judges.last.model, 'anthropic/pinned',
         reason: 'the legs are the truth; profiles are presets');
+  });
+
+  test('a legacy config carrying classifier_model loads and ignores it',
+      () async {
+    global.writeAsStringSync('''
+[default]
+model = "fixture"
+[plugins]
+enabled = ["tina/persistence", "tina/chat-tui", "tina/session-controls"]
+[plugin_config."tina/mode"]
+classifier_model = "anthropic/removed"
+[legacy_extension]
+unknown = "preserve me"
+''');
+    final legacy = Directory('${directory.path}/legacy-key')..createSync();
+    final carried = SessionAssembly.start(
+        providerFactory: (model) {
+          final judge = Judge(model);
+          judges.add(judge);
+          return judge;
+        },
+        options: AssemblyOptions(
+            configPath: global.path, workingDirectory: legacy.path));
+    addTearDown(carried.close);
+    // Loads cleanly (no error, no warning storm) and the dead key has no
+    // effect: the conversation model judges.
+    await carried.tools.modePolicy.classifier!.classify({'operation': 'x'});
+    expect(judges.last.model, 'fixture',
+        reason: 'the removed override is ignored');
+    expect(global.readAsStringSync(), contains('classifier_model'),
+        reason: 'the file is never rewritten for a dead key');
   });
 
   test('the approver leg with no profile falls through to the legacy chain',
