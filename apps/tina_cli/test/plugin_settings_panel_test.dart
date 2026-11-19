@@ -403,14 +403,14 @@ void main() {
     expect(output, contains('Choose default model'));
     expect(output, contains('Providers & models'));
     expect(output, contains('Model profiles'));
-    expect(output, contains('Model presets'));
+    expect(output, contains('Model presets · Global'));
     expect(output, contains('Generation · anthropic'));
     expect(output, contains('About acme/notes'));
   });
 
   test('the presets table writes [profiles] to the config', () async {
     final output = await drive([
-      CharInput('presets'), enter, // Models → Model presets (Global only)
+      CharInput('Model profiles'), enter, // Models → the table
       CharInput('a'), // add a profile
       CharInput('budget'), enter, // its name, back in the table
       enter, // main cell → the searchable model picker

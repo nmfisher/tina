@@ -977,7 +977,7 @@ enabled = []
     test('renders four columns, the synthesized default row and '
         'fallback markers', () async {
       final (_, output) = await drive([
-        CharInput('Model presets'), enter,
+        CharInput('Model profiles'), enter,
         enter, // Profile presets are Global only → Edit Global presets
         escape, // leave the table
         escape, // settings root
@@ -1000,7 +1000,7 @@ enabled = []
     test('activating the three model cells writes through the picker; '
         'x clears back to the fallback', () async {
       final (_, output) = await drive([
-        CharInput('Model presets'), enter,
+        CharInput('Model profiles'), enter,
         enter, // Global
         CharInput('a'), // add
         CharInput('budget'), enter, // name
@@ -1029,7 +1029,7 @@ enabled = []
 
     test('rename: success persists with legs untouched', () async {
       final (_, output) = await drive([
-        CharInput('Model presets'), enter,
+        CharInput('Model profiles'), enter,
         enter,
         CharInput('a'),
         CharInput('budget'), enter,
@@ -1052,7 +1052,7 @@ enabled = []
     test('rename to a taken name is refused inline; default counts',
         () async {
       final (_, output) = await drive([
-        CharInput('Model presets'), enter,
+        CharInput('Model profiles'), enter,
         enter,
         CharInput('a'),
         CharInput('budget'), enter,
@@ -1073,9 +1073,57 @@ enabled = []
       expect(config.readAsStringSync(), isNot(contains('[profiles.default]')));
     });
 
+    test('the profiles section IS the table, not the leg rows', () async {
+      final (_, output) = await drive([
+        CharInput('Model profiles'), enter,
+        enter, // Global
+        escape, escape,
+      ]);
+      // The table rendered with its four columns.
+      expect(output, contains('NAME'));
+      expect(output, contains('APPROVER'));
+      expect(output, contains('Model presets · Global'));
+      // The three leg-row layout is NOT this section's view (the
+      // per-scope override labels never render here).
+      expect(output, isNot(contains('(conversation override)')));
+      expect(output, isNot(contains('Profile presets are Global only')),
+          reason: 'the old duplicate presets door is gone');
+    });
+
+    test('table edits persist to the config file and survive a restart',
+        () async {
+      // Session one: add a profile and pick its main model.
+      final (saved, _) = await drive([
+        CharInput('Model profiles'), enter,
+        enter,
+        CharInput('a'),
+        CharInput('durable'), enter,
+        enter, // main → picker
+        CharInput('next'), enter,
+        escape, escape,
+      ]);
+      expect(saved, isTrue);
+      // The FILE on disk changed (not a session override).
+      final file = config.readAsStringSync();
+      expect(file, contains('[profiles.durable]'));
+      expect(file, contains('custom/next'));
+
+      // Session two: a fresh panel over the same file renders the
+      // persisted profile — the TUI restart reads it back.
+      final (_, output2) = await drive([
+        CharInput('Model profiles'), enter,
+        enter,
+        escape, escape,
+      ]);
+      expect(output2, contains('durable'));
+      expect(output2, contains('custom/next'));
+      expect(output2, isNot(contains('inherits default')),
+          reason: 'the persisted main leg renders, not the fallback');
+    });
+
     test('rename to the own current name is a no-op success', () async {
       final (_, _) = await drive([
-        CharInput('Model presets'), enter,
+        CharInput('Model profiles'), enter,
         enter,
         CharInput('a'),
         CharInput('budget'), enter,

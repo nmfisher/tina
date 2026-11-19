@@ -267,37 +267,12 @@ final class SettingsPanel {
         (
           category: 'Models',
           label: 'Model profiles',
-          open: () => _definitions(
-              'Model profiles',
-              () => [
-                    _state.catalog['tina/providers/profile'],
-                    _state.catalog['tina/providers/main_model'],
-                    _state.catalog['tina/providers/subagent_model'],
-                    _state.catalog['tina/providers/approver_model'],
-                  ].whereType<SettingInfo>().toList())
-        ),
-        (
-          category: 'Models',
-          label: 'Model presets (Global only)',
-          open: () async {
-            if (_scope != SettingScope.global) {
-              final enter = await _menu('Profile presets are Global only',
-                  ['Edit Global presets', 'Back']);
-              if (enter != 0) return;
-              _scope = SettingScope.global;
-            }
-            final draft = _management.openDraft(SettingScope.global,
-                providerCatalog: true);
-            try {
-              await _presets(draft);
-              if (draft.hasChanges) {
-                _management.saveDraft(draft);
-                _savedSection = true;
-              }
-            } finally {
-              _management.closeDraft(draft);
-            }
-          }
+          // THE profiles surface: the four-column table (name, main,
+          // subagent, approver) over the config file — one obvious
+          // door. The per-leg settings stay reachable through search
+          // as the per-scope override editor, relabeled as that; they
+          // are no longer this section's layout.
+          open: _openProfileTable,
         ),
         (
           category: 'Models',
@@ -969,6 +944,31 @@ final class SettingsPanel {
     }
   }
 
+  /// Opens the profile table over the GLOBAL config draft: the table
+  /// edits `[profiles]` in the config file on disk (what a restart and
+  /// every checkout reads) — never a session-scoped override, which is
+  /// what the old leg-rows editor wrote and why its edits did not
+  /// persist.
+  Future<void> _openProfileTable() async {
+    if (_scope != SettingScope.global) {
+      final enter = await _menu('Model profiles live in the config file',
+          ['Edit Global profiles', 'Back']);
+      if (enter != 0) return;
+      _scope = SettingScope.global;
+    }
+    final draft =
+        _management.openDraft(SettingScope.global, providerCatalog: true);
+    try {
+      await _presets(draft);
+      if (draft.hasChanges) {
+        _management.saveDraft(draft);
+        _savedSection = true;
+      }
+    } finally {
+      _management.closeDraft(draft);
+    }
+  }
+
   /// The config's profile presets, as a four-column table — name, main,
   /// subagent, approver — one row per profile (the synthesized
   /// `default` from the legacy `model`/`provider` keys included when
@@ -1248,15 +1248,28 @@ final class SettingsPanel {
     return created;
   }
 
-  String? _presetLegValue(ProviderDraft draft, String name, String leg) =>
-      switch (draft.table('profiles')[name]) {
-        null => null,
-        String value => value.isEmpty ? null : value,
-        Map table => table['provider'] == null || table['provider'] == ''
-            ? '${table['model']}'
-            : '${table['provider']}/${table['model']}',
-        final other => other.toString(),
-      };
+  String? _presetLegValue(ProviderDraft draft, String name, String leg) {
+    String? legValue(Object? value) => switch (value) {
+          null => null,
+          String text => text.isEmpty ? null : text,
+          // The `{provider = ..., model = ...}` table spelling of one
+          // leg; an empty model means the leg is unset.
+          Map legTable => (legTable['model'] == null ||
+                  '${legTable['model']}'.isEmpty)
+              ? null
+              : (legTable['provider'] == null || legTable['provider'] == ''
+                  ? '${legTable['model']}'
+                  : '${legTable['provider']}/${legTable['model']}'),
+          final other => other.toString(),
+        };
+    return switch (draft.table('profiles')[name]) {
+      null => null,
+      // A one-line profile is its main leg.
+      String oneLine => leg == 'main' ? legValue(oneLine) : null,
+      Map profile => legValue(profile[leg]),
+      final other => other.toString(),
+    };
+  }
 
   /// One level of controls inside a settings section: rows, space toggles,
   /// Enter-to-edit. A [SettingGroup] row opens this same list one level
