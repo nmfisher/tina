@@ -132,7 +132,8 @@ Verified wasm-clean already (grep evidence, merged tree):
      (its `run` export is the same shape). Out of scope this round;
      verify + backport as a follow-up if confirmed.
 7. **Production TUI component** — new package `packages/libraries/tina_tui_guest`
-   (the `tina_tui_spike` package stays untouched as spike evidence):
+   (the `tina_tui_spike` package was later deleted outright — owner
+   verdict, its evidence value spent):
    - WIT world: `include wasi:cli/command@0.3.0` + import
      `tina:term/tty@0.1.0`, `tina:term/crash@0.1.0`,
      `tina:http@1.1.0`, `tina:policy@1.0.0`, `tina:process@1.1.0`,
