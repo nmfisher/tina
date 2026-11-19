@@ -79,9 +79,13 @@ final activeProfileSetting = SettingDefinition<String>(
 /// follows the active profile's main leg (or the config's default model).
 final profileMainModelSetting = SettingDefinition<String>(
   id: 'tina/providers/main_model',
-  label: 'Main model',
+  label: 'Main model (conversation override)',
   description:
-      'The conversation model as a provider/model reference, for example '
+      'A per-conversation override of the active profile\'s main leg, as a '
+      'provider/model reference. The profiles themselves are edited in '
+      'Settings → Models → Model profiles (the table, written to the config '
+      'file); this session override is what /model changes and it dies with '
+      'the conversation. '
       '"anthropic/claude-sonnet-4". Empty follows the active profile\'s '
       'main leg. /model overrides it for this conversation without '
       'changing the profile.',
@@ -95,9 +99,12 @@ final profileMainModelSetting = SettingDefinition<String>(
 /// the parent's current model and provider at spawn.
 final profileSubagentModelSetting = SettingDefinition<String>(
   id: 'tina/providers/subagent_model',
-  label: 'Subagent model',
+  label: 'Subagent model (conversation override)',
   description:
-      'The model launch_subagent children use, as a provider/model '
+      'A per-conversation override of the active profile\'s subagent leg: '
+      'the model launch_subagent children use, as a provider/model '
+      'reference. Profiles are edited in Settings → Models → Model '
+      'profiles (the table, written to the config file); '
       'reference. Empty follows the active profile\'s subagent leg; when '
       'neither is set, children inherit the parent\'s current model at '
       'spawn. Running children keep the model they started with.',
@@ -110,9 +117,12 @@ final profileSubagentModelSetting = SettingDefinition<String>(
 /// permission classifier and the command-pattern suggester.
 final profileApproverModelSetting = SettingDefinition<String>(
   id: 'tina/providers/approver_model',
-  label: 'Approver model',
+  label: 'Approver model (conversation override)',
   description:
-      'The model for auto-approval judgments and command-pattern '
+      'A per-conversation override of the active profile\'s approver leg: '
+      'the model for auto-approval judgments and command-pattern '
+      'suggestions. Profiles are edited in Settings → Models → Model '
+      'profiles (the table, written to the config file); '
       'suggestions, as a provider/model reference. Empty follows the '
       'active profile\'s approver leg, then the legacy classifier model, '
       'then this conversation\'s model. The provider must support '
