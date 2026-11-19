@@ -898,7 +898,35 @@ void main() {
     expect('After resizing'.allMatches(transcript()), hasLength(1));
     expect(sentence.allMatches(transcript()), hasLength(1));
   });
-  test('fold navigation finds retained blocks after scrollback is trimmed',
+  test('an ongoing status notice updates its line instead of stacking',
+        () {
+      // The transport backoff ladder reports progress with the same
+      // leading segment; the transcript shows ONE live line.
+      chat.writeNotice('still no network — attempt 2/16 next in ~1s');
+      chat.writeNotice('still no network — attempt 3/16 next in ~2s');
+      chat.writeNotice('still no network — attempt 4/16 next in ~4s');
+      final notices = chat.blocks
+          .where((b) => b.kind == ChatBlockKind.notice)
+          .map((b) => b.subject)
+          .toList();
+      expect(notices, ['still no network — attempt 4/16 next in ~4s']);
+
+      // A different status (no shared leading segment) is its own
+      // line; so is a one-off notice without an em dash.
+      chat.writeNotice('Pool member a failed; trying the next member.');
+      chat.writeNotice('one-off');
+      final after = chat.blocks
+          .where((b) => b.kind == ChatBlockKind.notice)
+          .map((b) => b.subject)
+          .toList();
+      expect(after, [
+        'still no network — attempt 4/16 next in ~4s',
+        'Pool member a failed; trying the next member.',
+        'one-off',
+      ]);
+    });
+
+    test('fold navigation finds retained blocks after scrollback is trimmed',
       () async {
     previousRows(2100);
     chat.observe(const ToolStarted(call));

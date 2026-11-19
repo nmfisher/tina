@@ -5,6 +5,75 @@ import 'dart:math' as math;
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'limits.dart';
 
+/// Connection-phase transport backoff (DNS outages, refused/reset
+/// sockets): retries of the SAME member, before any pool failover —
+/// a network failure is usually machine-wide, so failing over would
+/// only burn the pool. HTTP-level failures (429/5xx) never take this
+/// path; they keep the cooldown gate and pool behavior.
+const int transportRetryLimit = 15;
+
+/// The first retry waits ~1s; each next wait doubles, capped here.
+const Duration transportBackoffFirst = Duration(seconds: 1);
+const Duration transportBackoffCap = Duration(seconds: 60);
+
+/// Worst case before surfacing: 1+2+4+8+16+32+60×9 ≈ 10 minutes.
+const Duration transportBackoffWorstCase = Duration(seconds: 603);
+
+/// Whether [error] is a CONNECTION-PHASE transport failure: the
+/// request never produced response bytes — host lookup, socket
+/// errors, connection refused/reset, TLS handshake. Detected by the
+/// error's own text (this file compiles where `dart:io` types do not
+/// exist, and every dart:io transport error names itself in
+/// `toString`). StreamError events are the HTTP/semantic layer and
+/// are never connection-phase.
+bool isConnectionPhaseTransportFailure(Object error) {
+  if (error is StreamError) return false;
+  if (error is TimeoutException) return true;
+  final text = error.toString();
+  return text.contains('SocketException') ||
+      text.contains('Failed host lookup') ||
+      text.contains('Connection refused') ||
+      text.contains('Connection reset') ||
+      text.contains('Network is unreachable') ||
+      text.contains('Connection terminated') ||
+      text.contains('HttpException') ||
+      text.contains('HandshakeException') ||
+      text.contains('ClientException') ||
+      text.contains('Connection closed');
+}
+
+final math.Random _transportRandomInstance = math.Random();
+
+/// Human-friendly total for the surfaced ceiling error.
+String _minutesAndSeconds(Duration total) {
+  final minutes = total.inMinutes;
+  final seconds = total.inSeconds % 60;
+  if (minutes == 0) return '${total.inSeconds}s';
+  if (seconds == 0) return '$minutes minute${minutes == 1 ? '' : 's'}';
+  return '$minutes minute${minutes == 1 ? '' : 's'} $seconds s';
+}
+
+/// Waits out [delay], or resolves false the moment [aborted] fires
+/// (cancellation wins). The policy's backoff sleeps through this
+/// seam; tests inject a fake clock so nothing really sleeps.
+typedef TransportWait = Future<bool> Function(
+    Duration delay, Future<void> aborted);
+
+Future<bool> _realTransportWait(Duration delay, Future<void> aborted) async {
+  final elapsed = Completer<bool>();
+  final timer = Timer(delay, () => elapsed.complete(true));
+  final subscription = aborted.whenComplete(() {
+    if (!elapsed.isCompleted) elapsed.complete(false);
+  });
+  try {
+    return await elapsed.future;
+  } finally {
+    timer.cancel();
+    // ignore: unawaited_futures
+    subscription;
+  }
+}
+
 /// A configured endpoint. All sessions using its key share the launch gate.
 final class ProviderTarget {
   const ProviderTarget(
@@ -23,7 +92,10 @@ final class ProviderTarget {
 /// Policy is a plugin; the loop only sees ordinary providers and turn hooks.
 final class ProviderPolicyPlugin extends AgentPlugin implements ModelAccess {
   ProviderPolicyPlugin(
-      {required this.targets, this.limits = const RequestLimits()})
+      {required this.targets,
+      this.limits = const RequestLimits(),
+      this.transportWait = _realTransportWait,
+      this.transportJitter})
       : _globalGate = LaunchGate(
             interval: limits.requestsPerMinute == 0
                 ? Duration.zero
@@ -32,6 +104,12 @@ final class ProviderPolicyPlugin extends AgentPlugin implements ModelAccess {
             maxConcurrent: 0);
   final List<ProviderTarget> Function(String model) targets;
   RequestLimits limits;
+
+  /// Backoff waits (tests inject a fake clock so nothing really
+  /// sleeps) and the jitter source (uniform in [0,1); null uses a
+  /// real random).
+  final TransportWait transportWait;
+  final double Function()? transportJitter;
   final _gates = <String, LaunchGate>{};
   final LaunchGate _globalGate;
   final _main = _Spend();
@@ -279,6 +357,7 @@ final class _PolicyProvider extends LlmProvider
         var recovered = false;
         var recoveryInstruction = '';
         var attempts = targets.length;
+        pool:
         for (var attempt = 0; attempt < attempts && live; attempt++) {
           final target = targets[(start + attempt) % targets.length];
           final provider = _members.putIfAbsent(target.id, target.create);
@@ -289,8 +368,17 @@ final class _PolicyProvider extends LlmProvider
                   providerCode: 'structured_output_unsupported'));
               return;
             }
-            continue;
+            continue pool;
           }
+          // Connection-phase transport backoff: a machine-wide outage
+          // keeps retrying THIS member — pool failover would only burn
+          // the pool on a network that is down everywhere. HTTP-level
+          // failures never enter this loop (no transport cause).
+          var transportRetries = 0;
+          var transportWaited = Duration.zero;
+          StreamError? error;
+          var published = false;
+          var reasoned = false;
           final gate = policy._gates.putIfAbsent(
               target.gateKey ?? target.id,
               () => LaunchGate(
@@ -299,91 +387,141 @@ final class _PolicyProvider extends LlmProvider
           gate.configure(
               interval: target.minInterval,
               maxConcurrent: target.maxConcurrent);
-          if (gate.waiting)
-            output.add(StreamNotice('Waiting for ${target.id} request slot…'));
-          release = await gate.acquire(cancelled.future);
-          if (!live || release == null) return;
-          final releaseGlobal =
-              await policy._globalGate.acquire(cancelled.future);
-          if (!live || releaseGlobal == null) return;
-          releaseGlobal();
-          final refusal = policy._refusal(spend, child, estimate);
-          if (refusal != null) {
-            output.add(StreamError(refusal, requiresUserAction: true));
-            return;
-          }
-          final done = Completer<void>();
-          var published = false;
-          var reasoned = false;
-          var complete = false;
-          StreamError? failure;
-          var booked = false;
-          void settle([TokenUsage? usage]) {
-            if (booked) return;
-            booked = true;
-            policy._book(
-                spend,
-                child,
-                turnId,
-                usage ??
-                    TokenUsage(
-                        inputTokens: estimate,
-                        outputTokens: 0,
-                        estimated: true));
-          }
-
-          settleActive = settle;
-          final stream = schema == null
-              ? provider.send(
-                  system: system + recoveryInstruction,
-                  messages: messages,
-                  tools: tools)
-              : (provider as StructuredOutputProvider).sendStructured(
-                  system: system + recoveryInstruction,
-                  messages: messages,
-                  output: schema);
-          upstream = stream.listen((event) {
-            if (!live || done.isCompleted) return;
-            try {
-              if (event is StreamError) {
-                settle(event.usage);
-                failure = event;
-              } else {
-                if (event is MessageComplete) {
-                  complete = true;
-                  settle(event.usage ?? TokenUsage.zero);
-                }
-                if (event is TextDelta ||
-                    event is ToolCallStart ||
-                    event is MessageComplete) published = true;
-                if (event is ReasoningDelta) reasoned = true;
-                output.add(event);
-              }
-            } catch (error) {
-              failure = StreamError('usage recording failed: $error',
-                  requiresUserAction: true);
-              if (!done.isCompleted) done.complete();
-              unawaited(upstream?.cancel().catchError((Object _) {}));
+          // The connection-phase retry cycle: one iteration = one full
+          // request attempt on THIS member. A transport failure that
+          // published nothing loops here with backoff instead of
+          // falling over to the next pool member.
+          while (live) {
+            published = false;
+            reasoned = false;
+            if (gate.waiting)
+              output
+                  .add(StreamNotice('Waiting for ${target.id} request slot…'));
+            release = await gate.acquire(cancelled.future);
+            if (!live || release == null) return;
+            final releaseGlobal =
+                await policy._globalGate.acquire(cancelled.future);
+            if (!live || releaseGlobal == null) return;
+            releaseGlobal();
+            final refusal = policy._refusal(spend, child, estimate);
+            if (refusal != null) {
+              output.add(StreamError(refusal, requiresUserAction: true));
+              return;
             }
-          }, onDone: () {
-            if (!done.isCompleted) done.complete();
-          }, onError: (Object error) {
-            failure = StreamError('provider transport failed: $error',
-                transient: true);
-            if (!done.isCompleted) done.complete();
-          }, cancelOnError: true);
-          await Future.any([done.future, cancelled.future]);
-          settle();
-          settleActive = null;
-          release?.call();
-          release = null;
-          if (!live) return;
-          final error = failure ??
-              (complete
-                  ? null
-                  : const StreamError(
-                      'provider stream ended without completion',
-                      transient: true));
+            final done = Completer<void>();
+            var complete = false;
+            StreamError? failure;
+            Object? transportCause;
+            var booked = false;
+            void settle([TokenUsage? usage]) {
+              if (booked) return;
+              booked = true;
+              policy._book(
+                  spend,
+                  child,
+                  turnId,
+                  usage ??
+                      TokenUsage(
+                          inputTokens: estimate,
+                          outputTokens: 0,
+                          estimated: true));
+            }
+
+            settleActive = settle;
+            final stream = schema == null
+                ? provider.send(
+                    system: system + recoveryInstruction,
+                    messages: messages,
+                    tools: tools)
+                : (provider as StructuredOutputProvider).sendStructured(
+                    system: system + recoveryInstruction,
+                    messages: messages,
+                    output: schema);
+            upstream = stream.listen((event) {
+              if (!live || done.isCompleted) return;
+              try {
+                if (event is StreamError) {
+                  settle(event.usage);
+                  failure = event;
+                } else {
+                  if (event is MessageComplete) {
+                    complete = true;
+                    settle(event.usage ?? TokenUsage.zero);
+                  }
+                  if (event is TextDelta ||
+                      event is ToolCallStart ||
+                      event is MessageComplete) published = true;
+                  if (event is ReasoningDelta) reasoned = true;
+                  output.add(event);
+                }
+              } catch (error) {
+                failure = StreamError('usage recording failed: $error',
+                    requiresUserAction: true);
+                if (!done.isCompleted) done.complete();
+                unawaited(upstream?.cancel().catchError((Object _) {}));
+              }
+            }, onDone: () {
+              if (!done.isCompleted) done.complete();
+            }, onError: (Object error) {
+              transportCause = error;
+              failure = StreamError('provider transport failed: $error',
+                  transient: true);
+              if (!done.isCompleted) done.complete();
+            }, cancelOnError: true);
+            await Future.any([done.future, cancelled.future]);
+            settle();
+            settleActive = null;
+            release?.call();
+            release = null;
+            if (!live) return;
+            error = failure ??
+                (complete
+                    ? null
+                    : const StreamError(
+                        'provider stream ended without completion',
+                        transient: true));
+            if (error == null) return;
+            final cause = transportCause;
+            final connectionPhase = !published &&
+                !error.requiresUserAction &&
+                cause != null &&
+                isConnectionPhaseTransportFailure(cause);
+            if (connectionPhase && transportRetries < transportRetryLimit) {
+              // Exponential backoff with jitter: 1s doubling to a 60s
+              // cap, 50–100% of the base. One collapsed notice per
+              // retry keeps the terminal current without spamming.
+              final base = transportBackoffFirst * (1 << transportRetries);
+              final capped =
+                  base > transportBackoffCap ? transportBackoffCap : base;
+              final u = policy.transportJitter?.call() ??
+                  _transportRandomInstance.nextDouble();
+              final delay = Duration(
+                  milliseconds:
+                      (capped.inMilliseconds * (0.5 + 0.5 * u)).round());
+              transportRetries++;
+              transportWaited += delay;
+              output.add(StreamNotice('still no network — attempt '
+                  '${transportRetries + 1}/${transportRetryLimit + 1} '
+                  'next in ~${delay.inSeconds}s'));
+              final waited =
+                  await policy.transportWait(delay, cancelled.future);
+              if (!waited || !live) return; // cancellation wins
+              continue; // same member, full request path again
+            }
+            if (connectionPhase) {
+              // The ceiling: nothing published, so nothing is lost, but
+              // the network stayed down — surface and let the turn be
+              // re-prompted when connectivity returns.
+              output.add(StreamError(
+                  'network unreachable: ${transportRetryLimit + 1} attempts '
+                  'over ~${_minutesAndSeconds(transportWaited)} kept failing '
+                  '(${failure?.error ?? cause}); nothing was published. The '
+                  'network appears to be down — re-prompt the turn once '
+                  'connectivity returns.'));
+              return;
+            }
+            break; // not connection-phase: HTTP/pool handling below
+          }
           if (error == null) return;
           if (error.statusCode == 429 || error.statusCode == 503)
             gate.cooldown(error.retryAfter ?? const Duration(seconds: 1));
@@ -405,7 +543,7 @@ final class _PolicyProvider extends LlmProvider
             output.add(const ReasoningEnd(complete: false));
             output.add(StreamNotice(
                 '${error.error} Retrying once before any answer or tool call.'));
-            continue;
+            continue pool;
           }
           if (published ||
               error.requiresUserAction ||

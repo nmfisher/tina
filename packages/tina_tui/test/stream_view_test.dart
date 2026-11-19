@@ -108,4 +108,23 @@ void main() {
       );
     }
   });
+
+  test('successive notices collapse into one live status line', () {
+    final view = StreamView();
+    view.apply(const StreamNotice('still no network — attempt 2/16 next in ~1s'));
+    view.apply(const StreamNotice('still no network — attempt 3/16 next in ~2s'));
+    view.apply(const StreamNotice('still no network — attempt 4/16 next in ~4s'));
+    var texts = view.rows.map((r) => r.runs.map((run) => run.text).join());
+    expect(texts.join('\n'), contains('attempt 4/16 next in ~4s'));
+    expect(texts.join('\n'), isNot(contains('attempt 2/16')),
+        reason: 'the ladder updates, it does not accumulate');
+
+    // Any other event ends the collapse: the next notice is its own
+    // line again (notices render above the answer's text row).
+    view.apply(const TextDelta('recovering'));
+    view.apply(const StreamNotice('different status'));
+    texts = view.rows.map((r) => r.runs.map((run) => run.text).join());
+    expect(texts.join('\n'), contains('recovering'));
+    expect(texts.join('\n'), contains('different status'));
+  });
 }

@@ -33,6 +33,10 @@ class StreamView {
 
   bool _done = false;
 
+  /// Whether the reasoning buffer currently holds ONLY a notice (the
+  /// next notice replaces it; any other event ends the streak).
+  bool _noticeOnly = false;
+
   /// Ingest one event.
   void apply(StreamEvent event) {
     switch (event) {
@@ -42,25 +46,34 @@ class StreamView {
           _done = false;
           _completed.clear();
         }
+        _noticeOnly = false;
         _text.write(text);
       case ReasoningDelta(:final text):
         if (_done) {
           _done = false;
           _completed.clear();
         }
+        _noticeOnly = false;
         _reasoning.write(text);
       case ReasoningEnd():
         break; // one reasoning block per attempt; accumulation continues
       case StreamNotice(:final text):
         if (_done) return;
+        // Collapse repeats: a retry ladder's notices update one status
+        // line instead of accumulating — any other event ends the
+        // collapse so distinct notices stay distinct.
+        if (_noticeOnly) _reasoning.clear();
+        _noticeOnly = true;
         _reasoning.write(text);
       case ToolCallStart(:final id, :final name):
         if (_done) {
           _done = false;
           _completed.clear();
         }
+        _noticeOnly = false;
         _calls.add(ToolUse(id: id, name: name, input: const {}));
       case MessageComplete(:final content):
+        _noticeOnly = false;
         _text.clear();
         _reasoning.clear();
         _calls.clear();

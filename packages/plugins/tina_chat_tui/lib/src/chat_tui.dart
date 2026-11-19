@@ -677,7 +677,30 @@ final class ChatView implements ConsoleContribution, ConsoleTranscript {
   void writeNotice(String text) {
     _flushThinking();
     _flushMarkdown();
+    // A notice about an ONGOING status (same leading segment, before
+    // an em dash) updates the previous such line instead of stacking:
+    // a retry ladder that reports "attempt 7/16" every few seconds
+    // must read as one live status, not a transcript flood.
+    final key = _noticeKey(text);
+    if (key != null) {
+      for (var i = _blocks.length - 1; i >= 0; i--) {
+        final block = _blocks[i];
+        if (block.kind != ChatBlockKind.notice) break;
+        if (_noticeKey(block.subject) == key) {
+          _blocks[i] = ChatBlock.notice(_speaker, _clean(text));
+          return;
+        }
+      }
+    }
     _add(ChatBlock.notice(_speaker, _clean(text)));
+  }
+
+  /// The ongoing-status key of a notice: its text before the first
+  /// em dash when the dash exists (transport-backoff ladder and
+  /// friends), null for one-off notices.
+  static String? _noticeKey(String text) {
+    final dash = text.indexOf('—');
+    return dash <= 0 ? null : text.substring(0, dash).trim();
   }
 
   void _add(ChatBlock block, {DateTime? at}) {
