@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_memory/tina_memory.dart' show MemoryPlugin;
 import 'package:tina_session_controls/tina_session_controls.dart'
     show ModelCatalog, ProfileList, reasoningSetting;
 import 'package:tina_providers/tina_providers.dart'
@@ -612,6 +613,13 @@ final class SessionAssembly {
           assembled?.host.plugins
               .any((plugin) => plugin.id == 'tina/context') ??
           false,
+      // The live scoreboard /memory stats shows: read at command time
+      // from the assembled host's memory plugin (absent when the
+      // session selection has no memory — stats then says so).
+      memoryCacheStats: () => assembled?.host.plugins
+          .whereType<MemoryPlugin>()
+          .firstOrNull
+          ?.answerCache?.stats,
     );
     final plugins = registry.build(pluginSettings.selected, context);
     final factory = plugins.whereType<ModelAccess>().single.mainProvider;

@@ -7,6 +7,8 @@ environment:
 dependencies:
   tina_host:
     path: ../../tina_host
+  tina_memory:
+    path: ../tina_memory
   tina_settings:
     path: ../../libraries/tina_settings
   tina_engine_2:

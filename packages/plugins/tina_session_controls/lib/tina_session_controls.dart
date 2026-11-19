@@ -1,7 +1,11 @@
 export 'settings.dart';
 export 'observation.dart';
 export 'operations.dart';
+export 'memory_command.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_memory/tina_memory.dart'
+    show AnswerCacheStats, MemoryStorePair;
+import 'memory_command.dart';
 import 'observation.dart';
 import 'settings.dart';
 
@@ -17,6 +21,8 @@ final class SessionControlsPlugin extends AgentPlugin {
     this.reasoningChoices,
     this.readProfiles,
     this.switchProfile,
+    this.openMemoryStores,
+    this.readCacheStats,
   });
   final Terminal terminal;
   final String Function() currentModel;
@@ -43,6 +49,16 @@ final class SessionControlsPlugin extends AgentPlugin {
   /// Effort words the current model accepts, for completion and validation.
   /// Null means every canonical word is offered.
   final List<String> Function()? reasoningChoices;
+
+  /// Rolling-memory access for /memory: opens the store pair the way
+  /// the CLI does (`openDefaultMemoryStores`), called once per command
+  /// with the pair closed after. Null disables /memory — the wasm
+  /// engine path and compositions without memory.
+  final MemoryStorePair Function()? openMemoryStores;
+
+  /// The session's live answer-cache scoreboard for /memory stats; null
+  /// when no memory plugin is attached (stats then says so).
+  final AnswerCacheStats? Function()? readCacheStats;
   AgentLoop? _loop;
   bool _closed = false;
   late final SessionControlsObservation observation =
@@ -53,6 +69,15 @@ final class SessionControlsPlugin extends AgentPlugin {
   void mountOn(AgentLoop loop) => _loop = loop;
   @override
   List<Command> get commands => [
+    // /memory exists only where the composition supplied the CLI's
+    // store-opening path — by construction it stays off the wasm
+    // engine, whose registry wires this plugin without the seam.
+    if (openMemoryStores case final openMemory?)
+      memoryCommand(
+        terminal: terminal,
+        openStores: openMemory,
+        readCacheStats: readCacheStats,
+      ),
     Command(
       name: 'model',
       description: 'pick or change this conversation model',

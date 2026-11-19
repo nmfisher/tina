@@ -60,6 +60,35 @@ anyway.
 rule, enforced by placement: no agent tool can widen scope). `stats`
 prints both tiers with per-category counts and recalls served.
 
+## Browsing from the TUI
+
+`/memory` in session-controls (where `/model` and `/profile` live) is
+the human's window from a running session — not a side-column panel.
+The store opens exactly the way the CLI opens it
+(`openDefaultMemoryStores` on the workspace, one pair per invocation,
+closed after); no second store path exists.
+
+- `/memory` — list: id, category, a heat marker (`·0` never recalled,
+  `▪n` warm, `■n` hot), one-line text. Project entries by default;
+  global entries appear with a `[g]` marker.
+- `/memory <query>` — keyword search over both tiers with
+  **memory_recall's semantics**: heat of what it surfaces BUMPS
+  (browsing by search is a recall). Listing and showing never touch
+  heat.
+- `/memory show <id> [--global]`, `/memory list [--category CAT]` —
+  full text / filtered listing.
+- `/memory stats` — both tiers plus the session's live answer-cache
+  scoreboard (served/accepted/declined/stale, estimated tokens saved).
+- `/memory remember <text> --category <cat> [--global]` and
+  `/memory forget <id> [--global]` — the agent-side tools stay the
+  primary path; the keyboard gets the same mutators.
+- `/memory promote <id>` — the CLI's path; promotion stays manual-only.
+
+The command exists only where the composition supplies that opener —
+native sessions have it, the wasm engine (which wires session-controls
+without the seam) does not. The CLI help string stays authoritative
+for flags.
+
 ## The session-start hot tier
 
 `hotTierBlock(pair)` renders the hottest entries — recall count, then

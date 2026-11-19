@@ -173,6 +173,14 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         reasoningChoices: c.reasoningChoices,
         readProfiles: c.profiles,
         switchProfile: c.switchProfile,
+        // /memory: the CLI's store-opening path (the conditional
+        // default-store seam resolves to the same sqlite opener), one
+        // pair per invocation, closed after. The wasm engine wires
+        // this plugin without the seam, so /memory stays native-only.
+        openMemoryStores: () => openDefaultMemoryStores(
+            c.workingDirectory,
+            environment: Platform.environment),
+        readCacheStats: c.memoryCacheStats,
       ),
       settings: [defaultModelSetting, reasoningSetting],
       operations: sessionControlsOperations,

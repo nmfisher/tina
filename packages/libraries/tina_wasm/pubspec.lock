@@ -500,7 +500,7 @@ packages:
       path: "../../../apps/tina_cli"
       relative: true
     source: path
-    version: "0.10.4"
+    version: "0.10.5"
   tina_activity:
     dependency: "direct main"
     description:

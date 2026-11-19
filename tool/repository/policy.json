@@ -626,7 +626,8 @@
     "tina_session_controls": [
       "tina_host",
       "tina_engine_2",
-      "tina_settings"
+      "tina_settings",
+      "tina_memory"
     ],
     "tina_rewind": [
       "tina_host",

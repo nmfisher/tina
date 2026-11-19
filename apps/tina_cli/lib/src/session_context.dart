@@ -8,6 +8,7 @@ import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart' show ProviderFactory;
 import 'package:tina_session_controls/tina_session_controls.dart'
     show ModelCatalog, ProfileList;
+import 'package:tina_memory/tina_memory.dart' show AnswerCacheStats;
 import 'package:tina_providers/tina_providers.dart'
     show ProviderPolicyPlugin, RequestLimits;
 import 'package:tina_settings/tina_settings.dart';
@@ -49,6 +50,7 @@ final class SessionPluginContext {
     this.settings,
     this.readLimits,
     this.contextLoaded,
+    this.memoryCacheStats,
   });
   final String workingDirectory;
   final String configPath;
@@ -59,6 +61,11 @@ final class SessionPluginContext {
   final ScopedSettings? settings;
   final RequestLimits Function()? readLimits;
   final bool Function()? contextLoaded;
+
+  /// The session's live answer-cache scoreboard for /memory stats, or
+  /// null when no memory plugin is attached. Read lazily — the plugin
+  /// exists once the assembly has started.
+  final AnswerCacheStats? Function()? memoryCacheStats;
   RequestLimits get currentLimits => readLimits?.call() ?? limits;
   final Terminal terminal;
   final AgentPlugin tools;
