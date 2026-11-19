@@ -23,7 +23,7 @@ final class SqliteMemoryStore implements MemoryStoreApi {
 
   /// The store file's schema version. Bump when the layout changes;
   /// the open step refuses anything newer than this code knows.
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
 
   /// Open (or create) the store at [path]. [scope] labels the tier
   /// this file serves (rows are tagged with it; promotion moves rows
@@ -33,11 +33,26 @@ final class SqliteMemoryStore implements MemoryStoreApi {
     final Database db;
     try {
       db = openTinaDatabase(path,
-          schemaVersion: schemaVersion, migrate: _migrate);
+          schemaVersion: schemaVersion,
+          migrate: _migrate,
+          migrations: const {1: _migrateV1ToV2});
     } on Object catch (e) {
       throw MemoryStoreException('cannot open memory store $path', e);
     }
     return SqliteMemoryStore._(path, db, scope);
+  }
+
+  /// The 1→2 step: the persisted answer-cache counters. Existing
+  /// memory rows are untouched; the counters start at zero (no
+  /// history is fabricated for in-memory-only sessions).
+  static void _migrateV1ToV2(Database db) {
+    db.execute('CREATE TABLE answer_cache_stats ('
+        'scope TEXT PRIMARY KEY, '
+        'served INTEGER NOT NULL DEFAULT 0, '
+        'accepted INTEGER NOT NULL DEFAULT 0, '
+        'declined INTEGER NOT NULL DEFAULT 0, '
+        'stale_dropped INTEGER NOT NULL DEFAULT 0, '
+        'tokens_saved INTEGER NOT NULL DEFAULT 0)');
   }
 
   static void _migrate(Database db) {
@@ -52,6 +67,7 @@ final class SqliteMemoryStore implements MemoryStoreApi {
         'last_recalled TEXT, '
         'recall_count INTEGER NOT NULL DEFAULT 0)');
     db.execute('CREATE INDEX memory_heat ON memory(recall_count)');
+    _migrateV1ToV2(db);
   }
 
   Never _fail(String doing, Object e) =>
@@ -206,6 +222,60 @@ final class SqliteMemoryStore implements MemoryStoreApi {
   }
 
   @override
+  @override
+  AnswerCacheCounters answerCacheCounters(MemoryScope scope) {
+    try {
+      final rows = _db.select(
+          'SELECT served, accepted, declined, stale_dropped, tokens_saved '
+          'FROM answer_cache_stats WHERE scope = ?',
+          [scope.name]);
+      if (rows.isEmpty) return const AnswerCacheCounters();
+      final row = rows.single;
+      return AnswerCacheCounters(
+        served: row['served'] as int,
+        accepted: row['accepted'] as int,
+        declined: row['declined'] as int,
+        staleDropped: row['stale_dropped'] as int,
+        tokensSaved: row['tokens_saved'] as int,
+      );
+    } on Object catch (e) {
+      throw _fail('reading answer cache counters', e);
+    }
+  }
+
+  @override
+  void bumpAnswerCache(AnswerCacheCounters delta, MemoryScope scope) {
+    if (delta.served == 0 &&
+        delta.accepted == 0 &&
+        delta.declined == 0 &&
+        delta.staleDropped == 0 &&
+        delta.tokensSaved == 0) {
+      return;
+    }
+    try {
+      _db.execute(
+          'INSERT INTO answer_cache_stats '
+          '(scope, served, accepted, declined, stale_dropped, tokens_saved) '
+          'VALUES (?, ?, ?, ?, ?, ?) '
+          'ON CONFLICT(scope) DO UPDATE SET '
+          'served = served + excluded.served, '
+          'accepted = accepted + excluded.accepted, '
+          'declined = declined + excluded.declined, '
+          'stale_dropped = stale_dropped + excluded.stale_dropped, '
+          'tokens_saved = tokens_saved + excluded.tokens_saved',
+          [
+            scope.name,
+            delta.served,
+            delta.accepted,
+            delta.declined,
+            delta.staleDropped,
+            delta.tokensSaved,
+          ]);
+    } on Object catch (e) {
+      throw _fail('recording answer cache counters', e);
+    }
+  }
+
   Map<String, Object?> stats() {
     try {
       final total = _db

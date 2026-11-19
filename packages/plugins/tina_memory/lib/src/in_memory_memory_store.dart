@@ -131,6 +131,18 @@ final class InMemoryMemoryStore implements MemoryStoreApi {
     ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 
+  final _answerCacheStats = <MemoryScope, AnswerCacheCounters>{};
+
+  @override
+  AnswerCacheCounters answerCacheCounters(MemoryScope scope) =>
+      _answerCacheStats[scope] ?? const AnswerCacheCounters();
+
+  @override
+  void bumpAnswerCache(AnswerCacheCounters delta, MemoryScope scope) {
+    _answerCacheStats[scope] =
+        answerCacheCounters(scope) + delta;
+  }
+
   @override
   Map<String, Object?> stats() {
     _open();

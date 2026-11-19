@@ -124,7 +124,16 @@ final class AnswerCache {
     this.precision = answerCachePrecision,
     this.capacity = answerCacheCapacity,
     this.maxPaths = answerCacheMaxPaths,
+    this.onCounters,
   }) : fileSystem = fileSystem ?? _RealAnswerFiles.instance;
+
+  /// Receives each counter delta as it happens, so an owner can
+  /// persist the scoreboard (the plugin writes it through the memory
+  /// store's answer-cache counters). Null keeps the counters
+  /// session-only.
+  final void Function(AnswerCacheCounters delta)? onCounters;
+
+  void _bump(AnswerCacheCounters delta) => onCounters?.call(delta);
 
   /// Optional durable mirror into rolling memory (`paths` entries).
   final AnswerCachePersister? persister;
@@ -224,6 +233,7 @@ final class AnswerCache {
     ];
     if (alive.isEmpty) {
       _staleDropped += best.paths.length;
+      _bump(AnswerCacheCounters(staleDropped: best.paths.length));
       _answers.remove(best);
       return null;
     }
@@ -232,14 +242,24 @@ final class AnswerCache {
     best.servedAt = DateTime.now().toUtc();
     best.servedCount++;
     _servedCount++;
+    _bump(AnswerCacheCounters(
+        served: 1,
+        staleDropped: best.paths.length - alive.length,
+        tokensSaved: answerCacheTokensPerPath));
     return best;
   }
 
   /// The agent used the served answer (skipped the search).
-  void accept(CachedAnswer answer) => _acceptedCount++;
+  void accept(CachedAnswer answer) {
+    _acceptedCount++;
+    _bump(const AnswerCacheCounters(accepted: 1));
+  }
 
   /// The agent re-searched anyway after being served.
-  void decline(CachedAnswer answer) => _declinedCount++;
+  void decline(CachedAnswer answer) {
+    _declinedCount++;
+    _bump(const AnswerCacheCounters(declined: 1));
+  }
 
   /// Renders the injection block for a served answer: labeled, with
   /// entry ids, paths, ages and the revise-instead-of-re-search rule.

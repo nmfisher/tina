@@ -79,6 +79,10 @@ closed after); no second store path exists.
   full text / filtered listing.
 - `/memory stats` — both tiers plus the session's live answer-cache
   scoreboard (served/accepted/declined/stale, estimated tokens saved).
+  `tina memory stats` reads the PERSISTED scoreboard — the counters
+  accumulate in each tier's `answer_cache_stats` table (schema v2,
+  migrated in place; pre-v2 sessions simply start at zero), so the
+  numbers survive restarts and session resets never wipe them.
 - `/memory remember <text> --category <cat> [--global]` and
   `/memory forget <id> [--global]` — the agent-side tools stay the
   primary path; the keyboard gets the same mutators.

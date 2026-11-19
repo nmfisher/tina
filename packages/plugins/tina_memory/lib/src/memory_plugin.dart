@@ -57,7 +57,19 @@ final class MemoryPlugin extends AgentPlugin {
     _tools = MemoryTools(pair, sessionId: _sessionId!);
     _cache = AnswerCache(
         persister: MemoryAnswerPersister(pair.project),
-        fileSystem: answerFileSystem);
+        fileSystem: answerFileSystem,
+        // The scoreboard persists through the project tier: counter
+        // deltas accumulate in the store's answer_cache_stats table,
+        // so `tina memory stats` reads numbers that survive sessions.
+        // Best effort — telemetry must never break a session.
+        onCounters: (delta) {
+          try {
+            pair.project.bumpAnswerCache(delta, MemoryScope.project);
+          } on Object {
+            // Persisted counters are a convenience; a store that
+            // cannot write keeps the session-only view.
+          }
+        });
     return null;
   }
 

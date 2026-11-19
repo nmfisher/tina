@@ -223,9 +223,16 @@ int _stats(MemoryStorePair stores) {
         '${byCategory.isEmpty ? '' : ' (${byCategory.entries.map((e) => '${e.value} ${e.key}').join(', ')})'}');
     stdout.writeln('  recalls served: ${stats['recalls']}');
   }
-  stdout.writeln('answer cache: telemetry is per-session (served/'
-      'accepted/declined ride the session process; captured answers '
-      'mirror into the project tier as paths entries)');
+  final counters = [
+    stores.project.answerCacheCounters(MemoryScope.project),
+    stores.global.answerCacheCounters(MemoryScope.global),
+  ];
+  final total = counters.fold(
+      const AnswerCacheCounters(), (a, b) => a + b);
+  stdout.writeln('answer cache (persisted, across sessions): '
+      '${total.served} served · ${total.accepted} accepted · '
+      '${total.declined} declined · ${total.staleDropped} stale dropped · '
+      '~${total.tokensSaved} tokens saved');
   return 0;
 }
 

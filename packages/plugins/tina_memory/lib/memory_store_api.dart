@@ -45,6 +45,43 @@ enum MemoryCategory {
       };
 }
 
+/// Cumulative answer-cache counters, persisted per scope so the
+/// scoreboard accumulates across sessions (the scoreboard survives
+/// restarts). Sessions before this table existed start at zero — no
+/// history is fabricated.
+final class AnswerCacheCounters {
+  const AnswerCacheCounters({
+    this.served = 0,
+    this.accepted = 0,
+    this.declined = 0,
+    this.staleDropped = 0,
+    this.tokensSaved = 0,
+  });
+
+  final int served;
+  final int accepted;
+  final int declined;
+  final int staleDropped;
+  final int tokensSaved;
+
+  AnswerCacheCounters operator +(AnswerCacheCounters other) =>
+      AnswerCacheCounters(
+        served: served + other.served,
+        accepted: accepted + other.accepted,
+        declined: declined + other.declined,
+        staleDropped: staleDropped + other.staleDropped,
+        tokensSaved: tokensSaved + other.tokensSaved,
+      );
+
+  Map<String, Object?> toMap() => {
+        'served': served,
+        'accepted': accepted,
+        'declined': declined,
+        'stale_dropped': staleDropped,
+        'tokens_saved': tokensSaved,
+      };
+}
+
 /// Which tier an entry lives in. Project rows are born in the repo
 /// database; global rows live in the global database and are only
 /// ever created by explicit promotion (or a global remember).
@@ -174,6 +211,15 @@ abstract interface class MemoryStoreApi {
   /// served, and (when the answer cache rides this database) cache
   /// telemetry. Stable map shape for the CLI's `stats`.
   Map<String, Object?> stats();
+
+  /// The persisted answer-cache counters for [scope] (a missing row
+  /// reads as zero — sessions before the table existed start empty).
+  AnswerCacheCounters answerCacheCounters(MemoryScope scope);
+
+  /// Adds [delta] onto the persisted answer-cache counters for
+  /// [scope]. Best-effort durability for telemetry: a store that
+  /// cannot write throws, never silently resets.
+  void bumpAnswerCache(AnswerCacheCounters delta, MemoryScope scope);
 
   /// Release the store's resources.
   void close();
