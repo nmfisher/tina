@@ -20,9 +20,15 @@ Opens (or creates) a database file and runs the versioned schema work:
 - `user_version == current` → return, nothing to do;
 - `user_version > current` → **throw** `UnsupportedDatabaseVersion` (a
   future tina must not silently write into a schema it doesn't know);
-- `user_version == 0` on a fresh file → run the migration in **one
-  transaction**, set `user_version`, return;
-- anything else → unsupported.
+- `user_version == 0` on a fresh file → run the fresh-create migration
+  in **one transaction**, set `user_version`, return;
+- `0 < user_version < current` → run the caller's **migration ladder**:
+  the steps `migrations[from]`, `from+1`, … to current, in **one
+  transaction** (all-or-nothing; a throwing step rolls back and leaves
+  the version unstamped — data is never half-migrated), then set
+  `user_version` and return;
+- a version with no step in the ladder → unsupported (the same throw
+  this step has always made).
 
 Callbacks receive the raw `sqlite3.Database`, so callers build exactly the
 tables they need. The open step itself is schema-free.

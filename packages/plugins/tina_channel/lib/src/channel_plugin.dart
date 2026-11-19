@@ -47,6 +47,7 @@ final class ChannelPlugin extends AgentPlugin
     this.humanName = 'user',
     this.approveStart,
     this.random,
+    this.terminal,
   });
 
   /// Opens the chat store for a session id (creating it).
@@ -81,6 +82,10 @@ final class ChannelPlugin extends AgentPlugin
   /// scripted one; sessions pass nothing).
   final Random? random;
 
+  /// Where the non-fatal "group chat unavailable" notice goes; null
+  /// keeps headless compositions quiet.
+  final Terminal? terminal;
+
   /// The shared lifecycle's backing signal (the [SessionChatLifecycle]
   /// face delegates here).
   final SessionChat _sessionChat = SessionChat();
@@ -97,6 +102,11 @@ final class ChannelPlugin extends AgentPlugin
   String? _effectiveName;
   String? _scope;
   String? _startedChannel;
+
+  /// Why a chat that exists could not be opened (non-fatal): the
+  /// session started without the chat, the tools refuse, and
+  /// `channel_start` retries the open on approval.
+  String? _openFailure;
 
   /// The user turn currently running (for the one-ask-per-turn rule).
   int _turn = 0;
@@ -126,9 +136,20 @@ final class ChannelPlugin extends AgentPlugin
   SessionSeed? openSession(PluginSession session) {
     _scope = chatSessionId ?? session.id;
     if (chatExists?.call(_scope!) ?? false) {
-      // Resume: this session ran before and started a chat — reattach
-      // it (full history, presence, cursor pinning) exactly as before.
-      _activate();
+      try {
+        // Resume: this session ran before and started a chat —
+        // reattach it (full history, presence, cursor pinning)
+        // exactly as before.
+        _activate();
+      } on Object catch (error) {
+        // Non-fatal: one component's storage failure must never abort
+        // the session. The chat stays dormant (the tools refuse, the
+        // pane never learns of a start), the notice says why, and
+        // `channel_start` retries the open on approval.
+        _openFailure = 'group chat unavailable: $error';
+        terminal?.writeln(_openFailure!);
+        _tools = ChannelTools(agentName: agentName ?? 'unsettled', role: role);
+      }
     } else {
       // Dormant: no store, no room. The tools exist (stable toolset)
       // but every call answers with the not-started refusal until a
@@ -217,8 +238,10 @@ final class ChannelPlugin extends AgentPlugin
     }
     try {
       _activate(startChannel: channel);
+      _openFailure = null;
     } on Object catch (e) {
-      return ToolResult.error('could not create the group chat: $e');
+      _openFailure = 'group chat unavailable: $e';
+      return ToolResult.error('could not open the group chat: $e');
     }
     return ToolResult('Group chat started: $channel created and joined as '
         '$name (the human $humanName is a member, and the channel pane '
@@ -274,10 +297,14 @@ final class ChannelPlugin extends AgentPlugin
     // gets the direct start signal through _activate).
     if (!isStarted && _scope != null) {
       try {
-        if (chatExists?.call(_scope!) ?? false) _activate();
-      } on Object {
+        if (chatExists?.call(_scope!) ?? false) {
+          _activate();
+          _openFailure = null;
+        }
+      } on Object catch (error) {
         // Optional reattach: a failing probe keeps the session alive
         // and the tools refusing.
+        _openFailure ??= 'group chat unavailable: $error';
       }
     }
     _tools?.onPrompt(context);
