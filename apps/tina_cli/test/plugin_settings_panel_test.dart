@@ -1,4 +1,5 @@
 import 'package:tina/src/config_settings_management.dart';
+import 'dart:convert';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
@@ -90,7 +91,8 @@ void main() {
               pluginSettings: app.pluginSettings,
               pluginManager: app.pluginManager,
               scopedSettings: app.settings,
-              backend: app.settingsBackend));
+              backend: app.settingsBackend,
+              workspace: root.path));
       expect(index, steps.length);
       return io.written.toString();
     } finally {
@@ -425,6 +427,32 @@ void main() {
     expect(loaded, isA<TinaConfigOk>());
     expect(loaded.config.profiles['budget']!.main!.model, 'mini');
     expect(loaded.config.profilesTable, isTrue);
+  });
+
+  test('Remembered permissions edits the project instructions field',
+      () async {
+    final permissions = File('${root.path}/.tina/permissions.json')
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(jsonEncode({
+        'version': 1,
+        'grants': [
+          {'path': '/data/ref.pdf', 'access': 'read', 'kind': 'file'}
+        ],
+      }));
+    final output = await drive([
+      CharInput('Remembered permissions'), enter,
+      enter, // the Project permission instructions row
+      CharInput('Deploys read .env; never print values.'), enter,
+      escape, // back out of the manager
+      escape, // settings root
+    ], resizeEachKey: false);
+    expect(output, contains('Project permission instructions'));
+    final document = jsonDecode(permissions.readAsStringSync()) as Map;
+    expect(document['instructions'],
+        'Deploys read .env; never print values.');
+    expect(document['version'], 1);
+    expect((document['grants'] as List).single['path'], '/data/ref.pdf',
+        reason: 'the grants survive the instructions edit');
   });
 
   test(

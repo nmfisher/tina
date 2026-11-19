@@ -252,4 +252,15 @@ void main() {
           true);
     }
   });
+
+  test('the bash description teaches approval-economy reuse', () {
+    final description = BashTool(
+            runner: Spawn(),
+            readWorkingDirectory: () => Directory.current.path)
+        .schema
+        .description;
+    expect(description, contains('Approval economy'));
+    expect(description, contains('rerun the SAME form'));
+    expect(description, contains('changed syntax needs fresh approval'));
+  });
 }

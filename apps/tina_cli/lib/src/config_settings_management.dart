@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_tools/tina_tools.dart'
     show CommandApprovalStore, ResourceApprovalStore;
 import 'assembly_config.dart';
+import 'permission_instructions.dart';
 import 'config_document.dart';
 import 'configured_provider.dart';
 import 'plugin_settings.dart';
@@ -50,6 +52,7 @@ final class _Edit {
 
 /// Application adapter. Config validation, file transactions, credentials and
 /// runtime application remain here; SettingsPanel sees data and operations.
+
 final class ConfigSettingsManagement implements SettingsManagement {
   ConfigSettingsManagement(
       {required ScopedSettings scopedSettings,
@@ -62,6 +65,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
       void Function()? applyConfiguration,
       void Function() Function(void Function())? listenConfiguration,
       CommandApprovalStore? commandApprovals,
+      String? workspace,
       ClientAccess access = const ClientAccess()})
       : _scoped = scopedSettings,
         _access = access,
@@ -73,6 +77,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
         _validatePlugins = validatePlugins,
         _applyConfiguration = applyConfiguration,
         _approvals = commandApprovals,
+        _workspace = workspace ?? Directory.current.path,
         _listenConfiguration = listenConfiguration {
     settings = SettingsClient(_scoped,
         requireWrite: _access.requireControl,
@@ -162,8 +167,48 @@ final class ConfigSettingsManagement implements SettingsManagement {
                 for (final model in d.models.values) model.id: model.name
               }),
       ]);
+  final String _workspace;
+
+  File get _permissionsFile =>
+      File('$_workspace/.tina/permissions.json');
+
   @override
   bool get hasCommandApprovals => true;
+
+  @override
+  String? get permissionInstructions =>
+      readProjectPermissionInstructions(_workspace);
+
+  @override
+  void savePermissionInstructions(String text) {
+    final file = _permissionsFile;
+    final document = <String, Object?>{};
+    if (file.existsSync()) {
+      // Never replace a damaged file with a rewrite (PathGrants' rule).
+      final parsed = jsonDecode(file.readAsStringSync());
+      if (parsed is! Map || parsed['version'] != 1) {
+        throw const FormatException(
+            '.tina/permissions.json is damaged; fix it before editing '
+            'instructions');
+      }
+      document.addAll(parsed.cast<String, Object?>());
+    } else {
+      document['version'] = 1;
+      document['grants'] = <Object?>[];
+    }
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      document.remove('instructions');
+    } else {
+      document['instructions'] = trimmed;
+    }
+    file.parent.createSync(recursive: true);
+    final temporary = File('${file.path}.tmp');
+    temporary.writeAsStringSync(const JsonEncoder.withIndent('  ')
+        .convert(Map.fromEntries(document.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key)))));
+    temporary.renameSync(file.path);
+  }
 
   Iterable<Map<String, Object?>> _folderPermissions() sync* {
     for (final entry in _backend.permissionStore.entries) {

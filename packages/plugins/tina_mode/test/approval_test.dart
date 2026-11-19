@@ -972,6 +972,69 @@ void precedentTests() {
     expect(judge.calls, 1);
   });
 
+  test('a recorded precedent rides the judge evidence as intent', () async {
+    final store = MemoryPrecedentStore();
+    final human = Human();
+    final judge =
+        Judge(Future.value(const PermissionJudgment(null, 'unused')));
+    final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: judge,
+      )
+      ..precedentStore = store
+      ..precedentScope = (() => scope);
+
+    // The human granted this shape for the session.
+    human.answer = ApprovalDecision.allowAlways;
+    await run(mode);
+    judge.requests.clear();
+
+    // The next identical request carries the precedent to the judge:
+    // outcome, authority, similarity and the field-reduced shape —
+    // never raw arguments (the shape names program and subcommand).
+    human.answer = ApprovalDecision.allow;
+    await run(mode);
+    final evidence = judge.requests.single;
+    final precedents = evidence['precedents'] as List;
+    expect(precedents, isNotEmpty);
+    final entry = precedents.first as Map<String, Object?>;
+    expect(entry['outcome'], 'allow');
+    expect(entry['authority'], 'humanAlways');
+    expect(entry['shape'], containsPair('program', 'git'));
+    expect(entry['similarity'], greaterThanOrEqualTo(0.55));
+    expect(evidence['precedents'].toString(), isNot(contains('--flag')));
+
+    // Precedents off: no evidence attached, and the request otherwise
+    // identical to today.
+    mode.readPrecedentMode = () => PrecedentMode.off;
+    judge.requests.clear();
+    await run(mode);
+    expect(judge.requests.single.containsKey('precedents'), isFalse);
+  });
+
+  test('a denial precedent outranks and still rides as evidence', () async {
+    final store = MemoryPrecedentStore();
+    final human = Human();
+    final judge =
+        Judge(Future.value(const PermissionJudgment(null, 'unused')));
+    final mode = ModePlugin(
+        mode: PermissionMode.auto,
+        approvals: human,
+        classifier: judge,
+      )
+      ..precedentStore = store
+      ..precedentScope = (() => scope);
+    human.answer = ApprovalDecision.deny;
+    await run(mode);
+    judge.requests.clear();
+    human.answer = ApprovalDecision.allow;
+    await run(mode);
+    final entry =
+        (judge.requests.single['precedents'] as List).first as Map;
+    expect(entry['outcome'], 'deny');
+  });
+
   test('the fast path never covers network or partial access', () async {
     for (final context in [
       commandContext(permissions: ['execution', 'network']),

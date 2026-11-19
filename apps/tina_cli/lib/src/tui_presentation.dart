@@ -75,7 +75,8 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
                       pluginDescriptions:
                           pluginDescriptions(assembly.pluginSettings.registry),
                       pluginSettings: assembly.pluginSettings,
-                      pluginManager: assembly.pluginManager));
+                      pluginManager: assembly.pluginManager,
+                      workspace: assembly.workingDirectory));
               return saved
                   ? assembly.settings.applicationErrors.isEmpty
                       ? 'Settings saved. Request settings affect the next request; plugin changes may wait for idle or restart.'

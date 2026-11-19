@@ -59,7 +59,11 @@ class BashTool extends ProcessToolBase {
             'permissions before anything runs; a refusal arrives as this '
             'call\'s error result. New user input makes a running command yield '
             'a job ID without stopping it. Set background true for long-running work '
-            'to return a job ID as soon as it starts; use process to inspect, wait or cancel.',
+            'to return a job ID as soon as it starts; use process to inspect, wait or cancel. '
+            'Approval economy: when a command form was already approved this '
+            'session, rerun the SAME form (same executable and leading '
+            'arguments) instead of a new variation — changed syntax needs '
+            'fresh approval and interrupts the work.',
         inputSchema: {
           'type': 'object',
           'properties': {

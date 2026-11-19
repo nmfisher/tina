@@ -13,6 +13,7 @@ import 'package:tina_approvals/tina_approvals.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_tools/tina_tools.dart';
+import 'permission_instructions.dart';
 import 'session_context.dart';
 
 export 'session_context.dart';
@@ -328,8 +329,12 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                 c.settings?.read(classifierTimeoutSetting).value ??
                 classifierTimeoutSetting.defaultValue,
           ),
+          // Project config first, session setting as the fallback:
+          // both land in the same "User permission preferences" block.
           readInstruction: () =>
-              c.settings?.read(classifierInstructionSetting).value ?? '',
+              readProjectPermissionInstructions(c.workingDirectory) ??
+              c.settings?.read(classifierInstructionSetting).value ??
+              '',
         );
         final tools = c.tools as ToolsPlugin;
         return tools;

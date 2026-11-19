@@ -11,6 +11,17 @@ abstract interface class SettingsManagement {
   bool get hasCommandApprovals;
   List<Map<String, Object?>> get commandApprovals;
   void revokeCommandApproval(String id);
+
+  /// The project's permission-preference instructions from
+  /// `.tina/permissions.json` (top-level `instructions`, next to
+  /// `grants`), or null when absent/empty — they ride the approver's
+  /// "User permission preferences" prefix.
+  String? get permissionInstructions;
+
+  /// Writes [text] back to the same field (empty removes it),
+  /// preserving the file's version and grants. Throws on a damaged
+  /// file rather than replacing it.
+  void savePermissionInstructions(String text);
   ProviderDraft openDraft(SettingScope scope, {bool providerCatalog = false});
   GenerationForm generation(ProviderDraft draft, {String? provider});
   void saveDraft(ProviderDraft draft);

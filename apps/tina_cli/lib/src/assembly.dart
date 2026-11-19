@@ -201,6 +201,7 @@ LlmProvider providerForDescriptor(
 final class SessionAssembly {
   SessionAssembly._({
     required this.host,
+    required this.workingDirectory,
     required this.terminal,
     required this.writer,
     required this.configNote,
@@ -221,6 +222,10 @@ final class SessionAssembly {
         commands = host.commands;
 
   final Host host;
+
+  /// The session's working directory (the workspace permissions and
+  /// stores are keyed by).
+  final String workingDirectory;
   final PluginSettings<SessionPluginContext> pluginSettings;
   final PluginManager<SessionPluginContext> pluginManager;
   final ScopedSettings settings;
@@ -703,6 +708,7 @@ final class SessionAssembly {
     });
     final assembly = SessionAssembly._(
       host: host,
+      workingDirectory: workingDirectory,
       terminal: output,
       writer: writer,
       configNote: config.note,
