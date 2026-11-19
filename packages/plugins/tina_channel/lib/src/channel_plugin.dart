@@ -221,9 +221,10 @@ final class ChannelPlugin extends AgentPlugin
       return ToolResult.error('could not create the group chat: $e');
     }
     return ToolResult('Group chat started: $channel created and joined as '
-        '$name (the human $humanName is a member, and the channel pane is '
-        'now visible). channel_say, channel_read and channel_status are '
-        'live; subagents spawned from now on join automatically.');
+        '$name (the human $humanName is a member, and the channel pane '
+        'is now visible). channel_say, channel_read and channel_status '
+        'are live; subagents join only in swarm mode — launch_subagent '
+        'with channel: true.');
   }
 
   /// Opens the store and joins. [startChannel] is the channel an

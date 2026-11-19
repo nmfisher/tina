@@ -39,12 +39,28 @@ import 'package:tina_host/tina_host.dart';
 
 import 'spawn_tool.dart';
 
-/// Builds a child host for [plugin]. The composition's closure: it
-/// reads the child depth, the working directory, the mode, the provider
-/// factory, and the store path **from the plugin and the parent
-/// session** — this package names none of them, so a child cannot
-/// receive values its parent did not have.
-typedef ChildSessionFactory = Host Function(SubagentsPlugin plugin);
+/// What the assembly may vary per spawn. Today one choice: the mode a
+/// child works in — sub-agent mode (the default: independent, no group
+/// chat at all) or swarm mode (`channel: true`: the child joins the
+/// session's group chat as a participant).
+final class SubagentSpawn {
+  const SubagentSpawn({this.channel = false});
+
+  /// Swarm mode: the child joins the session's group chat as a member
+  /// (channel tools, watcher deliveries, channel etiquette). False is
+  /// sub-agent mode — the child's assembly carries NO channel plugin,
+  /// so it has no channel tools and can never receive channel messages.
+  final bool channel;
+}
+
+/// Builds a child host for [plugin] with [spawn]'s per-launch choices.
+/// The composition's closure: it reads the child depth, the working
+/// directory, the mode, the provider factory, and the store path
+/// **from the plugin and the parent session** — this package names
+/// none of them, so a child cannot receive values its parent did not
+/// have.
+typedef ChildSessionFactory =
+    Host Function(SubagentsPlugin plugin, SubagentSpawn spawn);
 
 /// A read-only view of persisted sessions, supplied by the application's
 /// persistence layer. Used only to **resurrect** previously-launched
@@ -163,6 +179,7 @@ final class SubagentsPlugin extends AgentPlugin {
     SubagentsConfig config = const SubagentsConfig(),
     this.configFor,
     this.history,
+    this.channelExists,
   })  : _sessionFactory = sessionFactory,
         _config = config,
         _parent = parent,
@@ -178,6 +195,12 @@ final class SubagentsPlugin extends AgentPlugin {
   /// Builds a child host. The plugin supplies the facts; the factory
   /// supplies the inherited world (working directory, mode, approvals).
   final ChildSessionFactory _sessionFactory;
+
+  /// Whether a group-chat store exists for a session scope — the swarm
+  /// gate, wired by the assembly (the same existence probe the channel
+  /// plugin resumes through). Null means this composition has no group
+  /// chat at all, so a `channel: true` spawn is refused.
+  final bool Function(String chatSessionId)? channelExists;
 
   /// The parent session: where depth is read from and counters live.
   PluginSession? _parent;
@@ -279,10 +302,27 @@ final class SubagentsPlugin extends AgentPlugin {
 
   /// Launch a child to answer [prompt] and return immediately with its
   /// id. The child runs in the background; use [inspect] to follow it.
-  /// Refused — naming the limit — when depth, concurrency or the token
-  /// budget would be exceeded.
-  ToolResult launch(String prompt) {
+  /// [channel] picks the child's mode: sub-agent mode (the default —
+  /// independent, no group chat at all) or swarm mode (the child joins
+  /// the session's group chat as a participant; refused when the
+  /// session has no started chat). Refused — naming the limit — when
+  /// depth, concurrency or the token budget would be exceeded.
+  ToolResult launch(String prompt, {bool channel = false}) {
     if (_closed) return ToolResult.error('subagents plugin is closed');
+    if (channel) {
+      final gate = channelExists;
+      if (gate == null) {
+        return ToolResult.error('sub-agent refused: channel: true needs a '
+            'group chat, which this composition does not provide. Launch '
+            'without it (sub-agent mode) instead.');
+      }
+      if (!gate(parent.id)) {
+        return ToolResult.error('sub-agent refused: channel: true needs a '
+            'started group chat for this session. Call channel_start first '
+            '(the user must approve the chat), then relaunch with '
+            'channel: true.');
+      }
+    }
     if (childDepth > config.maxDepth) {
       return ToolResult.error('sub-agent refused: depth $childDepth exceeds '
           'maximum ${config.maxDepth}');
@@ -301,7 +341,7 @@ final class SubagentsPlugin extends AgentPlugin {
     parent.notifyChanged();
     final Host child;
     try {
-      child = _sessionFactory(this);
+      child = _sessionFactory(this, SubagentSpawn(channel: channel));
     } on Object {
       parent.details.childrenInFlight--;
       parent.notifyChanged();
@@ -530,6 +570,14 @@ final class SubagentsPlugin extends AgentPlugin {
         'background. Sub-agents inherit your working directory and '
         'permission mode.\n'
         '$depthLine'
+        'Two modes per launch. Sub-agent mode (the default, no flag): '
+        'the child works independently, one-on-one with you — it never '
+        'sees the group chat. Swarm mode (channel: true): the child '
+        'joins the session\'s group chat as a participant — it sees the '
+        'room and the room sees it; requires a started chat (channel_start, '
+        'user-approved). Pick swarm mode only when agents genuinely '
+        'benefit from seeing each other\'s work; independent is the '
+        'default because channels add noise.\n'
         'Delegate proactively: research, surveying, breadth-first '
         'exploration, independent implementation chunks, and any '
         'self-contained check are sub-agent work — offloading them keeps '

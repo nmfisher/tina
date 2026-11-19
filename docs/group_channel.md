@@ -38,6 +38,35 @@ user approved one:
   group chats unprompted: the main agent proposes one when
   coordination across multiple subagents is genuinely needed, and the
   user decides.
+
+## Sub-agent mode vs swarm mode
+
+Who is in the room is a spawn-time choice on `launch_subagent`:
+
+- **Sub-agent mode** (the default, `channel: false` or omitted): the
+  child works independently, one-on-one with the main agent. Its
+  assembly contains **no channel plugin at all** — no channel tools,
+  no watcher, no etiquette text in its prompt — so it can never see
+  or receive group-chat messages. This is identical to the behavior
+  before the chat existed, and it is the default because channels add
+  noise.
+- **Swarm mode** (`channel: true`): the child joins the room as a
+  member (its own shortcode identity, role `subagent`) at spawn; its
+  assembly includes the channel plugin, the watcher delivers to it,
+  and the etiquette section is in its prompt. **Requires a started
+  chat**: if the session has none, the spawn is refused with a normal
+  error telling the main agent to start one first (`channel_start`,
+  approval-gated).
+- **Delivery scoping is membership-level**: the human and the main
+  agent are always room members once the chat exists; a participant's
+  messages are visible to them via the pane and the main agent's
+  watcher. An independent subagent is a member of nothing — no member
+  row is ever written for it, and without a watcher no delivery path
+  exists — so it must never receive channel messages, verified by
+  membership rather than by convention.
+- **Out of scope**: promoting an already-running independent subagent
+  to participant (a spawn-time choice only), and cross-session rooms
+  (the existing ruling: one chat per session).
 - **Idempotent edge**: if a chat was already started for the session,
   the tool reports that fact and creates nothing.
 - **Pre-existing sessions** that never call it simply have no chat —
@@ -72,16 +101,19 @@ mounted or synced for a session's members to find each other.
 - **Resume reattaches**: the chat outlives the process and belongs to
   the session record; reopening the same session id returns the full
   history, presence and read cursor (tested).
-- **Subagents join their parent's chat**: the child factory mounts the
-  channel plugin with `chatSessionId: plugin.parent.id` — a child
-  draws its own shortcode (collision-checked against that chat's
-  active members: parent and siblings), joins with role `subagent`,
-  and posts status and findings there. A child never spawns, so a
-  chat's member tree is one level deep, plus the human. Parent and
-  child share a process today; the scoping rule is by session, not by
-  process. A child spawned before the chat exists stays dormant (its
-  tools refuse) and reattaches at its next turn boundary; children
-  cannot start rooms (`channel_start` refuses for non-main roles).
+- **Participants join their parent's chat** (swarm mode only): the
+  child factory mounts the channel plugin with `chatSessionId:
+  plugin.parent.id` — a participant draws its own shortcode
+  (collision-checked against that chat's active members: parent and
+  siblings), joins with role `subagent`, and posts status and findings
+  there. A child never spawns, so a chat's member tree is one level
+  deep, plus the human. Parent and child share a process today; the
+  scoping rule is by session, not by process. A participant spawned
+  before the chat exists stays dormant (its tools refuse) and
+  reattaches at its next turn boundary; children cannot start rooms
+  (`channel_start` refuses for non-main roles). Independent children
+  (the default) mount no channel plugin at all — see the modes
+  section above.
 - `#lobby` is the session's own room (main agent + its subagents +
   the human), not a workspace lobby. Named channels stay — cheap, and
   scoped inside the session's chat.
@@ -186,6 +218,13 @@ packages/plugins/tina_channel/
   test/channel_concurrency_test.dart two real dart processes on one
                                     session's chat db
   test/concurrency_writer.dart      the subprocess the test spawns
+packages/plugins/tina_subagents/
+  lib/src/spawn_tool.dart            launch_subagent's channel flag (the
+                                     two modes) and its validation
+  lib/src/child_assembly.dart        channelChildPlugins: mounted only for
+                                     swarm-mode spawns
+  test/swarm_test.dart               the modes: gate refusal, member-less
+                                     independence, participant joining
 packages/plugins/tina_channel_tui/
   lib/src/channel_pane.dart         unread tracker, input composer,
                                     pure line renderer

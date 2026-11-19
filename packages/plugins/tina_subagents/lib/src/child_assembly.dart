@@ -15,9 +15,14 @@
 /// to the same store file as its own session, or nowhere).
 ///
 /// [childPlugins] receives the plugin (so it can read the parent
-/// session) — the assembly mounts session-scoped extras there, e.g. the
-/// channel plugin pointed at the PARENT's chat scope so the child joins
-/// the session's group chat as a subagent.
+/// session) — the assembly mounts session-scoped extras there. The
+/// spawn-time mode is [SubagentSpawn.channel]: sub-agent mode (the
+/// default) mounts exactly [childPlugins] — the child has NO channel
+/// plugin, no channel tools and no watcher, so it can never see or
+/// receive group-chat messages; swarm mode additionally mounts
+/// [channelChildPlugins] — the channel plugin pointed at the PARENT's
+/// chat scope, so the child joins the session's group chat as a
+/// participant (role `subagent`).
 ///
 /// The parent's plugin must already be mounted — the closure reads the
 /// boundary from it. Given a read-only parent, the child's boundary is
@@ -45,9 +50,13 @@ ChildSessionFactory standardChildFactory({
   /// child keeps the model it started with.
   String? Function()? subagentModel,
   List<AgentPlugin> Function(SubagentsPlugin plugin)? childPlugins,
+
+  /// Swarm mode only: mounted when the launch chose `channel: true`
+  /// (the channel plugin joining the child to the parent's chat).
+  List<AgentPlugin> Function(SubagentsPlugin plugin)? channelChildPlugins,
   List<AgentPlugin> extraPlugins = const [],
 }) {
-  return (SubagentsPlugin plugin) {
+  return (SubagentsPlugin plugin, SubagentSpawn spawn) {
     if (extraPlugins.any((p) => p is SubagentsPlugin)) {
       throw ArgumentError(
           'a child plugin set must not contain another SubagentsPlugin');
@@ -90,6 +99,7 @@ ChildSessionFactory standardChildFactory({
               : null,
         ),
         ...?childPlugins?.call(plugin),
+        if (spawn.channel) ...?channelChildPlugins?.call(plugin),
         ...extraPlugins,
       ],
     );

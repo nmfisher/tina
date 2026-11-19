@@ -60,7 +60,9 @@ void main() {
     expect(text, startsWith('<group-channel>'));
     expect(text, endsWith('</group-channel>'));
     expect(text, contains("your session's own"));
-    expect(text, contains('subagents) and the human'));
+    expect(text, contains('subagents you launch in swarm mode'));
+    expect(text, contains('independent subagents (the default) never see it'));
+    expect(text, contains('the human and with'));
     for (final tool in ['channel_say', 'channel_read', 'channel_status']) {
       expect(text, contains(tool));
     }

@@ -650,6 +650,11 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           maxConcurrency: c.limits.childConcurrency,
           tokenBudget: 0,
         ),
+        // The swarm gate: a channel: true spawn needs a started chat.
+        // The file is the truth — the same existence probe the channel
+        // plugin resumes through.
+        channelExists: (scope) =>
+            defaultChannelStoreExists(c.workingDirectory, scope),
         configFor: () => SubagentsConfig(
           maxDepth: c.currentLimits.childDepth,
           maxConcurrency: c.currentLimits.childConcurrency,
@@ -663,15 +668,18 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
           // The active profile's subagent leg, read at spawn: children run
           // on it when set, otherwise on the parent's current model.
           subagentModel: c.subagentModel,
-          // The child plugin set receives the subagents plugin, so
-          // session-scoped extras can read the parent session: the
-          // channel plugin joins the child to the PARENT's chat (the
-          // session's group chat) as role `subagent` — a child never
-          // spawns, so the chat's member tree is one level deep.
+          // The base child plugin set (sub-agent mode): no channel
+          // plugin — an independent child never sees the group chat.
           childPlugins: (plugin) => [
             const SystemInstructionPlugin(),
             if (c.openStore != null)
               PersistencePlugin(openStore: c.openStore! as SessionStoreOpener),
+          ],
+          // Swarm mode (channel: true): the child joins the PARENT's
+          // chat (the session's group chat) as role `subagent` — a
+          // child never spawns, so the chat's member tree is one level
+          // deep. The launch gate already proved the chat exists.
+          channelChildPlugins: (plugin) => [
             ChannelPlugin(
               openStore: (scope) =>
                   openDefaultChannelStore(c.workingDirectory, scope),
@@ -688,7 +696,10 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
             : null,
       ),
       description:
-          'Lets the agent delegate work to child sessions with bounded depth and concurrency.',
+          'Lets the agent delegate work to child sessions with bounded '
+          'depth and concurrency. Two spawn modes: sub-agent (default — '
+          'independent, no group chat) and swarm (channel: true — the '
+          'child joins the session\'s group chat as a participant).',
       live: false,
     ),
     PluginDefinition<SessionPluginContext>(

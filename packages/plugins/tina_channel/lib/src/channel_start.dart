@@ -24,10 +24,11 @@ final channelStartTool = ToolSchema(
       'across multiple subagents is genuinely needed, and the user decides. '
       'One ask per user turn — a decline is final for that turn. On '
       'approval the chat is created (persisted with the session) and the '
-      'channel pane appears for the user; subagents join the chat '
-      'automatically once it exists. Main agent only; a subagent call is '
-      'refused. If a chat is already started the call reports that and '
-      'creates nothing.',
+      'channel pane appears for the user; subagents join the chat only '
+      'in swarm mode — launch_subagent with channel: true (independent '
+      'subagents, the default, never see it). Main agent only; a '
+      'subagent call is refused. If a chat is already started the call '
+      'reports that and creates nothing.',
   inputSchema: const {
     'type': 'object',
     'properties': {

@@ -48,6 +48,16 @@ final class LaunchSubagentTool extends Tool {
               'description': 'The complete task for the sub-agent. It '
                   'cannot ask you questions; the prompt must stand alone.',
             },
+            'channel': {
+              'type': 'boolean',
+              'default': false,
+              'description': 'Swarm mode: the child joins the session\'s '
+                  'group chat as a participant (tools, deliveries, '
+                  'etiquette). Default false is sub-agent mode — '
+                  'independent, no chat at all. Requires a started group '
+                  'chat; channels add noise, so swarm only when agents '
+                  'genuinely benefit from seeing each other\'s work.',
+            },
           },
           'required': ['prompt'],
         },
@@ -61,7 +71,12 @@ final class LaunchSubagentTool extends Tool {
       return Future.value(ToolResult.error(
           'launch_subagent needs a non-empty "prompt" string'));
     }
-    return Future.value(_plugin.launch(prompt));
+    final channel = input['channel'];
+    if (channel != null && channel is! bool) {
+      return Future.value(
+          ToolResult.error('launch_subagent "channel" must be a boolean'));
+    }
+    return Future.value(_plugin.launch(prompt, channel: channel == true));
   }
 }
 
