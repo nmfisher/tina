@@ -66,6 +66,11 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
   void Function(WasmPersistencePlugin plugin)? onPersistence,
   bool includeRemotePromptPlugin = false,
   required PromptPluginHostBridge remotePromptHost,
+
+  /// The attached plugin artifact's provenance from the launch
+  /// environment (TINA_ENGINE_PLUGIN_ORIGIN/HASH/BUILT), for
+  /// /plugins status. Null keeps status as it was.
+  PluginArtifactOrigin? pluginArtifact,
 }) {
   // One lease book shared by the prompt adapter and the /plugins command:
   // the manager is the single writer, the adapter derives its lease from
@@ -243,6 +248,7 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
       PluginDefinition<SessionPluginContext>(
         WasmPluginAdminPlugin.pluginId,
         (c) => WasmPluginAdminPlugin(
+          artifact: pluginArtifact,
           manager: promptManager!,
           terminal: c.terminal,
         ),

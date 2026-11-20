@@ -3,6 +3,7 @@ import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 import 'scoped_config.dart' show ConfigSettingsBackend;
 import 'assembly.dart';
 import 'config_settings_management.dart';
+import 'plugin_build_contribution.dart';
 import 'console_catalog.dart';
 import 'plugin_catalog.dart';
 import 'package:tina_providers/tina_providers.dart'
@@ -38,6 +39,11 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
         for (final plugin in assembly.host.plugins)
           if (viewFactory(plugin, connection: connection) case final view?)
             plugin.id: view,
+        // The host-side half of /plugins build: intercepts the command
+        // family locally (the compile needs the local Dart SDK; the
+        // engine component cannot spawn processes). Attached as a view
+        // so the console's command-offering layer reaches it.
+        'tina/plugin-build': PluginBuildContribution(connection),
       },
       listenViews: (loaded, unloading) => assembly.pluginManager.listen(
         loaded: (plugin) {

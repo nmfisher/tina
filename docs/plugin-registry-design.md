@@ -422,3 +422,36 @@ v1.** Flagged (not built):
    degradation) → verify + cache + record → engine launched with the
    installed component and the approved grant → a scripted-provider
    turn exercises the plugin's prompt hook → remove.
+
+## 9. Local builds (toolchain-present path)
+
+Owner decision (v0.10.11 era): a Dart-authored plugin component can be
+compiled locally — no in-binary compiler, no registry round-trip.
+
+- **`tina plugin build <source-dir>`** (shell) and **`/plugins build
+  <source-dir>`** (session, the wasm-plugin-admin command family; the
+  front end intercepts it because the engine component cannot spawn
+  processes): compile the source dir with the local Dart SDK's wasm
+  pipeline (`dart compile wasm <entry>`, `dart` located on PATH — a
+  missing SDK is a clean error naming the fix, never a stack trace).
+  The compiler invocation is injectable (`PluginCompiler`), so tests
+  run without a toolchain.
+- **Artifact + origin**: the component lands in the existing plugin
+  cache layout (`local-<hash-prefix>` version) whose install record
+  carries `origin: "local"`, the artifact sha256 and the build
+  timestamp. `tina plugin list` and `/plugins status` (forwarded to the
+  engine through the launcher environment) report origin/hash/built.
+- **Local trust**: a locally-built artifact skips REGISTRY signature
+  verification (you compiled it), consented explicitly per artifact
+  hash (`local-consent.json` under the cache root; consent once per
+  build, re-prompt on hash change, decline keeps the previous
+  artifact). The capability/policy gate is unchanged; a local build
+  never widens grants. Registry installs keep today's behavior
+  byte-for-byte.
+- **Reload**: after a successful build, when a plugin is attached the
+  front end offers `/plugins reload` through the existing
+  PluginManager path (lease, lifecycle counters) and surfaces the
+  notice that a reload is a NEW component instance — in-instance state
+  not written through the artifact's persistence is lost. Detached
+  builds install without reloading. No background watcher, no polling:
+  explicit build-then-reload only.

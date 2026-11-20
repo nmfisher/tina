@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:tina_plugin_registry/tina_plugin_registry.dart';
+import 'plugin_build_contribution.dart' show pluginSourceName;
 import 'package:path/path.dart' as p;
 
 /// The global config the registry section lives in (~/.tina/config),
@@ -26,7 +27,9 @@ String globalPluginRegistryConfigPath() {
 /// Routes a `tina plugin ...` invocation. Returns null when [args] is not
 /// a plugin subcommand (the caller falls through to the main CLI).
 Future<int?> runPluginSubcommand(List<String> args,
-    {required String globalConfigPath, Directory? pluginCacheDir}) async {
+    {required String globalConfigPath,
+    Directory? pluginCacheDir,
+    PluginBuildService? buildService}) async {
   if (args.isEmpty || args.first != 'plugin') return null;
   final rest = args.skip(1).toList();
   final command = rest.isEmpty ? 'help' : rest.first;
@@ -43,6 +46,8 @@ Future<int?> runPluginSubcommand(List<String> args,
       return 0;
     case 'install':
       return await _install(cache, config, data, flags);
+    case 'build':
+      return await _build(cache, flags, service: buildService);
     case 'remove':
       return await _remove(cache, config, data, flags);
     case 'info':
@@ -110,6 +115,59 @@ _PluginFlags _parseFlags(List<String> argv) {
       specifier: specifier, registryUrl: url, registryKey: key, grants: grants, force: force);
 }
 
+/// `tina plugin build <source-dir>`: the shell-side door of the
+/// plugins-build family (the session door is /plugins build in the
+/// TUI). Compiles with the local Dart SDK, consents by artifact hash,
+/// installs with a LOCAL origin marker. A running session picks the
+/// artifact up through /plugins reload (or its next launch).
+Future<int> _build(PluginCache cache, _PluginFlags flags,
+    {PluginBuildService? service}) async {
+  final source = flags.specifier;
+  if (source == null) {
+    stderr.writeln('tina plugin build: usage: tina plugin build <source-dir>');
+    return 64;
+  }
+  final directory = Directory(source);
+  final name = pluginSourceName(directory);
+  service ??= PluginBuildService(cache: cache, compiler: sdkWasmCompiler());
+  final LocalPluginBuild build;
+  try {
+    build = await service.build(directory, name);
+  } on PluginBuildException catch (error) {
+    stderr.writeln('tina plugin build: $error');
+    return 1;
+  }
+  final consent = LocalPluginConsent(
+      file: File('${cache.root.path}${Platform.pathSeparator}local-consent.json'));
+  if (consent.needsConsent(build.hash)) {
+    final interactive = stdin.hasTerminal;
+    stdout.writeln(
+        'Locally-built plugin ${build.name} ${build.version} '
+        '(hash ${build.hash.substring(0, 12)}…): it skips registry '
+        'signature verification — you compiled it. Capability grants '
+        'are unchanged.');
+    if (interactive) {
+      stdout.write('Install this artifact? [y/N]: ');
+      final answer = stdin.readLineSync()?.trim().toLowerCase() ?? '';
+      if (answer != 'y' && answer != 'yes') {
+        stdout.writeln('tina plugin build: declined — nothing installed');
+        return 1;
+      }
+    } else {
+      stderr.writeln(
+          'tina plugin build: non-interactive run cannot consent a new '
+          'artifact hash; rerun in a terminal');
+      return 1;
+    }
+    consent.remember(build.hash);
+  }
+  stdout.writeln('built ${build.name} ${build.version} '
+      '(origin local, hash ${build.hash.substring(0, 12)}…)');
+  stdout.writeln('component: ${build.componentPath}');
+  stdout.writeln('a running session picks it up with /plugins reload');
+  return 0;
+}
+
 Future<void> _list(PluginCache cache, RegistryConfigData data, _PluginFlags flags) async {
   final installed = await cache.list();
   stdout.writeln('installed (cache ${cache.root.path}):');
@@ -118,7 +176,12 @@ Future<void> _list(PluginCache cache, RegistryConfigData data, _PluginFlags flag
   }
   for (final record in installed) {
     final active = data.active == record.name ? ' [active]' : '';
-    stdout.writeln('  ${record.name}@${record.version}$active');
+    final provenance = record.origin == 'local'
+        ? ' [local build'
+              '${record.artifactHash == null ? '' : ' ${record.artifactHash!.substring(0, (record.artifactHash!.length < 12 ? record.artifactHash!.length : 12))}…'}'
+              '${record.builtAt == null ? '' : ' ${record.builtAt}'}]'
+        : '';
+    stdout.writeln('  ${record.name}@${record.version}$active$provenance');
     stdout.writeln('    grants: ${record.grants.join(', ')}');
     if (record.denied.isNotEmpty) {
       stdout.writeln('    denied: ${record.denied.join(', ')}');
@@ -305,6 +368,8 @@ usage: tina plugin <subcommand>
   install <name[@version]>   verify + manifest consent + cache + record
                              [--grant <id>]      non-interactive opt-in
                              [--registry <url>] [--key <base64>]
+  build <source-dir>         compile locally with the Dart SDK, consent by
+                             artifact hash, cache with a local origin
   remove <name> [--force]    remove from the cache and the config
   info <name[@version]>      print the full signed entry''');
 }
@@ -328,6 +393,9 @@ Future<ActivePluginMount?> activeRegistryPlugin(
       return ActivePluginMount(
         name: record.name,
         version: record.version,
+        origin: record.origin,
+        artifactHash: record.artifactHash,
+        builtAt: record.builtAt,
         componentPath: record.componentPath,
         grants: record.grants
             .where((g) => hostAcceptedGrants.contains(g))
@@ -348,6 +416,9 @@ class ActivePluginMount {
     required this.componentPath,
     required this.grants,
     required this.unmountedGrants,
+    this.origin = 'registry',
+    this.artifactHash,
+    this.builtAt,
   });
 
   final String name;
@@ -355,4 +426,10 @@ class ActivePluginMount {
   final String componentPath;
   final List<String> grants;
   final List<String> unmountedGrants;
+
+  /// 'local' (built with plugins build; consent by hash) or
+  /// 'registry' (signature-verified install).
+  final String origin;
+  final String? artifactHash;
+  final String? builtAt;
 }

@@ -549,6 +549,9 @@ Future<EngineProcess> startRemoteEngine({
         .where((argument) => argument.isNotEmpty)
         .toList(),
     pluginComponent: plugin?.componentPath,
+    pluginOrigin: plugin?.origin,
+    pluginHash: plugin?.artifactHash,
+    pluginBuilt: plugin?.builtAt,
     pluginGrants: plugin?.grants
             .where((g) => !g.contains(':'))
             .toList() ??

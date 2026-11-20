@@ -123,10 +123,43 @@ void main() {
     expect(terminal.lines.single, contains('unknown /plugins argument'));
   });
 
-  test('completion offers reload', () async {
-    expect(await command().complete!(''), ['reload']);
+  test('completion offers build and reload', () async {
+    expect(await command().complete!(''), ['build', 'reload']);
     expect(await command().complete!('re'), ['reload']);
     expect(await command().complete!('status'), isEmpty);
+  });
+  test('status reports the artifact origin, hash and build time', () async {
+    final terminal = _CaptureTerminal();
+    final admin = WasmPluginAdminPlugin(
+      manager: manager,
+      terminal: terminal,
+      artifact: const PluginArtifactOrigin(
+        origin: 'local',
+        hash: 'abcdef1234567890',
+        builtAt: '2026-12-01T10:00:00Z',
+      ),
+    );
+    await admin.commands.single.handler('status');
+    final text = terminal.lines.join('\n');
+    expect(text, contains('origin=local'));
+    expect(text, contains('hash=abcdef1234567890'));
+    expect(text, contains('built=2026-12-01T10:00:00Z'));
+
+    // Without artifact info, status stays exactly as it was.
+    terminal.lines.clear();
+    final plain = WasmPluginAdminPlugin(manager: manager, terminal: terminal);
+    await plain.commands.single.handler('');
+    expect(terminal.lines.join('\n'), isNot(contains('origin=')));
+  });
+
+  test('build explains the host-side path; completion offers it', () async {
+    final terminal = _CaptureTerminal();
+    final admin = WasmPluginAdminPlugin(manager: manager, terminal: terminal);
+    await admin.commands.single.handler('build');
+    expect(terminal.lines.single, contains('front end'));
+    expect(terminal.lines.single, contains('tina plugin build'));
+    expect(await admin.commands.single.complete!(''), contains('build'));
+    expect(await admin.commands.single.complete!('bu'), ['build']);
   });
 }
 
@@ -137,4 +170,5 @@ extension on PromptBridgeResult<String> {
       'expected a lease, got $failure',
     ),
   };
+
 }

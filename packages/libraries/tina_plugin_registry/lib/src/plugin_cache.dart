@@ -25,9 +25,12 @@ class PluginCache {
       {required String name,
       required String version,
       required List<int> componentBytes,
-      required Map<String, Object?> entry,
+      Map<String, Object?> entry = const {},
       required List<String> grants,
-      required List<String> deniedIds}) async {
+      required List<String> deniedIds,
+      String origin = 'registry',
+      String? artifactHash,
+      DateTime? builtAt}) async {
     final dir = pluginDir(name, version);
     await dir.create(recursive: true);
     await File(
@@ -39,6 +42,9 @@ class PluginCache {
       'grants': grants,
       'denied': deniedIds,
       'installedAt': DateTime.now().toUtc().toIso8601String(),
+      if (origin != 'registry') 'origin': origin,
+      if (artifactHash != null) 'artifactHash': artifactHash,
+      if (builtAt != null) 'builtAt': builtAt.toIso8601String(),
       'entry': entry,
     };
     await File('${dir.path}${Platform.pathSeparator}install.json')
@@ -73,6 +79,15 @@ class PluginCache {
                 decoded['version'] is String ? decoded['version'] as String : '',
             grants: (decoded['grants'] as List?)?.cast<String>() ?? const [],
             denied: (decoded['denied'] as List?)?.cast<String>() ?? const [],
+            origin: decoded['origin'] is String
+                ? decoded['origin'] as String
+                : 'registry',
+            artifactHash: decoded['artifactHash'] is String
+                ? decoded['artifactHash'] as String
+                : null,
+            builtAt: decoded['builtAt'] is String
+                ? decoded['builtAt'] as String
+                : null,
             componentPath: File(
                     '${versionDir.path}${Platform.pathSeparator}component.wasm')
                 .path,
@@ -96,6 +111,9 @@ class InstalledRecord {
     required this.grants,
     required this.denied,
     required this.componentPath,
+    this.origin = 'registry',
+    this.artifactHash,
+    this.builtAt,
   });
 
   final String name;
@@ -103,6 +121,19 @@ class InstalledRecord {
   final List<String> grants;
   final List<String> denied;
   final String componentPath;
+
+  /// Where the artifact came from: 'registry' (verified install) or
+  /// 'local' (built with plugins build; registry signature verification
+  /// skipped, user-consented by artifact hash).
+  final String origin;
+
+  /// The artifact's sha256 when recorded (local builds always record
+  /// it; it is the consent key).
+  final String? artifactHash;
+
+  /// When the artifact was built (local) or installed (registry), UTC
+  /// ISO-8601.
+  final String? builtAt;
 }
 
 /// Reads and writes the `[plugin-registry]` table of the global config

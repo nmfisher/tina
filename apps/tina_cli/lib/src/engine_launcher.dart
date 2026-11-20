@@ -189,6 +189,12 @@ List<String> wasmEngineArgv({
   /// `--plugin-component` / `--plugin-grant` mount flags.
   String? pluginComponent,
   List<String> pluginGrants = const [],
+
+  /// The active plugin artifact's provenance (origin/hash/builtAt),
+  /// forwarded so the engine's /plugins status can report it.
+  String? pluginOrigin,
+  String? pluginHash,
+  String? pluginBuilt,
   /// The compiled capability document for the wasm-host contract
   /// (wasm-tui stream): passed instead of the legacy --preopen flags.
 }) {
@@ -227,6 +233,15 @@ List<String> wasmEngineArgv({
       environment.entries.map((entry) => '--env=${entry.key}=${entry.value}'));
   if (pluginComponent != null) {
     argv.add('--plugin-component=$pluginComponent');
+    if (pluginOrigin != null) {
+      argv.add('--env=TINA_ENGINE_PLUGIN_ORIGIN=$pluginOrigin');
+      if (pluginHash != null) {
+        argv.add('--env=TINA_ENGINE_PLUGIN_HASH=$pluginHash');
+      }
+      if (pluginBuilt != null) {
+        argv.add('--env=TINA_ENGINE_PLUGIN_BUILT=$pluginBuilt');
+      }
+    }
     // Only grants the running host accepts are mounted; recorded grants
     // the host does not know are reported by the installer instead.
     for (final grant in pluginGrants) {

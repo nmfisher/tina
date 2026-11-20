@@ -187,6 +187,7 @@ final class _TestedModule implements tests.TestedModule {
         osSandbox: false,
         approvalChannel: 'tina/approvals-stream',
         registry: wasmEngineRegistry(
+          pluginArtifact: _artifactOrigin(environment),
           persistenceStore: store,
           onPersistence: (plugin) => persistencePlugin = plugin,
           includeRemotePromptPlugin: includeRemotePromptPlugin,
@@ -246,6 +247,19 @@ final class _TestedModule implements tests.TestedModule {
     for (final (name, value) in _imports.cliEnvironment.getEnvironment())
       name: value,
   };
+
+  /// The attached plugin artifact's provenance, forwarded by the
+  /// launcher (TINA_ENGINE_PLUGIN_ORIGIN/HASH/BUILT) so /plugins
+  /// status can report where the mounted component came from.
+  PluginArtifactOrigin? _artifactOrigin(Map<String, String> environment) {
+    final origin = environment['TINA_ENGINE_PLUGIN_ORIGIN'];
+    if (origin == null || origin.isEmpty) return null;
+    return PluginArtifactOrigin(
+      origin: origin,
+      hash: environment['TINA_ENGINE_PLUGIN_HASH'],
+      builtAt: environment['TINA_ENGINE_PLUGIN_BUILT'],
+    );
+  }
 
   Stream<Uint8List>? _stdin() {
     final (stream, _) = _imports.cliStdin.readViaStream();

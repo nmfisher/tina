@@ -17,8 +17,26 @@ import 'package:tina_engine_2/tina_engine_2.dart' show AgentPlugin;
 import 'plugin_manager.dart';
 import 'prompt_bridge_types.dart';
 
+/// The attached plugin artifact's provenance, surfaced in /plugins
+/// status. Supplied by the composition root from the launch
+/// environment (the launcher passes the active plugin's origin, hash
+/// and build timestamp); null keeps status as it was.
+final class PluginArtifactOrigin {
+  const PluginArtifactOrigin({
+    required this.origin,
+    this.hash,
+    this.builtAt,
+  });
+
+  /// 'local' (built with plugins build) or 'registry'.
+  final String origin;
+  final String? hash;
+  final String? builtAt;
+}
+
 final class WasmPluginAdminPlugin extends AgentPlugin {
-  WasmPluginAdminPlugin({required PluginManager manager, required Terminal terminal})
+  WasmPluginAdminPlugin({required PluginManager manager, required Terminal terminal,
+      this.artifact})
     : _manager = manager,
       _terminal = terminal;
 
@@ -26,6 +44,7 @@ final class WasmPluginAdminPlugin extends AgentPlugin {
 
   final PluginManager _manager;
   final Terminal _terminal;
+  final PluginArtifactOrigin? artifact;
 
   @override
   String get id => pluginId;
@@ -35,8 +54,9 @@ final class WasmPluginAdminPlugin extends AgentPlugin {
     Command(
       name: 'plugins',
       description: 'wasm plugin status; "reload" reattaches the plugin artifact',
-      complete: (prefix) async =>
-          const ['reload'].where((word) => word.startsWith(prefix)).toList(),
+      complete: (prefix) async => const ['build', 'reload']
+          .where((word) => word.startsWith(prefix))
+          .toList(),
       handler: (argument) async {
         switch (argument.trim().toLowerCase()) {
           case '' || 'status':
@@ -49,6 +69,25 @@ final class WasmPluginAdminPlugin extends AgentPlugin {
               'lifecycle=${status.lifecycle} opens=${status.opens} '
               'closes=${status.closes} reloads=${status.reloads} '
               'lastFailure=${status.lastFailure?.name ?? 'none'}',
+            );
+            final artifact = this.artifact;
+            if (artifact != null) {
+              _terminal.writeln(
+                'artifact: origin=${artifact.origin}'
+                '${artifact.hash == null ? '' : ' hash=${artifact.hash}'}'
+                '${artifact.builtAt == null ? '' : ' built=${artifact.builtAt}'}',
+              );
+            }
+          case 'build':
+            // The compile runs host-side (the session front end runs the
+            // local Dart SDK; this component cannot spawn processes).
+            // The front end intercepts `/plugins build` there; this
+            // reply is the honest fallback when it arrives raw.
+            _terminal.writeln(
+              'plugins build runs in the front end (it compiles with the '
+              'local Dart SDK): run /plugins build <source-dir> from the '
+              'terminal session, or tina plugin build <source-dir> from '
+              'the shell.',
             );
           case 'reload':
             if (!_manager.isOpen) {
@@ -68,7 +107,7 @@ final class WasmPluginAdminPlugin extends AgentPlugin {
           default:
             _terminal.writeln(
               "unknown /plugins argument "
-              "(try '', 'status' or 'reload')",
+              "(try '', 'status', 'build <source-dir>' or 'reload')",
             );
         }
       },

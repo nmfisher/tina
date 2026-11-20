@@ -97,6 +97,96 @@ void main() {
         64);
   });
 
+  test('wasmEngineArgv forwards the artifact provenance', () {
+    final argv = wasmEngineArgv(
+      hostPath: 'tina-wasm-host',
+      workingDirectory: '/tmp/ws',
+      configPath: '/tmp/ws/config/config',
+      yolo: true,
+      pluginComponent: '/cache/component.wasm',
+      pluginOrigin: 'local',
+      pluginHash: 'a' * 64,
+      pluginBuilt: '2026-12-01T10:00:00Z',
+    );
+    expect(argv, contains('--env=TINA_ENGINE_PLUGIN_ORIGIN=local'));
+    expect(argv, contains('--env=TINA_ENGINE_PLUGIN_HASH=' + 'a' * 64));
+    expect(
+        argv, contains('--env=TINA_ENGINE_PLUGIN_BUILT=2026-12-01T10:00:00Z'));
+    final registry = wasmEngineArgv(
+      hostPath: 'tina-wasm-host',
+      workingDirectory: '/tmp/ws',
+      configPath: '/tmp/ws/config/config',
+      yolo: true,
+      pluginComponent: '/cache/component.wasm',
+      pluginOrigin: 'registry',
+    );
+    expect(registry, contains('--env=TINA_ENGINE_PLUGIN_ORIGIN=registry'));
+    expect(
+        registry.any(
+            (a) => a.startsWith('--env=TINA_ENGINE_PLUGIN_HASH=')),
+        isFalse);
+  });
+
+  test('plugin build with a stub compiler installs a local-origin artifact',
+      () async {
+    final source = Directory('${scratch.path}/src')
+      ..createSync();
+    Directory('${source.path}/bin').createSync();
+    File('${source.path}/pubspec.yaml')
+        .writeAsStringSync('name: demo-local\n');
+    File('${source.path}/bin/main.dart').writeAsStringSync('void main() {}');
+
+    final cacheDir = Directory('${scratch.path}/plugins');
+    final bytes = List.generate(2048, (i) => i % 251);
+    final service = PluginBuildService(
+      cache: PluginCache(root: cacheDir),
+      compiler: (dir, output) async =>
+          PluginCompileOutcome(exitCode: 0, outputBytes: bytes),
+    );
+
+    // First run: a NEW hash needs consent; non-interactive runs refuse
+    // (the safe direction) — so seed consent the way an interactive
+    // yes would have, then the build completes.
+    final consent = LocalPluginConsent(
+        file: File('${cacheDir.path}/local-consent.json'));
+    final preExit = await runPluginSubcommand([
+      'plugin', 'build', source.path,
+    ], globalConfigPath: '${scratch.path}/config',
+        pluginCacheDir: cacheDir, buildService: service);
+    expect(preExit, 1, reason: 'non-interactive cannot consent a new hash');
+
+    final built = await service.build(source, 'demo-local');
+    consent.remember(built.hash);
+
+    final exit = await runPluginSubcommand([
+      'plugin', 'build', source.path,
+    ], globalConfigPath: '${scratch.path}/config',
+        pluginCacheDir: cacheDir, buildService: service);
+    expect(exit, 0);
+
+    final listed = await PluginCache(root: cacheDir).list();
+    expect(listed.single.origin, 'local');
+    expect(listed.single.artifactHash, built.hash);
+  });
+
+  test('plugin build surfaces compiler failures cleanly', () async {
+    final source = Directory('${scratch.path}/src2')..createSync();
+    Directory('${source.path}/bin').createSync();
+    File('${source.path}/pubspec.yaml').writeAsStringSync('name: broken\n');
+    File('${source.path}/bin/main.dart').writeAsStringSync('void main() {}');
+    final service = PluginBuildService(
+      cache: PluginCache(root: Directory('${scratch.path}/plugins')),
+      compiler: (dir, output) async => const PluginCompileOutcome(
+          exitCode: 1, stderr: 'Error: wit import missing'),
+    );
+    final exit = await runPluginSubcommand([
+      'plugin', 'build', source.path,
+    ], globalConfigPath: '${scratch.path}/config',
+        pluginCacheDir: Directory('${scratch.path}/plugins'),
+        buildService: service);
+    expect(exit, 1);
+  });
+
   test('wasmEngineArgv mounts the active plugin and its grants', () {
     final argv = wasmEngineArgv(
       hostPath: 'tina-wasm-host',
