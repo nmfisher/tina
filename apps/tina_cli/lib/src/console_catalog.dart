@@ -26,27 +26,36 @@ typedef ConsoleViewFactory = ConsoleContribution? Function(AgentPlugin plugin,
 /// call creates a view for one attachment to the existing feature instance.
 final _viewFactories =
     <String, ConsoleContribution? Function(AgentPlugin, ClientAccess)>{
-  'tina/approvals-tui': (plugin, access) => ApprovalView(
-      (plugin as AttachmentApprovalChannel).interaction.forClient(access)),
-  'tina/update-tui': (plugin, access) => UpdateView(
-      _ClientUpdateStatus(
-          (plugin as PresentationPlugin<UpdateStatusSource>).source, access),
-      checkOnAttach: access.canControl),
-  'tina/cwd-tui': (plugin, access) =>
-      CwdView((plugin as PresentationPlugin<String>).source),
-  'tina/mcp': (plugin, access) {
-    final management = (plugin as McpPlugin).management;
-    return management == null ? null : McpView(management.forClient(access));
-  },
-  'tina/channel-tui': (plugin, access) {
-    final pane = plugin as ChannelPanePlugin;
-    // The pane is opt-in: the view exists from attach but binds
-    // nothing while no chat exists; when the user approves one
-    // (channel_start) the handle fires and the pane goes live. A null
-    // human name renders the input line disabled (a read-only
-    // composition); locally the name is always derived.
-    return ChannelPaneView(pane.chatForView, humanName: pane.humanName);
-  },
+  'tina/approvals-tui': (plugin, access) => switch (plugin) {
+        AttachmentApprovalChannel(:final interaction) =>
+          ApprovalView(interaction.forClient(access)),
+        _ => null,
+      },
+  'tina/update-tui': (plugin, access) => switch (plugin) {
+        PresentationPlugin<UpdateStatusSource>(:final source) => UpdateView(
+            _ClientUpdateStatus(source, access),
+            checkOnAttach: access.canControl),
+        _ => null,
+      },
+  'tina/cwd-tui': (plugin, access) => switch (plugin) {
+        PresentationPlugin<String>(:final source) => CwdView(source),
+        _ => null,
+      },
+  'tina/mcp': (plugin, access) => switch (plugin) {
+        McpPlugin(:final management) when management != null =>
+          McpView(management.forClient(access)),
+        _ => null,
+      },
+  'tina/channel-tui': (plugin, access) => switch (plugin) {
+        ChannelPanePlugin(:final chatForView, :final humanName) =>
+          // The pane is opt-in: the view exists from attach but binds
+          // nothing while no chat exists; when the user approves one
+          // (channel_start) the handle fires and the pane goes live. A
+          // null human name renders the input line disabled (a
+          // read-only composition); locally the name is always derived.
+          ChannelPaneView(chatForView, humanName: humanName),
+        _ => null,
+      },
 };
 
 /// The view set buildable from the connection alone: every catalog entry

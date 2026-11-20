@@ -7,9 +7,9 @@
 library;
 
 import 'package:tina_mode/mode.dart' show PermissionMode;
+import 'package:tina_tools/portable_tools.dart' show ToolsPluginSurface;
 import 'package:tina_settings/tina_settings.dart';
 
-import 'native_kinds.dart';
 import 'tools_factory_unsupported.dart'
     if (dart.library.io) 'tools_factory_io.dart';
 
@@ -33,15 +33,20 @@ final class ToolsWiring {
 }
 
 /// Builds the tools plugin for [wiring].
-typedef ToolsPluginFactory = ToolsPlugin Function(ToolsWiring wiring);
+/// Surface-typed on purpose (commit 28): the seam accepts any
+/// implementation of the portable surface — the full native plugin, the
+/// wasm leg's portable one, and the cross-leg test stub — never one
+/// concrete class.
+typedef ToolsPluginFactory = ToolsPluginSurface Function(ToolsWiring wiring);
 
 ToolsPluginFactory? _injected;
 
 /// The wasm composition root's factory; null means the platform default.
-set injectedToolsPluginFactory(ToolsPluginFactory factory) =>
+set injectedToolsPluginFactory(ToolsPluginFactory? factory) =>
     _injected = factory;
 
 /// The tools plugin for [wiring]: the injected factory when a
-/// composition root set one, else the native full plugin.
-ToolsPlugin buildToolsPlugin(ToolsWiring wiring) =>
+/// composition root set one, else the native full plugin. Typed as the
+/// surface — the caller stores it as the payload every leg shares.
+ToolsPluginSurface buildToolsPlugin(ToolsWiring wiring) =>
     (_injected ?? nativeToolsPluginFactory)(wiring);

@@ -108,4 +108,20 @@ final class SessionPluginContext {
   /// persistence plugin's factory casts it.
   final Object? openStore;
   final String? sessionStorePath;
+
+  /// The typed capability view of this session's plugin payloads
+  /// (commit 28): the first payload that implements [T], or null when
+  /// this session has none. Plugins declare capabilities by
+  /// implementing them; consumers query — absence is a first-class
+  /// answer, and consumers degrade (skip or notice the limitation),
+  /// never cast. Payloads are scanned in the assembly's resolution
+  /// order (tools first), so a capability with several holders resolves
+  /// deterministically to the one the assembly wired.
+  T? capability<T extends Object>() {
+    final tools = this.tools;
+    if (tools is T) return tools as T; // guarded: never throws
+    final policy = providerPolicy;
+    if (policy is T) return policy as T; // guarded: never throws
+    return null;
+  }
 }

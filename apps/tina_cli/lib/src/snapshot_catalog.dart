@@ -61,8 +61,8 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
       listen: plugin.listenPending,
     );
   }
-  if (plugin is ModePolicySource) {
-    final mode = (plugin as ModePolicySource).modePolicy.observation;
+  if (plugin case ModePolicySource source) {
+    final mode = source.modePolicy.observation;
     return SnapshotFeature(
       () => {'mode': mode.mode.name},
       listen: (changed) => mode.listen((_) => changed()),
@@ -205,8 +205,7 @@ SnapshotFeature? snapshotFeatureFor(AgentPlugin plugin) {
       },
     );
   }
-  if (plugin is UpdateStatusSource) {
-    final updates = plugin as UpdateStatusSource;
+  if (plugin case UpdateStatusSource updates) {
     return SnapshotFeature(
       () => {
         'version': updates.currentVersion,

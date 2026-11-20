@@ -215,6 +215,26 @@ final class _NoProcessRunner implements tt.ToolProcessRunnerView {
 
   @override
   set mode(PermissionMode value) {}
+
+  /// The answer-cache seams are surface members: present, never wired —
+  /// no read-only searches run under wasm, so serve/capture stay inert.
+  @override
+  String? Function(String program, List<String> arguments)?
+      get readOnlySearchResolver => null;
+
+  @override
+  set readOnlySearchResolver(
+      String? Function(String program, List<String> arguments)? value) {}
+
+  @override
+  void Function(String program, List<String> arguments, List<String> files)?
+      get onReadOnlySearchCompleted => null;
+
+  @override
+  set onReadOnlySearchCompleted(
+      void Function(
+              String program, List<String> arguments, List<String> files)?
+          value) {}
 }
 
 final class _NoCommandGrants implements tt.ToolCommandGrants {

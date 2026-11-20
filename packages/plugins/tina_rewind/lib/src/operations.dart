@@ -15,8 +15,15 @@ final rewindOperations = <String, SessionOperation>{
         detail: 'Invalid rewind request.',
       );
     }
+    // Pattern-narrowed, never cast (commit 28): absence is an error.
+    if (plugin is! RewindPlugin) {
+      return const SessionResult(
+        stopReason: StopReason.error,
+        detail: 'Rewind is not available in this session.',
+      );
+    }
     try {
-      (plugin as RewindPlugin).rewindTo(
+      plugin.rewindTo(
         toSeq: toSeq,
         expectedHead: expectedHead,
       );

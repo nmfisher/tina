@@ -4,7 +4,6 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_engine_2/tina_engine_2.dart' show StopReason;
 import 'package:tina_mode/tina_mode.dart' show ModePlugin;
-import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 import 'assembly.dart';
 import 'session_terminal.dart';
 import 'package:tina_tui/tina_tui.dart';
@@ -115,7 +114,7 @@ final class TuiSession implements TuiSessionHandle {
   /// The session's permission mode as the vocabulary's word — the status
   /// strip's label. The enum never leaves the tools package.
   String get modeWord {
-    return ModePlugin.wordFor((assembly.tools as ToolsPlugin).mode);
+    return ModePlugin.wordFor(assembly.tools.mode);
   }
 
   static TuiSession start({

@@ -16,7 +16,15 @@ final sessionControlsOperations = <String, SessionOperation>{
         detail: 'Invalid model selection.',
       );
     }
-    final controls = plugin as SessionControlsPlugin;
+    // Pattern-narrowed, never cast (commit 28): absence is an error
+    // result, not a type-cast failure.
+    if (plugin is! SessionControlsPlugin) {
+      return const SessionResult(
+        stopReason: StopReason.error,
+        detail: 'Session controls are not available in this session.',
+      );
+    }
+    final controls = plugin;
     if (controls.currentModel() != expected) {
       return const SessionResult(
         stopReason: StopReason.error,
@@ -50,7 +58,15 @@ final sessionControlsOperations = <String, SessionOperation>{
         detail: 'Invalid profile selection.',
       );
     }
-    final controls = plugin as SessionControlsPlugin;
+    // Pattern-narrowed, never cast (commit 28): absence is an error
+    // result, not a type-cast failure.
+    if (plugin is! SessionControlsPlugin) {
+      return const SessionResult(
+        stopReason: StopReason.error,
+        detail: 'Session controls are not available in this session.',
+      );
+    }
+    final controls = plugin;
     final profiles = controls.readProfiles?.call();
     if (profiles == null) {
       return const SessionResult(

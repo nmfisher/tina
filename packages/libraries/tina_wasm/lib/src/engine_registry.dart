@@ -133,8 +133,11 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
       'tina/tools',
       dependency: approvalRequester,
       create: (c, approvals) {
-        final plugin = c.tools as PortableToolsPlugin;
-        plugin.attachApprovals(approvals);
+        // Capability-typed (commit 28): the portable plugin's
+        // approvals seam, reached by check — a foreign payload mounts
+        // uninstrumented instead of cast-and-throw.
+        final plugin = c.tools;
+        if (plugin is PortableToolsPlugin) plugin.attachApprovals(approvals);
         return plugin;
       },
       provides: [toolProvider, modePolicySource, toolSession],

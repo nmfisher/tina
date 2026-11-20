@@ -192,8 +192,8 @@ class Screen {
     _status = StatusRegion(this);
     _input = InputRegion(this);
     final damageSource = _backend;
-    if (damageSource is BackendDamageSource) {
-      (damageSource as BackendDamageSource).onDamage = (bounds) {
+    if (damageSource case BackendDamageSource source) {
+      source.onDamage = (bounds) {
         // Painting a higher layer does not damage layers beneath it. Only
         // underlying shared-grid writes invalidate overlays above their owner.
         final owner = _paintingOverlay;
@@ -608,8 +608,8 @@ class Screen {
     _animations.clear();
     resetChatPresentation();
     final damageSource = _backend;
-    if (damageSource is BackendDamageSource) {
-      (damageSource as BackendDamageSource).onDamage = null;
+    if (damageSource case BackendDamageSource source) {
+      source.onDamage = null;
     }
   }
 

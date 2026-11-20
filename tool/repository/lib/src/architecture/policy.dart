@@ -55,6 +55,34 @@ class ArchitecturePolicy {
       final path = graph.label(file);
       final rootPackage = owner.name == 'tina';
       final tooling = owner.name == 'tina_repository_tools';
+      // Commit 28, owner directive: plugin payloads (AgentPlugin
+      // members, catalog entries) are consumed through capability
+      // queries and pattern narrowing — an as-cast to a plugin,
+      // surface or source type is banned in production code. A cast
+      // throws at runtime where a leg's plugin implements a different
+      // surface set (the live wasm settings failure); tests may hold
+      // stubs, so test directories are exempt.
+      if (!p.split(file).contains('test')) {
+        final payloadCast = RegExp(r'\bas\s+([A-Z]\w*(Plugin|Surface|Source))\b');
+        final lines = File(file).readAsLinesSync();
+        for (var i = 0; i < lines.length; i++) {
+          final match = payloadCast.firstMatch(lines[i]);
+          if (match != null) {
+            found.add(
+              DependencyViolation(
+                'payload-cast',
+                path,
+                path,
+                match.group(1)!,
+                i + 1,
+                [path],
+                'plugin payload as-cast: ${match.group(0)} — query the '
+                'capability or pattern-narrow instead, never cast-and-throw',
+              ),
+            );
+          }
+        }
+      }
       final frontend =
           terminal.contains(owner.name) ||
           ((rootPackage || tooling) &&
@@ -406,6 +434,7 @@ List<String> applyBaseline(
         key.contains('*') ||
         !const {
           'frontend-exclusion',
+          'payload-cast',
           'public-api',
           'relative-package-escape',
           'assembly-direction',

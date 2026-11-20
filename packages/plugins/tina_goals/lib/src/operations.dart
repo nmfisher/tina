@@ -15,7 +15,11 @@ final goalsOperations = <String, SessionOperation>{
       throw ArgumentError('Invalid goal or turn bound');
     }
     var cancelled = false;
-    final achieved = await (plugin as GoalsPlugin).runToGoal(
+    // Pattern-narrowed, never cast (commit 28): absence is an error.
+    if (plugin is! GoalsPlugin) {
+      throw ArgumentError('goals operations require the goals plugin');
+    }
+    final achieved = await plugin.runToGoal(
       text: text,
       maxTurns: maxTurns as int?,
       cancel: context.cancellation,

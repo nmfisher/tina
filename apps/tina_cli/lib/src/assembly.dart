@@ -24,6 +24,7 @@ import 'package:path/path.dart' as p;
 
 import 'app_io.dart';
 import 'native_kinds.dart';
+import 'package:tina_tools/portable_tools.dart' show ToolsPluginSurface;
 import 'app_stdout.dart';
 import 'assembly_config.dart';
 import 'configured_provider.dart';
@@ -259,9 +260,20 @@ final class SessionAssembly {
   final void Function() _stopConfigurationUpdates;
 
   /// Tools expose mode/status to the frontend; approvals are loader-injected.
-  /// The full plugin natively; a portable plugin under wasm — the same
-  /// name resolves to either (see `native_kinds.dart`).
-  final ToolsPlugin tools;
+  /// The full plugin natively; a portable plugin under wasm. Typed as
+  /// the portable surface (commit 28) — the payload every leg shares,
+  /// never one concrete class.
+  final ToolsPluginSurface tools;
+
+  /// The typed capability query over the assembly-resolved payloads
+  /// (commit 28), same contract as the session context's: the first
+  /// payload that implements [T], or null. Consumers degrade on
+  /// absence — never a payload cast.
+  T? capability<T extends Object>() {
+    final tools = this.tools;
+    if (tools is T) return tools as T; // guarded: never throws
+    return null;
+  }
 
   /// Shared output supplied to the command plugins and the frontend.
   final Terminal terminal;

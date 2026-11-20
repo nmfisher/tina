@@ -12,15 +12,24 @@ final modeOperations = <String, SessionOperation>{
         detail: 'Invalid permission mode change.',
       );
     }
-    final policy = (plugin as ModePolicySource).modePolicy;
-    if (policy.mode != expected) {
-      return const SessionResult(
-        stopReason: StopReason.error,
-        detail: 'Permission mode changed in another client. Try again.',
-      );
+    // Pattern-narrowed, never cast (commit 28): an unrelated interface
+    // does not promote through `is`, and absence is an error result —
+    // not a type-cast failure.
+    if (plugin case ModePolicySource source) {
+      final policy = source.modePolicy;
+      if (policy.mode != expected) {
+        return const SessionResult(
+          stopReason: StopReason.error,
+          detail: 'Permission mode changed in another client. Try again.',
+        );
+      }
+      policy.selectMode(selected, expectedMode: expected);
+      return const SessionResult();
     }
-    policy.selectMode(selected, expectedMode: expected);
-    return const SessionResult();
+    return const SessionResult(
+      stopReason: StopReason.error,
+      detail: 'The mode policy is not available in this session.',
+    );
   }, allowWhileRunning: true),
 };
 

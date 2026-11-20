@@ -3,7 +3,7 @@ import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_tools/tina_tools.dart'
-    show CommandApprovalStore, ResourceApprovalStore;
+    show ResourceApprovalStore, ToolCommandApprovals;
 import 'app_io.dart';
 import 'assembly_config.dart';
 import 'permission_instructions.dart';
@@ -64,7 +64,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
       void Function(Iterable<String>)? validatePlugins,
       void Function()? applyConfiguration,
       void Function() Function(void Function())? listenConfiguration,
-      CommandApprovalStore? commandApprovals,
+      ToolCommandApprovals? commandApprovals,
       String? workspace,
       ClientAccess access = const ClientAccess(),
       AppIo? appIo})
@@ -109,7 +109,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
   final void Function(Iterable<String>)? _validatePlugins;
   final void Function()? _applyConfiguration;
   final void Function() Function(void Function())? _listenConfiguration;
-  final CommandApprovalStore? _approvals;
+  final ToolCommandApprovals? _approvals;
   final _edits = <String, _Edit>{};
   final _releases = <void Function()>{};
   int _nextEdit = 0;

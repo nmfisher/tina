@@ -315,27 +315,31 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       second: modelAccess,
       provides: [toolProvider, modePolicySource],
       create: (c, approvals, models) {
-        // Statements, not one cascade: a cascade after an arrow body binds
-        // to that body's expression.
-        final policy = (c.tools as ToolsPlugin).modePolicy;
-        policy.approvals = approvals;
-        policy.terminal = c.terminal;
-        policy.classifier = PermissionClassifier(
-          () => models.mainProvider(_classifierModel(c)),
-          readTimeout: () => Duration(
-            seconds:
-                c.settings?.read(classifierTimeoutSetting).value ??
-                classifierTimeoutSetting.defaultValue,
-          ),
-          // Project config first, session setting as the fallback:
-          // both land in the same "User permission preferences" block.
-          readInstruction: () =>
-              readProjectPermissionInstructions(c.workingDirectory) ??
-              c.settings?.read(classifierInstructionSetting).value ??
-              '',
-        );
-        final tools = c.tools as ToolsPlugin;
-        return tools;
+        // Capability-typed, never a payload cast (commit 28): both legs'
+        // tools plugins declare ModePolicySource. When a composition
+        // supplies none, the policy wiring degrades to absent — the
+        // plugin itself still mounts.
+        final source = c.capability<ModePolicySource>();
+        if (source != null) {
+          final policy = source.modePolicy;
+          policy.approvals = approvals;
+          policy.terminal = c.terminal;
+          policy.classifier = PermissionClassifier(
+            () => models.mainProvider(_classifierModel(c)),
+            readTimeout: () => Duration(
+              seconds:
+                  c.settings?.read(classifierTimeoutSetting).value ??
+                  classifierTimeoutSetting.defaultValue,
+            ),
+            // Project config first, session setting as the fallback:
+            // both land in the same "User permission preferences" block.
+            readInstruction: () =>
+                readProjectPermissionInstructions(c.workingDirectory) ??
+                c.settings?.read(classifierInstructionSetting).value ??
+                '',
+          );
+        }
+        return c.tools;
       },
       description:
           'Provides sandboxed file, search and shell tools with permission policy and approval routing.',
@@ -424,14 +428,19 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         settings: c.settings,
         history: c.sessionStorePath == null
             ? null
-            : SessionHistoryTools(
-                workspace: c.workingDirectory,
-                store: c.sessionStorePath!,
-                policy: (c.tools as ToolsPlugin).modePolicy,
-                catalog: HistoryCatalog(
-                  '${File(c.configPath).parent.path}/session-stores',
-                ),
-              ),
+            // The history tools ride the mode policy; a composition
+            // without one (no ModePolicySource payload) mounts
+            // persistence without the session-history surface.
+            : c.capability<ModePolicySource>() == null
+                ? null
+                : SessionHistoryTools(
+                    workspace: c.workingDirectory,
+                    store: c.sessionStorePath!,
+                    policy: c.capability<ModePolicySource>()!.modePolicy,
+                    catalog: HistoryCatalog(
+                      '${File(c.configPath).parent.path}/session-stores',
+                    ),
+                  ),
       ),
       description:
           'Saves conversations in SQLite, resumes sessions, and provides workspace-first history search with recent sessions first.',
@@ -515,21 +524,29 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         // before a certified read-only search runs, capture after it
         // succeeds. The closures dereference lazily — the cache
         // exists once the session opens (before that, the seams are
-        // inert by design).
-        final runner = (c.tools as ToolsPlugin).processRunner;
-        runner.readOnlySearchResolver =
-            (String program, List<String> arguments) {
-          final cache = plugin.answerCache;
-          if (cache == null) return null;
-          final served = cache.serve(_query(program, arguments));
-          return served == null ? null : cache.injectionBlock(served);
-        };
-        runner.onReadOnlySearchCompleted =
-            (String program, List<String> arguments,
-                List<String> files) {
-              plugin.answerCache?.capture(
-                  _query(program, arguments), files);
-            };
+        // inert by design). A composition without a process runner
+        // (the wasm-shaped leg) mounts memory without the cache
+        // hooks — a noticed, first-class absence, never a cast.
+        final runner = c.capability<ToolsPluginSurface>()?.processRunner;
+        if (runner != null) {
+          runner.readOnlySearchResolver =
+              (String program, List<String> arguments) {
+            final cache = plugin.answerCache;
+            if (cache == null) return null;
+            final served = cache.serve(_query(program, arguments));
+            return served == null ? null : cache.injectionBlock(served);
+          };
+          runner.onReadOnlySearchCompleted =
+              (String program, List<String> arguments,
+                  List<String> files) {
+                plugin.answerCache?.capture(
+                    _query(program, arguments), files);
+              };
+        } else {
+          c.terminal.writeln(
+              'memory: no process runner in this composition — the '
+              'answer cache stays disabled');
+        }
         return plugin;
       },
       description:
@@ -621,8 +638,16 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
         readBudgetTokens: () =>
             c.settings?.read(contextBudgetSetting).value ??
             defaultContextBudgetTokens,
-        onMirrorReady: (file) => (c.tools as ToolsPlugin).sandbox.grants
-            .rememberExact(file.resolveSymbolicLinksSync()),
+        // The mirror rides the sandbox's file grants; a composition
+        // without them (the wasm-shaped leg) mounts the context
+        // plugin without the grant hook — absence skips, never throws.
+        onMirrorReady: c.capability<ToolsPluginSurface>() == null
+            ? null
+            : (file) => c
+                .capability<ToolsPluginSurface>()!
+                .sandbox
+                .grants
+                .rememberExact(file.resolveSymbolicLinksSync()),
       ),
       description:
           'Experimental: lets the agent edit its working conversation through a temporary file. Preserves the original log and pauses automatic and manual compaction while loaded. Changes require restart.',

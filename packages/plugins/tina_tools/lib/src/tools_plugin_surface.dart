@@ -119,6 +119,27 @@ abstract interface class ToolProcessRunnerView {
   /// The runner's current permission mode.
   PermissionMode get mode;
   set mode(PermissionMode mode);
+
+  /// The answer-cache SERVE seam (issue 94 phase 2): consulted before a
+  /// read-only exploratory search runs; a non-null string is returned to
+  /// the agent instead of running the command. Null by default — the
+  /// session wires it (the memory plugin's answer cache). Legs without
+  /// read-only searches keep it null; the seam is inert.
+  String? Function(String program, List<String> arguments)?
+      get readOnlySearchResolver;
+  set readOnlySearchResolver(
+      String? Function(String program, List<String> arguments)? value);
+
+  /// The answer-cache CAPTURE seam: called after a certified read-only
+  /// search completes successfully, with the verified read operands as
+  /// the resolved paths. Null by default; inert on legs without
+  /// read-only searches.
+  void Function(String program, List<String> arguments, List<String> files)?
+      get onReadOnlySearchCompleted;
+  set onReadOnlySearchCompleted(
+      void Function(
+              String program, List<String> arguments, List<String> files)?
+          value);
 }
 
 /// Command grants as a host needs them.

@@ -304,4 +304,67 @@ Future<void> main() async {
       }
     },
   );
+
+  // ---- the payload-cast guard (commit 28) --------------------------------
+  //
+  // Lives in THIS file (after the baseline check above) so the planted
+  // violation can never race the workspace assertion in a parallel
+  // file: within one file the test runner is sequential.
+
+  test('the payload-cast rule catches a planted as-cast', () async {
+    final root = (await repositoryRoot()).path;
+    final policy = ArchitecturePolicy.read(
+      '$root/tool/repository/policy.json',
+    );
+
+    // A deliberately planted violation in an owned package's lib/: the
+    // exact shape of the live wasm bug.
+    final planted = p.join(
+      root,
+      'tool/repository/lib/_planted_payload_cast.dart',
+    );
+    File(planted).writeAsStringSync(
+      '// Deliberate guard probe: must be flagged as payload-cast.\n'
+      'Object probe(Object plugin) => plugin as ToolsPlugin;\n',
+    );
+    addTearDown(() {
+      if (File(planted).existsSync()) File(planted).deleteSync();
+    });
+
+    final result = checkWorkspace(root, policy);
+    final hit = result.violations
+        .where((v) => v.rule == 'payload-cast')
+        .where((v) => v.from.endsWith('_planted_payload_cast.dart'))
+        .toList();
+
+    expect(hit, hasLength(1), reason: 'the planted cast must be caught');
+    expect(hit.single.target, 'ToolsPlugin');
+    expect(hit.single.line, 2);
+  });
+
+  test('test directories are exempt: the scanner ignores test paths', () async {
+    final root = (await repositoryRoot()).path;
+    final policy = ArchitecturePolicy.read(
+      '$root/tool/repository/policy.json',
+    );
+    final planted = p.join(
+      root,
+      'tool/repository/test/_planted_payload_cast.dart',
+    );
+    File(planted).writeAsStringSync(
+      '// Tests may hold stubs; this must NOT be flagged.\n'
+      'Object probe(Object plugin) => plugin as ToolsPlugin;\n',
+    );
+    addTearDown(() {
+      if (File(planted).existsSync()) File(planted).deleteSync();
+    });
+
+    final result = checkWorkspace(root, policy);
+    expect(
+      result.violations.where((v) => v.rule == 'payload-cast').where(
+          (v) => v.from.endsWith('_planted_payload_cast.dart')),
+      isEmpty,
+      reason: 'a cast inside test/ is not a production payload cast',
+    );
+  });
 }
