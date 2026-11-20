@@ -301,10 +301,13 @@ final class SessionView
           try {
             final message = await settings.open();
             if (!_closed && _context == context) notice(message);
-          } catch (_) {
-            if (!_closed && _context == context)
-              notice(
-                  'Could not open settings. Check the config file and its permissions.');
+          } catch (error) {
+            // Never a silent catch-all: the open path is deep (panel,
+            // management, backend), and a swallowed error under wasm
+            // hid the root cause behind a permissions hint (commit 27).
+            if (!_closed && _context == context) {
+              notice('Could not open settings: ${settingsErrorLine(error)}');
+            }
           }
           if (!_closed && _context == context) context.chat.repaint();
         });
@@ -415,4 +418,17 @@ final class _ViewSubmission {
   final done = Completer<void>();
   SessionRequestId? requestId;
   SessionRequest? request;
+}
+
+/// One sanitized line of settings-open failure text: the error's first
+/// line, whitespace collapsed, clipped to a transcript-safe width. A
+/// notice, not a stack dump — but the actual cause, never a generic
+/// hint that hides it.
+String settingsErrorLine(Object error) {
+  var text = '$error'.trim();
+  final line = text.isEmpty ? '$error (no message)' : text;
+  final first = line.split('\n').first.trim();
+  final collapsed = first.replaceAll(RegExp(r'\s+'), ' ');
+  const clip = 160;
+  return collapsed.length <= clip ? collapsed : '${collapsed.substring(0, clip)}…';
 }

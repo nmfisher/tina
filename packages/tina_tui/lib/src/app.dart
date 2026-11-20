@@ -68,8 +68,16 @@ Future<int> runApp(
     editor.restoreHistory(view.inputHistory);
     final console = consoleContextFor?.call(s, editor) ??
         ConsoleContext(screen: s, editor: editor);
-    if (editorFor == null) {
+    // Completion sources are view state, not backend wiring: a custom
+    // editor (the wasm TUI's ANSI-over-WASI one, built with its own
+    // input backend) gets the same '/' command picker and '@' file
+    // picker as the built-in editor, unless its factory wired its own
+    // providers. The editorFor guard left the wasm TUI with no
+    // completion surface at all — '/' popped nothing (commit 27).
+    if (editor.commandProvider == null) {
       editor.commandProvider = view.commandCompletion;
+    }
+    if (editor.completionProvider == null) {
       editor.completionProvider = view.fileCompletion;
     }
     ownsTty = startup == null &&

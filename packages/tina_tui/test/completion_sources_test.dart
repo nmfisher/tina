@@ -460,4 +460,58 @@ void main() {
       ed.close();
     });
   });
+
+  group('runApp wiring — a custom editor still gets the pickers', () {
+    // The wasm ANSI TUI passes editorFor (its input backend rides the
+    // WASI stdio); the provider wiring must follow the editor, not the
+    // editorFor guard — '/' popped nothing there (commit 27).
+    test('the command picker opens, narrows and accepts over editorFor',
+        () async {
+      final host = sessionWithCommands(['mode', 'quit']);
+      var dispatched = 0;
+      host.commands.publish(Command(
+          name: 'probe',
+          description: 'records a dispatch',
+          handler: (_) {
+            dispatched++;
+          }));
+      final view = SessionView(
+          host.connect(),
+          SessionPresentation(
+            theme: () => const Theme.defaults(),
+            configNote: null,
+            quitRequested: () => false,
+            createViews: () => {},
+            listenViews: (loaded, unloading) => () {},
+            listenTheme: (_) => () {},
+            settingsFor: (_) => SessionSettingsView(
+                open: () async => '', repaint: () {}, close: () {}),
+          ));
+      final io = FlushIo();
+      final screen =
+          Screen(io: io, layout: ScreenLayout.fromSize(80, 24, split: false));
+      late LineEditor editor;
+      final done = runApp(view,
+          screen: screen,
+          editorFor: (screen) => editor =
+              LineEditor(screen: screen, escapeTimeout: Duration.zero));
+      await flush();
+      await flush();
+
+      io.feedBytes('/pr'.codeUnits);
+      await flush();
+      io.feedBytes([0x09]); // Tab: accept the narrowed candidate
+      await flush();
+      expect(editor.editState.buffer, '/probe ',
+          reason: 'the command picker must open and narrow for a custom editor');
+      io.feedBytes([0x0d]); // Enter: dispatch the completed command
+      await flush();
+      await flush();
+
+      io.feedBytes('/quit\r'.codeUnits);
+      await flush();
+      expect(await done.timeout(const Duration(seconds: 5)), 0);
+      expect(dispatched, 1, reason: 'the accepted command was dispatched');
+    });
+  });
 }

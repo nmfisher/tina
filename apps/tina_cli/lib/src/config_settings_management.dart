@@ -1,10 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_tools/tina_tools.dart'
     show CommandApprovalStore, ResourceApprovalStore;
+import 'app_io.dart';
 import 'assembly_config.dart';
 import 'permission_instructions.dart';
 import 'config_document.dart';
@@ -66,10 +66,12 @@ final class ConfigSettingsManagement implements SettingsManagement {
       void Function() Function(void Function())? listenConfiguration,
       CommandApprovalStore? commandApprovals,
       String? workspace,
-      ClientAccess access = const ClientAccess()})
+      ClientAccess access = const ClientAccess(),
+      AppIo? appIo})
       : _scoped = scopedSettings,
         _access = access,
         _backend = backend,
+        _io = appIo ?? defaultAppIo(),
         _descriptors = descriptors ?? configuredDescriptors(),
         _plugins = pluginSettings,
         _manager = pluginManager,
@@ -77,7 +79,10 @@ final class ConfigSettingsManagement implements SettingsManagement {
         _validatePlugins = validatePlugins,
         _applyConfiguration = applyConfiguration,
         _approvals = commandApprovals,
-        _workspace = workspace ?? Directory.current.path,
+        // The seam, not `dart:io`: under wasm the working directory is
+        // the preopened root ('.'), and `Directory.current` would throw
+        // where the settings path opens from (commit 27).
+        _workspace = workspace ?? (appIo ?? defaultAppIo()).currentDirectory,
         _listenConfiguration = listenConfiguration {
     settings = SettingsClient(_scoped,
         requireWrite: _access.requireControl,
@@ -169,23 +174,27 @@ final class ConfigSettingsManagement implements SettingsManagement {
       ]);
   final String _workspace;
 
-  File get _permissionsFile =>
-      File('$_workspace/.tina/permissions.json');
+  /// The I/O seam: native files natively, the preopen snapshot under
+  /// wasm — the settings path never touches `dart:io` directly.
+  final AppIo _io;
+
+  String get _permissionsPath => '$_workspace/.tina/permissions.json';
 
   @override
   bool get hasCommandApprovals => true;
 
   @override
   String? get permissionInstructions =>
-      readProjectPermissionInstructions(_workspace);
+      readProjectPermissionInstructions(_workspace, io: _io);
 
   @override
   void savePermissionInstructions(String text) {
-    final file = _permissionsFile;
+    final path = _permissionsPath;
     final document = <String, Object?>{};
-    if (file.existsSync()) {
+    final existing = _io.readTextIfExists(path);
+    if (existing != null) {
       // Never replace a damaged file with a rewrite (PathGrants' rule).
-      final parsed = jsonDecode(file.readAsStringSync());
+      final parsed = jsonDecode(existing);
       if (parsed is! Map || parsed['version'] != 1) {
         throw const FormatException(
             '.tina/permissions.json is damaged; fix it before editing '
@@ -202,12 +211,12 @@ final class ConfigSettingsManagement implements SettingsManagement {
     } else {
       document['instructions'] = trimmed;
     }
-    file.parent.createSync(recursive: true);
-    final temporary = File('${file.path}.tmp');
-    temporary.writeAsStringSync(const JsonEncoder.withIndent('  ')
-        .convert(Map.fromEntries(document.entries.toList()
-          ..sort((a, b) => a.key.compareTo(b.key)))));
-    temporary.renameSync(file.path);
+    _io.createDirectory('$_workspace/.tina', recursive: true);
+    _io.writeText(
+        path,
+        const JsonEncoder.withIndent('  ')
+            .convert(Map.fromEntries(document.entries.toList()
+              ..sort((a, b) => a.key.compareTo(b.key)))));
   }
 
   Iterable<Map<String, Object?>> _folderPermissions() sync* {
