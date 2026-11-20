@@ -49,6 +49,12 @@ final class _UnclosableStore implements MemoryStoreApi {
   @override
   Map<String, Object?> stats() => _backing.stats();
   @override
+  AnswerCacheCounters answerCacheCounters(MemoryScope scope) =>
+      _backing.answerCacheCounters(scope);
+  @override
+  void bumpAnswerCache(AnswerCacheCounters delta, MemoryScope scope) =>
+      _backing.bumpAnswerCache(delta, scope);
+  @override
   void close() {}
 }
 
