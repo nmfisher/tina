@@ -29,6 +29,7 @@ final class EngineProcess {
 
   final Process _process;
   final _StderrTail _stderr;
+  String? _bootTiming;
   final _exited = Completer<int>();
   var _stdinOpen = true;
   var _stopAsked = false;
@@ -45,6 +46,21 @@ final class EngineProcess {
 
   /// The captured stderr tail, for diagnostics on abnormal exits.
   String get stderrTail => _stderr.text;
+
+  /// The host's most recent boot-timing line ('wasm boot: compiled from
+  /// bytes (…)' or 'wasm boot: deserialized cache hit (…)'), read off
+  /// its stderr; null before the host printed one. Meaningful once
+  /// [ready] completes: the host instantiates the component before the
+  /// engine's `ready` event, so the line has landed by then.
+  String? get bootTiming => _bootTiming;
+
+  void _noteStderrLine(String line) {
+    _stderr.write('$line\n');
+    // The host's one boot-timing line per launch ('wasm boot: …',
+    // compile vs deserialize): surfaced as the session's startup
+    // notice once the engine reports ready.
+    if (line.startsWith('wasm boot: ')) _bootTiming = line;
+  }
 
   /// Spawns [argv] (pipes protocol on stdio). [onEvent] observes decoded
   /// engine events as diagnostics; it can never alter the protocol.
@@ -66,7 +82,8 @@ final class EngineProcess {
     unawaited(process.stderr
         .cast<List<int>>()
         .transform(const Utf8Decoder(allowMalformed: true))
-        .listen(stderr.write, cancelOnError: false)
+        .transform(const LineSplitter())
+        .listen(handle._noteStderrLine, cancelOnError: false)
         .asFuture<void>());
     unawaited(process.exitCode.then((code) {
       if (!handle._exited.isCompleted) handle._exited.complete(code);
@@ -195,6 +212,11 @@ List<String> wasmEngineArgv({
   String? pluginOrigin,
   String? pluginHash,
   String? pluginBuilt,
+  /// The compiled-component cache directory (commit 29): the host
+  /// serializes the compiled engine there keyed by the artifact bytes'
+  /// hash and deserializes on later launches instead of recompiling.
+  /// Null keeps the flag off (compile on every launch, as before).
+  String? componentCache,
   /// The compiled capability document for the wasm-host contract
   /// (wasm-tui stream): passed instead of the legacy --preopen flags.
 }) {
@@ -248,6 +270,41 @@ List<String> wasmEngineArgv({
       argv.add('--plugin-grant=$grant');
     }
   }
+  if (componentCache != null) {
+    argv.add('--component-cache=$componentCache');
+  }
   argv.addAll(extraArgs);
   return argv;
+}
+
+/// The global compiled-component cache directory: `~/.cache/tina/
+/// wasm-components`. Components are workspace-independent, so one
+/// global directory hits across projects; the host keys entries by the
+/// artifact bytes' hash, so any artifact change recompiles
+/// automatically and tina never invalidates anything itself.
+String wasmComponentCacheDir({Map<String, String>? environment}) {
+  final home = (environment ?? Platform.environment)['HOME'] ?? '.';
+  return '$home/.cache/tina/wasm-components';
+}
+
+/// Preflights the cache directory: creates it and proves it writable
+/// with a probe file. Never throws — an unusable directory means the
+/// cache stays off (launch without the flag) and carries a one-line
+/// notice for the session's startup surface.
+({String? dir, String? notice}) prepareWasmComponentCache(
+    {Map<String, String>? environment}) {
+  final dir = wasmComponentCacheDir(environment: environment);
+  try {
+    Directory(dir).createSync(recursive: true);
+    final probe = File('$dir${Platform.pathSeparator}.write-probe');
+    probe.writeAsStringSync('probe', flush: true);
+    probe.deleteSync();
+    return (dir: dir, notice: null);
+  } on Object catch (error) {
+    return (
+      dir: null,
+      notice: 'wasm component cache unavailable ($dir): $error — '
+          'launching without it'
+    );
+  }
 }

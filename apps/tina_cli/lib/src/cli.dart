@@ -319,7 +319,7 @@ Future<int> runCli(
     if (remoteEngine) {
       final resolvedStore =
           storePath ?? defaultSessionStorePath(workingDirectory);
-      final engine = await startRemoteEngine(
+      final launched = await startRemoteEngine(
         spec: engineSpec,
         hostOverride: parsed[engineHostOption],
         extraArgs: parsed[engineArgOption],
@@ -329,7 +329,10 @@ Future<int> runCli(
         resumeSessionId: sessionId,
         yolo: yolo,
       );
-      final session = await RemoteTuiSession.start(engine);
+      // The cache preflight notice rides the same startup note as the
+      // host's boot-timing line (see RemoteTuiSession's presentation).
+      final session = await RemoteTuiSession.start(launched.engine,
+          startupNote: launched.cacheNotice);
       final int result;
       try {
         result = await runTui(session, backend: backend, startup: startup);
@@ -511,7 +514,10 @@ Future<int> runCli(
 /// binary (--engine-host, then TINA_WASM_HOST, then PATH), anything else
 /// is a path to a pipes-speaking engine. Args after the binary follow the
 /// wasm-host convention (preopens + TINA_ENGINE_* environment).
-Future<EngineProcess> startRemoteEngine({
+///
+/// Returns the process plus the component-cache preflight notice (null
+/// when the cache is on).
+Future<({EngineProcess engine, String? cacheNotice})> startRemoteEngine({
   required String spec,
   String? hostOverride,
   String? extraArgs,
@@ -537,6 +543,10 @@ Future<EngineProcess> startRemoteEngine({
   // the installer recorded (plugin_commands.dart consent).
   final plugin = await activeRegistryPlugin(
       globalConfigPath: globalPluginRegistryConfigPath());
+  // The compiled-component cache (commit 29): preflighted, never a
+  // startup risk — an unusable directory launches without the flag and
+  // surfaces one notice instead.
+  final cache = prepareWasmComponentCache();
   final argv = wasmEngineArgv(
     hostPath: host,
     workingDirectory: workingDirectory,
@@ -544,6 +554,7 @@ Future<EngineProcess> startRemoteEngine({
     storePath: storePath,
     resumeSessionId: resumeSessionId,
     yolo: yolo,
+    componentCache: cache.dir,
     extraArgs: (extraArgs ?? '')
         .split(RegExp(r'\s+'))
         .where((argument) => argument.isNotEmpty)
@@ -557,7 +568,9 @@ Future<EngineProcess> startRemoteEngine({
             .toList() ??
         const [],
   );
-  return EngineProcess.start(argv, workingDirectory: workingDirectory);
+  final process = await EngineProcess.start(argv,
+      workingDirectory: workingDirectory);
+  return (engine: process, cacheNotice: cache.notice);
 }
 
 /// The resume hint for a remote-engine session: the same command, plus the

@@ -127,11 +127,14 @@ final class RemotePluginViews {
 /// Presentation for the remote front end: constant default theme (the wire
 /// carries no theme), no config note, view creation through
 /// [RemotePluginViews], and a settings entry that says what is true.
-SessionPresentation presentationForRemote(PipesConnection connection) {
+SessionPresentation presentationForRemote(PipesConnection connection,
+    {String? configNote}) {
   final views = RemotePluginViews(connection);
   return SessionPresentation(
       theme: () => const Theme.defaults(),
-      configNote: null,
+      // Doubles as the wasm startup-note surface: the component-cache
+      // preflight notice and the host's boot-timing line, when present.
+      configNote: configNote,
       quitRequested: () => false,
       createViews: views.current,
       listenViews: views.listen,

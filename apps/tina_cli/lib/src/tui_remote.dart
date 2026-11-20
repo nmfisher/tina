@@ -33,15 +33,17 @@ import 'session_view_remote.dart' show presentationForRemote;
 
 /// One TUI session over a remote engine process.
 final class RemoteTuiSession implements TuiSessionHandle {
-  RemoteTuiSession._(this._engine, this._connection)
+  RemoteTuiSession._(this._engine, this._connection, this._startupNote)
       : terminal = SessionTerminal();
 
   /// Spawns [engine] and waits for the engine's `ready` event. Throws when
   /// the process exits before becoming ready (the engine's stderr tail is
-  /// attached to the error).
-  static Future<RemoteTuiSession> start(EngineProcess engine) async {
+  /// attached to the error). [startupNote] (the component-cache preflight
+  /// notice) rides the same startup note as the host's boot-timing line.
+  static Future<RemoteTuiSession> start(EngineProcess engine,
+      {String? startupNote}) async {
     final connection = await engine.ready;
-    return RemoteTuiSession._(engine, connection);
+    return RemoteTuiSession._(engine, connection, startupNote);
   }
 
   /// The session id the engine reported in `ready` — for the resume hint.
@@ -63,7 +65,25 @@ final class RemoteTuiSession implements TuiSessionHandle {
   final PipesConnection _connection;
   bool _closed = false;
 
-  late final presentation = presentationForRemote(_connection);
+  final String? _startupNote;
+
+  /// The remote presentation's config note doubles as the wasm
+  /// startup-note surface (commit 29): the cache preflight notice plus
+  /// the host's boot-timing line. Evaluated lazily at first view
+  /// creation — inside `runTui`, after `ready`, so the timing line has
+  /// already landed on the host's stderr.
+  late final presentation = presentationForRemote(
+    _connection,
+    configNote: _bootNote(),
+  );
+
+  String? _bootNote() {
+    final lines = [
+      if (_startupNote case final note?) note,
+      if (_engine.bootTiming case final timing?) timing,
+    ];
+    return lines.isEmpty ? null : lines.join('\n');
+  }
 
   /// The root view. [role] exists for the shared contract; a remote engine
   /// serves exactly one controlling front end.
