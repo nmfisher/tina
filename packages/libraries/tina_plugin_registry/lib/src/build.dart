@@ -18,6 +18,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
 
+import 'build_flow.dart';
 import 'plugin_cache.dart';
 
 /// What one compiler invocation produced.
@@ -43,20 +44,6 @@ final class PluginCompileOutcome {
 /// [PluginBuildException] with a clean, user-facing message.
 typedef PluginCompiler = Future<PluginCompileOutcome> Function(
     Directory source, File output);
-
-/// A clean, user-facing build failure: what is missing and what to do,
-/// never a stack trace.
-final class PluginBuildException implements Exception {
-  const PluginBuildException(this.message, {this.stderr});
-  final String message;
-  final String? stderr;
-
-  @override
-  String toString() =>
-      stderr == null || stderr!.trim().isEmpty
-          ? message
-          : '$message\ncompiler output:\n$stderr';
-}
 
 /// Locates the `dart` executable on `PATH`. Returns null when absent —
 /// the caller turns that into a [PluginBuildException] naming the fix.
@@ -126,26 +113,8 @@ File? _entryPoint(Directory source) {
   return null;
 }
 
-/// A successful local build: what was installed and where.
-final class LocalPluginBuild {
-  const LocalPluginBuild({
-    required this.name,
-    required this.version,
-    required this.hash,
-    required this.componentPath,
-    required this.builtAt,
-  });
-
-  final String name;
-
-  /// `local-<hash prefix>`: one version per artifact content.
-  final String version;
-
-  /// The artifact's sha256 — the consent key.
-  final String hash;
-  final String componentPath;
-  final DateTime builtAt;
-}
+/// A successful local build moved to `build_flow.dart`: the shared,
+/// `dart:io`-free record both build surfaces report.
 
 /// Builds and installs local plugin artifacts into the [cache].
 final class PluginBuildService {
@@ -218,8 +187,10 @@ final class PluginBuildService {
 
 /// Local-trust consent, keyed by artifact hash: consent once per build,
 /// re-prompt on hash change. Persisted as a small JSON list under the
-/// plugin cache root, so it survives sessions.
-final class LocalPluginConsent {
+/// plugin cache root, so it survives sessions. The [LocalConsentBook]
+/// interface (in `build_flow.dart`) is what the shared flow codes
+/// against; this file-backed book is the native implementation.
+final class LocalPluginConsent implements LocalConsentBook {
   LocalPluginConsent({required this.file});
 
   /// `<cache root>/local-consent.json`.

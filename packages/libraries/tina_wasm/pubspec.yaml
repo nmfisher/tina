@@ -35,6 +35,8 @@ dependencies:
     path: ../../../packages/plugins/tina_mode
   tina_persistence:
     path: ../../../packages/plugins/tina_persistence
+  tina_plugin_registry:
+    path: ../tina_plugin_registry
   tina_providers:
     path: ../../../packages/plugins/tina_providers
   tina_session_controls:

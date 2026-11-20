@@ -500,7 +500,7 @@ packages:
       path: "../../../apps/tina_cli"
       relative: true
     source: path
-    version: "0.10.5"
+    version: "0.10.10"
   tina_activity:
     dependency: "direct main"
     description:
@@ -705,7 +705,7 @@ packages:
     source: path
     version: "0.1.0"
   tina_plugin_registry:
-    dependency: transitive
+    dependency: "direct main"
     description:
       path: "../tina_plugin_registry"
       relative: true
