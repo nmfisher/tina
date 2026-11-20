@@ -4,18 +4,18 @@ import 'package:tina_console/tina_console.dart';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_plugin_registry/tina_plugin_registry.dart';
 
-import 'plugin_build_flow.dart';
-
 /// The host-side half of `/plugins build`: the command family is the
 /// wasm engine's, but the compile runs where the toolchain lives — in
 /// this front-end process (the engine component cannot spawn
 /// processes). This contribution intercepts `/plugins build
-/// <source-dir>` before submission, runs the [PluginBuildFlow]
+/// <source-dir>` before submission, runs the shared [PluginBuildFlow]
 /// (compile with the local Dart SDK, consent by artifact hash, cache
 /// install with a LOCAL origin marker), and — when the session has a
 /// plugins command family (a plugin attached) — offers
 /// `/plugins reload` through the session so the engine's PluginManager
-/// picks the new artifact up (counters increment).
+/// picks the new artifact up (counters increment). The same flow is
+/// the engine's agent-facing `plugin_build` tool: one implementation,
+/// two surfaces.
 ///
 /// No background watcher, no polling: explicit build-then-reload only.
 final class PluginBuildContribution
@@ -62,14 +62,8 @@ final class PluginBuildContribution
           : '${Directory.current.path}${Platform.pathSeparator}$source');
       final name = pluginSourceName(directory);
       await PluginBuildFlow(
-        buildArtifact: (dir) async {
-          try {
-            return await service.build(dir, name);
-          } on PluginBuildException catch (error) {
-            _notice('plugins build failed: $error');
-            return null;
-          }
-        },
+        buildArtifact: (sourcePath) =>
+            service.build(Directory(sourcePath), name),
         consent: LocalPluginConsent(
             file: File('${service.cache.root.path}'
                 '${Platform.pathSeparator}local-consent.json')),

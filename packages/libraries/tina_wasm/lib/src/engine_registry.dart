@@ -252,7 +252,8 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
           manager: promptManager!,
           terminal: c.terminal,
         ),
-        description: 'Wasm plugin status and reload (/plugins).',
+        description: 'Wasm plugin status and reload (/plugins) plus the '
+            'agent lifecycle tools (plugin_build/plugin_reload/plugin_status).',
       ),
     ],
   ],

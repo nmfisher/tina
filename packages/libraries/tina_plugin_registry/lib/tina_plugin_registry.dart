@@ -9,6 +9,7 @@ library tina_plugin_registry;
 
 export 'src/abi_stamp.dart';
 export 'src/build.dart';
+export 'src/build_flow.dart';
 export 'src/canonical_json.dart';
 export 'src/consent.dart';
 export 'src/entry.dart';

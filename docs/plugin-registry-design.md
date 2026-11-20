@@ -455,3 +455,18 @@ compiled locally — no in-binary compiler, no registry round-trip.
   not written through the artifact's persistence is lost. Detached
   builds install without reloading. No background watcher, no polling:
   explicit build-then-reload only.
+- **Agent surface (commit 25)**: the same lifecycle is contributed to
+  the loop by the wasm-plugin-admin plugin as three tools —
+  `plugin_build(source_dir)`, `plugin_reload()`, `plugin_status()` —
+  plus one prompt section describing them (the tools exist, consent is
+  once per artifact hash, a reload is a fresh instance, and building is
+  not a general code-execution path: artifacts pass the unchanged
+  capability/policy gate). The build-then-reload orchestration is one
+  shared implementation (`PluginBuildFlow` in
+  `tina_plugin_registry/build_flow.dart`, deliberately `dart:io`-free)
+  with two surfaces: the TUI command (front end) and the tool (engine;
+  its compile/install seams are injected by the composition, and a
+  composition without them — the engine component has no local
+  toolchain — gets the honest host-side fallback, exactly like the
+  command's `build` argument). No core change: `AgentPlugin.tools` and
+  `onPrompt` already carried both halves.
