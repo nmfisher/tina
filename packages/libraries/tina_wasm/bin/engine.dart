@@ -219,10 +219,10 @@ final class _TestedModule implements tests.TestedModule {
           'tina/context',
           'tina/context-tui',
           if (store != null) 'tina/persistence',
-          if (includeRemotePromptPlugin) ...[
-            RemotePromptPlugin.pluginId,
-            WasmPluginAdminPlugin.pluginId,
-          ],
+          // The remote-prompt extension stays opt-in; the plugin admin
+          // mounts on every wasm session (owner ruling, v0.10.12).
+          if (includeRemotePromptPlugin) RemotePromptPlugin.pluginId,
+          WasmPluginAdminPlugin.pluginId,
         ],
       ),
     );

@@ -61,6 +61,13 @@ const _workingContext = PluginCapability<ContextPlugin>(
 /// the config's enabled list still decides whether a session uses it,
 /// and [onPersistence] receives the created plugin (the root flushes it
 /// at shutdown).
+///
+/// The wasm-plugin-admin plugin is a built-in first-party plugin of the
+/// wasm leg (owner ruling, v0.10.12): mounted on EVERY wasm session,
+/// not only when the remote-prompt extension is selected. Its guardrail
+/// is the consent + capability machinery, not the remote-prompt opt-in
+/// it originally piggybacked on. [includeRemotePromptPlugin] gates only
+/// the remote-prompt extension itself.
 PluginRegistry<SessionPluginContext> wasmEngineRegistry({
   WasiSessionStore? persistenceStore,
   void Function(WasmPersistencePlugin plugin)? onPersistence,
@@ -74,9 +81,11 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
 }) {
   // One lease book shared by the prompt adapter and the /plugins command:
   // the manager is the single writer, the adapter derives its lease from
-  // it, so a reload from the command is adopted by the next prompt.
-  final promptManager =
-      includeRemotePromptPlugin ? PluginManager(bridge: remotePromptHost) : null;
+  // it, so a reload from the command is adopted by the next prompt. The
+  // book exists even when the remote prompt is not selected — the admin
+  // plugin then owns it alone and it stays idle (nothing attached) until
+  // an extension opens a lease.
+  final promptManager = PluginManager(bridge: remotePromptHost);
   return PluginRegistry<SessionPluginContext>(
   requiredCapabilities: [modelAccess],
   definitions: [
@@ -238,24 +247,26 @@ PluginRegistry<SessionPluginContext> wasmEngineRegistry({
           'Adds /context to inspect accepted working messages, estimated tokens, pending file edits and the latest accepted changes. Requires tina/context.',
       live: true,
     ),
-    if (includeRemotePromptPlugin) ...[
+    if (includeRemotePromptPlugin)
       PluginDefinition<SessionPluginContext>(
         RemotePromptPlugin.pluginId,
         (_) => RemotePromptPlugin(remotePromptHost, manager: promptManager),
         live: true,
         description: 'Adds one host-mediated prompt section per turn.',
       ),
-      PluginDefinition<SessionPluginContext>(
-        WasmPluginAdminPlugin.pluginId,
-        (c) => WasmPluginAdminPlugin(
-          artifact: pluginArtifact,
-          manager: promptManager!,
-          terminal: c.terminal,
-        ),
-        description: 'Wasm plugin status and reload (/plugins) plus the '
-            'agent lifecycle tools (plugin_build/plugin_reload/plugin_status).',
+    // Mounted on every wasm session (owner ruling, v0.10.12): a plain
+    // session gets the lifecycle tools and the capability prompt section
+    // too, with the lease book idle until an extension opens one.
+    PluginDefinition<SessionPluginContext>(
+      WasmPluginAdminPlugin.pluginId,
+      (c) => WasmPluginAdminPlugin(
+        artifact: pluginArtifact,
+        manager: promptManager,
+        terminal: c.terminal,
       ),
-    ],
+      description: 'Wasm plugin status and reload (/plugins) plus the '
+          'agent lifecycle tools (plugin_build/plugin_reload/plugin_status).',
+    ),
   ],
 );
 }

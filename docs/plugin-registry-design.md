@@ -469,4 +469,7 @@ compiled locally — no in-binary compiler, no registry round-trip.
   composition without them — the engine component has no local
   toolchain — gets the honest host-side fallback, exactly like the
   command's `build` argument). No core change: `AgentPlugin.tools` and
-  `onPrompt` already carried both halves.
+  `onPrompt` already carried both halves. Since v0.10.12 the admin
+  plugin mounts on every wasm session (owner ruling: wasm plugins are a
+  wasm-tina feature; no native runner or embed), with the remote-prompt
+  extension alone still behind its opt-in.

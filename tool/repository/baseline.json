@@ -195,6 +195,11 @@
     "owner": "A09"
   },
   {
+    "key": "package-direction|packages/libraries/tina_wasm/test/engine_registry_admin_test.dart|packages/libraries/tina_wasm/lib/src/engine_registry.dart|apps/tina_cli/lib/src/session_context.dart",
+    "reason": "A09 (commit 26): the registry test exercises the wasm catalog, whose factory context type is the CLI application's session-context seam — the same sanctioned reuse the composition roots pin; the test reaches it through the catalog, never the app directly.",
+    "owner": "A09"
+  },
+  {
     "key": "package-direction|packages/libraries/tina_wasm/bin/tui.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/app_io.dart",
     "reason": "A09: the wasm TUI composition root deliberately reuses the CLI application's assembly internals, exactly as the baselined engine entry (the app's src tree is its API by design); it arrived with the wasm TUI app without extending the baseline, hidden until the unclassified-package failures were repaired.",
     "owner": "A09"
