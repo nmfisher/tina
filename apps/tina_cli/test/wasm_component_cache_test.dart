@@ -7,6 +7,7 @@ library;
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:tina/src/cli.dart' show startRemoteEngine;
 import 'package:tina/src/engine_launcher.dart'
     show prepareWasmComponentCache, wasmComponentCacheDir, wasmEngineArgv;
 
@@ -56,6 +57,57 @@ void main() {
     expect(result.notice, contains('launching without it'));
     expect(result.notice, contains('wasm-components'),
         reason: 'the notice names the unusable directory');
+  });
+
+  test('a host that rejects the flag is relaunched without it (the guard)',
+      () async {
+    // The v0.10.16 release shape: a host that ERRORS on unknown flags.
+    // With the flag: dies naming it unknown. Without: dies of something
+    // else (here: a missing export) — the guard must retry exactly once
+    // and surface the second failure, never loop.
+    final fake = File('${home.path}/fake-host');
+    fake.writeAsStringSync('''#!/bin/sh
+printf '%s\n' "\$*" >> '${home.path}/invocations'
+for arg in "\$@"; do
+  case "\$arg" in
+    --component-cache=*) echo "Error: Unknown argument \$arg" >&2; exit 1;;
+  esac
+done
+echo "Error: Missing tests export" >&2
+exit 1
+''');
+    Process.runSync('chmod', ['+x', fake.path]);
+    final invocations = File('${home.path}/invocations');
+    final config = File('${home.path}/config')
+      ..writeAsStringSync('[default]\nmodel = "fixture"\n');
+
+    final launched = () => startRemoteEngine(
+          spec: 'wasm',
+          hostOverride: fake.path,
+          workingDirectory: home.path,
+          configPath: config.path,
+          storePath: '${home.path}/sessions.db',
+          yolo: true,
+        );
+
+    // The first launch dies on the flag; the guard relaunches without
+    // it (cache off, one notice) and hands back the replacement —
+    // whose own failure (the missing export) then surfaces at ready,
+    // exactly as it would have without the flag.
+    final result = await launched();
+    expect(result.cacheNotice,
+        contains('does not support --component-cache'),
+        reason: 'the retry is visible as the one-line cache notice');
+    await expectLater(
+        result.engine.ready,
+        throwsA(isA<StateError>().having(
+            (error) => '$error', 'message', contains('Missing tests export'))));
+    await result.engine.stop();
+
+    final calls = invocations.readAsLinesSync();
+    expect(calls, hasLength(2), reason: 'exactly one retry, never a loop');
+    expect(calls[0], contains('--component-cache='));
+    expect(calls[1], isNot(contains('--component-cache')));
   });
 
   test('the flag rides the wasm-host argv exactly when a dir is given', () {

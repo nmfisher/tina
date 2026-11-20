@@ -56,7 +56,10 @@ dependencies:
     git:
       url: https://github.com/nmfisher/wasm.dart.git
       path: pkg/wasm_components
-      ref: c3c8f3230605033df01d637f2bfd635dad106125
+      # The component-cache branch head (rebased onto wasm.dart main
+      # 72d40fb; PR #19): runtime ComponentCache for the runner. Pinned
+      # by sha — the branch may move after the merge.
+      ref: 06aa0099eb9fd644eaba0a92e9d8fa3bc7394a87
   hooks: ">=1.0.0 <3.0.0"
 dev_dependencies:
   test: ^1.25.0
@@ -66,10 +69,14 @@ dev_dependencies:
     git:
       url: https://github.com/nmfisher/wasm.dart.git
       path: pkg/wasm_tools
-      # The stage6 tip's wasm_tools needs a 3.14 dev SDK; this upstream
-      # commit is the newest one that resolves on stable and still exposes
-      # the WasmComponentAsset link-hook API. Local engine builds override
-      # both wasm.dart pins via an uncommitted pubspec_overrides.yaml.
+      # NOT the component-cache head: wasm_tools at 06aa009 (and wasm.dart
+      # main generally) requires SDK ^3.14.0-251.0.dev and cannot resolve
+      # on the stable SDK CI analyzes with. This commit is the newest one
+      # that resolves on stable and still exposes the WasmComponentAsset
+      # link-hook API — a dev-only compile driver, so it does not gate the
+      # release runner (WASM_DART_REF in release.yml is the runner pin).
+      # Local engine builds override both wasm.dart pins via an
+      # uncommitted pubspec_overrides.yaml.
       ref: ec9f801ebe258fc4c8dc0dceec35af8b9447627f
 dependency_overrides:
   # One resolution hosts both toolchains: the console stack's build hook

@@ -851,8 +851,8 @@ packages:
     dependency: "direct main"
     description:
       path: "pkg/wasm_components"
-      ref: c3c8f3230605033df01d637f2bfd635dad106125
-      resolved-ref: c3c8f3230605033df01d637f2bfd635dad106125
+      ref: "06aa0099eb9fd644eaba0a92e9d8fa3bc7394a87"
+      resolved-ref: "06aa0099eb9fd644eaba0a92e9d8fa3bc7394a87"
       url: "https://github.com/nmfisher/wasm.dart.git"
     source: git
     version: "0.1.1-preview.0"

@@ -570,7 +570,48 @@ Future<({EngineProcess engine, String? cacheNotice})> startRemoteEngine({
   );
   final process = await EngineProcess.start(argv,
       workingDirectory: workingDirectory);
-  return (engine: process, cacheNotice: cache.notice);
+  // The flag guard: a host built without --component-cache support
+  // (the v0.10.16 release runner) REJECTS unknown flags, so passing it
+  // would kill every launch. If the host dies before ready naming the
+  // flag as unknown, relaunch once without it — the cache stays off
+  // with one notice. Self-retiring: hosts that accept the flag never
+  // trip this.
+  final engine = await _guardComponentCacheFlag(process, () async {
+    final fallback = await EngineProcess.start(
+        List.of(argv)..removeWhere((a) => a.startsWith('--component-cache=')),
+        workingDirectory: workingDirectory);
+    return fallback;
+  });
+  return (
+    engine: engine,
+    cacheNotice: cache.notice ?? _cacheFlagNotice,
+  );
+}
+
+/// The one-line notice when the launch was retried without the cache
+/// because the host rejected the flag.
+const _cacheFlagNotice =
+    'wasm component cache skipped: this host build does not support '
+    '--component-cache (relaunched without it)';
+
+/// Awaits [engine]'s readiness; when the host died before ready
+/// specifically because it does not know `--component-cache`, retries
+/// via [relaunch] (which omits the flag) and returns the replacement.
+/// Any other failure propagates unchanged.
+Future<EngineProcess> _guardComponentCacheFlag(EngineProcess engine,
+    Future<EngineProcess> Function() relaunch) async {
+  try {
+    await engine.ready;
+    return engine;
+  } catch (error) {
+    final tail = engine.stderrTail;
+    if (tail.contains('Unknown argument') &&
+        tail.contains('--component-cache')) {
+      await engine.stop();
+      return await relaunch();
+    }
+    rethrow;
+  }
 }
 
 /// The resume hint for a remote-engine session: the same command, plus the

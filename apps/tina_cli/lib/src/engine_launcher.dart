@@ -30,6 +30,9 @@ final class EngineProcess {
   final Process _process;
   final _StderrTail _stderr;
   String? _bootTiming;
+
+  /// Completes when the host's stderr has fully drained (bounded).
+  late final Future<void> _stderrDone;
   final _exited = Completer<int>();
   var _stdinOpen = true;
   var _stopAsked = false;
@@ -79,12 +82,17 @@ final class EngineProcess {
       environment: environment.isEmpty ? null : environment,
     );
     final handle = EngineProcess._(process, stderr);
-    unawaited(process.stderr
+    handle._stderrDone = process.stderr
         .cast<List<int>>()
         .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter())
         .listen(handle._noteStderrLine, cancelOnError: false)
-        .asFuture<void>());
+        .asFuture<void>()
+        // A closed stderr must never hang the ready-failure path; the
+        // process is dead by then, so the close is imminent — bounded
+        // only out of caution.
+        .timeout(const Duration(seconds: 2));
+    unawaited(handle._stderrDone.catchError((Object _) {}));
     unawaited(process.exitCode.then((code) {
       if (!handle._exited.isCompleted) handle._exited.complete(code);
     }));
@@ -116,9 +124,17 @@ final class EngineProcess {
             }),
     );
     handle._connection = connection;
-    handle._ready = connection.started
-        .then((_) => connection)
-        .catchError((Object error) => throw StateError('$error\n${stderr.text}'));
+    handle._ready = connection.started.then((_) => connection).catchError(
+        (Object error) async {
+          // Wait for the stderr drain before freezing the tail into the
+          // error: a dying host's diagnostic lines race the stdout EOF
+          // that triggers this path, and callers (the launch guard)
+          // classify on the tail's contents.
+          try {
+            await handle._stderrDone;
+          } catch (_) {/* the tail is best-effort diagnostics */}
+          throw StateError('$error\n${stderr.text}');
+        });
     return handle;
   }
 

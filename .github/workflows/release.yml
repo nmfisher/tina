@@ -60,7 +60,7 @@ env:
   # the wasm_tools/wasm_components the component builds resolve against.
   # Bump this ONLY together with a tina-side compat note; the repos ship
   # as a pair (see docs/option2-wasm-tui.md).
-  WASM_DART_REF: 72d40fbfef490b0e7626f40972fc7634cbef3379
+  WASM_DART_REF: 06aa0099eb9fd644eaba0a92e9d8fa3bc7394a87
 
 # Least privilege: the default for every job is read-only; only the publish
 # job escalates to contents:write (it creates the Release). The build jobs
