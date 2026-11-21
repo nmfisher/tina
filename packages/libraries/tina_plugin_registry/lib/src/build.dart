@@ -129,11 +129,16 @@ final class PluginBuildService {
   final PluginCompiler? _compiler;
   final DateTime Function() _now;
 
-  /// Compiles [source] and installs the artifact under [name] with
-  /// `origin: local`, the artifact hash and the build timestamp in the
-  /// cache's install record. Compiler failures surface their stderr
-  /// through [PluginBuildException].
+  /// Builds and installs an artifact for callers that already have consent.
   Future<LocalPluginBuild> build(Directory source, String name) async {
+    final result = await prepare(source, name);
+    await result.install!();
+    return result;
+  }
+
+  /// Compiles [source] without touching the cache. The caller installs it
+  /// after checking consent for the resulting hash.
+  Future<LocalPluginBuild> prepare(Directory source, String name) async {
     if (!source.existsSync()) {
       throw PluginBuildException(
           'plugin source directory not found: ${source.path}');
@@ -162,22 +167,22 @@ final class PluginBuildService {
       final hash = crypto.sha256.convert(bytes).toString();
       final version = 'local-${hash.substring(0, 12)}';
       final builtAt = _now().toUtc();
-      await cache.install(
-        name: name,
-        version: version,
-        componentBytes: bytes,
-        grants: const [],
-        deniedIds: const [],
-        origin: 'local',
-        artifactHash: hash,
-        builtAt: builtAt,
-      );
       return LocalPluginBuild(
         name: name,
         version: version,
         hash: hash,
         componentPath: cache.componentFile(name, version).path,
         builtAt: builtAt,
+        install: () => cache.install(
+          name: name,
+          version: version,
+          componentBytes: bytes,
+          grants: const [],
+          deniedIds: const [],
+          origin: 'local',
+          artifactHash: hash,
+          builtAt: builtAt,
+        ),
       );
     } finally {
       staging.deleteSync(recursive: true);

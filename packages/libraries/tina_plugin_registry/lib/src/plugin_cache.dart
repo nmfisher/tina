@@ -12,10 +12,32 @@ class PluginCache {
 
   final Directory root;
 
+  String _safeSegment(String value, {bool namespaced = false}) {
+    final pieces = namespaced ? value.split('/') : [value];
+    if (pieces.any((piece) =>
+        piece.isEmpty ||
+        piece == '.' ||
+        piece.endsWith('.') ||
+        piece.endsWith(' ') ||
+        piece.contains(RegExp(r'[/\\:\x00-\x1f\x7f]')))) {
+      throw const FormatException('Invalid plugin cache name or version');
+    }
+    return pieces.join('__');
+  }
+
+  Directory _child(Directory parent, String name) {
+    final child = Directory('${parent.path}${Platform.pathSeparator}$name');
+    final type = FileSystemEntity.typeSync(child.path, followLinks: false);
+    if (type != FileSystemEntityType.directory &&
+        type != FileSystemEntityType.notFound) {
+      throw FileSystemException('Invalid plugin cache directory', child.path);
+    }
+    return child;
+  }
+
   Directory pluginDir(String name, String version) {
-    final sanitized = name.replaceAll('/', '__');
-    return Directory(
-        '${root.path}${Platform.pathSeparator}$sanitized${Platform.pathSeparator}$version');
+    return _child(_child(root, _safeSegment(name, namespaced: true)),
+        _safeSegment(version));
   }
 
   File componentFile(String name, String version) => File(
@@ -52,8 +74,7 @@ class PluginCache {
   }
 
   Future<void> remove(String name) async {
-    final parent = Directory(
-        '${root.path}${Platform.pathSeparator}${name.replaceAll('/', '__')}');
+    final parent = _child(root, _safeSegment(name, namespaced: true));
     if (await parent.exists()) {
       await parent.delete(recursive: true);
     }
@@ -63,9 +84,9 @@ class PluginCache {
   Future<List<InstalledRecord>> list() async {
     if (!await root.exists()) return const [];
     final records = <InstalledRecord>[];
-    await for (final nameDir in root.list()) {
+    await for (final nameDir in root.list(followLinks: false)) {
       if (nameDir is! Directory) continue;
-      await for (final versionDir in nameDir.list()) {
+      await for (final versionDir in nameDir.list(followLinks: false)) {
         if (versionDir is! Directory) continue;
         final manifest = File(
             '${versionDir.path}${Platform.pathSeparator}install.json');
@@ -252,16 +273,15 @@ class RegistryConfigData {
   bool get isConfigured => url != null && key != null;
 }
 
-String _quote(String value) =>
-    '"${value.replaceAll(r'\\', r'\\').replaceAll('"', r'\"')}"';
+String _quote(String value) => jsonEncode(value);
 
 String _unquote(String value) {
   final trimmed = value.trim();
   if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed
-        .substring(1, trimmed.length - 1)
-        .replaceAll(r'\"', '"')
-        .replaceAll(r'\\', r'\');
+    return jsonDecode(trimmed) as String;
+  }
+  if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.substring(1, trimmed.length - 1);
   }
   return trimmed;
 }
@@ -269,8 +289,8 @@ String _unquote(String value) {
 List<String> _parseStringArray(String value) {
   final inner = value.trim();
   if (!inner.startsWith('[') || !inner.endsWith(']')) return const [];
-  return RegExp(r'"((?:[^"\\]|\\.)*)"')
+  return RegExp(r'"(?:[^"\\]|\\.)*"' "|'[^']*'")
       .allMatches(inner)
-      .map((m) => _unquote(m.group(1)!))
+      .map((m) => _unquote(m.group(0)!))
       .toList();
 }

@@ -94,7 +94,7 @@ void main() {
           }
           expect(asks, 1);
           expect(
-            File('${workspace.path}/.tina/permissions.json').existsSync(),
+            (app.tools as ToolsPlugin).pathGrants.file!.existsSync(),
             true,
           );
           expect(config.readAsStringSync(), original);

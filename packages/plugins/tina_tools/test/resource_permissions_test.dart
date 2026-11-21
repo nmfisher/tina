@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:tina_approvals/tina_approvals.dart';
+import 'package:tina_engine_2/tina_engine_2.dart';
 import 'package:tina_tools/tina_tools.dart';
 
 class Judge extends PermissionClassifier {
@@ -461,9 +462,13 @@ void main() {
     final inner = Recorder();
     expect(
         await runner(inner).run(command(script.path)), isA<CommandCompleted>());
+    expect(inner.controls.single!.readOnly, isTrue);
+    expect(await runner(inner).run(command(script.path),
+        control: ProcessControl(writeDirectories: [external.path])),
+        isA<CommandCompleted>());
     expect(asks, isEmpty);
-    expect(inner.controls.single!.readOnly, isFalse);
-    expect(inner.controls.single!.workspaceWriteAllowed, isFalse);
+    expect(inner.controls.last!.readOnly, isFalse);
+    expect(inner.controls.last!.workspaceWriteAllowed, isFalse);
   });
 
   test('network approval never grants workspace writes or future network',
@@ -484,6 +489,15 @@ void main() {
 
   test('auto mode reviews host commands before allowing their invocation', () async {
     plugin.mode = PermissionMode.auto;
+    final loop = AgentLoop(
+        provider: ScriptedProvider([]),
+        plugins: [plugin.modePolicy],
+        seedLog: [const InputRecordedEntry(
+            turnId: 'human', text: 'Read the GitHub logs.', human: true)]);
+    loop.mountPlugin(plugin.modePolicy);
+    plugin.modePolicy.onInput(TurnContext(CancelToken(),
+        input: const Input('Read the GitHub logs.', id: 'human'),
+        messages: [], promptSections: [], pinnedTools: []));
     final inner = Recorder();
     final value = runner(inner);
     const control = ProcessControl(

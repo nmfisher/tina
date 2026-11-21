@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:tina_plugin_registry/tina_plugin_registry.dart';
+import 'config_document.dart';
 import 'plugin_build_contribution.dart' show pluginSourceName;
 import 'package:path/path.dart' as p;
 
@@ -37,7 +38,7 @@ Future<int?> runPluginSubcommand(List<String> args,
 
   final cache = PluginCache(
       root: pluginCacheDir ?? Directory(_pluginCacheDir()));
-  final config = RegistryConfig(File(globalConfigPath));
+  final config = _NativeRegistryConfig(File(globalConfigPath));
   final data = config.read();
 
   switch (command) {
@@ -132,7 +133,7 @@ Future<int> _build(PluginCache cache, _PluginFlags flags,
   service ??= PluginBuildService(cache: cache, compiler: sdkWasmCompiler());
   final LocalPluginBuild build;
   try {
-    build = await service.build(directory, name);
+    build = await service.prepare(directory, name);
   } on PluginBuildException catch (error) {
     stderr.writeln('tina plugin build: $error');
     return 1;
@@ -161,6 +162,7 @@ Future<int> _build(PluginCache cache, _PluginFlags flags,
     }
     consent.remember(build.hash);
   }
+  await build.install!();
   stdout.writeln('built ${build.name} ${build.version} '
       '(origin local, hash ${build.hash.substring(0, 12)}…)');
   stdout.writeln('component: ${build.componentPath}');
@@ -242,7 +244,7 @@ Future<int> _install(PluginCache cache, RegistryConfig config,
     return 1;
   }
 
-  final interactive = stdin.hasTerminal;
+  final interactive = stdin.hasTerminal && flags.grants.isEmpty;
   final ConsentOutcome outcome;
   if (interactive) {
     stdout.writeln(
@@ -310,8 +312,17 @@ Future<int> _remove(
     stderr.writeln(
         '$name is the active plugin; pass --force to remove it (the engine '
         'mount clears on the next launch)');
+    return 1;
   }
-  await cache.remove(name);
+  try {
+    await cache.remove(name);
+  } on FormatException catch (error) {
+    stderr.writeln('tina plugin remove: ${error.message}');
+    return 64;
+  } on FileSystemException catch (error) {
+    stderr.writeln('tina plugin remove: ${error.message}');
+    return 1;
+  }
   final next = data..installed = data.installed.where((r) => !r.startsWith('$name@')).toList();
   if (data.active == name && flags.force) {
     next.active = null;
@@ -382,8 +393,7 @@ String digestOf(List<int> bytes) => sha256.convert(bytes).toString();
 /// recorded-but-unmounted until the enforcement round.
 Future<ActivePluginMount?> activeRegistryPlugin(
     {required String globalConfigPath}) async {
-  final data =
-      RegistryConfig(File(globalConfigPath)).read();
+  final data = _NativeRegistryConfig(File(globalConfigPath)).read();
   final name = data.active;
   if (name == null) return null;
   final cache = PluginCache(root: Directory(_pluginCacheDir()));
@@ -407,6 +417,43 @@ Future<ActivePluginMount?> activeRegistryPlugin(
     }
   }
   return null;
+}
+
+/// Registry edits share the settings editor's atomic, private config writer.
+final class _NativeRegistryConfig extends RegistryConfig {
+  _NativeRegistryConfig(super.configPath);
+  ConfigDocument? _document;
+
+  @override
+  RegistryConfigData read() {
+    final document = _document = ConfigDocument.open(configPath.path);
+    final table = document.values['plugin-registry'];
+    if (table is! Map) return RegistryConfigData();
+    return RegistryConfigData()
+      ..url = table['url'] as String?
+      ..key = table['key'] as String?
+      ..active = table['active'] as String?
+      ..installed = (table['installed'] as List?)?.cast<String>().toList() ?? [];
+  }
+
+  @override
+  void write(RegistryConfigData data) {
+    final document = _document ??= ConfigDocument.open(configPath.path);
+    final table = document.table('plugin-registry');
+    for (final (key, value) in [
+      ('url', data.url),
+      ('key', data.key),
+      ('active', data.active),
+      ('installed', data.installed.isEmpty ? null : data.installed),
+    ]) {
+      if (value == null) {
+        table.remove(key);
+      } else {
+        table[key] = value;
+      }
+    }
+    document.saveScoped();
+  }
 }
 
 class ActivePluginMount {

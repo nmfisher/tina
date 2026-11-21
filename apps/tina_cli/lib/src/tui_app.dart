@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'config_settings_management.dart';
@@ -95,7 +94,6 @@ Future<bool> runConfigEditor(
     descriptors: descriptors,
     pluginDescriptions: pluginDescriptions(stack.registry),
     validatePlugins: stack.registry.validate,
-    workspace: Directory.current.path,
   );
   try {
     return await runSettingsEditor(

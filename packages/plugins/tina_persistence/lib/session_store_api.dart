@@ -153,7 +153,7 @@ typedef SessionStoreOpener = SessionStoreApi Function();
 void restoreSessionSettingsFromLog(
     ScopedSettings settings, Iterable<SessionEntry> log) {
   PluginStateEntry? snapshot;
-  for (final entry in log) {
+  for (final entry in activeLog(log.toList())) {
     if (entry is PluginStateEntry &&
         entry.pluginId == 'tina/persistence' &&
         entry.stateKey == 'settings') snapshot = entry;

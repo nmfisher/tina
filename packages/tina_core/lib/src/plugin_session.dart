@@ -28,7 +28,7 @@ final class PluginSession {
   /// as a background job's output or a spawned child's answer. The host
   /// supplies the implementation; null means the application does not
   /// support injection and the plugin keeps its results pollable instead.
-  final void Function(String text)? deliverNotice;
+  final void Function(String text, {bool Function()? isCurrent})? deliverNotice;
 }
 
 /// Restored session state. The host seeds the loop; plugins never append to

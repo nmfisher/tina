@@ -82,6 +82,41 @@ class CommandApprovalStore implements ToolCommandApprovals {
   final List<Map<String, Object?>> _session = [];
   final _prefixListeners = <void Function()>{};
   bool _prefixStateRestored = false;
+  int Function()? _sessionPosition;
+
+  void trackSessionPosition(int Function() position) {
+    _sessionPosition ??= position;
+  }
+
+  void discardSessionApprovalsFrom(int seq, Object? snapshot) {
+    final surviving = {
+      if (snapshot is List)
+        for (final rule in snapshot)
+          if (rule is Map && rule['capabilities'] is List) rule['id']: rule,
+    };
+    var commandsChanged = false;
+    for (final entry in _session.toList()) {
+      if (!{'command_prefix', 'command_exact'}.contains(entry['kind'])) {
+        if (entry['approved_at'] case final int position when position >= seq) {
+          _session.remove(entry);
+        }
+        continue;
+      }
+      final prior = surviving[entry['id']];
+      final capabilities = (entry['capabilities'] as List);
+      final kept = prior == null ? const [] : capabilities.where(
+          (capability) => (prior['capabilities'] as List).contains(capability)).toList();
+      if (kept.length == capabilities.length) continue;
+      if (kept.isEmpty) {
+        _session.remove(entry);
+      } else {
+        final index = _session.indexOf(entry);
+        _session[index] = {...entry, 'capabilities': kept};
+      }
+      commandsChanged = true;
+    }
+    if (commandsChanged) _prefixesChanged();
+  }
 
   List<Map<String, Object?>> get sessionPrefixEntries => [
         for (final entry in _session)
@@ -145,8 +180,7 @@ class CommandApprovalStore implements ToolCommandApprovals {
   /// Token-prefix rules are a separate schema from obsolete regex grants.
   /// Every stage must have a matching grant for the requested capability.
   bool coversPrefixes(CommandPrefixPlan? plan, String capability) {
-    if (plan == null || !{'execute', 'network', 'host'}.contains(capability))
-      return false;
+    if (plan == null || capability != 'execute') return false;
     try {
       final rules = entries.where((entry) =>
           entry['kind'] == 'command_prefix' &&
@@ -167,7 +201,7 @@ class CommandApprovalStore implements ToolCommandApprovals {
 
   void rememberPrefixes(CommandPrefixPlan plan, Set<String> capabilities,
       CommandApprovalScope scope) {
-    final allowed = capabilities.intersection({'execute', 'network', 'host'});
+    final allowed = capabilities.intersection({'execute'});
     if (allowed.isEmpty || plan.stages.isEmpty) return;
     final additions = [
       for (final stage in plan.stages)
@@ -191,7 +225,7 @@ class CommandApprovalStore implements ToolCommandApprovals {
   }
 
   bool coversExact(CommandExactPlan? plan, String capability) {
-    if (plan == null || !{'execute', 'network', 'host'}.contains(capability))
+    if (plan == null || !{'execute', 'network'}.contains(capability))
       return false;
     try {
       return entries.any((entry) =>
@@ -215,7 +249,7 @@ class CommandApprovalStore implements ToolCommandApprovals {
   void rememberExact(CommandExactPlan plan, Set<String> capabilities,
       CommandApprovalScope scope,
       {required String command}) {
-    final allowed = capabilities.intersection({'execute', 'network', 'host'});
+    final allowed = capabilities.intersection({'execute', 'network'});
     if (allowed.isEmpty) return;
     _rememberCommandRules([
       {
@@ -243,7 +277,10 @@ class CommandApprovalStore implements ToolCommandApprovals {
             values.where((entry) => entry['id'] == addition['id']).firstOrNull;
         if (existing != null && existing['capabilities'] is List) {
           addition['capabilities'] = {
-            ...(existing['capabilities'] as List),
+            ...(existing['capabilities'] as List).where(
+                addition['kind'] == 'command_exact'
+                    ? {'execute', 'network'}.contains
+                    : {'execute'}.contains),
             ...allowed
           }.toList()
             ..sort();
@@ -254,6 +291,11 @@ class CommandApprovalStore implements ToolCommandApprovals {
     }
 
     if (scope == CommandApprovalScope.session) {
+      if (_sessionPosition case final position?) {
+        for (final addition in additions) {
+          addition['approved_at'] = position();
+        }
+      }
       change(_session);
       _prefixesChanged();
     } else {
@@ -435,6 +477,7 @@ class CommandApprovalStore implements ToolCommandApprovals {
       'directory': workspace,
     };
     if (scope == CommandApprovalScope.session) {
+      if (_sessionPosition case final position?) entry['approved_at'] = position() - 1;
       _session.removeWhere((value) => value['id'] == entry['id']);
       _session.add(entry);
     } else {

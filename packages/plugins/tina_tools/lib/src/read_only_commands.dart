@@ -240,8 +240,8 @@ ProcessRequest _partRequest(ProcessRequest request, List<String> words) => (
 const _gitReaders = <String, _GitOptions>{
   'status': _GitOptions('sbvpohz'),
   'diff': _GitOptions('CcMnprRstTuUWyZaABbxz', numericContext: true),
-  'log': _GitOptions('DEFGgfLlMmoprtZz', numericContext: true),
-  'show': _GitOptions('DEFGgfLlMmoprSstZz', numericContext: true),
+  'log': _GitOptions('DEFGgfLlMmprtZz', numericContext: true),
+  'show': _GitOptions('DEFGgfLlMmprSstZz', numericContext: true),
   'branch': _GitOptions('aAvlq'),
   'tag': _GitOptions('l'),
 };
@@ -407,6 +407,7 @@ final _sedPrintCommand = RegExp(r'^(\d+(,\d+)?|\$)?[pq]$');
 /// `-f`/`--file`, `-i`, substitutions and `--output` all miss and ask.
 List<String>? _sedPrintArguments(List<String> arguments) {
   if (arguments.length < 2 || arguments.first != '-n') return null;
+  if (arguments.skip(2).any((argument) => argument.startsWith('-'))) return null;
   for (final command in arguments[1].split(';')) {
     if (command.isEmpty || !_sedPrintCommand.hasMatch(command)) return null;
   }

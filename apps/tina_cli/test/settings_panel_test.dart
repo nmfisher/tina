@@ -87,7 +87,6 @@ enabled = []
                 pluginSettings: assembly.pluginSettings,
                 pluginManager: assembly.pluginManager,
                 validatePlugins: assembly.validatePlugins,
-                workspace: directory.path,
                 pluginDescriptions:
                     pluginDescriptions(assembly.pluginSettings.registry)));
         expect(index, keys.length);

@@ -22,6 +22,7 @@ final class ToolsWiring {
     required this.osSandbox,
     required this.mode,
     this.settings,
+    this.pathApprovalDirectory,
   });
 
   final String workspaceRoot;
@@ -30,6 +31,7 @@ final class ToolsWiring {
   final bool osSandbox;
   final PermissionMode mode;
   final ScopedSettings? settings;
+  final String? pathApprovalDirectory;
 }
 
 /// Builds the tools plugin for [wiring].

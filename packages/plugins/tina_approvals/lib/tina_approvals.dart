@@ -121,6 +121,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
   /// No deadline by default. Embedders may explicitly opt into expiry.
   final Duration? timeout;
   final _pending = <String, ApprovalTicket>{};
+  final _turnTickets = <ApprovalTicket>{};
   final _observers = <Object, void Function()>{};
 
   /// Observe pending state without registering a responder or changing delivery
@@ -167,7 +168,8 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
       Map<String, Object?> details = const {},
       void Function(String pattern)? onCommandPattern,
       void Function(List<DirectoryAccessGrant> grants)? onDirectoryGrants}) {
-    if (_closed || (_turnCancelled?.call() ?? false)) {
+    final turnCancelled = whenCancelled == null ? _turnCancelled : null;
+    if (_closed || (turnCancelled?.call() ?? false)) {
       return Future.value(ApprovalDecision.deny);
     }
     final request = ApprovalRequest(
@@ -185,9 +187,10 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
         ApprovalTicket._(request, (decision, commandPattern, directoryGrants) {
       if (!ticket._active) return false;
       final invalid =
-          _closed || requestCancelled || (_turnCancelled?.call() ?? false);
+          _closed || requestCancelled || (turnCancelled?.call() ?? false);
       ticket._active = false;
       _pending.remove(request.id);
+      _turnTickets.remove(ticket);
       _changed();
       timer?.cancel();
       final directoryGrant =
@@ -339,6 +342,7 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
           !invalidReadsAlways;
     }, result.future);
     _pending[request.id] = ticket;
+    if (turnCancelled != null) _turnTickets.add(ticket);
     if (whenCancelled != null) {
       unawaited(whenCancelled.then((_) {
         requestCancelled = true;
@@ -362,18 +366,24 @@ final class ApprovalsPlugin extends AgentPlugin implements ApprovalRequester {
     }
   }
 
+  void _denyTurnTickets() {
+    for (final ticket in _turnTickets.toList()) {
+      ticket.respond(ApprovalDecision.deny);
+    }
+  }
+
   @override
   void onInput(TurnContext context) {
     final turn = ++_turn;
     _turnCancelled = () => context.cancelled;
     unawaited(context.whenCancelled.then((_) {
-      if (_turn == turn) _denyPending();
+      if (_turn == turn) _denyTurnTickets();
     }));
   }
 
   @override
   void onTurnEnd(TurnContext context) {
-    _denyPending();
+    _denyTurnTickets();
     _turn++;
     _turnCancelled = null;
   }

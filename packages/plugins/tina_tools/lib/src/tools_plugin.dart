@@ -54,6 +54,7 @@ final class ToolsPlugin extends AgentPlugin
     this.enableSpeculative = false,
     Map<String, String>? hostEnvironment,
     Directory? sandboxState,
+    Directory? pathApprovalDirectory,
     CommandApprovalStore? approvalStore,
     List<String> protectedPaths = const [],
   })  : modePolicy = modePolicy ?? ModePlugin(mode: mode),
@@ -65,6 +66,9 @@ final class ToolsPlugin extends AgentPlugin
         ) {
     final environment = hostEnvironment ?? Platform.environment;
     final realHome = environment['HOME'];
+    final approvalDirectory = realHome == null
+        ? null
+        : Directory(path.join(realHome, '.tina', 'approvals'));
     home = realHome == null
         ? null
         : SandboxHome(
@@ -74,8 +78,8 @@ final class ToolsPlugin extends AgentPlugin
           );
     pathGrants = approvalStore is ResourceApprovalStore
         ? approvalStore.paths
-        : PathGrants(
-            file: File(path.join(workspaceRoot, '.tina', 'permissions.json')));
+        : PathGrants.forWorkspace(
+            workspaceRoot, pathApprovalDirectory ?? approvalDirectory);
     readDirectories = ReadOnlyDirectories(
         source: () => [
               for (final g in pathGrants.grants)
@@ -94,10 +98,9 @@ final class ToolsPlugin extends AgentPlugin
             workspace: workspaceRoot,
             file: approvalStore != null
                 ? approvalStore.file
-                : realHome == null
+                : approvalDirectory == null
                     ? null
-                    : File(path.join(
-                        realHome, '.tina', 'approvals', 'commands.json')),
+                    : File(path.join(approvalDirectory.path, 'commands.json')),
             searchPath: SandboxPlan.defaultSearchPath,
           );
     osPlan = SandboxPlan(
@@ -114,12 +117,14 @@ final class ToolsPlugin extends AgentPlugin
       home: home,
       protectedPaths: [
         ...protectedPaths,
+        if (pathGrants.file != null) pathGrants.file!.parent.path,
         if (commandApprovals.file != null) commandApprovals.file!.parent.path
       ],
       isolateNetwork: osIsolateNetwork,
       readDirectories: readDirectories,
       writeDirectories: writeDirectories,
     );
+    pathGrants.permits = (grant) => osPlan.isSpecificGrantTarget(grant.path);
     final writable = WritableDirectories.withPolicy(osPlan.writableLayout(),
         permits: osPlan.canWrite);
     sandbox.writeDirectories = writeDirectories;
@@ -215,10 +220,14 @@ final class ToolsPlugin extends AgentPlugin
           ];
       if (!migratedDirectories && pathGrants.file?.existsSync() != true) {
         for (final directory in granted(readOnlyDirectoriesSetting)) {
-          pathGrants.remember(directory, write: false, recursive: true);
+          if (osPlan.canGrant(directory)) {
+            pathGrants.remember(directory, write: false, recursive: true);
+          }
         }
         for (final directory in granted(writeDirectoriesSetting)) {
-          pathGrants.remember(directory, write: true, recursive: true);
+          if (osPlan.canGrant(directory, write: true)) {
+            pathGrants.remember(directory, write: true, recursive: true);
+          }
         }
       }
       migratedDirectories = true;
@@ -413,6 +422,7 @@ final class ToolsPlugin extends AgentPlugin
 
   void mountOn(AgentLoop loop) {
     modePolicy.mountPolicy(loop, ownerId: id);
+    commandApprovals.trackSessionPosition(() => loop.seq);
     final state = loop.derive().pluginStates[id]?['command-prefixes'];
     if (state != null && state.value != null) {
       if (state.schemaVersion != 1)
@@ -429,6 +439,14 @@ final class ToolsPlugin extends AgentPlugin
           schemaVersion: 1,
           value: {'grants': commandApprovals.sessionPrefixEntries}));
     });
+    if (!modePolicy.isDelegated) {
+      loop.subscribe((entry, event) {
+        if (event != LogEvent.appended || entry is! CutEntry) return;
+        final grants = loop.derive().pluginStates[id]?['command-prefixes']
+            ?.value?['grants'];
+        commandApprovals.discardSessionApprovalsFrom(entry.toSeq, grants);
+      });
+    }
     registerExecutors(loop.registerContextExecutor);
   }
 

@@ -154,9 +154,10 @@ void main() {
     ], globalConfigPath: '${scratch.path}/config',
         pluginCacheDir: cacheDir, buildService: service);
     expect(preExit, 1, reason: 'non-interactive cannot consent a new hash');
+    expect(await service.cache.list(), isEmpty);
 
-    final built = await service.build(source, 'demo-local');
-    consent.remember(built.hash);
+    final hash = digestOf(bytes);
+    consent.remember(hash);
 
     final exit = await runPluginSubcommand([
       'plugin', 'build', source.path,
@@ -166,7 +167,7 @@ void main() {
 
     final listed = await PluginCache(root: cacheDir).list();
     expect(listed.single.origin, 'local');
-    expect(listed.single.artifactHash, built.hash);
+    expect(listed.single.artifactHash, hash);
   });
 
   test('plugin build surfaces compiler failures cleanly', () async {
@@ -252,10 +253,9 @@ void main() {
     final refuseExit = await runPluginSubcommand(
         ['plugin', 'remove', 'demo/consentful'],
         globalConfigPath: configPath, pluginCacheDir: cacheDir);
-    expect(refuseExit, 0,
-        reason: 'remove refuses only with a message; exit stays 0 when not forced');
-    // (The design says refuse; the CLI prints the notice and still exits
-    // non-zero when refused - asserted below with the force variant.)
+    expect(refuseExit, 1);
+    expect(await PluginCache(root: cacheDir).list(), hasLength(1));
+    expect(RegistryConfig(File(configPath)).read().active, 'demo/consentful');
 
     final forceExit = await runPluginSubcommand(
         ['plugin', 'remove', 'demo/consentful', '--force'],

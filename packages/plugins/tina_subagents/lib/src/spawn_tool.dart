@@ -112,7 +112,7 @@ final class SubagentInspectTool extends Tool {
 
   @override
   Future<ToolResult> execute(Map<String, dynamic> input,
-      {void Function(String)? progress}) {
+      {void Function(String)? progress, Future<void>? whenCancelled}) {
     final id = input['id'];
     if (id is! String || id.trim().isEmpty) {
       return Future.value(ToolResult.error('subagent needs an "id" string'));
@@ -120,6 +120,6 @@ final class SubagentInspectTool extends Tool {
     final action = (input['action'] as String?) ?? 'status';
     final waitMs = (input['wait_ms'] as num?)?.toInt();
     return _plugin.inspect(id,
-        action: action, waitMs: waitMs, progress: progress);
+        action: action, waitMs: waitMs, progress: progress, whenCancelled: whenCancelled);
   }
 }

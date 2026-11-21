@@ -5,16 +5,17 @@ library;
 
 import 'package:tina_core/tina_core.dart';
 
-/// One user input. Enters the loop and the transcript once, at step 1.
+/// One input. Enters the loop and the transcript once, at step 1.
 final class Input {
-  const Input(this.text, {required this.id});
+  const Input(this.text, {required this.id, this.human = false});
 
   final String text;
   final String id;
+  final bool human;
 
   /// A copy, so the input phase can hand the turn a rewritten input.
   Input withText(String newText, {String? newId}) =>
-      Input(newText, id: newId ?? id);
+      Input(newText, id: newId ?? id, human: human);
 
   @override
   String toString() => 'Input($id, $text)';

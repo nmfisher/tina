@@ -90,8 +90,8 @@ void main() {
         ],
       ),
     );
-    plugin.mountOn(host.session.loop);
     host.session.loop.addPlugin(plugin);
+    host.session.loop.mountPlugin(plugin);
     return (
       host: host,
       plugin: plugin,

@@ -63,7 +63,7 @@ final class PluginBuildContribution
       final name = pluginSourceName(directory);
       await PluginBuildFlow(
         buildArtifact: (sourcePath) =>
-            service.build(Directory(sourcePath), name),
+            service.prepare(Directory(sourcePath), name),
         consent: LocalPluginConsent(
             file: File('${service.cache.root.path}'
                 '${Platform.pathSeparator}local-consent.json')),

@@ -466,11 +466,18 @@ final class SessionAssembly {
       tinaDirPath: '$workingDirectory/.tina',
       protectedPaths: [
         options.configPath ?? defaultConfigPath(),
+        if (options.storePath case final String customStore) ...[
+          customStore,
+          '$customStore-wal',
+          '$customStore-shm',
+          '$customStore-journal',
+        ],
         if (stack.protectedPermissionsPath case final String protected)
           protected,
       ],
       osSandbox: options.osSandbox,
       settings: settings,
+      pathApprovalDirectory: stack.protectedPermissionsPath,
       mode: options.yolo ? PermissionMode.yolo : PermissionMode.approve,
     ));
     diagnostics?.stage?.call('settings-and-tools-ready');

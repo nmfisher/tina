@@ -161,9 +161,13 @@ final class TurnLedger {
     final open = <String>[];
     var clearedAt = -1;
     for (var i = 0; i < log.length; i++) {
-      final e = log[i];
-      if (e.seq != i) throw const FormatException('Session sequence gap');
-      if (e is TurnStartedEntry) open.add(e.turnId);
+      if (log[i].seq != i) throw const FormatException('Session sequence gap');
+    }
+    for (final e in activeLog(log)) {
+      if (e is TurnStartedEntry) {
+        open.clear();
+        open.add(e.turnId);
+      }
       if (e is TurnEndedEntry) {
         completed.add(e.turnId);
         open.remove(e.turnId);
@@ -218,6 +222,7 @@ final class SnapshotFold {
   }) {
     WorkingContextSnapshot? live;
     var maxRevision = 0;
+    final liveEntries = activeLog(log).map((entry) => entry.seq).toSet();
     for (final e in log.whereType<PluginStateEntry>()) {
       if (e.pluginId != contextPluginId || e.stateKey != workingContextKey) {
         continue;
@@ -235,7 +240,7 @@ final class SnapshotFold {
         throw const FormatException('Invalid working-context turn ownership');
       }
       maxRevision = candidate.revision;
-      if (e.seq > ledger.clearedAt &&
+      if (e.seq > ledger.clearedAt && liveEntries.contains(e.seq) &&
           ledger.isEligible(candidate.originTurnId, activeTurn: activeTurn)) {
         live = candidate;
       }
@@ -271,7 +276,7 @@ List<Message> assembleContextMessages(
         .messages;
   }
   final messages = [...snapshot.messages];
-  for (final e in log.skip(snapshot.throughSeq + 1)) {
+  for (final e in activeLog(log).where((entry) => entry.seq > snapshot.throughSeq)) {
     if (e is MessageAppendedEntry &&
         ledger.isEligible(e.turnId, activeTurn: activeTurn)) {
       messages.add(e.message);
@@ -316,7 +321,7 @@ WorkingContext deriveWorkingContext(
         {bool includePendingTurn = false}) {
   final ledger = TurnLedger.scan(log);
   final active = includePendingTurn ? ledger.pendingTurnId : null;
-  for (final entry in log.reversed) {
+  for (final entry in activeLog(log).reversed) {
     if (entry is ContextClearedEntry) break;
     if (entry is! PluginStateEntry ||
         entry.pluginId != contextPluginId ||

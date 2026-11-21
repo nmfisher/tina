@@ -101,7 +101,7 @@ final class AskingBoundary
   /// authorization scope dies with its revision, as natively.
   int Function()? policyRevision;
 
-  /// Mutation targets refused before the table is consulted (the config
+  /// Access targets refused before the table is consulted (the config
   /// preopen, the workspace `.tina`).
   final List<String> _protected;
 
@@ -200,13 +200,13 @@ final class AskingBoundary
   /// an ask is refused ("no approver wired"), exactly as natively.
   Future<void> _authorize(FileOp op, String target) async {
     final staged = _temporaryTargets[target] ?? target;
+    if (_isProtected(target) || _isProtected(staged)) {
+      throw SandboxViolation(
+          '${op.name} of a protected path is denied (${p.basename(staged)})');
+    }
     if (_scopeAllows(op, target) ||
         staged != target && _scopeAllows(op, staged)) {
       return;
-    }
-    if (op != FileOp.read && _isProtected(staged)) {
-      throw SandboxViolation(
-          'write to a protected path is denied (${p.basename(staged)})');
     }
     final approver = this.approver;
     if (approver != null) {
@@ -260,10 +260,12 @@ final class AskingBoundary
   // ---- FileSystem --------------------------------------------------------
 
   @override
-  Future<bool> fileExists(String path) => _inner.fileExists(path);
+  Future<bool> fileExists(String path) async =>
+      !_isProtected(_resolve(path)) && await _inner.fileExists(path);
 
   @override
-  Future<bool> directoryExists(String path) => _inner.directoryExists(path);
+  Future<bool> directoryExists(String path) async =>
+      !_isProtected(_resolve(path)) && await _inner.directoryExists(path);
 
   @override
   Future<List<int>> readFileBytes(String path) async {

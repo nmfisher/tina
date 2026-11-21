@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 import 'package:tina_console/tina_console.dart';
 import 'package:tina_console/testing.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
+import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_tui/tina_tui.dart';
 import 'package:tina/session.dart';
 import 'package:tina/src/plugin_catalog.dart' show pluginDescriptions;
@@ -23,16 +24,18 @@ class _TrackingBackend extends AnsiBackend {
 
 void main() {
   late Directory root;
+  late Directory project;
   late File config;
   late SessionAssembly app;
   setUp(() {
     root = Directory.systemTemp.createTempSync('plugin-checkboxes-');
+    project = Directory('${root.path}/project')..createSync();
     config = File('${root.path}/global')
       ..writeAsStringSync(
           '[default]\nmodel="scripted"\n[plugins]\nenabled=[]\n');
     app = SessionAssembly.start(
         options: AssemblyOptions(
-            configPath: config.path, workingDirectory: root.path),
+            configPath: config.path, workingDirectory: project.path),
         providerFactory: (_) => ScriptedProvider([]),
         registerPlugins: (registry) => registry.register(
             'acme/notes',
@@ -91,8 +94,7 @@ void main() {
               pluginSettings: app.pluginSettings,
               pluginManager: app.pluginManager,
               scopedSettings: app.settings,
-              backend: app.settingsBackend,
-              workspace: root.path));
+              backend: app.settingsBackend));
       expect(index, steps.length);
       return io.written.toString();
     } finally {
@@ -147,7 +149,7 @@ void main() {
       app.close();
       app = SessionAssembly.start(
           options: AssemblyOptions(
-              configPath: config.path, workingDirectory: root.path),
+              configPath: config.path, workingDirectory: project.path),
           providerFactory: (_) => ScriptedProvider([]),
           registerPlugins: (registry) => registry.register(
               'acme/notes',
@@ -276,7 +278,7 @@ void main() {
           expect(override(PluginScope.session), null);
           expect(override(PluginScope.workspace), null);
           expect(config.readAsStringSync(), isNot(contains("'tina/goals' =")));
-          expect(File('${root.path}/.tina/config').readAsStringSync(),
+          expect(File('${project.path}/.tina/config').readAsStringSync(),
               isNot(contains('enabled =')));
         },
         escape,
@@ -433,7 +435,7 @@ void main() {
 
   test('Remembered permissions edits the project instructions field',
       () async {
-    final permissions = File('${root.path}/.tina/permissions.json')
+    final permissions = File('${project.path}/.tina/permissions.json')
       ..parent.createSync(recursive: true)
       ..writeAsStringSync(jsonEncode({
         'version': 1,
@@ -450,8 +452,10 @@ void main() {
     ], resizeEachKey: false);
     expect(output, contains('Project permission instructions'));
     final document = jsonDecode(permissions.readAsStringSync()) as Map;
-    expect(document['instructions'],
-        'Deploys read .env; never print values.');
+    expect(document.containsKey('instructions'), isFalse);
+    expect(app.settings.override(
+        app.settings.catalog['tina/mode/classifier_instruction'],
+        SettingScope.workspace), 'Deploys read .env; never print values.');
     expect(document['version'], 1);
     expect((document['grants'] as List).single['path'], '/data/ref.pdf',
         reason: 'the grants survive the instructions edit');
@@ -546,7 +550,7 @@ void main() {
       },
       escape, escape,
     ]);
-    final workspace = File('${root.path}/.tina/config');
+    final workspace = File('${project.path}/.tina/config');
     final persisted = workspace.readAsStringSync();
     expect(persisted, isNot(contains('enabled =')));
     await drive([

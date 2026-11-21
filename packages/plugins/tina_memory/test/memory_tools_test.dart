@@ -60,6 +60,19 @@ void main() {
     expect(missing.content, contains('#999'));
   });
 
+  test('ambiguous memory IDs require a scope before deleting', () async {
+    final project = pair.project.remember('project fact',
+        category: MemoryCategory.facts, updatedBy: 'x');
+    final global = pair.global.remember('global fact',
+        category: MemoryCategory.facts, updatedBy: 'x');
+    expect(project.id, global.id);
+    expect((await run('memory_forget', {'id': global.id})).isError, isTrue);
+    final result = await run('memory_forget', {'id': global.id, 'scope': 'global'});
+    expect(result.isError, isFalse);
+    expect(pair.project.entry(project.id), isNotNull);
+    expect(pair.global.entry(global.id), isNull);
+  });
+
   test('validation: bad category, empty text, oversized text', () async {
     final badCategory = await run(
         'memory_remember', {'text': 'x', 'category': 'vibes'});

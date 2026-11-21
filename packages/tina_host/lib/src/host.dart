@@ -399,7 +399,8 @@ final class Host {
       },
       // Deferred through the closure: no notice can arrive before the
       // host exists, because plugins only see the session at open.
-      deliverNotice: (text) => host._deliverNotice(text),
+      deliverNotice: (text, {isCurrent}) =>
+          host._deliverNotice(text, isCurrent: isCurrent),
     );
     final opened = <AgentPlugin>[];
     final questions = config.questions ??
@@ -461,14 +462,14 @@ final class Host {
   bool offerInput(String text) {
     if (_closed || _stopping) return false;
     final accepted = session.loop.offerInput(
-        Input(text, id: 't-${session.loop.seq}-input-${++_nextInput}'));
+        Input(text, id: 't-${session.loop.seq}-input-${++_nextInput}', human: context.details.depth == 0));
     if (accepted) _changed();
     return accepted;
   }
 
   /// Notices that arrived while a turn or operation owned the session.
   /// They drain, in arrival order, at the next idle point.
-  final _noticeQueue = <String>[];
+  final _noticeQueue = <({String text, bool Function()? isCurrent})>[];
   bool _noticeDraining = false;
   final _idleWaiters = <Completer<void>>[];
 
@@ -505,11 +506,11 @@ final class Host {
   /// background job's output, or any out-of-band result reaches the model
   /// without being polled for. This is the plugin seam behind
   /// [PluginSession.deliverNotice].
-  void _deliverNotice(String text) {
+  void _deliverNotice(String text, {bool Function()? isCurrent}) {
     if (_closed || _stopping) return;
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
-    _noticeQueue.add(trimmed);
+    _noticeQueue.add((text: trimmed, isCurrent: isCurrent));
     _changed();
     _drainNotices();
   }
@@ -528,9 +529,10 @@ final class Host {
     if (session.loop.running) {
       if (!session.loop.acceptsInput) return; // between turns; idle re-pumps
       while (_noticeQueue.isNotEmpty && session.loop.acceptsInput) {
-        final text = _noticeQueue.removeAt(0);
-        if (!session.loop.offerInput(Input(text, id: _nextNoticeId()))) {
-          _noticeQueue.insert(0, text);
+        final notice = _noticeQueue.removeAt(0);
+        if (notice.isCurrent?.call() == false) continue;
+        if (!session.loop.offerInput(Input(notice.text, id: _nextNoticeId()))) {
+          _noticeQueue.insert(0, notice);
           break; // stopped accepting; idle re-pumps
         }
         _changed();
@@ -544,13 +546,14 @@ final class Host {
       try {
         while (_noticeQueue.isNotEmpty && !_closed && !_stopping) {
           if (session.loop.running) return; // busy again; idle re-pumps
-          final text = _noticeQueue.removeAt(0);
+          final notice = _noticeQueue.removeAt(0);
+          if (notice.isCurrent?.call() == false) continue;
           try {
-            await _send(text, turnId: _nextNoticeId());
+            await _send(notice.text, turnId: _nextNoticeId());
           } catch (_) {
             // A failed notice turn must not wedge the pump or crash its
             // caller; the notice re-queues and a later idle retries.
-            _noticeQueue.insert(0, text);
+            _noticeQueue.insert(0, notice);
             return;
           }
         }
@@ -688,17 +691,17 @@ final class Host {
 
   Future<Outcome> send(String text, {String? turnId}) async {
     if (_operation != null) throw StateError('A session operation is running');
-    return _send(text, turnId: turnId);
+    return _send(text, turnId: turnId, human: context.details.depth == 0);
   }
 
-  Future<Outcome> _send(String text, {String? turnId}) async {
+  Future<Outcome> _send(String text, {String? turnId, bool human = false}) async {
     _checkOpen();
     if (session.loop.running) throw StateError('a turn is already running');
     final settled = Completer<void>();
     _pendingWork.add(settled);
     try {
       final outcome = await session.loop
-          .runTurn(Input(text, id: turnId ?? 't-${session.loop.seq}'),
+          .runTurn(Input(text, id: turnId ?? 't-${session.loop.seq}', human: human),
               onOutcome: (outcome) {
         session.turns.add(outcome);
         // A receipt describes one input, so its metadata save must also settle

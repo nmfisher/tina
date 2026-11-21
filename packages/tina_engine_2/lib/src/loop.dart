@@ -512,7 +512,7 @@ final class AgentLoop {
   /// There is no other copy of the conversation: this list, built from
   /// the log, is what a request is built from.
   DerivedSession derive() =>
-      deriveSession(_log, _settings, includePendingTurn: true);
+      deriveSession(_log, _settings, includePendingTurn: _inTurn);
 
   /// Compact completed history: replace derived-message positions
   /// [from]..[to] (inclusive, as [derive] counts them today) with one
@@ -814,7 +814,7 @@ final class AgentLoop {
     try {
       _appendBatch([
         TurnStartedEntry(turnId: turnId, at: _now()),
-        InputRecordedEntry(turnId: turnId, text: raw.text, at: _now()),
+        InputRecordedEntry(turnId: turnId, text: raw.text, human: raw.human, at: _now()),
       ]);
     } catch (e) {
       _inTurn = false;

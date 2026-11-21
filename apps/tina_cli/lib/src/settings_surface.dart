@@ -17,8 +17,14 @@ import 'package:tina_settings/tina_settings.dart';
 import 'config_document.dart' show ConfigDocument;
 import 'package:tina_tools/portable_tools.dart' show ToolCommandApprovals;
 
+abstract interface class CatalogSettingsBackend {
+  void bindCatalog(SettingCatalog catalog);
+}
+
 /// The config-backed settings backend as the app layer sees it.
 abstract interface class ConfigSettingsSurface implements SettingsBackend {
+  bool get persistsConfiguration;
+
   /// The global config file's path.
   String get globalPath;
 

@@ -27,6 +27,7 @@ final class _Server {
   final McpClient client;
   List<Map<String, dynamic>> tools = [];
   bool dirty = true;
+  bool usable = false;
 }
 
 /// MCP is an ordinary tool-owning plugin. The host supplies an approval
@@ -210,6 +211,23 @@ class McpPlugin extends AgentPlugin {
     _schemas.clear();
     _bindings.clear();
     for (final server in _servers.values) {
+      final start = _schemas.length;
+      try {
+        _addServerSchemas(server);
+        server.usable = true;
+      } on Object {
+        _schemas.removeRange(start, _schemas.length);
+        _bindings.removeWhere((_, binding) => identical(binding.server, server));
+        server.usable = false;
+        _setStatus(server.config.name, 'Invalid tool definitions');
+      }
+    }
+    // Registration is synchronous and scoped to the owner, just like the
+    // initial mount. Removed tools remain undispatchable; unload removes all.
+    if (_loop != null) _loop!.mountPlugin(this);
+  }
+
+  void _addServerSchemas(_Server server) {
       for (final tool in server.tools) {
         final name = tool['name'], input = tool['inputSchema'];
         if (name is! String || name.isEmpty || input is! Map) {
@@ -268,10 +286,6 @@ class McpPlugin extends AgentPlugin {
           'required': ['name']
         });
       }
-    }
-    // Registration is synchronous and scoped to the owner, just like the
-    // initial mount. Removed tools remain undispatchable; unload removes all.
-    if (_loop != null) _loop!.mountPlugin(this);
   }
 
   void _add(_Server server, String tool, String method, String description,
@@ -303,10 +317,16 @@ class McpPlugin extends AgentPlugin {
 
   @override
   void onPrompt(TurnContext context) {
+    var remaining = 4096;
     for (final server in _servers.values) {
-      if (server.client.instructions.isNotEmpty) {
+      if (!server.usable) continue;
+      final instructions = server.client.instructions;
+      if (instructions.isNotEmpty && remaining > 0) {
+        final excerpt = instructions.length <= remaining ? instructions :
+            '${instructions.substring(0, remaining)}…';
+        remaining -= excerpt.length;
         context.promptSections.add(
-            'Instructions from configured MCP server ${server.config.name}:\n${server.client.instructions}');
+            'Reference from configured MCP server ${server.config.name}:\n$excerpt');
       }
     }
     if (_servers.isNotEmpty) {
@@ -365,10 +385,10 @@ class McpPlugin extends AgentPlugin {
             'mcp_tool': binding.tool,
             'arguments': params,
             'permission_scope': 'mcp',
-            // Persistent rules key on (server, tool): remembering a tool
+            // Rules bind the server configuration, method and tool. Remembering a tool
             // allows ANY arguments to it — paths and network-touching
             // values included. The user trusts the tool, not one call.
-            'mcp_rule_target': '${server.config.name}/${binding.tool}',
+            'mcp_rule_target': '${server.config.name}/${binding.tool}/${binding.method}/${server.config.fingerprint}',
             'permission_scope_label': 'this server and tool',
             'permission_scope_description':
                 'Allow once covers this call. Remembering allows any '

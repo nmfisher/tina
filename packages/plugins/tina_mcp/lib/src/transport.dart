@@ -29,7 +29,8 @@ Future<McpTransport> connectMcp(McpServerConfig config, String workspace,
       expand(config.command!), config.arguments.map(expand).toList(),
       workingDirectory: config.directory(workspace),
       environment: {
-        ...env,
+        for (final name in const ['PATH', 'HOME', 'TMPDIR', 'LANG', 'SYSTEMROOT'])
+          if (env[name] case final String value) name: value,
         for (final e in config.environment.entries) e.key: expand(e.value)
       },
       includeParentEnvironment: false);

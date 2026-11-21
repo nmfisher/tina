@@ -331,10 +331,9 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
                   c.settings?.read(classifierTimeoutSetting).value ??
                   classifierTimeoutSetting.defaultValue,
             ),
-            // Project config first, session setting as the fallback:
-            // both land in the same "User permission preferences" block.
+            // Private workspace preferences take precedence over the fallback.
             readInstruction: () =>
-                readProjectPermissionInstructions(c.workingDirectory) ??
+                readProjectPermissionInstructions(c.settings) ??
                 c.settings?.read(classifierInstructionSetting).value ??
                 '',
           );

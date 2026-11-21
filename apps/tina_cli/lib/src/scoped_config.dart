@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:tina_settings/tina_settings.dart';
 import 'settings_surface.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_providers/tina_providers.dart' show classifierInstructionSetting;
 import 'package:tina_tools/tina_tools.dart';
 import 'package:path/path.dart' as path;
 import 'assembly_config.dart';
@@ -36,6 +37,9 @@ void _put(Map<String, dynamic> values, List<String> path, Object? value) {
 
 /// Filesystem adapter. Inheritance and validation remain in tina_settings.
 final class ConfigSettingsBackend implements ConfigSettingsSurface {
+  @override
+  bool get persistsConfiguration => true;
+
   ConfigSettingsBackend(
       {required this.catalog,
       required this.globalPath,
@@ -68,6 +72,9 @@ final class ConfigSettingsBackend implements ConfigSettingsSurface {
     'tina/tools/allow_reads_outside_workspace',
     'tina/tools/home_caches',
   };
+  static bool _isPrivateSetting(String id, SettingScope scope) =>
+      permissionSettings.contains(id) ||
+      scope == SettingScope.workspace && id == classifierInstructionSetting.id;
   static const _directorySettings = {
     'tina/tools/read_only_directories',
     'tina/tools/write_directories',
@@ -133,7 +140,7 @@ final class ConfigSettingsBackend implements ConfigSettingsSurface {
             .toSet()
         : null;
     for (final definition in catalog.definitions) {
-      if (permissionSettings.contains(definition.id)) continue;
+      if (_isPrivateSetting(definition.id, scope)) continue;
       var value = definition.readConfig?.call(values) ??
           _at(values, definition.configPath);
       if (value == null &&
@@ -284,7 +291,7 @@ final class ConfigSettingsBackend implements ConfigSettingsSurface {
     };
     if (scope == SettingScope.workspace &&
         sameFile &&
-        values.keys.every(permissionSettings.contains)) {
+        values.keys.every((id) => _isPrivateSetting(id, scope))) {
       permissionStore.replaceSettings(CommandApprovalScope.workspace, values,
           expected: expectedPermissions);
       onChanged?.call();
@@ -304,7 +311,7 @@ final class ConfigSettingsBackend implements ConfigSettingsSurface {
       ...previous.keys,
       ...values.keys,
     }
-        .where((key) => !permissionSettings.contains(key))
+        .where((key) => !_isPrivateSetting(key, scope))
         .any((key) => jsonEncode(previous[key]) != jsonEncode(values[key]));
     final layers = {
       for (final candidate in SettingScope.values)
@@ -330,7 +337,7 @@ final class ConfigSettingsBackend implements ConfigSettingsSurface {
     } else {
       final document = snapshot!;
       final hasLegacyPermissions = catalog.definitions.any((definition) =>
-          permissionSettings.contains(definition.id) &&
+          _isPrivateSetting(definition.id, scope) &&
           _at(document.values, definition.configPath) != null);
       if (scope == SettingScope.global) {
         final plugins = document.values['plugins'] as Map?;
@@ -342,13 +349,13 @@ final class ConfigSettingsBackend implements ConfigSettingsSurface {
           _writeValue(document.values, definition, values[definition.id]);
       }
       for (final definition in catalog.definitions) {
-        if (permissionSettings.contains(definition.id))
+        if (_isPrivateSetting(definition.id, scope))
           _writeValue(document.values, definition, null);
       }
       if (changesConfiguration || hasLegacyPermissions) document.saveScoped();
       final nextPermissions = {
         for (final entry in values.entries)
-          if (permissionSettings.contains(entry.key)) entry.key: entry.value,
+          if (_isPrivateSetting(entry.key, scope)) entry.key: entry.value,
       };
       final approvalScope = CommandApprovalScope.values.byName(scope.name);
       if (jsonEncode(permissionStore.settings(approvalScope)) !=
