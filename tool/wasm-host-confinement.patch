@@ -55,7 +55,7 @@ index 3d5c751..2a58eb7 100644
          assert_eq!(preopens[1].origin, "default:config");
 
 diff --git a/pkg/tina_wasm_host/src/runner.rs b/pkg/tina_wasm_host/src/runner.rs
-index 6bb6c43..ff27109 100644
+index 6bb6c43..6111a81 100644
 --- a/pkg/tina_wasm_host/src/runner.rs
 +++ b/pkg/tina_wasm_host/src/runner.rs
 @@ -78,73 +78,106 @@ pub fn aot_bytes(precompiled: &'static [u8]) -> Option<&'static [u8]> {
@@ -362,7 +362,32 @@ index 6bb6c43..ff27109 100644
          }
      };
      for preopen in policy.preopens() {
-@@ -1402,7 +1497,7 @@ mod tests {
+@@ -578,6 +673,7 @@ pub(crate) fn prepare(
+             policy,
+             http_approvals: crate::tina_http::HttpApprovals::default(),
+             crash: crate::tina_term::CrashState::default(),
++            _private_mounts: private_mounts,
+         },
+     );
+     boot_mark("host:plugin-runtime+store");
+@@ -1032,6 +1128,8 @@ fn plugin_error_val(error: tina_plugin::TinaPluginError) -> Val {
+ /// resolves spawn working directories against, its live children, and the
+ /// capability policy the mediators enforce (`docs/capability_merger.md`).
+ pub struct HostState {
++    // Keep the backing files available until the guest and its WASI store exit.
++    _private_mounts: Vec<tempfile::TempDir>,
+     pub wasi: WasiCtx,
+     pub table: ResourceTable,
+     pub http: reqwest::Client,
+@@ -1057,6 +1155,7 @@ impl HostState {
+     #[cfg(test)]
+     pub fn for_tests() -> Self {
+         HostState {
++            _private_mounts: Vec::new(),
+             wasi: WasiCtxBuilder::new().build(),
+             table: ResourceTable::new(),
+             http: reqwest::Client::new(),
+@@ -1402,7 +1501,7 @@ mod tests {
 
  #[cfg(test)]
  mod discovery_tests {
@@ -371,7 +396,7 @@ index 6bb6c43..ff27109 100644
      use super::inline_provider_token;
 
      #[test]
-@@ -1492,10 +1587,10 @@ api_key = "sk-someone-elses"
+@@ -1492,10 +1591,10 @@ api_key = "sk-someone-elses"
          std::fs::write(home.join(".tina").join("config"), "version = 1\n").unwrap();
 
          let mount = discover_config_mount(&home).expect("a real config resolves");
@@ -384,7 +409,7 @@ index 6bb6c43..ff27109 100644
              "the mount is a directory containing a real config file"
          );
          std::fs::remove_dir_all(&home).ok();
-@@ -1519,7 +1614,7 @@ api_key = "sk-someone-elses"
+@@ -1519,7 +1618,7 @@ api_key = "sk-someone-elses"
          .unwrap();
 
          let mount = discover_config_mount(&home).expect("a symlinked config resolves");
@@ -393,7 +418,7 @@ index 6bb6c43..ff27109 100644
          assert_eq!(mounted, "version = 2\n", "the resolved contents are mounted");
          std::fs::remove_dir_all(&home).ok();
          std::fs::remove_dir_all(&elsewhere).ok();
-@@ -1539,7 +1634,7 @@ api_key = "sk-someone-elses"
+@@ -1539,7 +1638,7 @@ api_key = "sk-someone-elses"
 
          let mount = discover_config_mount(&home).expect("resolves");
          let carried = std::fs::read_to_string(
@@ -402,7 +427,7 @@ index 6bb6c43..ff27109 100644
          )
          .expect("the cache is carried into the snapshot");
          assert_eq!(carried, format!("{{{cache_body}}}"), "verbatim bytes");
-@@ -1554,12 +1649,46 @@ api_key = "sk-someone-elses"
+@@ -1554,12 +1653,46 @@ api_key = "sk-someone-elses"
 
          let mount = discover_config_mount(&home).expect("resolves");
          assert!(
@@ -450,7 +475,7 @@ index 6bb6c43..ff27109 100644
      #[test]
      fn missing_config_carries_the_friendly_message() {
          let home = fixture("missing");
-@@ -1572,7 +1701,7 @@ api_key = "sk-someone-elses"
+@@ -1572,7 +1705,7 @@ api_key = "sk-someone-elses"
              "error: {error}"
          );
          assert!(error.contains("run tina once to create one"));

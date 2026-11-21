@@ -60,13 +60,15 @@ final class WasmPreopenPaths<T> {
         .where((segment) => segment.isNotEmpty && segment != '.')
         .join('/');
     final candidate = absolute ? '/$joined' : joined;
+    ({T descriptor, String guest, String relative})? workspace;
     for (final (descriptor, guestPath) in _directories) {
       if (!absolute && (guestPath == '.' || guestPath.isEmpty)) {
-        return (
+        workspace ??= (
           descriptor: descriptor,
           guest: '.',
           relative: candidate.isEmpty ? '.' : candidate,
         );
+        continue;
       }
       if (absolute != guestPath.startsWith('/')) continue;
       if (candidate == guestPath)
@@ -80,6 +82,6 @@ final class WasmPreopenPaths<T> {
         );
       }
     }
-    return null;
+    return workspace;
   }
 }

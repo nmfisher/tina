@@ -218,7 +218,7 @@ final class PreloadedAppIo implements AppIo {
               // cap: configuredDescriptors reads that file through this
               // snapshot, and a provider whose descriptor only exists in
               // the catalog would otherwise lose its endpoint at boot.
-              final bootCritical = guest.startsWith('config/.tina/cache/');
+              final bootCritical = guest.startsWith('$home/.tina/cache/');
               final fileCap = bootCritical
                   ? PreloadBudget.bootCriticalFileBytes
                   : null;

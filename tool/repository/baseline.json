@@ -283,5 +283,65 @@
     "key": "public-api|packages/tina_tui/lib/src/terminal_startup_io.dart|packages/tina_tui/lib/src/terminal_startup_io.dart|packages/tina_console/lib/src/backend/terminal_modes.dart",
     "reason": "A09-seam: native/unsupported seam legs import their counterpart legs directly (re-exporting through the public barrel would drag dart:ffi into the wasm component graph); same src-is-API policy as the engine entries.",
     "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_settings_backend.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_settings_backend.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/config_document.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_settings_backend.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_catalog.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_settings_backend.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_stack.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/lib/src/preloaded_settings_backend.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_surface.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/test/storage_confinement_test.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/test/storage_confinement_test.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/config_document.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/test/storage_confinement_test.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_catalog.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/test/storage_confinement_test.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_stack.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/test/storage_confinement_test.dart|packages/libraries/tina_wasm/lib/src/preloaded_app_io.dart|apps/tina_cli/lib/src/settings_surface.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "package-direction|packages/libraries/tina_wasm/test/storage_confinement_test.dart|packages/libraries/tina_wasm/test/storage_confinement_test.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
+  },
+  {
+    "key": "public-api|packages/libraries/tina_wasm/test/storage_confinement_test.dart|packages/libraries/tina_wasm/test/storage_confinement_test.dart|apps/tina_cli/lib/src/app_io.dart",
+    "reason": "The Wasm settings adapter and its fixture use the same CLI configuration interfaces as the existing preloaded I/O library.",
+    "owner": "A09"
   }
 ]
