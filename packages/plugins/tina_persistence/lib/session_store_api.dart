@@ -8,6 +8,8 @@
 /// graph is `tina_core`, `tina_settings` and nothing else.
 library;
 
+import 'dart:convert';
+
 import 'package:tina_core/tina_core.dart';
 import 'package:tina_settings/tina_settings.dart'
     show ScopedSettings, SettingScope;
@@ -77,6 +79,60 @@ final class StoredSession {
   @override
   String toString() => 'StoredSession($id, $entries entries'
       '${title == null ? '' : ', $title'})';
+}
+
+/// The Wasm store uses file order for its row keys.
+List<Map<String, Object?>> decodeWasmSessionLog(String text) {
+  final rows = <Map<String, Object?>>[];
+  for (final (index, line) in const LineSplitter().convert(text).indexed) {
+    if (line.trim().isEmpty) continue;
+    try {
+      final row = jsonDecode(line);
+      if (row is! Map<String, Object?> || row['id'] is! String ||
+          !{'marker', 'entry', 'details'}.contains(row['t'])) {
+        throw const FormatException('invalid session row');
+      }
+      rows.add({...row, '_key': rows.length + 1});
+    } on FormatException {
+      throw SessionStoreException('invalid Wasm session log at line ${index + 1}');
+    }
+  }
+  return rows;
+}
+
+List<StoredSession> listWasmSessions(List<Map<String, Object?>> rows) {
+  final markers = <String, Map<String, Object?>>{};
+  final last = <String, Map<String, Object?>>{};
+  final metadata = <String, Map<String, Object?>>{};
+  final counts = <String, int>{};
+  for (final row in rows) {
+    final id = row['id'] as String;
+    last[id] = row;
+    switch (row['t']) {
+      case 'marker':
+        markers.putIfAbsent(id, () => row);
+      case 'details':
+        metadata[id] = row;
+      case 'entry':
+        counts.update(id, (value) => value + 1, ifAbsent: () => 1);
+    }
+  }
+  return [
+    for (final MapEntry(key: id, value: marker) in markers.entries)
+      StoredSession(
+        id: id,
+        registryKey: marker['_key'] as int,
+        lastActivityKey: last[id]!['_key'] as int,
+        entries: counts[id] ?? 0,
+        title: marker['title'] as String?,
+        model: (metadata[id]?['model'] ?? marker['model']) as String?,
+        details: switch (metadata[id]?['details'] ?? marker['details']) {
+          final Map<String, Object?> details => SessionDetails.fromJson(details),
+          _ => null,
+        },
+        lastSavedAt: DateTime.tryParse(last[id]!['at'] as String? ?? ''),
+      ),
+  ];
 }
 
 /// A run of rowids that is not consecutive inside one session's slice.

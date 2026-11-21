@@ -89,25 +89,37 @@ final class _TestedModule implements tests.TestedModule {
     // 1. Preload the config tree and the workspace's `.tina` from the
     //    preopens: everything the synchronous assembly boot reads.
     final preopens = WasmPreopens(_imports.filesystemPreopens.getDirectories());
+    final workspace = preopens.workspaceOnly;
+    final configRoot = preopens.configRoot;
+    final configPath = '$configRoot/config';
+    final storeSpec = environment['TINA_ENGINE_STORE'];
     final appIo = await PreloadedAppIo.load(
       preopens,
       _imports.filesystemTypes,
-      roots: const ['config', '.tina'],
-      environment: environment,
-      home: 'config',
+      roots: [configRoot, '.tina'],
+      environment: {...environment, 'HOME': configRoot},
+      home: configRoot,
     );
     injectedAppIo = appIo;
+    final backend = PreloadedSettingsBackend(
+      appIo, globalPath: configPath, workspacePath: '.tina/config',
+    );
 
     // 2. The portable tools plugin over the WASI filesystem, with the
     //    asking boundary: preopen attribution answers containment, the
     //    config preopen and the workspace `.tina` are protected, and the
-    //    mode comes from the host (yolo unless TINA_ENGINE_YOLO=0).
+    //    host opts in to yolo via TINA_ENGINE_YOLO=1.
     injectedToolsPluginFactory = (wiring) => PortableToolsPlugin(
-      fileSystem: WasiToolFileSystem(preopens, _imports.filesystemTypes),
+      fileSystem: WasiToolFileSystem(workspace, _imports.filesystemTypes),
       workspaceRoot: wiring.workspaceRoot,
       mode: wiring.mode,
-      protectedPaths: wiring.protectedPaths,
-      isWithinWorkspace: (path) => preopens.guestRootOf(path) == '.',
+      protectedPaths: [
+        wiring.tinaDirPath,
+        ...WasmPreopens.protectedWorkspacePaths(environment),
+        ...wiring.protectedPaths.where((path) => path != configPath),
+        if (storeSpec != null && workspace.guestRootOf(storeSpec) == '.') storeSpec,
+      ],
+      isWithinWorkspace: (path) => workspace.guestRootOf(path) == '.',
     );
 
     // 3. The provider over `tina:http`, credentials from the host-set
@@ -115,8 +127,7 @@ final class _TestedModule implements tests.TestedModule {
     final http = _imports.httpClient;
     final envPort = WasmEnvironmentPort(_imports.cliEnvironment);
     LlmProvider provider(String model) {
-      final base =
-          environment['TINA_LLM_ENDPOINT'] ?? 'https://api.z.ai/api/anthropic';
+      final base = wasmProviderEndpoint(backend.globalDocument(), environment);
       return AnthropicProvider(
         model: model,
         endpoint: WasmHttpEndpoint(endpoint: base, client: http),
@@ -126,21 +137,14 @@ final class _TestedModule implements tests.TestedModule {
 
     // 4. The assembly: same code path as `tina --pipes`, with the wasm
     // registry, the preloaded backend, and the pipes protocol. Yolo is
-    // the host's call (TINA_ENGINE_YOLO=0 boots in ask mode so approval
-    // asks reach the client); persistence is too (TINA_ENGINE_STORE +
+    // the host's opt-in; approval asks otherwise reach the client.
+    // Persistence is controlled by TINA_ENGINE_STORE and
     // a config enabling tina/persistence; TINA_ENGINE_RESUME seeds a
     // stored session). No credentials either way.
-    final backend = PreloadedSettingsBackend(
-      appIo,
-      globalPath: 'config/config',
-      workspacePath: '.tina/config',
-    );
-
     // The persistence store, when the host asks for one: load the JSONL
     // file from the preopens before the synchronous boot, and wire the
     // seam so the assembly's open/resume calls reach it instead of the
     // platform default (none under wasm).
-    final storeSpec = environment['TINA_ENGINE_STORE'];
     final resumeId = environment['TINA_ENGINE_RESUME'];
     // The extension is opt-in and its artifact is selected by the host.
     // The guest receives no path or authority beyond this registered adapter.
@@ -178,11 +182,11 @@ final class _TestedModule implements tests.TestedModule {
     final assembly = SessionAssembly.start(
       providerFactory: provider,
       options: AssemblyOptions(
-        configPath: 'config/config',
+        configPath: configPath,
         workingDirectory: '.',
         storePath: storeSpec,
         sessionId: resumeId,
-        yolo: environment['TINA_ENGINE_YOLO'] != '0',
+        yolo: environment['TINA_ENGINE_YOLO'] == '1',
         interactive: false,
         osSandbox: false,
         approvalChannel: 'tina/approvals-stream',

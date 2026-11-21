@@ -33,6 +33,14 @@ installs to `${XDG_DATA_HOME:-~/.local/share}/tina-wasm-host` with a
 variant can be reinstalled without disturbing the other), and reads the same
 `~/.tina` config — the first-launch settings guidance below applies to it too.
 
+The Wasm runner reads a private config snapshot and starts in approval mode.
+Provider tokens reach the guest through a restricted environment. `tina
+--engine wasm` uses a JSONL session log at `.tina/sessions.jsonl` by default.
+An external `--store` grants access to that file alone and requires a
+filesystem that supports hard links. Workspace writes follow the approval
+mode. The Wasm settings panel edits an in-memory snapshot. Use the native
+settings editor for durable configuration changes.
+
 The first launch without config opens settings. Choose a provider and model,
 supply credentials in settings or the provider's environment variable, then
 close settings and launch Tina. Confirmed edits save immediately.

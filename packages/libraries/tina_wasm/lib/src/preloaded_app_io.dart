@@ -24,23 +24,17 @@
 /// inside the sandbox, exactly where the brief's config preopen points.
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:toml/toml.dart' as toml;
-
 import 'package:tina/src/app_io.dart';
-import 'package:tina/src/config_document.dart' show ConfigDocument;
-import 'package:tina/src/settings_catalog.dart' show mergeSettingLayers;
-import 'package:tina/src/settings_surface.dart' show ConfigSettingsSurface;
-import 'package:tina/src/settings_stack.dart' show GlobalDocumentSource;
-import 'package:tina_settings/tina_settings.dart';
-import 'package:tina_tools/portable_tools.dart'
-    show CommandApprovalScope, ToolCommandApprovals;
 import 'package:wasm_components/wasm_components.dart' as cm;
 
 import 'package:tina_wasm/src/components/wasi_filesystem.dart' as fs;
 import 'package:tina_wasm/src/preload_budget.dart';
 import 'package:tina_wasm/src/wasm_file_system_port.dart';
+
+export 'preloaded_settings_backend.dart';
 
 /// One preloaded [AppIo].
 final class PreloadedAppIo implements AppIo {
@@ -243,9 +237,13 @@ final class PreloadedAppIo implements AppIo {
                   await for (final chunk in reader) {
                     bytes.add(chunk);
                   }
-                  await readDone;
+                  final readStatus = await readDone;
                   final data = bytes.takeBytes();
                   value.drop();
+                  if (readStatus is cm.ErrorResult) {
+                    skipped.add(guest);
+                    continue;
+                  }
                   // The file may have grown between stat and read; the
                   // read-time size is authoritative for the caps.
                   if (!budget.admitReadBytes(data.length,
@@ -263,7 +261,7 @@ final class PreloadedAppIo implements AppIo {
                   }
                   // Config and permissions are text; anything that is
                   // not decodes with replacement, never blocks boot.
-                  files[guest] = String.fromCharCodes(data);
+                  files[guest] = utf8.decode(data, allowMalformed: true);
                 case cm.ErrorResult():
                   break;
               }
@@ -274,136 +272,27 @@ final class PreloadedAppIo implements AppIo {
     for (final root in roots) {
       final resolved = preopens.resolve(root);
       if (resolved == null) continue;
-      await walk(root == '.' ? '' : root, resolved.$1);
+      final (descriptor, relative) = resolved;
+      final prefix = root == '.' ? '' : root;
+      if (relative == '.') {
+        await walk(prefix, descriptor);
+        continue;
+      }
+      final opened = await filesystem.methodDescriptorOpenAt(
+        self: descriptor.borrow(), path: relative,
+        pathFlags: fs.TypesPathFlags(0),
+        openFlags: fs.TypesOpenFlags(0).withDirectory(true),
+        flags: fs.TypesDescriptorFlags(0).withRead(true),
+      );
+      if (opened case cm.OkResult(:final value)) {
+        try {
+          await walk(prefix, value);
+        } finally {
+          value.drop();
+        }
+      }
     }
     return PreloadedAppIo._(
         files, directories, skipped, budget.exhausted, home, environment);
   }
-}
-
-/// The preloaded settings backend: global and workspace documents from
-/// the snapshot, an in-memory session layer, and the shared merge.
-final class PreloadedSettingsBackend
-    implements SettingsBackend, GlobalDocumentSource, ConfigSettingsSurface {
-  PreloadedSettingsBackend(this._io,
-      {required this.globalPath, required this.workspacePath});
-
-  final PreloadedAppIo _io;
-  final String globalPath;
-  final String workspacePath;
-
-  final Map<String, Object?> _session = {};
-
-  String? _raw(String path) => _io.readTextIfExists(path);
-
-  @override
-  Map<String, Object?> read(SettingScope scope) => switch (scope) {
-        SettingScope.session => Map.of(_session),
-        SettingScope.global => _parse(globalPath),
-        SettingScope.workspace => _sameFile ? {} : _parse(workspacePath),
-      };
-
-  @override
-  void write(SettingScope scope, Map<String, Object?> values) {
-    if (scope == SettingScope.session) {
-      _session
-        ..clear()
-        ..addAll(values);
-      return;
-    }
-    // The exit-test session changes no configuration; a write lands in
-    // the snapshot so a later read sees it, which is the honest
-    // best-effort behavior under preloads.
-    _io.writeText(
-        scope == SettingScope.global ? globalPath : workspacePath,
-        values.entries.map((e) => '${e.key}=${e.value}').join('\n'));
-  }
-
-  bool get _sameFile => globalPath == workspacePath;
-
-  Map<String, Object?> _parse(String path) {
-    final raw = _raw(path);
-    if (raw == null) return <String, Object?>{};
-    try {
-      return toml.TomlDocument.parse(raw).toMap();
-    } catch (_) {
-      return <String, Object?>{};
-    }
-  }
-
-  @override
-  Map<String, dynamic> globalDocument() =>
-      Map<String, dynamic>.from(_parse(globalPath));
-
-  // ---- ConfigSettingsSurface ------------------------------------------------
-  //
-  // The preloaded backend is session-only: nothing touches the host
-  // beyond the snapshot (the stage-5 contract), so the surface members
-  // answer from memory — the permission store is empty, plugin toggles
-  // land in the session layer, and documents/drafts view the snapshot.
-
-  @override
-  ToolCommandApprovals get permissionStore => const _NoCommandApprovals();
-
-  @override
-  void setPluginInAllScopes(
-    ScopedSettings settings,
-    SettingDefinition<Object> definition,
-    bool? enabled, {
-    bool refresh = true,
-  }) {
-    final id = definition.id.endsWith('/enabled')
-        ? definition.id.substring(0, definition.id.length - '/enabled'.length)
-        : definition.id;
-    _session['$id/enabled'] = enabled;
-    if (refresh) settings.reload();
-  }
-
-  @override
-  Map<String, dynamic> effectiveDocument({
-    Map<SettingScope, Map<String, Object?>>? layers,
-  }) =>
-      mergeSettingLayers(
-        globalDocument: globalDocument(),
-        layers: layers ??
-            {
-              for (final scope in SettingScope.values) scope: read(scope),
-            },
-        definitions: const [],
-      );
-
-  @override
-  Map<String, dynamic> document(SettingScope scope) =>
-      Map<String, dynamic>.from(read(scope));
-
-  @override
-  ConfigDocument draft(
-    ScopedSettings settings,
-    SettingScope scope, {
-    void Function(Map<String, Object?>, Set<String>)? commit,
-  }) {
-    final values = Map<String, dynamic>.from(read(scope));
-    return ConfigDocument.draft(values, (_) {});
-  }
-}
-
-/// The preloaded backend's permission store: nothing is remembered, and
-/// nothing can be (approvals under wasm are session answers, not files).
-final class _NoCommandApprovals implements ToolCommandApprovals {
-  const _NoCommandApprovals();
-
-  @override
-  List<Map<String, Object?>> get entries => const [];
-
-  @override
-  bool coversAccess(String capability, String target) => false;
-
-  @override
-  void revoke(String id, {String? directory}) {}
-
-  @override
-  Map<String, Object?> settings(CommandApprovalScope scope) => const {};
-
-  @override
-  String? get filePath => null;
 }

@@ -35,21 +35,11 @@ final class WasiSessionStore implements SessionStoreApi {
     WasmPreopens preopens,
     fs.Types fsTypes,
   ) async {
-    final lines = <Map<String, Object?>>[];
     final file = WasiToolFile(preopens, fsTypes);
-    if (await file.fileExists(path)) {
-      final bytes = await file.readFileBytes(path);
-      for (final line in utf8.decode(bytes).split('\n')) {
-        if (line.trim().isEmpty) continue;
-        // The flush strips the in-memory ordering key; file order is the
-        // truth, so keys are reassigned at load.
-        lines.add({
-          '_key': lines.length + 1,
-          ...jsonDecode(line) as Map<String, Object?>,
-        });
-      }
-    }
-    return WasiSessionStore._(path, preopens, fsTypes, lines);
+    final rows = await file.fileExists(path)
+        ? decodeWasmSessionLog(utf8.decode(await file.readFileBytes(path)))
+        : <Map<String, Object?>>[];
+    return WasiSessionStore._(path, preopens, fsTypes, rows);
   }
 
   @override
@@ -158,51 +148,8 @@ final class WasiSessionStore implements SessionStoreApi {
   @override
   List<StoredSession> list() {
     _checkOpen();
-    final order = <String>[];
-    final markers = <String, Map<String, Object?>>{};
-    final counts = <String, int>{};
-    final lastKeys = <String, int>{};
-    var lastModel = <String, String?>{};
-    for (final line in _lines) {
-      final id = line['id'] as String?;
-      if (id == null) continue;
-      if (line['t'] == 'marker' && !markers.containsKey(id)) {
-        markers[id] = line;
-        order.add(id);
-      }
-      lastKeys[id] = (line['_key'] as num?)?.toInt() ?? lastKeys[id] ?? 0;
-      counts[id] = (counts[id] ?? 0) + (line['t'] == 'entry' ? 1 : 0);
-      if (line['model'] is String) lastModel[id] = line['model'] as String;
-    }
-    return [
-      for (final id in order)
-        StoredSession(
-          id: id,
-          registryKey: (markers[id]!['_key'] as num).toInt(),
-          lastActivityKey: lastKeys[id],
-          entries: counts[id] ?? 0,
-          title: markers[id]!['title'] as String?,
-          model: lastModel[id] ?? markers[id]!['model'] as String?,
-          details: _detailsOf(markers[id]!['details']),
-          lastSavedAt: _dateOf(lastKeys[id], id),
-        ),
-    ];
+    return listWasmSessions(_lines);
   }
-
-  DateTime? _dateOf(int? key, String id) {
-    for (final line in _lines.reversed) {
-      if (line['id'] == id &&
-          (line['_key'] as num?)?.toInt() == key &&
-          line['at'] is String) {
-        return DateTime.tryParse(line['at'] as String);
-      }
-    }
-    return null;
-  }
-
-  SessionDetails? _detailsOf(Object? json) => json is Map<String, Object?>
-      ? SessionDetails.fromJson(Map<String, Object?>.from(json))
-      : null;
 
   @override
   List<SessionEntry> readEntries(String sessionId) {
@@ -225,12 +172,10 @@ final class WasiSessionStore implements SessionStoreApi {
       if (line['t'] != 'entry' || line['id'] != sessionId) continue;
       final key = (line['_key'] as num).toInt();
       final seq = (line['seq'] as num).toInt();
-      if (previousKey != null && key != previousKey + 1) {
-        gaps.add(StoreGap(previousKey, key));
+      if (seq != expectedSeq) {
+        gaps.add(StoreGap(previousKey ?? key - 1, key));
       }
-      if (seq != expectedSeq++) {
-        gaps.add(StoreGap(key - 1, key));
-      }
+      expectedSeq = seq + 1;
       previousKey = key;
     }
     return gaps;
@@ -315,7 +260,7 @@ final class WasiToolFile {
     final (root, relative) = resolved;
     final opened = await _fs.methodDescriptorOpenAt(
       self: root.borrow(),
-      pathFlags: fs.TypesPathFlags(0).withSymlinkFollow(true),
+      pathFlags: fs.TypesPathFlags(0),
       path: relative,
       openFlags: fs.TypesOpenFlags(0).withCreate(create).withTruncate(truncate),
       flags: fs.TypesDescriptorFlags(0).withRead(read).withWrite(write),
@@ -347,7 +292,7 @@ final class WasiToolFile {
       await for (final chunk in stream) {
         chunks.addAll(chunk);
       }
-      await done;
+      _checkIo(await done, 'read', path);
       return chunks;
     } finally {
       handle.drop();
@@ -362,9 +307,15 @@ final class WasiToolFile {
         data: Stream.value(Uint8List.fromList(bytes)),
         offset: 0,
       );
-      await done;
+      _checkIo(await done, 'write', path);
     } finally {
       handle.drop();
+    }
+  }
+
+  void _checkIo(cm.Result<void, fs.TypesErrorCode> result, String operation, String path) {
+    if (result case cm.ErrorResult(:final value)) {
+      throw SessionStoreException('$operation $path failed', value.toString());
     }
   }
 

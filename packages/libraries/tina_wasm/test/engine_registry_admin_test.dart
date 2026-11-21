@@ -4,6 +4,7 @@
 /// tools and the prompt section, and the remote-prompt extension stays
 /// exactly as gated as before — including that an idle admin lease book
 /// never touches the host bridge.
+@Tags(['wasm-runtime'])
 library;
 
 import 'package:tina_core/tina_core.dart' show Terminal;

@@ -15,21 +15,18 @@ def validate(run, tag_sha, jobs, tag):
             or run['event'] != 'push' or run['path'] != '.github/workflows/release.yml'):
         raise ValueError('Recovery must use the original release run for this exact tag')
     required = {'build (macos-arm64)', 'build (linux-x64)', 'build (linux-arm64)'}
-    # The wasm-runner matrix exists only on post-wasm-runner workflow
-    # runs. A recovery of a run that HAD those jobs must not quietly
-    # republish a release without its wasm-host tarballs — the release
-    # job's recovery arm bypasses the needs.* result checks entirely, so
-    # this is the only gate. Required-if-present, so recovering a
-    # pre-wasm-runner tag (no such jobs in the run) still validates.
+    # Require Wasm builds and verification on releases whose workflows
+    # included those jobs. Recovery bypasses the workflow dependency gate.
     names = {job['name'] for job in jobs}
     required |= {
         name for name in
-        ('build wasm runner (macos-arm64)', 'build wasm runner (linux-x64)')
+        ('build wasm runner (macos-arm64)', 'build wasm runner (linux-x64)',
+         'verify wasm bundle (macos-arm64)', 'verify wasm bundle (linux-x64)')
         if name in names
     }
     successful = {job['name'] for job in jobs if job['conclusion'] == 'success'}
     if not required.issubset(successful):
-        raise ValueError('All three release build jobs must have passed')
+        raise ValueError('All release build and bundle verification jobs must have passed')
 
 
 if __name__ == '__main__':

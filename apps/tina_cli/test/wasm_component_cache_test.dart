@@ -88,6 +88,7 @@ exit 1
           configPath: config.path,
           storePath: '${home.path}/sessions.db',
           yolo: true,
+          prepareCache: () => prepareWasmComponentCache(environment: {'HOME': home.path}),
         );
 
     // The first launch dies on the flag; the guard relaunches without
@@ -133,7 +134,7 @@ exit 1
             '--component-cache=/home/u/.cache/tina/wasm-components'));
     // And it does not disturb the surrounding convention.
     expect(withCache.first, 'tina-wasm-host');
-    expect(withCache.contains('--preopen=.=/ws'), isTrue,
-        reason: 'the preopen convention is unchanged around the new flag');
+    expect(withCache, containsAll(['--headless', '--config-file=/cfg/config']));
+    expect(withCache, isNot(contains(startsWith('--preopen='))));
   });
 }

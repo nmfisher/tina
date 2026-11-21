@@ -396,6 +396,9 @@ jobs:
       - name: analyze (tina_wasm)
         working-directory: packages/libraries/tina_wasm
         run: dart analyze
+      - name: test (tina_wasm)
+        working-directory: packages/libraries/tina_wasm
+        run: dart test -j 4 --exclude-tags wasm-runtime
 
   fuzzy_ranker:
     needs: changes

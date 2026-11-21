@@ -4,14 +4,19 @@ import 'package:tina_tui/tina_tui.dart' show SessionChoice;
 
 /// Main sessions in local activity order. Reading absent history never creates
 /// a store, and child sessions cannot accidentally become the next CLI session.
-List<StoredSession> resumableSessions(String path) {
+List<StoredSession> resumableSessions(String path, {bool wasm = false}) {
   if (!File(path).existsSync()) {
     throw SessionStoreException('no session store at $path');
   }
+  List<StoredSession> mainSessions(List<StoredSession> all) =>
+      all.where((s) => (s.details?.depth ?? 0) == 0).toList()
+        ..sort((a, b) => b.lastActivityKey.compareTo(a.lastActivityKey));
+  if (wasm) {
+    return mainSessions(listWasmSessions(decodeWasmSessionLog(File(path).readAsStringSync())));
+  }
   final store = SessionStore.open(path);
   try {
-    return store.list().where((s) => (s.details?.depth ?? 0) == 0).toList()
-      ..sort((a, b) => b.lastActivityKey.compareTo(a.lastActivityKey));
+    return mainSessions(store.list());
   } finally {
     store.close();
   }
