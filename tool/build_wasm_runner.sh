@@ -170,12 +170,13 @@ GENERATED_OVERRIDES=0
 if [ ! -f "$OVERRIDES" ]; then
   echo "=== writing $OVERRIDES (gitignored; release build pins)"
   cat > "$OVERRIDES" <<EOF
-# Use the paired runner's component runtime. The compile driver keeps
-# pubspec.yaml's separate pin for compatibility with stable Dart.
+# The Dart 3.14 release compiler and runtime must use the paired checkout.
 dependency_overrides:
   hooks: 2.2.0
   wasm_components:
     path: $WASM_DART/pkg/wasm_components
+  wasm_tools:
+    path: $WASM_DART/pkg/wasm_tools
 EOF
   GENERATED_OVERRIDES=1
 fi

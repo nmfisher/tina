@@ -28,13 +28,22 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:tina/src/app_io.dart';
+import 'package:tina/src/config_document.dart' show ConfigDocument;
+import 'package:tina/src/settings_catalog.dart' show mergeSettingLayers;
+import 'package:tina/src/settings_stack.dart' show GlobalDocumentSource;
+import 'package:tina/src/settings_surface.dart'
+    show CatalogSettingsBackend, ConfigSettingsSurface;
+import 'package:tina_settings/tina_settings.dart';
+import 'package:tina_tools/portable_tools.dart'
+    show CommandApprovalScope, ToolCommandApprovals;
+import 'package:toml/toml.dart' as toml;
 import 'package:wasm_components/wasm_components.dart' as cm;
 
 import 'package:tina_wasm/src/components/wasi_filesystem.dart' as fs;
 import 'package:tina_wasm/src/preload_budget.dart';
 import 'package:tina_wasm/src/wasm_file_system_port.dart';
 
-export 'preloaded_settings_backend.dart';
+part 'preloaded_settings_backend.dart';
 
 /// One preloaded [AppIo].
 final class PreloadedAppIo implements AppIo {

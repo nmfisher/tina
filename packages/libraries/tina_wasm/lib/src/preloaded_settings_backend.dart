@@ -1,16 +1,4 @@
-import 'dart:convert';
-
-import 'package:toml/toml.dart' as toml;
-
-import 'package:tina/src/app_io.dart';
-import 'package:tina/src/config_document.dart' show ConfigDocument;
-import 'package:tina/src/settings_catalog.dart' show mergeSettingLayers;
-import 'package:tina/src/settings_surface.dart'
-    show CatalogSettingsBackend, ConfigSettingsSurface;
-import 'package:tina/src/settings_stack.dart' show GlobalDocumentSource;
-import 'package:tina_settings/tina_settings.dart';
-import 'package:tina_tools/portable_tools.dart'
-    show CommandApprovalScope, ToolCommandApprovals;
+part of 'preloaded_app_io.dart';
 
 String wasmProviderEndpoint(
   Map<String, dynamic> globalConfig,

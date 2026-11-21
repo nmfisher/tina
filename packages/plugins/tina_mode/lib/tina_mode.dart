@@ -426,7 +426,12 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       return ApprovalDecision.deny;
     }
     if (resolution.route == AuthorizationRoute.allow) {
-      if (ruleGranted) _noticeMcpRule(mcpRule);
+      if (ruleGranted) {
+        final server = context['mcp_server'];
+        final tool = context['mcp_tool'];
+        _noticeMcpRule(mcpRule,
+            label: server is String && tool is String ? '$server/$tool' : mcpRule);
+      }
       return ApprovalDecision.allow;
     }
     final call = _call;
@@ -661,7 +666,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   /// One notice per turn per rule: the first grant-answered MCP call in a
   /// turn says which rule allowed it, later calls stay quiet.
-  void _noticeMcpRule(String rule) {
+  void _noticeMcpRule(String rule, {required String label}) {
     final turnId = _turn?.input.id;
     if (turnId == null) return;
     if (_mcpNoticeTurn != turnId) {
@@ -669,7 +674,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       _mcpRulesNoticed.clear();
     }
     if (!_mcpRulesNoticed.add(rule)) return;
-    terminal?.writeln('use MCP tool allowed by rule $rule');
+    terminal?.writeln('use MCP tool allowed by rule $label');
   }
 
   List<InputRecordedEntry> _humanInputs() {

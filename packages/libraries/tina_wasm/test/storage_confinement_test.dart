@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 import 'package:tina/src/app_io.dart';
 import 'package:tina_persistence/session_store_api.dart';
 import 'package:tina_settings/tina_settings.dart';
-import 'package:tina_wasm/src/preloaded_settings_backend.dart';
+import 'package:tina_wasm/src/preloaded_app_io.dart';
 import 'package:tina_wasm/src/wasm_preopen_paths.dart';
 
 void main() {

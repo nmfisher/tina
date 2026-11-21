@@ -390,6 +390,11 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
+      - name: Install native console dependencies for VM tests
+        run: |
+          sudo python3 tool/ci/use_ubuntu_mirror.py
+          sudo apt-get update
+          sudo apt-get install -y libnotcurses-dev libtinfo-dev libunistring-dev libdeflate-dev
       - name: pub get (tina_wasm)
         working-directory: packages/libraries/tina_wasm
         run: dart pub get
