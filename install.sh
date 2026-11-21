@@ -263,6 +263,9 @@ if [ -e "$BUNDLE_DIR" ] || [ -L "$BUNDLE_DIR" ]; then
 fi
 if [ -e "$BUNDLE_DIR.old" ] || [ -L "$BUNDLE_DIR.old" ]; then
   bundle_ok "$BUNDLE_DIR.old" || die "$BUNDLE_DIR.old is not an exclusively-tina bundle; leaving it untouched"
+  if [ ! -e "$BUNDLE_DIR" ] && [ ! -L "$BUNDLE_DIR" ]; then
+    mv "$BUNDLE_DIR.old" "$BUNDLE_DIR" || die "could not restore $BUNDLE_DIR.old"
+  fi
 fi
 
 tar -xzf "$TMP/$ASSET" -C "$TMP"

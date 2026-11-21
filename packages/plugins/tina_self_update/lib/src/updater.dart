@@ -9,7 +9,7 @@ import 'release_checker.dart';
 final _log = Logger('tina.self_update');
 
 /// How an [installRelease] attempt ended. Callers map these to user-facing
-/// messages; only [success] changed anything on disk.
+/// messages; [success] means the new bundle is live.
 enum UpdateResult {
   /// New bundle swapped into place — the user should restart tina.
   success,
@@ -22,8 +22,8 @@ enum UpdateResult {
   /// bundle install, unwritable location) — print manual instructions.
   manualRequired,
 
-  /// Download/verify/extract failed midway; nothing changed (any half-swap
-  /// was rolled back). [UpdateError.message] carries the reason.
+  /// The update failed. [UpdateError.message] carries the reason and, if
+  /// restoring the previous installation also failed, its backup path.
   failed,
 }
 
@@ -121,16 +121,19 @@ String? bundleRootCandidateForCurrentProcess({String? resolvedExecutable}) {
   try {
     // The installed launcher lives in a shared bin directory. Resolve it to
     // the private bundle before deriving the root or checking ownership.
-    exe = File(
-      resolvedExecutable ?? Platform.resolvedExecutable,
-    ).resolveSymbolicLinksSync();
+    exe = File(resolvedExecutable ?? Platform.resolvedExecutable)
+        .resolveSymbolicLinksSync();
   } on FileSystemException {
-    return null;
+    // A still-running process can retry an update after the live bundle
+    // has been moved aside. A missing path is only a candidate if the
+    // updater's owned backup is present.
+    exe = File(resolvedExecutable ?? Platform.resolvedExecutable).absolute.path;
+    final root = p.dirname(p.dirname(exe));
+    if (!isOwnedBundleRoot('$root.old')) return null;
   }
   if (p.basename(exe) != 'tina') return null;
   final binDir = p.dirname(exe);
   if (p.basename(binDir) != 'bin') return null;
-  if (!File(p.join(binDir, 'tina')).existsSync()) return null;
   return p.dirname(binDir);
 }
 
@@ -237,9 +240,8 @@ class PreparedUpdate {
   final Directory workDir;
 
   /// Swap the new bundle into place over [bundleRoot] (old renamed to
-  /// `<root>.old`, removed on a later launch). Only [UpdateResult.success]
-  /// changed anything on disk; a failed swap is noticed and returns
-  /// [UpdateResult.failed] after any rollback.
+  /// `<root>.old`, removed on a later launch). A failed swap is noticed
+  /// and returns [UpdateResult.failed] after attempting rollback.
   Future<UpdateResult> install({
     required void Function(String line) notice,
   }) async {
@@ -297,7 +299,17 @@ Future<UpdatePrepareOutcome> prepareUpdate(
   final candidate =
       bundleRootOverride ?? bundleRootCandidateForCurrentProcess();
   if (candidate == null) return const UpdatePrepareManualRequired();
-  if (!isOwnedBundleRoot(candidate)) {
+  final bundleRoot = Directory(candidate).absolute.path;
+  final initialRoot = Directory(bundleRoot);
+  if (_isMissing(bundleRoot) && isOwnedBundleRoot('$bundleRoot.old')) {
+    try {
+      _withUpdateLock(initialRoot, () => _restoreMissingBundle(initialRoot));
+    } catch (error) {
+      notice('update failed: $error');
+      return const UpdatePrepareFailure();
+    }
+  }
+  if (!isOwnedBundleRoot(bundleRoot)) {
     notice(
       '$candidate is not an exclusively-tina directory (missing '
       '$bundleMarkerName, or it holds files that aren\'t tina\'s) — the '
@@ -306,8 +318,6 @@ Future<UpdatePrepareOutcome> prepareUpdate(
     );
     return const UpdatePrepareManualRequired();
   }
-  final bundleRoot = candidate;
-
   final ownsClient = client == null;
   final http_ = client ?? http.Client();
   Directory? scratch;
@@ -315,7 +325,7 @@ Future<UpdatePrepareOutcome> prepareUpdate(
   try {
     // 1. Download (or let the test supplier provide) the archive.
     final workDir = workDirOverride == null
-        ? await Directory.systemTemp.createTemp('tina-update-')
+        ? await initialRoot.parent.createTemp('.tina-update-')
         : await Directory(workDirOverride).create(recursive: true);
     scratch = workDir;
     final archive = await (archiveSupplier ??
@@ -439,46 +449,45 @@ Future<UpdateResult> _swapBundle(
   Directory bundleRoot,
   void Function(String) notice,
 ) async {
-  final old = Directory('${bundleRoot.path}.old');
-  // Belt and braces: the caller checked too, but re-verify at the moment of
-  // the rename — a root that stopped looking exclusively tina's between
-  // check and swap aborts here instead of being moved aside.
-  if (!isOwnedBundleRoot(bundleRoot.path)) {
-    throw UpdateError(
-      '${bundleRoot.path} is not an exclusively-tina directory; refusing '
-      'to swap it',
-    );
-  }
-  try {
-    if (old.existsSync()) {
-      // A `<root>.old` left by anything else (another tool's backup
-      // convention, a user's mv) is never ours to delete.
-      if (!isOwnedBundleRoot(old.path)) {
+  _withUpdateLock(bundleRoot, () {
+    _restoreMissingBundle(bundleRoot);
+    if (!isOwnedBundleRoot(bundleRoot.path)) {
+      throw UpdateError('${bundleRoot.path} is not an exclusively-tina bundle');
+    }
+    if (!isOwnedBundleRoot(newBundle.path)) {
+      throw UpdateError('the staged update bundle is missing or invalid');
+    }
+    final old = Directory('${bundleRoot.path}.old');
+    try {
+      if (!_isMissing(old.path)) {
+        if (!isOwnedBundleRoot(old.path)) {
+          throw UpdateError(
+              'a foreign ${old.path} exists; refusing to delete it — remove '
+              'it by hand, then update again');
+        }
+        old.deleteSync(recursive: true);
+      }
+      bundleRoot.renameSync(old.path);
+    } on FileSystemException catch (error) {
+      throw UpdateError('cannot move the current installation aside: $error');
+    }
+    try {
+      newBundle.renameSync(bundleRoot.path);
+    } on FileSystemException catch (installError) {
+      try {
+        if (!_isMissing(bundleRoot.path)) {
+          throw UpdateError('the installation path is occupied');
+        }
+        _restoreMissingBundle(bundleRoot);
+      } catch (rollbackError) {
         throw UpdateError(
-          'a foreign ${old.path} exists; refusing to delete it — remove '
-          'it by hand, then update again',
+          'install failed: $installError. Restoring the previous installation '
+          'also failed: $rollbackError. Backup path: ${old.path}',
         );
       }
-      old.deleteSync(recursive: true);
+      throw UpdateError('install failed; previous installation restored: $installError');
     }
-    bundleRoot.renameSync(old.path);
-  } on UpdateError {
-    rethrow;
-  } catch (e) {
-    throw UpdateError(
-      'cannot move the current installation aside (read-only location?): $e',
-    );
-  }
-  try {
-    _moveDir(newBundle, bundleRoot);
-  } catch (e) {
-    // Roll back so the install is no worse than before.
-    try {
-      if (bundleRoot.existsSync()) bundleRoot.deleteSync(recursive: true);
-      old.renameSync(bundleRoot.path);
-    } catch (_) {}
-    throw UpdateError('moving the new bundle into place failed: $e');
-  }
+  });
   notice(
     'installed ${p.basename(bundleRoot.path)} update — '
     'restart tina to finish',
@@ -486,28 +495,41 @@ Future<UpdateResult> _swapBundle(
   return UpdateResult.success;
 }
 
-/// `Directory.rename` can't cross devices (the temp scratch dir may be on a
-/// different volume than the install); fall back to a recursive copy + delete.
-void _moveDir(Directory from, Directory to) {
+bool _isMissing(String path) =>
+    FileSystemEntity.typeSync(path, followLinks: false) ==
+    FileSystemEntityType.notFound;
+
+void _restoreMissingBundle(Directory root) {
+  if (!_isMissing(root.path)) return;
+  final backup = Directory('${root.path}.old');
+  if (!isOwnedBundleRoot(backup.path)) {
+    throw UpdateError('no recoverable backup at ${backup.path}');
+  }
   try {
-    from.renameSync(to.path);
-  } on FileSystemException {
-    _copyDir(from, to);
-    from.deleteSync(recursive: true);
+    backup.renameSync(root.path);
+  } on FileSystemException catch (error) {
+    throw UpdateError('cannot restore ${backup.path} to ${root.path}: $error');
   }
 }
 
-void _copyDir(Directory from, Directory to) {
-  to.createSync(recursive: true);
-  for (final entity in from.listSync()) {
-    final dest = p.join(to.path, p.basename(entity.path));
-    if (entity is Directory) {
-      _copyDir(entity, Directory(dest));
-    } else if (entity is File) {
-      entity.copySync(dest);
-    } else if (entity is Link) {
-      Link(dest).createSync(entity.targetSync(), recursive: true);
+void _withUpdateLock(Directory root, void Function() action) {
+  final lock = File('${root.path}.update-lock');
+  final type = FileSystemEntity.typeSync(lock.path, followLinks: false);
+  if (type != FileSystemEntityType.notFound &&
+      type != FileSystemEntityType.file) {
+    throw UpdateError('invalid update lock at ${lock.path}');
+  }
+  // Keep the lock outside either bundle and keep the inode between updates.
+  final handle = lock.openSync(mode: FileMode.append);
+  try {
+    try {
+      handle.lockSync(FileLock.exclusive);
+    } on FileSystemException {
+      throw UpdateError('cannot lock ${lock.path}; another update may be running');
     }
+    action();
+  } finally {
+    handle.closeSync();
   }
 }
 
@@ -544,7 +566,7 @@ void cleanupStaleOldBundle({String? bundleRootOverride}) {
     final root = bundleRootOverride ?? bundleRootForCurrentProcess();
     if (root == null) return;
     final old = Directory('$root.old');
-    if (!old.existsSync()) return;
+    if (!isOwnedBundleRoot(root) || !old.existsSync()) return;
     // Sweep only what an earlier tina update left behind. A `<root>.old`
     // created by anything else — another tool's backup convention, a user's
     // own mv — is never ours to delete.
@@ -552,7 +574,11 @@ void cleanupStaleOldBundle({String? bundleRootOverride}) {
       _log.fine('leaving ${old.path} alone: not a tina bundle');
       return;
     }
-    old.deleteSync(recursive: true);
+    _withUpdateLock(Directory(root), () {
+      if (isOwnedBundleRoot(root) && isOwnedBundleRoot(old.path)) {
+        old.deleteSync(recursive: true);
+      }
+    });
   } catch (e) {
     _log.fine('stale .old bundle cleanup failed', e);
   }

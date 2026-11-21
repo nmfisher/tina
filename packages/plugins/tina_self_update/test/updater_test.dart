@@ -202,6 +202,58 @@ void main() {
   });
 
   group('installRelease', () {
+    test('stages beside the installation and restores an interrupted swap', () async {
+      final installed = buildInstalledBundle('old');
+      final backup = installed.renameSync('${installed.path}.old');
+      final fixture = buildArchive('new');
+
+      final result = await prepareUpdate(
+        releaseFor('asset', checksumUrl: 'checksum'),
+        client: _UrlClient({'checksum': fixture.checksum.readAsStringSync()}),
+        notice: (_) {},
+        bundleRootOverride: installed.path,
+        archiveSupplier: () async => fixture.archive,
+      );
+      expect(result, isA<UpdatePrepareReady>());
+      final prepared = (result as UpdatePrepareReady).update;
+      addTearDown(prepared.discard);
+      expect(prepared.workDir.parent.path, installed.parent.path);
+      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(), 'old');
+      expect(backup.existsSync(), isFalse);
+    }, skip: hasTar ? false : 'tar is required');
+
+    test('a cross-device rename failure restores the previous installation',
+        () async {
+      final installed = buildInstalledBundle('old');
+      final candidate = Platform.isLinux ? Directory('/dev/shm') : Directory.current;
+      String device(Directory directory) => (Process.runSync('stat', [
+        if (Platform.isMacOS) ...['-f', '%d'] else ...['-c', '%d'],
+        directory.path,
+      ]).stdout as String).trim();
+      if (!candidate.existsSync() || device(candidate) == device(installed)) {
+        markTestSkipped('requires two filesystems');
+        return;
+      }
+      final stage = candidate.createTempSync('.tina-update-test-');
+      addTearDown(() {
+        if (stage.existsSync()) stage.deleteSync(recursive: true);
+      });
+      final fixture = buildArchive('new');
+      final lines = <String>[];
+      final result = await installRelease(
+        releaseFor('asset', checksumUrl: 'checksum'),
+        client: _UrlClient({'checksum': fixture.checksum.readAsStringSync()}),
+        notice: lines.add,
+        bundleRootOverride: installed.path,
+        workDirOverride: stage.path,
+        archiveSupplier: () async => fixture.archive,
+      );
+      expect(result, UpdateResult.failed);
+      expect(lines.join('\n'), contains('previous installation restored'));
+      expect(File(p.join(installed.path, 'bin', 'tina')).readAsStringSync(), 'old');
+      expect(Directory('${installed.path}.old').existsSync(), isFalse);
+    }, skip: hasTar ? false : 'tar is required');
+
     test('swaps the bundle and leaves <root>.old behind', () async {
       final installed = buildInstalledBundle('old');
       final fixture = buildArchive('new-tina');
