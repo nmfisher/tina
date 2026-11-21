@@ -375,10 +375,7 @@ final class SandboxedProcessRunner
             confined &&
             !writesRequested &&
             !workspaceAllowed() &&
-            access.write.isEmpty &&
-            !(plan?.pathGrants?.grants
-                    .any((g) => g.write && g.covers(g.path, write: true)) ??
-                false);
+            access.write.isEmpty;
     if (readOnly && (!confined || outsideSandbox)) {
       return const CommandRefused(
           'Read-only execution requires an available OS sandbox.');
@@ -403,7 +400,8 @@ final class SandboxedProcessRunner
         sandboxHomeRoot:
             confined && !outsideSandbox ? plan?.home?.stateRoot : null,
         searchPath: request.environment?['PATH'] ?? executableSearchPath);
-    bool prefixGranted(String capability) {
+    bool remembered(String capability) {
+      if (!confined || outsideSandbox) return false;
       final covered =
           (approvalStore?.coversPrefixes(prefixPlan, capability) ?? false) ||
               (approvalStore?.coversExact(exactPlan, capability) ?? false);
@@ -413,7 +411,7 @@ final class SandboxedProcessRunner
 
     final requirements = <AccessRequirement>[
       AccessRequirement(AccessCapability.execute, executable,
-          granted: prefixGranted('execute'),
+          granted: remembered('execute'),
           workspace: path.isAbsolute(executable) &&
               inside(executable) &&
               !outsideSandbox),
@@ -422,10 +420,9 @@ final class SandboxedProcessRunner
             workspace: true, granted: workspaceAllowed()),
       if (network)
         AccessRequirement(AccessCapability.network, executable,
-            granted: prefixGranted('network')),
+            granted: remembered('network')),
       if (outsideSandbox || !confined)
-        AccessRequirement(AccessCapability.host, executable,
-            granted: prefixGranted('host')),
+        AccessRequirement(AccessCapability.host, executable),
       for (final target in access.read)
         AccessRequirement(AccessCapability.read, target,
             workspace: inside(target), granted: _canRead(target)),
@@ -547,9 +544,12 @@ final class SandboxedProcessRunner
       approvedHostEnvironment: outsideSandbox ? request.environment : null,
       approvedEnvironment: plan == null ? null : request.environment,
     );
+    final shellReader = confined && !outsideSandbox ? envelope.shellReader : null;
+    final reader = confined && !outsideSandbox ? envelope.reader : null;
     final outcome = await inner.run((
-      command: executable,
-      arguments: request.arguments,
+      command: shellReader?.command ?? reader ?? executable,
+      arguments: shellReader?.arguments ??
+          (reader == null ? request.arguments : envelope.certifiedArguments),
       workingDirectory: request.workingDirectory,
       environment: request.environment,
       stdin: request.stdin,

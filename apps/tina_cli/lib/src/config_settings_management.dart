@@ -1,16 +1,16 @@
 import 'dart:convert';
 import 'package:tina_host/tina_host.dart';
 import 'package:tina_llm/tina_llm.dart';
+import 'package:tina_providers/tina_providers.dart' show classifierInstructionSetting;
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina_tools/tina_tools.dart'
     show ResourceApprovalStore, ToolCommandApprovals;
-import 'app_io.dart';
 import 'assembly_config.dart';
 import 'permission_instructions.dart';
 import 'config_document.dart';
 import 'configured_provider.dart';
 import 'plugin_settings.dart';
-import 'native_kinds.dart' show ConfigSettingsBackend;
+import 'settings_surface.dart' show ConfigSettingsSurface;
 import 'settings_catalog.dart';
 import 'package:tina_tui/tina_tui.dart';
 
@@ -56,7 +56,7 @@ final class _Edit {
 final class ConfigSettingsManagement implements SettingsManagement {
   ConfigSettingsManagement(
       {required ScopedSettings scopedSettings,
-      required ConfigSettingsBackend backend,
+      required ConfigSettingsSurface backend,
       List<ProviderDescriptor>? descriptors,
       PluginSettings<dynamic>? pluginSettings,
       PluginManager<dynamic>? pluginManager,
@@ -65,13 +65,10 @@ final class ConfigSettingsManagement implements SettingsManagement {
       void Function()? applyConfiguration,
       void Function() Function(void Function())? listenConfiguration,
       ToolCommandApprovals? commandApprovals,
-      String? workspace,
-      ClientAccess access = const ClientAccess(),
-      AppIo? appIo})
+      ClientAccess access = const ClientAccess()})
       : _scoped = scopedSettings,
         _access = access,
         _backend = backend,
-        _io = appIo ?? defaultAppIo(),
         _descriptors = descriptors ?? configuredDescriptors(),
         _plugins = pluginSettings,
         _manager = pluginManager,
@@ -79,10 +76,6 @@ final class ConfigSettingsManagement implements SettingsManagement {
         _validatePlugins = validatePlugins,
         _applyConfiguration = applyConfiguration,
         _approvals = commandApprovals,
-        // The seam, not `dart:io`: under wasm the working directory is
-        // the preopened root ('.'), and `Directory.current` would throw
-        // where the settings path opens from (commit 27).
-        _workspace = workspace ?? (appIo ?? defaultAppIo()).currentDirectory,
         _listenConfiguration = listenConfiguration {
     settings = SettingsClient(_scoped,
         requireWrite: _access.requireControl,
@@ -101,7 +94,7 @@ final class ConfigSettingsManagement implements SettingsManagement {
   }
   final ScopedSettings _scoped;
   final ClientAccess _access;
-  final ConfigSettingsBackend _backend;
+  final ConfigSettingsSurface _backend;
   final List<ProviderDescriptor> _descriptors;
   final PluginSettings<dynamic>? _plugins;
   final PluginManager<dynamic>? _manager;
@@ -172,56 +165,29 @@ final class ConfigSettingsManagement implements SettingsManagement {
                 for (final model in d.models.values) model.id: model.name
               }),
       ]);
-  final String _workspace;
-
-  /// The I/O seam: native files natively, the preopen snapshot under
-  /// wasm — the settings path never touches `dart:io` directly.
-  final AppIo _io;
-
-  String get _permissionsPath => '$_workspace/.tina/permissions.json';
-
   @override
-  bool get hasCommandApprovals => true;
+  bool get hasCommandApprovals => _backend.permissionStore.filePath != null;
 
   @override
   String? get permissionInstructions =>
-      readProjectPermissionInstructions(_workspace, io: _io);
+      readProjectPermissionInstructions(_scoped);
 
   @override
   void savePermissionInstructions(String text) {
-    final path = _permissionsPath;
-    final document = <String, Object?>{};
-    final existing = _io.readTextIfExists(path);
-    if (existing != null) {
-      // Never replace a damaged file with a rewrite (PathGrants' rule).
-      final parsed = jsonDecode(existing);
-      if (parsed is! Map || parsed['version'] != 1) {
-        throw const FormatException(
-            '.tina/permissions.json is damaged; fix it before editing '
-            'instructions');
-      }
-      document.addAll(parsed.cast<String, Object?>());
-    } else {
-      document['version'] = 1;
-      document['grants'] = <Object?>[];
-    }
+    _checkOpen();
+    _access.requireControl();
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
-      document.remove('instructions');
+      _scoped.removeOverride(classifierInstructionSetting, SettingScope.workspace);
     } else {
-      document['instructions'] = trimmed;
+      _scoped.set(classifierInstructionSetting, trimmed, SettingScope.workspace);
     }
-    _io.createDirectory('$_workspace/.tina', recursive: true);
-    _io.writeText(
-        path,
-        const JsonEncoder.withIndent('  ')
-            .convert(Map.fromEntries(document.entries.toList()
-              ..sort((a, b) => a.key.compareTo(b.key)))));
   }
 
   Iterable<Map<String, Object?>> _folderPermissions() sync* {
     for (final entry in _backend.permissionStore.entries) {
       final setting = entry['setting'];
+      if (setting == classifierInstructionSetting.id) continue;
       if (_approvals is ResourceApprovalStore &&
           (entry['kind'] != 'access' && entry['kind'] != 'setting' ||
               {

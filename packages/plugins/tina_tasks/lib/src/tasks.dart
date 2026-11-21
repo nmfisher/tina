@@ -127,7 +127,8 @@ class TaskStore {
   /// reading [state] before that see an empty queue.
   void hydrateFrom(List<SessionEntry> log) {
     TaskQueueEntry? latest;
-    for (final e in log) {
+    for (final e in activeLog(log)) {
+      if (e is ContextClearedEntry) latest = null;
       if (TaskQueueEntry.matches(e)) {
         latest = TaskQueueEntry.decode(e as PluginStateEntry);
       }
@@ -374,8 +375,15 @@ class TasksPlugin extends AgentPlugin {
     loop.registerExecutor('queue_task', executeQueue);
     loop.registerExecutor('query_tasks', executeQuery);
     _subscription = loop.subscribe((entry, event) {
+      if (event != LogEvent.appended) return;
       if (entry is ContextClearedEntry) {
         store.replace(loop, const []);
+        return;
+      }
+      if (entry is CutEntry) {
+        store.hydrateFrom(loop.log);
+        store._changes.add(null);
+        _syncNextId();
         return;
       }
       if (TaskQueueEntry.matches(entry)) {

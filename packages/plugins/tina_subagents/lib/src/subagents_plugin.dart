@@ -135,12 +135,13 @@ final class SubagentsBudget {
 /// resurrected from the store after a resume: it has no live host
 /// ([child] is null) and is already settled.
 final class _SubagentJob {
-  _SubagentJob(this.id, this.child, this.depth);
+  _SubagentJob(this.id, this.child, this.depth, this.launchSeq);
 
   _SubagentJob.ghost(String id, int depth, ToolResult outcome)
       : id = id,
         child = null,
         depth = depth,
+        launchSeq = null,
         outcome = outcome {
     done.complete(outcome);
   }
@@ -151,6 +152,8 @@ final class _SubagentJob {
   final Host? child;
 
   final int depth;
+  final int? launchSeq;
+  bool invalidated = false;
 
   /// Completes when the child settles, with its final result. Ghosts are
   /// completed at creation.
@@ -274,6 +277,9 @@ final class SubagentsPlugin extends AgentPlugin {
   /// Launched children, keyed by their session id. A settled child stays
   /// here so its answer remains retrievable.
   final _jobs = <String, _SubagentJob>{};
+  AgentLoop? _loop;
+  void Function(PluginStateEntry)? _writeState;
+  int? _logSubscription;
 
   /// True once [closeSession] has run; no launches or inspects proceed.
   bool _closed = false;
@@ -347,7 +353,19 @@ final class SubagentsPlugin extends AgentPlugin {
       parent.notifyChanged();
       rethrow;
     }
-    final job = _SubagentJob(child.session.id, child, childDepth);
+    final job = _SubagentJob(child.session.id, child, childDepth, _loop?.seq);
+    try {
+      _writeState?.call(PluginStateEntry.snapshot(
+          pluginId: id,
+          stateKey: 'child-launch/${job.launchSeq}',
+          schemaVersion: 1,
+          value: {'id': job.id}));
+    } catch (_) {
+      child.close();
+      parent.details.childrenInFlight--;
+      parent.notifyChanged();
+      rethrow;
+    }
     _jobs[job.id] = job;
     unawaited(_run(job, prompt));
     return ToolResult('launched sub-agent ${job.id}\n\n'
@@ -368,7 +386,8 @@ final class SubagentsPlugin extends AgentPlugin {
   ///   working.
   /// - `cancel`: stop the child and return its (cancelled) result.
   Future<ToolResult> inspect(String id,
-      {String action = 'status', int? waitMs, void Function(String)? progress}) async {
+      {String action = 'status', int? waitMs, void Function(String)? progress,
+      Future<void>? whenCancelled}) async {
     final job = _jobs[id];
     if (job == null) {
       return ToolResult.error('unknown sub-agent $id — nothing was launched '
@@ -377,27 +396,30 @@ final class SubagentsPlugin extends AgentPlugin {
     switch (action) {
       case 'cancel':
         job.stop();
-        await job.done.future;
-        return job.outcome!;
+        return await Future.any([
+          job.done.future,
+          if (whenCancelled != null)
+            whenCancelled.then((_) => ToolResult.error('sub-agent wait cancelled')),
+        ]);
       case 'wait':
         if (waitMs != null && waitMs < 0) {
           return ToolResult.error('wait_ms must be nonnegative');
         }
         if (!job.done.isCompleted) {
           final sub = _forwardActivity(job, progress);
+          final timeout = Completer<void>();
+          final timer = waitMs == null ? null : Timer(
+              Duration(milliseconds: waitMs), timeout.complete);
           try {
-            if (waitMs == null) {
-              await job.done.future;
-            } else {
-              final timeout = Future<void>.delayed(
-                  Duration(milliseconds: waitMs), () {});
-              await Future.any([job.done.future, timeout]);
-              if (!job.done.isCompleted) {
-                return ToolResult('sub-agent $id still running '
-                    '(depth ${job.depth}): ${job.status}');
-              }
-            }
+            return await Future.any([
+              job.done.future,
+              if (timer != null) timeout.future.then((_) => ToolResult(
+                  'sub-agent $id still running (depth ${job.depth}): ${job.status}')),
+              if (whenCancelled != null)
+                whenCancelled.then((_) => ToolResult.error('sub-agent wait cancelled')),
+            ]);
           } finally {
+            timer?.cancel();
             await sub?.cancel();
           }
         }
@@ -471,10 +493,8 @@ final class SubagentsPlugin extends AgentPlugin {
       }
       job.status = '${outcome.stopReason.name} · '
           '${watch.elapsedMilliseconds} ms · $used reported tokens';
-      final answer = [
-        for (final m in outcome.modelResponses)
-          for (final b in m.content.whereType<TextBlock>()) b.text,
-      ].join();
+      final answer = outcome.modelResponses.lastOrNull?.content
+              .whereType<TextBlock>().map((block) => block.text).join() ?? '';
       final capped = answer.length > config.resultCap
           ? '${answer.substring(0, config.resultCap)}… (truncated at '
               '${config.resultCap} characters)'
@@ -517,9 +537,9 @@ final class SubagentsPlugin extends AgentPlugin {
     // notice starts a parent turn when idle (or queues as steering input
     // mid-turn). The `subagent` tool stays as the retrieval path for
     // applications without notice delivery, and as an idempotent re-read.
-    if (!_closed) {
+    if (!_closed && !job.invalidated) {
       final delivery = parent.deliverNotice;
-      if (delivery != null) delivery(_settlement(result));
+      delivery?.call(_settlement(result), isCurrent: () => !_closed && !job.invalidated);
     }
   }
 
@@ -544,6 +564,7 @@ final class SubagentsPlugin extends AgentPlugin {
   void closeSession() {
     if (_closed) return;
     _closed = true;
+    if (_logSubscription case final subscription?) _loop?.unsubscribe(subscription);
     for (final job in _jobs.values) {
       if (!job.done.isCompleted) job.stop();
     }
@@ -594,12 +615,40 @@ final class SubagentsPlugin extends AgentPlugin {
   /// at start — the tools become reachable the same moment the plugin mounts.
   @override
   void mountOn(AgentLoop loop) {
+    _loop = loop;
+    _writeState = loop.stateWriter(id);
+    if (_logSubscription == null) {
+      _discardRewoundGhosts(loop);
+      _logSubscription = loop.subscribe((entry, event) {
+        if (event != LogEvent.appended) return;
+        final cut = entry is CutEntry ? entry.toSeq : null;
+        if (cut == null && entry is! ContextClearedEntry) return;
+        for (final job in _jobs.values.toList()) {
+          if (cut != null && (job.launchSeq == null || job.launchSeq! < cut)) continue;
+          job.invalidated = true;
+          if (!job.done.isCompleted) job.stop();
+          if (cut != null) _jobs.remove(job.id);
+        }
+        if (cut != null) _discardRewoundGhosts(loop);
+      });
+    }
     _launchTool ??= LaunchSubagentTool(this);
     _inspectTool ??= SubagentInspectTool(this);
     loop.registerContextExecutor(SubagentsPlugin.launchSchemaName,
         (input, context) => _launchTool!.execute(input));
     loop.registerContextExecutor(SubagentsPlugin.inspectSchemaName,
-        (input, context) => _inspectTool!.execute(input, progress: context.progress));
+        (input, context) => _inspectTool!.execute(input,
+            progress: context.progress, whenCancelled: context.whenCancelled));
+  }
+
+  void _discardRewoundGhosts(AgentLoop loop) {
+    final active = loop.derive().pluginStates[id] ?? const {};
+    for (final entry in loop.log.whereType<PluginStateEntry>()) {
+      if (entry.pluginId != id || !entry.stateKey.startsWith('child-launch/') ||
+          active.containsKey(entry.stateKey)) continue;
+      final childId = entry.value?['id'];
+      if (childId is String && _jobs[childId]?.child == null) _jobs.remove(childId);
+    }
   }
 
   /// The launch tool's schema name.

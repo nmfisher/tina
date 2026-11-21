@@ -1,0 +1,498 @@
+diff --git a/pkg/tina_wasm_host/Cargo.toml b/pkg/tina_wasm_host/Cargo.toml
+index 497a47b..6d49126 100644
+--- a/pkg/tina_wasm_host/Cargo.toml
++++ b/pkg/tina_wasm_host/Cargo.toml
+@@ -9,6 +9,7 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
+ # The discovery-time credential lift parses the user's tina config (the
+ # same TOML crate wasmtime already pulls, so the lock does not fork).
+ toml = "0.9"
++tempfile = "3"
+ wasmtime = { version = "47.0.2", features = ["cache"] }
+ wasmtime-wasi = { version = "47.0.2", features = ["p3"] }
+ tokio = { version = "1", features = ["rt", "process", "io-util", "io-std", "time", "macros"] }
+@@ -44,6 +45,3 @@ path = "src/main.rs"
+ name = "tina-case-runner"
+ path = "src/bin/case_runner.rs"
+
+-[dev-dependencies]
+-# Cache-path tests: hit/miss/rewrite against a throwaway directory.
+-tempfile = "3"
+diff --git a/pkg/tina_wasm_host/src/policy.rs b/pkg/tina_wasm_host/src/policy.rs
+index 3d5c751..2a58eb7 100644
+--- a/pkg/tina_wasm_host/src/policy.rs
++++ b/pkg/tina_wasm_host/src/policy.rs
+@@ -509,7 +509,7 @@ impl CapabilityPolicy {
+             workspace: workspace.display().to_string(),
+             read_dirs: vec![DirEntry {
+                 path: config_dir.to_path_buf(),
+-                guest: Some("config".to_string()),
++                guest: Some("/tina-config".to_string()),
+                 origin: "default:config".to_string(),
+             }],
+             write_dirs: vec![DirEntry {
+@@ -526,6 +526,14 @@ impl CapabilityPolicy {
+         }
+     }
+
++    pub fn mount_session_store(&mut self, directory: &Path) {
++        self.write_dirs.push(DirEntry {
++            path: directory.to_path_buf(),
++            guest: Some("/tina-store".to_string()),
++            origin: "default:store".to_string(),
++        });
++    }
++
+     /// The command verdict the host-held policy produces for one command
+     /// line. `None` in legacy mode: the caller falls back to the
+     /// guest-carried profile, exactly as before the merger.
+@@ -1778,7 +1786,7 @@ mod default_discovery_tests {
+         assert_eq!(preopens[0].guest, ".");
+         assert_eq!(preopens[0].access, DirAccess::Write);
+         assert_eq!(preopens[0].origin, "default:workspace");
+-        assert_eq!(preopens[1].guest, "config");
++        assert_eq!(preopens[1].guest, "/tina-config");
+         assert_eq!(preopens[1].access, DirAccess::Read);
+         assert_eq!(preopens[1].origin, "default:config");
+
+diff --git a/pkg/tina_wasm_host/src/runner.rs b/pkg/tina_wasm_host/src/runner.rs
+index 6bb6c43..6111a81 100644
+--- a/pkg/tina_wasm_host/src/runner.rs
++++ b/pkg/tina_wasm_host/src/runner.rs
+@@ -78,73 +78,106 @@ pub fn aot_bytes(precompiled: &'static [u8]) -> Option<&'static [u8]> {
+     (!precompiled.is_empty()).then_some(precompiled)
+ }
+
+-/// Builds the config mount for default discovery: a fresh directory
+-/// whose `config` entry is a REAL regular file - the resolved contents
+-/// of `<home>/.tina/config` - so the mount is exactly stage-5-shaped
+-/// (`--preopen=config=<directory-containing-config>`, verified to boot
+-/// to ready on every platform). The user's real `~/.tina` tree is never
+-/// mounted: symlinks, special files, and the rest of the tree cannot
+-/// reach the guest's config reader, and the read-only requirement holds
+-/// by construction (the snapshot is never written). The snapshot lives
+-/// in the OS temp dir for the process lifetime; it is one small file.
+-/// Errors carry the friendly no-config message.
+-pub fn discover_config_mount(home: &std::path::Path) -> Result<std::path::PathBuf, String> {
+-    let config_file = home.join(".tina").join("config");
++/// A read-only config snapshot, with the selected credential held separately.
++#[derive(Debug)]
++struct ConfigMount {
++    directory: tempfile::TempDir,
++    token: Option<String>,
++}
++
++#[cfg(test)]
++fn discover_config_mount(home: &std::path::Path) -> Result<ConfigMount, String> {
++    stage_config(&home.join(".tina").join("config"))
++}
++
++fn stage_config(source: &std::path::Path) -> Result<ConfigMount, String> {
+     let friendly = || {
+         format!(
+-            "no tina config found at {} - run tina once to create one, or pass --preopen=config=<dir>",
+-            config_file.display()
++            "no tina config found at {} - run tina once to create one, or pass --config-file=<path>",
++            source.display()
+         )
+     };
+-    let meta = std::fs::metadata(&config_file).map_err(|_| friendly())?;
+-    if !meta.is_file() {
++    if !fs::metadata(source).map_err(|_| friendly())?.is_file() {
+         return Err(friendly());
+     }
+-    let source = std::fs::canonicalize(&config_file)
+-        .map_err(|e| format!("could not resolve {}: {e}", config_file.display()))?;
+-    static NEXT_MOUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+-    let mount = std::env::temp_dir().join(format!(
+-        "tina-config-{}-{}",
+-        std::process::id(),
+-        NEXT_MOUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+-    ));
+-    // Recreate deterministically: a stale snapshot from a previous run of
+-    // the same pid must not shadow the current config.
+-    let _ = std::fs::remove_dir_all(&mount);
+-    std::fs::create_dir_all(&mount)
+-        .map_err(|e| format!("could not create the config snapshot {}: {e}", mount.display()))?;
+-    std::fs::copy(&source, mount.join("config"))
+-        .map_err(|e| format!("could not snapshot {}: {e}", source.display()))?;
+-    #[cfg(unix)]
++    let raw = fs::read_to_string(source)
++        .map_err(|e| format!("could not read {}: {e}", source.display()))?;
++    let token = inline_provider_token(&raw);
++    let mut parsed: toml::Table = toml::from_str(&raw)
++        .map_err(|_| format!("invalid TOML in {}", source.display()))?;
++    let mut changed = parsed.remove("mcp").is_some();
++    if let Some(providers) = parsed.get_mut("providers").and_then(toml::Value::as_table_mut) {
++        for provider in providers.iter_mut().filter_map(|(_, value)| value.as_table_mut()) {
++            changed |= provider.remove("api_key").is_some();
++            changed |= provider.remove("auth_token").is_some();
++        }
++    }
++    if let Some(tools) = parsed.get_mut("plugin_config")
++        .and_then(toml::Value::as_table_mut)
++        .and_then(|plugins| plugins.get_mut("tina/tools"))
++        .and_then(toml::Value::as_table_mut)
+     {
+-        use std::os::unix::fs::PermissionsExt as _;
+-        let _ = std::fs::set_permissions(
+-            mount.join("config"),
+-            std::fs::Permissions::from_mode(0o600),
+-        );
++        changed |= tools.remove("command_environment").is_some();
+     }
+-    // The provider descriptor catalog augments itself from the models.dev
+-    // cache ($HOME/.tina/cache/models.dev.providers.json); without it,
+-    // config providers that rely on the catalog for their endpoint lose
+-    // their descriptor and the engine refuses them at boot. Carry it
+-    // verbatim when present (public model metadata, never credentials);
+-    // absent cache = absent entry, the builtin-only catalog.
+-    let cache = home.join(".tina").join("cache").join("models.dev.providers.json");
+-    if let Ok(cache_meta) = std::fs::metadata(&cache) {
+-        if cache_meta.is_file() {
++    let contents = if changed { toml::to_string(&parsed).map_err(|e| e.to_string())? } else { raw };
++    let directory = private_mount("tina-config-").tempdir()
++        .map_err(|e| format!("could not create private config snapshot: {e}"))?;
++    let mount = directory.path();
++    fs::write(mount.join("config"), contents)
++        .map_err(|e| format!("could not write config snapshot: {e}"))?;
++
++    // The provider catalog uses this public metadata from its normal home path.
++    if let Some(parent) = source.parent() {
++        let cache = parent.join("cache").join("models.dev.providers.json");
++        if fs::metadata(&cache).is_ok_and(|meta| meta.is_file()) {
+             let cache_dir = mount.join(".tina").join("cache");
+-            std::fs::create_dir_all(&cache_dir).map_err(|e| {
+-                format!("could not create {}: {e}", cache_dir.display())
+-            })?;
+-            std::fs::copy(&cache, cache_dir.join("models.dev.providers.json"))
+-                .map_err(|e| {
+-                    format!("could not snapshot {}: {e}", cache.display())
+-                })?;
++            fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
++            fs::copy(cache, cache_dir.join("models.dev.providers.json"))
++                .map_err(|e| e.to_string())?;
+         }
+     }
++    Ok(ConfigMount { directory, token })
++}
++
++/// The WASI session log writes through one inode. A private hard link grants
++/// that inode without exposing any other file in the original directory.
++fn stage_session_store(source: &std::path::Path) -> Result<tempfile::TempDir> {
++    let source = if source.is_absolute() {
++        source.to_path_buf()
++    } else {
++        std::env::current_dir()?.join(source)
++    };
++    let parent = source.parent().ok_or_else(|| wasmtime::Error::msg("missing store parent"))?;
++    fs::create_dir_all(parent)?;
++    let mut options = fs::OpenOptions::new();
++    options.create(true).append(true);
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::OpenOptionsExt;
++        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
++    }
++    let file = options.open(&source)
++        .with_context(|| format!("opening session store {}", source.display()))?;
++    wasmtime::ensure!(file.metadata()?.is_file(), "session store must be a regular file");
++    let mount = private_mount(".tina-wasm-store-").tempdir_in(parent)?;
++    let link = mount.path().join("sessions.jsonl");
++    fs::hard_link(&source, &link)
++        .with_context(|| format!("isolating session store {}", source.display()))?;
++    wasmtime::ensure!(fs::symlink_metadata(link)?.is_file(), "session store must be a regular file");
+     Ok(mount)
+ }
+
++fn private_mount(prefix: &'static str) -> tempfile::Builder<'static, 'static> {
++    let mut builder = tempfile::Builder::new();
++    builder.prefix(prefix);
++    #[cfg(unix)]
++    {
++        use std::os::unix::fs::PermissionsExt;
++        builder.permissions(fs::Permissions::from_mode(0o700));
++    }
++    builder
++}
++
+ /// Lifts the inline provider credential from a tina config's text: the
+ /// `[providers.<name>].api_key` of the provider the config's `[default]`
+ /// selects (via an explicit `provider`, or derived from the model's
+@@ -187,6 +220,8 @@ fn inline_provider_token(config_text: &str) -> Option<String> {
+ pub struct GuestFlags {
+     pub preopens: Vec<(String, std::path::PathBuf)>,
+     pub env: Vec<(String, String)>,
++    pub config_file: Option<std::path::PathBuf>,
++    pub store_file: Option<std::path::PathBuf>,
+     pub no_stdin: bool,
+     pub plugin_component: Option<std::path::PathBuf>,
+     pub plugin_read_context: bool,
+@@ -220,6 +255,12 @@ pub fn parse_flags(args: impl Iterator<Item = String>) -> Result<GuestFlags> {
+             // folds are rw, documents derive rw/ro from the grants,
+             // default discovery opens the config read-only).
+             flags.preopens.push((guest.to_string(), host.into()));
++        } else if let Some(path) = arg.strip_prefix("--config-file=") {
++            wasmtime::ensure!(flags.config_file.is_none() && !path.is_empty(), "expected one --config-file path");
++            flags.config_file = Some(path.into());
++        } else if let Some(path) = arg.strip_prefix("--store-file=") {
++            wasmtime::ensure!(flags.store_file.is_none() && !path.is_empty(), "expected one --store-file path");
++            flags.store_file = Some(path.into());
+         } else if arg == "--no-stdin" {
+             flags.no_stdin = true;
+         } else if let Some(dir) = arg.strip_prefix("--component-cache=") {
+@@ -290,6 +331,11 @@ pub fn parse_flags(args: impl Iterator<Item = String>) -> Result<GuestFlags> {
+             );
+         }
+     }
++    wasmtime::ensure!(
++        (flags.config_file.is_none() && flags.store_file.is_none()) ||
++        (flags.preopens.is_empty() && flags.capabilities.is_none()),
++        "--config-file and --store-file use dedicated mounts; omit --preopen and --capabilities"
++    );
+     Ok(flags)
+ }
+
+@@ -403,6 +449,25 @@ pub(crate) fn prepare(
+         wasi.env(name, value);
+     }
+
++    // Forward only the provider protocol's named inputs. Unrelated host
++    // credentials and the entire parent environment stay outside WASI.
++    const PROVIDER_SECRETS: [&str; 3] =
++        ["TINA_LLM_TOKEN", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"];
++    let mut has_provider_secret = flags.env.iter().any(|(name, value)|
++        PROVIDER_SECRETS.contains(&name.as_str()) && !value.is_empty());
++    for name in ["TINA_LLM_ENDPOINT"].into_iter().chain(PROVIDER_SECRETS) {
++        if flags.env.iter().any(|(explicit, _)| explicit == name) {
++            continue;
++        }
++        if let Ok(value) = std::env::var(name) {
++            if !value.is_empty() {
++                has_provider_secret |= PROVIDER_SECRETS.contains(&name);
++                wasi.env(name, &value);
++            }
++        }
++    }
++    // Keep the private mounts alive until the component and its I/O settle.
++    let mut private_mounts = Vec::new();
+     // The capability policy this run enforces: the engine's compiled
+     // document when given, otherwise yesterday's flags folded into the
+     // pre-merger behavior. The WASI preopen set is derived from it: write
+@@ -431,32 +496,62 @@ pub(crate) fn prepare(
+             })?;
+             let workspace = std::fs::canonicalize(&workspace)
+                 .map_err(|e| wasmtime::Error::msg(format!("could not resolve the workspace: {e}")))?;
+-            let home = std::env::var("HOME")
+-                .map_err(|_| wasmtime::Error::msg("no HOME set; pass --preopen=config=<dir>".to_string()))?;
+-            let mount = discover_config_mount(std::path::Path::new(&home))
++            let config = match &flags.config_file {
++                Some(path) => path.clone(),
++                None => {
++                    let home = std::env::var_os("HOME")
++                        .ok_or_else(|| wasmtime::Error::msg("no HOME set; pass --config-file=<path>"))?;
++                    std::path::PathBuf::from(home).join(".tina").join("config")
++                }
++            };
++            let ConfigMount { directory, token } = stage_config(&config)
+                 .map_err(wasmtime::Error::msg)?;
+-            // The provider catalog augments itself from the models.dev
+-            // cache under $HOME/.tina/cache (configuredDescriptors reads
+-            // env('HOME'), and the guest's home path is the config
+-            // preopen root 'config'). Point HOME at it unless the caller
+-            // set their own.
+-            if !flags.env.iter().any(|(name, _)| name == "HOME") {
+-                wasi.env("HOME", "config");
++            let mut protected = vec![config.canonicalize()?, directory.path().canonicalize()?];
++            let mut policy = policy::CapabilityPolicy::from_default_discovery(&workspace, directory.path());
++            private_mounts.push(directory);
++            if !has_provider_secret {
++                if let Some(token) = token {
++                    wasi.env("TINA_LLM_TOKEN", &token);
++                }
+             }
+-            // Inline provider credentials (see inline_provider_token):
+-            // native tina reads api_key from the config file, the guest's
+-            // provider auth reads the environment, so discovery lifts the
+-            // config key into the guest env. A caller-provided
+-            // TINA_LLM_TOKEN wins; the token is never written to the
+-            // snapshot dir and never logged.
+-            if !flags.env.iter().any(|(name, _)| name == "TINA_LLM_TOKEN") {
+-                if let Ok(config_text) = fs::read_to_string(mount.join("config")) {
+-                    if let Some(token) = inline_provider_token(&config_text) {
+-                        wasi.env("TINA_LLM_TOKEN", &token);
++            if let Some(path) = &flags.store_file {
++                wasmtime::ensure!(config.canonicalize()? != path.canonicalize().unwrap_or_default(),
++                    "config and session store must be different files");
++                let absolute = if path.is_absolute() { path.clone() } else { workspace.join(path) };
++                let workspace_store = absolute.strip_prefix(&workspace).ok().filter(|relative| {
++                    !relative.as_os_str().is_empty() && relative.components().all(|component|
++                        matches!(component, std::path::Component::Normal(_)))
++                });
++                if let Some(relative) = workspace_store.and_then(std::path::Path::to_str) {
++                    // The existing workspace preopen can serve this file, including
++                    // on filesystems that cannot create hard links.
++                    let mut component_path = workspace.clone();
++                    for component in std::path::Path::new(relative).components() {
++                        component_path.push(component.as_os_str());
++                        match fs::symlink_metadata(&component_path) {
++                            Ok(metadata) => wasmtime::ensure!(!metadata.file_type().is_symlink(),
++                                "workspace session store cannot use a symbolic link"),
++                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
++                            Err(error) => return Err(error.into()),
++                        }
+                     }
++                    wasi.env("TINA_ENGINE_STORE", relative);
++                } else {
++                    let directory = stage_session_store(path)?;
++                    protected.push(path.canonicalize()?);
++                    protected.push(directory.path().canonicalize()?);
++                    policy.mount_session_store(directory.path());
++                    private_mounts.push(directory);
++                    wasi.env("TINA_ENGINE_STORE", "/tina-store/sessions.jsonl");
+                 }
+             }
+-            policy::CapabilityPolicy::from_default_discovery(&workspace, &mount)
++            let workspace_private: Vec<&str> = protected.iter()
++                .filter_map(|path| path.strip_prefix(&workspace).ok()?.to_str())
++                .collect();
++            if !workspace_private.is_empty() {
++                wasi.env("TINA_ENGINE_PROTECTED_PATHS", serde_json::to_string(&workspace_private)?);
++            }
++            policy
+         }
+     };
+     for preopen in policy.preopens() {
+@@ -578,6 +673,7 @@ pub(crate) fn prepare(
+             policy,
+             http_approvals: crate::tina_http::HttpApprovals::default(),
+             crash: crate::tina_term::CrashState::default(),
++            _private_mounts: private_mounts,
+         },
+     );
+     boot_mark("host:plugin-runtime+store");
+@@ -1032,6 +1128,8 @@ fn plugin_error_val(error: tina_plugin::TinaPluginError) -> Val {
+ /// resolves spawn working directories against, its live children, and the
+ /// capability policy the mediators enforce (`docs/capability_merger.md`).
+ pub struct HostState {
++    // Keep the backing files available until the guest and its WASI store exit.
++    _private_mounts: Vec<tempfile::TempDir>,
+     pub wasi: WasiCtx,
+     pub table: ResourceTable,
+     pub http: reqwest::Client,
+@@ -1057,6 +1155,7 @@ impl HostState {
+     #[cfg(test)]
+     pub fn for_tests() -> Self {
+         HostState {
++            _private_mounts: Vec::new(),
+             wasi: WasiCtxBuilder::new().build(),
+             table: ResourceTable::new(),
+             http: reqwest::Client::new(),
+@@ -1402,7 +1501,7 @@ mod tests {
+
+ #[cfg(test)]
+ mod discovery_tests {
+-    use super::discover_config_mount;
++    use super::{discover_config_mount, stage_session_store};
+     use super::inline_provider_token;
+
+     #[test]
+@@ -1492,10 +1591,10 @@ api_key = "sk-someone-elses"
+         std::fs::write(home.join(".tina").join("config"), "version = 1\n").unwrap();
+
+         let mount = discover_config_mount(&home).expect("a real config resolves");
+-        let mounted = std::fs::read_to_string(mount.join("config")).expect("mounted config");
++        let mounted = std::fs::read_to_string(mount.directory.path().join("config")).expect("mounted config");
+         assert_eq!(mounted, "version = 1\n");
+         assert!(
+-            std::fs::metadata(&mount).unwrap().is_dir(),
++            std::fs::metadata(mount.directory.path()).unwrap().is_dir(),
+             "the mount is a directory containing a real config file"
+         );
+         std::fs::remove_dir_all(&home).ok();
+@@ -1519,7 +1618,7 @@ api_key = "sk-someone-elses"
+         .unwrap();
+
+         let mount = discover_config_mount(&home).expect("a symlinked config resolves");
+-        let mounted = std::fs::read_to_string(mount.join("config")).expect("mounted config");
++        let mounted = std::fs::read_to_string(mount.directory.path().join("config")).expect("mounted config");
+         assert_eq!(mounted, "version = 2\n", "the resolved contents are mounted");
+         std::fs::remove_dir_all(&home).ok();
+         std::fs::remove_dir_all(&elsewhere).ok();
+@@ -1539,7 +1638,7 @@ api_key = "sk-someone-elses"
+
+         let mount = discover_config_mount(&home).expect("resolves");
+         let carried = std::fs::read_to_string(
+-            mount.join(".tina").join("cache").join("models.dev.providers.json"),
++            mount.directory.path().join(".tina").join("cache").join("models.dev.providers.json"),
+         )
+         .expect("the cache is carried into the snapshot");
+         assert_eq!(carried, format!("{{{cache_body}}}"), "verbatim bytes");
+@@ -1554,12 +1653,46 @@ api_key = "sk-someone-elses"
+
+         let mount = discover_config_mount(&home).expect("resolves");
+         assert!(
+-            !mount.join(".tina").exists(),
++            !mount.directory.path().join(".tina").exists(),
+             "no cache means no .tina subtree in the snapshot"
+         );
+         std::fs::remove_dir_all(&home).ok();
+     }
+
++    #[test]
++    fn sensitive_config_values_are_removed_from_the_read_only_snapshot() {
++        let home = tempfile::tempdir().unwrap();
++        let source = home.path().join(".tina").join("config");
++        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
++        std::fs::write(&source, r#"
++[default]
++provider = "test"
++model = "test/model"
++[providers.test]
++api_key = "selected-credential"
++[providers.other]
++auth_token = "unrelated-credential"
++[mcp.servers.test]
++secret = "connector-credential"
++"#).unwrap();
++        let mount = discover_config_mount(home.path()).unwrap();
++        let snapshot = std::fs::read_to_string(mount.directory.path().join("config")).unwrap();
++        assert!(!snapshot.contains("credential"));
++        assert_eq!(mount.token.as_deref(), Some("selected-credential"));
++    }
++
++    #[test]
++    fn session_mount_contains_only_the_selected_inode() {
++        let home = tempfile::tempdir().unwrap();
++        let source = home.path().join("state.jsonl");
++        std::fs::write(home.path().join("unrelated"), "other data").unwrap();
++        let mount = stage_session_store(&source).unwrap();
++        assert_eq!(std::fs::read_dir(mount.path()).unwrap().count(), 1);
++        std::fs::write(mount.path().join("sessions.jsonl"), "saved").unwrap();
++        drop(mount);
++        assert_eq!(std::fs::read_to_string(&source).unwrap(), "saved");
++    }
++
+     #[test]
+     fn missing_config_carries_the_friendly_message() {
+         let home = fixture("missing");
+@@ -1572,7 +1705,7 @@ api_key = "sk-someone-elses"
+             "error: {error}"
+         );
+         assert!(error.contains("run tina once to create one"));
+-        assert!(error.contains("--preopen=config=<dir>"));
++        assert!(error.contains("--config-file=<path>"));
+         std::fs::remove_dir_all(&home).ok();
+     }
+
+diff --git a/pkg/tina_wasm_host/tests/discovery_boot.rs b/pkg/tina_wasm_host/tests/discovery_boot.rs
+index 2b8a3f1..9899bf8 100644
+--- a/pkg/tina_wasm_host/tests/discovery_boot.rs
++++ b/pkg/tina_wasm_host/tests/discovery_boot.rs
+@@ -151,6 +151,6 @@ fn bare_discovery_without_a_config_fails_with_the_friendly_message() {
+     );
+     assert!(
+         stderr.contains("run tina once to create one")
+-            && stderr.contains("--preopen=config=<dir>"),
++            && stderr.contains("--config-file=<path>"),
+         "the friendly message carries the guidance\nstderr: {stderr}"
+     );

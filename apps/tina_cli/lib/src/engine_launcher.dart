@@ -200,14 +200,9 @@ final class _StderrTail {
 }
 
 
-/// The tina-wasm-host invocation for one workspace: the workspace and the
-/// global config tree as preopens, the engine's knobs as WASI environment
-/// variables, provider endpoint and credential forwarded explicitly.
-///
-/// [storePath] is an absolute host path; inside the workspace it maps to
-/// the guest-relative path, outside it gets its own `store` preopen.
-/// [configPath] must name a `config` file — that is the default layout —
-/// because the engine reads `config/config` through the preopen.
+/// The runner snapshots only the named config file and grants only the
+/// named session file. It forwards provider credentials from its process
+/// environment. The workspace is the process's working directory.
 List<String> wasmEngineArgv({
   required String hostPath,
   required String workingDirectory,
@@ -215,7 +210,6 @@ List<String> wasmEngineArgv({
   String? storePath,
   String? resumeSessionId,
   required bool yolo,
-  Map<String, String> environment = const {},
   List<String> extraArgs = const [],
   /// The active registry plugin's cached component + the host-accepted
   /// grants (design doc section 6): appended as the existing
@@ -233,42 +227,18 @@ List<String> wasmEngineArgv({
   /// hash and deserializes on later launches instead of recompiling.
   /// Null keeps the flag off (compile on every launch, as before).
   String? componentCache,
-  /// The compiled capability document for the wasm-host contract
-  /// (wasm-tui stream): passed instead of the legacy --preopen flags.
 }) {
-  final workspace = p.normalize(p.absolute(workingDirectory));
-  final config = p.normalize(p.absolute(configPath));
-  if (p.basename(config) != 'config') {
-    throw FormatException(
-        'the wasm engine reads the global config from a `config` file in '
-        'its parent directory; --config must end in /config');
-  }
+  String absolute(String path) => p.normalize(p.absolute(workingDirectory, path));
   final argv = <String>[hostPath]
-    ..add('--preopen=.=$workspace')
-    ..add('--preopen=config=${p.dirname(config)}');
+    ..add('--headless')
+    ..add('--config-file=${absolute(configPath)}');
   argv.add('--env=TINA_ENGINE_YOLO=${yolo ? '1' : '0'}');
   if (storePath != null) {
-    final store = p.normalize(p.absolute(storePath));
-    final relative = p.relative(store, from: workspace);
-    final inside = !relative.startsWith('..') && !p.isAbsolute(relative);
-    if (inside) {
-      argv.add('--env=TINA_ENGINE_STORE=$relative');
-    } else {
-      argv.add('--preopen=store=${p.dirname(store)}');
-      argv.add('--env=TINA_ENGINE_STORE=store/${p.basename(store)}');
-    }
+    argv.add('--store-file=${absolute(storePath)}');
   }
   if (resumeSessionId != null) {
     argv.add('--env=TINA_ENGINE_RESUME=$resumeSessionId');
   }
-  // The provider endpoint and credential the wasm provider reads; a guest
-  // sees only forwarded names, never the host environment.
-  for (final name in const ['TINA_LLM_ENDPOINT', 'ANTHROPIC_API_KEY']) {
-    final value = environment[name] ?? Platform.environment[name];
-    if (value != null && value.isNotEmpty) argv.add('--env=$name=$value');
-  }
-  argv.addAll(
-      environment.entries.map((entry) => '--env=${entry.key}=${entry.value}'));
   if (pluginComponent != null) {
     argv.add('--plugin-component=$pluginComponent');
     if (pluginOrigin != null) {
@@ -289,7 +259,7 @@ List<String> wasmEngineArgv({
   if (componentCache != null) {
     argv.add('--component-cache=$componentCache');
   }
-  argv.addAll(extraArgs);
+  argv.addAll(extraArgs.where((flag) => flag != '--headless' && flag != '--pipes'));
   return argv;
 }
 

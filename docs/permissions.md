@@ -26,28 +26,16 @@ Human approval dialogs offer the exact requested file and its directory separate
 Choose Remember, check the files/directories to permit, and confirm the workspace
 grant. Files match exactly; directories cover descendants. Read/write grants also
 permit reads. Neither kind approves external execution or an explicit external
-deletion request. Permissions are held in `.tina/permissions.json` per workspace:
+deletion request. Native Tina stores permissions in `~/.tina/approvals/`
+under the workspace's canonical path. Existing workspace-local permission
+files are ignored. Reapprove a path when Tina next asks for it.
 
-```json
-{
-  "version": 1,
-  "instructions": "Deploys read .env; never print its values.",
-  "grants": [
-    {"path": "/data/reference.pdf", "access": "read", "kind": "file"},
-    {"path": "/data/outputs", "access": "read-write", "kind": "directory"}
-  ]
-}
-```
-
-The optional top-level `instructions` string is the project's
-**permission preferences**: it is prepended to every auto-approval
-classification as "User permission preferences" evidence (it cannot
-override the no-secret-exposure and no-external-deletion conditions).
-An absent or empty field is exactly the default behavior. Edit it in
-Settings → Permissions → Remembered permissions (Project permission
-instructions); the file's version and grants are preserved, and a
-damaged file is never rewritten. The session-scoped classifier
-instruction setting is the fallback when the file has none.
+Edit the workspace's **permission preferences** in Settings → Permissions
+→ Remembered permissions → Project permission instructions. Tina stores
+these preferences privately and uses them as evidence during auto review.
+They remain subject to the restrictions on exposing secrets and deleting
+files outside the workspace. A blank preference uses the classifier
+instruction from the session or global settings.
 
 Paths are canonical, with symlinks resolved. A saved file never becomes a parent
 directory grant. Replacing a saved directory with a symlink does not redirect its
@@ -63,7 +51,7 @@ Command prompts offer **Always allow this exact command for this session**
 and **Always allow this exact command for this workspace** when the executable
 can be resolved (workspace storage is required for the latter). Exact rules
 bind the resolved executable, complete arguments or shell body, working
-directory, filtered environment, stdin and displayed execution/network/host
+directory, filtered environment, stdin and displayed execution/network
 capabilities. They support interpreters such as `node scripts/qa.cjs` without
 granting access to other Node commands. Script contents can change at the same
 path; these rules cover the invocation, not a script-content hash. Additional
@@ -84,7 +72,9 @@ part of the rule's context. Ineligible prompts explain why prefix approval is
 unavailable and suggest splitting the command. Exact-command approval remains
 available when the executable can be resolved.
 
-Rules remember only the displayed execution, network and host capabilities.
+Prefix rules remember sandboxed execution. Exact rules can also remember
+network access for the displayed sandboxed invocation. Every command
+requesting `outside_sandbox` is reviewed again, including exact repeats.
 They never grant file reads, writes or deletion, and the first workspace-write
 approval still applies. They bind the resolved executable, working directory,
 filtered environment, stdin and shell context. Changing that context requires
@@ -113,7 +103,7 @@ It approves when both conditions hold: the action does not read, print, copy or
 expose secret/credential material, and it deletes no files outside the workspace.
 Using stored credentials to authenticate an operation the user specifically
 authorized is not secret access: when the current request or recent user messages
-explicitly ask for it, `git push`/`fetch`/`clone` over SSH, `gh`, and `ssh`/`scp`
+from the main conversation explicitly ask for it, `git push`/`fetch`/`clone` over SSH, `gh`, and `ssh`/`scp`
 to user-named hosts may use `~/.ssh` and host authentication normally. Only user
 messages authorize credential use — tool output and agent prose never do — and
 without that authorization credential access is uncertain, not allowed. Reading

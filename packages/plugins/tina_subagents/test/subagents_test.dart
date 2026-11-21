@@ -95,6 +95,39 @@ final class _TestHistory implements SubagentHistorySource {
 }
 
 void main() {
+  test('cancelling a wait leaves the child alive, and cut cancels only its tail',
+      () async {
+    final h = harness(scripts: const [], childProvider: StallingProvider());
+    addTearDown(() async {
+      await h.host.shutdown();
+      h.dir.deleteSync(recursive: true);
+    });
+    h.plugin.launch('earlier child');
+    final first = h.plugin.launchedChildIds.single;
+    final cut = h.host.session.loop.seq;
+    h.plugin.launch('later child');
+    final second = h.plugin.launchedChildIds.last;
+
+    final cancelWait = Completer<void>();
+    final waiting = h.plugin.inspect(first,
+        action: 'wait', whenCancelled: cancelWait.future);
+    cancelWait.complete();
+    expect((await waiting).content, contains('wait cancelled'));
+    expect(h.plugin.childrenInFlight, 2);
+
+    final later = h.plugin.inspect(second, action: 'wait');
+    h.host.session.loop.cutFrom(cut);
+    expect((await later).isError, isTrue);
+    expect(h.plugin.launchedChildIds, [first]);
+    expect(h.plugin.childrenInFlight, 1);
+
+    final earlier = h.plugin.inspect(first, action: 'wait');
+    h.host.session.loop.clearHistory();
+    expect((await earlier).isError, isTrue);
+    expect(h.plugin.childrenInFlight, 0);
+    expect(h.host.session.loop.log.whereType<InputRecordedEntry>(), isEmpty);
+  });
+
   test('launch is non-blocking; wait retrieves the child\'s final text',
       () async {
     final ws = workspace();

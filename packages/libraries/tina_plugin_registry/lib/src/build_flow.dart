@@ -15,8 +15,8 @@
 ///    first install of a hash prompts, the same hash does not, a changed
 ///    hash re-prompts; declining installs nothing and the previous
 ///    artifact stays;
-/// 3. on consent (or an already-consented hash) the artifact is already
-///    in the cache with origin `local` (the seam did the install);
+/// 3. on consent (or an already-consented hash) install the prepared
+///    artifact in the cache with origin `local`;
 /// 4. when a plugin is attached, offer the reload (a NEW component
 ///    instance — in-instance state not written through the artifact's
 ///    persistence is lost) with the notice saying so; detached builds
@@ -37,7 +37,7 @@ final class PluginBuildException implements Exception {
           : '$message\ncompiler output:\n$stderr';
 }
 
-/// A successful local build: what was installed and where.
+/// A successful local build and its cache destination.
 final class LocalPluginBuild {
   const LocalPluginBuild({
     required this.name,
@@ -45,6 +45,7 @@ final class LocalPluginBuild {
     required this.hash,
     required this.componentPath,
     required this.builtAt,
+    this.install,
   });
 
   final String name;
@@ -56,6 +57,7 @@ final class LocalPluginBuild {
   final String hash;
   final String componentPath;
   final DateTime builtAt;
+  final Future<void> Function()? install;
 }
 
 /// Local-trust consent, keyed by artifact hash: consent once per build,
@@ -115,7 +117,7 @@ final class PluginBuildFlow {
     required this.attached,
   });
 
-  /// Compiles + installs; returns the build, or throws
+  /// Compiles and returns the build, or throws
   /// [PluginBuildException] with a clean, user-facing message.
   final Future<LocalPluginBuild> Function(String sourcePath) buildArtifact;
 
@@ -152,6 +154,7 @@ final class PluginBuildFlow {
       }
       consent.remember(build.hash);
     }
+    await build.install?.call();
 
     notice('plugins build: ${build.name} ${build.version} installed '
         '(origin local, hash ${build.hash.substring(0, 12)}…)');

@@ -752,12 +752,10 @@ def smoke(launcher, endpoint, columns, rows):
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [y] Run once', start)
-            # Literal commands offer scoped prefix grants; choosing Run once
-            # still requires a fresh approval for the next invocation.
-            terminal.expect('[a] For this session: always allow commands starting with echo', start)
-            terminal.expect('[p] For this workspace: always allow commands starting with echo', start)
-            start = terminal.send('y')
+            terminal.expect('❯ [y] allow once', start)
+            terminal.expect('[e] Always allow this exact command for this session', start)
+            assert b'always allow commands starting with' not in terminal.output[start:]
+            start = terminal.send('e')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
@@ -767,21 +765,18 @@ def smoke(launcher, endpoint, columns, rows):
             time.sleep(0.1)
             before_network = len(ModelStub.requests)
             start = terminal.send('network permission example\r')
-            terminal.expect('with network access', start)
-            terminal.expect('❯ [y] Run once', start)
-            assert len(ModelStub.requests) == before_network + 1, 'repeat ran before approval'
-            start = terminal.send('y')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:
                 terminal.read()
-            assert len(ModelStub.requests) == before_network + 2, 'repeat network command did not finish'
+            assert len(ModelStub.requests) == before_network + 2, 'remembered network command asked again'
             budget.spent('repeat network command', before_network, 2)
             terminal.expect('smoke answer', start)
+            assert b'allow once' not in terminal.output[start:]
             time.sleep(0.1)
             before_network = len(ModelStub.requests)
             start = terminal.send('different network example\r')
             terminal.expect('with network access', start)
-            terminal.expect('❯ [y] Run once', start)
+            terminal.expect('❯ [y] allow once', start)
             start = terminal.send('n')
             deadline = time.monotonic() + 10
             while len(ModelStub.requests) < before_network + 2 and time.monotonic() < deadline:

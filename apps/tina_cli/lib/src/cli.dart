@@ -215,10 +215,13 @@ Future<int> runCli(
       ? locateTerminalDevice()
       : null;
   StartupTerminal? startup;
+  final defaultStore = remoteEngine
+      ? '$workingDirectory/.tina/sessions.jsonl'
+      : defaultSessionStorePath(workingDirectory);
   if (continueLatest || (resume && sessionId == null)) {
     try {
       final sessions = resumableSessions(
-        storePath ?? defaultSessionStorePath(workingDirectory),
+        storePath ?? defaultStore, wasm: remoteEngine,
       );
       if (sessions.isEmpty) {
         stderr.writeln('tina: no main sessions to resume');
@@ -317,8 +320,7 @@ Future<int> runCli(
     // engine speaks pipes on stdio; the renderer stays native. Everything
     // below this branch assembles the in-process native engine.
     if (remoteEngine) {
-      final resolvedStore =
-          storePath ?? defaultSessionStorePath(workingDirectory);
+      final resolvedStore = storePath ?? defaultStore;
       final launched = await startRemoteEngine(
         spec: engineSpec,
         hostOverride: parsed[engineHostOption],
@@ -526,6 +528,7 @@ Future<({EngineProcess engine, String? cacheNotice})> startRemoteEngine({
   required String storePath,
   String? resumeSessionId,
   required bool yolo,
+  ({String? dir, String? notice}) Function()? prepareCache,
 }) async {
   final host = switch ((spec, hostOverride)) {
     (_, final override?) => override,
@@ -546,7 +549,7 @@ Future<({EngineProcess engine, String? cacheNotice})> startRemoteEngine({
   // The compiled-component cache (commit 29): preflighted, never a
   // startup risk — an unusable directory launches without the flag and
   // surfaces one notice instead.
-  final cache = prepareWasmComponentCache();
+  final cache = prepareCache?.call() ?? prepareWasmComponentCache();
   final argv = wasmEngineArgv(
     hostPath: host,
     workingDirectory: workingDirectory,
@@ -576,7 +579,9 @@ Future<({EngineProcess engine, String? cacheNotice})> startRemoteEngine({
   // flag as unknown, relaunch once without it — the cache stays off
   // with one notice. Self-retiring: hosts that accept the flag never
   // trip this.
+  var retriedWithoutCache = false;
   final engine = await _guardComponentCacheFlag(process, () async {
+    retriedWithoutCache = true;
     final fallback = await EngineProcess.start(
         List.of(argv)..removeWhere((a) => a.startsWith('--component-cache=')),
         workingDirectory: workingDirectory);
@@ -584,7 +589,7 @@ Future<({EngineProcess engine, String? cacheNotice})> startRemoteEngine({
   });
   return (
     engine: engine,
-    cacheNotice: cache.notice ?? _cacheFlagNotice,
+    cacheNotice: cache.notice ?? (retriedWithoutCache ? _cacheFlagNotice : null),
   );
 }
 
@@ -626,7 +631,7 @@ String _remoteResumeHint({
   required String engine,
 }) {
   if (!File(store).existsSync() ||
-      !resumableSessions(store).any((saved) => saved.id == sessionId)) {
+      !resumableSessions(store, wasm: true).any((saved) => saved.id == sessionId)) {
     return '';
   }
   final command = sessionResumeCommand(

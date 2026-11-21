@@ -284,8 +284,9 @@ void main() {
         initial, {'execute', 'network'}, CommandApprovalScope.session);
     expect(
         tools.commandApprovals.coversPrefixes(
-            plan(request('gh', ['pr', 'view', '430'])), 'network'),
+            plan(request('gh', ['pr', 'view', '430'])), 'execute'),
         true);
+    expect(tools.commandApprovals.coversPrefixes(initial, 'network'), false);
     for (final args in [
       ['pr', 'viewevil'],
       ['pr', 'checkout', '429'],
@@ -315,23 +316,20 @@ void main() {
       () async {
     final recorder = _Recorder();
     final gate = runner(recorder);
-    const control =
-        ProcessControl(networkRequested: true, networkReason: 'Inspect PR');
     expect(
-        await gate.run(request('gh', ['pr', 'view', '429']), control: control),
+        await gate.run(request('gh', ['pr', 'view', '429'])),
         isA<CommandCompleted>());
     expect(asks.single.details['command_prefixes'], ['gh pr view']);
     expect(
-        await gate.run(request('gh', ['pr', 'view', '430']), control: control),
+        await gate.run(request('gh', ['pr', 'view', '430'])),
         isA<CommandCompleted>());
     expect(asks, hasLength(1));
     expect(recorder.requests, hasLength(2));
-    expect(recorder.controls.last!.networkAllowed, true);
+    expect(recorder.controls.last!.networkAllowed, false);
     expect(recorder.controls.last!.workspaceWriteAllowed, false);
     decision = ApprovalDecision.deny;
     expect(
-        await gate.run(request('gh', ['pr', 'checkout', '429']),
-            control: control),
+        await gate.run(request('gh', ['pr', 'checkout', '429'])),
         isA<CommandRefused>());
     expect(recorder.requests, hasLength(2));
   });

@@ -217,10 +217,9 @@ class SandboxPlan {
   List<String> get deniedPaths => sandboxPathAliases([
         ...protectedPaths,
         if (tinaDir != null) tinaDir!,
-        if (pathGrants == null)
-          if (hostHome case final String host)
-            for (final relative in credentialHomePaths)
-              path.join(host, relative),
+        if (hostHome case final String host)
+          for (final relative in credentialHomePaths) path.join(host, relative),
+        if (hostHome case final String host) path.join(host, '.tina', 'plugins'),
       ]);
   bool isProtected(String value) {
     final targets = sandboxPathAliases([value]);
@@ -228,8 +227,16 @@ class SandboxPlan {
         .any((target) => deniedPaths.any((root) => _under(target, root)));
   }
 
+  bool isSpecificGrantTarget(String value) {
+    final target = canonicalSandboxPath(value);
+    final home = hostHome;
+    return target != path.separator &&
+        (home == null || target != canonicalSandboxPath(home)) &&
+        !isProtected(target);
+  }
+
   bool canGrant(String value, {bool write = false, bool? linux}) {
-    if (isProtected(value)) return false;
+    if (!isSpecificGrantTarget(value)) return false;
     if (write &&
         (linux ?? Platform.isLinux) &&
         writableLayout().any((root) =>
@@ -403,7 +410,7 @@ class SandboxPlan {
           ...extraWritablePaths,
           ...scratchDirectories,
           if (home?.existingPath != null) home!.existingPath!,
-          if (pathGrants == null) ...?home?.targets
+          ...?home?.targets
         },
       ];
 
@@ -428,7 +435,7 @@ class SandboxPlan {
   List<String> get extraWritablePaths => [
         ...writablePaths,
         if (home?.existingPath != null) home!.existingPath!,
-        if (pathGrants == null) ...?home?.targets,
+        ...?home?.targets,
         ...?pathGrants?.grants
             .where((g) => g.write && g.covers(g.path, write: true))
             .map((g) => g.path),

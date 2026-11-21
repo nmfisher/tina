@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:toml/toml.dart';
 
@@ -108,7 +109,13 @@ final class McpServerConfig {
   Duration? get timeout => values['timeout_ms'] == 0
       ? null
       : Duration(milliseconds: values['timeout_ms'] as int? ?? 60000);
-  String get fingerprint => jsonEncode(values);
+  late final String fingerprint = sha256.convert(utf8.encode(jsonEncode({
+    for (final key in values.keys.toList()..sort())
+      key: switch (values[key]) {
+        Map value => {for (final name in value.keys.cast<String>().toList()..sort()) name: value[name]},
+        final value => value,
+      },
+  }))).toString();
   String directory(String workspace) =>
       p.normalize(p.join(workspace, values['cwd'] as String? ?? '.'));
   McpServerConfig withValue(String key, Object? value) =>

@@ -32,6 +32,7 @@ void main() {
     final plugin = ToolsPlugin(
         workspaceRoot: workspace.path,
         tinaDir: tina,
+        pathApprovalDirectory: Directory('${root.path}/approvals'),
         settings: settings,
         osSandbox: false);
     final channel = StreamApprovalChannel();
@@ -90,6 +91,7 @@ void main() {
       final plugin = ToolsPlugin(
           workspaceRoot: workspace.path,
           tinaDir: tina,
+          pathApprovalDirectory: Directory('${root.path}/approvals'),
           mode: mode,
           settings: settings,
           osSandbox: false);
@@ -158,7 +160,8 @@ void main() {
 
   test('grants reject sibling prefixes, symlink escapes and Tina data',
       () async {
-    final plugin = ToolsPlugin(workspaceRoot: workspace.path, tinaDir: tina);
+    final plugin = ToolsPlugin(workspaceRoot: workspace.path, tinaDir: tina,
+        pathApprovalDirectory: Directory('${root.path}/approvals'));
     addTearDown(plugin.closeSession);
     plugin.rememberWriteDirectory(external.path);
     final alias = Link('${external.path}/escape')..createSync(other.path);
@@ -261,7 +264,8 @@ void main() {
         throwsFormatException);
     settings.set(writeDirectoriesSetting, <String>[], SettingScope.workspace);
     final plugin = ToolsPlugin(
-        workspaceRoot: workspace.path, tinaDir: tina, settings: settings);
+        workspaceRoot: workspace.path, tinaDir: tina, settings: settings,
+        pathApprovalDirectory: Directory('${root.path}/approvals'));
     addTearDown(plugin.closeSession);
     plugin.rememberWriteDirectory(external.path);
     expect(plugin.pathGrants.allows(external.path, write: true), isTrue);

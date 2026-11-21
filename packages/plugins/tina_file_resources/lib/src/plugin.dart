@@ -111,10 +111,14 @@ final class FileResourcesPlugin extends AgentPlugin {
   }
 
   @override
+  void prepareTurn(TurnContext c) {
+    lastListing = listing();
+  }
+
+  @override
   void onPrompt(TurnContext c) {
-    final read = listing();
-    lastListing = read;
-    if (read.isEmpty) return; // empty folder, or a missing one: nothing
+    final read = lastListing ?? listing();
+    if (read.isEmpty) return;
     c.promptSections.add(renderSection(read));
   }
 
@@ -128,7 +132,6 @@ final class FileResourcesPlugin extends AgentPlugin {
   /// name → body, or a named error.
   Future<ToolResult> fetch(String name) async {
     final read = listing();
-    lastListing = read;
     if (read.missingDirectory) {
       return ToolResult.error(
           '${ResourcesTool.schemaName}: the resource directory '

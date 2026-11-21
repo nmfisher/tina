@@ -12,5 +12,8 @@ ToolsPluginFactory get nativeToolsPluginFactory => (wiring) => ToolsPlugin(
       protectedPaths: wiring.protectedPaths,
       osSandbox: wiring.osSandbox,
       settings: wiring.settings,
+      pathApprovalDirectory: wiring.pathApprovalDirectory == null
+          ? null
+          : io.Directory(wiring.pathApprovalDirectory!),
       mode: wiring.mode,
     );

@@ -60,6 +60,15 @@ Future<ApprovalDecision> request(ModePlugin mode) => mode.request(
   reason: 'approval required',
 );
 
+void mountWithInputs(ModePlugin mode, List<InputRecordedEntry> inputs) {
+  final loop = AgentLoop(
+    provider: ScriptedProvider([]),
+    plugins: [mode],
+    seedLog: [for (final (i, entry) in inputs.indexed) entry.withSeq(i)],
+  );
+  loop.mountPlugin(mode);
+}
+
 void main() {
   precedentTests();
   test(
@@ -222,6 +231,9 @@ void main() {
         call: ToolUse(id: id, name: 'exec', input: {'command': 'git status'}),
       );
       final release = turn('Cut a new release.', 'release');
+      mountWithInputs(mode, [
+        const InputRecordedEntry(turnId: 'release', text: 'Cut a new release.', human: true),
+      ]);
       mode.onInput(release);
       mode.beforeToolCall(release);
       expect(
@@ -238,6 +250,9 @@ void main() {
       mode.afterToolResult(release);
       mode.onTurnEnd(release);
       final inspect = turn('Inspect the changes only.', 'inspect');
+      mountWithInputs(mode, [
+        const InputRecordedEntry(turnId: 'inspect', text: 'Inspect the changes only.', human: true),
+      ]);
       mode.onInput(inspect);
       mode.beforeToolCall(inspect);
       await request(mode);
@@ -276,12 +291,40 @@ void main() {
     expect(judge.requests.single.containsKey('recent_tool_calls'), false);
   });
 
+  test('a delegated task is separate from the root authorization evidence', () async {
+    final judge = Judge(Future.value(const PermissionJudgment(true)));
+    final root = ModePlugin(mode: PermissionMode.auto);
+    addTearDown(root.closeSession);
+    mountWithInputs(root, [const InputRecordedEntry(
+        turnId: 'root', text: 'Inspect the changes.', human: true)]);
+    final child = ModePlugin(approvals: Human(), classifier: judge)
+      ..inheritPolicy(root);
+    addTearDown(child.closeSession);
+    const delegated = 'Read the documentation and report the findings.';
+    mountWithInputs(child, [const InputRecordedEntry(turnId: 'child', text: delegated)]);
+    child.onInput(TurnContext(CancelToken(),
+        input: const Input(delegated, id: 'child'),
+        messages: [], promptSections: [], pinnedTools: []));
+
+    await request(child);
+    expect(judge.requests.single['user_request'], 'Inspect the changes.');
+    expect(judge.requests.single['delegated_task'], delegated);
+    expect(judge.requests.single['recent_context'], {
+      'user_messages': [{'text': 'Inspect the changes.'}],
+    });
+  });
+
   for (final counts in [(1, 100), (100, 1), (100, 100)]) {
     test('judge history bounds each context list independently: $counts', () async {
       final judge = Judge(Future.value(const PermissionJudgment(true)));
       final mode = ModePlugin(mode: PermissionMode.auto,
           approvals: Human(), classifier: judge);
       addTearDown(mode.closeSession);
+      mountWithInputs(mode, [
+        for (var i = 0; i < counts.$1; i++)
+          InputRecordedEntry(turnId: 'turn-$i', text: 'user $i', human: true),
+        const InputRecordedEntry(turnId: 'notice', text: 'Generated notice'),
+      ]);
       final turn = TurnContext(CancelToken(),
           input: const Input('Continue the task.', id: 'current'),
           messages: [
@@ -321,6 +364,10 @@ void main() {
     // The transcript of the turn whose write to a mistyped volume failed
     // and was cancelled: the correction that follows needs the failed
     // call visible to be understood as answering it, not the retry.
+    mountWithInputs(mode, [
+      const InputRecordedEntry(turnId: 'original', text: 'Update the shop template.', human: true),
+      const InputRecordedEntry(turnId: 'correction', text: 'that path is not correct', human: true),
+    ]);
     final turn = TurnContext(
       CancelToken(),
       input: Input('that path is not correct', id: 'correction'),
@@ -794,6 +841,11 @@ void main() {
           classifier: judge,
         );
         addTearDown(mode.closeSession);
+        mountWithInputs(mode, [const InputRecordedEntry(
+            turnId: 'host', text: 'Read the requested logs.', human: true)]);
+        mode.onInput(TurnContext(CancelToken(),
+            input: const Input('Read the requested logs.', id: 'host'),
+            messages: [], promptSections: [], pinnedTools: []));
         final decision = await mode.request(
           operation: 'run command',
           target: '/bin/bash -c "gh api repos/example/project"',

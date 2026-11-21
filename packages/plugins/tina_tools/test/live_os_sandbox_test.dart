@@ -66,7 +66,8 @@ void main() {
     expect(tools.modePolicy.hasWorkspaceWriteGrant(workspace.path), false);
     tools.rememberWriteDirectory(external.path);
     final outside = '${external.path}/output';
-    final saved = await tools.processRunner.run(write(outside));
+    final saved = await tools.processRunner.run(write(outside),
+        control: ProcessControl(writeDirectories: [external.path]));
     expect(saved, isA<CommandCompleted>(), reason: '$saved');
     expect((saved as CommandCompleted).exitCode, 0, reason: saved.stderr);
     expect(File(outside).readAsStringSync(), 'changed');
@@ -81,7 +82,7 @@ void main() {
     await blocked(clamped,
         control: const ProcessControl(readOnlyRequested: true));
     expect(File(clamped).existsSync(), false);
-    final secretControl = '${workspace.path}/.tina/permissions.json';
+    final secretControl = tools.pathGrants.file!.path;
     final permissions = File(secretControl).readAsStringSync();
     await blocked(secretControl);
     expect(File(secretControl).readAsStringSync(), permissions);

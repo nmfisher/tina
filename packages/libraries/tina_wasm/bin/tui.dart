@@ -122,28 +122,39 @@ final class _TuiRun implements wasi_cli.Run {
     // provider, the assembly — `interactive: true`, because a human is on
     // the other end of this component.
     final preopens = WasmPreopens(imports.filesystemPreopens.getDirectories());
+    final workspace = preopens.workspaceOnly;
+    final configRoot = preopens.configRoot;
+    final configPath = '$configRoot/config';
+    final storeSpec = environment['TINA_ENGINE_STORE'];
     final appIo = await PreloadedAppIo.load(
       preopens,
       imports.filesystemTypes,
-      roots: const ['config', '.tina'],
-      environment: environment,
-      home: 'config',
+      roots: [configRoot, '.tina'],
+      environment: {...environment, 'HOME': configRoot},
+      home: configRoot,
     );
     injectedAppIo = appIo;
+    final backend = PreloadedSettingsBackend(
+      appIo, globalPath: configPath, workspacePath: '.tina/config',
+    );
 
     injectedToolsPluginFactory = (wiring) => PortableToolsPlugin(
-      fileSystem: WasiToolFileSystem(preopens, imports.filesystemTypes),
+      fileSystem: WasiToolFileSystem(workspace, imports.filesystemTypes),
       workspaceRoot: wiring.workspaceRoot,
       mode: wiring.mode,
-      protectedPaths: wiring.protectedPaths,
-      isWithinWorkspace: (path) => preopens.guestRootOf(path) == '.',
+      protectedPaths: [
+        wiring.tinaDirPath,
+        ...WasmPreopens.protectedWorkspacePaths(environment),
+        ...wiring.protectedPaths.where((path) => path != configPath),
+        if (storeSpec != null && workspace.guestRootOf(storeSpec) == '.') storeSpec,
+      ],
+      isWithinWorkspace: (path) => workspace.guestRootOf(path) == '.',
     );
 
     final http = imports.httpClient;
     final envPort = WasmEnvironmentPort(imports.cliEnvironment);
     LlmProvider provider(String model) {
-      final base =
-          environment['TINA_LLM_ENDPOINT'] ?? 'https://api.z.ai/api/anthropic';
+      final base = wasmProviderEndpoint(backend.globalDocument(), environment);
       return AnthropicProvider(
         model: model,
         endpoint: WasmHttpEndpoint(endpoint: base, client: http),
@@ -151,13 +162,6 @@ final class _TuiRun implements wasi_cli.Run {
       );
     }
 
-    final backend = PreloadedSettingsBackend(
-      appIo,
-      globalPath: 'config/config',
-      workspacePath: '.tina/config',
-    );
-
-    final storeSpec = environment['TINA_ENGINE_STORE'];
     final resumeId = environment['TINA_ENGINE_RESUME'];
     final includeRemotePromptPlugin =
         environment['TINA_WASM_PLUGIN_ID'] == RemotePromptPlugin.pluginId;
@@ -193,11 +197,11 @@ final class _TuiRun implements wasi_cli.Run {
     final assembly = SessionAssembly.start(
       providerFactory: provider,
       options: AssemblyOptions(
-        configPath: 'config/config',
+        configPath: configPath,
         workingDirectory: '.',
         storePath: storeSpec,
         sessionId: resumeId,
-        yolo: environment['TINA_ENGINE_YOLO'] != '0',
+        yolo: environment['TINA_ENGINE_YOLO'] == '1',
         interactive: true,
         osSandbox: false,
         approvalChannel: 'tina/approvals-stream',

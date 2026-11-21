@@ -153,17 +153,16 @@ void main() {
       // t1's half-turn is skipped; only t2's completed exchange derives.
       expect(d.messages.length, 2);
       expect((d.messages.first.content.single as TextBlock).text, 'next');
-      expect(d.pendingTurnId, 't1');
-      // The loop that *is* the writer derives mid-turn with the open
-      // turn included: all three messages, same pendingTurnId.
+      expect(d.pendingTurnId, isNull);
+      // While t2 is live, only its pending messages count.
       final mid =
-          deriveSession(log, const SessionSettings(), includePendingTurn: true);
-      expect(mid.messages.length, 3);
+          deriveSession(log.sublist(0, 6), const SessionSettings(), includePendingTurn: true);
+      expect(mid.messages.length, 1);
       expect(
         (mid.messages.first.content.single as TextBlock).text,
-        'half-typed',
+        'next',
       );
-      expect(mid.pendingTurnId, 't1');
+      expect(mid.pendingTurnId, 't2');
     });
 
     test('opaque state snapshots fold by owner and key, including tombstones',

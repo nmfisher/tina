@@ -401,7 +401,7 @@ final class InProcessSessionConnection implements SessionConnection {
       final inputId = 't-${_host.session.loop.seq}-input-${++_host._nextInput}';
       record.setInput(inputId);
       if (_host.session.loop.running) {
-        if (!_host.session.loop.offerInput(Input(line, id: inputId))) {
+        if (!_host.session.loop.offerInput(Input(line, id: inputId, human: _host.context.details.depth == 0))) {
           reject('Session is between turns or stopping; input was not queued.');
         } else {
           _host._changed();
@@ -489,7 +489,11 @@ final class InProcessSessionConnection implements SessionConnection {
       _host._pendingWork.remove(settled);
       settled.complete();
       _host._changed();
-      if (!_host._stopping && !_host.busy) _host.onIdle?.call();
+      if (!_host._stopping && !_host.busy) {
+        _host.onIdle?.call();
+        _host._releaseIdleWaiters();
+        _host._drainNotices();
+      }
     }
   }
 

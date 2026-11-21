@@ -17,92 +17,9 @@ import 'package:tina_core/tina_core.dart';
 import 'package:wasm_components/wasm_components.dart' as cm;
 
 import 'package:tina_wasm/src/components/wasi_filesystem.dart' as fs;
+import 'wasm_preopen_paths.dart';
 
-/// The preopened directories, as the host declared them.
-final class WasmPreopens {
-  WasmPreopens(List<(cm.Owned<fs.TypesDescriptor>, String)> directories)
-      : _directories = directories {
-    // Longest guest path first, so prefix resolution picks the deepest
-    // match ('config/nested' over 'config').
-    _directories.sort(
-      (a, b) => b.$2.length.compareTo(a.$2.length),
-    );
-  }
-
-  final List<(cm.Owned<fs.TypesDescriptor>, String)> _directories;
-
-  /// The preopens as the host declared them: (descriptor, guest path).
-  List<(cm.Owned<fs.TypesDescriptor>, String)> get directories =>
-      List.unmodifiable(_directories);
-
-  /// Resolves [path] against the preopens and returns the descriptor
-  /// plus the remaining path under it, or null when [path] belongs to no
-  /// preopen. Both 'config/settings.toml' and './config/settings.toml'
-  /// resolve; absolute paths resolve when a preopen's guest path matches
-  /// their prefix. Paths containing a `..` segment never resolve.
-  (cm.Owned<fs.TypesDescriptor>, String)? resolve(String path) => _resolve(path);
-
-  /// The guest path of the preopen [path] belongs to (the workspace is
-  /// '.'), or null when no preopen owns it — the containment answer for
-  /// permission boundaries: a path inside the workspace preopen is a
-  /// workspace path, everything else is outside.
-  String? guestRootOf(String path) {
-    var candidate = path;
-    if (candidate.startsWith('/')) {
-      for (final (_, guestPath) in _directories) {
-        if (candidate == guestPath) return guestPath;
-        final root = guestPath.endsWith('/') ? guestPath : '$guestPath/';
-        if (candidate.startsWith(root)) return guestPath;
-      }
-      return null;
-    }
-    while (candidate.startsWith('./')) {
-      candidate = candidate.substring(2);
-    }
-    if (_hasDotDot(candidate)) return null;
-    for (final (_, guestPath) in _directories) {
-      if (guestPath == '.' || guestPath.isEmpty) return guestPath;
-      if (candidate == guestPath) return guestPath;
-      final root = guestPath.endsWith('/') ? guestPath : '$guestPath/';
-      if (candidate.startsWith(root)) return guestPath;
-    }
-    return null;
-  }
-
-  (cm.Owned<fs.TypesDescriptor>, String)? _resolve(String path) {
-    var candidate = path;
-    if (candidate.startsWith('/')) {
-      // Absolute: match a preopen guest path prefix.
-      for (final (descriptor, guestPath) in _directories) {
-        if (candidate == guestPath) return (descriptor, '.');
-        final root = guestPath.endsWith('/') ? guestPath : '$guestPath/';
-        if (candidate.startsWith(root)) {
-          return (descriptor, candidate.substring(root.length));
-        }
-      }
-      return null;
-    }
-    while (candidate.startsWith('./')) {
-      candidate = candidate.substring(2);
-    }
-    if (_hasDotDot(candidate)) return null;
-    for (final (descriptor, guestPath) in _directories) {
-      if (guestPath == '.' || guestPath.isEmpty) {
-        // The working-directory preopen owns every relative path.
-        return (descriptor, candidate);
-      }
-      if (candidate == guestPath) return (descriptor, '.');
-      final root = guestPath.endsWith('/') ? guestPath : '$guestPath/';
-      if (candidate.startsWith(root)) {
-        return (descriptor, candidate.substring(root.length));
-      }
-    }
-    return null;
-  }
-}
-
-bool _hasDotDot(String path) =>
-    path.split('/').any((segment) => segment == '..');
+typedef WasmPreopens = WasmPreopenPaths<cm.Owned<fs.TypesDescriptor>>;
 
 /// [FileSystemPort] over WASI preopens. Throws on missing/unwritable
 /// paths like `dart:io` does - callers catch.
@@ -234,7 +151,7 @@ final class WasmFileSystemPort implements FileSystemPort {
   }
 
   (cm.Owned<fs.TypesDescriptor>, String) _mustResolve(String path) {
-    final resolved = _preopens._resolve(path);
+    final resolved = _preopens.resolve(path);
     if (resolved == null) {
       throw PathException._(
         'path outside the preopened directories: $path',

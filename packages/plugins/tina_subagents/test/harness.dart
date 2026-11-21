@@ -106,8 +106,8 @@ import 'package:tina_tools/tina_tools.dart';
   // The plugin constructed after Host.start mounts itself on the loop —
   // exactly what a composition that builds the plugin from a live
   // session does.
-  plugin.mountOn(host.session.loop);
   host.session.loop.addPlugin(plugin);
+  host.session.loop.mountPlugin(plugin);
   return (
     host: host,
     plugin: plugin,

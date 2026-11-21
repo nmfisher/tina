@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'scoped_config.dart' show ConfigSettingsBackend;
 import 'assembly.dart';
 import 'config_settings_management.dart';
 import 'plugin_build_contribution.dart';
@@ -72,7 +71,7 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
                       access: connection.access,
                       commandApprovals: assembly.tools.commandApprovals,
                       scopedSettings: assembly.settings,
-                      backend: assembly.settingsBackend as ConfigSettingsBackend,
+                      backend: assembly.settingsBackend,
                       applyConfiguration: assembly.applySavedConfiguration,
                       listenConfiguration: assembly.listenSettings,
                       descriptors: assembly.descriptors,
@@ -80,13 +79,15 @@ SessionPresentation presentationForAssembly(SessionAssembly assembly,
                       pluginDescriptions:
                           pluginDescriptions(assembly.pluginSettings.registry),
                       pluginSettings: assembly.pluginSettings,
-                      pluginManager: assembly.pluginManager,
-                      workspace: assembly.workingDirectory));
-              return saved
-                  ? assembly.settings.applicationErrors.isEmpty
-                      ? 'Settings saved. Request settings affect the next request; plugin changes may wait for idle or restart.'
-                      : 'Settings saved, but some changes could not apply. Reopen Settings for details.'
-                  : 'Settings closed.';
+                      pluginManager: assembly.pluginManager));
+              if (!saved) return 'Settings closed.';
+              if (assembly.settings.applicationErrors.isNotEmpty) {
+                return 'Some settings changes could not apply. Reopen Settings for details.';
+              }
+              if (!assembly.settingsBackend.persistsConfiguration) {
+                return 'Settings updated for this Wasm session. Use the native settings editor for durable configuration.';
+              }
+              return 'Settings saved. Request settings affect the next request; plugin changes may wait for idle or restart.';
             },
             repaint: panel.repaint,
             close: panel.cancel);

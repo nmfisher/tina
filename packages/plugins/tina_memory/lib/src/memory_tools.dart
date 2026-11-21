@@ -88,7 +88,7 @@ final class MemoryTools {
         ),
         ToolSchema(
           name: 'memory_forget',
-          description: 'Delete one memory entry by id (from memory_recall '
+          description: 'Delete one memory entry by scope and id (from memory_recall '
               'or the injected memory block). Use when an entry is wrong '
               'beyond revision. Deleting is immediate and durable.',
           inputSchema: const {
@@ -98,7 +98,12 @@ final class MemoryTools {
                 'type': 'integer',
                 'minimum': 1,
                 'description': 'The entry id to delete.'
-              }
+              },
+              'scope': {
+                'type': 'string',
+                'enum': ['project', 'global'],
+                'description': 'The scope shown beside the entry id.'
+              },
             },
             'required': ['id']
           },
@@ -198,7 +203,20 @@ final class MemoryTools {
 
   ToolResult _forget(Map<String, Object?> input) {
     final id = _integer(input, 'id', 0, 1, 1 << 31);
-    final deleted = pair.project.forget(id) ?? pair.global.forget(id);
+    final scope = _string(input, 'scope');
+    final store = switch (scope) {
+      'project' => pair.project,
+      'global' => pair.global,
+      null => null,
+      _ => throw const FormatException('scope must be project or global'),
+    };
+    final project = store == null ? pair.project.entry(id) : null;
+    final global = store == null ? pair.global.entry(id) : null;
+    if (project != null && global != null) {
+      return ToolResult.error('Memory #$id exists in both scopes. Specify scope.');
+    }
+    final target = store ?? (project != null ? pair.project : global != null ? pair.global : null);
+    final deleted = target?.forget(id);
     if (deleted == null) {
       return ToolResult.error('no memory entry #$id');
     }

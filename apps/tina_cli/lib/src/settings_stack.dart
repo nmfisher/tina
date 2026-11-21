@@ -5,6 +5,7 @@ import 'assembly_config.dart';
 import 'session_context.dart';
 import 'settings_catalog.dart';
 import 'native_kinds.dart' show ConfigSettingsBackend;
+import 'settings_surface.dart' show CatalogSettingsBackend;
 import 'settings_stack_unsupported.dart'
     if (dart.library.io) 'settings_stack_io.dart';
 
@@ -75,6 +76,9 @@ final class ScopedSettingsStack {
     // backend, or an injected one (the wasm engine's preloaded backend,
     // which implements the same surface).
     final configBackend = resolvedBackend as ConfigSettingsBackend;
+    if (resolvedBackend case final CatalogSettingsBackend source) {
+      source.bindCatalog(catalog);
+    }
     final settings = ScopedSettings(catalog: catalog, backend: configBackend);
     return ScopedSettingsStack._(
         registry: resolvedRegistry,

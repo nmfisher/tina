@@ -204,28 +204,24 @@ void attachModePolicy(ToolsPlugin plugin) {
               PermissionTargetKind.unknown),
     ];
     final details = reviewPaths(accesses);
-    String? prefixUnavailable;
-    CommandExactPlan? exact() => CommandExactPlan.parse(request,
-        workspace: root,
-        sandboxHomeRoot:
-            review.requiredPermissions.contains(ProcessPermission.unconfined)
-                ? null
-                : plugin.home?.stateRoot,
-        searchPath: request.environment?['PATH'] ?? plugin.osPlan.searchPath);
-    final exactPlan = exact();
-    final prefixes = CommandPrefixPlan.parse(request,
-        onUnavailable: (reason) => prefixUnavailable = reason,
-        workspace: root,
-        sandboxHomeRoot:
-            review.requiredPermissions.contains(ProcessPermission.unconfined)
-                ? null
-                : plugin.home?.stateRoot,
-        searchPath: request.environment?['PATH'] ?? plugin.osPlan.searchPath);
-    final commandDescription = describeCommandRequest(request);
     final unconfined =
         review.requiredPermissions.contains(ProcessPermission.unconfined);
     final network =
         review.requiredPermissions.contains(ProcessPermission.network);
+    String? prefixUnavailable;
+    CommandExactPlan? exact() => unconfined
+        ? null
+        : CommandExactPlan.parse(request,
+            workspace: root,
+            sandboxHomeRoot: plugin.home?.stateRoot,
+            searchPath: request.environment?['PATH'] ?? plugin.osPlan.searchPath);
+    final exactPlan = exact();
+    final prefixes = unconfined || network ? null : CommandPrefixPlan.parse(request,
+        onUnavailable: (reason) => prefixUnavailable = reason,
+        workspace: root,
+        sandboxHomeRoot: plugin.home?.stateRoot,
+        searchPath: request.environment?['PATH'] ?? plugin.osPlan.searchPath);
+    final commandDescription = describeCommandRequest(request);
     final description = ToolDescription(
       title:
           '${commandDescription.title}${unconfined ? ' outside sandbox' : network ? ' with network access' : ''}',
@@ -292,10 +288,7 @@ void attachModePolicy(ToolsPlugin plugin) {
       if (prefixes == null ||
           CommandPrefixPlan.parse(request,
                       workspace: root,
-                      sandboxHomeRoot: review.requiredPermissions
-                              .contains(ProcessPermission.unconfined)
-                          ? null
-                          : plugin.home?.stateRoot,
+                      sandboxHomeRoot: plugin.home?.stateRoot,
                       searchPath: request.environment?['PATH'] ??
                           plugin.osPlan.searchPath)
                   ?.identity !=

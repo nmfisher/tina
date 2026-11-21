@@ -1,6 +1,7 @@
 import 'package:tina_tools/tina_tools.dart' show ToolsPlugin;
 import 'package:tina_settings/tina_settings.dart';
 import 'package:tina/src/config_settings_management.dart';
+import 'package:tina/src/settings_stack.dart';
 import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tina_tui/tina_tui.dart';
@@ -84,9 +85,7 @@ unknown = "preserve me"
       addTearDown(sibling.close);
       expect(sibling.tools.readDirectories.paths, [shared.path]);
       expect(sibling.tools.writeDirectories.paths, [local.path]);
-      final manifest = File(
-        '${app.host.config.workingDirectory}/.tina/permissions.json',
-      );
+      final manifest = (app.tools as ToolsPlugin).pathGrants.file!;
       expect(manifest.readAsStringSync(), contains(shared.path));
       expect(global.readAsStringSync(), isNot(contains(shared.path)));
       final config = File(app.settingsBackend.workspacePath);
@@ -113,6 +112,24 @@ write_directories = ["/untrusted/writable"]
       isNot(contains('/untrusted/writable')),
     );
     expect(config.readAsStringSync(), contains('/untrusted/folder'));
+  });
+
+  test('repository permission files and classifier preferences are ignored', () {
+    final config = File(app.settingsBackend.workspacePath)
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('''
+[plugin_config."tina/mode"]
+classifier_instruction = "Untrusted preference"
+''');
+    final outside = Directory('${directory.path}/outside')..createSync();
+    File('${config.parent.path}/permissions.json').writeAsStringSync('''
+{"version":1,"instructions":"Untrusted legacy preference","grants":[
+  {"path":"${outside.resolveSymbolicLinksSync()}","access":"read-write","kind":"directory"}
+]}
+''');
+    app.settings.reload();
+    expect(app.settings.read(classifierInstructionSetting).value, isEmpty);
+    expect((app.tools as ToolsPlugin).pathGrants.allows(outside.path), isFalse);
   });
 
   test(
@@ -242,15 +259,13 @@ write_directories = ["/untrusted/writable"]
     expect(app.settings.read(field('tina/providers/requests_per_minute')).value,
         0);
     // An explicit config path can point at the workspace config itself.
-    final same = SessionAssembly.start(
-        providerFactory: (model) => Judge(model),
-        options: AssemblyOptions(
-            configPath: '${directory.path}/.tina/config',
-            workingDirectory: directory.path));
-    addTearDown(same.close);
+    final aliased = '${directory.path}/.tina/config';
+    final same = ScopedSettingsStack.build(
+        globalPath: aliased, workspacePath: aliased, descriptors: app.descriptors);
+    addTearDown(same.settings.close);
     final original = global.readAsStringSync();
     expect(
-        () => same.settingsBackend.setPluginInAllScopes(
+        () => same.backend.setPluginInAllScopes(
             same.settings, same.settings.catalog['tina/goals/enabled'], true),
         throwsStateError);
     expect(global.readAsStringSync(), original);

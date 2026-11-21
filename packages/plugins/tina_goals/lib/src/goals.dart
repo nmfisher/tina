@@ -287,15 +287,24 @@ final class GoalsPlugin extends AgentPlugin {
     if (_loop != null) return;
     _loop = loop;
     _writer = loop.stateWriter(id);
-    for (final e in loop.log
-        .whereType<PluginStateEntry>()
-        .where(GoalChangedEntry.matches)
-        .map(GoalChangedEntry.decode)) {
-      goal = e.text.isEmpty
+    void restoreGoal() {
+      final latest = activeLog(loop.log)
+          .whereType<PluginStateEntry>()
+          .where(GoalChangedEntry.matches)
+          .map(GoalChangedEntry.decode)
+          .lastOrNull;
+      goal = latest == null || latest.text.isEmpty
           ? null
-          : SessionGoal(text: e.text, verdict: e.verdict, evidence: e.evidence);
+          : SessionGoal(text: latest.text, verdict: latest.verdict, evidence: latest.evidence);
     }
+    restoreGoal();
     _subscription = loop.subscribe((entry, event) {
+      if (event != LogEvent.appended) return;
+      if (entry is CutEntry) {
+        _judgeCancel?.cancel('goal rewound');
+        restoreGoal();
+        return;
+      }
       if (GoalChangedEntry.matches(entry)) {
         final decoded = GoalChangedEntry.decode(entry as PluginStateEntry);
         goal = decoded.text.isEmpty
@@ -305,7 +314,7 @@ final class GoalsPlugin extends AgentPlugin {
                 verdict: decoded.verdict,
                 evidence: decoded.evidence);
       }
-      if (event == LogEvent.appended && entry is TurnEndedEntry) {
+      if (entry is TurnEndedEntry) {
         // The turn-quality guard: only a completed turn is evidence. The
         // judge runs off-completion; its own failures are silent.
         if (entry.reason == TurnStopReason.complete && goal != null) {

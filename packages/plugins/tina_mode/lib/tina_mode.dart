@@ -37,11 +37,25 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   PermissionMode _mode;
   late final ModeObservation observation = _ModeObservation(this);
   void Function(PluginStateEntry)? _writeState;
+  AgentLoop? _loop;
+  AgentLoop? _permissionLoop;
+  List<InputRecordedEntry>? _delegatingInputs;
+  bool get isDelegated => _delegatingInputs != null;
   @override
   void mountOn(AgentLoop loop) => mountPolicy(loop, ownerId: id);
 
   String _stateOwner = 'tina/mode';
   void mountPolicy(AgentLoop loop, {required String ownerId}) {
+    _loop = loop;
+    if (!isDelegated) {
+      _permissionLoop = loop;
+      loop.subscribe((entry, event) {
+        if (event != LogEvent.appended) return;
+        if (entry is CutEntry) {
+          _workspaceWrites.removeWhere((_, seq) => seq >= entry.toSeq);
+        }
+      });
+    }
     _stateOwner = ownerId;
     // yolo is a launch-time override: it is never persisted, and restored
     // session state must not overwrite it.
@@ -79,6 +93,8 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   /// Children follow the parent's live permission ceiling.
   void inheritPolicy(ModePlugin parent) {
     _stopParent?.call();
+    _delegatingInputs = parent._humanInputs();
+    _permissionLoop = parent._permissionLoop;
     _workspaceWrites = parent._workspaceWrites;
     _workspaceWriteRequests = parent._workspaceWriteRequests;
     mode = parent.mode;
@@ -158,9 +174,9 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
   };
 
   // Session state shared with child agents, never restored from disk.
-  Set<String> _workspaceWrites = {};
+  Map<String, int> _workspaceWrites = {};
   Map<String, Future<bool>> _workspaceWriteRequests = {};
-  bool hasWorkspaceWriteGrant(String root) => _workspaceWrites.contains(root);
+  bool hasWorkspaceWriteGrant(String root) => _workspaceWrites.containsKey(root);
   Future<bool> ensureWorkspaceWrite(String root) {
     if (hasWorkspaceWriteGrant(root)) return Future.value(true);
     return _workspaceWriteRequests.putIfAbsent(root, () async {
@@ -185,7 +201,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
           },
         );
         final allowed = answer != ApprovalDecision.deny;
-        if (allowed) _workspaceWrites.add(root);
+        if (allowed) _workspaceWrites[root] = (_permissionLoop?.seq ?? 0) - 1;
         return allowed;
       } finally {
         _workspaceWriteRequests.remove(root);
@@ -410,12 +426,25 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       return ApprovalDecision.deny;
     }
     if (resolution.route == AuthorizationRoute.allow) {
-      if (ruleGranted) _noticeMcpRule(mcpRule);
+      if (ruleGranted) {
+        final server = context['mcp_server'];
+        final tool = context['mcp_tool'];
+        _noticeMcpRule(mcpRule,
+            label: server is String && tool is String ? '$server/$tool' : mcpRule);
+      }
       return ApprovalDecision.allow;
     }
-    final requireHuman =
-        humanOnly || resolution.route == AuthorizationRoute.human;
     final call = _call;
+    final humanInputs = turn == null ? const <InputRecordedEntry>[] : _humanInputs();
+    final currentHumanInput = humanInputs.firstOrNull;
+    final userRequest = _delegatingInputs != null ||
+            turn?.input.id == currentHumanInput?.turnId
+        ? currentHumanInput?.text
+        : null;
+    final requireHuman = humanOnly ||
+        resolution.route == AuthorizationRoute.human ||
+        humanInputs.isEmpty && canonical.requirements.any((requirement) =>
+            requirement.capability == AccessCapability.host);
     final requiredPermissions = context['required_permissions'];
     final cacheKey = jsonEncode([
       operation, requireHuman,
@@ -438,6 +467,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     // The evidence map is assembled once: the judge sees it, and precedents
     // are keyed by exactly the same fields.
     Map<String, Object?> requestEvidence() {
+      final recentTools = _recentContext(turn);
       final base = <String, Object?>{
         'operation': operation,
         'target': target,
@@ -447,14 +477,23 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
         'authorization_reason': resolution.reason,
         // Owned by the active turn, not the tool's justification or
         // caller-supplied context. Null means no current user request.
-        'user_request': turn?.input.text,
+        'user_request': userRequest,
+        if (humanInputs.isNotEmpty) 'recent_context': {
+          'user_messages': [
+            for (final entry in humanInputs.reversed)
+              {'text': _clip(entry.text, 500)},
+          ],
+        },
+        'delegated_task': _delegatingInputs == null ? null : turn?.input.text,
         if (_call != null) 'tool': {'name': _call!.name, 'input': _call!.input},
         // The conversation tail before this request: what a user
         // correction refers to. Without it, "that path is not
         // correct" denies the corrected retry because the judge
         // cannot see the failed call it answered.
-        ...?_recentContext(turn),
+        ...?recentTools,
       };
+      if (humanInputs.isEmpty) base.remove('recent_context');
+      if (recentTools == null) base.remove('recent_tool_calls');
       return {...base, ...?_precedentEvidence(base)};
     }
 
@@ -627,7 +666,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
 
   /// One notice per turn per rule: the first grant-answered MCP call in a
   /// turn says which rule allowed it, later calls stay quiet.
-  void _noticeMcpRule(String rule) {
+  void _noticeMcpRule(String rule, {required String label}) {
     final turnId = _turn?.input.id;
     if (turnId == null) return;
     if (_mcpNoticeTurn != turnId) {
@@ -635,21 +674,33 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       _mcpRulesNoticed.clear();
     }
     if (!_mcpRulesNoticed.add(rule)) return;
-    terminal?.writeln('use MCP tool allowed by rule $rule');
+    terminal?.writeln('use MCP tool allowed by rule $label');
   }
 
+  List<InputRecordedEntry> _humanInputs() {
+    if (_delegatingInputs case final inputs?) return inputs;
+    final loop = _loop;
+    if (loop == null) return const [];
+    final inputs = <InputRecordedEntry>[];
+    for (final entry in activeLog(loop.log).reversed) {
+      if (entry is ContextClearedEntry || inputs.length == 3) break;
+      if (entry is InputRecordedEntry && entry.human) inputs.add(entry);
+    }
+    return inputs;
+  }
+
+  static String _clip(String text, int limit) =>
+      text.length <= limit ? text : '${text.substring(0, limit)}…';
+
   /// The conversation tail for the judge, or null when there is nothing
-  /// recent to resolve. Keeps the last few user texts and tool calls so a
+  /// recent to resolve. Keeps the last few tool calls so a
   /// correction ("that path is not correct") can be matched to the call it
   /// answers — while excluding the tool result payloads and file dumps the
   /// conversation carries, which the judge does not need and which bloat
   /// the request with unneeded file contents.
   Map<String, Object?>? _recentContext(TurnContext? turn) {
     if (turn == null) return null;
-    final users = <Map<String, Object?>>[];
     final tools = <Map<String, Object?>>[];
-    String clip(String text, int limit) =>
-        text.length <= limit ? text : '${text.substring(0, limit)}…';
     // Outcomes by toolUseId, so each recent call carries what actually
     // happened: the judge sees "the write to the wrong volume FAILED",
     // not just that it happened.
@@ -658,36 +709,25 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
       for (final block in message.content) {
         if (block is! ToolResultBlock) continue;
         outcomes[block.toolUseId] = block.isError
-            ? {'error': clip(block.content.trim(), 300)}
+            ? {'error': _clip(block.content.trim(), 300)}
             : const {'ok': true};
       }
     }
     for (final message in turn.messages.reversed) {
-      if (users.length >= 3 && tools.length >= 3) break;
+      if (tools.length >= 3) break;
       for (final block in message.content.reversed) {
-        if (users.length >= 3 && tools.length >= 3) break;
-        if (users.length < 3 &&
-            block is TextBlock &&
-            message.role == Role.user) {
-          final text = clip(block.text.trim(), 500);
-          if (text.isNotEmpty) {
-            users.add({'text': text});
-          }
-        } else if (tools.length < 3 && block is ToolUseBlock) {
+        if (tools.length >= 3) break;
+        if (block is ToolUseBlock) {
           tools.add({
             'name': block.name,
-            'input': clip(block.input.toString(), 300),
+            'input': _clip(block.input.toString(), 300),
             ...?outcomes[block.id],
           });
         }
       }
     }
-    if (users.isEmpty && tools.isEmpty) return null;
-    return {
-      if (users.isNotEmpty)
-        'recent_context': {'user_messages': users.reversed.toList()},
-      if (tools.isNotEmpty) 'recent_tool_calls': tools.reversed.toList(),
-    };
+    if (tools.isEmpty) return null;
+    return {'recent_tool_calls': tools.reversed.toList()};
   }
 
   @override
@@ -720,6 +760,7 @@ class ModePlugin extends AgentPlugin implements ModeControl, ModePolicySource {
     _closed = true;
     _revision++;
     _stopParent?.call();
+    _loop = null;
     _writeState = null;
     _closedSignal.complete();
     _listeners.clear();

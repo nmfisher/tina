@@ -5,6 +5,7 @@
 /// paths outside preopens refused).
 library;
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:tina_tools/portable_tools.dart' as tools;
@@ -19,11 +20,15 @@ final class WasiToolFileSystem implements tools.FileSystem {
 
   final WasmPreopens _preopens;
   final fs.Types _fs;
+  int _temporarySequence = 0;
 
   (cm.Owned<fs.TypesDescriptor>, String) _resolve(String path) {
     final resolved = _preopens.resolve(path);
     if (resolved == null) {
-      throw tools.ToolFsException('path outside the preopened directories', path);
+      throw tools.ToolFsException(
+        'path outside the preopened directories',
+        path,
+      );
     }
     return resolved;
   }
@@ -33,46 +38,102 @@ final class WasiToolFileSystem implements tools.FileSystem {
     bool read = false,
     bool write = false,
     bool create = false,
-    bool directory = false,
+    bool truncate = false,
+  }) => _withParent(
+    path,
+    (root, name) => _openAt(
+      root,
+      name,
+      path,
+      open: fs.TypesOpenFlags(0).withCreate(create).withTruncate(truncate),
+      access: fs.TypesDescriptorFlags(0).withRead(read).withWrite(write),
+    ),
+  );
+
+  Future<cm.Owned<fs.TypesDescriptor>> _openAt(
+    cm.Owned<fs.TypesDescriptor> root,
+    String name,
+    String path, {
+    required fs.TypesOpenFlags open,
+    required fs.TypesDescriptorFlags access,
   }) async {
-    final (root, relative) = _resolve(path);
     final opened = await _fs.methodDescriptorOpenAt(
       self: root.borrow(),
-      pathFlags: fs.TypesPathFlags(0).withSymlinkFollow(true),
-      path: relative,
-      openFlags: directory
-          ? fs.TypesOpenFlags(0).withDirectory(true)
-          : fs.TypesOpenFlags(0).withCreate(create).withTruncate(false),
-      flags: fs.TypesDescriptorFlags(0).withRead(read).withWrite(write),
+      pathFlags: fs.TypesPathFlags(0),
+      path: name,
+      openFlags: open,
+      flags: access,
     );
     switch (opened) {
       case cm.OkResult(:final value):
         return value;
       case cm.ErrorResult(:final value):
-        throw tools.ToolFsException('open $path failed', path, value.toString());
+        throw tools.ToolFsException(
+          'open $path failed',
+          path,
+          value.toString(),
+        );
+    }
+  }
+
+  // Walk using directory descriptors and never follow project symlinks. Each
+  // operation stays bound to the directories it opened even if a name moves.
+  Future<T> _withParent<T>(
+    String path,
+    Future<T> Function(cm.Owned<fs.TypesDescriptor>, String) use, {
+    bool createParents = false,
+  }) async {
+    final (root, relative) = _resolve(path);
+    final parts = relative.split('/');
+    var parent = root;
+    try {
+      for (final segment in parts.take(parts.length - 1)) {
+        if (createParents) {
+          await _createAt(parent, segment, path, existOkay: true);
+        }
+        final next = await _openAt(
+          parent,
+          segment,
+          path,
+          open: fs.TypesOpenFlags(0).withDirectory(true),
+          access: fs.TypesDescriptorFlags(0).withRead(true),
+        );
+        if (!identical(parent, root)) parent.drop();
+        parent = next;
+      }
+      return await use(parent, parts.last);
+    } finally {
+      if (!identical(parent, root)) parent.drop();
     }
   }
 
   @override
-  Future<bool> fileExists(String path) async => _exists(path, wantDirectory: false);
+  Future<bool> fileExists(String path) async =>
+      _exists(path, wantDirectory: false);
 
   @override
   Future<bool> directoryExists(String path) async =>
       _exists(path, wantDirectory: true);
 
   Future<bool> _exists(String path, {required bool wantDirectory}) async {
-    final (root, relative) = _resolve(path);
-    final stat = await _fs.methodDescriptorStatAt(
-      self: root.borrow(),
-      pathFlags: fs.TypesPathFlags(0).withSymlinkFollow(true),
-      path: relative,
-    );
-    return switch (stat) {
-      cm.OkResult(value: final value) when wantDirectory =>
-        value.type is fs.TypesDescriptorTypeDirectory,
-      cm.OkResult() => true,
-      cm.ErrorResult() => false,
-    };
+    try {
+      return await _withParent(path, (parent, name) async {
+        final stat = await _fs.methodDescriptorStatAt(
+          self: parent.borrow(),
+          pathFlags: fs.TypesPathFlags(0),
+          path: name,
+        );
+        return switch (stat) {
+          cm.OkResult(:final value) when wantDirectory =>
+            value.type is fs.TypesDescriptorTypeDirectory,
+          cm.OkResult(:final value) =>
+            value.type is fs.TypesDescriptorTypeRegularFile,
+          cm.ErrorResult() => false,
+        };
+      });
+    } on tools.ToolFsException {
+      return false;
+    }
   }
 
   @override
@@ -94,7 +155,11 @@ final class WasiToolFileSystem implements tools.FileSystem {
         case cm.OkResult():
           break;
         case cm.ErrorResult(:final value):
-          throw tools.ToolFsException('read $path failed', path, value.toString());
+          throw tools.ToolFsException(
+            'read $path failed',
+            path,
+            value.toString(),
+          );
       }
       final out = Uint8List(length);
       var offset = 0;
@@ -110,22 +175,26 @@ final class WasiToolFileSystem implements tools.FileSystem {
 
   @override
   Future<String> readFileString(String path) async =>
-      String.fromCharCodes(await readFileBytes(path));
+      utf8.decode(await readFileBytes(path));
 
   @override
   Future<void> writeFile(String path, String content) async {
-    final file = await _open(path, read: true, write: true, create: true);
+    final file = await _open(path, write: true, create: true, truncate: true);
     try {
       final done = _fs.methodDescriptorWriteViaStream(
         self: file.borrow(),
-        data: Stream.value(Uint8List.fromList(content.codeUnits)),
+        data: Stream.value(utf8.encode(content)),
         offset: 0,
       );
       switch (await done) {
         case cm.OkResult():
           break;
         case cm.ErrorResult(:final value):
-          throw tools.ToolFsException('write $path failed', path, value.toString());
+          throw tools.ToolFsException(
+            'write $path failed',
+            path,
+            value.toString(),
+          );
       }
     } finally {
       file.drop();
@@ -133,65 +202,48 @@ final class WasiToolFileSystem implements tools.FileSystem {
   }
 
   @override
-  Future<void> createDirectory(String path, {bool recursive = false}) async {
-    final (root, relative) = _resolve(path);
-    if (!recursive) {
-        final made = await _fs.methodDescriptorCreateDirectoryAt(
-        self: root.borrow(),
-        path: relative,
+  Future<void> createDirectory(String path, {bool recursive = false}) =>
+      _withParent(
+        path,
+        (root, name) => _createAt(root, name, path, existOkay: recursive),
+        createParents: recursive,
       );
-      _ok(made, path, 'create directory');
+
+  Future<void> _createAt(
+    cm.Owned<fs.TypesDescriptor> root,
+    String name,
+    String path, {
+    required bool existOkay,
+  }) async {
+    final made = await _fs.methodDescriptorCreateDirectoryAt(
+      self: root.borrow(),
+      path: name,
+    );
+    if (made case cm.ErrorResult(value: fs.TypesErrorCodeExist())
+        when existOkay)
       return;
-    }
-    // Walk the segments like the file port does.
-    var built = '';
-    for (final segment in relative.split('/').where((s) => s.isNotEmpty)) {
-      built = built.isEmpty ? segment : '$built/$segment';
-      final made = await _fs.methodDescriptorCreateDirectoryAt(
-        self: root.borrow(),
-        path: built,
-      );
-      switch (made) {
-        case cm.OkResult():
-          break;
-        case cm.ErrorResult(:final value):
-          if (value is! fs.TypesErrorCodeExist) _ok(made, path, 'create directory');
-      }
-    }
+    _ok(made, path, 'create directory');
   }
 
   @override
-  Future<void> rename(String from, String to) async {
-    // `rename-at` names the old entry from the directory that holds it.
-    final slash = from.lastIndexOf('/');
-    final fromDir = slash > 0 ? from.substring(0, slash) : '.';
-    final parent = await _open(fromDir.isEmpty ? '.' : fromDir,
-        read: true, directory: true);
-    try {
-      final (destRoot, destRelative) = _resolve(to);
+  Future<void> rename(String from, String to) => _withParent(
+    from,
+    (source, oldName) => _withParent(to, (destination, newName) async {
       final renamed = await _fs.methodDescriptorRenameAt(
-        self: parent.borrow(),
-        oldPath: _lastOf(from),
-        newDescriptor: destRoot.borrow(),
-        newPath: destRelative,
+        self: source.borrow(),
+        oldPath: oldName,
+        newDescriptor: destination.borrow(),
+        newPath: newName,
       );
       _ok(renamed, from, 'rename');
-    } finally {
-      parent.drop();
-    }
-  }
-
-  String _lastOf(String path) {
-    final parts = path.split('/').where((s) => s.isNotEmpty).toList();
-    return parts.isEmpty ? '.' : parts.last;
-  }
+    }),
+  );
 
   @override
-  Future<void> delete(String path) async {
-    final (root, relative) = _resolve(path);
+  Future<void> delete(String path) => _withParent(path, (root, name) async {
     final removed = await _fs.methodDescriptorUnlinkFileAt(
       self: root.borrow(),
-      path: relative,
+      path: name,
     );
     switch (removed) {
       case cm.OkResult():
@@ -200,30 +252,57 @@ final class WasiToolFileSystem implements tools.FileSystem {
         // A missing file is already deleted, like the native seam.
         if (value is! fs.TypesErrorCodeNoEntry) _ok(removed, path, 'delete');
     }
-  }
+  });
 
   @override
   Future<String> createTempFile({required String near}) async {
-    // The preopened workspace is one real filesystem: a sibling name is
-    // as atomic as the parent allows. Random suffix, capped attempts —
-    // same contract as the native implementation.
+    // Reserve a sibling atomically so only this operation owns its cleanup.
     final slash = near.lastIndexOf('/');
-    final dir = slash > 0 ? near.substring(0, slash) : '.';
-    final base = slash >= 0 ? near.substring(slash + 1) : near;
+    final prefix = slash >= 0 ? near.substring(0, slash + 1) : '';
+    final stamp = DateTime.now().microsecondsSinceEpoch;
     for (var attempt = 0; attempt < 10; attempt++) {
-      final name = '.tina-write-$base-$attempt-${DateTime.now().microsecondsSinceEpoch % 1000000}';
-      final candidate = dir.isEmpty ? name : '$dir/$name';
-      if (!await fileExists(candidate)) return candidate;
+      final candidate = '$prefix.tina-write-$stamp-${_temporarySequence++}';
+      final opened = await _withParent(
+        candidate,
+        (root, name) => _fs.methodDescriptorOpenAt(
+          self: root.borrow(),
+          pathFlags: fs.TypesPathFlags(0),
+          path: name,
+          openFlags: fs.TypesOpenFlags(0).withCreate(true).withExclusive(true),
+          flags: fs.TypesDescriptorFlags(0).withWrite(true),
+        ),
+      );
+      switch (opened) {
+        case cm.OkResult(:final value):
+          value.drop();
+          return candidate;
+        case cm.ErrorResult(:final value):
+          if (value is! fs.TypesErrorCodeExist) {
+            throw tools.ToolFsException(
+              'cannot reserve temporary file',
+              candidate,
+              value.toString(),
+            );
+          }
+      }
     }
-    return near;
+    throw tools.ToolFsException('cannot reserve temporary file', near);
   }
 
-  void _ok(cm.Result<void, fs.TypesErrorCode> result, String path, String doing) {
+  void _ok(
+    cm.Result<void, fs.TypesErrorCode> result,
+    String path,
+    String doing,
+  ) {
     switch (result) {
       case cm.OkResult():
         break;
       case cm.ErrorResult(:final value):
-        throw tools.ToolFsException('$doing $path failed', path, value.toString());
+        throw tools.ToolFsException(
+          '$doing $path failed',
+          path,
+          value.toString(),
+        );
     }
   }
 }

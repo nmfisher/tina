@@ -59,6 +59,10 @@ redirects are not followed and failed tool calls are never replayed automaticall
 ## Consumed configuration
 
 Only `[mcp.servers.<name>]` tables are supported. Unknown MCP keys are rejected.
+Local MCP subprocesses receive a small baseline environment plus the values
+in their `env` table. Map a required host variable explicitly with a value
+such as `SERVICE_TOKEN = "${MY_SERVICE_TOKEN}"`. The changed approval
+identity means a previously remembered server or tool can ask again.
 
 | Key | Meaning |
 | --- | --- |

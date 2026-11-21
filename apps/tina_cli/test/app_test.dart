@@ -361,16 +361,19 @@ void main() {
     });
 
     test('always is answered once and remembered for the second ask', () async {
+      final outside = Directory.systemTemp.createTempSync('tina_approval_');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      final file = File('${outside.path}/probe');
       final io = FakeIo();
       final session = TuiSession.start(
-        configPath: '/nonexistent/tina/config',
+        configPath: '${outside.path}/config',
         providerFactory: (_) => ScriptedProvider([
           scriptedReply('', calls: [
             ToolUseBlock(
               id: 'c1',
               name: 'write',
               input: {
-                'filePath': '/tmp/tina_app_always_probe',
+                'filePath': file.path,
                 'content': 'one',
               },
             ),
@@ -378,7 +381,7 @@ void main() {
               id: 'c2',
               name: 'write',
               input: {
-                'filePath': '/tmp/tina_app_always_probe',
+                'filePath': file.path,
                 'content': 'two',
               },
             ),
@@ -403,7 +406,7 @@ void main() {
       // the grant, so the second identical write never asked.
       expect(interaction.pending, isEmpty,
           reason: 'no question left on the screen');
-      expect(File('/tmp/tina_app_always_probe').readAsStringSync(), 'two',
+      expect(file.readAsStringSync(), 'two',
           reason: 'both writes ran, the second after the first');
     });
   });

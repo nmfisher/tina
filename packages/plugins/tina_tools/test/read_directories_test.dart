@@ -74,6 +74,7 @@ void main() {
     final tools = ToolsPlugin(
         workspaceRoot: workspace.path,
         tinaDir: Directory('${workspace.path}/.tina'),
+        pathApprovalDirectory: Directory('${workspace.parent.path}/approvals'),
         settings: settings);
     tools.rememberReadDirectory(other.resolveSymbolicLinksSync());
     expect(settings.read(readOnlyDirectoriesSetting).source,

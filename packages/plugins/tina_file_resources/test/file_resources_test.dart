@@ -56,6 +56,7 @@ void main() {
       () {
     writeStandardFolder();
     final ctx = _Ctx();
+    plugin.prepareTurn(ctx);
     plugin.onPrompt(ctx);
     expect(ctx.promptSections, hasLength(1));
     final section = ctx.promptSections.single;
@@ -72,6 +73,28 @@ void main() {
     expect(result.content, 'alpha body, verbatim\nline two');
   });
 
+  test('the first turn can call read_resource without changing pinned tools',
+      () async {
+    writeStandardFolder();
+    final provider = ScriptedProvider([
+      [
+        const ToolCallStart(id: 'read', name: 'read_resource'),
+        const MessageComplete(content: [
+          ToolUseBlock(id: 'read', name: 'read_resource', input: {'name': 'alpha'}),
+        ], stopReason: 'tool_use'),
+      ],
+      [const MessageComplete(content: [TextBlock('done')], stopReason: 'end_turn')],
+    ]);
+    final loop = AgentLoop(provider: provider, plugins: [plugin]);
+    loop.mountPlugin(plugin);
+    final outcome = await loop.runTurn(const Input('Read alpha.', id: 'first'));
+    expect(outcome.stopReason, StopReason.complete);
+    expect(outcome.modelRequests.first.tools.map((tool) => tool.name),
+        contains('read_resource'));
+    expect(outcome.messages.expand((message) => message.content)
+        .whereType<ToolResultBlock>().single.content, contains('alpha body'));
+  });
+
   test('3: unknown name is refused, naming the available ones',
       () async {
     writeStandardFolder();
@@ -84,6 +107,7 @@ void main() {
   test('4: empty folder — no section, no tool', () {
     dir.createSync();
     final ctx = _Ctx();
+    plugin.prepareTurn(ctx);
     plugin.onPrompt(ctx);
     expect(ctx.promptSections, isEmpty);
     expect(plugin.tools, isEmpty);
@@ -92,6 +116,7 @@ void main() {
   test('5: missing folder — no section, no tool, fetch errors', () async {
     dir.deleteSync(recursive: true); // the temp dir exists; make it not
     final ctx = _Ctx();
+    plugin.prepareTurn(ctx);
     plugin.onPrompt(ctx);
     expect(ctx.promptSections, isEmpty);
     expect(plugin.tools, isEmpty);
@@ -113,6 +138,7 @@ void main() {
       Process.runSync('chmod', ['000', '${dir.path}/locked.md']);
     }
     final ctx = _Ctx();
+    plugin.prepareTurn(ctx);
     plugin.onPrompt(ctx);
     final section = ctx.promptSections.single;
     expect(section, contains('- alpha —'));
@@ -142,6 +168,7 @@ void main() {
         '\n'
         'body text\n');
     final ctx = _Ctx();
+    plugin.prepareTurn(ctx);
     plugin.onPrompt(ctx);
     expect(ctx.promptSections.single, contains('- alpha —'));
     expect(ctx.promptSections.single, contains('- beta —'));
@@ -167,6 +194,7 @@ void main() {
         '---\n'
         'second body\n');
     final ctx = _Ctx();
+    plugin.prepareTurn(ctx);
     plugin.onPrompt(ctx);
     final section = ctx.promptSections.single;
     expect(section, contains('- dup — first declaration wins'));
@@ -191,6 +219,7 @@ void main() {
           'body $n\n');
     }
     final ctx = _Ctx();
+    plugin.prepareTurn(ctx);
     plugin.onPrompt(ctx);
     final section = ctx.promptSections.single;
     expect(utf8.encode(section).length, lessThanOrEqualTo(2048));

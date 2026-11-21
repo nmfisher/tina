@@ -215,6 +215,7 @@ sealed class SessionEntry {
         return InputRecordedEntry(
                 turnId: j['turn_id'] as String,
                 text: j['text'] as String,
+                human: j['human'] == true,
                 at: at)
             .withSeq(stamped);
       case InputRewrittenEntry.kindName:
@@ -309,7 +310,7 @@ final class TurnStartedEntry extends SessionEntry {
   String toString() => 'TurnStarted($turnId)';
 }
 
-/// The human's input, exactly as typed, before any plugin touched it.
+/// The raw turn input before any plugin rewrote it.
 /// Always recorded — the raw words are the one thing no derivation can
 /// reproduce later.
 final class InputRecordedEntry extends SessionEntry {
@@ -319,19 +320,21 @@ final class InputRecordedEntry extends SessionEntry {
 
   /// The input as typed.
   final String text;
+  final bool human;
 
   final String at;
 
   const InputRecordedEntry({
     required this.turnId,
     required this.text,
+    this.human = false,
     this.at = '',
     super.seq = 0,
   });
 
   @override
   InputRecordedEntry withSeq(int newSeq) =>
-      InputRecordedEntry(turnId: turnId, text: text, at: at, seq: newSeq);
+      InputRecordedEntry(turnId: turnId, text: text, human: human, at: at, seq: newSeq);
 
   @override
   String get kind => kindName;
@@ -341,6 +344,7 @@ final class InputRecordedEntry extends SessionEntry {
         ...super.toJson(),
         'turn_id': turnId,
         'text': text,
+        if (human) 'human': true,
         if (at.isNotEmpty) 'at': at,
       };
 
@@ -349,10 +353,11 @@ final class InputRecordedEntry extends SessionEntry {
       other is InputRecordedEntry &&
       turnId == other.turnId &&
       text == other.text &&
+      human == other.human &&
       at == other.at;
 
   @override
-  int get hashCode => Object.hash(kindName, turnId, text, at);
+  int get hashCode => Object.hash(kindName, turnId, text, human, at);
 
   @override
   String toString() => 'InputRecorded($turnId, "$text")';
@@ -870,14 +875,15 @@ DerivedSession _deriveForward(
   final slots = <_Slot>[];
   final systemPrompt = settings.systemPrompt;
   final completedTurns = <String>{};
-  final openTurns = <String>[];
+  String? openTurn;
 
   final states = <String, Map<String, PluginStateEntry>>{};
 
   for (final e in log) {
     switch (e) {
       case TurnStartedEntry(:final turnId):
-        openTurns.add(turnId);
+        if (openTurn != null) slots.removeWhere((slot) => slot.turnId == openTurn);
+        openTurn = turnId;
       case InputRecordedEntry() ||
             InputRewrittenEntry() ||
             UsageRecordedEntry():
@@ -886,17 +892,17 @@ DerivedSession _deriveForward(
         slots.add(_Slot(e.message, e.turnId));
       case TurnEndedEntry(:final turnId):
         completedTurns.add(turnId);
-        openTurns.remove(turnId);
+        if (openTurn == turnId) openTurn = null;
       case ContextClearedEntry():
         slots.clear();
-        openTurns.clear();
+        openTurn = null;
         break;
       case CompactedEntry(
           :final replacedFrom,
           :final replacedTo,
           :final summary
         ):
-        _compact(slots, replacedFrom, replacedTo, summary);
+        _compact(slots, completedTurns, replacedFrom, replacedTo, summary);
       case CutEntry():
         // Unreachable: [activeLog] applies every cut directive before the
         // fold.
@@ -908,13 +914,11 @@ DerivedSession _deriveForward(
   // A turn that started but never ended — a crash mid-turn, or an
   // abandoned one — is the resume's replay target; the most recent such
   // turn is the one a resume would continue.
-  final pendingTurnId = openTurns.isEmpty ? null : openTurns.last;
-
-  final writingTurnId = openTurns.isEmpty ? null : openTurns.last;
+  final pendingTurnId = openTurn;
   final messages = [
     for (final s in slots)
       if (completedTurns.contains(s.turnId) ||
-          (includePendingTurn && s.turnId == writingTurnId))
+          (includePendingTurn && s.turnId == openTurn))
         s.message,
   ];
 
@@ -939,31 +943,24 @@ class _Slot {
   String turnId;
 }
 
-/// Replace slots [from]..[to] (inclusive, into the list as it stands
-/// now) with one summary slot. The summary's turn id — the thing the
-/// snap rule filters on — is borrowed from the replaced range: any
-/// replaced slot from a completed turn makes the summary survive; a
-/// summary over nothing survives if every replaced slot survived. An
-/// out-of-range compaction touches nothing (a log claiming to replace
-/// history that is not there is corruption; derive stays pure and simply
-/// does not invent deletions).
-void _compact(List<_Slot> slots, int from, int to, String summary) {
-  if (from < 0 || to < from || to >= slots.length) return;
-  final completedIds = <String>{};
-  for (var i = from; i <= to; i++) {
-    completedIds.add(slots[i].turnId);
-  }
+/// The range addresses the completed-message view, including prior summaries.
+void _compact(List<_Slot> slots, Set<String> completedTurns, int from, int to,
+    String summary) {
+  final visible = [
+    for (var i = 0; i < slots.length; i++)
+      if (completedTurns.contains(slots[i].turnId)) i,
+  ];
+  if (from < 0 || to < from || to >= visible.length) return;
   final summarySlot = _Slot(
     Message(
       role: Role.user,
       content: [TextBlock(summary)],
       isSynthetic: true,
     ),
-    // Any turn id in the set filters the same way, so the first is as
-    // good as any — the membership test is the per-id set, not one id.
-    completedIds.first,
+    slots[visible[from]].turnId,
   );
-  slots
-    ..removeRange(from, to + 1)
-    ..insert(from, summarySlot);
+  final start = visible[from], end = visible[to] + 1;
+  final pending = slots.getRange(start, end)
+      .where((slot) => !completedTurns.contains(slot.turnId)).toList();
+  slots.replaceRange(start, end, [summarySlot, ...pending]);
 }

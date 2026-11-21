@@ -172,7 +172,8 @@ class PlanStore {
   /// reading [state] before that see an empty plan.
   void hydrateFrom(List<SessionEntry> log) {
     PlanChangedEntry? latest;
-    for (final e in log) {
+    for (final e in activeLog(log)) {
+      if (e is ContextClearedEntry) latest = null;
       if (PlanChangedEntry.matches(e))
         latest = PlanChangedEntry.decode(e as PluginStateEntry);
     }
@@ -370,8 +371,14 @@ class PlansPlugin extends AgentPlugin {
     store.hydrateFrom(loop.log);
     loop.registerExecutor('update_plan', execute);
     _subscription = loop.subscribe((entry, event) {
+      if (event != LogEvent.appended) return;
       if (entry is ContextClearedEntry) {
         store.update(loop, const []);
+        return;
+      }
+      if (entry is CutEntry) {
+        store.hydrateFrom(loop.log);
+        store._changes.add(null);
         return;
       }
       if (PlanChangedEntry.matches(entry)) {

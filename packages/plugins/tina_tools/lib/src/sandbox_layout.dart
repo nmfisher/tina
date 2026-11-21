@@ -174,12 +174,15 @@ List<String> buildBwrapArguments({
   for (final dir in host.temporaryDirectories) {
     bind(dir, dir);
   }
-  bind(workspaceRoot, workspaceRoot, readOnly: readOnlyWorkspace);
-  for (final directory in readOnlyPaths) {
-    bind(directory, directory, readOnly: true);
-  }
-  for (final path in writablePaths) {
-    bind(path, path);
+  final accessMounts = {
+    for (final path in writablePaths) path: false,
+    for (final path in readOnlyPaths) path: true,
+    workspaceRoot: readOnlyWorkspace,
+  };
+  final mountPaths = accessMounts.keys.toList()
+    ..sort((a, b) => path.split(a).length.compareTo(path.split(b).length));
+  for (final directory in mountPaths) {
+    bind(directory, directory, readOnly: accessMounts[directory]!);
   }
   // Protect Tina's data even when a writable grant contains its parent.
   if (tinaDir != null) {
@@ -205,24 +208,22 @@ List<String> buildBwrapArguments({
               root, path.relative(secret, from: canonicalSandboxPath(root))),
   }.toList()
     ..sort((a, b) => a.length.compareTo(b.length));
+  final readOnlyRoots = [if (readOnlyWorkspace) workspaceRoot, ...readOnlyPaths];
+  final writableRoots = [
+    ...writablePaths,
+    if (!readOnlyWorkspace) workspaceRoot,
+    ...host.temporaryDirectories,
+  ];
   for (final parent in sandboxProtectedParents(secrets, mounts)) {
     bound.remove('$parent->$parent:true');
     bind(parent, parent, readOnly: true);
     for (final child in Directory(parent).listSync(followLinks: false)) {
       if (child is! Directory ||
           secrets.any((s) => sandboxPathUnder(child.path, s))) continue;
-      final readOnlyRoots = [
-        if (readOnlyWorkspace) workspaceRoot,
-        ...readOnlyPaths,
-      ];
-      if (writablePaths.any((root) => sandboxPathUnder(child.path, root)) ||
-          !readOnlyRoots.any((root) =>
+      if (!readOnlyRoots.any((root) =>
                   sandboxPathUnder(child.path, root) ||
                   sandboxPathUnder(root, child.path)) &&
-              [
-                if (!readOnlyWorkspace) workspaceRoot,
-                ...host.temporaryDirectories
-              ].any((root) => sandboxPathUnder(child.path, root))) {
+          writableRoots.any((root) => sandboxPathUnder(child.path, root))) {
         bound.remove('${child.path}->${child.path}:false');
         bind(child.path, child.path);
       }
@@ -318,7 +319,7 @@ String buildSeatbeltProfile({
       for (final value in readable) ..._ancestors(value)
     }) {
       sb.write(
-          '(allow file-read* (literal "${_escapeProfilePath(directory)}"))\n');
+          '(allow file-read-metadata (literal "${_escapeProfilePath(directory)}"))\n');
     }
     for (final path in readable) {
       sb.write('(allow file-read* (subpath "${_escapeProfilePath(path)}"))\n');
