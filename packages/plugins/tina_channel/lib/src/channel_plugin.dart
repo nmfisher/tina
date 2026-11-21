@@ -99,8 +99,11 @@ final class ChannelPlugin extends AgentPlugin
   ChannelStoreApi? _store;
   ChannelTools? _tools;
   ChannelWatcher? _watcher;
+  AgentLoop? _loop;
+  int? _logSubscription;
   String? _effectiveName;
   String? _scope;
+  String? _sessionId;
   String? _startedChannel;
 
   /// Why a chat that exists could not be opened (non-fatal): the
@@ -135,11 +138,11 @@ final class ChannelPlugin extends AgentPlugin
   @override
   SessionSeed? openSession(PluginSession session) {
     _scope = chatSessionId ?? session.id;
+    _sessionId = session.id;
     if (chatExists?.call(_scope!) ?? false) {
       try {
         // Resume: this session ran before and started a chat —
-        // reattach it (full history, presence, cursor pinning)
-        // exactly as before.
+        // reattach it with the recipient's delivery checkpoint.
         _activate();
       } on Object catch (error) {
         // Non-fatal: one component's storage failure must never abort
@@ -161,6 +164,12 @@ final class ChannelPlugin extends AgentPlugin
 
   @override
   void mountOn(AgentLoop loop) {
+    _loop = loop;
+    _logSubscription = loop.subscribe((entry, event) {
+      if (event == LogEvent.appended && entry is ContextClearedEntry) {
+        _watcher?.clearRecent();
+      }
+    });
     // All five executors are registered even while dormant, so a call
     // always reaches this plugin and gets a named refusal instead of
     // an unknown-tool error.
@@ -258,10 +267,17 @@ final class ChannelPlugin extends AgentPlugin
   /// this is exactly the historical session-open path.
   void _activate({String? startChannel}) {
     final store = openStore(_scope!);
-    final String identity;
+    final ChannelWatcher watcher;
     try {
-      identity = agentName ?? settleAgentName(store, random);
       if (startChannel != null) store.ensureChannel(startChannel);
+      watcher = ChannelWatcher.start(
+        store: store,
+        sessionId: _sessionId!,
+        selectAgent: () => settleAgentName(store, random),
+        agentName: agentName,
+        human: humanName,
+      );
+      final identity = watcher.agent;
       store.setMember('#lobby', identity,
           status: 'working', role: role, announce: true);
       if (startChannel != null && startChannel != '#lobby') {
@@ -280,12 +296,12 @@ final class ChannelPlugin extends AgentPlugin
       rethrow;
     }
     _store = store;
+    final identity = watcher.agent;
     _effectiveName = identity;
     _startedChannel ??= startChannel;
     _tools =
         ChannelTools(store: store, agentName: identity, role: role);
-    _watcher = ChannelWatcher.start(
-        store: store, agent: identity, human: humanName);
+    _watcher = watcher;
     _sessionChat.markStarted();
   }
 
@@ -308,16 +324,24 @@ final class ChannelPlugin extends AgentPlugin
       }
     }
     _tools?.onPrompt(context);
-    // Turn-boundary delivery: everything routed to this agent since
-    // its previous turn rides one prompt section, then the cursor is
-    // marked. The section is rebuilt per turn, so a delivered batch is
-    // visible for exactly the turn that consumed it.
     final section = _watcher?.deliverPending();
     if (section != null) context.promptSections.add(section);
   }
 
   @override
+  void onTurnEnd(TurnContext context) {
+    if (context.outcome?.stopReason == StopReason.complete) {
+      _watcher?.acknowledge();
+    }
+  }
+
+  @override
   void closeSession() {
+    if (_logSubscription case final subscription?) {
+      _loop?.unsubscribe(subscription);
+    }
+    _logSubscription = null;
+    _loop = null;
     _watcher?.close();
     _watcher = null;
     _tools = null;
@@ -325,6 +349,7 @@ final class ChannelPlugin extends AgentPlugin
     _store = null;
     _effectiveName = null;
     _scope = null;
+    _sessionId = null;
     _startedChannel = null;
     _declinedTurn = null;
     _sessionChat.dispose();

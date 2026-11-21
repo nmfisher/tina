@@ -1,8 +1,19 @@
+import 'dart:io';
+
 import 'package:test/test.dart';
 import 'package:tina_channel/tina_channel.dart';
+import 'package:tina_channel/tina_channel_sqlite.dart';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
 InMemoryChannelStore openMemory() => InMemoryChannelStore();
+
+final class _CancelInput extends AgentPlugin {
+  @override
+  String get id => 'test/cancel-input';
+
+  @override
+  void onInput(TurnContext context) => context.cancel('test cancellation');
+}
 
 TurnContext _turn() => TurnContext(
       CancelToken(),
@@ -187,28 +198,57 @@ void main() {
 group('passive delivery', () {
 
 
-  test('mention rides the next turn as a prompt section', () async {
-    final other = openMemory();
-    addTearDown(other.close);
-    final plugin = ChannelPlugin(
-      openStore: (_) => other,
-      chatExists: (_) => true,
-      agentName: 'calm-heron',
-      role: 'main',
-    );
-    final session0 = session('delivery-test');
-    plugin.openSession(session0);
-    addTearDown(plugin.closeSession);
-    other.post('#lobby',
-        sender: 'busy-ox', text: '@calm-heron the build is green');
-    final context = _turn();
-    plugin.onPrompt(context);
-    expect(context.promptSections.join('\n'), contains('build is green'));
-    // Delivered once: the next turn carries nothing.
-    final next = _turn();
-    plugin.onPrompt(next);
-    expect(
-        next.promptSections.join('\n'), isNot(contains('build is green')));
+  test('cancelled delivery retries after reopening and stays in context', () async {
+    final dir = Directory.systemTemp.createTempSync('channel-resume-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    ChannelPlugin open() => ChannelPlugin(
+        openStore: (_) => SqliteChannelStore.open('${dir.path}/channel.db'),
+        chatExists: (_) => true,
+        role: 'main')..openSession(session('delivery-test'));
+
+    final first = open();
+    final name = first.name!;
+    try {
+      first.storeForUi!.post('#lobby',
+          sender: 'busy-ox', text: '@$name the build is green');
+      final loop = AgentLoop(
+          provider: ScriptedProvider([]), plugins: [first, _CancelInput()]);
+      loop.mountPlugin(first);
+      final outcome = await loop.runTurn(const Input('work', id: 'cancelled'));
+      expect(outcome.stopReason, StopReason.cancelled);
+      expect(outcome.modelRequests, isEmpty);
+    } finally {
+      first.closeSession();
+    }
+
+    final resumed = open();
+    addTearDown(resumed.closeSession);
+    expect(resumed.name, name);
+    final loop = AgentLoop(
+        provider: ScriptedProvider([
+          scriptedReply('one'),
+          scriptedReply('two'),
+          scriptedReply('three'),
+        ]),
+        plugins: [resumed]);
+    loop.mountPlugin(resumed);
+    final retried = await loop.runTurn(const Input('retry', id: 'retry'));
+    expect(retried.stopReason, StopReason.complete);
+    expect(retried.modelRequests.single.systemPrompt,
+        contains('New channel messages addressed to you:'));
+    expect(retried.modelRequests.single.systemPrompt, contains('build is green'));
+
+    final next = await loop.runTurn(const Input('next', id: 'later'));
+    expect(next.modelRequests.single.systemPrompt,
+        contains('Recent channel messages:'));
+    expect(next.modelRequests.single.systemPrompt, contains('build is green'));
+    expect(next.modelRequests.single.systemPrompt,
+        isNot(contains('New channel messages')));
+
+    loop.clearHistory();
+    final cleared = await loop.runTurn(const Input('clear', id: 'after-clear'));
+    expect(cleared.modelRequests.single.systemPrompt,
+        isNot(contains('build is green')));
   });
 
   test('closeSession releases the watcher (no delivery after close)',

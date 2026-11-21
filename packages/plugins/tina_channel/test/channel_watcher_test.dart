@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:test/test.dart';
 import 'package:tina_channel/tina_channel.dart';
 
@@ -16,7 +18,10 @@ void main() {
     // is pull-only, so the cursor must pin to the newest row.
     store.post('#lobby', sender: 'prior-agent', text: 'old business');
     watcher = ChannelWatcher.start(
-        store: store, agent: 'calm-heron', human: 'user');
+        store: store,
+        sessionId: 'recipient',
+        selectAgent: () => 'calm-heron',
+        human: 'user');
   });
 
   group('routing', () {
@@ -94,12 +99,17 @@ void main() {
   });
 
   group('cursors', () {
-    test('a delivery marks the cursor: nothing delivered twice', () {
+    test('a batch stays pending until acknowledged and then becomes context', () {
       store.post('#lobby',
           sender: 'other-agent', text: '@calm-heron once');
-      expect(watcher.deliverPending(), contains('once'));
-      expect(watcher.deliverPending(), isNull,
-          reason: 'the cursor advanced with the delivery');
+      final first = watcher.deliverPending();
+      expect(first, contains('once'));
+      expect(watcher.deliverPending(), first);
+      watcher.acknowledge();
+      final later = watcher.deliverPending();
+      expect(later, contains('Recent channel messages:'));
+      expect(later, contains('once'));
+      expect(later, isNot(contains('New channel messages')));
     });
 
     test('unrouted messages also advance the cursor (no rescans)', () {
@@ -107,6 +117,26 @@ void main() {
       expect(watcher.deliverPending(), isNull);
       expect(watcher.deliverPending(), isNull,
           reason: 'already examined; never re-delivered later');
+    });
+
+    test('a stale acknowledgement cannot consume a newer pending batch', () {
+      final other = ChannelWatcher.start(
+        store: store,
+        sessionId: 'recipient',
+        selectAgent: () => throw StateError('already initialized'),
+        human: 'user',
+      );
+      addTearDown(other.close);
+      store.post('#lobby', sender: 'user', text: 'first batch');
+      expect(other.deliverPending(), watcher.deliverPending());
+      watcher.acknowledge();
+      store.post('#lobby', sender: 'user', text: 'second batch');
+      final second = watcher.deliverPending();
+      expect(second, contains('second batch'));
+      other.acknowledge();
+      expect(watcher.deliverPending(), second);
+      expect(store.deliveryState('recipient')!.pending.single,
+          contains('second batch'));
     });
 
     test('channel_read stays independent of the delivery cursor', () {
@@ -127,17 +157,22 @@ void main() {
   });
 
   group('cap', () {
-    test('overflow drops oldest-first with an elision line', () {
+    test('overflow stays pending in the channel for the next batch', () {
       for (var i = 1; i <= 40; i++) {
         store.post('#lobby',
-            sender: 'other-agent', text: '@calm-heron message $i');
+            sender: 'other-agent', text: '@calm-heron message [$i]');
       }
-      final delivered = watcher.deliverPending()!;
-      expect(delivered, contains('… and '));
-      expect(delivered, contains('message 40'), reason: 'newest kept');
-      expect(delivered.contains('message 1:'), isFalse,
-          reason: 'oldest dropped (message 1 itself, not its digits)');
-      expect(delivered.runes.length, lessThan(channelDeliveryByteCap));
+      final seen = <int>[];
+      for (var batch = 0; batch < 40 && seen.length < 40; batch++) {
+        final delivered = watcher.deliverPending()!;
+        expect(utf8.encode(delivered).length, lessThanOrEqualTo(channelDeliveryByteCap));
+        final pending = store.deliveryState('recipient')!.pending;
+        for (final line in pending) {
+          seen.add(int.parse(RegExp(r'message \[(\d+)\]').firstMatch(line)![1]!));
+        }
+        watcher.acknowledge();
+      }
+      expect(seen, List.generate(40, (i) => i + 1));
     });
 
     test('a single huge message cannot blow the turn', () {
@@ -147,7 +182,7 @@ void main() {
       final delivered = watcher.deliverPending();
       expect(delivered, isNotNull,
           reason: 'the mention still delivers');
-      expect(delivered!.runes.length, lessThan(channelDeliveryByteCap),
+      expect(utf8.encode(delivered!).length, lessThanOrEqualTo(channelDeliveryByteCap),
           reason: 'rendering stays bounded even for oversized input');
     });
   });

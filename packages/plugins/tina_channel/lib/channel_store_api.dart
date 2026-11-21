@@ -224,14 +224,29 @@ final class ChannelCompaction {
       'digest=#$digestId)';
 }
 
-/// The store surface the channel tools, CLI and TUI pane use. One
-/// store owns one file. Messages are append-only; [setMember] is the
-/// only mutating presence operation and it also announces itself as a
-/// `status` message so history explains presence changes. [compact]
-/// is the one view-shaping operation: it never edits or deletes rows —
-/// it records a compaction point (and, for `compact`, appends a digest
-/// system message) and every read simply stops returning superseded
-/// messages. The database stays a complete audit trail.
+/// Checkpoint for one recipient session. Unacknowledged deliveries and
+/// the cursor that selected them are written together.
+final class ChannelDeliveryState {
+  ChannelDeliveryState({
+    required this.agent,
+    required this.revision,
+    required Map<String, int> cursors,
+    Iterable<String> pending = const [],
+    Iterable<String> recent = const [],
+  })  : cursors = Map.unmodifiable(cursors),
+        pending = List.unmodifiable(pending),
+        recent = List.unmodifiable(recent);
+
+  final String agent;
+  final int revision;
+  final Map<String, int> cursors;
+  final List<String> pending;
+  final List<String> recent;
+}
+
+/// The channel store used by agents, the CLI and the TUI pane. Messages
+/// are append-only. [compact] changes which history [read] returns, and
+/// [setMember] can append a status message to explain presence changes.
 abstract interface class ChannelStoreApi {
   /// The store file's path (store-native string; `:memory:` in tests).
   String get file;
@@ -253,11 +268,23 @@ abstract interface class ChannelStoreApi {
     int? replyTo,
   });
 
-  /// The most recent [limit] messages strictly after the cursor
-  /// ([sinceId] wins when both are given), oldest first. The tail
-  /// window — the last `limit` rows — is what a catch-up read wants.
-  List<ChannelMessage> read(String channel,
-      {int? sinceId, DateTime? sinceTime, int limit = 50});
+  /// A window of up to [limit] messages, returned oldest first. Manual
+  /// reads use the tail. Cursor consumers set [fromOldest] to take the
+  /// first page past [sinceId].
+  List<ChannelMessage> read(
+    String channel, {
+    int? sinceId,
+    DateTime? sinceTime,
+    int limit = 50,
+    bool fromOldest = false,
+  });
+
+  ChannelDeliveryState? deliveryState(String sessionId);
+
+  /// Replaces the checkpoint if its revision still matches. A null
+  /// [expectedRevision] creates the initial checkpoint only when absent.
+  bool saveDeliveryState(String sessionId, ChannelDeliveryState state,
+      {required int? expectedRevision});
 
   /// One message by id, when it sits in [channel]; null otherwise.
   /// Reply validation and rendering use this.

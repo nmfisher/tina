@@ -4,8 +4,8 @@
 /// instead of erroring, synchronous FULL so an acknowledged write is
 /// durable). Feature schema owned here, per the tina_sqlite contract.
 ///
-/// Tables: `channels`, `messages` (append-only; no update or delete
-/// path exists in code or schema), `members` (upsertable presence).
+/// Tables: `channels`, append-only `messages`, `members` for presence,
+/// and `channel_deliveries` for recipient checkpoints.
 /// `#lobby` is ensured at every open, so the first agent into a fresh
 /// workspace finds it there.
 library;
@@ -29,15 +29,13 @@ final class SqliteChannelStore implements ChannelStoreApi {
 
   /// The store file's schema version. Bump when the layout changes;
   /// the open step refuses anything newer than this code knows.
-  static const schemaVersion = 2;
+  static const schemaVersion = 3;
 
   /// The channel every workspace starts with.
   static const lobbyChannel = '#lobby';
 
-  /// Open (or create) the store at [path]. A v1 file (pre-compaction)
-  /// migrates in place inside the open transaction — every existing
-  /// row survives. Never silently degrades: a file from a newer schema
-  /// throws before anything is written.
+  /// Open (or create) the store at [path]. Older schemas are migrated
+  /// in place inside the open transaction. Future schemas are rejected.
   static SqliteChannelStore open(String path) {
     final Database db;
     try {
@@ -45,7 +43,7 @@ final class SqliteChannelStore implements ChannelStoreApi {
         path,
         schemaVersion: schemaVersion,
         migrate: _migrate,
-        migrations: const {1: _migrateV1ToV2},
+        migrations: const {1: _migrateV1ToV2, 2: _createDeliveries},
       );
     } on Object catch (e) {
       throw ChannelStoreException('cannot open channel store $path', e);
@@ -66,6 +64,12 @@ final class SqliteChannelStore implements ChannelStoreApi {
   static void _migrateV1ToV2(Database db) {
     db.execute('ALTER TABLE channels '
         'ADD COLUMN compaction_id INTEGER NOT NULL DEFAULT 0');
+  }
+
+  static void _createDeliveries(Database db) {
+    db.execute('CREATE TABLE channel_deliveries ('
+        'session_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, '
+        'checkpoint TEXT NOT NULL)');
   }
 
   static void _migrate(Database db) {
@@ -92,6 +96,7 @@ final class SqliteChannelStore implements ChannelStoreApi {
         'summary TEXT, '
         'last_seen TEXT NOT NULL, '
         'PRIMARY KEY (channel, name))');
+    _createDeliveries(db);
   }
 
   static ChannelMessage _rowToMessage(dynamic row) => ChannelMessage(
@@ -215,7 +220,7 @@ final class SqliteChannelStore implements ChannelStoreApi {
 
   @override
   List<ChannelMessage> read(String channel,
-      {int? sinceId, DateTime? sinceTime, int limit = 50}) {
+      {int? sinceId, DateTime? sinceTime, int limit = 50, bool fromOldest = false}) {
     if (limit < 1) throw const FormatException('limit must be at least 1');
     final normalized = normalizeChannelName(channel);
     final sinceAt = sinceTime?.toUtc().toIso8601String();
@@ -238,11 +243,58 @@ final class SqliteChannelStore implements ChannelStoreApi {
       final rows = _db.select(
           'SELECT id, channel, sender, text, type, mentions, reply_to, '
           'created_at FROM messages $where '
-          'ORDER BY id DESC LIMIT ?',
+          'ORDER BY id ${fromOldest ? 'ASC' : 'DESC'} LIMIT ?',
           [...params, limit]);
-      return [for (final row in rows) _rowToMessage(row)].reversed.toList();
+      final messages = [for (final row in rows) _rowToMessage(row)];
+      return fromOldest ? messages : messages.reversed.toList();
     } on Object catch (e) {
       _fail('reading $normalized', e);
+    }
+  }
+
+  @override
+  ChannelDeliveryState? deliveryState(String sessionId) {
+    try {
+      final rows = _db.select(
+          'SELECT revision, checkpoint FROM channel_deliveries WHERE session_id = ?',
+          [sessionId]);
+      if (rows.isEmpty) return null;
+      final row = rows.single;
+      final checkpoint = jsonDecode(row['checkpoint'] as String) as Map;
+      return ChannelDeliveryState(
+        agent: checkpoint['agent'] as String,
+        revision: row['revision'] as int,
+        cursors: Map<String, int>.from(checkpoint['cursors'] as Map),
+        pending: List<String>.from(checkpoint['pending'] as List),
+        recent: List<String>.from(checkpoint['recent'] as List),
+      );
+    } on Object catch (error) {
+      _fail('reading channel delivery checkpoint', error);
+    }
+  }
+
+  @override
+  bool saveDeliveryState(String sessionId, ChannelDeliveryState state,
+      {required int? expectedRevision}) {
+    final checkpoint = jsonEncode({
+      'agent': state.agent,
+      'cursors': state.cursors,
+      'pending': state.pending,
+      'recent': state.recent,
+    });
+    try {
+      if (expectedRevision == null) {
+        _db.execute('INSERT OR IGNORE INTO channel_deliveries '
+            '(session_id, revision, checkpoint) VALUES (?, ?, ?)',
+            [sessionId, state.revision, checkpoint]);
+      } else {
+        _db.execute('UPDATE channel_deliveries SET revision = ?, checkpoint = ? '
+            'WHERE session_id = ? AND revision = ?',
+            [state.revision, checkpoint, sessionId, expectedRevision]);
+      }
+      return _db.updatedRows == 1;
+    } on Object catch (error) {
+      _fail('saving channel delivery checkpoint', error);
     }
   }
 

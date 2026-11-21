@@ -37,6 +37,28 @@ void main() {
         expect(store.listChannels().map((c) => c.name), contains('#lobby'));
       });
 
+      test('passive delivery sees an older mention in a burst over 200', () {
+        final watcher = ChannelWatcher.start(
+            store: store,
+            sessionId: 'recipient',
+            selectAgent: () => 'calm-heron',
+            human: 'owner');
+        addTearDown(watcher.close);
+        final first = store.post('#lobby',
+            sender: 'peer', text: '@calm-heron first mention');
+        for (var i = 0; i < 205; i++) {
+          store.post('#lobby', sender: 'peer', text: 'side discussion');
+        }
+        final last = store.post('#lobby',
+            sender: 'peer', text: '@calm-heron last mention');
+        expect(store.read('#lobby', limit: 1).single.id, last.id);
+        expect(store.read('#lobby', fromOldest: true, limit: 1).single.id,
+            first.id);
+        expect(watcher.deliverPending(), contains('first mention'));
+        watcher.acknowledge();
+        expect(watcher.deliverPending(), contains('last mention'));
+      });
+
       test('ensureChannel is idempotent and normalizes', () {
         store.ensureChannel('Lobby');
         store.ensureChannel('#lobby ');

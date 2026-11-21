@@ -76,6 +76,7 @@ final class InMemoryChannelStore implements ChannelStoreApi {
   final _messages = <ChannelMessage>[];
   final _members = <String, Map<String, ChannelMember>>{};
   final _compaction = <String, int>{};
+  final _deliveries = <String, ChannelDeliveryState>{};
   var _nextId = 1;
 
   @override
@@ -129,7 +130,7 @@ final class InMemoryChannelStore implements ChannelStoreApi {
 
   @override
   List<ChannelMessage> read(String channel,
-      {int? sinceId, DateTime? sinceTime, int limit = 50}) {
+      {int? sinceId, DateTime? sinceTime, int limit = 50, bool fromOldest = false}) {
     if (limit < 1) throw const FormatException('limit must be at least 1');
     final normalized = normalizeChannelName(channel);
     final point = _compaction[normalized] ?? 0;
@@ -138,14 +139,24 @@ final class InMemoryChannelStore implements ChannelStoreApi {
         : sinceId > point
             ? sinceId
             : point;
-    final matched = _messages
-        .where((m) =>
+    final matched = _messages.where((m) =>
             m.channel == normalized &&
             (since == 0 || m.id > since) &&
-            (sinceTime == null || m.createdAt.isAfter(sinceTime)))
-        .toList();
-    if (matched.length <= limit) return matched;
-    return matched.sublist(matched.length - limit);
+            (sinceTime == null || m.createdAt.isAfter(sinceTime)));
+    if (fromOldest) return matched.take(limit).toList();
+    final tail = matched.toList();
+    return tail.length <= limit ? tail : tail.sublist(tail.length - limit);
+  }
+
+  @override
+  ChannelDeliveryState? deliveryState(String sessionId) => _deliveries[sessionId];
+
+  @override
+  bool saveDeliveryState(String sessionId, ChannelDeliveryState state,
+      {required int? expectedRevision}) {
+    if (_deliveries[sessionId]?.revision != expectedRevision) return false;
+    _deliveries[sessionId] = state;
+    return true;
   }
 
   @override

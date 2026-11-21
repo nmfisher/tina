@@ -1,124 +1,172 @@
 import '../channel_store_api.dart';
 
-/// Hard cap on one delivery's rendered size, in UTF-8 bytes. Overflow
-/// drops oldest-first with a `… and N more` line, so a burst cannot
-/// flood a turn boundary; what exceeds the cap stays pull-only
-/// (`channel_read`).
+/// Hard cap on a turn's channel context, in UTF-8 bytes.
 const int channelDeliveryByteCap = 2048;
 
-/// Renders turn-boundary deliveries of new channel messages: the
-/// watcher half of passive delivery. One instance serves one agent in
-/// one session — [ChannelPlugin] owns its lifecycle and calls
-/// [deliverPending] at its turn boundary (the prompt-section seam, so
-/// the engine needs no new event surface and engine packages stay off
-/// direct I/O: everything here goes through the store contract).
-///
-/// Routing is mention-only by default. An arriving message is
-/// delivered when it mentions this agent's shortcode, replies to one
-/// of its messages, or comes from the session's human — everything
-/// else stays pull-only. The agent's own messages are never delivered
-/// back to it. Every message EXAMINED advances the per-channel cursor
-/// (delivered or not), so nothing is re-scanned and nothing is ever
-/// delivered twice; `channel_read` keeps its independent explicit
-/// catch-up role.
-///
-/// The cursor starts at the newest message per channel when the
-/// watcher is created ([ChannelWatcher.start]): history that predates
-/// the session is pull-only by design.
-final class ChannelWatcher {
-  ChannelWatcher._(this._store, this._agent, this._human);
+// Leave room for the headers and give new deliveries and recent context
+// independent budgets so a burst cannot crowd out the entire history.
+const _messageBudget = (channelDeliveryByteCap - 256) ~/ 2;
+const _pageSize = 200;
 
-  /// Starts watching [store] as [agent] (the session's settled
-  /// shortcode). [human] is the name the session's human posts under.
-  /// Existing channels' cursors are pinned to their newest message —
-  /// history is explicit catch-up, not delivery.
+/// Reads and acknowledges channel deliveries for one recipient session.
+/// The durable checkpoint holds the scan position, a pending batch and a
+/// bounded tail of previously delivered context.
+final class ChannelWatcher {
+  ChannelWatcher._(this._store, this._sessionId, this.agent, this._human);
+
   static ChannelWatcher start({
     required ChannelStoreApi store,
-    required String agent,
+    required String sessionId,
+    required String Function() selectAgent,
     required String human,
+    String? agentName,
   }) {
-    final watcher = ChannelWatcher._(store, agent, human);
-    for (final channel in store.listChannels()) {
-      watcher._cursors[channel.name] = channel.lastMessageId;
+    var state = store.deliveryState(sessionId);
+    if (state == null) {
+      final initial = ChannelDeliveryState(
+        agent: agentName ?? selectAgent(),
+        revision: 0,
+        cursors: {
+          for (final channel in store.listChannels())
+            channel.name: channel.lastMessageId,
+        },
+      );
+      state =
+          store.saveDeliveryState(sessionId, initial, expectedRevision: null)
+              ? initial
+              : store.deliveryState(sessionId)!;
     }
-    return watcher;
+    return ChannelWatcher._(store, sessionId, agentName ?? state.agent, human);
   }
 
   final ChannelStoreApi _store;
-  final String _agent;
+  final String _sessionId;
+  final String agent;
   final String _human;
-  final _cursors = <String, int>{};
   bool _closed = false;
+  int? _offeredRevision;
 
-  /// Whether a mention of [name] (without the `@`) addresses this
-  /// watcher's agent or its session's human. Public for tests of the
-  /// routing rule itself.
   bool routesTo(String name) =>
-      name.toLowerCase() == _agent.toLowerCase() ||
+      name.toLowerCase() == agent.toLowerCase() ||
       name.toLowerCase() == _human.toLowerCase();
 
-  /// Renders and clears everything deliverable right now: one prompt
-  /// section listing the routed messages, or null when nothing new is
-  /// routed to this agent. A non-null result marks the cursors — the
-  /// same messages are never delivered twice. Capped at
-  /// [channelDeliveryByteCap]; overflow drops the OLDEST entries and
-  /// reports them in a leading `… and N more` line.
+  /// Offers the pending batch until a completed turn acknowledges it.
+  /// Recent delivered messages continue to accompany subsequent turns.
   String? deliverPending() {
+    _offeredRevision = null;
     if (_closed) return null;
-    final delivered = <_Rendered>[];
-    for (final channel in _store.listChannels()) {
-      final cursor = _cursors[channel.name] ?? 0;
-      final batch = _store.read(channel.name, sinceId: cursor, limit: 200);
-      var examined = cursor;
-      for (final message in batch) {
-        if (message.id > examined) examined = message.id;
-        if (!_routes(channel.name, message)) continue;
-        delivered.add(_render(channel.name, message));
-      }
-      _cursors[channel.name] = examined;
-    }
-    if (delivered.isEmpty) return null;
-    // A single oversized message is truncated in place rather than
-    // blowing the budget: mentions must still deliver, bounded.
-    for (var i = 0; i < delivered.length; i++) {
-      if (delivered[i].text.utf8Length > channelDeliveryByteCap) {
-        delivered[i] = _Rendered(_truncateBytes(
-            delivered[i].text, channelDeliveryByteCap ~/ 2));
-      }
-    }
-    var kept = delivered;
-    var elided = 0;
     while (true) {
-      final section = _section(kept, elided);
-      // A single entry is at most half the cap (truncated above), so
-      // the loop always settles with at least one delivered message;
-      // should that invariant ever break, the elision-only section
-      // still signals that traffic arrived instead of dropping the
-      // turn silently.
-      if (section.utf8Length <= channelDeliveryByteCap || kept.isEmpty) {
-        return section;
+      final current = _store.deliveryState(_sessionId)!;
+      if (current.pending.isNotEmpty) return _offer(current);
+      final next = _scan(current);
+      if (next == null) return _offer(current);
+      if (_store.saveDeliveryState(_sessionId, next,
+          expectedRevision: current.revision)) {
+        return _offer(next);
       }
-      // Over budget: drop the oldest entry and account for it in a
-      // leading elision line (budgeted like any other content).
-      kept = kept.sublist(1);
-      elided++;
     }
   }
 
-  String _section(List<_Rendered> kept, int elided) {
-    final elision = elided == 0
-        ? ''
-        : '… and $elided more older message'
-              '${elided == 1 ? '' : 's'} not shown\n';
-    return '<group-channel-delivery>\n'
-        'New channel messages addressed to you (delivery is automatic; '
-        'do not poll channel_read for these):\n'
-        '$elision${kept.map((m) => m.text).join('\n')}\n'
-        '</group-channel-delivery>';
+  ChannelDeliveryState? _scan(ChannelDeliveryState current) {
+    final candidates = [
+      for (final channel in _store.listChannels())
+        ..._store.read(channel.name,
+            sinceId: current.cursors[channel.name] ?? 0,
+            limit: _pageSize,
+            fromOldest: true),
+    ]..sort((a, b) => a.id.compareTo(b.id));
+    if (candidates.isEmpty) return null;
+
+    final cursors = Map.of(current.cursors);
+    final pending = <String>[];
+    var used = 0;
+    for (final message in candidates.take(_pageSize)) {
+      if (_routes(message.channel, message)) {
+        final rendered = _render(message.channel, message);
+        final line = _truncateBytes(rendered, _messageBudget - 1);
+        final cost = line.utf8Length + 1;
+        if (used + cost > _messageBudget) break;
+        pending.add(line);
+        used += cost;
+      }
+      cursors[message.channel] = message.id;
+    }
+    return ChannelDeliveryState(
+      agent: agent,
+      revision: current.revision + 1,
+      cursors: cursors,
+      pending: pending,
+      recent: current.recent,
+    );
+  }
+
+  String? _offer(ChannelDeliveryState state) {
+    if (state.pending.isNotEmpty) _offeredRevision = state.revision;
+    if (state.pending.isEmpty && state.recent.isEmpty) return null;
+    return [
+      '<group-channel-delivery>',
+      'Channel posts are conversation context.',
+      if (state.recent.isNotEmpty) ...[
+        'Recent channel messages:',
+        ...state.recent,
+      ],
+      if (state.pending.isNotEmpty) ...[
+        'New channel messages addressed to you:',
+        ...state.pending,
+      ],
+      '</group-channel-delivery>',
+    ].join('\n');
+  }
+
+  /// Marks only the offered batch complete. A stale acknowledgement
+  /// cannot consume a newer batch selected by another attachment.
+  void acknowledge() {
+    final revision = _offeredRevision;
+    _offeredRevision = null;
+    if (_closed || revision == null) return;
+    final current = _store.deliveryState(_sessionId)!;
+    if (current.revision != revision) return;
+
+    final recent = [...current.recent, ...current.pending];
+    var used = recent.fold(0, (size, message) => size + message.utf8Length + 1);
+    var omit = 0;
+    while (used > _messageBudget) {
+      used -= recent[omit++].utf8Length + 1;
+    }
+    _store.saveDeliveryState(
+      _sessionId,
+      ChannelDeliveryState(
+        agent: agent,
+        revision: revision + 1,
+        cursors: current.cursors,
+        recent: recent.skip(omit),
+      ),
+      expectedRevision: revision,
+    );
+  }
+
+  /// Clear conversation context while keeping any unacknowledged delivery.
+  void clearRecent() {
+    while (!_closed) {
+      final current = _store.deliveryState(_sessionId)!;
+      if (current.recent.isEmpty) return;
+      if (_store.saveDeliveryState(
+        _sessionId,
+        ChannelDeliveryState(
+          agent: agent,
+          revision: current.revision + 1,
+          cursors: current.cursors,
+          pending: current.pending,
+        ),
+        expectedRevision: current.revision,
+      )) {
+        return;
+      }
+    }
   }
 
   bool _routes(String channel, ChannelMessage message) {
-    if (message.sender.toLowerCase() == _agent.toLowerCase()) return false;
+    if (message.sender.toLowerCase() == agent.toLowerCase()) return false;
     // The human's messages always reach this agent — the owner is
     // never filtered.
     if (message.sender.toLowerCase() == _human.toLowerCase()) return true;
@@ -134,14 +182,14 @@ final class ChannelWatcher {
     if (replyTo != null) {
       final parent = _store.message(channel, replyTo);
       if (parent != null &&
-          parent.sender.toLowerCase() == _agent.toLowerCase()) {
+          parent.sender.toLowerCase() == agent.toLowerCase()) {
         return true;
       }
     }
     return false;
   }
 
-  _Rendered _render(String channel, ChannelMessage message) {
+  String _render(String channel, ChannelMessage message) {
     final mention = message.mentions.isEmpty
         ? ''
         : ' @${message.mentions.join(',@')}';
@@ -149,28 +197,19 @@ final class ChannelWatcher {
         ? ''
         : ' (reply to #${message.replyTo})';
     final time = message.createdAt.toUtc().toIso8601String();
-    return _Rendered(
-      '$channel ${message.sender}$mention$reply [$time]: '
-      '${message.text}',
-    );
+    return ('$channel ${message.sender}$mention$reply [$time]: ${message.text}')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
   }
 
-  /// Releases the watcher. After this, [deliverPending] is a no-op;
-  /// the store itself belongs to the plugin that owns this watcher.
-  void close() {
-    _closed = true;
-    _cursors.clear();
-  }
-}
-
-final class _Rendered {
-  const _Rendered(this.text);
-  final String text;
+  void close() => _closed = true;
 }
 
 String _truncateBytes(String text, int budget) {
+  if (text.utf8Length <= budget) return text;
   final out = StringBuffer();
-  var size = 1; // room for the ellipsis
+  var size = '…'.utf8Length;
   for (final rune in text.runes) {
     final w = rune <= 0x7f
         ? 1
