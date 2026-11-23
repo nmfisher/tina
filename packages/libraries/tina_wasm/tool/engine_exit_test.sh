@@ -27,6 +27,8 @@
 set -e
 cd "$(dirname "$0")/.."
 PKG="$PWD"
+# The host crate, in this checkout since the wasm.dart split.
+HOST="$PKG/../../host"
 
 # --- toolchain capture -----------------------------------------------------
 # The driver and the engine-component build run on the pinned SDK
@@ -152,7 +154,7 @@ if [ -z "$RUNNER" ]; then
       || [ "$ENGINE_WASM" -nt "$RUNNER_TARGET/debug/tina-wasm-host" ] \
       || [ -n "$FORCE_RUNNER_BUILD" ]; then
     echo "=== building the embedded runner (engine newer than the binary, or forced)"
-    ( cd "$WASM_DART/pkg/tina_wasm_host" && \
+    ( cd "$HOST" && \
       CARGO_TARGET_DIR="$RUNNER_TARGET" TINA_WASM_HOST_ENGINE="$ENGINE_WASM" \
       cargo build -p tina-wasm-host )
   fi
@@ -160,7 +162,7 @@ if [ -z "$RUNNER" ]; then
 fi
 if [ ! -x "$RUNNER" ]; then
   echo "no tina-wasm-host binary found; set RUNNER= or build one:" >&2
-  echo "  TINA_WASM_HOST_ENGINE=<engine.wasm> cargo build -p tina-wasm-host  # in the wasm.dart checkout" >&2
+  echo "  TINA_WASM_HOST_ENGINE=<engine.wasm> cargo build -p tina-wasm-host  # in host/" >&2
   exit 1
 fi
 
