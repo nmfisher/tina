@@ -43,6 +43,12 @@ class CompletionPicker {
   /// command is ready to receive arguments.
   final String acceptSuffix;
 
+  /// Prepended to the accepted text. The anchor sits one character before
+  /// the word being completed (on the `!` for a bang line's command word,
+  /// on the word separator for later words); a picker that does not
+  /// re-supply that character through its results restores it here.
+  String acceptPrefix;
+
   bool _active = false;
   bool _loading = false;
   int _anchor = -1;
@@ -60,6 +66,7 @@ class CompletionPicker {
     this.maxRows = 8,
     this.prependTriggerOnAccept = true,
     this.acceptSuffix = '',
+    this.acceptPrefix = '',
     bool Function(String, int)? shouldOpen,
   }) : shouldOpen = shouldOpen ?? _atWordBoundary {
     _overlay = OverlayRegion(_screen, Rect.empty);
@@ -177,7 +184,7 @@ class CompletionPicker {
     final pick = _results[_selected];
     final core =
         prependTriggerOnAccept ? '${String.fromCharCode(trigger)}$pick' : pick;
-    return (start: _anchor, end: cursor, text: '$core$acceptSuffix');
+    return (start: _anchor, end: cursor, text: '$acceptPrefix$core$acceptSuffix');
   }
 
   void dispose() {

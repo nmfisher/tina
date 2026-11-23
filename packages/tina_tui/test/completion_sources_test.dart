@@ -120,6 +120,20 @@ Directory gitRepoWith(List<String> files) {
   return dir;
 }
 
+
+/// A scratch PATH directory holding [names] as executable files plus a
+/// non-executable `notes.txt` and a `subdir` directory, for command-name
+/// completion tests.
+Directory pathBinWith(List<String> names) {
+  final dir = Directory.systemTemp.createTempSync('tina_tui_pathbin_');
+  for (final n in names) {
+    final f = File('${dir.path}/$n')..writeAsStringSync('#!/bin/sh\n');
+    Process.runSync('chmod', ['+x', f.path]);
+  }
+  File('${dir.path}/notes.txt').writeAsStringSync('not executable');
+  Directory('${dir.path}/subdir').createSync();
+  return dir;
+}
 void main() {
   test('argument completion is supplied by the live command registration',
       () async {
@@ -461,6 +475,124 @@ void main() {
     });
   });
 
+
+  group('!-mode command-word source (ShellCommandCompletionSource)', () {
+    test('builtins lead, PATH executables follow, junk is excluded',
+        () async {
+      final bin = pathBinWith(['tinabin', 'dartbin']);
+      try {
+        final source =
+            ShellCommandCompletionSource(pathEnv: bin.path, extra: ['extra-one']);
+        final all = await source.complete('');
+        // Curated names first, in curated order — including shell builtins
+        // that are not on this fixture PATH at all.
+        expect(all.first, '!cd');
+        expect(all.indexOf('!cd'), lessThan(all.indexOf('!ls')));
+        expect(all.indexOf('!git'), lessThan(all.indexOf('!tinabin')),
+            reason: 'PATH executables come after every curated name');
+        expect(all.indexOf('!extra-one'), lessThan(all.indexOf('!tinabin')),
+            reason: 'extra names ride with the curated block');
+        // Only executables from PATH: no notes.txt, no directories.
+        expect(all, contains('!tinabin'));
+        expect(all, isNot(contains('!notes.txt')));
+        expect(all, isNot(contains('!subdir')));
+      } finally {
+        bin.deleteSync(recursive: true);
+      }
+    });
+
+    test('a query ranks with the fuzzy ranker and keeps the bang sigil',
+        () async {
+      final bin = pathBinWith(['tinabin', 'tinafake', 'unrelated']);
+      try {
+        final source = ShellCommandCompletionSource(pathEnv: bin.path);
+        final ranked = await source.complete('tina');
+        expect(ranked, everyElement(startsWith('!')));
+        expect(ranked.first, '!tinabin',
+            reason: 'an exact-prefix PATH hit outranks the rest');
+        expect(ranked, containsAll(['!tinabin', '!tinafake']));
+        expect(ranked, isNot(contains('!unrelated')));
+        expect(await source.complete('zzz-no-such'), isEmpty);
+      } finally {
+        bin.deleteSync(recursive: true);
+      }
+    });
+
+    test('a broken PATH entry contributes nothing, not an error', () async {
+      final source = ShellCommandCompletionSource(
+          pathEnv: '/no/such/dir:/also/missing');
+      expect(await source.complete('cd'), contains('!cd'));
+    });
+  });
+
+  group('!-mode path-word source (BangPathCompletionSource)', () {
+    test('unquoted words behave exactly like the @ source', () async {
+      final repo = gitRepoWith(['README.md', 'lib/main.dart']);
+      try {
+        final source = BangPathCompletionSource(workingDir: repo.path);
+        expect(await source.complete('main'), contains('lib/main.dart'));
+        expect(await source.complete('READ'), ['README.md']);
+        expect(await source.complete(''), isNotEmpty);
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+
+    test('dotfiles complete like the @ source (git lists them)',
+        () async {
+      final repo = gitRepoWith(['.hidden.txt', 'plain.txt']);
+      try {
+        final source = BangPathCompletionSource(workingDir: repo.path);
+        expect(await source.complete('.hid'), ['.hidden.txt']);
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+
+    test('a single-quoted word completes and stays quoted', () async {
+      final repo = gitRepoWith(['my file.txt', 'plain.txt']);
+      try {
+        final source = BangPathCompletionSource(workingDir: repo.path);
+        expect(await source.complete("'my"), contains("'my file.txt'"));
+        expect(await source.complete("'my file.txt'"),
+            contains("'my file.txt'"),
+            reason: 'a fully typed quoted word still refreshes');
+        expect(await source.complete("'pl"), ["'plain.txt'"]);
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+
+    test('a double-quoted word re-quotes with double quotes', () async {
+      final repo = gitRepoWith(['my file.txt']);
+      try {
+        final source = BangPathCompletionSource(workingDir: repo.path);
+        expect(await source.complete('"my'), ['"my file.txt"']);
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+
+    test('a path embedding the quote char switches quote style',
+        () async {
+      final repo = gitRepoWith(["it's.txt"]);
+      try {
+        final source = BangPathCompletionSource(workingDir: repo.path);
+        expect(await source.complete("'it"), ['"it\'s.txt"'],
+            reason: 'single quotes cannot escape a single quote');
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+  });
+
+  test('the bang seam serves both sources where dart:io exists', () {
+    final bang = defaultBangCompletion(workingDir: '.');
+    expect(bang, isNotNull);
+    expect(bang!.commands, isA<ShellCommandCompletionSource>());
+    expect(bang.paths, isA<BangPathCompletionSource>());
+  });
+
   group('runApp wiring — a custom editor still gets the pickers', () {
     // The wasm ANSI TUI passes editorFor (its input backend rides the
     // WASI stdio); the provider wiring must follow the editor, not the
@@ -512,6 +644,81 @@ void main() {
       await flush();
       expect(await done.timeout(const Duration(seconds: 5)), 0);
       expect(dispatched, 1, reason: 'the accepted command was dispatched');
+    });
+
+    test('bang-mode Tab completion reaches a custom editor (native sources)',
+        () async {
+      final host = sessionWithCommands(['quit']);
+      final view = SessionView(
+          host.connect(),
+          SessionPresentation(
+            theme: () => const Theme.defaults(),
+            configNote: null,
+            quitRequested: () => false,
+            createViews: () => {},
+            listenViews: (loaded, unloading) => () {},
+            listenTheme: (_) => () {},
+            settingsFor: (_) => SessionSettingsView(
+                open: () async => '', repaint: () {}, close: () {}),
+          ));
+      final io = FlushIo();
+      final screen =
+          Screen(io: io, layout: ScreenLayout.fromSize(80, 24, split: false));
+      late LineEditor editor;
+      final done = runApp(view,
+          screen: screen,
+          editorFor: (screen) => editor =
+              LineEditor(screen: screen, escapeTimeout: Duration.zero));
+      await flush();
+      await flush();
+
+      // Command word: PATH executables, ranked by the fuzzy ranker, the
+      // real environment's PATH (git is on it — these tests shell out to
+      // git), accepted over just the word after the !.
+      io.feedBytes('!gi'.codeUnits);
+      await flush();
+      io.feedBytes([0x09]);
+      await flush();
+      expect(editor.isCompleting, isTrue,
+          reason: 'Tab on a bang line must open the picker');
+      // The real PATH scan is asynchronous (unlike the console tests'
+      // instant fakes): poll Tab until the scan has landed and acceptance
+      // replaced the word. A Tab that fires while results are still empty
+      // just closes the picker; the next one reopens it.
+      var accepted = false;
+      for (var i = 0; i < 100 && !accepted; i++) {
+        io.feedBytes([0x09]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        accepted = !editor.isCompleting && editor.editState.buffer != '!gi';
+      }
+      expect(accepted, isTrue, reason: 'the picker never completed the word');
+      expect(editor.editState.buffer, startsWith('!gi'),
+          reason: 'the accepted command keeps the bang and the prefix');
+      expect(editor.editState.buffer, endsWith(' '),
+          reason: 'a completed command is ready for arguments');
+
+      // Argument word: file paths from the working directory (this
+      // package is a git repository — pubspec.yaml is tracked).
+      io.feedBytes('pubspec'.codeUnits);
+      await flush();
+      io.feedBytes([0x09]);
+      await flush();
+      final before = editor.editState.buffer;
+      accepted = false;
+      for (var i = 0; i < 100 && !accepted; i++) {
+        io.feedBytes([0x09]); // Tab: accept once the git listing lands
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        accepted = !editor.isCompleting && editor.editState.buffer != before;
+      }
+      expect(accepted, isTrue, reason: 'the path picker never completed');
+      expect(editor.editState.buffer, contains('pubspec'),
+          reason: 'the path word completed from the repo listing');
+
+      io.feedBytes([0x15]); // ctrl-U: clear the bang line
+      await flush();
+      io.feedBytes('/quit\r'.codeUnits);
+      await flush();
+      expect(await done.timeout(const Duration(seconds: 5)), 0);
     });
   });
 }

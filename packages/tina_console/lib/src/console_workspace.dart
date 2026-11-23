@@ -1,4 +1,5 @@
 import 'console_contribution.dart';
+import 'bang_words.dart';
 import 'package:fuzzy_ranker/fuzzy_ranker.dart';
 
 /// Optional delivery of new input to a busy conversation. UI code has no
@@ -39,6 +40,10 @@ abstract interface class ConsoleSessionView implements ConsoleContribution {
   void Function() listenActivity(void Function() listener);
   CompletionProvider? get commandCompletion;
   CompletionProvider? get fileCompletion;
+
+  /// Sources for Tab completion on `!`-mode (shell passthrough) lines, or
+  /// null where the host owns spawning and the filesystem (wasm).
+  BangCompletion? get bangCompletion;
   Future<void> submit(String text);
   void cancel();
   void notice(String text);

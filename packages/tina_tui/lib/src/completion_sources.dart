@@ -1,7 +1,8 @@
-/// Sources for the input line's two completion pickers — `/` for the
-/// command registry, `@` for file paths. Both implement the console's
+/// Sources for the input line's completion pickers — `/` for the
+/// command registry, `@` for file paths, Tab in `!` mode for shell command
+/// names and argument paths. All implement the console's
 /// [CompletionProvider] (`Future<List<String>> complete(String query)`),
-/// and both return a possibly-empty list for any query — never an error,
+/// and all return a possibly-empty list for any query — never an error,
 /// never a throw: a missing folder or a failed `git ls-files` just means
 /// "no suggestions".
 ///
@@ -230,5 +231,227 @@ final class GitFileCompletionSource implements CompletionProvider {
       keys = next;
     }
     return result;
+  }
+}
+
+/// Curated common shell commands offered alongside the PATH scan — things
+/// users type constantly, some of them actual shell builtins (`cd`, `jobs`),
+/// some just ubiquitous binaries (`git`, `grep`). Ordered by everyday use so
+/// an empty query lists the useful names first.
+const shellBuiltins = <String>[
+  'cd',
+  'ls',
+  'pwd',
+  'echo',
+  'cat',
+  'less',
+  'head',
+  'tail',
+  'grep',
+  'find',
+  'rg',
+  'sed',
+  'awk',
+  'sort',
+  'uniq',
+  'wc',
+  'tr',
+  'cut',
+  'tee',
+  'xargs',
+  'mkdir',
+  'rm',
+  'cp',
+  'mv',
+  'ln',
+  'touch',
+  'chmod',
+  'chown',
+  'stat',
+  'file',
+  'tar',
+  'gzip',
+  'gunzip',
+  'zip',
+  'unzip',
+  'curl',
+  'wget',
+  'ssh',
+  'scp',
+  'git',
+  'dart',
+  'flutter',
+  'node',
+  'npm',
+  'pnpm',
+  'yarn',
+  'python3',
+  'pip',
+  'cargo',
+  'rustc',
+  'go',
+  'make',
+  'cmake',
+  'jq',
+  'which',
+  'type',
+  'man',
+  'alias',
+  'export',
+  'source',
+  'env',
+  'printenv',
+  'ps',
+  'kill',
+  'jobs',
+  'fg',
+  'bg',
+  'history',
+  'time',
+  'date',
+  'whoami',
+  'hostname',
+  'uname',
+  'df',
+  'du',
+  'top',
+  'open',
+  'code',
+];
+
+/// The `!`-mode command-word source: a curated list of common commands plus
+/// every executable on PATH. The PATH scan runs once per distinct PATH
+/// value per process and is cached — a picker refresh per keystroke must
+/// not stat the filesystem each time, and PATH does not change mid-session.
+///
+/// Results carry the leading `!`: the picker's anchor sits on the `!` of a
+/// bang line, so accepting replaces `!par` with `!parted` plus the trailing
+/// space the picker appends.
+final class ShellCommandCompletionSource implements CompletionProvider {
+  /// The `PATH` value to scan; defaults to the environment's.
+  final String? pathEnv;
+
+  /// Extra names ranked alongside the builtins and PATH executables.
+  final Iterable<String> extra;
+
+  const ShellCommandCompletionSource({this.pathEnv, this.extra = const []});
+
+  // One scan per distinct PATH per process (keyed so tests with fixture
+  // PATHs do not poison each other). Never a permission boundary.
+  static final Map<String, Future<List<String>>> _scans = {};
+
+  @override
+  Future<List<String>> complete(String query) async {
+    final names = await _names();
+    if (query.isEmpty) {
+      // The whole listing (curated block first): the picker scrolls, and a
+      // cap would silently make later curated names undiscoverable.
+      return [for (final n in names) '!$n'];
+    }
+    return [for (final n in rankFuzzy(query, names)) '!$n'];
+  }
+
+  Future<List<String>> _names() async {
+    final path = pathEnv ?? Platform.environment['PATH'] ?? '';
+    return _scans[path] ??= _scan(path);
+  }
+
+  Future<List<String>> _scan(String path) async {
+    final separator = Platform.isWindows ? ';' : ':';
+    final executableExtensions = Platform.isWindows
+        ? const ['.exe', '.bat', '.cmd', '.com']
+        : const <String>[];
+    final seen = <String>{};
+    final dirs = path.split(separator).where((d) => d.isNotEmpty);
+    final groups = await Future.wait([for (final dir in dirs) _listDir(dir)]);
+    for (final entries in groups) {
+      for (final entry in entries) {
+        if (entry is Directory) continue;
+        var name = p.basename(entry.path);
+        if (executableExtensions.isNotEmpty) {
+          final dot = name.lastIndexOf('.');
+          if (dot <= 0) continue;
+          if (!executableExtensions
+              .contains(name.substring(dot).toLowerCase())) {
+            continue;
+          }
+          name = name.substring(0, dot);
+        } else {
+          // POSIX: only executables are command candidates. stat() follows
+          // links, so a symlink to an executable counts.
+          try {
+            final st = await entry.stat();
+            // 0x49 == 0o111: any execute bit set.
+            if ((st.mode & 0x49) == 0) continue;
+          } catch (_) {
+            continue;
+          }
+        }
+        if (name.isNotEmpty) seen.add(name);
+      }
+    }
+    // Curated names first in their given order (builtins like `cd` need
+    // not exist on PATH to be suggestable); PATH adds the rest, deduped,
+    // alphabetically.
+    final curated = <String>{...shellBuiltins, ...extra};
+    final ordered = [...shellBuiltins, ...extra].toSet().toList();
+    final pathNames = seen.difference(curated).toList()..sort();
+    return [...ordered, ...pathNames];
+  }
+
+  /// One PATH directory's entries. An unreadable or vanished directory, or
+  /// one that stalls, contributes nothing — a bad PATH entry never breaks
+  /// completion.
+  static Future<List<FileSystemEntity>> _listDir(String dir) async {
+    try {
+      return await Directory(dir)
+          .list(followLinks: true)
+          .toList()
+          .timeout(const Duration(seconds: 2),
+              onTimeout: () => <FileSystemEntity>[]);
+    } catch (_) {
+      return const [];
+    }
+  }
+}
+
+/// The `!`-mode path-word source: the `@` file machinery wrapped for word
+/// position. The picker's query for an argument word is the raw word, which
+/// may open (and, when fully typed, close) with a quote; the query is
+/// completed unquoted and every result is re-quoted so the accepted line
+/// still parses as one word — a completed path containing spaces stays
+/// quoted.
+final class BangPathCompletionSource implements CompletionProvider {
+  final GitFileCompletionSource files;
+
+  BangPathCompletionSource({required String workingDir})
+      : files = GitFileCompletionSource(workingDir: workingDir);
+
+  @override
+  Future<List<String>> complete(String query) async {
+    final quote = (query.startsWith("'") || query.startsWith('"'))
+        ? query.substring(0, 1)
+        : null;
+    final bare = quote == null ? query : _stripQuotes(query, quote);
+    final ranked = await files.complete(bare);
+    if (quote == null) return ranked;
+    return [for (final path in ranked) _requoted(path, quote)];
+  }
+
+  static String _stripQuotes(String word, String quote) {
+    var t = word.substring(1);
+    if (t.endsWith(quote)) {
+      t = t.length <= 1 ? '' : t.substring(0, t.length - 1);
+    }
+    return t;
+  }
+
+  /// Re-quote [path] with [quote] unless the path embeds that quote char,
+  /// in which case use the other quote (single-quoted strings cannot
+  /// escape a single quote at all).
+  static String _requoted(String path, String quote) {
+    final other = quote == "'" ? '"' : "'";
+    final q = path.contains(quote) && !path.contains(other) ? other : quote;
+    return '$q$path$q';
   }
 }

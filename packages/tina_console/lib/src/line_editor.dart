@@ -6,6 +6,7 @@ import 'backend/ansi_input_backend.dart';
 import 'backend/input_backend.dart';
 import 'package:fuzzy_ranker/fuzzy_ranker.dart';
 import 'completion_picker.dart';
+import 'bang_words.dart';
 import 'focus_manager.dart';
 import 'input_event.dart';
 import 'input_session.dart';
@@ -57,8 +58,14 @@ class LineEditor {
   bool _searchFailed = false; // last lookup found no match
   // A second picker for `/`-command completion (opens only at the start of an
   // empty line; accepts the command plus a trailing space). At most one of
-  // [_picker] and [_commandPicker] is active at a time.
+  // [_picker], [_commandPicker] and [_bangPicker] is active at a time.
   late final CompletionPicker _commandPicker;
+
+  // The `!`-mode picker: opened by Tab on a shell passthrough line, not by a
+  // trigger character (popping the full PATH listing on every bang line
+  // would be noise). Its provider flips between the command-word source and
+  // the path-word source each time it opens.
+  late final CompletionPicker _bangPicker;
 
   StreamSubscription<InputEvent>? _sub;
   String _prompt = '';
@@ -256,6 +263,12 @@ class LineEditor {
   CompletionProvider? get commandProvider => _commandPicker.provider;
   set commandProvider(CompletionProvider? p) => _commandPicker.provider = p;
 
+  /// Sources for Tab completion on `!`-mode (shell passthrough) lines:
+  /// command names for the first word after the `!`, file paths for later
+  /// words. Null (the default, and always under the wasm compilation, where
+  /// spawning and the filesystem are host-owned) leaves Tab inert there.
+  BangCompletion? bangCompletion;
+
   /// When true, macOS Option+letter characters are mapped to [AltKey] events
   /// so menus work without "Use Option as Meta" enabled in the terminal.
   final bool macosOptionAsMeta;
@@ -276,6 +289,18 @@ class LineEditor {
         _ownsInput = input == null {
     _picker = CompletionPicker(screen, onError: onError);
     _commandPicker = CompletionPicker.commandPicker(screen, onError: onError);
+    _bangPicker = CompletionPicker(
+      screen,
+      onError: onError,
+      // Results carry their own sigil: '!cmd' for the command word, a
+      // (re-quoted) path for argument words. Accepted text gains a trailing
+      // space so the next word is ready to type.
+      trigger: 0x21,
+      prependTriggerOnAccept: false,
+      acceptSuffix: ' ',
+      // Never auto-open on a typed character; Tab opens this picker.
+      shouldOpen: (buffer, cursor) => false,
+    );
   }
 
   /// The input backend this editor reads from. Exposed so the host (e.g.
@@ -310,6 +335,7 @@ class LineEditor {
     if (draft != null) _edit = _edit.loadState(draft.buffer, draft.cursor);
     _picker.reset();
     _commandPicker.reset();
+    _bangPicker.reset();
     _completer = Completer<String?>();
     _redraw();
     _ensureListening();
@@ -755,6 +781,7 @@ class LineEditor {
     if (_ownsInput) _input.dispose();
     _picker.dispose();
     _commandPicker.dispose();
+    _bangPicker.dispose();
     if (reportLatency) reportInputLatency();
   }
 
@@ -762,12 +789,11 @@ class LineEditor {
   void reportInputLatency() {
     if (InputLatency.enabled) {
       final s = InputLatency.snapshot();
-      platformWriteStderr(
-        '[input-latency] count=${s.count} '
-        'p50=${s.p50Millis.toStringAsFixed(3)}ms '
-        'p95=${s.p95Millis.toStringAsFixed(3)}ms '
-        'p99=${s.p99Millis.toStringAsFixed(3)}ms '
-        'max=${s.maxMillis.toStringAsFixed(3)}ms');
+      platformWriteStderr('[input-latency] count=${s.count} '
+          'p50=${s.p50Millis.toStringAsFixed(3)}ms '
+          'p95=${s.p95Millis.toStringAsFixed(3)}ms '
+          'p99=${s.p99Millis.toStringAsFixed(3)}ms '
+          'max=${s.maxMillis.toStringAsFixed(3)}ms');
     }
   }
 
@@ -1684,6 +1710,8 @@ class LineEditor {
                 _edit.buffer.startsWith('/')) {
               _commandPicker.open(0);
               unawaited(_commandPicker.refresh(_edit.buffer, _edit.cursor));
+            } else {
+              _openBangCompletion();
             }
           case ControlCode.backspace:
             _edit = _edit.backspace();
@@ -1830,6 +1858,7 @@ class LineEditor {
   CompletionPicker? get _activePicker {
     if (_picker.isActive) return _picker;
     if (_commandPicker.isActive) return _commandPicker;
+    if (_bangPicker.isActive) return _bangPicker;
     return null;
   }
 
@@ -1841,6 +1870,30 @@ class LineEditor {
       return _commandPicker;
     }
     return null;
+  }
+
+  /// Tab on a `!`-mode (shell passthrough) line: open the bang picker over
+  /// the word the cursor sits in. The first word after the `!` completes
+  /// command names; later words complete file paths. The anchor is the
+  /// character before the word (the `!` itself for the command word), so
+  /// acceptance replaces exactly that word — the picker's trailing-space
+  /// suffix restores the separator the anchor consumed.
+  bool _openBangCompletion() {
+    final bang = bangCompletion;
+    if (bang == null) return false;
+    final line = _edit.buffer;
+    final at = bangWordAtCursor(line, _edit.cursor);
+    if (at == null) return false;
+    _bangPicker.provider = at.isCommandWord ? bang.commands : bang.paths;
+    // The anchor is one character before the word: the `!` itself for the
+    // command word (the source re-supplies it) or the word separator for
+    // later words (restored here, since path results are bare).
+    _bangPicker.acceptPrefix = at.isCommandWord ? '' : ' ';
+    _bangPicker.open(at.word.start - 1);
+    _redraw();
+    // Fire-and-forget; refresh schedules its own redraw.
+    unawaited(_bangPicker.refresh(_edit.buffer, _edit.cursor));
+    return true;
   }
 
   void _acceptPicker(CompletionPicker picker) {
