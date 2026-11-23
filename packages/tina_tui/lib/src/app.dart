@@ -80,6 +80,9 @@ Future<int> runApp(
     if (editor.completionProvider == null) {
       editor.completionProvider = view.fileCompletion;
     }
+    if (editor.bangCompletion == null) {
+      editor.bangCompletion = view.bangCompletion;
+    }
     ownsTty = startup == null &&
         screen == null &&
         s.io.hasTerminal &&

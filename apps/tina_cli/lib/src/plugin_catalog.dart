@@ -620,9 +620,23 @@ PluginRegistry<SessionPluginContext> firstPartyPlugins() => PluginRegistry(
       (c) => CompactionPlugin(
         terminal: c.terminal,
         canCompact: () => !(c.contextLoaded?.call() ?? false),
+        // The window seam: live per-turn resolution through the
+        // assembly's descriptor lookup (null when unresolvable — the
+        // plugin falls back to its safe fixed default, never throws).
+        readContextWindow: c.currentContextWindow,
+        // The setting override: a WRITTEN value is absolute (0 disables
+        // automatic compaction); no written value stays window-derived.
+        // Source, not value, distinguishes default-0 from explicit-0.
+        readThresholdOverride: () {
+          final settings = c.settings;
+          if (settings == null) return null;
+          final read = settings.read(compactionThresholdSetting);
+          return read.source == null ? null : read.value;
+        },
       ),
+      settings: [compactionThresholdSetting],
       description:
-          'Summarizes older conversation history when context grows large to make room for more work.',
+          'Summarizes older conversation history when context grows large to make room for more work. The trigger follows the active model\'s context window (80% by default) and can be overridden in settings.',
       live: true,
     ),
     PluginDefinition.dependingOn<SessionPluginContext, ToolSessionSource>(

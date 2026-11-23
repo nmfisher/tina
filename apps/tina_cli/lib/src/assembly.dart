@@ -595,6 +595,27 @@ final class SessionAssembly {
           sessionProvider: resolved.providerId ?? 'anthropic'),
       profiles: profileList,
       switchProfile: switchSessionProfile,
+      // The active model's context window, live: the current reference
+      // resolved against the assembly's descriptors — the same list the
+      // config reloads refresh, so a models.dev correction or a /model
+      // switch is honored on the next read. The reference may be bare
+      // (the injected-factory leg keeps the wire model name), so a
+      // prefix-less name falls back to the config's provider, then the
+      // anthropic default — the same chain configuredProvider uses.
+      // Null when nothing resolves; the compaction plugin falls back to
+      // its safe fixed default.
+      currentContextWindow: () {
+        final reference = assembled?.host.model ?? model;
+        final slash = reference.indexOf('/');
+        final providerId = slash > 0
+            ? reference.substring(0, slash)
+            : (resolved.providerId ?? 'anthropic');
+        final wireModel =
+            slash > 0 ? reference.substring(slash + 1) : reference;
+        return descriptorByIdFor(providerId, resolved.descriptors)
+            ?.models[wireModel]
+            ?.contextWindow;
+      },
       // The connection-controls catalog rides the shared modelCatalogChoices
       // rule (the settings editor's picker list) over the resolved config:
       // configured providers plus the active provider, the anthropic

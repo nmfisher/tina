@@ -31,6 +31,7 @@ export 'src/terminal_bg.dart';
 export 'src/terminal_bg_probe.dart';
 export 'package:fuzzy_ranker/fuzzy_ranker.dart';
 export 'src/completion_picker.dart';
+export 'src/bang_words.dart';
 export 'src/comet.dart';
 export 'src/confirm_dialog.dart';
 export 'src/focusable.dart';

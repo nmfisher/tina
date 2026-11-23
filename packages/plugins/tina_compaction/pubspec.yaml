@@ -9,6 +9,8 @@ dependencies:
     path: ../../tina_core
   tina_engine_2:
     path: ../../tina_engine_2
+  tina_settings:
+    path: ../../libraries/tina_settings
 dev_dependencies:
   tina_persistence:
     path: ../tina_persistence

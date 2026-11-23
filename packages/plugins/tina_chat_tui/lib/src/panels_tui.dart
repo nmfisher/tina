@@ -266,6 +266,7 @@ final class _Workspace implements ConsolePanels {
     screen.setActiveChat(view.chat);
     editor.commandProvider = view.session.commandCompletion;
     editor.completionProvider = view.session.fileCompletion;
+    editor.bangCompletion = view.session.bangCompletion;
     editor.restoreHistory(view.history);
     _layout();
     // Returning from a plugin panel in this same conversation keeps the live
