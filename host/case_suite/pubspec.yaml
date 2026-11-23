@@ -1,0 +1,15 @@
+name: tina_wasm_host_case_suite
+description: >-
+  Host case suite: runs the wasm_components SDK-parity cases and the
+  entity-decode parity test under the tina-wasm-host runner. Moved here
+  from nmfisher/wasm.dart pkg/wasm_components/test when the host crate
+  was extracted into this repository.
+publish_to: none
+environment:
+  sdk: ^3.13.0
+dependencies:
+  test: any
+  path: any
+  test_descriptor: any
+  wasm_components:
+  wasm_tools:

@@ -1,0 +1,15 @@
+name: tina_wasm_host
+description: >-
+  The tina wasm host: single-file Rust runner that embeds the engine and
+  TUI components (with AOT-precompiled twins), plus the tina-case-runner
+  used by the case suite. Rust crate first; this pubspec drives the Dart
+  build hook (native assets) and the witgen tooling.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.13.0
+dependencies:
+  hooks: ^2.0.2
+  meta: ^1.19.0
+  wasm_components:
+  wasm_tools:

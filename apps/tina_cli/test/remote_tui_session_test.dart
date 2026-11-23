@@ -469,7 +469,7 @@ enabled = [
   final host = Platform.environment['TINA_WASM_HOST'] ??
       '/tmp/sigprobe/target/release/tina-wasm-host';
   final pluginArtifact = Platform.environment['TINA_TEST_PLUGIN'] ??
-      '/tmp/codex85-loader-integration-20261108/wasm.dart/pkg/tina_wasm_host/testdata/plugin_probe/tina_prompt_plugin.component.wasm';
+      '${cliRoot.path}/../../host/testdata/plugin_probe/tina_prompt_plugin.component.wasm';
   if (File(host).existsSync() && File(pluginArtifact).existsSync()) {
     driveLeg(
       'wasm engine over pipes',
