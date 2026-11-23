@@ -56,11 +56,14 @@ env:
   # in install.sh and committed as minisign.pub). Empty → releases stay
   # checksum-only and install.sh says so.
   MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
-  # The paired wasm.dart repo pinned by commit — the host crate source and
-  # the wasm_tools/wasm_components the component builds resolve against.
-  # Bump this ONLY together with a tina-side compat note; the repos ship
+  # The paired wasm.dart repo pinned by commit — the wasm_tools /
+  # wasm_components packages the component builds resolve against. Bump
+  # this ONLY together with a tina-side compat note; the repos ship
   # as a pair (see docs/option2-wasm-tui.md).
   WASM_DART_REF: 06aa0099eb9fd644eaba0a92e9d8fa3bc7394a87
+  # The tina-wasm-host repo pinned by commit — the host crate, extracted
+  # from wasm.dart so that fork stays a tina-agnostic upstream fork.
+  TINA_WASM_HOST_REF: 4f8d8b5094b7a64c83e2824115128b8602e6db87
 
 # Least privilege: the default for every job is read-only; only the publish
 # job escalates to contents:write (it creates the Release). The build jobs
@@ -288,15 +291,25 @@ jobs:
           submodules: recursive
 
       # The paired wasm.dart repo, pinned by commit (env.WASM_DART_REF at
-      # the top of this file): the host crate AND the wasm_tools /
-      # wasm_components packages the engine/TUI component builds resolve
-      # against via the build script's path overrides.
+      # the top of this file): the wasm_tools / wasm_components packages
+      # the engine/TUI component builds resolve against via the build
+      # script's path overrides.
       - name: Checkout wasm.dart (paired pin)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: nmfisher/wasm.dart
           ref: ${{ env.WASM_DART_REF }}
           path: wasm.dart
+
+      # The host crate, extracted out of wasm.dart into its own repo
+      # (env.TINA_WASM_HOST_REF): the confinement patch and the release
+      # binary both come from this checkout.
+      - name: Checkout tina-wasm-host (paired pin)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: nmfisher/tina-wasm-host
+          ref: ${{ env.TINA_WASM_HOST_REF }}
+          path: tina-wasm-host
 
       # Same tag ↔ pubspec guard as the CLI build job (the wasm runner embeds
       # this checkout's Dart sources, so a stale version mislabels it too).
@@ -340,7 +353,7 @@ jobs:
         # Bounds a hung build/smoke now that the smoke itself runs without
         # GNU timeout (missing on macOS; see tool/build_wasm_runner.sh).
         timeout-minutes: 60
-        run: ./tool/build_wasm_runner.sh --wasm-dart "$GITHUB_WORKSPACE/wasm.dart"
+        run: ./tool/build_wasm_runner.sh --wasm-dart "$GITHUB_WORKSPACE/wasm.dart" --host "$GITHUB_WORKSPACE/tina-wasm-host"
 
       # ── macOS signing + notarization (mirrors the CLI targets) ─────────
       # Same conditions and mechanics as the build job above; the runner is

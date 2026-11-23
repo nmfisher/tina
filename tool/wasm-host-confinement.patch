@@ -1,7 +1,7 @@
-diff --git a/pkg/tina_wasm_host/Cargo.toml b/pkg/tina_wasm_host/Cargo.toml
+diff --git a/Cargo.toml b/Cargo.toml
 index 497a47b..6d49126 100644
---- a/pkg/tina_wasm_host/Cargo.toml
-+++ b/pkg/tina_wasm_host/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -9,6 +9,7 @@ serde_json = { version = "1.0.150", features = ["raw_value"] }
  # The discovery-time credential lift parses the user's tina config (the
  # same TOML crate wasmtime already pulls, so the lock does not fork).
@@ -17,10 +17,10 @@ index 497a47b..6d49126 100644
 -[dev-dependencies]
 -# Cache-path tests: hit/miss/rewrite against a throwaway directory.
 -tempfile = "3"
-diff --git a/pkg/tina_wasm_host/src/policy.rs b/pkg/tina_wasm_host/src/policy.rs
+diff --git a/src/policy.rs b/src/policy.rs
 index 3d5c751..2a58eb7 100644
---- a/pkg/tina_wasm_host/src/policy.rs
-+++ b/pkg/tina_wasm_host/src/policy.rs
+--- a/src/policy.rs
++++ b/src/policy.rs
 @@ -509,7 +509,7 @@ impl CapabilityPolicy {
              workspace: workspace.display().to_string(),
              read_dirs: vec![DirEntry {
@@ -54,10 +54,10 @@ index 3d5c751..2a58eb7 100644
          assert_eq!(preopens[1].access, DirAccess::Read);
          assert_eq!(preopens[1].origin, "default:config");
 
-diff --git a/pkg/tina_wasm_host/src/runner.rs b/pkg/tina_wasm_host/src/runner.rs
+diff --git a/src/runner.rs b/src/runner.rs
 index 6bb6c43..6111a81 100644
---- a/pkg/tina_wasm_host/src/runner.rs
-+++ b/pkg/tina_wasm_host/src/runner.rs
+--- a/src/runner.rs
++++ b/src/runner.rs
 @@ -78,73 +78,106 @@ pub fn aot_bytes(precompiled: &'static [u8]) -> Option<&'static [u8]> {
      (!precompiled.is_empty()).then_some(precompiled)
  }
@@ -484,10 +484,10 @@ index 6bb6c43..6111a81 100644
          std::fs::remove_dir_all(&home).ok();
      }
 
-diff --git a/pkg/tina_wasm_host/tests/discovery_boot.rs b/pkg/tina_wasm_host/tests/discovery_boot.rs
+diff --git a/tests/discovery_boot.rs b/tests/discovery_boot.rs
 index 2b8a3f1..9899bf8 100644
---- a/pkg/tina_wasm_host/tests/discovery_boot.rs
-+++ b/pkg/tina_wasm_host/tests/discovery_boot.rs
+--- a/tests/discovery_boot.rs
++++ b/tests/discovery_boot.rs
 @@ -151,6 +151,6 @@ fn bare_discovery_without_a_config_fails_with_the_friendly_message() {
      );
      assert!(
