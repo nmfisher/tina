@@ -414,7 +414,7 @@ final class OpenAiCompatibleProvider extends LlmProvider
     required this.baseUrl,
     required String Function() tokenFrom,
     HttpEndpoint? endpoint,
-    this.stallTimeout = const Duration(seconds: 120),
+    this.stallTimeout = const Duration(seconds: 300),
     this.generation = const GenerationOptions(),
     OpenAiStructuredOutput? structuredOutput,
   })  : _endpoint = endpoint,

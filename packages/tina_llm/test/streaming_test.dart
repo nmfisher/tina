@@ -66,6 +66,8 @@ void main() {
     expect(error.error.toString(), contains('stream stalled'));
     expect(error.transient, isTrue,
         reason: 'stalls are retryable; the CLI treats them as such');
+    expect(error.providerCode, 'stream_stalled',
+        reason: 'the policy keys mid-stream recovery on this code');
   });
 
   test('a stall followed by a trailing clean close still ends with the stall',

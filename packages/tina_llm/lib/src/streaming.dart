@@ -106,7 +106,7 @@ Stream<StreamEvent> pumpSse(
       flag.value = true;
       flag.stalled = true;
       emit(StreamError('stream stalled: no bytes for $stallTimeout',
-          transient: true));
+          transient: true, providerCode: 'stream_stalled'));
       queue.close();
       completions.close();
     });

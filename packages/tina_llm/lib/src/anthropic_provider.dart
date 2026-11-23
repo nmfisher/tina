@@ -39,7 +39,7 @@ final class AnthropicProvider extends LlmProvider
   AnthropicProvider({
     required String model,
     HttpEndpoint? endpoint,
-    this.stallTimeout = const Duration(seconds: 120),
+    this.stallTimeout = const Duration(seconds: 300),
     this.generation = const GenerationOptions(),
     String? Function()? tokenFrom,
     this.bearerToken,
@@ -271,7 +271,8 @@ final class AnthropicProvider extends LlmProvider
         if (done.value) return;
         done.value = true;
         done.stalled = true;
-        emit(StreamError('stream stalled: no bytes for $stallTimeout'));
+        emit(StreamError('stream stalled: no bytes for $stallTimeout',
+            transient: true, providerCode: 'stream_stalled'));
         queue.close();
         completions.close();
       });

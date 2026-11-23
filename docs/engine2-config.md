@@ -134,6 +134,7 @@ max_output = 4096
 # output_token_field = "max_completion_tokens" # OpenAI-compatible wire
 # structured_output = "json_object" # json_object | json_schema (OpenAI-compatible wire)
 # web_search = true # OpenAI-compatible wire: server-side search while generating
+# stall_timeout = 300 # seconds of stream silence before a stall; default 300
 
 [providers.other]
 wire = "openai"
@@ -161,6 +162,17 @@ notice when results arrive. It exists only on the OpenAI-compatible wire
 provider off; a custom provider declaring `true` claims its endpoint accepts
 it). Searches bill on the provider's own meter — tina's spend ledger sees
 only the tokens, never the per-search fee.
+
+`stall_timeout` (seconds, default 300) is the streaming watchdog: how
+long a response stream may fall silent before it is declared stalled.
+The default is deliberately long — providers that do not stream
+reasoning tokens (zai/glm) can think silently for minutes, and a long
+think looks identical to a dead connection at shorter timeouts. A
+stall no longer kills the turn: if deltas already reached the
+transcript, the partial output stands and one continuation attempt
+resumes from where the response left off (a notice says so); an
+unpublished stall retries as any transient failure does. Bad values
+fall back to the default rather than rejecting the config.
 
 A pool member is `provider` (uses the selected model) or `provider/model`.
 Models may contain slashes. Pools cannot contain pools. Routing rotates the

@@ -287,6 +287,46 @@ void main() {
     expect((await requestFormat('json_schema'))!['json_schema'],
         containsPair('strict', true));
   });
+  test('stall_timeout parses and bad values fall back to the default',
+      () {
+    Map<String, dynamic> providers(Map<String, dynamic> table) => {
+          'default': {'provider': 'p', 'model': 'm'},
+          'providers': {'p': table}
+        };
+    // A good value parses (seconds).
+    final tuned = parseTinaConfig(providers({
+      'wire': 'openai',
+      'base_url': 'https://example.invalid',
+      'stall_timeout': 90
+    })).config;
+    expect(tuned.providers['p']!.stallTimeoutSeconds, 90);
+    // Bad values never reject the config: the watchdog falls back to
+    // the provider default instead of failing the boot.
+    for (final bad in ['fast', 0, -30, 12.5, null]) {
+      final parsed = parseTinaConfig(providers({
+        'wire': 'openai',
+        'base_url': 'https://example.invalid',
+        if (bad != null) 'stall_timeout': bad,
+      })).config;
+      expect(parsed.providers['p']!.stallTimeoutSeconds, isNull,
+          reason: 'a bad stall_timeout ($bad) falls back, never throws');
+    }
+    // And the factory threads a tuned timeout into the provider.
+    final provider = configuredProvider(tuned, 'm');
+    expect((provider as OpenAiCompatibleProvider).stallTimeout,
+        const Duration(seconds: 90));
+    // Untuned: the 5-minute default (long silent thinks are legitimate).
+    final untuned = parseTinaConfig(providers({
+      'wire': 'openai',
+      'base_url': 'https://example.invalid',
+      'api_key': 'fixture'
+    })).config;
+    expect(
+        (configuredProvider(untuned, 'm') as OpenAiCompatibleProvider)
+            .stallTimeout,
+        const Duration(seconds: 300));
+  });
+
   test('web_search validates values and reaches the descriptor', () {
     Map<String, dynamic> providers(Map<String, dynamic> table) => {
           'default': {'provider': 'p', 'model': 'm'},

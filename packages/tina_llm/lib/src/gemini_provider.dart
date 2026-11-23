@@ -238,7 +238,7 @@ final class GeminiProvider extends LlmProvider
     required String Function() tokenFrom,
     this.baseUrl = geminiBaseUrl,
     HttpEndpoint? endpoint,
-    this.stallTimeout = const Duration(seconds: 120),
+    this.stallTimeout = const Duration(seconds: 300),
     this.generation = const GenerationOptions(),
   })  : _endpoint = endpoint,
         _tokenFrom = tokenFrom,

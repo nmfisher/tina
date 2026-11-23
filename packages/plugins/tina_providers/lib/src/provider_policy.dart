@@ -545,6 +545,30 @@ final class _PolicyProvider extends LlmProvider
                 '${error.error} Retrying once before any answer or tool call.'));
             continue pool;
           }
+          // Mid-stream stall recovery (commit 32): a stream that already
+          // published deltas is no longer terminal on stall — the
+          // partial output stands and ONE continuation attempt resumes
+          // from where the response left off. One recovery per turn
+          // TOTAL, shared with the reasoning/output_limit recovery
+          // above: whichever fires first consumes the budget, and a
+          // second stall in the same turn is terminal like any other
+          // error.
+          if (error.providerCode == 'stream_stalled' &&
+              published &&
+              !error.requiresUserAction &&
+              !recovered) {
+            recovered = true;
+            attempts = attempt + 2;
+            recoveryInstruction =
+                '\nThe previous attempt stalled mid-stream. The partial '
+                'output above stands - continue from exactly where it '
+                'left off, without repeating already-sent content.';
+            if (reasoned) output.add(const ReasoningEnd(complete: false));
+            output.add(StreamNotice(
+                '${error.error} - stalled; retrying from where the '
+                'response left off.'));
+            continue pool;
+          }
           if (published ||
               error.requiresUserAction ||
               !retryable ||

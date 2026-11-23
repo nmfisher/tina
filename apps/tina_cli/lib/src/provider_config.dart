@@ -18,10 +18,17 @@ final class ProviderSettings {
       this.apiKey,
       this.authToken,
       this.models,
+      this.stallTimeoutSeconds,
       this.disabledModels = const {}});
   final String? name, baseUrl, apiKey, authToken;
   final ProviderWire? wire;
   final Map<String, ModelInfo>? models;
+
+  /// The streaming stall watchdog, in seconds (commit 32): the silence
+  /// tolerance before a stream is declared stalled. Null uses the
+  /// provider default (300s) — long, because providers that do not
+  /// stream reasoning tokens can think silently for minutes.
+  final int? stallTimeoutSeconds;
   final Set<String> disabledModels;
   final List<String> members;
   final int? requestsPerMinute, minIntervalMs, maxOutput, thinkingBudget;
@@ -124,6 +131,12 @@ final class ProviderSettings {
     if (rawWebSearch != null && rawWebSearch is! bool) {
       throw FormatException('providers.$id.web_search must be true or false');
     }
+    // Bad values fall back to the default instead of rejecting the
+    // config: the watchdog must never be why a session refuses to boot
+    // (the stall knob is live-quality, not correctness).
+    final rawStall = values['stall_timeout'];
+    final stallTimeoutSeconds =
+        rawStall is int && rawStall > 0 ? rawStall : null;
     return ProviderSettings(
         members: members,
         requestsPerMinute: integer('requests_per_minute'),
@@ -140,6 +153,7 @@ final class ProviderSettings {
         apiKey: string('api_key'),
         authToken: string('auth_token'),
         models: models,
+        stallTimeoutSeconds: stallTimeoutSeconds,
         disabledModels: (strings('disabled_models') ?? []).toSet());
   }
 

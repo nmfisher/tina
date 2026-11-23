@@ -386,7 +386,31 @@ void main() {
       final events = await collected;
       final err = events.whereType<StreamError>().single;
       expect(err.error, contains('stalled'));
+      // The policy's mid-stream recovery keys on this code (commit 32).
+      expect(err.providerCode, 'stream_stalled');
+      expect(err.transient, isTrue);
     }, timeout: const Timeout(Duration(seconds: 10)));
+
+    test('the stall watchdog defaults to five minutes', () {
+      // Silence while thinking (providers that do not stream reasoning
+      // tokens) is legitimate for minutes; 2m killed live turns.
+      expect(AnthropicProvider(model: 'm', tokenFrom: () => 't').stallTimeout,
+          const Duration(seconds: 300));
+      expect(
+          GeminiProvider(
+                  model: 'm',
+                  baseUrl: 'https://example.test',
+                  tokenFrom: () => 't')
+              .stallTimeout,
+          const Duration(seconds: 300));
+      expect(
+          OpenAiCompatibleProvider(
+                  model: 'm',
+                  baseUrl: 'https://example.test',
+                  tokenFrom: () => 't')
+              .stallTimeout,
+          const Duration(seconds: 300));
+    });
   });
 
   group('credentials', () {

@@ -76,6 +76,11 @@ LlmProvider configuredProvider(
               envAuth != null ||
               (descriptorKey != null &&
                   descriptor.keyStyle == ProviderKeyStyle.bearer)));
+  // The stall watchdog (commit 32): [providers.<id>] stall_timeout in
+  // seconds; absent (or bad) keeps the provider default (300s).
+  final stallTimeout = settings?.stallTimeoutSeconds == null
+      ? null
+      : Duration(seconds: settings!.stallTimeoutSeconds!);
   final base = settings?.baseUrl ??
       nonempty(env['${prefix}_BASE_URL']) ??
       (id == 'anthropic' ? nonempty(env['TINA_LLM_ENDPOINT']) : null) ??
@@ -85,6 +90,7 @@ LlmProvider configuredProvider(
         model: model,
         generation: generation,
         endpoint: endpoint ?? defaultHttpEndpoint(base),
+        stallTimeout: stallTimeout ?? const Duration(seconds: 300),
         tokenFrom: () => token,
         bearerToken: bearer),
     ProviderWire.openAiCompatible => OpenAiCompatibleProvider(
@@ -92,6 +98,7 @@ LlmProvider configuredProvider(
         generation: generation,
         baseUrl: base,
         endpoint: endpoint ?? defaultHttpEndpoint(base),
+        stallTimeout: stallTimeout ?? const Duration(seconds: 300),
         tokenFrom: () => token,
         structuredOutput: descriptor.structuredOutput),
     ProviderWire.gemini => GeminiProvider(
@@ -99,6 +106,7 @@ LlmProvider configuredProvider(
         generation: generation,
         baseUrl: base,
         endpoint: endpoint ?? defaultHttpEndpoint(base),
+        stallTimeout: stallTimeout ?? const Duration(seconds: 300),
         tokenFrom: () => token),
   };
 }
