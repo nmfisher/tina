@@ -33,6 +33,7 @@ final class SessionPluginContext {
     required this.currentModel,
     required this.switchModel,
     required this.modelCatalog,
+    this.currentContextWindow,
     this.currentReasoning,
     this.setReasoning,
     this.reasoningChoices,
@@ -74,6 +75,15 @@ final class SessionPluginContext {
   final String Function() currentModel;
   final void Function(String) switchModel;
   final ModelCatalog Function() modelCatalog;
+
+  /// The active model's context window in tokens, resolved live from
+  /// the descriptor registry (the models.dev-corrected descriptors the
+  /// assembly holds), or null when the reference resolves to no
+  /// descriptor model. Consumers degrade to their safe fixed defaults
+  /// on null — absence never throws. Untyped int keeps this file free
+  /// of the descriptor packages, as [modelCatalog] keeps it free of
+  /// their picker types.
+  final int? Function()? currentContextWindow;
 
   /// The conversation's reasoning effort ('auto' = no override), or null when
   /// the entry point has no settings stack. Null disables /reasoning.

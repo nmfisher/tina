@@ -19,22 +19,35 @@ library;
 import 'dart:async';
 import 'package:tina_engine_2/tina_engine_2.dart';
 
+import 'compaction_window.dart';
+
 /// What size the request must reach before compaction fires, in input
 /// tokens — explicit configuration, never a magic number in the flow.
 /// A second knob bounds the estimation error: after a compaction the
 /// next trigger is recomputed from what remains, so a borderline request
 /// does not thrash.
+///
+/// Both size knobs default to null: unset means window-derived — the
+/// trigger at [compactionWindowTriggerFraction] of the active model's
+/// context window and the kept tail at [compactionWindowKeepRecentFraction]
+/// (floored at [compactionMinKeptRecentTokens]), resolved live each turn
+/// through the plugin's [CompactionPlugin.readContextWindow] seam. An
+/// unknown window falls back to the historical fixed defaults
+/// ([compactionFallbackThresholdTokens] / [compactionMinKeptRecentTokens]);
+/// compaction is never silently disabled by an unresolvable window.
 class CompactionConfig {
   const CompactionConfig({
-    this.thresholdTokens = 100000,
+    this.thresholdTokens,
     this.overThresholdMargin = 1.0,
-    this.keepRecentTokens = 15000,
+    this.keepRecentTokens,
     this.minMessagesToCompact = 4,
-  }) : assert(keepRecentTokens >= 0);
+  }) : assert(keepRecentTokens == null || keepRecentTokens >= 0);
 
   /// Estimated input tokens a request may carry before the older half is
-  /// summarized. 0 disables compaction entirely.
-  final int thresholdTokens;
+  /// summarized. Null derives the trigger from the active model's
+  /// context window each turn. An explicit 0 disables compaction
+  /// entirely (negative values too, by the same `<= 0` rule).
+  final int? thresholdTokens;
 
   /// Compaction fires at `thresholdTokens * overThresholdMargin`, and the
   /// next trigger level is recomputed from what remains — slack for an
@@ -42,12 +55,14 @@ class CompactionConfig {
   final double overThresholdMargin;
 
   /// How many estimated transcript tokens of the most recent history
-  /// stay verbatim. The split walks back from the newest message until
-  /// this budget is spent, then snaps to a turn boundary — a tool pair
-  /// is never severed. When the whole transcript fits the budget, only
-  /// the newest exchange stays; when there is a single exchange, it too
+  /// stay verbatim. Null scales the budget with the active model's
+  /// context window (floored at [compactionMinKeptRecentTokens]). The
+  /// split walks back from the newest message until this budget is
+  /// spent, then snaps to a turn boundary — a tool pair is never
+  /// severed. When the whole transcript fits the budget, only the
+  /// newest exchange stays; when there is a single exchange, it too
   /// is summarized.
-  final int keepRecentTokens;
+  final int? keepRecentTokens;
 
   /// Fewer derived messages than this and there is nothing worth
   /// summarizing — compacting would spend a request to shrink almost
@@ -107,6 +122,8 @@ final class CompactionPlugin extends AgentPlugin {
     this.terminal,
     this.id = 'tina/auto-compact',
     this.canCompact,
+    this.readContextWindow,
+    this.readThresholdOverride,
   }) : assert(config.overThresholdMargin >= 1.0);
 
   @override
@@ -123,6 +140,18 @@ final class CompactionPlugin extends AgentPlugin {
   /// Host coordination with another context policy. Defaults to enabled.
   /// Consult the loaded policy, not settings pending a restart.
   final bool Function()? canCompact;
+
+  /// The active model's context window in tokens, or null when the
+  /// composition cannot resolve it (unknown model, no descriptor).
+  /// Read LIVE each turn and at each `/compact`, so a `/model` switch
+  /// is honored without a restart. Null keeps the safe fixed defaults.
+  final int? Function()? readContextWindow;
+
+  /// The user's absolute trigger override in tokens, or null when the
+  /// setting has no written value (window-derived). A written 0
+  /// disables automatic compaction, matching the explicit config's
+  /// `thresholdTokens <= 0` semantics. Read live each turn.
+  final int? Function()? readThresholdOverride;
   @override
   List<Command> get commands => [
         Command(
@@ -142,8 +171,8 @@ final class CompactionPlugin extends AgentPlugin {
                 await loop.betweenTurns(() async {
                   if (cancel.cancelled) return;
                   final view = loop.derive();
-                  final split = _splitAtTokenBoundary(
-                      view.messages, config.keepRecentTokens);
+                  final split =
+                      _splitAtTokenBoundary(view.messages, _keepTokens());
                   if (split == null) {
                     terminal?.writeln(
                         'Nothing to compact: the transcript has no text to '
@@ -178,29 +207,66 @@ final class CompactionPlugin extends AgentPlugin {
   }
 
   /// Where the next trigger sits. Recomputed after each compaction from
-  /// what remains, so a borderline request does not thrash.
+  /// what remains, so a borderline request does not thrash; reset when
+  /// the resolved threshold changes (a `/model` switch, a settings
+  /// write), so a smaller window's trigger applies immediately instead
+  /// of waiting for the old, larger level.
   double _nextTrigger = 0;
+
+  /// The threshold the current [_nextTrigger] was derived from —
+  /// change detection for the live window/override reads.
+  double? _triggerBase;
 
   @override
   void mountOn(AgentLoop loop) {
     _loop = loop;
-    _nextTrigger = config.thresholdTokens * config.overThresholdMargin;
+    _triggerBase = _baseThreshold();
+    _nextTrigger = _triggerBase! * config.overThresholdMargin;
+  }
+
+  /// The trigger before the anti-thrash margin: the explicit config
+  /// value when set, else the setting override, else the live window
+  /// fraction, else the safe fixed fallback. `<= 0` disables the
+  /// automatic trigger (the config's explicit rule wins over everything).
+  double _baseThreshold() {
+    final explicit = config.thresholdTokens;
+    if (explicit != null) return explicit.toDouble();
+    final window = readContextWindow?.call();
+    return effectiveCompactionThreshold(
+      contextWindow: window,
+      overrideTokens: readThresholdOverride?.call(),
+    ).toDouble();
+  }
+
+  /// The kept-recent budget: the explicit config value when set, else
+  /// scaled to the live window, floored at the historical minimum.
+  int _keepTokens() {
+    final explicit = config.keepRecentTokens;
+    if (explicit != null) return explicit;
+    return effectiveKeptRecentTokens(contextWindow: readContextWindow?.call());
   }
 
   @override
   Future<void> onTurnEnd(TurnContext c) async {
     if (c.cancelled || c.outcome?.stopReason == StopReason.cancelled) return;
     if (!(canCompact?.call() ?? true)) return;
-    if (config.thresholdTokens <= 0) return;
     final loop = _loop;
     if (loop == null) return;
+    // Resolve the trigger LIVE: the window follows a `/model` switch and
+    // the override follows a settings write, both without a restart.
+    final base = _baseThreshold();
+    if (base <= 0) return;
+    if (base != _triggerBase) {
+      _triggerBase = base;
+      _nextTrigger = base * config.overThresholdMargin;
+    }
     final view = loop.derive();
     final estimate =
         estimateInputTokens(loop.settings.systemPrompt, view.messages);
     if (estimate < _nextTrigger) return;
     if (view.messages.length < config.minMessagesToCompact) return;
 
-    final split = _splitAtTokenBoundary(view.messages, config.keepRecentTokens);
+    final split = _splitAtTokenBoundary(view.messages, _keepTokens());
     if (split == null) return;
 
     _nextTrigger = estimate * config.overThresholdMargin;
