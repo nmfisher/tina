@@ -140,6 +140,10 @@ final class ChannelComposer {
     if (event is ControlKey) {
       switch (event.code) {
         case ControlCode.backspace:
+          // Backspace on an empty draft is a claimed no-op: removeLast
+          // on an empty rune list throws a RangeError that escapes the
+          // zone guard and kills the process (owner report, v0.10.20).
+          if (draft.isEmpty) return true;
           draft = String.fromCharCodes(draft.runes.toList()..removeLast());
           error = null;
           return true;
