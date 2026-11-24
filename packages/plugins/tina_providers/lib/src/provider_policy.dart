@@ -19,6 +19,27 @@ const Duration transportBackoffCap = Duration(seconds: 60);
 /// Worst case before surfacing: 1+2+4+8+16+32+60×9 ≈ 10 minutes.
 const Duration transportBackoffWorstCase = Duration(seconds: 603);
 
+/// Extra attempts a pre-publication HTTP 429 may take on its OWN budget,
+/// separate from the one shared per-turn recovery (output_limit /
+/// stream_stalled). A rate limit is throttling, not a broken response:
+/// it retries with backoff without spending the recovery other failures
+/// need. 0 (the `rate_limit_retries` setting) disables the loop — a 429
+/// is terminal immediately.
+const int rateLimitRetryLimit = 5;
+
+/// The first 429 retry waits ~1s; each next wait doubles, capped here
+/// (same schedule shape as the transport path).
+const Duration rateLimitBackoffFirst = Duration(seconds: 1);
+const Duration rateLimitBackoffCap = Duration(seconds: 60);
+
+/// Worst case cumulative 429 wait at the default budget: the schedule
+/// contributes 1+2+4+8+16 = 31s (5 extra attempts), and each 429 also
+/// applies a gate cooldown capped at 60s — 5×60 = 300s — so the
+/// wall-clock envelope is ~5 minutes (331s of waiting at the extremes).
+/// The wall-clock cap below enforces the envelope: a retry whose wait
+/// would push the cumulative total past it surfaces instead.
+const Duration rateLimitBackoffWorstCase = Duration(minutes: 5);
+
 /// Whether [error] is a CONNECTION-PHASE transport failure: the
 /// request never produced response bytes — host lookup, socket
 /// errors, connection refused/reset, TLS handshake. Detected by the
@@ -356,6 +377,11 @@ final class _PolicyProvider extends LlmProvider
         // At most one extra attempt for a response that produced only reasoning.
         var recovered = false;
         var recoveryInstruction = '';
+        // The 429 budget is per TURN and separate from the shared recovery:
+        // consecutive 429s double the backoff, and the cumulative wait is
+        // capped so a throttled turn surfaces instead of hanging.
+        var rateLimitRetries = 0;
+        var rateLimitWaited = Duration.zero;
         var attempts = targets.length;
         pool:
         for (var attempt = 0; attempt < attempts && live; attempt++) {
@@ -525,8 +551,59 @@ final class _PolicyProvider extends LlmProvider
           if (error == null) return;
           if (error.statusCode == 429 || error.statusCode == 503)
             gate.cooldown(error.retryAfter ?? const Duration(seconds: 1));
+          // Dedicated 429 loop (owner directive): a pre-publication rate
+          // limit retries with backoff on its OWN per-turn budget — it
+          // never spends the shared recovery, and the shared path below
+          // no longer counts 429 as retryable. The cooldown above still
+          // applies on every 429, so pool rotation keeps skipping the
+          // throttled member.
+          if (error.statusCode == 429 &&
+              !published &&
+              !error.requiresUserAction) {
+            final limit = policy.limits.rateLimitRetries;
+            if (limit > 0 && rateLimitRetries < limit) {
+              // Same schedule shape as the transport path: 1s doubling
+              // to a 60s cap, 50–100% jitter; a server Retry-After hint
+              // takes precedence over the scheduled base.
+              final base = rateLimitBackoffFirst * (1 << rateLimitRetries);
+              final capped =
+                  base > rateLimitBackoffCap ? rateLimitBackoffCap : base;
+              final hint = error.retryAfter;
+              final floor = hint != null && hint > capped ? hint : capped;
+              final u = policy.transportJitter?.call() ??
+                  _transportRandomInstance.nextDouble();
+              final delay = Duration(
+                  milliseconds:
+                      (floor.inMilliseconds * (0.5 + 0.5 * u)).round());
+              if (rateLimitWaited + delay > rateLimitBackoffWorstCase) {
+                output.add(StreamError(
+                    'rate limited: ${rateLimitRetries + 1} attempts over '
+                    '~${_minutesAndSeconds(rateLimitWaited)} kept failing '
+                    '(${error.error}); the ~5 minute retry budget is spent. '
+                    'Re-prompt the turn once the rate limit clears.'));
+                return;
+              }
+              rateLimitRetries++;
+              rateLimitWaited += delay;
+              output.add(StreamNotice('rate limited - attempt '
+                  '${rateLimitRetries + 1}/${limit + 1}, '
+                  'next in ~${delay.inSeconds}s'));
+              final waited =
+                  await policy.transportWait(delay, cancelled.future);
+              if (!waited || !live) return; // cancellation wins
+              attempts = attempt + 2; // room for exactly this retry
+              continue pool; // rotation unchanged; the cooldown gates the member
+            }
+            // Exhausted (or disabled): terminal, naming the attempts used
+            // and the total waited.
+            output.add(StreamError(
+                'rate limited: ${rateLimitRetries + 1} attempts over '
+                '~${_minutesAndSeconds(rateLimitWaited)} kept failing '
+                '(${error.error}). Re-prompt the turn once the rate limit '
+                'clears.'));
+            return;
+          }
           final retryable = error.transient ||
-              error.statusCode == 429 ||
               (error.statusCode ?? 0) >= 500;
           final recoverable = !published &&
               !error.requiresUserAction &&
