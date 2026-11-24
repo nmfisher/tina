@@ -225,6 +225,43 @@ void main() {
       expect(composer.draft, '');
     });
 
+    test('backspace on an empty draft is a claimed no-op, never a crash',
+        () {
+      // Owner report (v0.10.20): removeLast on an empty rune list threw
+      // a RangeError that escaped the zone guard and killed the process.
+      final composer = ChannelComposer(canPost: true);
+      String? post(String text) => fail('must not post: "$text"');
+      composer.activate();
+      expect(composer.draft, '');
+      expect(composer.handle(ControlKey(ControlCode.backspace), post: post),
+          isTrue);
+      expect(composer.draft, '');
+      expect(composer.error, isNull);
+      // Repeat: still claimed, still empty, still no throw.
+      expect(composer.handle(ControlKey(ControlCode.backspace), post: post),
+          isTrue);
+      expect(composer.draft, '');
+    });
+
+    test('deleting past the start of the draft stays safe', () {
+      final composer = ChannelComposer(canPost: true);
+      String? post(String text) => null;
+      type(composer, 'x', post);
+      expect(composer.handle(ControlKey(ControlCode.backspace), post: post),
+          isTrue);
+      expect(composer.draft, '');
+      // Second backspace: the draft is already empty — no throw.
+      expect(composer.handle(ControlKey(ControlCode.backspace), post: post),
+          isTrue);
+      expect(composer.draft, '');
+      // Third: still safe, and a failed post's error clears like the
+      // non-empty path.
+      composer.error = 'store gone';
+      expect(composer.handle(ControlKey(ControlCode.backspace), post: post),
+          isTrue);
+      expect(composer.draft, '');
+    });
+
     test('a failed post keeps the draft and surfaces the error', () {
       final composer = ChannelComposer(canPost: true);
       type(composer, 'retry me', (text) => 'store gone');
