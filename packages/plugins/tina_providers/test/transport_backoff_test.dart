@@ -1,9 +1,10 @@
 /// Connection-phase transport backoff: a DNS/socket-level failure that
 /// produced no response bytes keeps retrying the SAME member with
 /// exponential backoff and jitter, instead of surfacing after one
-/// recovery or burning the pool. HTTP-level failures (429/5xx) keep
-/// the cooldown/pool behavior. Nothing here sleeps: the waits ride a
-/// recording fake and the jitter is pinned.
+/// recovery or burning the pool. HTTP-level failures (5xx) keep the
+/// cooldown/pool behavior; 429 has its own dedicated loop (see
+/// rate_limit_retry_test.dart) and never enters this one. Nothing here
+/// sleeps: the waits ride a recording fake and the jitter is pinned.
 library;
 
 import 'dart:async';
@@ -207,13 +208,14 @@ void main() {
     expect(events.whereType<StreamNotice>(), isEmpty);
   });
 
-  test('429 keeps the cooldown path, not the backoff loop', () async {
+  test('429 keeps the cooldown gate, not the transport backoff loop',
+      () async {
     final member = Flaky([
       [
         const StreamError('rate limited',
-            statusCode: 429, retryAfter: Duration(seconds: 30)),
+            statusCode: 429, retryAfter: Duration(seconds: 2)),
       ],
-      [null],
+      null,
     ]);
     final h = harness(member);
     addTearDown(h.policy.closeSession);
@@ -221,13 +223,17 @@ void main() {
     final events =
         await h.policy.mainProvider('x').send(system: '', messages: const [], tools: const []).toList();
 
-    // Surfaced after the pool budget (single member), with no
-    // transport retries and no backoff notices.
-    final error = events.whereType<StreamError>().single;
-    expect(error.statusCode, 429);
-    expect(member.calls, 1);
-    expect(h.waits, isEmpty);
+    // The dedicated 429 loop (rate_limit_retry_test.dart) owns this
+    // failure now: it retries on its own budget with its own notices.
+    // What must NOT happen is the transport path — no 'still no
+    // network' notices, and the cooldown gate still applies.
     expect(events.whereType<StreamNotice>().map((n) => n.text),
         isNot(contains(contains('still no network'))));
-  });
+    expect(events.whereType<StreamNotice>().map((n) => n.text),
+        contains(contains('rate limited - attempt')));
+    expect(events.last, answer);
+    expect(member.calls, 2);
+    // The retryAfter hint (2s) rode the 429 backoff, not a 1s schedule.
+    expect(h.waits, [const Duration(seconds: 2)]);
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

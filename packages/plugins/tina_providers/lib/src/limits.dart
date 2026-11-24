@@ -10,13 +10,19 @@ final class RequestLimits {
       this.childConcurrency = 3,
       this.requestsPerMinute = 0,
       this.minIntervalMs = 0,
-      this.maxConcurrent = 4});
+      this.maxConcurrent = 4,
+      this.rateLimitRetries = 5});
   final int globalTokens, sessionTokens, turnTokens, requestTokens, childTokens;
   final int childDepth,
       childConcurrency,
       requestsPerMinute,
       minIntervalMs,
       maxConcurrent;
+
+  /// Extra attempts a pre-publication HTTP 429 may take with backoff,
+  /// on its own per-turn budget (see provider_policy.dart). 0 disables
+  /// the retry loop: a 429 is terminal immediately.
+  final int rateLimitRetries;
 
   factory RequestLimits.fromMap(Map<String, dynamic> values) {
     int read(String key, [int fallback = 0]) {
@@ -37,6 +43,7 @@ final class RequestLimits {
         childConcurrency: read('max_sub_agent_concurrency', 3),
         requestsPerMinute: read('requests_per_minute'),
         minIntervalMs: read('min_request_interval_ms'),
-        maxConcurrent: read('max_concurrent_requests', 4));
+        maxConcurrent: read('max_concurrent_requests', 4),
+        rateLimitRetries: read('rate_limit_retries', 5));
   }
 }

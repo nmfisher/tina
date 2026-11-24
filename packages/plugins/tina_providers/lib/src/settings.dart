@@ -10,13 +10,16 @@ final providerLimitSettings = <SettingDefinition<int>>[
     'requests_per_minute': ('Requests per minute', 0),
     'min_request_interval_ms': ('Minimum request interval (ms)', 0),
     'max_concurrent_requests': ('Concurrent requests', 4),
+    'rate_limit_retries': ('Rate-limit retries', 5),
   }.entries)
     SettingDefinition<int>(
       id: 'tina/providers/${field.key}',
       label: field.value.$1,
       description: field.key == 'requests_per_minute'
           ? 'Spaces requests for this conversation and its subagents. Separate conversations have independent counters. 0 means unlimited.'
-          : 'Applies to this conversation and its subagents. 0 disables this limit.',
+          : field.key == 'rate_limit_retries'
+              ? 'Extra attempts a rate-limited (HTTP 429) request may take with backoff before any answer is published, on a budget separate from other retries. 0 disables: a 429 fails immediately.'
+              : 'Applies to this conversation and its subagents. 0 disables this limit.',
       defaultValue: field.value.$2,
       kind: SettingKind.integer,
       minimum: 0,
