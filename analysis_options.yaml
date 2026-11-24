@@ -3,6 +3,13 @@
 analyzer:
   exclude:
     - packages/dart_notcurses/**
+    # The wasm host crate (host/) is a standalone Dart+Rust package moved in
+    # from the wasm.dart fork: its Dart tooling (case suite, build hook,
+    # witgen bindings) resolves against a wasm.dart checkout via
+    # pubspec_overrides.yaml, not against this repo's packages - analyzing
+    # it here only produces resolution noise. Rust-side verification is
+    # `cargo test` in host/.
+    - host/**
     - build/**
     # Spikes are out-of-scope scratch: historical experiments, not owned
     # packages (repositoryExcludedRoots), never pub-resolved by CI's
